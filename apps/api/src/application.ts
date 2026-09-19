@@ -11,14 +11,17 @@ import type { Server } from 'node:http';
 import type { Database } from './database.js';
 import { DATABASE, HealthController, LifecycleState } from './health.js';
 import type { SafeLogger } from './logging.js';
+import { ApiError } from './auth-core.js';
+import { AUTH, AuthController, authCors } from './auth-http.js';
+import type { AuthRuntime } from './auth-http.js';
 
 @Module({})
 class RuntimeModule {
-  static register(database: Database, lifecycle: LifecycleState, http: boolean): DynamicModule {
+  static register(database: Database, lifecycle: LifecycleState, http: boolean, auth?: AuthRuntime): DynamicModule {
     return {
       module: RuntimeModule,
-      controllers: http ? [HealthController] : [],
-      providers: [{ provide: DATABASE, useValue: database }, { provide: LifecycleState, useValue: lifecycle }],
+      controllers: http ? [HealthController, ...(auth ? [AuthController] : [])] : [],
+      providers: [{ provide: DATABASE, useValue: database }, { provide: LifecycleState, useValue: lifecycle }, ...(auth ? [{ provide: AUTH, useValue: auth }] : [])],
     };
   }
 }
@@ -30,20 +33,22 @@ class SafeExceptionFilter implements ExceptionFilter {
     const status = error instanceof HttpException ? error.getStatus() :
       (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large' ? 413 :
         (error instanceof SyntaxError ? 400 : 500));
-    const code = status === 503 ? 'UNAVAILABLE' : status === 404 ? 'NOT_FOUND' :
+    const code = error instanceof ApiError ? error.code : status === 503 ? 'UNAVAILABLE' : status === 404 ? 'NOT_FOUND' :
       status === 413 ? 'PAYLOAD_TOO_LARGE' : status < 500 ? 'BAD_REQUEST' : 'INTERNAL_ERROR';
     response.status(status).json({ error: { code } });
   }
 }
 
-export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState()): Promise<NestExpressApplication> {
-  const app = await NestFactory.create<NestExpressApplication>(RuntimeModule.register(database, lifecycle, true), {
+export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthRuntime): Promise<NestExpressApplication> {
+  const app = await NestFactory.create<NestExpressApplication>(RuntimeModule.register(database, lifecycle, true, auth), {
     logger: false, abortOnError: false, bodyParser: false,
   });
   const server: Express = app.getHttpAdapter().getInstance();
   server.disable('x-powered-by');
   server.disable('etag');
-  server.set('trust proxy', false);
+  // Hosted API is reachable only through one Caddy hop which overwrites X-Forwarded-For.
+  // Do not enable on direct local/test listeners or expand to arbitrary proxy chains.
+  server.set('trust proxy', auth?.config.secure ? 1 : false);
   server.use(helmet({ strictTransportSecurity: false }));
   server.use((request: Request, response: Response, next: NextFunction) => {
     const started = performance.now();
@@ -55,8 +60,9 @@ export async function createApi(database: Database, logger: SafeLogger, lifecycl
     if (lifecycle.draining && request.path !== '/live') { response.status(503).json({ error: { code: 'UNAVAILABLE' } }); return; }
     next();
   });
+  if (auth) authCors(server, auth.config);
   server.use(express.json({ limit: '64kb', strict: true, inflate: false }));
-  // CORS, cookies, static serving, Swagger UI, debug and test-auth routes are intentionally absent.
+  // No static serving, Swagger UI, debug or test-auth routes.
   app.useGlobalFilters(new SafeExceptionFilter());
   const http: Server = app.getHttpServer();
   http.requestTimeout = 15000;

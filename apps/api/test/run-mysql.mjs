@@ -76,14 +76,16 @@ try {
   const adminUrl = `mysql://root:${encodeURIComponent(password)}@127.0.0.1:${port}/${databaseName}`;
   stage = 'migration';
   // Generated migrations only, on this harness-owned loopback database. Never reads repository .env.
-  await run('pnpm', ['exec', 'prisma', 'migrate', 'dev', '--name', 'm02_foundation'], {
+  const migrationName = process.argv.find(x => x.startsWith('--migration-name='))?.split('=')[1] ?? 'schema_update';
+  if (!/^[a-z0-9_]{1,64}$/.test(migrationName)) throw new Error('invalid fixture migration name');
+  await run('pnpm', ['exec', 'prisma', 'migrate', 'dev', '--name', migrationName], {
     PATH: process.env.PATH, DATABASE_URL: adminUrl,
   });
   if (process.argv.includes('--migration-only')) {
     process.exitCode = 0;
   } else {
   stage = 'tests';
-  testProcess = spawn(process.execPath, ['--test', '--test-concurrency=1', 'test/integration/mysql.test.mjs', 'test/integration/transactions.test.mjs'], {
+  testProcess = spawn(process.execPath, ['--test', '--test-concurrency=1', 'test/integration/mysql.test.mjs', 'test/integration/transactions.test.mjs', 'test/integration/auth.test.mjs'], {
     stdio: 'inherit', env: {
       PATH: process.env.PATH, APP_ENV: 'test', NODE_ENV: 'test', DB_TLS_MODE: 'disabled',
       DATABASE_URL: runtimeUrl, TEST_ADMIN_URL: adminUrl, ROGICHAT_TEST_MYSQL: 'disposable',

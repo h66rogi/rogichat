@@ -64,6 +64,7 @@ model users {
   id                    String     @id @db.Char(36)
   status                UserStatus @default(ACTIVE)
   membership_generation BigInt     @default(0) @db.UnsignedBigInt
+  terms_version         String?    @db.VarChar(32)
   created_at            DateTime   @default(now()) @db.DateTime(3)
   profile               user_profiles?
   soop                  platform_soop?
@@ -124,6 +125,7 @@ model login_transactions {
   browser_digest Bytes       @db.Binary(32)
   verifier       Bytes       @db.VarBinary(128)
   intent         String      @db.VarChar(16)
+  terms_version  String?     @db.VarChar(32)
   audience       String      @db.VarChar(32)
   user_id        String?     @db.Char(36)
   session_id     String?     @db.Char(36)

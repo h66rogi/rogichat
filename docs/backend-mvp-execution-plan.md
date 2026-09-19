@@ -1,6 +1,6 @@
 # 저비용 MVP 백엔드 실행 계획
 
-2026-09-20. **M01·M02 로컬 구현/검증, M03 작업 중. 실제 QA 앱 배포는 별도 검증 전이다.**
+2026-09-20. **M01·M02·M03 내부 구현/검증, M04 작업 중. 실제 QA 앱 배포와 실제 SOOP 로그인은 각각 별도 gate다.**
 사용자 최신 결정: 초기 1명 수준 사용, 상시 비용 최소화, 구조상 확장성 유지.
 제품 정책은 [백엔드 설계](backend-design.md), 동시성·sync 상세는
 [기술 구현 계획](backend-implementation-plan.md), 이번 재검토는 [MVP 리뷰](backend-mvp-review.md)를 따른다.
@@ -172,6 +172,8 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
 - 완료: 빈 DB와 직전 schema 모두 migrate 성공, cross-room FK 실패, migration 전용/runtime DDL 권한 분리.
 
 ### M03 — 인증·계정·세션
+
+구현·리뷰·외부 의존 상태: [M03 기록](backend-m03-implementation.md).
 
 - 의존: M02. 변경: SOOP broker adapter, login transaction, UUID user 연결, 세션 digest/만료/폐기.
 - [인증 계약](soop-authentication.md)을 구현. broker client 등록/실제 canonical subject는 별도
