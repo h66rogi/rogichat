@@ -1,6 +1,6 @@
 # API
 
-NestJS REST/Socket.IO + PostgreSQL 기반. 최신 stable scaffold는 설계 리뷰 다음 단계다.
+NestJS REST/Socket.IO + MySQL 호환 DB 기반. 최신 stable scaffold는 설계 리뷰 다음 단계다.
 DB migration과 readiness를 앱 릴리스 순서에 포함한다.
 `user`, `platform_soop`, `auth` 경계를 두고 기존 OAuth broker와 일회용 code로 연동한다.
 QA host는 `api.qa.rogi.chat`. [인증 설계](../../docs/soop-authentication.md)를 따른다.

@@ -1,7 +1,7 @@
 # 로기챗 기반 설계안
 
-상태: 2026-09-19 초안, 사용자와 설계 검토 후 앱 scaffold·IaC 구현 진행.
-확정 요구: 공개 모노레포, QA 우선, AWS 서울, Lightsail 한 대, PostgreSQL,
+상태: 2026-09-20 갱신. MySQL 전환 확정, EC2/Aurora 전환 방향 승인, 정확한 자원 plan 적용 대기.
+확정 요구: 공개 모노레포, QA 우선, AWS 서울, MySQL 호환 DB,
 Next.js/NestJS, Kotlin/Swift, Terraform/Atlantis, GitHub Actions/GHCR, Cloudflare DNS.
 웹 도메인은 QA `qa.rogi.chat`, prod `rogi.chat`이다. QA API는 `api.qa.rogi.chat`,
 prod API는 `api.rogi.chat`을 제안한다. 사용자에게 보이는 제품명은 로기챗으로 통일한다.
@@ -40,26 +40,29 @@ Gradle/SPM을 npm으로 대체하지 않는다. 공유 패키지를 미리 모�
 생성하고 검토된 결과를 커밋한다. 소켓은 별도 스키마가 원본이며 코드 생성 결과 drift를 CI로 검사한다.
 서버 엔티티·Prisma 모델을 클라이언트 계약으로 그대로 노출하지 않는다.
 
-## QA 배치
+## QA 배치 (EC2/Aurora 전환 방향 승인, 아직 미적용)
+
+기존 Lightsail은 생성돼 있다. 다음은 [전환 검토](ec2-aurora-review.md)의 승인된 전환 방향이며
+새 EC2/Aurora 생성이나 기존 Lightsail 삭제가 승인·실행됐다는 의미가 아니다.
 
 ```mermaid
 flowchart LR
   C[Web / Android / iOS] -->|Web HTTPS| CF[Cloudflare proxy]
   CF -->|Full strict| TLS[Caddy HTTPS reverse proxy]
   C -->|API HTTPS - DNS-only| TLS
-  subgraph LS[Seoul Lightsail QA - one host]
+  subgraph LS[Seoul EC2 QA - app host]
     TLS -->|qa.rogi.chat| WEB[Next.js container]
     TLS -->|api.qa.rogi.chat| API[NestJS container]
-    API --> PG[(PostgreSQL volume)]
     API -. optional .-> CACHE[Redis-compatible cache]
   end
+  API -->|private TCP 3306 / TLS| DB[(Aurora MySQL private DB subnets)]
   CI[GitHub Actions] --> GHCR[GHCR image digests]
   GHCR --> DEPLOY[Tailscale management deployer]
   DEPLOY -->|OpenSSH - external key custody| LS
   TF[Atlantis isolated management boundary] --> AWS[AWS / Cloudflare APIs]
 ```
 
-QA API는 Cloudflare DNS-only → Lightsail static IP → Caddy 공개 신뢰 HTTPS → Nest로
+QA API는 Cloudflare DNS-only → 앱 호스트의 고정 공인 IP → Caddy 공개 신뢰 HTTPS → Nest로
 확정했다. 사용자 연결은 HTTPS이며 Caddy가 인증서를 자동 발급·갱신한다. 웹은
 Cloudflare proxy → Full(strict) → Caddy → Next를 제안한다. 공유 호스트의 80/443은
 직접 API/ACME 접근을 허용하고 웹 hostname의 origin 우회는 Caddy에서 별도로 차단한다.
@@ -74,19 +77,20 @@ API에는 Cloudflare proxy/WAF 보호가 적용되지 않는다. Cloudflare SSL 
 
 Docker Compose에서 web/api는 non-root, healthcheck, restart 정책, 로그 회전,
 메모리 제한과 종료 유예를 가진다. DB와 캐시는 host port를 publish하지 않는다.
-빌드는 GitHub-hosted runner에서 수행하고 Lightsail에서는 image pull/run만 한다.
-PostgreSQL 데이터는 named volume 또는 명시적 data disk에 보존한다. 릴리스 시
+빌드는 GitHub-hosted runner에서 수행하고 앱 서버에서는 image pull/run만 한다.
+Aurora를 채택하면 DB 데이터·백업은 앱 호스트와 분리한다. 릴리스 시
 `down -v` 및 자동 prune으로 데이터·복구 이미지를 지우지 않는다.
 
-4 GiB급 인스턴스를 최초 용량 검증 후보로 두되 가격·bundle ID는 apply 전에
-실제 Lightsail API로 확인한다. 웹/API/DB/캐시/OS와 배포 중 두 이미지가 공존하는
-메모리를 측정한다. 한 호스트 장애 시 전체 QA가 중단되며 무중단·HA를 보장하지 않는다.
+기존 Lightsail은 4 GiB급이며 새 EC2 사양은 웹/API/캐시/OS와 배포 중 메모리를 측정해
+결정한다. DB 비용은 보유 RI의 유효 조건·조직 내 할인 사용량을 검증하고 산정한다.
+EC2/EBS/IPv4와 Aurora storage/I/O/backup 비용을 기존 Lightsail 번들 가격과 구분한다.
+QA 앱 호스트 한 대는 장애 시 웹/API가 중단되며 무중단·HA를 보장하지 않는다.
 
 ## 데이터·실시간 경계
 
-기존 MySQL migration을 PostgreSQL에 실행하지 않는다. 새 스키마를 정의하고
+기존 서비스와 MySQL 계열을 공유해도 migration 전체를 실행하지 않는다. 새 스키마를 정의하고
 필요한 모델·인덱스·쿼리만 이식한다. `@db.DateTime`, collation, JSON, raw SQL,
-upsert, partial unique index, row lock, BigInt serialization을 검증한다.
+upsert, unique index, row lock, BigInt serialization을 검증한다.
 시간은 UTC, API 시간은 명시적 offset을 가진 ISO 문자열, 큰 sequence는 문자열로 전송한다.
 기존 사용자/채팅 데이터를 옮기는 작업은 현재 범위에 없다.
 

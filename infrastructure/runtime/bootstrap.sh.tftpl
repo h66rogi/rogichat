@@ -42,4 +42,6 @@ install -d -m 0755 /opt/rogichat/bootstrap/host-keys
 install -m 0644 /etc/ssh/ssh_host_ed25519_key.pub /opt/rogichat/bootstrap/host-keys/ssh_host_ed25519_key.pub
 cd /opt/rogichat/bootstrap
 docker compose config --quiet
+%{ if start_caddy ~}
 docker compose up -d
+%{ endif ~}

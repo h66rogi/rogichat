@@ -18,7 +18,7 @@
 | IaC 소유권 | 기존 bucket/OIDC 재선언은 이중 소유 발생 | 기존 소유 유지, rogichat state/role만 별도 | prefix IAM/KMS 권한, live backend 설정 |
 | 기존 인프라 | 과거 설치 문서에 퇴역 자원이 섞임 | 최신 baseline만 활용 | 새 프로젝트 때문에 퇴역 자원 재생성 없음 |
 | 재사용 | 최신 웹에서 talk 삭제됨 | 종료 전 qa/삭제 직전 SHA 조사 | 파일 단위 이식 provenance와 dependency audit |
-| DB | MySQL 모델을 PostgreSQL에 그대로 사용 불가 | 신규 PG schema와 이식 테스트 | collation/JSON/locking/unique/time 검증 |
+| DB | MySQL 계열로 변경; 기존 migration 전체 이식 금지 | 필요한 모델로 신규 schema와 이식 테스트 | Aurora 버전/collation/JSON/locking/unique/time 검증 |
 | 메시지 보안 | 팬 답장·replay가 다른 팬에게 보일 수 있음 | 수신자 authorization을 모든 조회/전달 경로에 적용 | 복수 팬·차단·탈퇴·재접속 공격 시나리오 |
 | 독립 배포 | web/api 동시 Compose 갱신이 릴리스를 덮음 | 앱별 빌드 + 호스트 공통 lock + 서비스별 digest 갱신 | 동시 배포·실패·rollback 테스트 |
 | Lightsail 접근 | SSH 키를 GitHub 밖에 보관해야 함 | Tailscale + OpenSSH, private ops 공개키 목록, public repo는 공개키도 차단 | bootstrap/reboot/복구·tailnet ACL 실증 |
@@ -38,7 +38,7 @@
 - 확정: Tailscale 연결, OpenSSH 키 인증, 개인키는 GitHub 밖, 공개키는 private ops GitOps 관리(추가 승인).
 - 확정: 제품명 로기챗, 기존 제품 브랜딩/자산 제거.
 - 제안: pnpm/Turbo + 네이티브 Gradle/SPM, 언어 중립 계약과 생성 SDK.
-- 제안: QA는 reverse proxy/Next/Nest/PostgreSQL Compose. Redis는 추출 의존에 따라 추가.
+- 갱신: DB는 MySQL 계열로 변경. EC2의 reverse proxy/Next/Nest Compose와 private Aurora 분리를 검토한다. Redis는 추출 의존에 따라 추가.
 - 확정: public `rogichat` 소스·IaC 템플릿·CI, private `rogichat-ops` 운영 명세·공개키.
   실행기 배치는 논의 중이다. [Free 제약과 공개 범위](repository-isolation.md) 참조.
 - 확정: API `api.qa.rogi.chat`은 DNS-only + Caddy 자동 HTTPS. 웹은 proxied +
@@ -68,3 +68,11 @@
 
 보안 scanner 통과는 서비스 보안성 전체를 보증하지 않는다. 공개 가능성, 실제 권한,
 origin 접근, 백업 복구와 앱 접근 제어는 각각 증거가 있어야 완료로 표시한다.
+
+## 2026-09-20 EC2 전환 인프라 검토
+
+독립 읽기 전용 검토에서 신규 EC2가 egress rule 생성보다 먼저 부팅할 수 있는 P2를
+발견했다. EC2의 depends_on에 명시적인 app egress rule 의존을 추가했다. private DB,
+SSM-only instance role, IMDSv2/hop limit, 암호화/삭제 보호, Caddy cutover 전 start 억제,
+기존 Lightsail과 state 분리를 검토했으며 이 범위에서 P1은 발견되지 않았다.
+이는 전체 제품 보안 감사나 런타임 배포 검증을 대체하지 않는다.

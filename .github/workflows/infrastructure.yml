@@ -23,7 +23,7 @@ jobs:
           set -euo pipefail
           ssh-keygen -q -t rsa -b 2048 -N '' -f .tools/test-key
           export TF_VAR_ssh_public_key_path="$PWD/.tools/test-key.pub"
-          for provider in aws cloudflare; do
+          for provider in aws aws-ec2 cloudflare; do
             root="infrastructure/environments/qa/$provider"
             .tools/terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
             .tools/terraform -chdir="$root" validate

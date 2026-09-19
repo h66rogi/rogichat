@@ -15,7 +15,7 @@ scaffold 시 다시 확인해 정확한 버전, lockfile, 컨테이너 digest와
 | AWS provider | 6.65.0 | [release](https://github.com/hashicorp/terraform-provider-aws/releases/tag/v6.65.0) |
 | Cloudflare provider | 5.25.0 | [release](https://github.com/cloudflare/terraform-provider-cloudflare/releases/tag/v5.25.0) |
 | Atlantis | 0.47.1 | [release](https://github.com/runatlantis/atlantis/releases/tag/v0.47.1); Terraform CLI/provider를 별도 고정 |
-| PostgreSQL | 18.6 후보 | [공식 발표](https://www.postgresql.org/about/news/postgresql-186-1711-1615-1519-1424-and-19-beta-3-released-3365/); ORM·백업 도구와 검증 |
+| DB | MySQL 호환 엔진으로 변경 | Aurora MySQL provisioned 후보; 서울 제공 버전·ORM 호환 검증 후 고정 |
 | Android AGP | Google Maven stable 9.4.1 | [metadata](https://dl.google.com/dl/android/maven2/com/android/tools/build/gradle/maven-metadata.xml) |
 | Kotlin | 2.4.20 후보 | [공식 릴리스](https://kotlinlang.org/docs/releases.html); AGP 내장 Kotlin·KSP·Hilt 조합 검증 |
 | Gradle/JDK | AGP 9.4 기준 Gradle 9.6.0, JDK 17 | [호환표](https://developer.android.com/build/releases/agp-9-4-0-release-notes); 내장 Kotlin 2.2.10 기본값과 명시적 최신 Kotlin 정책 조정 필요 |

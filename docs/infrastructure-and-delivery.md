@@ -106,11 +106,11 @@ API migration은 단일 실행·expand/contract·사전 백업을 기본으로 �
 ## 백업·복구·관측
 
 QA의 잠정 목표: RPO 24시간, RTO 2시간. 요구 확정과 복구 실측이 필요하다.
-매일 PostgreSQL 논리 백업을 외부 암호화 저장소에 업로드하고 7일 일별/4주 주별
-보존을 제안한다. 앱 호스트와 같은 disk의 dump만으로는 백업이 아니다.
-Lightsail snapshot은 보조 수단이며 일관된 DB backup·복구 시험을 대체하지 않는다.
-PostgreSQL 18 이미지는 이전 major와 데이터 volume layout이 다를 수 있으므로
-공식 이미지의 PGDATA/volume 경로를 구현 시 확인한다. major 업그레이드는 별도 작업이다.
+DB 방향은 MySQL 계열로 변경했다. Aurora를 채택하면 자동 백업/PITR 보존 기간과
+삭제 시 final snapshot·deletion protection을 IaC로 관리하고 별도 클러스터 복구 시험을
+수행한다. 보존 기간·RPO/RTO와 외부 논리 백업 필요성은 최종 DB 구성에서 확정한다.
+앱 호스트 snapshot으로 외부 Aurora 데이터를 백업할 수는 없다.
+[EC2/Aurora 전환 검토](ec2-aurora-review.md)를 기준으로 기존 단일 호스트 DB 설계를 대체한다.
 
 HTTP uptime, API readiness, DB 연결, disk/memory, WebSocket disconnect·reconnect,
 outbox lag, backup freshness를 감시한다. request ID와 build SHA를 사용하고 채팅

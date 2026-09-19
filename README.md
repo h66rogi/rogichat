@@ -39,8 +39,8 @@ docs/                      # 설계, 조사 근거, 리뷰
 ```
 
 환경: `qa` 브랜치 → `qa.rogi.chat`; `main` 승격 → `rogi.chat`의 prod.
-AWS 리전은 서울(`ap-northeast-2`). QA는 Lightsail 한 대에서 PostgreSQL과
-Docker 기반 web/api를 운영할 계획이다. GHCR은 컨테이너 레지스트리이며,
+AWS 리전은 서울(`ap-northeast-2`). DB는 사용자 결정에 따라 MySQL 계열로 변경했다. 기존 QA Lightsail은 생성되어 있으며,
+앱 EC2 + private Aurora MySQL 전환 방향이 승인됐다. 정확한 신규 자원 plan은 적용 전이다. [전환 검토](docs/ec2-aurora-review.md)를 따른다. GHCR은 컨테이너 레지스트리이며,
 JavaScript 의존성 관리는 pnpm workspace를 사용한다.
 
 ## 먼저 읽기

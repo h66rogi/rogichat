@@ -9,43 +9,37 @@
 | 공개 소스 / private ops 분리 | 사용자 승인, h66rogi/rogichat-ops 생성 및 qa 검증 CI 구성 |
 | 운영자 SSH 공개키 | 사용자 지정 키를 private ops에 등록, 전체 목록 검증·렌더링 도구와 공격 입력 테스트 |
 | 개인키 | 기존 관리 장비에 유지, GitHub 업로드 없음 |
-| QA API | DNS-only A 레코드 적용 완료, Caddy 초기화 진단 중 |
-| AWS | 서울 QA instance/key pair/static IP/attachment/firewall 생성 완료, 2 vCPU·4 GiB·80 GB, Ubuntu 24.04, 기본 USD 24/월 |
+| QA API | DNS-only A 레코드 적용 완료, Caddy HTTPS 200 확인 |
+| AWS | 기존 Lightsail 생성·초기화 복구 완료; EC2 + Aurora 전환 방향 승인, 신규 plan 준비 |
 | Terraform state | 기존 S3 backend 재사용, rogichat 전용 두 prefix, bucket 자체 미변경 |
 | CI | public 보안 검사·mock IaC/Caddy/Compose 검증, private 키 목록·secret 검사; cloud 권한 없음 |
 | 웹 푸시 | Service Worker/Web Push 요구 확정, 제품·인프라 조건 별도 기록 |
 
-## 실제 적용 결과와 현재 차단점
+## 실제 적용 결과와 전환 상태
 
-- 사용자가 월 기본 USD 24 사양의 생성을 승인했고 QA 전용 자원을 생성했다.
-  기존 서비스 자원은 변경하지 않았다. 고정 IP와 SSH 공개키 등록을 유지한 채,
-  앱·DB·데이터가 없는 초기 QA 호스트만 bootstrap 수정을 위해 재생성했다.
-- `api.qa.rogi.chat`은 고정 IP의 DNS-only A 레코드다. Cloudflare API와 권한 DNS 서버
-  응답을 확인했고, AWS·Cloudflare 적용 후 전체 plan은 모두 변경 0건이었다.
-- 현재 인스턴스는 running, SSH 22는 운영자 /32에서 연결된다. 80/443은 연결 거부다.
-  Caddy HTTPS·cloud-init 완료·SSH 인증·Tailscale 설치/가입은 아직 실서버 검증 전이다.
-  Terraform 성공이나 mock CI 통과를 런타임 완료로 해석하지 않는다.
-- AWS access-details가 hostKeys를 반환하지 않고 Caddy도 아직 동작하지 않아 최초 SSH
-  신뢰 정보를 확보하지 못했다. 검증 없는 TOFU 접속으로 우회하지 않았다.
-- 진단용 `enable_browser_ssh_diagnostics`는 기본 false다. 별도 승인된 plan에서만
-  bootstrap SSH에 AWS `lightsail-connect` 주소 대역을 잠시 추가하며, 호스트 키를
-  검증하면 즉시 false로 복원한다. 운영자 /32와 80/443은 그대로 유지한다.
-  호스트 UFW가 이미 활성화되어 있으면 provider 방화벽 변경만으로 접속이 보장되지 않는다.
-- 인스턴스 `prevent_destroy=true`를 복구했다. 진단 전에 반복 재생성하지 않는다.
-- 사용자 Cloudflare 토큰은 macOS Keychain `rogichat-cloudflare-dns`에 있으며 Git·CI·
-  서버에 전달하지 않는다. 실제 승인된 DNS 레코드 생성으로 DNS Edit 동작을 확인했다.
-- private ops의 공개키 전체 목록·원자적 교체·실패 rollback 도구와 테스트를 준비했다.
-  새로운 SSH 세션은 사용자 config·agent·연결 공유를 차단하고 지정 키로 재인증한다.
-  현재 서버의 authorized_keys reconciliation은 접속 신뢰 검증 후에 실행한다.
+- 기존 Lightsail 인스턴스·공개키·고정 IP·IP 연결·방화벽과 API DNS-only를 적용했다.
+  기본 사양은 2 vCPU·4 GiB·80 GB, Ubuntu 24.04, USD 24/월이며 아직 삭제하지 않았다.
+- 초기 실패는 Lightsail이 추가하는 `/bin/sh` 실행 문맥 안에서 Bash 전용 `pipefail`을
+  사용한 bootstrap 버그였다. 명시적 Bash 실행으로 소스를 수정하고 기존 서버에서
+  재생성 없이 bootstrap을 복구했다. 최초 cloud-init 오류 이력은 남으며 성공으로 덮지 않는다.
+- 사용자가 승인한 AWS 브라우저 SSH 대역을 잠시 허용했다. 인증된 AWS API가 반환한
+  호스트 키로 최초 SSH trust를 pin한 뒤 방화벽을 즉시 원복했다. API read-back에서
+  `lightsail-connect` alias 제거를 확인했다. 운영자 /32 접근만 남아 있다.
+- Docker/Caddy와 tailscaled가 실행 중이고 `https://api.qa.rogi.chat/_infra/health`의
+  정상 공개 CA 검증을 포함한 HTTP 200을 확인했다. 이는 앱 배포 성공을 뜻하지 않는다.
+- private ops 공개키 reconciliation은 실제 서버에 적용하고 새 독립 SSH 인증 연결로
+  검증했다. 재실행 시 승인된 키 목록과 동일함을 확인했다. 개인키는 GitHub 밖에 유지한다.
+- Tailscale 가입은 아직 하지 않았다. EC2 전환 방향이 승인되어 신규 EC2에서 SSM 초기
+  확인 → tailnet 가입 → 새 SSH 세션 검증 순서로 진행한다.
+- DB는 MySQL 계열로 변경했다. [EC2/Aurora 전환안](ec2-aurora-review.md)의 사양·비용과
+  신규 독립 Terraform root의 plan을 준비했다. EC2/Aurora 생성, API DNS 전환,
+  기존 Lightsail 삭제는 아직 실행하지 않았다.
 
 ## 남은 인프라 결정
 
-1. **상시 관리 실행 위치**: 아래 비교에서 선택한다. 현재 개인키 정책을 유지하면
-   일반 GitHub-hosted runner만으로 SSH 배포를 끝낼 수 있는 상태는 아니다.
-2. **Tailnet 가입**: 기존 관리 장비의 연결은 확인했지만 새 node 등록·tag/grant는
-   아직 검증 전이다. 새 SSH 세션과 재부팅 후 접근을 확인한 뒤 공인 SSH를 닫는다.
-3. **초기화 진단**: 추가 방화벽 plan은 기존 자원 생성 승인을 반복 요청하는 것이 아니라
-   임시 관리 접근 대역 확대를 별도로 검토하는 것이다. 상세 실행 증거는 private ops에 둔다.
+1. 신규 EC2/Aurora의 정확한 plan·비용 승인과 조직 통합 청구에서의 RI 할인 사용 확인.
+2. 상시 Atlantis/관리 실행 위치. GitHub-hosted CI만으로 상시 Atlantis 서버가 생기지는 않는다.
+3. 신규 EC2의 tailnet 가입·접근 정책과 운영 DB의 복구 목표·reader 필요 여부.
 
 ## GitHub Actions와 Atlantis가 실행되는 곳
 
@@ -70,8 +64,8 @@ SSH 배포용 장비가 생기는 것은 아니다.
 
 ## 앱을 올리기 전 필요하지만 지금 제품 설계를 막지 않는 항목
 
-- PostgreSQL 외부 백업 저장소·보존 기간·복구 목표: 일일 암호화 백업, RPO 24시간·RTO 2시간
-  제안을 실제 restore 시험으로 확인한다. 현재 bootstrap에는 DB나 앱 데이터가 없다.
+- Aurora 백업/PITR과 복구 목표: 제안한 7일 보존과 QA RPO/RTO를 restore 시험으로 확인한다.
+  현재 기존 Lightsail에는 DB나 앱 데이터가 없다.
 - Cloudflare zone token은 rogi.chat 전체 DNS를 편집할 수 있으므로 QA/prod의 API 권한 분리가
   자동 보장되지 않는다. 실행 정책은 허용 hostname·resource delta를 제한해야 한다.
 - 조직 base read를 유지할지 운영자 전용 열람으로 좁힐지 결정한다. 현재는 조직 read 상속을

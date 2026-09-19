@@ -19,8 +19,8 @@ run "normal_operation_closes_public_ssh" {
     error_message = "Lightsail instance and static IP must have distinct resource names."
   }
   assert {
-    condition     = startswith(aws_lightsail_instance.qa.user_data, "#!/usr/bin/env bash\n")
-    error_message = "Cloud-init shell user_data must start with a shebang."
+    condition     = strcontains(aws_lightsail_instance.qa.user_data, "exec /bin/bash <<'ROGICHAT_BOOTSTRAP'")
+    error_message = "Lightsail launch scripts must explicitly invoke Bash; an embedded shebang does not override the outer sh."
   }
 }
 

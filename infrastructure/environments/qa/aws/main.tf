@@ -13,12 +13,20 @@ resource "aws_lightsail_instance" "qa" {
   bundle_id         = var.bundle_id
   ip_address_type   = "ipv4"
   key_pair_name     = aws_lightsail_key_pair.bootstrap.name
+  # Lightsail prepends shell commands and executes the launch script with sh.
+  # An inner shebang is only a comment, so invoke Bash explicitly.
   # No credentials or key material in user_data. Key injection uses Lightsail import.
-  user_data = templatefile("${path.module}/../../../runtime/bootstrap.sh.tftpl", {
-    bootstrap_ssh_cidrs = sort(tolist(var.bootstrap_ssh_cidrs))
-    compose_base64      = filebase64("${path.module}/../../../runtime/compose.bootstrap.yaml")
-    caddyfile_base64    = filebase64("${path.module}/../../../runtime/Caddyfile.bootstrap")
-  })
+  user_data = join("\n", [
+    "#!/bin/sh",
+    "exec /bin/bash <<'ROGICHAT_BOOTSTRAP'",
+    templatefile("${path.module}/../../../runtime/bootstrap.sh.tftpl", {
+      start_caddy         = true
+      bootstrap_ssh_cidrs = sort(tolist(var.bootstrap_ssh_cidrs))
+      compose_base64      = filebase64("${path.module}/../../../runtime/compose.bootstrap.yaml")
+      caddyfile_base64    = filebase64("${path.module}/../../../runtime/Caddyfile.bootstrap")
+    }),
+    "ROGICHAT_BOOTSTRAP", ""
+  ])
 
   lifecycle {
     # This host will hold persistent application data.
