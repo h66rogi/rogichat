@@ -18,7 +18,7 @@ trust role이 준비됐다고 판단하지 않는다. 계정/버킷/ARN/zone ID�
 | 기존 Terraform 프로젝트 | 공유 backend bucket/KMS/OIDC provider 자체 |
 | rogichat bootstrap root | rogichat 전용 IAM 역할·최소 권한 정책, 필요 시 전용 backend |
 | rogichat QA AWS root | QA Lightsail, static IP, firewall, snapshot 정책 |
-| rogichat QA Cloudflare root | `qa.rogi.chat`의 명시적 DNS/edge 설정 |
+| rogichat QA Cloudflare root | `qa.rogi.chat`·`api.qa.rogi.chat`의 DNS/edge 설정 |
 | rogichat prod root | 별도 state·권한·도메인, 초기 비활성 |
 
 동일 리소스를 두 state에 선언/import하지 않는다. 공유 bucket을 사용하더라도
@@ -49,14 +49,15 @@ Cloudflare provider는 v5 계열의 현재 스키마로 작성하며 v4 예제�
 
 ## 호스트 접근과 비밀 전달
 
-Lightsail을 EC2 instance profile이 붙은 호스트처럼 가정하지 않는다. AWS OIDC는
-Actions→AWS API 인증이며 host SSH 인증을 자동으로 해결하지 않는다.
-첫 구현에서는 다음 두 경로를 비교해 하나를 검증한다.
+Lightsail은 기존 tailnet에 가입하고 **Tailscale 위 OpenSSH public-key 인증**을 사용한다.
+서버에는 공개키만 등록하고 개인키·공개키 모두 GitHub 저장소/Secrets/log/artifact에
+넣지 않는다. Terraform 실행 시 외부 공개키 파일을 입력하며, 키가 포함될 수 있는
+state/plan도 비공개로 유지한다. 개인키는 Terraform으로 생성하지 않는다.
+초기 IP 한정 SSH→tailnet 확인→public SSH 차단 순서와 복구 경로는
+[host 접근 문서](host-access.md)에 정의했다. SSM/keyless Tailscale SSH는 기본안이 아니다.
 
-- 제한된 관리 터널 위 SSH: 전용 배포 사용자, 고정 host key, 짧은 수명 인증 또는
-  QA 전용 key. runner에 shell history나 command line으로 비밀을 노출하지 않는다.
-- SSM hybrid managed node: 등록·권한·네트워크·비용을 확인한 경우만 사용한다.
-  EC2용 SSM 문서를 Lightsail에 그대로 적용하지 않는다.
+AWS OIDC와 Tailscale 가입은 OpenSSH key 인증을 대체하지 않는다. 공개 CI에 SSH
+키를 주지 않기 위해 GitHub 밖 tailnet 관리 실행기가 배포를 수행하는 안을 권고한다.
 
 공용 runner의 IP를 위해 SSH를 전 세계에 열거나, AWS admin key를 호스트에 놓지 않는다.
 Docker socket은 root에 준하는 권한이다. 공개 PR runner와 Atlantis 컨테이너에
@@ -74,15 +75,19 @@ registry/image 이름을 제한하고 비밀은 root 소유 파일로 주입한�
 | infrastructure | fmt/validate/policy | Atlantis reviewed plan/apply | prod 프로젝트 명시적 승인 |
 
 초기 live workflow는 보안 CI뿐이다. 위 앱 workflow는 scaffold 단계에서 생성한다.
+표의 배포 결과는 pipeline 전체의 산출물이며 SSH 실행 위치가 GitHub라는 뜻은 아니다.
+[Atlantis/CI/CD A·B·C 비교](../infrastructure/atlantis/README.md)에서 공개 CI와
+권한 있는 실행을 분리하는 B안을 권고했다. 사용자의 최종 선택 전에는 연결하지 않는다.
 GHCR은 Docker/OCI 이미지용이며 pnpm/Maven/SPM 저장소를 대체하지 않는다.
 패키지는 우선 monorepo 내부 소비만 하므로 외부 package publish 권한이 필요 없다.
 
 항상 실행되는 변경 감지 job이 앱별 affected 결과를 낸다. lockfile, 공통 계약,
 루트 설정, reusable workflow 변경도 해당 소비자를 재검증한다. required check가
 paths filter 때문에 영구 Pending이 되지 않게 최종 집계 job은 항상 실행한다.
-PR은 빌드·테스트만 하고 qa의 신뢰된 push에서만 GHCR 쓰기·배포 권한을 부여한다.
-build job과 deployment credential job을 분리하고 public PR artifact를 privileged
+PR은 빌드·테스트만 하고 qa의 신뢰된 push에서만 GHCR 쓰기를 허용한다.
+SSH 키와 cloud 적용 권한은 외부 실행기에 둔다. 빌드와 권한 있는 실행을 분리하고 public PR artifact를 privileged
 `workflow_run`에서 실행하지 않는다. CI에 cloud secret을 제공해 이미지 build하지 않는다.
+공개 Atlantis A안을 선택할 경우에도 해당 문서의 별도 격리·승인 경계를 먼저 검증한다.
 
 각 앱 pipeline은 독립이지만 같은 호스트의 Compose manifest 변경은 하나의 host
 배포 lock으로 직렬화한다. 서비스별 workflow concurrency만으로는 web/api의

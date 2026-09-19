@@ -4,6 +4,9 @@
 **/.env.*
 **/*.pem
 **/*.key
+**/*.pub
+**/authorized_keys
+**/known_hosts
 **/*.p8
 **/*.p12
 **/*.pfx

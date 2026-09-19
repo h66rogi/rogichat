@@ -12,6 +12,8 @@
 - `pre-push`와 CI: 현재 index 및 모든 reachable Git 이력의 Gitleaks 검사.
 - 체크섬으로 고정한 Gitleaks 8.30.1. 누락·실행 실패 시 차단.
 - 인라인 `gitleaks:allow` 무시, `.gitleaksignore` 금지, 전체 baseline 예외 없음.
+- SSH 공개키도 게시 금지: `.pub`/authorized_keys/known_hosts 경로 차단 및
+  임의 파일·과거 커밋 내 OpenSSH 공개키 본문을 별도 Gitleaks 규칙으로 검사.
 - PR은 GitHub-hosted 일회성 runner, 읽기 전용 token, 자격증명 없는 checkout.
 - Actions SHA 고정, 보안 경로 CODEOWNERS 지정, Dependabot Actions 업데이트.
 
@@ -30,6 +32,7 @@
 | Actions AWS 인증 | GitHub OIDC + repo/environment 한정 trust | 정적 키 금지 |
 | Terraform state·plan | 접근 제한 원격 backend/관리 영역 | 금지 |
 | Apple/Android 서명 키 | 보호된 배포 환경 secret, 임시 keychain/파일 | 금지 |
+| SSH 개인키·공개키 | GitHub 밖의 관리 실행기·서버 authorized_keys | GitHub Secrets/log/artifact에도 금지 |
 | NEXT_PUBLIC 값·앱 번들 설정 | 누구나 볼 수 있는 주소/공개 식별자만 | 공개로 취급 |
 | API 계약·테스트 | 합성 데이터, 비식별 fixture | 가능 |
 
@@ -48,6 +51,9 @@ Firebase 설정, 서명 자산, 운영 데이터, 사설 도메인·계정 식�
 로그에는 메시지 본문·쿠키·Authorization·토큰·DB 연결문자열을 기록하지 않는다.
 유출이 확인되면 추가 게시를 중단하고 위치와 영향을 비공개로 확인한다.
 값을 재출력하지 않으며, Git에서 지우기만 하면 해결됐다고 판단하지 않는다.
+
+로기챗 로그인은 [전용 중계 계약](docs/soop-authentication.md)으로 SOOP 계정을 검증한 뒤
+자체 세션을 발급한다. 외부 서비스 세션 쿠키·JWT·SOOP 토큰을 로기챗 세션으로 받지 않는다.
 
 Atlantis는 별도 보안 경계다. [실행 정책](infrastructure/atlantis/README.md)을
 충족하기 전 public repository webhook을 연결하지 않는다.

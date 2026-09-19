@@ -56,3 +56,10 @@ Android/iOS는 원격에서 별도 reference checkout을 확보했다.
 5. index·history·Docker context를 검사한 뒤 QA에 배포하고 실제 경로를 검증한다.
 
 현재는 조사 완료 상태다. 앱 전체 복사, 사용자 데이터 이관, SOOP 운영 연동은 수행하지 않았다.
+
+## SOOP 인증 후속 조사
+
+origin/main을 다시 fetch해 `a56bd52f` 기준으로 OAuth controller/service, 플랫폼
+verification, 외부 서비스 bridge와 관련 테스트를 추가 확인했다. 기존 로컬 checkout은
+변경하지 않았다. 실제 OAuth 진입점의 302와 공급자 callback URL도 확인했다.
+[로기챗 중계 설계](soop-authentication.md)에 신규 계약과 검증하지 않은 항목을 구분했다.

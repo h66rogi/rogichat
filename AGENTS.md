@@ -1,6 +1,10 @@
 # Rogichat contributor rules
 
 - This repository is PUBLIC. Inspect new files and history before every push.
+- Product display name is 로기챗. Do not ship legacy brand names, assets, analytics,
+  app identifiers, or user-facing links. Keep required broker URLs server-side.
+- SSH private AND public key material must stay outside GitHub, including Secrets,
+  logs, artifacts and images. Use OpenSSH over Tailscale with external key custody.
 - Work on `qa`. Production promotion is a separate reviewed change to `main`.
 - Keep reference repositories read-only. Never copy their Git history, secrets,
   environment files, signing material, operational logs, or private infrastructure identifiers.

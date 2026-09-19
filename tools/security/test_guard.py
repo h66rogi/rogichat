@@ -1,5 +1,6 @@
 """Adversarial tests run only in isolated temporary repositories with fake tokens."""
 import hashlib
+import base64
 from pathlib import Path
 import shutil
 import subprocess
@@ -71,9 +72,28 @@ class GuardTests(unittest.TestCase):
         (self.repo / ".tools/gitleaks").unlink()
         self.assertNotEqual(self.check().returncode, 0)
 
+    def test_public_key_in_arbitrary_file_is_blocked(self):
+        # Synthetic data, not a real key. Constructed so this test source contains no key.
+        key = "ssh-" + "ed25519 " + base64.b64encode(b"synthetic public key policy fixture").decode()
+        (self.repo / "bootstrap.txt").write_text(key + "\n")
+        self.git("add", "bootstrap.txt")
+        result = self.check()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn(key, result.stdout + result.stderr)
+
+    def test_deleted_historical_public_key_blocks_push(self):
+        key = "ssh-" + "rsa " + base64.b64encode(b"synthetic historical public key fixture").decode()
+        (self.repo / "bootstrap.txt").write_text(key + "\n")
+        self.git("add", "bootstrap.txt")
+        self.commit()
+        self.git("rm", "bootstrap.txt")
+        self.commit()
+        self.assertNotEqual(self.check("all").returncode, 0)
+
     def test_sensitive_paths_and_templates(self):
         for path in ["apps/api/.env.qa", "x/terraform.tfstate.backup", "x/key.p8",
-                     "x/credentials.json", "x/prod.tfvars.json", "x/.gitleaksignore"]:
+                     "x/credentials.json", "x/prod.tfvars.json", "x/.gitleaksignore",
+                     "ssh/deploy.pub", "ssh/authorized_keys", "ssh/known_hosts"]:
             self.assertTrue(forbidden(path), path)
         for path in ["apps/api/.env.example", "qa.tfvars.example", "backend.hcl.example",
                      "infrastructure/.terraform.lock.hcl", "apps/api/migrations/001.sql"]:

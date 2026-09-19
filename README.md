@@ -1,4 +1,4 @@
-# Rogichat
+# 로기챗
 
 후로기(h66rogi)를 위한 SOOP 중심 채팅·커뮤니티 서비스.
 공개 모노레포이며, 현재 단계는 **보안 기반 설정과 아키텍처 검토**다.
@@ -31,6 +31,13 @@ JavaScript 의존성 관리는 pnpm workspace를 사용한다.
 4. [인프라·배포 설계](docs/infrastructure-and-delivery.md)
 5. [버전 검증](docs/toolchain.md)
 6. [다각도 리뷰와 다음 단계](docs/design-review.md)
+7. [SOOP 소셜로그인 중계](docs/soop-authentication.md)
+8. [Tailscale·SSH와 GitHub 밖의 배포](docs/host-access.md)
+9. [브랜딩 기준](docs/branding.md)
+
+제품 표기는 **로기챗**으로 통일한다. QA 웹은 `qa.rogi.chat`, API는
+`api.qa.rogi.chat`이다. 기존 OAuth callback을 유지하는 로그인 중계만 외부
+인증 서버를 사용하며, 제품 화면·앱·이미지·메타데이터에 기존 브랜드를 재사용하지 않는다.
 
 ## 개발자 보안 설정
 

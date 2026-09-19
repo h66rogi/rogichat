@@ -1,9 +1,10 @@
-# Rogichat 기반 설계안
+# 로기챗 기반 설계안
 
 상태: 2026-09-19 초안, 사용자와 설계 검토 후 앱 scaffold·IaC 구현 진행.
 확정 요구: 공개 모노레포, QA 우선, AWS 서울, Lightsail 한 대, PostgreSQL,
 Next.js/NestJS, Kotlin/Swift, Terraform/Atlantis, GitHub Actions/GHCR, Cloudflare DNS.
-도메인은 QA `qa.rogi.chat`, prod `rogi.chat`이다.
+웹 도메인은 QA `qa.rogi.chat`, prod `rogi.chat`이다. QA API는 `api.qa.rogi.chat`,
+prod API는 `api.rogi.chat`을 제안한다. 사용자에게 보이는 제품명은 로기챗으로 통일한다.
 
 ## 제품과 초기 범위
 
@@ -46,19 +47,22 @@ flowchart LR
   C[Web / Android / iOS] --> CF[Cloudflare DNS + edge TLS]
   CF --> TLS[Origin HTTPS reverse proxy]
   subgraph LS[Seoul Lightsail QA - one host]
-    TLS -->|/| WEB[Next.js container]
-    TLS -->|/api/v1 and /socket.io| API[NestJS container]
+    TLS -->|qa.rogi.chat| WEB[Next.js container]
+    TLS -->|api.qa.rogi.chat| API[NestJS container]
     API --> PG[(PostgreSQL volume)]
     API -. optional .-> CACHE[Redis-compatible cache]
   end
   CI[GitHub Actions] --> GHCR[GHCR image digests]
-  GHCR --> LS
+  GHCR --> DEPLOY[Tailscale management deployer]
+  DEPLOY -->|OpenSSH - external key custody| LS
   TF[Atlantis isolated management boundary] --> AWS[AWS / Cloudflare APIs]
 ```
 
 초기 제안은 Cloudflare proxy → Lightsail static IP → Caddy HTTPS → 컨테이너다.
 edge-origin은 Full(strict), origin 인증서와 갱신 방법을 실제 DNS 경로에서 검증한다.
-Cloudflare IP만 origin 443에 허용하고 관리 SSH는 별도 허용 대역/터널로 제한한다.
+Cloudflare IP만 origin 443에 허용하고 관리 SSH는 Tailscale 위 OpenSSH로 제한한다.
+개인키·공개키는 GitHub 밖에서 보관한다. `api.qa.rogi.chat`의 추가 edge 인증서가
+필요하며 [host 접근과 TLS 설계](host-access.md)에 대안을 기록했다.
 인증서 HTTP challenge 때문에 80을 무조건 열지 않는다. DNS challenge 또는
 관리되는 origin 인증서 중 비밀 전달·갱신 경로까지 구현한 방법을 선택한다.
 Cloudflare Tunnel은 origin 포트 제거의 장점이 있으나 connector token 수명주기와
@@ -95,11 +99,14 @@ replay/outbox, 알림, unread count, 검색에서 동일한 접근 제어를 검
 
 ## 인증·확장
 
-SOOP 연동은 `platform-soop` 서버 adapter로 격리한다. 사용자 서비스 로그인과
-SOOP 계정 연결/방송 상태를 분리하고, 기존 SOOP 연동이 공식 OAuth인지 별도
-인증 방식인지 원본과 실제 제공 API에서 확인한다. 세션 cookie는 host-only로
-QA/prod를 격리한다. 웹 cookie 인증은 CSRF와 Origin 검증, 모바일은 안전한
-token 저장소·만료/갱신 처리를 사용한다. 앱에 플랫폼 client secret을 넣지 않는다.
+SOOP는 소셜로그인으로 연동한다. `user`는 로기챗 사용자·세션을 소유하고
+`platform_soop`는 검증된 SOOP identity를 user에 연결한다. api.qa.rogi.chat에서
+시작해 기존 api.meloming.com의 OAuth와 SOOP callback을 거쳐 다시 QA API로
+돌아온다. 서버 간 일회용 code 교환 뒤 로기챗 자체 세션을 발급한다.
+[상세 인증 계약](soop-authentication.md)에 endpoint·state·계정 연결·실패 흐름을 정의했다.
+host-only API cookie, 정확한 웹 origin CORS와 CSRF를 적용하고 QA/prod의
+key/session/audience를 분리한다. 앱에 플랫폼 client secret을 넣지 않는다.
+서비스 표기와 자산은 [브랜딩 기준](branding.md)을 따른다.
 
 향후 다른 클라우드는 provider별 Terraform 모듈로 추가한다. 앱은 DB URL,
 object storage interface, 알림 adapter로 공급자를 분리한다. QA의 단일 호스트

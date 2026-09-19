@@ -14,6 +14,9 @@
   [보안 workflow](../.github/workflows/security.yml#L9)는 contents read만 사용하며
   hosted runner, full SHA checkout, persist-credentials false를 적용한다.
   현재 배포 권한·cloud secret을 사용하는 job은 없다.
+- **SEC-006 / 정책 강화**: 사용자 요구에 따라 SSH 공개키도 GitHub 게시 금지에 포함했다.
+  `.pub`/authorized_keys/known_hosts 경로와 임의 파일·Git 이력의 OpenSSH 공개키 본문을
+  검사한다. 개인키·공개키 모두 GitHub Secrets를 포함해 외부 관리 영역에서 보관한다.
 
 ## 구현 전에 해결할 항목
 

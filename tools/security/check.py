@@ -19,7 +19,7 @@ def forbidden(name):
     # Templates are still content-scanned; only env/tfvars/backend examples are allowed.
     if base.endswith(".example") and (base.startswith(".env") or ".tfvars" in base or "backend" in base):
         return False
-    patterns = [".env", ".env.*", "*.pem", "*.key", "*.p8", "*.p12", "*.pfx",
+    patterns = [".env", ".env.*", "*.pem", "*.key", "*.pub", "authorized_keys", "known_hosts", "*.p8", "*.p12", "*.pfx",
                 "*.jks", "*.keystore", "*.mobileprovision", "*.tfstate*", "*.tfplan",
                 "*.plan", "*.tfvars", "*.tfvars.json", "backend.hcl", "*.backend.hcl",
                 "*.dump", "*.sqlite*", "*.db", "*.log", "google-services.json",
