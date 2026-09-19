@@ -47,7 +47,10 @@ async function fixture(t, mode = 'FAN') {
   const send = (who, body) => call(who, 'POST', `/rooms/${room}/messages`, body);
   const get = (who, id) => call(who, 'GET', `/rooms/${room}/messages/${id}`);
   const remove = (who, id) => call(who, 'POST', `/rooms/${room}/messages/${id}/delete`, {});
-  return { db, sessions, config, owner, fan1, fan2, outsider, room, call, command, send, get, remove, restart };
+  // Advance only this fixture's burst bucket between independent authorization phases.
+  // Concurrent limit enforcement is separately tested across two real pools in rates.test.
+  const nextBurst = who => db.transactions.write(tx => tx.execute('UPDATE rate_buckets SET expires_at=TIMESTAMPADD(SECOND,-1,UTC_TIMESTAMP(3)) WHERE key_digest=?', [createHmac('sha256', config.key).update(`send:burst:${who.id}:${room}`).digest()]));
+  return { db, sessions, config, owner, fan1, fan2, outsider, room, call, command, send, get, remove, restart, nextBurst };
 }
 const keys = value => Object.keys(value).sort();
 
@@ -59,6 +62,7 @@ test('same-key concurrent commands and API restart return one durable message, e
   assert.deepEqual(keys(ack), ['clientMessageId', 'messageId', 'status', 'version']);
   assert.equal(ack.status, 'committed');
   await f.restart();
+  await f.nextBurst(f.owner);
   assert.deepEqual((await f.send(f.owner, body)).body, ack);
   assert.equal((await f.send(f.owner, { ...body, content: { type: 'TEXT', text: '다른 본문' } })).status, 409);
   assert.equal((await f.send(f.owner, { ...body, intent: 'PRIVATE', recipientActorId: f.fan1.actor })).status, 409);
@@ -97,6 +101,7 @@ test('FAN private audience, cross-room identifiers and expired/revoked grants fa
   assert.equal((await f.send(f.fan1, f.command('새 발송', 'PRIVATE', f.owner.actor))).status, 403);
   await f.call(f.fan1, 'POST', `/rooms/${f.room}/leave`, {});
   await f.call(f.fan1, 'POST', `/rooms/${f.room}/join`, {});
+  await f.nextBurst(f.fan1);
   assert.equal((await f.send(f.fan1, f.command('재입장 복구 불허', 'PRIVATE', f.owner.actor))).status, 403);
   const [count] = await f.db.transactions.read(tx => tx.rows('SELECT COUNT(*) AS total FROM messages WHERE room_id=?', [f.room]));
   assert.equal(Number(count.total), 1);

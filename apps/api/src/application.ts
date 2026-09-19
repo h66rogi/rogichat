@@ -17,13 +17,14 @@ import type { AuthRuntime } from './auth-http.js';
 import { CommunityController } from './community-http.js';
 import { MessagesController } from './messages-http.js';
 import { SyncController } from './sync-http.js';
+import { InteractionsController } from './interactions-http.js';
 
 @Module({})
 class RuntimeModule {
   static register(database: Database, lifecycle: LifecycleState, http: boolean, auth?: AuthRuntime): DynamicModule {
     return {
       module: RuntimeModule,
-      controllers: http ? [HealthController, ...(auth ? [AuthController, CommunityController, MessagesController, SyncController] : [])] : [],
+      controllers: http ? [HealthController, ...(auth ? [AuthController, CommunityController, MessagesController, SyncController, InteractionsController] : [])] : [],
       providers: [{ provide: DATABASE, useValue: database }, { provide: LifecycleState, useValue: lifecycle }, ...(auth ? [{ provide: AUTH, useValue: auth }] : [])],
     };
   }

@@ -85,7 +85,7 @@ try {
     process.exitCode = 0;
   } else {
   stage = 'tests';
-  testProcess = spawn(process.execPath, ['--test', '--test-concurrency=1', 'test/integration/mysql.test.mjs', 'test/integration/transactions.test.mjs', 'test/integration/auth.test.mjs', 'test/integration/community.test.mjs', 'test/integration/messages.test.mjs', 'test/integration/messages-crash.test.mjs', 'test/integration/jobs.test.mjs', 'test/integration/realtime.test.mjs', 'test/integration/sync.test.mjs'], {
+  testProcess = spawn(process.execPath, ['--test', '--test-concurrency=1', 'test/integration/mysql.test.mjs', 'test/integration/transactions.test.mjs', 'test/integration/auth.test.mjs', 'test/integration/community.test.mjs', 'test/integration/messages.test.mjs', 'test/integration/messages-crash.test.mjs', 'test/integration/jobs.test.mjs', 'test/integration/realtime.test.mjs', 'test/integration/sync.test.mjs', 'test/integration/reactions.test.mjs', 'test/integration/publications.test.mjs', 'test/integration/rates.test.mjs', 'test/integration/interactions-http.test.mjs'], {
     stdio: 'inherit', env: {
       PATH: process.env.PATH, APP_ENV: 'test', NODE_ENV: 'test', DB_TLS_MODE: 'disabled',
       DATABASE_URL: runtimeUrl, TEST_ADMIN_URL: adminUrl, ROGICHAT_TEST_MYSQL: 'disposable',

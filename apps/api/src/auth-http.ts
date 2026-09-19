@@ -37,10 +37,10 @@ export function authCors(server: Express, config: AuthConfig): void {
       response.setHeader('Vary', 'Origin');
     }
     if (request.method === 'OPTIONS') {
-      if (!origin || !['GET', 'POST', 'PATCH', 'DELETE'].includes(String(request.headers['access-control-request-method']))) { response.sendStatus(403); return; }
+      if (!origin || !['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(String(request.headers['access-control-request-method']))) { response.sendStatus(403); return; }
       const headers = String(request.headers['access-control-request-headers'] ?? '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
       if (headers.some(h => !['content-type', 'x-csrf-token'].includes(h))) { response.sendStatus(403); return; }
-      response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE');
+      response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE');
       response.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token');
       response.status(204).end(); return;
     }

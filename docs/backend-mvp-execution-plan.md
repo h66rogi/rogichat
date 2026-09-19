@@ -238,6 +238,9 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
 
 ### M07 — worker 내구성·기본 제한·개인답장/공개/반응
 
+상태: 구현·Sub Agent 리뷰 반영·로컬 검증 완료. 상세 계약/검증은
+`backend-m07-implementation.md` 참고. 실제 QA 배포와 후속 미디어/삭제 운영 gate는 별도다.
+
 - 의존: M06. 변경: 공통 lease 기반 worker consumer/failed jobs, 명령별 rate 정책, publication 상태와 reaction unique.
 - worker는 목적 allowlist로 claim하고 API의 hint 목적을 가져가지 않는다. claim transaction은 짧게,
   외부 I/O는 밖에서 수행, 완료는 현재 lease generation 조건부 update.

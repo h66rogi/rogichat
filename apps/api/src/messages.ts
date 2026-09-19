@@ -106,7 +106,7 @@ async function sendStream(tx: Transaction, viewer: ActiveMember, input: SendInpu
   if (grants.length !== 2 || grants.some(g => Number(g.can_read) !== 1) || !grants.some(g => g.member_id === viewer.id && Number(g.can_send) === 1)) throw new ApiError('FORBIDDEN', 403);
   return streamId;
 }
-export async function recordMessageEvent(tx: Transaction, row: { id: string; room_id: string; stream_id: string }, version: string, order: bigint, kind: 'MESSAGE_CREATED' | 'MESSAGE_DELETED') {
+export async function recordMessageEvent(tx: Transaction, row: { id: string; room_id: string; stream_id: string }, version: string, order: bigint, kind: 'MESSAGE_CREATED' | 'MESSAGE_DELETED' | 'MESSAGE_UPDATED') {
   const id = randomUUID();
   await tx.execute('INSERT INTO room_events (id,room_id,stream_id,message_id,message_version,event_order,kind) VALUES (?,?,?,?,?,?,?)', [id, row.room_id, row.stream_id, row.id, version, order.toString(), kind]);
   await enqueueJob(tx, { purpose: 'REALTIME_HINT', roomId: row.room_id, resourceId: id, dedupeKey: digest(`hint:${id}`) });
@@ -153,6 +153,10 @@ export async function deleteMessage(tx: Transaction, roomId: string, userId: str
   await tx.execute('INSERT INTO deletion_requests (id,actor_user_id,room_id,message_id) VALUES (?,?,?,?)', [requestId, userId, roomId, messageId]);
   await tx.execute('UPDATE messages SET deleted_at=COALESCE(deleted_at,UTC_TIMESTAMP(3)),text_content=NULL,version=version+1 WHERE room_id=? AND id=?', [roomId, messageId]);
   await tx.execute('UPDATE command_receipts SET deleted=1,payload_digest=NULL WHERE room_id=? AND message_id=?', [roomId, messageId]);
+  await tx.execute("UPDATE message_publications SET state='REVOKED' WHERE room_id=? AND (source_message_id=? OR published_message_id=?)", [roomId, messageId, messageId]);
+  // Linked public copies lose their body in this same commit. Their source event also
+  // makes eligible clients reset, without revealing the private source UUID.
+  await tx.execute('UPDATE messages SET deleted_at=UTC_TIMESTAMP(3),text_content=NULL,version=version+1 WHERE room_id=? AND deletion_root_id=? AND deleted_at IS NULL', [roomId, messageId]);
   // Publication projections are immediately denied by the root predicate, even before bounded M10 purge.
   // The room counter permits author deletion in CLOSED rooms without calling lockRoom's ACTIVE guard.
   const [counter] = await tx.rows<RowDataPacket>('SELECT last_order FROM room_counters WHERE room_id=? FOR UPDATE', [roomId]);
