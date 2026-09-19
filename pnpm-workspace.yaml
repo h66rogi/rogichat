@@ -1,0 +1,10 @@
+packages:
+  - apps/api
+  - packages/*
+
+strictPeerDependencies: true
+engineStrict: true
+minimumReleaseAge: 1440
+# No dependency may run an installation script without an explicit review.
+allowBuilds:
+  '*': false

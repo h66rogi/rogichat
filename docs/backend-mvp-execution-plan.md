@@ -1,6 +1,6 @@
 # 저비용 MVP 백엔드 실행 계획
 
-2026-09-20. **계획만 작성, 아래 작업은 아직 구현·실행하지 않음.**
+2026-09-20. **M01 개발 골격 구현, M02–M12 미착수. 실제 앱 배포는 아직 수행하지 않음.**
 사용자 최신 결정: 초기 1명 수준 사용, 상시 비용 최소화, 구조상 확장성 유지.
 제품 정책은 [백엔드 설계](backend-design.md), 동시성·sync 상세는
 [기술 구현 계획](backend-implementation-plan.md), 이번 재검토는 [MVP 리뷰](backend-mvp-review.md)를 따른다.
@@ -79,7 +79,8 @@ bucket 시계는 DB UTC이며 key lock 순서를 통일하고 GC는 활성 bucke
 
 ## 4. 코드 위치·계약과 공통 검증 도구
 
-아래는 **생성할 경로/스크립트 이름**이며 현재 존재한다고 가정하지 않는다.
+아래는 목표 구조다. M01의 실제 경로/명령은 [API README](../apps/api/README.md)에 있고,
+domain modules·Prisma schema·OpenAPI 등 후속 산출물이 이미 있다고 가정하지 않는다.
 
 | 위치 | 책임 |
 |---|---|
@@ -99,7 +100,8 @@ Prisma/UUID 컬럼/명시 SQL은 최소 spike로 확인한 뒤 schema를 고정�
 scaffold에서 `lint`, `typecheck`, `test:unit`, `test:integration`, `test:e2e`, `contracts:check`를
 package script로 만든다. 그 뒤에만 `pnpm --filter @rogichat/api <script>`를 실행한다.
 PR별 unit/integration + `git diff --check` + public scanner를 수행하고 자기 파일만 commit/push한다.
-실행 안 한 테스트는 체크하지 않는다. API/worker package가 없는 현재는 문서 검사만 가능하다.
+실행 안 한 테스트는 체크하지 않는다. M01은 API/worker build와 단위·HTTP·프로세스·MySQL
+fixture 검증을 제공하며 제품 기능·실제 QA 배포 검증과 구분한다.
 
 ## 5. 초기 운영값 — 조정 가능한 구현 시작점
 
@@ -139,10 +141,14 @@ provider 청구액의 절대 상한은 아니다. 실패 고아·외부 관리 �
 
 ## 6. PR 단위 실행 순서
 
-각 단계는 **미착수**다. 의존 단계의 검증을 통과해야 다음 기능을 올린다. 구현 중 작은 PR로
+M01 외 단계는 **미착수**다. 의존 단계의 검증을 통과해야 다음 기능을 올린다. 구현 중 작은 PR로
 분할할 수 있지만 인가·삭제·복구를 “나중에 붙일 기능”으로 떼지 않는다.
 
 ### M01 — scaffold와 재현 가능한 개발 환경
+
+상태: 구현됨. Node 24.21.0/Nest 12.0.3/pnpm 12.4.2 고정, 실제 MySQL 8.0.44 격리 시험,
+API/worker 실행·SIGTERM, 안전한 로그·health 계약 시험을 추가했다. CI는 credential 없는
+hosted runner 검증이며 운영 배포가 아니다. [사용법·M01 schema gate](../apps/api/README.md)를 따른다.
 
 - 의존: 없음. Node/Nest/pnpm/ORM의 지원 버전·호환성을 다시 조회해 lockfile/digest 고정.
 - 변경: workspace 최소 설정, API/worker entrypoint, config validation, health, secret redaction,
@@ -419,5 +425,5 @@ R2 credential/backup expiry/실제 비용과 복구 증거는 개발·운영 검
 계정 탈퇴 시 sole owner인 방의 보존/운영자 재지정은 새 메시지 차단 상태로 안전하게 처리하며
 임의 팬을 owner로 승격시키지 않는다. 재지정은 운영 command로 별도 감사한다.
 
-완료란 M01–M12의 코드·tests·실제 QA evidence가 갖춰진 상태다. 이번 작업의 완료는
-실행 가능한 계획 문서와 독립 리뷰 반영, 문서 검증·commit/push·CI까지이며 앱 완료와 구분한다.
+제품 완료란 M01–M12의 코드·tests·실제 QA evidence가 갖춰진 상태다. M01 완료는 개발 골격과
+격리 테스트·CI까지이며 인증·채팅 기능이나 운영 배포 완료와 구분한다.

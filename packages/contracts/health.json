@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "endpoints": {
+    "/live": { "200": { "status": "ok" } },
+    "/ready": {
+      "200": { "status": "ready" },
+      "503": { "error": { "code": "UNAVAILABLE" } }
+    }
+  }
+}

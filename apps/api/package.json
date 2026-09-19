@@ -1,0 +1,38 @@
+{
+  "name": "@rogichat/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.21.0 <25" },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src test --max-warnings 0",
+    "start:api": "node dist/main.js",
+    "start:worker": "node dist/worker.js",
+    "dev:api": "node --env-file=.env --watch dist/main.js",
+    "dev:worker": "node --env-file=.env --watch dist/worker.js",
+    "test:unit": "pnpm build && node --test test/unit/*.test.mjs",
+    "test:e2e": "pnpm build && node --test test/e2e/*.test.mjs",
+    "test:integration": "pnpm build && node test/run-mysql.mjs",
+    "contracts:check": "pnpm build && node --test test/contracts/*.test.mjs"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.0.3",
+    "@nestjs/core": "12.0.3",
+    "@nestjs/platform-express": "12.0.3",
+    "express": "5.2.1",
+    "helmet": "8.3.0",
+    "mysql2": "3.24.4",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/express": "5.0.6",
+    "@types/node": "24.13.5",
+    "eslint": "10.10.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.0"
+  }
+}

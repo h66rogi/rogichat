@@ -1,0 +1,20 @@
+# Disposable local fixture only. No production data, persistent volume or external DB connection.
+name: rogichat-m01-fixture
+services:
+  mysql:
+    image: mysql:8.0.44@sha256:9c3380eac945af0736031b200027f581925927c81e010056214a4bd6b6693714
+    ports:
+      - "127.0.0.1:13306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: "${TEST_MYSQL_ROOT_PASSWORD:?Set a disposable fixture password}"
+      MYSQL_ROOT_HOST: "%"
+    command: ["--mysqlx=OFF", "--skip-log-bin", "--performance-schema=OFF", "--innodb-buffer-pool-size=64M"]
+    tmpfs:
+      - /var/lib/mysql
+    mem_limit: 512m
+    cpus: 1
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--host=127.0.0.1", "--silent"]
+      interval: 2s
+      timeout: 2s
+      retries: 30

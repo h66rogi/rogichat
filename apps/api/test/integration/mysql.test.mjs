@@ -1,0 +1,47 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createConnection } from 'mysql2/promise';
+import { readConfig } from '../../dist/config.js';
+import { MysqlDatabase } from '../../dist/database.js';
+import { child, unusedPort, waitFor, stopChild } from '../helpers.mjs';
+
+test('real MySQL readiness, schema mismatch, least privilege, both entrypoints and shutdown', { timeout: 30000 }, async (t) => {
+  assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
+  const url = new URL(process.env.TEST_ADMIN_URL);
+  assert.equal(url.hostname, '127.0.0.1');
+  assert.match(url.pathname, /^\/rogichat_test_[a-f0-9]{16}$/);
+  const admin = await createConnection(process.env.TEST_ADMIN_URL);
+  t.after(() => admin.end());
+  const database = new MysqlDatabase(readConfig('api'));
+  t.after(() => database.close());
+  for (const result of await Promise.all(Array.from({ length: 20 }, () => database.check()))) assert.equal(result.ready, true);
+  const runtime = await createConnection(process.env.DATABASE_URL);
+  t.after(() => runtime.end());
+  await assert.rejects(runtime.query('CREATE TABLE forbidden_test (id INT)'), { code: 'ER_TABLEACCESS_DENIED_ERROR' });
+  const port = await unusedPort();
+  const api = child('api', { DATABASE_URL: process.env.DATABASE_URL, PORT: String(port) });
+  const worker = child('worker', { DATABASE_URL: process.env.DATABASE_URL });
+  t.after(() => stopChild(api));
+  t.after(() => stopChild(worker));
+  await waitFor(() => api.output().includes('started'));
+  await waitFor(() => worker.output().includes('"reason":"ready"'));
+  const ready = () => fetch(`http://127.0.0.1:${port}/ready`);
+  assert.equal((await ready()).status, 200);
+  await admin.query('CREATE TABLE m01_schema_mismatch_fixture (id INT PRIMARY KEY)');
+  assert.deepEqual(await database.check(), { ready: false, reason: 'schema_mismatch' });
+  assert.equal((await ready()).status, 503);
+  assert.equal((await fetch(`http://127.0.0.1:${port}/live`)).status, 200);
+  await waitFor(() => worker.output().includes('schema_mismatch'), 7000);
+  await admin.query('DROP TABLE m01_schema_mismatch_fixture');
+  assert.equal((await ready()).status, 200);
+  for (const instance of [api, worker]) {
+    instance.proc.kill('SIGTERM');
+    const [code, signal] = await instance.exited;
+    assert.equal(code, 0);
+    assert.equal(signal, null);
+    assert.ok(instance.output().includes('shutdown_complete'));
+    assert.ok(!instance.output().includes(new URL(process.env.DATABASE_URL).password));
+  }
+  await database.close();
+  assert.equal((await database.check()).ready, false);
+});
