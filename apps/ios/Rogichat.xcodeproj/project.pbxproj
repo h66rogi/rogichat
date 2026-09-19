@@ -7,11 +7,13 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		47DDF7E513248F66940481D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B7272D32F058E07C761C49E /* Assets.xcassets */; };
 		927A5853882407D4289CAE3A /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A7351D1500FED5B7264B1D /* AppEnvironment.swift */; };
 		E581B9252402C6917B5E638C /* RogichatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543B6ADBAB63583E7D86FC10 /* RogichatApp.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		3B7272D32F058E07C761C49E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		543B6ADBAB63583E7D86FC10 /* RogichatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RogichatApp.swift; sourceTree = "<group>"; };
 		75A7351D1500FED5B7264B1D /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
 		7D32CB7D0E3ACF724C8BB735 /* QA.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = QA.xcconfig; sourceTree = "<group>"; };
@@ -46,10 +48,19 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		3BAFFA8623547B1F6A2C0033 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				3B7272D32F058E07C761C49E /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
 		4E90787628BE459FC6B32457 = {
 			isa = PBXGroup;
 			children = (
 				021849D44B3297413BC47C85 /* Config */,
+				3BAFFA8623547B1F6A2C0033 /* Resources */,
 				0286BEA2C66EA2731FF65F83 /* Sources */,
 				33B2F304AC81F99B61F49B52 /* Products */,
 			);
@@ -63,6 +74,7 @@
 			buildConfigurationList = 66095720E68282782442AC89 /* Build configuration list for PBXNativeTarget "Rogichat" */;
 			buildPhases = (
 				856D5D99554218C83B52A985 /* Sources */,
+				E14C2CC2F2EC2911691B7254 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -108,6 +120,17 @@
 		};
 /* End PBXProject section */
 
+/* Begin PBXResourcesBuildPhase section */
+		E14C2CC2F2EC2911691B7254 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				47DDF7E513248F66940481D5 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		856D5D99554218C83B52A985 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -125,7 +148,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -202,7 +225,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7E79E8D8D9A6F152EC2ECBAD /* Prod.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -218,7 +241,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7D32CB7D0E3ACF724C8BB735 /* QA.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -234,7 +257,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -311,7 +334,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
@@ -381,7 +404,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7D32CB7D0E3ACF724C8BB735 /* QA.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -397,7 +420,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 7E79E8D8D9A6F152EC2ECBAD /* Prod.xcconfig */;
 			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -413,7 +436,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
-				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";

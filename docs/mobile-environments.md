@@ -29,8 +29,9 @@ AGP 내장 Kotlin을 유지하며 별도 kotlin-android 플러그인을 적용�
 - Gradle wrapper 배포와 JAR는 공식 checksum으로 검증했다. 의존성은 `app/gradle.lockfile`로 고정한다.
 - 네 variant를 함께 만들 수 있다. 같은 환경의 debug/release는 같은 ID여서 서로 대체한다.
   debug 키와 향후 release 키가 다르면 기존 앱을 제거해야 한다. QA와 prod는 함께 설치된다.
-- Debug는 개발용 자동 생성 키를 사용한다. Release는 의도적으로 unsigned이며
-  기존 앱의 keystore나 Firebase 설정을 사용하지 않는다.
+- Debug는 개발용 자동 생성 키를 사용한다. QA Release는 외부 QA 전용 키로 서명할 수 있다.
+  외부 서명 설정이 없으면 Release는 unsigned이며 prod에는 QA 서명을 적용하지 않는다.
+  [테스트 배포 절차](mobile-test-distribution.md)에 따라 APK/AAB와 TestFlight를 준비한다.
 - HTTP cleartext를 허용하지 않고 앱 데이터의 cloud backup/device transfer를 제외한다.
 - Hilt/Ktor/Room 등 기능 의존성은 해당 기반 구현 시 추가·검증한다.
 
@@ -73,8 +74,9 @@ XcodeGen은 공식 2.44.1 배포본·SHA-256으로 고정한다. 생성 후 Xcod
 식별자·표시 이름·URL·최소 OS·iPhone target과 Mach-O 플랫폼을 검사한다.
 서명·시뮬레이터 선택이 필요 없는 `xcodebuild -target Rogichat -sdk iphoneos` 경로를
 사용하고, scheme의 Run/Test/Archive configuration 연결은 별도로 검사한다.
-로컬 generic destination 조회는 iOS 플랫폼 설치 후에도 간헐적으로 실패했으므로
-실기기·시뮬레이터 실행 성공을 이번 컴파일 검증에 포함하지 않는다.
+generic destination 문제가 발생하면 runtime 매핑·마운트와 IB Support 경로를
+[CLI 진단 절차](mobile-test-distribution.md#xcode-cli-진단)로 확인한다.
+실기기·시뮬레이터 실행 성공은 unsigned 컴파일 검증과 별개다.
 실기기에서는 각 식별자를 개발자 계정에 등록하고 적절한 team/signing을 외부 설정으로
 공급해야 한다. 개인 team ID·인증서·프로파일은 공개 저장소에 넣지 않는다.
 

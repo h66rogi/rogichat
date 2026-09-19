@@ -13,7 +13,8 @@ Xcode 26.6(build 17F113), Swift compiler 6.3.3, iOS SDK 26.5를 사용한다.
 Run은 해당 환경의 Debug, Archive는 Release를 사용한다.
 원본은 `project.yml`과 `Config/*.xcconfig`이며 프로젝트 생성기는 XcodeGen 2.44.1이다.
 기본 앱에는 외부 SPM 의존성이 없어 `Package.resolved`는 아직 없다.
-현재 앱은 시작 화면만 제공하며 로그인·채팅·실기기 서명·스토어 등록은 후속 단계다.
+현재 앱은 시작 화면만 제공하며 로그인·채팅은 후속 단계다.
+[서명 Archive·IPA 검증·TestFlight 업로드](../../docs/mobile-test-distribution.md)를 따른다.
 
 ```sh
 # 저장소 루트, DEVELOPER_DIR를 Xcode 26.6의 Contents/Developer로 지정

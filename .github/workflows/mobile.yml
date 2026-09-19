@@ -30,6 +30,23 @@ jobs:
         run: ./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdDebug :app:assembleProdRelease :app:test :app:lint --no-daemon
       - name: Verify packaged APK configuration
         run: python3 tools/mobile/check_android.py
+      - name: Verify QA release upload guards
+        run: python3 -m unittest discover -s tools/mobile -p 'test_*.py'
+      - name: Build signed QA APK and AAB using an ephemeral test key
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'rogichat-signing-test'
+          root.mkdir(mode=0o700)
+          config = root / 'config.json'
+          config.write_text(json.dumps({'artifact_root': str(root / 'artifacts'), 'android': {
+            'keystore': str(root / 'test.jks'), 'password_file': str(root / 'password.txt'), 'key_alias': 'qa'
+          }}))
+          config.chmod(0o600)
+          PY
+          python3 tools/mobile/qa_release.py --config "$RUNNER_TEMP/rogichat-signing-test/config.json" android-init-key
+          python3 tools/mobile/qa_release.py --config "$RUNNER_TEMP/rogichat-signing-test/config.json" android-build --build-number 7
   ios:
     runs-on: macos-26
     timeout-minutes: 20

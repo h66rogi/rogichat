@@ -1,0 +1,18 @@
+{
+  "artifact_root": "/absolute/path/outside/repositories/rogichat-qa",
+  "android": {
+    "keystore": "/absolute/path/outside/repositories/rogichat-qa.jks",
+    "password_file": "/absolute/path/outside/repositories/rogichat-qa-password.txt",
+    "key_alias": "rogichat-qa"
+  },
+  "ios": {
+    "team_id": "",
+    "key_id": "",
+    "issuer_id": "",
+    "key_file": "/absolute/path/to/existing/AppStoreConnect-key.p8"
+  },
+  "firebase": {
+    "project_id": "",
+    "app_id": ""
+  }
+}
