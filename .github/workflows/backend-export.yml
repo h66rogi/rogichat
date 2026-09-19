@@ -51,6 +51,6 @@ jobs:
           name: backend-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/rogichat-export/*
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 6
           retention-days: 1
           overwrite: false

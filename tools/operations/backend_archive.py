@@ -297,7 +297,7 @@ def download(args):
     # gh handles the signed redirect without exposing its URL or auth header.
     with path.open('xb') as output:
         result = subprocess.run(['gh', 'api', f'/repos/{REPOSITORY}/actions/artifacts/{args.artifact_id}/zip'],
-                                stdout=output, stderr=subprocess.PIPE, timeout=600)
+                                stdout=output, stderr=subprocess.PIPE, timeout=1800)
         require(result.returncode == 0)
     descriptor, _ = validate_zip(path, approval['artifact_sha256'], args.output / 'verified')
     verify_provenance(descriptor, approval, token)
