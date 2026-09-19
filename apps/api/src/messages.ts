@@ -99,6 +99,7 @@ async function sendStream(tx: Transaction, viewer: ActiveMember, input: SendInpu
     await tx.execute("INSERT INTO message_streams (id,room_id,kind) VALUES (?,?,'RESTRICTED')", [streamId, viewer.room_id]);
     await tx.execute('INSERT INTO stream_pairs (id,room_id,left_member_id,right_member_id,stream_id) VALUES (?,?,?,?,?)', [randomUUID(), viewer.room_id, ...members, streamId]);
     for (const member of members) await tx.execute('INSERT INTO stream_grants (id,room_id,stream_id,member_id,can_read,can_send) VALUES (?,?,?,?,1,1)', [randomUUID(), viewer.room_id, streamId, member]);
+    await tx.execute('UPDATE room_members SET acl_epoch=acl_epoch+1 WHERE room_id=? AND id IN (?,?)', [viewer.room_id, ...members]);
   }
   // An existing pair never repairs expired/revoked grants, including after rejoin.
   const grants = await tx.rows<RowDataPacket>('SELECT member_id,can_read,can_send FROM stream_grants WHERE room_id=? AND stream_id=? AND member_id IN (?,?) AND revoked_at IS NULL AND valid_from<=UTC_TIMESTAMP(3) AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP(3)) ORDER BY member_id FOR UPDATE', [viewer.room_id, streamId, ...members]);

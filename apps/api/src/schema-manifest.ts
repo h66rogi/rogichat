@@ -4,4 +4,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260919172921_m03_auth_terms', checksum: 'fcbb7aee346509f8b190ed4adf88495c897cd386e59b59d919490e5a729cc925' },
   { name: '20260919175133_m04_audit', checksum: '8d1952fbaa5fa940a648b3a24a60b6d35c93b53bc62d01ee41025e42127e552d' },
   { name: '20260919181326_m05_messages_jobs', checksum: '91de076c6d5e66b6e47111b2e4105a3b389847416f8e14a08d3d6b6929b54508' },
+  { name: '20260919182633_m06_sync_acl', checksum: '3b4df9c11032c21df051bb3a817e89423f56f4ef471f83364357b01f2275fbef' },
 ];

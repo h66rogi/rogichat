@@ -1,6 +1,6 @@
 # 저비용 MVP 백엔드 실행 계획
 
-2026-09-20. **M01–M05 내부 구현/검증. 실제 QA 앱 배포와 실제 SOOP 로그인은 각각 별도 gate다.**
+2026-09-20. **M01–M06 내부 구현/검증. 실제 QA 앱 배포와 실제 SOOP 로그인은 각각 별도 gate다.**
 사용자 최신 결정: 초기 1명 수준 사용, 상시 비용 최소화, 구조상 확장성 유지.
 제품 정책은 [백엔드 설계](backend-design.md), 동시성·sync 상세는
 [기술 구현 계획](backend-implementation-plan.md), 이번 재검토는 [MVP 리뷰](backend-mvp-review.md)를 따른다.
@@ -218,6 +218,9 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
 - 공개 사용자 데이터는 M10/M12 전 넣지 않는다. 테스트에서만 미완성 purge 경로 사용.
 
 ### M06 — REST sync·소켓·로컬 hint dispatcher
+
+구현·클라이언트 계약·운영 경계: [M06 기록](backend-m06-implementation.md).
+로컬 117개 시험 통과(unit 61, 실제 MySQL 40, HTTP/process 14, contract 2).
 
 - 의존: M05. 변경: `/v1/sync`, room snapshot/events/history, account membership generation,
   opaque cursor, Socket.IO gateway, API 전용 hint consumer.

@@ -202,6 +202,7 @@ model room_members {
   role             MemberRole
   status           MemberStatus @default(ACTIVE)
   active_period_id String?      @unique @db.Char(36)
+  acl_epoch        BigInt       @default(0) @db.UnsignedBigInt
   room             rooms        @relation("room_members", fields: [room_id], references: [id], onDelete: Restrict)
   user             users        @relation(fields: [user_id], references: [id], onDelete: Restrict)
   owns             rooms[]      @relation("room_owner")
@@ -215,6 +216,16 @@ model room_members {
   @@unique([room_id, id, active_period_id])
   @@unique([room_id, user_id])
   @@unique([room_id, id])
+}
+
+// Body-free projection invalidation. A REALTIME_HINT with room_id NULL references this table.
+model profile_changes {
+  id               String @id @db.Char(36)
+  user_id          String @db.Char(36)
+  public_changed   Boolean
+  streamer_changed Boolean
+  created_at       DateTime @default(now()) @db.DateTime(3)
+  @@index([user_id, created_at])
 }
 
 model membership_periods {

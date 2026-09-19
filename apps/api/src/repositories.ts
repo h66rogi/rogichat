@@ -61,7 +61,7 @@ export async function joinRoom(tx: Transaction, roomId: string, userId: string):
   const periodId = randomUUID();
   await tx.execute('INSERT INTO membership_periods (id,room_id,member_id,policy_version,history_policy,visible_from_order) VALUES (?,?,?,?,?,?)',
     [periodId, roomId, memberId, room.policy_version, room.history_policy, room.history_policy === 'ALL_AVAILABLE' ? '0' : boundary.toString()]);
-  await tx.execute('UPDATE room_members SET status=?,active_period_id=? WHERE id=?', ['ACTIVE', periodId, memberId]);
+  await tx.execute('UPDATE room_members SET status=?,active_period_id=?,acl_epoch=acl_epoch+1 WHERE id=?', ['ACTIVE', periodId, memberId]);
   await tx.execute('UPDATE users SET membership_generation=membership_generation+1 WHERE id=?', [userId]);
   return memberId;
 }
@@ -72,7 +72,7 @@ export async function leaveRoom(tx: Transaction, roomId: string, userId: string)
   if (!member || member.status !== 'ACTIVE') return;
   if (room.owner_member_id === member.id) throw new Error('owner_transfer_required');
   await tx.execute('UPDATE membership_periods SET left_at=UTC_TIMESTAMP(3) WHERE id=? AND left_at IS NULL', [member.active_period_id]);
-  await tx.execute('UPDATE room_members SET status=?,active_period_id=NULL WHERE id=?', ['LEFT', member.id]);
+  await tx.execute('UPDATE room_members SET status=?,active_period_id=NULL,acl_epoch=acl_epoch+1 WHERE id=?', ['LEFT', member.id]);
   await tx.execute('UPDATE users SET membership_generation=membership_generation+1 WHERE id=?', [userId]);
 }
 

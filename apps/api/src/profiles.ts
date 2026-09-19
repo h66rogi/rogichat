@@ -1,9 +1,10 @@
-import { createHmac } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from './transactions.js';
 import { ApiError, object } from './auth-core.js';
 import { nickname, validBirthday } from './access.js';
 import { uuid } from './repositories.js';
+import { enqueueJob } from './jobs.js';
 
 interface ProfileRow extends RowDataPacket {
   user_id: string; nickname: string; birthday_month: number | null; birthday_day: number | null;
@@ -43,7 +44,16 @@ export async function updateProfile(tx: Transaction, userId: string, body: unkno
       visible = input.birthdayVisibleToStreamers;
     }
   } catch { throw new ApiError('INVALID_REQUEST', 400); }
+  const publicChanged = name !== current.nickname;
+  const oldBirthday = Number(current.birthday_visible_to_streamers) === 1 && current.birthday_month !== null ? [current.birthday_month, current.birthday_day] : null;
+  const newBirthday = visible && birthday ? [birthday.month, birthday.day] : null;
+  const streamerChanged = JSON.stringify(oldBirthday) !== JSON.stringify(newBirthday);
   await tx.execute('UPDATE user_profiles SET nickname=?,birthday_month=?,birthday_day=?,birthday_visible_to_streamers=?,revision=revision+1 WHERE user_id=?', [name, birthday?.month ?? null, birthday?.day ?? null, visible, userId]);
+  if (publicChanged || streamerChanged) {
+    const change = randomUUID();
+    await tx.execute('INSERT INTO profile_changes (id,user_id,public_changed,streamer_changed) VALUES (?,?,?,?)', [change, userId, publicChanged, streamerChanged]);
+    await enqueueJob(tx, { purpose: 'REALTIME_HINT', resourceId: change });
+  }
   return selfProfile(tx, userId);
 }
 

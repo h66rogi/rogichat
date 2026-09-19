@@ -9,6 +9,7 @@ import { readAuthConfig } from './auth-config.js';
 import { Sessions } from './auth-core.js';
 import { AuthFlow } from './auth-flow.js';
 import { HttpBroker } from './broker.js';
+import { RealtimeGateway } from './realtime.js';
 
 const logger = new SafeLogger('api');
 try {
@@ -19,8 +20,10 @@ try {
   const sessions = authConfig ? new Sessions(database.transactions, authConfig.audience, authConfig.key) : undefined;
   const auth = authConfig && sessions ? { config: authConfig, sessions, flow: new AuthFlow(sessions, authConfig, new HttpBroker(authConfig)) } : undefined;
   const app = await createApi(database, logger, lifecycle, auth);
-  installShutdown(lifecycle, logger, async () => { try { await app.close(); } finally { await database.close(); } });
+  const realtime = auth ? new RealtimeGateway(app.getHttpServer(), auth, lifecycle) : undefined;
+  installShutdown(lifecycle, logger, async () => { try { await realtime?.stop(); await app.close(); } finally { await database.close(); } });
   await app.listen(config.port, config.host);
+  realtime?.start();
   logger.event('started');
 } catch (error) {
   logger.event('startup_failed', { reason: error instanceof ConfigurationError ? 'configuration' : 'dependency' });
