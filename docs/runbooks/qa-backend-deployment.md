@@ -87,6 +87,43 @@ container가 먼저 재시작할 수 있으므로 systemd 순서를 우회하지
 runtime JSON의 원자적 교체만으로 기존 file bind mount가 갱신됐다고 간주하지 않는다.
 credential 갱신은 별도 승인 절차의 file 준비·container recreate·TLS 확인으로 처리한다.
 
+### M03/M04 API 인증 파일: 단일 QA 호스트 한정
+
+M02 최초 배포는 승인한 M02 artifact revision을 그대로 사용한다. 현재 Compose의 인증 mount는
+M03 이후용이며, 아래 파일이 준비되기 전에 M02 배포에 섞지 않는다. 파일이 없으면 Compose가
+디렉터리를 만들지 않고 시작을 거부한다. 이 문서를 추가한 것은 서버 파일 생성 승인이 아니다.
+
+- 기존 암호화된 QA EC2 root volume의 `/etc/rogichat/auth.json`을 사용한다. root:GID 10001,
+  `0440`, regular file이며 symlink/hardlink·group/other write를 금지한다. 부모 디렉터리도 root
+  소유·group/other 쓰기 불가여야 한다. 파일은 Git·image·Actions·로그·Terraform state에 넣지 않는다.
+- 최초 승인된 설치에서만 시스템 CSPRNG의 32바이트를 lowercase 64자리 hex로 만든다. JSON의
+  초기 필드는 `key` 하나뿐이다. 생성은 no-follow/no-overwrite로 수행하고 안전한 권한 아래
+  fsync까지 끝낸다. 이미 존재하면 새 키 생성·교체·덮어쓰기를 하지 않고 값 비노출 검증만 한다.
+  기존 값/권한이 잘못돼도 자동 재생성하지 않고 별도 복구 판단을 한다.
+- 승인한 image의 `readAuthConfig`와 동일하게 8,192바이트 이하 JSON object, 허용 필드
+  `key`/선택 `broker`, key의 `[a-f0-9]{64}` 형식을 확인한다. 현재 함수는 owner/mode/link를
+  검사하지 않으므로 배포 helper가 OS 권한/부모 경로/단일 hardlink/크기를 먼저 자동 검사한다.
+  이어서 승인된 runtime image의 `readAuthConfig({environment:'qa'})`를 network-none,
+  non-root/read-only/cap-drop ALL/128MiB 일회성 container에서 실행한다. auth 파일만 RO mount하며
+  환경에는 파일 경로만 전달한다. parser 실패 시 migration·설정 교체 전에 배포를 거부하고
+  container를 정리한다. key-only도 정상 입력이며 이 검증은 외부 broker 접속을 하지 않는다.
+- API에만 `/run/secrets/auth.json:ro` mount하고 `AUTH_SECRET_FILE`에는 이 경로만 둔다.
+  worker·migration job·Caddy에는 이 파일이나 key/broker 값을 전달하지 않는다. 기존 DB secret은
+  계속 Secrets Manager → `/run` tmpfs → DB JSON mount로 유지하며 필드·권한을 변경하지 않는다.
+- `broker`가 없으면 실제 로그인은 503으로 닫힌다. key-only로 API 기동/익명 401/권한 방어를
+  검증할 수 있지만 로그인 연동 완료라고 보고하지 않는다. broker URL/등록정보/secret은 승인된
+  관리 영역에서만 다루고 public 문서·source에는 실제 주소를 기재하지 않는다.
+- 추후 broker를 추가할 때도 기존 key는 보존한다. 별도 승인 아래 private 설정 변경·파일
+  재검증·API recreate를 수행한다. 원자 교체만으로 기존 bind mount가 갱신되지 않는다.
+
+이 방식은 새 IAM 권한·Secrets Manager 자원 없이 단일 QA instance 수명 동안 키를 유지하는
+범위다. 현재 root EBS는 암호화되지만 instance 종료 시 삭제되므로 호스트 손실/재생성을 견디는
+secret 복구 체계가 완성된 것은 아니다. 키를 잃으면 진행 중 OAuth PKCE 복호화·기존 세션의
+CSRF 재발급·IP rate-limit 식별의 연속성이 깨질 수 있다. 자동 key 재생성을 복구로 간주하지 않는다.
+실사용 확대·호스트 교체·API replica 추가 전에 동일 key의 별도 복구 보관과 공유 secret store,
+접근권한·복구 시험을 승인/구현해야 한다. DB runtime secret에 auth 값을 끼워 넣으면 폐쇄 JSON
+계약이 깨지고 worker까지 auth secret을 읽게 되므로 기존 DB secret을 재사용하지 않는다.
+
 ## 4. migration 단일 job
 
 1. 동일 릴리스의 검증된 migration image digest와 local fixture 생성·테스트 결과를 확인한다.

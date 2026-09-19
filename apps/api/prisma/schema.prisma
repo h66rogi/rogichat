@@ -231,3 +231,14 @@ model rate_buckets {
   expires_at DateTime @db.DateTime(3)
   @@index([expires_at])
 }
+
+// Operational action references are intentionally retained after future account deletion.
+// No profile/message/credential payloads or identity-provider subjects belong here.
+model audit_events {
+  id            String   @id @db.Char(36)
+  actor_user_id String   @db.Char(36)
+  room_id       String   @db.Char(36)
+  action        String   @db.VarChar(32)
+  created_at    DateTime @default(now()) @db.DateTime(3)
+  @@index([room_id, created_at])
+}

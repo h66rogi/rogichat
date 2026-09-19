@@ -19,6 +19,12 @@
 - API에는 host port·host networking·추가 network를 허용하지 않는다. edge network의 상시 peer는
   Caddy와 `rogichat-qa-api`만 허용하여 hosted API의 정확한 `trust proxy = 1` 전제를 검사한다.
   일회성 migrator는 종료·제거한 뒤 최종 network membership을 재검사한다.
+- M03 이후 Compose는 API-only `/etc/rogichat/auth.json` bind가 필수다. 별도 승인된 최초
+  생성은 운영자가 미리 수행한다. helper는 auth owner/GID/mode/link/크기와 승인된 runtime image의
+  실제 `readAuthConfig`를 자동 검증한다. network-none/read-only/128MiB 일회성 container에 auth만
+  RO mount하고 env에는 경로만 전달한다. 실패 시 배포를 거부하며 secret 생성/수정은 하지 않는다.
+  [인증 파일 운영 계약](../../docs/runbooks/qa-backend-deployment.md#m03m04-api-인증-파일-단일-qa-호스트-한정)을 따른다.
+  M02는 인증 mount가 없는 승인된 이전 artifact를 사용하며 두 revision을 섞지 않는다.
 
 요청 필드(실제 호스트 hash와 실행 식별자는 private 운영 기록에만 저장):
 
@@ -38,6 +44,8 @@
 
 기본 실행은 request/file/CI/image label/digest/host 계약 검사만 한다. API 호출도 public GitHub
 read-only이며 rate limit 또는 조회 실패 시 거부한다. 검사 이후 운영자 승인으로 `--apply`를 사용한다.
+M03 auth preflight는 위 제한된 일회성 container를 실행·제거하지만 앱/DB/호스트 설정을 바꾸지 않는다.
+`--apply`에서는 host lock 획득 뒤 migration 이전에 인증 파일 검증을 다시 수행한다.
 실행 직전 migrator JSON을 신뢰된 별도 credential reader에서 SSH stdin으로 공급한다.
 JSON/DSN을 shell argument, env, history, 로그에 넣지 않는다. 앱 instance role 권한은 늘리지 않는다.
 

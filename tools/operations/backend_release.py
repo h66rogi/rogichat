@@ -30,6 +30,7 @@ CADDY = Path('/opt/rogichat/bootstrap/Caddyfile')
 UNIT = Path('/etc/systemd/system/rogichat-app@.service')
 LOCK = Path('/run/lock/rogichat-deploy.lock')
 RUNTIME_SECRET = Path('/run/rogichat/secrets/database.json')
+AUTH_SECRET = Path('/etc/rogichat/auth.json')
 CA = Path('/etc/rogichat/rds-global-bundle.pem')
 SOURCE = 'https://github.com/h66rogi/rogichat'
 SHA = re.compile(r'[a-f0-9]{40}\Z')
@@ -129,6 +130,45 @@ def verify_image(image, source_sha):
             and data['Config']['Entrypoint'] == ['node']
             and labels.get('org.opencontainers.image.source') == SOURCE
             and labels.get('org.opencontainers.image.revision') == source_sha)
+
+
+def compose_requires_auth(compose):
+    if b'AUTH_SECRET_FILE' not in compose:
+        return False
+    # These are reviewed hash-pinned templates, not arbitrary caller YAML. Fail
+    # closed on a changed spelling/path instead of silently skipping preflight.
+    require(compose.count(b'AUTH_SECRET_FILE') == 1
+            and re.search(rb'^      AUTH_SECRET_FILE: /run/secrets/auth\.json$', compose, re.MULTILINE))
+    return True
+
+
+def validate_auth_metadata(metadata):
+    require(stat.S_ISREG(metadata.st_mode) and stat.S_IMODE(metadata.st_mode) == 0o440
+            and metadata.st_uid == 0 and metadata.st_gid == 10001 and metadata.st_nlink == 1
+            and 0 < metadata.st_size <= 8192)
+
+
+def verify_auth_secret(compose, image):
+    if not compose_requires_auth(compose):
+        return
+    # Check size/type before reading. protected() additionally checks every parent
+    # and rejects symlinks/group/other writes. No key generation or file mutation.
+    validate_auth_metadata(AUTH_SECRET.lstat())
+    protected(AUTH_SECRET, mode=0o440)
+    name = 'rogichat-qa-auth-preflight-' + str(uuid.uuid4())
+    code = ("try{const{readAuthConfig}=await import('./dist/auth-config.js');"
+            "readAuthConfig({environment:'qa'});process.exit(0)}catch{process.exit(1)}")
+    try:
+        docker('run', '--rm', '--pull', 'never', '--name', name, '--network', 'none', '--read-only',
+               '--user', '10001:10001', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+               '--memory', '128m', '--pids-limit', '64', '--log-driver', 'none',
+               '--mount', 'type=bind,src=/etc/rogichat/auth.json,dst=/run/secrets/auth.json,readonly',
+               '--env', 'AUTH_SECRET_FILE=/run/secrets/auth.json',
+               image, '--input-type=module', '-e', code, timeout=20)
+    finally:
+        # A timed-out Docker client must not leave a container with auth mounted.
+        subprocess.run(['/usr/bin/docker', 'rm', '-f', name], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=30)
 
 
 def get_caddy(network):
@@ -314,10 +354,11 @@ def main():
     for key in ('runtime_image', 'migration_image'):
         # Pull explicitly approved digests separately before invoking this helper.
         verify_image(request[key], request['source_sha'])
+    verify_auth_secret(files['compose'], request['runtime_image'])
     container = get_caddy(request['edge_network'])
     require(not (RELEASES / ('backup-' + request['request_id'])).exists())
     if not args.apply:
-        print('QA release request, files, CI, images and host contract verified; no changes made.')
+        print('QA release preflight verified; no app, DB or configuration changes made.')
         return
     fd = os.open(LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w') as lock:
@@ -327,6 +368,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         require(time.time() < request['expires_at'])
         require(digest(protected(CADDY)) == request['previous_caddy_sha256'])
+        verify_auth_secret(files['compose'], request['runtime_image'])
         def interrupt(*_):
             raise Rejected('interrupted')
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):

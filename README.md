@@ -2,9 +2,10 @@
 
 후로기(h66rogi)를 위한 SOOP 중심 채팅·커뮤니티 서비스.
 비상업적 이용을 허용하는 소스 공개(source-available) 모노레포이며,
-현재 단계는 **보안 기반 설정과 QA 인프라 준비**다.
-private ops와 공개키 목록, QA Terraform·Caddy bootstrap과 검증 CI를 준비했다.
-클라우드 적용·실서비스 배포와 앱 구현은 아직 완료되지 않았다.
+현재 단계는 **QA 인프라와 백엔드 M01–M04 기반 구현**이다.
+QA EC2·Aurora·Caddy와 검증 CI가 준비됐으며, 백엔드 인증·프로필·방 권한을 격리 DB에서 검증했다.
+실제 API 배포·SOOP 로그인·채팅 출시 gate는 별도로 추적하며 완료된 것으로 간주하지 않는다.
+[구현 계획과 상태](docs/backend-mvp-execution-plan.md)를 참고한다.
 
 ## 라이선스
 

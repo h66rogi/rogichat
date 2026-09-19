@@ -41,7 +41,10 @@ Its historical QA runtime is retired; QA source publication is **not** a running
 The provider's permanent canonical subject contract and registered client/callback still need
 verification. The broker deliberately returns `SUBJECT_CONTRACT_UNVERIFIED` before collecting a
 provider token. Neither a synthetic fixture subject nor a display/image-path fallback may enable it.
-Production promotion remains a separate reviewed decision. Native mobile callback/session handoff
+User selected the existing production broker origin for both Rogichat QA and production. Client,
+callback and audience bindings remain separate; the address is server configuration, not public
+source or client configuration. Production promotion remains a separate reviewed decision.
+Native mobile callback/session handoff
 also remains its explicit release gate; these endpoints currently implement the web cookie contract.
 
 ## Evidence

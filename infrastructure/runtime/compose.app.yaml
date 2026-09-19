@@ -15,13 +15,15 @@ x-runtime: &runtime
   tmpfs:
     - /tmp:rw,noexec,nosuid,nodev,size=16777216,mode=1777
   volumes:
-    - type: bind
+    - &database-secret
+      type: bind
       source: /run/rogichat/secrets/database.json
       target: /run/secrets/database.json
       read_only: true
       bind:
         create_host_path: false
-    - type: bind
+    - &database-ca
+      type: bind
       source: /etc/rogichat/rds-global-bundle.pem
       target: /run/secrets/rds-ca.pem
       read_only: true
@@ -53,6 +55,18 @@ services:
       HOST: 0.0.0.0
       PORT: "3000"
       DB_POOL_SIZE: "5"
+      AUTH_SECRET_FILE: /run/secrets/auth.json
+    # M03+: API only. Never add auth credentials to the shared runtime anchor or
+    # worker/migration containers. Prepare the reviewed persistent host file first.
+    volumes:
+      - *database-secret
+      - *database-ca
+      - type: bind
+        source: /etc/rogichat/auth.json
+        target: /run/secrets/auth.json
+        read_only: true
+        bind:
+          create_host_path: false
     mem_limit: 512m
     cpus: 0.75
     expose: ["3000"]

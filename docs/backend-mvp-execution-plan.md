@@ -1,6 +1,6 @@
 # 저비용 MVP 백엔드 실행 계획
 
-2026-09-20. **M01·M02·M03 내부 구현/검증, M04 작업 중. 실제 QA 앱 배포와 실제 SOOP 로그인은 각각 별도 gate다.**
+2026-09-20. **M01–M04 내부 구현/검증. 실제 QA 앱 배포와 실제 SOOP 로그인은 각각 별도 gate다.**
 사용자 최신 결정: 초기 1명 수준 사용, 상시 비용 최소화, 구조상 확장성 유지.
 제품 정책은 [백엔드 설계](backend-design.md), 동시성·sync 상세는
 [기술 구현 계획](backend-implementation-plan.md), 이번 재검토는 [MVP 리뷰](backend-mvp-review.md)를 따른다.
@@ -183,6 +183,8 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
 - 실제 사용자 투입 gate: 웹 실제 로그인과 대상 모바일 인증 계약 확인, mock login runtime 활성화 불가.
 
 ### M04 — 프로필·생일·방 정책·접근 제어
+
+구현·DTO·후속 sync 경계: [M04 기록](backend-m04-implementation.md).
 
 - 의존: M03. 변경: profile/month/day/global visibility, 방 목록·입장/퇴장·history snapshot,
   `canReadMessage`, `canPublishSource`, DTO projection과 admin capability.
