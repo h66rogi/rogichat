@@ -110,12 +110,15 @@ public PR CI에는 cloud/서명 자격증명을 주지 않는다. 서명 배포�
 
 ## iOS 개발 환경 준비 기록
 
-2026-09-20 확인: 개발 Mac의 활성 경로는 Command Line Tools이며 Xcode 앱은 없다.
-`xcodes` 2.1.0 공식 배포 CLI를 SHA-256과 Apple Developer ID 서명 검증 후 설치했다.
-Xcode 26.6 다운로드는 Apple 계정 인증 대기이며 설치 완료로 취급하지 않는다.
+2026-09-20: 개발 볼륨에 Xcode 26.6(build 17F113)을 설치했고 설치 도구의 Apple 코드 서명·
+security assessment 검사를 통과했다. `xcodebuild -version`으로 실제 설치 버전을 확인했다.
+시스템 활성 경로는 기존 Command Line Tools를 유지하며 프로젝트별 DEVELOPER_DIR를 사용한다.
+`xcodes` 2.1.0 공식 배포 CLI는 SHA-256과 Apple Developer ID 서명을 확인했다.
+SDK 조회와 컴파일은 Apple 라이선스 동의·first-launch 초기 구성 대기다. SwiftUI/Observation,
+Swift 6, iOS 18용 임시 unsigned 시험 프로젝트를 준비했으며 아직 빌드 성공을 주장하지 않는다.
 최신 Xcode 27 사용에는 OS 업데이트가 필요하고, OS 재부팅/업데이트는 아직 수행하지 않았다.
 
-설치 후 다음 증거가 모두 있어야 개발 환경 완료로 기록한다.
+다음 증거가 모두 있어야 개발 환경 완료로 기록한다.
 
 - `DEVELOPER_DIR=<설치 앱>/Contents/Developer`로 `xcodebuild -version`, `-showsdks`,
   `xcrun --sdk iphoneos --show-sdk-path`와 Swift compiler 확인.

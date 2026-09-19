@@ -8,5 +8,6 @@ Swift concurrency, Socket.IO adapter, Keychain, GRDB transaction, nullable PATCH
 
 [모바일 기반 설계와 버전 후보](../../docs/mobile-foundation.md),
 [Apple 로그인·SOOP 필수 연결](../../docs/mobile-authentication.md)을 따른다.
-현재 개발 Mac은 Xcode 26.6 설치 준비 중이며 Xcode 27에는 macOS 26.6+가 필요하다.
+현재 개발 Mac에 Xcode 26.6(build 17F113)을 설치했다. Apple 라이선스 동의와 초기 구성,
+SDK·unsigned 빌드 검증은 대기 중이다. Xcode 27에는 macOS 26.6+가 필요하다.
 앱 프로젝트·Package.resolved·모바일 CI는 아직 생성하지 않았다.
