@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import urllib.request
 
 from release_common import APP_ID, API_URL, ROOT, capture, external, manifest, new_output, private_write, required, run, save_manifest, sha256
@@ -84,11 +85,17 @@ def build(cfg, number, version):
 def firebase_json(arguments, directory):
     directory = external(directory)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    result = capture(["firebase", *arguments, "--json", "--non-interactive"], env=os.environ.copy(), cwd=directory)
-    value = json.loads(result)
+    result = subprocess.run(["firebase", *arguments, "--json", "--non-interactive"],
+                            cwd=directory, capture_output=True, text=True)
+    log = directory / ("firebase-" + arguments[0].replace(":", "-") + ".log")
+    private_write(log, result.stdout + "\n" + result.stderr)
+    if result.returncode:
+        raise RuntimeError(f"Firebase request failed; inspect private log: {log}")
+    value = json.loads(result.stdout)
     if value.get("status") != "success":
         raise RuntimeError("Firebase request failed; check local login and project permissions")
-    return value["result"]
+    # CLI 15's appdistribution:distribute returns {"status":"success"} without result.
+    return value.get("result", value)
 
 
 def upload(cfg, manifest_path, notes_file):

@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import plistlib
 import tempfile
+import subprocess
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -72,6 +73,18 @@ class ReleaseGuards(unittest.TestCase):
                 release_android.upload(cfg, self.path, self.root / "notes.txt")
             self.assertEqual(cli.call_count, 1)
             self.assertEqual(cli.call_args.args[0][0], "apps:list")
+
+    def test_firebase_upload_success_can_omit_result(self):
+        response = subprocess.CompletedProcess([], 0, '{"status":"success"}', 'upload succeeded')
+        with patch.object(release_android.subprocess, "run", return_value=response):
+            result = release_android.firebase_json(["appdistribution:distribute", "fixture.apk"], self.root)
+        self.assertEqual(result["status"], "success")
+        self.assertTrue((self.root / "firebase-appdistribution-distribute.log").is_file())
+
+    def test_manual_export_is_scoped_to_qa(self):
+        options = export_options("fixture", "export", {"provisioning_profile": "profile", "signing_certificate": "certificate"})
+        self.assertEqual(options["signingStyle"], "manual")
+        self.assertEqual(options["provisioningProfiles"], {APP_ID: "profile"})
 
     def test_ipa_identity_and_version_are_checked(self):
         ipa = self.root / "App.ipa"
