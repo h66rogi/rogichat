@@ -4,6 +4,9 @@ resource "aws_lightsail_key_pair" "bootstrap" {
 }
 
 resource "aws_lightsail_instance" "qa" {
+  # Reserve the distinct address before creating the host, including recovery
+  # from an interrupted first apply with an unused address allocation.
+  depends_on        = [aws_lightsail_static_ip.qa]
   name              = "rogichat-qa"
   availability_zone = "ap-northeast-2a"
   blueprint_id      = "ubuntu_24_04"
