@@ -1,6 +1,6 @@
 # 로기챗 기반 설계안
 
-상태: 2026-09-20 갱신. MySQL 전환 확정, EC2/Aurora 전환 방향 승인, 정확한 자원 plan 적용 대기.
+상태: 2026-09-20 갱신. MySQL 전환 확정, EC2/Aurora 전환 방향 승인, 신규 자원 생성·검증 완료, API DNS 전환 대기.
 확정 요구: 공개 모노레포, QA 우선, AWS 서울, MySQL 호환 DB,
 Next.js/NestJS, Kotlin/Swift, Terraform/Atlantis, GitHub Actions/GHCR, Cloudflare DNS.
 웹 도메인은 QA `qa.rogi.chat`, prod `rogi.chat`이다. QA API는 `api.qa.rogi.chat`,
@@ -40,10 +40,10 @@ Gradle/SPM을 npm으로 대체하지 않는다. 공유 패키지를 미리 모�
 생성하고 검토된 결과를 커밋한다. 소켓은 별도 스키마가 원본이며 코드 생성 결과 drift를 CI로 검사한다.
 서버 엔티티·Prisma 모델을 클라이언트 계약으로 그대로 노출하지 않는다.
 
-## QA 배치 (EC2/Aurora 전환 방향 승인, 아직 미적용)
+## QA 배치 (EC2/Aurora 생성 완료, DNS 전환 대기)
 
 기존 Lightsail은 생성돼 있다. 다음은 [전환 검토](ec2-aurora-review.md)의 승인된 전환 방향이며
-새 EC2/Aurora 생성이나 기존 Lightsail 삭제가 승인·실행됐다는 의미가 아니다.
+EC2/Aurora 생성·관리 접속·DB TLS를 검증했으며, API DNS 전환과 기존 Lightsail 삭제는 아직 미실행이다.
 
 ```mermaid
 flowchart LR

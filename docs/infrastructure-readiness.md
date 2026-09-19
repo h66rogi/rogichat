@@ -10,7 +10,7 @@
 | 운영자 SSH 공개키 | 사용자 지정 키를 private ops에 등록, 전체 목록 검증·렌더링 도구와 공격 입력 테스트 |
 | 개인키 | 기존 관리 장비에 유지, GitHub 업로드 없음 |
 | QA API | DNS-only A 레코드 적용 완료, Caddy HTTPS 200 확인 |
-| AWS | 기존 Lightsail 생성·초기화 복구 완료; EC2 + Aurora 전환 방향 승인, 신규 plan 준비 |
+| AWS | 기존 Lightsail 생성·초기화 복구 완료; EC2 + Aurora 신규 28개 생성·실서버 검증 완료, DNS 전환 대기 |
 | Terraform state | 기존 S3 backend 재사용, rogichat 전용 두 prefix, bucket 자체 미변경 |
 | CI | public 보안 검사·mock IaC/Caddy/Compose 검증, private 키 목록·secret 검사; cloud 권한 없음 |
 | 웹 푸시 | Service Worker/Web Push 요구 확정, 제품·인프라 조건 별도 기록 |
@@ -29,17 +29,20 @@
   정상 공개 CA 검증을 포함한 HTTP 200을 확인했다. 이는 앱 배포 성공을 뜻하지 않는다.
 - private ops 공개키 reconciliation은 실제 서버에 적용하고 새 독립 SSH 인증 연결로
   검증했다. 재실행 시 승인된 키 목록과 동일함을 확인했다. 개인키는 GitHub 밖에 유지한다.
-- Tailscale 가입은 아직 하지 않았다. EC2 전환 방향이 승인되어 신규 EC2에서 SSM 초기
-  확인 → tailnet 가입 → 새 SSH 세션 검증 순서로 진행한다.
-- DB는 MySQL 계열로 변경했다. [EC2/Aurora 전환안](ec2-aurora-review.md)의 사양·비용과
-  신규 독립 Terraform root의 plan을 준비했다. EC2/Aurora 생성, API DNS 전환,
-  기존 Lightsail 삭제는 아직 실행하지 않았다.
+- 신규 EC2에서 SSM 호스트 키 확인 → tailnet 가입 → 공개키 목록 적용 → 새 SSH 인증과
+  재부팅 후 재접속을 검증했다. 공인 SSH 포트는 열지 않았다.
+- DB는 Aurora MySQL로 변경했다. [EC2/Aurora 전환안](ec2-aurora-review.md)의 사양·비용을
+  승인받아 신규 28개 자원을 생성했다. Aurora available와 EC2에서의 TLS 1.3 CA/hostname
+  검증을 통과했다. 적용 후 전체 plan은 변경 0건이다. API DNS 전환·Lightsail 삭제는 미실행이다.
+- EC2 초기 SSH socket activation에 필요한 런타임 디렉터리를 준비하도록 소스를 보완하고
+  SSM으로 복구했다. Tailnet의 RDS split-DNS 충돌은 이 EC2의 accept-dns=false로 해소했다.
+  현재 호스트 검증 성공과 보존된 최초 cloud-init 오류 이력을 구분한다.
 
 ## 남은 인프라 결정
 
-1. 신규 EC2/Aurora의 정확한 plan·비용 승인과 조직 통합 청구에서의 RI 할인 사용 확인.
+1. API DNS 전환과 검증 후 기존 Lightsail 정리. 조직 통합 청구의 RI 실제 할인 배분도 확인한다.
 2. 상시 Atlantis/관리 실행 위치. GitHub-hosted CI만으로 상시 Atlantis 서버가 생기지는 않는다.
-3. 신규 EC2의 tailnet 가입·접근 정책과 운영 DB의 복구 목표·reader 필요 여부.
+3. Tailnet 장기 운영 태그·키 만료 정책과 운영 DB의 복구 목표·reader 필요 여부.
 
 ## GitHub Actions와 Atlantis가 실행되는 곳
 

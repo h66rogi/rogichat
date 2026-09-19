@@ -1,7 +1,7 @@
 # QA EC2 / Aurora MySQL 전환
 
 2026-09-20: 사용자 승인으로 QA 앱 서버를 EC2로 전환하고 DB를 PostgreSQL에서
-MySQL 계열로 변경한다. 아래 사양과 실제 Terraform plan은 적용 전 비용 검토 대상이다.
+MySQL 계열로 변경한다. 아래 사양과 신규 28개 plan은 사용자 비용 승인 후 생성 완료했다.
 신규 자원 생성·DNS 전환·기존 Lightsail 삭제는 각각 실제 적용 상태로 구분한다.
 
 ## 제안 구성
@@ -67,4 +67,24 @@ CPU credit 요금이 생길 수 있다. DB RI는 이 비용까지 무료로 만�
 6. 검증 후 기존 Lightsail 5개 자원의 별도 destroy plan을 검토한다. 인스턴스를 단순히
    stop하면 비용 정리가 끝났다고 볼 수 없으므로 승인된 삭제와 실제 청구 자원 제거를 확인한다.
 
-현재는 사용자 결정에 따른 IaC/plan 준비 단계다. 이 문서가 EC2/Aurora 배포 완료 증거는 아니다.
+## 2026-09-20 생성·검증 결과
+
+- 신규 28개 자원 apply 완료, 적용 후 전체 plan 변경 0건.
+- EC2 SSM Online, EIP 연결, 암호화 gp3 80 GiB, IMDSv2/hop limit 1, public ingress
+  80/443만 확인했다. Docker·SSHD·tailscaled가 active이고 Caddy 이미지 버전을 검증했다.
+- SSM 경유 최초 호스트 키를 pin하고 Tailscale 등록·운영자 키 인증을 완료했다.
+  private ops 공개키 목록 적용 후 새 인증 연결과 재검사 일치를 확인했고 재부팅 후에도
+  host key와 SSH 인증·네 서비스 자동 기동을 검증했다.
+- Aurora writer available, private, 암호화/삭제 보호/백업 7일, TLS-required parameter
+  in-sync. EC2에서 실제 MySQL TLS 1.3 연결·CA·hostname 검증을 통과했다.
+  앱 전용 DB 사용자·schema migration·SQL 제품 동작은 아직 구현 전이다.
+- 최초 EC2 bootstrap에서 `/run/sshd`가 없어 SSH 검사 단계가 실패했다. 디렉터리와
+  서비스 초기화를 소스에 추가하고 SSM으로 동일 호스트에 reconcile했다.
+  최초 cloud-init 오류 이력은 보존했고 성공으로 덮어쓰지 않았다.
+- Tailnet의 RDS split-DNS와 새 VPC의 DB 이름 해석이 충돌했다. EC2는
+  `--accept-dns=false --accept-routes=false --ssh=false`로 자체 VPC DNS를 사용한다.
+  Tailscale은 관리 연결을 제공하고 OpenSSH는 승인된 공개키를 검증한다.
+  전역 Tailnet DNS는 변경하지 않았다. 향후 이 호스트의 다른 사설 이름 의존성은 별도 검토한다.
+- API DNS는 기존 Lightsail을 계속 가리킨다. 새 EC2의 Caddy는 DNS 전환 전 staged 상태이며
+  기존 Lightsail은 정상 HTTPS를 제공한다. 새 서비스 경로 전환이나 기존 서버 삭제는 미실행이다.
+
