@@ -32,7 +32,7 @@ resource "aws_lightsail_instance" "qa" {
 }
 
 resource "aws_lightsail_static_ip" "qa" {
-  name = "rogichat-qa"
+  name = "rogichat-qa-ip"
 }
 
 resource "aws_lightsail_static_ip_attachment" "qa" {

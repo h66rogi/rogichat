@@ -14,6 +14,10 @@ run "normal_operation_closes_public_ssh" {
     condition     = aws_lightsail_instance.qa.ip_address_type == "ipv4" && aws_lightsail_instance.qa.key_pair_name == aws_lightsail_key_pair.bootstrap.name
     error_message = "Require explicit IP-family policy and an imported operator key."
   }
+  assert {
+    condition     = aws_lightsail_instance.qa.name != aws_lightsail_static_ip.qa.name
+    error_message = "Lightsail instance and static IP must have distinct resource names."
+  }
 }
 
 run "bootstrap_ssh_is_scoped" {
