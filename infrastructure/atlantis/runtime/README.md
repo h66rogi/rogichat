@@ -17,6 +17,8 @@ credential-free; the App is selected for private `h66rogi/rogichat-ops` only.
   separately disables all commands except version, discovery, autoplan, custom
   workflows, overrides and Terraform downloads. All workflow hooks fail closed.
 - App credentials live under root-owned `/etc/rogichat-atlantis` on encrypted EBS.
+  Atlantis requires write-git-creds for App authentication; its Git credential
+  helper/config lives in a private HOME tmpfs, separate from persisted plan/lock data.
   The container receives its App key read-only; systemd uses LoadCredential for the
   gateway. Neither receives operator SSH private keys, Cloudflare credentials,
   Terraform state or a cloud apply role. The EC2 instance role remains SSM-only.

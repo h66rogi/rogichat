@@ -12,7 +12,8 @@ disable-autoplan: true
 disable-apply-all: true
 autodiscover-mode: disabled
 automerge: false
-write-git-creds: false
+# Required by Atlantis GitHub App authentication; HOME is an isolated tmpfs.
+write-git-creds: true
 tf-download: false
 parallel-plan: false
 parallel-apply: false

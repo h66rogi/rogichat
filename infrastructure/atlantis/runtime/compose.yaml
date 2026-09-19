@@ -7,7 +7,7 @@ services:
     user: "10001:10001"
     env_file: ${ATLANTIS_ENV_FILE:-/etc/rogichat-atlantis/atlantis.env}
     environment:
-      HOME: /var/lib/atlantis
+      HOME: /run/atlantis-home
       AWS_EC2_METADATA_DISABLED: "true"
     ports: ["127.0.0.1:4141:4141"]
     volumes:
@@ -19,7 +19,9 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: ["/tmp:mode=1777,size=64m"]
+    tmpfs:
+      - "/tmp:mode=1777,size=64m"
+      - "/run/atlantis-home:uid=10001,gid=10001,mode=0700,size=4m"
     mem_limit: 768m
     pids_limit: 150
     logging:
