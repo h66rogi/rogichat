@@ -14,6 +14,10 @@ def main():
         raise ValueError("invalid QA drill operation")
     if len(data["marker"]) != 64 or any(c not in "0123456789abcdef" for c in data["marker"]):
         raise ValueError("invalid marker")
+    host_prefix = "rogichat-qa-restore-drill.cluster-" if mode == "read" else "rogichat-qa.cluster-"
+    if not (data["host"].startswith(host_prefix)
+            and data["host"].endswith(".ap-northeast-2.rds.amazonaws.com")):
+        raise ValueError("unexpected QA source or restore target")
     expected_user = "rogichat_app" if mode == "read" else "rogichat_admin"
     if data["username"] != expected_user:
         raise ValueError("unexpected account")

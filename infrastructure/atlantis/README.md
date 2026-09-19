@@ -149,5 +149,5 @@ operator 계정 탈취, provider 취약점, 검토 누락 위험은 통과 후�
 
 private control repo를 선택해도 SSH 키를 GitHub Secrets에 넣지 않는다.
 실제 배포는 [Tailscale 내부 관리 실행기](../../docs/host-access.md)가 수행한다.
-private ops 생성은 완료했다. 실제 CI/CD 적용 실행 위치는 추가 설명 후 사용자와 논의 중이다.
+private ops와 별도 관리 EC2 생성·관리 접속 검증은 완료했다. 실제 CI/CD 적용은 위 인가기·실행 경계 검증 후 활성화한다.
 비교는 [인프라 준비 상태](../../docs/infrastructure-readiness.md)를 따른다.

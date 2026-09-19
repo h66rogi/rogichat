@@ -1,6 +1,6 @@
-# Lightsail 접근: Tailscale + OpenSSH
+# EC2 접근: Tailscale + OpenSSH
 
-확정: 서울 QA Lightsail을 기존 tailnet에 연결한다. 서버에는 승인된 SSH 공개키만
+확정: 서울 QA 앱 EC2와 별도 관리 EC2를 기존 tailnet에 연결했다. 서버에는 승인된 SSH 공개키만
 등록한다. 개인키는 GitHub 저장소/Secrets/log/artifact/image에 올리지 않는다.
 2026-09-19 추가 승인에 따라 공개키는 private `rogichat-ops`에서 GitOps로 관리하며,
 이 공개 저장소에는 계속 올리지 않는다. Tailscale은 네트워크이고 사용자 인증은 OpenSSH key로 유지한다.
@@ -13,38 +13,38 @@ Tailscale SSH의 keyless 인증은 이번 요구의 대체 수단으로 사용�
 |---|---|---|
 | 운영자 SSH 개인키 | 운영자 기기의 안전한 키 저장소 | Terraform·GitHub로 전달하지 않음 |
 | 배포 SSH 개인키 | Tailscale 내부의 전용 관리 실행기 | GitHub secret이나 runner로 전달하지 않음 |
-| 대응 공개키 | private ops의 access/qa/keys, Lightsail key pair/authorized_keys | 승인된 ops SHA의 공개키 파일 입력; public Git·image 금지 |
+| 대응 공개키 | private ops의 access/qa/keys, EC2 key pair/authorized_keys | 승인된 ops SHA의 공개키 파일 입력; public Git·image 금지 |
 | host key 검증 자료 | 관리 실행기의 비공개 known_hosts | TOFU 자동 수락·검증 해제 금지 |
 | Tailscale 초기 등록 자격증명 | 관리 영역의 일회용 전달 경로 | user_data·plan·CI 로그에 포함 금지 |
 | 가입 후 Tailscale node state | 호스트 root 소유 디렉터리 | 이미지에 bake하지 않음 |
 
-새 키가 필요하면 관리 장치에서 만들고 **public import**로 Lightsail에 등록한다.
-Terraform `tls_private_key`나 Lightsail key 생성 API로 개인키를 state에 넣지 않는다.
+새 키가 필요하면 관리 장치에서 만들고 **public import**로 EC2에 등록한다.
+Terraform `tls_private_key`나 AWS key 생성 API로 개인키를 state에 넣지 않는다.
 public key조차 값이 state에 들어갈 수 있으므로 state/plan은 비공개 관리 영역에
 보관한다. public plan summary에는 키 본문과 민감 주소가 절대 나오지 않아야 한다.
 Git에는 `file(var.ssh_public_key_path)` 같은 구조만 둘 수 있으며 실경로·키는 외부 입력이다.
-[Lightsail SSH key 관리](https://docs.aws.amazon.com/lightsail/latest/userguide/understanding-ssh-in-amazon-lightsail.html).
+[EC2 key pair 관리](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-key-pairs.html).
 
 ## 부트스트랩과 정상 접근
 
-1. private ops의 승인된 공개키 파일로 전용 Lightsail key pair를 import하고 인스턴스가 참조하게 한다.
-2. SSH 최초 접근은 운영자 고정 IP의 임시 `/32`와 IPv6 정책까지 IaC로 제한한다.
-   관리자의 실제 IP는 Git 밖 입력이다. 초기 OS/Docker/Tailscale 패키지는 자격증명 없이 설치한다.
-3. 외부 등록 경로로 Tailscale에 가입시키고 전용 `tag:rogichat-qa`를 부여한다.
-   서버는 persistent node이며 재사용 가능한 장기 auth key를 startup script에 남기지 않는다.
-4. tailnet ACL/grants와 host firewall에서 승인된 관리 주체 및
-   `tag:rogichat-deployer` → QA host TCP 22만 허용한다. 기존 광범위 allow 규칙이
-   이 제한을 무력화하지 않는지도 검사한다. 태그 소유자를 제한하고 다른 서비스 접근을 허용하지 않는다.
-5. Tailscale 경로의 SSH와 재부팅 후 재접속을 확인한 뒤 public SSH 허용을 IaC에서 제거한다.
-   sshd는 password/root login을 금지하고 승인 key만 유지한다. AWS 기본/system key가
-   남아 있는지 점검해 운영자의 복구 경로를 확인한 후 승인 key 목록에 맞춘다.
-6. 정상 접속은 `tailscale0` TCP 22와 등록 key 조합으로만 한다. Tailscale SSH 활성화는 하지 않는다.
+1. private ops의 승인된 공개키 파일로 EC2 key pair를 import한다. 개인키를 생성하거나 옮기지 않는다.
+2. 공인 SSH를 열지 않고 SSM으로 초기 상태와 host key를 확인한다. 초기 패키지는 비밀 없이 설치한다.
+3. 일회성 sign-in URL로 사용자가 회사 tailnet 가입을 완료한다. auth key를 user_data에 넣지 않는다.
+   현재 두 장비는 일반 사용자 장비이며 태그·전역 ACL/grants·만료 정책은 변경하지 않았다.
+4. SSM으로 확보한 host key를 관리 장비의 known_hosts에 pin하고 새 OpenSSH 인증을 검증한다.
+   private ops 전체 key manifest를 reconcile한 뒤 새 세션과 반복 drift 일치를 확인한다.
+5. 재부팅 후 tailnet/SSH/SSM/Docker를 확인한다. sshd는 password/root login을 금지한다.
+   Tailscale SSH는 끄고 `accept-dns=false`, `accept-routes=false`를 유지한다. 특히 앱 EC2는
+   RDS DNS를 native VPC resolver로 해석해 회사 tailnet의 기존 split-DNS 충돌을 피한다.
+6. 관리망 장애·키 분실의 복구 경로는 인증된 AWS SSM이다. 공인 SSH 상시 개방에 의존하지 않는다.
 
-2026-09-19 작업 장치의 Tailscale은 Running/online으로 확인했다. 이는 새 서버 가입,
-태그 생성 권한이나 ACL 수정 권한을 확인한 결과가 아니다. 실제 서버·policy는 아직 변경하지 않았다.
+두 EC2에서 새 SSH 인증·공개키 reconciliation·재부팅 후 접속을 검증했다. 초기 Lightsail은
+EC2 API 경로 전환 검증 후 퇴역했다. 기존 Lightsail의 임시 /32·browser-SSH 절차는 현행
+EC2 접근 절차가 아니며 Git history에만 남긴다.
 
-관리망 장애·키 분실 때는 AWS 관리 권한으로 제한된 임시 SSH 경로를 복구하는 별도
-절차가 필요하다. public SSH 상시 개방을 복구 수단으로 삼지 않는다. 원복도 IaC에 반영한다.
+장기 운영용 전용 tag/grant와 key expiry 정책은 별도 검토가 필요하다. 현재 회사 tailnet의
+일반 접근 정책을 그대로 따르므로 새 VPC 분리만으로 tailnet 전체에서 격리됐다고 주장하지 않는다.
+향후 credentialed worker는 일반 회사 tailnet 접근권 없이 별도 경계에 두어야 한다.
 
 ## GitHub 밖에서 수행하는 CD 제안
 
@@ -71,10 +71,10 @@ root에 준한다는 점은 그대로 남으므로 일반 shell을 주지 않는
 ## API hostname의 인증서: DNS-only + Caddy 확정
 
 사용자의 origin 인증서 직접 사용 의도에 맞춰 QA API는 **DNS-only + Caddy 자동 HTTPS**를
-사용자 승인을 받았다. Terraform·Caddy 설정은 준비했으며 아직 live DNS나 SSL 설정은 변경하지 않았다.
+사용자 승인을 받았다. API DNS를 EC2로 전환했고 Caddy 인증서·정상 HTTPS·재부팅 후 복구를 검증했다.
 
 ```text
-DNS 조회: Cloudflare authoritative DNS → Lightsail static IP
+DNS 조회: Cloudflare authoritative DNS → EC2 Elastic IP
 API 연결: 사용자 ── HTTPS / 공개 신뢰 인증서 ── Caddy ── 내부 HTTP ── NestJS
 ```
 

@@ -22,6 +22,7 @@ def main():
     if (data.get("username") != "rogichat_app" or data.get("database") != "rogichatqa"
             or data.get("port") != 3306 or not isinstance(data.get("password"), str)
             or len(data["password"]) < 32
+            or not data.get("host", "").startswith("rogichat-qa.cluster-")
             or not data.get("host", "").endswith(".ap-northeast-2.rds.amazonaws.com")):
         raise ValueError("unexpected runtime credential")
     DIRECTORY.mkdir(mode=0o750, parents=True, exist_ok=True)

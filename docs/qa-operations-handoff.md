@@ -68,3 +68,7 @@ Atlantis 인가기·격리 worker·GitHub App·webhook. 위 요구를 문서화�
 정확한 복구시점에 임시 private cluster/writer 두 개를 만들고 합성 marker와 TLS 접속을
 검증한 뒤 삭제한다. 원본 DB·앱 DNS는 바꾸지 않는다. full-copy 완료시간과 백업 lag는
 제품 RTO/RPO 보증과 구분한다. 실제 데이터량과 앱 복구를 포함한 시험은 출시 전 필요하다.
+
+2026-09-20 실제 시험에서 복원된 runtime 계정과 marker 조회를 CA/hostname 검증 포함
+463초 만에 확인했다. 임시 cluster/writer 삭제·원본 marker 제거·빈 state plan까지 확인했다.
+[상세 검증 기록](qa-infrastructure-verification.md)을 따른다.

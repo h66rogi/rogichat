@@ -1,6 +1,7 @@
 # 인프라 확정 사항과 남은 결정
 
 2026-09-20 갱신. 설계·파일 준비와 실제 자원 배포를 구분한다.
+[실제 검증 기록과 복구 시험](qa-infrastructure-verification.md)을 함께 확인한다.
 
 ## 확정·준비한 사항
 
@@ -67,13 +68,15 @@ SSH 배포용 장비가 생기는 것은 아니다.
 일반적인 self-hosted runner에 cloud/개인키를 주고 repo의 모든 shell을 실행하는 방식은
 관리 장비가 있어도 안전하지 않다. 서버에 고정한 실행 정책·승인 SHA와 최소 권한이 필요하다.
 앱/DB 호스트에 광범위 cloud 권한의 Atlantis를 같이 설치하지 않는다.
-현재 실행 위치는 사용자 질문에 설명을 보충한 뒤 논의 중이며 임의로 배치하지 않았다.
+사용자 승인으로 별도 관리 EC2를 생성했고 Tailnet·SSM·SSH·재부팅을 검증했다.
+Atlantis 수신기·인가기·worker는 아직 활성화하지 않았다.
 [Atlantis requirements](https://www.runatlantis.io/docs/requirements.html),
 [Atlantis security](https://www.runatlantis.io/docs/security.html).
 
 ## 앱을 올리기 전 필요하지만 지금 제품 설계를 막지 않는 항목
 
-- Aurora 백업/PITR과 복구 목표: 제안한 7일 보존과 QA RPO/RTO를 restore 시험으로 확인한다.
+- Aurora 백업/PITR: 7일 보존과 실제 합성 데이터 복원을 검증했다. 조회 가능까지 463초였고
+  임시 자원은 삭제했다. 제품 데이터량·앱 전환까지 포함한 RPO/RTO 검증은 출시 전 별도 수행한다.
   퇴역한 Lightsail에는 DB나 앱 데이터가 없었다.
 - Cloudflare zone token은 rogi.chat 전체 DNS를 편집할 수 있으므로 QA/prod의 API 권한 분리가
   자동 보장되지 않는다. 실행 정책은 허용 hostname·resource delta를 제한해야 한다.
@@ -83,5 +86,4 @@ SSH 배포용 장비가 생기는 것은 아니다.
 - [웹 푸시 기반 요구사항](web-push-foundation.md)에 VAPID/구독/캐시·권한·iOS 조건을 기록했다.
 
 저장소·키·DNS/TLS 구조는 확정됐으므로 제품 설계 초안에는 진입할 수 있다. 다음 순서는
-가입/계정 연결·역할 → 1:N 수신자 권한 → 알림 정책 → 프로필/방명록 범위다. 서버가 실제로
-배포됐다고 가정하거나 세부 기능 구현을 먼저 진행하지 않는다.
+가입/계정 연결·역할 → 1:N 수신자 권한 → 알림 정책 → 프로필/방명록 범위다. 호스트·DB·TLS 기반의 실제 배포와 제품 기능의 구현 완료를 구분한다.

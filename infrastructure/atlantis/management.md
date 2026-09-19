@@ -40,8 +40,8 @@ Secrets Manager 읽기, 다른 호스트에 SSM command를 실행하는 권한�
 
 ## Atlantis 활성화 순서
 
-1. 호스트 생성 승인 후 SSM host key pin, Tailnet 가입, private ops 공개키 적용,
-   새 SSH 인증·재부팅 복구를 검증한다. operator 개인키는 관리 EC2에 복제하지 않는다.
+1. **완료:** 사용자 승인 후 호스트 생성, SSM host key pin, Tailnet 가입, private ops 공개키 적용,
+   새 SSH 인증·재부팅 복구를 검증했다. operator 개인키는 관리 EC2에 복제하지 않았다.
 2. GitHub App을 **private h66rogi/rogichat-ops 한 곳**에 설치한다. 공개 소스는 immutable
    SHA로 읽으며 public PR/comment를 Atlantis에 연결하지 않는다. App private key와
    webhook secret은 GitHub Git/Secrets/log/artifact 밖의 암호화 저장소에 둔다.

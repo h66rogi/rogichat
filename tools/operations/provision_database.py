@@ -41,7 +41,8 @@ def main():
     data = json.load(sys.stdin)
     if data.get("database") != DATABASE or data["admin"]["username"] != "rogichat_admin":
         raise ValueError("unexpected target")
-    if not data["host"].endswith(".ap-northeast-2.rds.amazonaws.com"):
+    if not (data["host"].startswith("rogichat-qa.cluster-")
+            and data["host"].endswith(".ap-northeast-2.rds.amazonaws.com")):
         raise ValueError("unexpected region or host")
     for role, name in ACCOUNTS.items():
         if data[role]["username"] != name or len(data[role]["password"]) < 32:
