@@ -24,7 +24,7 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Install pinned Android SDK packages
-        run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - name: Compile every variant and check environment separation
         working-directory: apps/android
         run: ./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdDebug :app:assembleProdRelease :app:test :app:lint --no-daemon
