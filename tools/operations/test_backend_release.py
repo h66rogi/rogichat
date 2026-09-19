@@ -1,5 +1,6 @@
 """Pure validation tests: no Docker, network, host writes or database access."""
 import copy
+import json
 import time
 import unittest
 import stat
@@ -23,7 +24,75 @@ def fixture():
     }
 
 
+def ready_container(role='api'):
+    request = fixture()
+    return {'Name': '/rogichat-qa-' + role, 'Config': {'Image': request['runtime_image']},
+            'Image': request['runtime_image'],
+            'HostConfig': {'PortBindings': {}, 'PublishAllPorts': False, 'NetworkMode': request['edge_network']},
+            'NetworkSettings': {'Networks': {request['edge_network']: {}}},
+            'State': {'Status': 'running', 'Running': True, 'Paused': False, 'OOMKilled': False,
+                      'Health': {'Status': 'healthy'}}}
+
+
 class RequestTests(unittest.TestCase):
+    def test_only_exact_missing_owned_container_is_transient(self):
+        result = SimpleNamespace(returncode=1, stdout=b'[]',
+                                 stderr=b'Error response from daemon: No such container: rogichat-qa-api\n')
+        with patch.object(release.subprocess, 'run', return_value=result):
+            self.assertIsNone(release.inspect_starting_container('api', 10))
+        for error in [b'permission denied', b'Cannot connect to Docker daemon',
+                      b'Error response from daemon: No such container: unrelated']:
+            result.stderr = error
+            with patch.object(release.subprocess, 'run', return_value=result), self.assertRaises(ValueError):
+                release.inspect_starting_container('api', 10)
+        result = SimpleNamespace(returncode=0, stdout=json.dumps([ready_container()]).encode(), stderr=b'')
+        with patch.object(release.subprocess, 'run', return_value=result):
+            self.assertEqual(release.inspect_starting_container('api', 10)['Name'], '/rogichat-qa-api')
+
+    def test_systemd_started_before_compose_create_waits_for_both_healthy(self):
+        with patch.object(release, 'inspect_starting_container', side_effect=[ready_container(), None,
+                          ready_container(), ready_container('worker')]) as inspect, patch.object(release.time, 'sleep') as sleep:
+            release.wait_health(fixture())
+            self.assertEqual(inspect.call_count, 4)
+            sleep.assert_called_once()
+
+    def test_created_container_without_attached_network_is_not_ready(self):
+        created = ready_container()
+        created['State'] = {'Status': 'created', 'Running': False}
+        created['NetworkSettings']['Networks'] = {}
+        with patch.object(release, 'inspect_starting_container', side_effect=[created, ready_container('worker'),
+                          ready_container(), ready_container('worker')]), patch.object(release.time, 'sleep') as sleep:
+            release.wait_health(fixture())
+            sleep.assert_called_once()
+
+    def test_startup_never_relaxes_image_ports_network_or_failed_container(self):
+        for mutate in ('image', 'ports', 'network', 'exited', 'paused', 'oom', 'error'):
+            bad = ready_container()
+            if mutate == 'image':
+                bad['Config']['Image'] = 'unapproved'
+            elif mutate == 'ports':
+                bad['State'] = {'Status': 'created', 'Running': False}
+                bad['HostConfig']['PortBindings'] = {'3000/tcp': [{'HostPort': '3000'}]}
+            elif mutate == 'network':
+                bad['NetworkSettings']['Networks']['other'] = {}
+            elif mutate == 'exited':
+                bad['State'] = {'Status': 'exited', 'Running': False}
+            elif mutate == 'paused':
+                bad['State']['Paused'] = True
+            elif mutate == 'oom':
+                bad['State']['OOMKilled'] = True
+            else:
+                bad['State'] = {'Status': 'created', 'Running': False, 'Error': 'runtime create failed'}
+            with self.subTest(mutate=mutate), patch.object(release, 'inspect_starting_container', return_value=bad), self.assertRaises(ValueError):
+                release.wait_health(fixture())
+
+    def test_missing_containers_still_fail_at_original_90_second_deadline(self):
+        with patch.object(release.time, 'monotonic', side_effect=[0, 1, 2, 3, 4, 95]), \
+                patch.object(release.time, 'sleep'), patch.object(release, 'inspect_starting_container', return_value=None) as inspect, \
+                self.assertRaises(ValueError):
+            release.wait_health(fixture())
+        self.assertEqual(inspect.call_count, 2)
+
     def test_m02_auth_file_is_not_required_or_read(self):
         with patch.object(release, 'AUTH_SECRET') as secret, patch.object(release, 'docker') as docker:
             release.verify_auth_secret(b'services:\n  api:\n    image: fixture\n', fixture()['runtime_image'])

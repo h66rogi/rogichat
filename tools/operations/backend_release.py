@@ -303,22 +303,54 @@ def caddy_config(container, data):
     docker('exec', container, 'caddy', 'reload', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile')
 
 
+def inspect_starting_container(role, timeout):
+    require(role in ('api', 'worker') and 0 < timeout <= 10)
+    name = 'rogichat-qa-' + role
+    result = subprocess.run(['/usr/bin/docker', 'container', 'inspect', name],
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
+                            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'HOME': '/root'})
+    if result.returncode == 1 and result.stderr.strip() == ('Error response from daemon: No such container: ' + name).encode():
+        # Type=simple systemd readiness precedes Compose's Docker create/start.
+        # Only this exact missing owned container is transient; daemon/auth/API
+        # failures remain immediate rejection and never bypass identity checks.
+        return None
+    require(result.returncode == 0)
+    items = json.loads(result.stdout)
+    require(type(items) is list and len(items) == 1 and items[0]['Name'] == '/' + name)
+    return items[0]
+
+
 def wait_health(request):
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         healthy = True
         for role in ('api', 'worker'):
-            item = json.loads(docker('inspect', 'rogichat-qa-' + role))[0]
+            remaining = deadline - time.monotonic()
+            require(remaining > 0)
+            item = inspect_starting_container(role, min(10, remaining))
+            if item is None:
+                healthy = False
+                continue
             require(item['Config']['Image'] == execution_image(request, 'runtime'))
             if 'archive' in request:
                 require(item['Image'] == execution_image(request, 'runtime'))
+            state = item['State']
+            require(state['Status'] in ('created', 'running') and not state.get('Paused')
+                    and not state.get('OOMKilled') and not state.get('Error'))
             if role == 'api':
-                validate_api_ingress(item, request['edge_network'])
-            if not item['State']['Running'] or item['State'].get('Health', {}).get('Status') != 'healthy':
+                if state['Status'] == 'created' and not state['Running']:
+                    # Docker may not have attached NetworkingConfig yet. No
+                    # host port/host network/other network is ever permitted.
+                    require(not item['HostConfig'].get('PortBindings') and not item['HostConfig'].get('PublishAllPorts')
+                            and item['HostConfig']['NetworkMode'] == request['edge_network']
+                            and set(item['NetworkSettings']['Networks']) in (set(), {request['edge_network']}))
+                else:
+                    validate_api_ingress(item, request['edge_network'])
+            if not state['Running'] or state.get('Health', {}).get('Status') != 'healthy':
                 healthy = False
         if healthy:
             return
-        time.sleep(2)
+        time.sleep(min(2, max(0, deadline - time.monotonic())))
     raise Rejected('health gate failed')
 
 
@@ -379,6 +411,7 @@ def deploy(request, files, container):
         for source, target in mounts:
             args.extend(['--mount', f'type=bind,src={source},dst={target},readonly'])
         docker(*args, execution_image(request, 'migration'), '/run/release/migrate_entry.mjs', timeout=360)
+        print('QA migration manifest, TLS and scoped grants verified.', flush=True)
         secret_path.unlink()
         secret_path = None
         atomic(APP / 'compose.app.yaml', files['compose'])
@@ -389,6 +422,7 @@ def deploy(request, files, container):
         run(['/usr/bin/systemctl', 'daemon-reload'])
         for role in ('api', 'worker'):
             run(['/usr/bin/systemctl', 'enable', '--now', 'rogichat-app@' + role], timeout=90)
+        print('QA app units requested; waiting for bounded container startup and health.', flush=True)
         wait_health(request)
         require(get_caddy(request['edge_network']) == container)
         caddy_config(container, files['caddy'])
