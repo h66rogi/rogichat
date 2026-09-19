@@ -22,7 +22,11 @@ KbdInteractiveAuthentication no
 PermitRootLogin no
 PubkeyAuthentication yes
 SSH
+# Ubuntu socket activation may not create /run/sshd before the first SSH login.
+# SSM-first provisioning must validate successfully without requiring that login.
+install -d -m 0755 /run/sshd
 sshd -t
+systemctl enable --now ssh
 systemctl reload ssh
 
 install -d -m 0755 /usr/share/keyrings
