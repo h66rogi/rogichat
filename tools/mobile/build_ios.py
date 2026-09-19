@@ -53,6 +53,7 @@ def main():
                 "MinimumOSVersion": "18.0",
                 "UIDeviceFamily": [1],
                 "CFBundleSupportedPlatforms": ["iPhoneOS"],
+                "ITSAppUsesNonExemptEncryption": False,
             }
             for key, value in expected.items():
                 if info.get(key) != value:
