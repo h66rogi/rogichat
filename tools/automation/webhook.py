@@ -10,7 +10,7 @@ import hmac
 import json
 import re
 import threading
-from socketserver import ThreadingMixIn
+from socketserver import TCPServer, ThreadingMixIn
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -152,8 +152,7 @@ def serve(credentials, database, port):
 
     # Bind literal loopback without a DNS lookup; Caddy is the sole public ingress.
     server = BoundedServer(('127.0.0.1', port), Handler, bind_and_activate=False)
-    server.socket.bind(server.server_address)
-    server.server_address = server.socket.getsockname()
+    TCPServer.server_bind(server)
     server.server_name, server.server_port = 'localhost', port
     server.server_activate()
     server.serve_forever()

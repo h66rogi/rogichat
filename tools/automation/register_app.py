@@ -9,6 +9,7 @@ from pathlib import Path
 import secrets
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from socketserver import TCPServer
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 
@@ -95,8 +96,7 @@ def main():
             self.end_headers()
 
     server = HTTPServer(('127.0.0.1', 0), Handler, bind_and_activate=False)
-    server.socket.bind(server.server_address)
-    server.server_address = server.socket.getsockname()
+    TCPServer.server_bind(server)
     server.server_name = 'localhost'
     server.server_port = server.server_address[1]
     server.server_activate()
