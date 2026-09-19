@@ -21,8 +21,8 @@ resource "aws_lightsail_instance" "qa" {
   })
 
   lifecycle {
-    # Temporary initial-bootstrap rebuild only; restore protection after verified boot.
-    prevent_destroy = false
+    # This host will hold persistent application data.
+    prevent_destroy = true
     precondition {
       condition = (
         var.access_phase == "bootstrap" && length(var.bootstrap_ssh_cidrs) > 0 ||
