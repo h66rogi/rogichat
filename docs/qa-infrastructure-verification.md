@@ -9,7 +9,7 @@
 | Caddy HTTPS | 새 EC2 공개 CA·hostname 검증, HTTP 200; 재부팅 후도 정상 |
 | Lightsail 퇴역 | TTL 300초 경과 후 5개 자원 삭제, AWS에서 instance/IP 부재·빈 state plan 확인 |
 | 앱 EC2 접근 | SSM host key pin, Tailnet OpenSSH 새 인증, public SSH 차단, 공개키 목록 일치 |
-| 관리 EC2 | 승인된 신규 15개 자원 생성, 첫 cloud-init 정상, 공인 ingress 0, SSM role만 |
+| 관리 EC2 | 승인된 신규 15개 자원 생성, 첫 cloud-init 정상, 공인 ingress는 별도 승인한 TCP 80/443만, SSM role만 |
 | 관리 EC2 복구 | 사용자 Tailnet 가입, 공개키 적용, 새 SSH·재부팅·반복 drift 검증 |
 | DB runtime | QA CRUD 가능, DDL·다른 DB 접근 거부, CA/hostname TLS 검증 |
 | DB migration | QA DDL 가능, CREATE DATABASE·mysql 시스템 테이블 접근 거부 |
@@ -38,7 +38,8 @@
 
 ## 아직 활성화하지 않은 범위
 
-- Atlantis GitHub App/webhook, 서버 소유 승인기, 격리 worker와 QA 한정 apply 권한.
+- Atlantis 서버 소유 승인기의 실행 연결, 격리 worker와 QA 한정 apply 권한.
+  GitHub App과 Caddy HTTPS webhook 연결은 완료했으며 현재는 고정 status 응답만 허용한다.
 - 앱별 image publisher/deployer와 실서비스 health·rollback 검증. 앱 프로젝트 세션과 연결한다.
 - Tailnet 장기 tag/grant·key expiry 정책, 조직 RI 할인 배분 확인.
 

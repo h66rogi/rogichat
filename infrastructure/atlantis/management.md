@@ -1,7 +1,7 @@
 # 별도 관리 EC2 제안
 
 상태: 2026-09-20. 사용자가 사양·비용·신규 15개 자원 plan을 승인하여 **관리 호스트 생성 완료**.
-GitHub App을 private ops 한 곳에 설치했다. [version-only 수신 경로](runtime/README.md)는 구현·검증 중이며 공개 ingress·권한 있는 worker는 아직 활성화하지 않았다.
+GitHub App을 private ops 한 곳에 설치했다. [연결 점검 수신 경로](runtime/README.md)를 설치하고, 사용자 승인 후 DNS·HTTPS webhook을 활성화했다. 권한 있는 Terraform worker는 아직 활성화하지 않았다.
 
 ## 사양과 비용
 
@@ -35,14 +35,15 @@ route·SG, SSM agent용 IAM role/profile, 공개키, EC2, EIP/연결을 만든�
 SSH는 Tailscale, 가입 전 복구는 SSM을 사용한다. EC2 role에는 Terraform apply,
 Secrets Manager 읽기, 다른 호스트에 SSM command를 실행하는 권한이 없다.
 
-이 단계의 공인 IPv4는 패키지 설치·SSM·Tailscale의 outbound 통신용이다. 외부 webhook
-수신을 아직 열지 않는다. 별도 호스트 생성을 Atlantis 자동화 완료로 보고하지 않는다.
+최초 생성 시 공인 IPv4는 outbound 전용이었다. 이후 별도 승인한 HTTPS 수신 규칙
+80/443만 추가했으며 22/4141/4142는 공인망에 열지 않았다. webhook 연결을
+Terraform 자동 적용 완료로 보고하지 않는다.
 
 ## Atlantis 활성화 순서
 
 1. **완료:** 사용자 승인 후 호스트 생성, SSM host key pin, Tailnet 가입, private ops 공개키 적용,
    새 SSH 인증·재부팅 복구를 검증했다. operator 개인키는 관리 EC2에 복제하지 않았다.
-2. GitHub App을 **private h66rogi/rogichat-ops 한 곳**에 설치한다. 공개 소스는 immutable
+2. **완료:** GitHub App을 **private h66rogi/rogichat-ops 한 곳**에 설치했다. 공개 소스는 immutable
    SHA로 읽으며 public PR/comment를 Atlantis에 연결하지 않는다. App private key와
    webhook secret은 GitHub Git/Secrets/log/artifact 밖의 암호화 저장소에 둔다.
 3. 서버 소유 정책으로 정확한 repo·qa·root·ops/source SHA를 제한한다. fork/autoplan/
@@ -62,10 +63,14 @@ Secrets Manager 읽기, 다른 호스트에 SSM command를 실행하는 권한�
 7. 위조 이벤트, 승인 후 push·재plan, 만료·재사용, 동시 apply, 악성 HCL, secret 출력,
    app/DB/metadata 접근, 승인자 권한 회수 시험 후 단계별로 활성화한다.
 
-현재 구현은 관리 호스트 IaC, 최소 권한 GitHub App, version-only gateway/서버 설정과
+현재 구현은 관리 호스트 IaC, 최소 권한 GitHub App, 연결 점검용 gateway/서버 설정과
 승인·재전송 방지 단위 테스트까지다. 실제 plan/apply 인가기 연결과 격리 worker는 미구현이다.
 공개 HTTPS 연결은 AWS ingress 2개와 별도 management Cloudflare record 1개의
-저장 plan을 검증한 후 적용한다. 기존 자원 변경·삭제 및 추가 상시 컴퓨팅은 없다.
+저장 plan을 사용자 승인 후 적용했다. 기존 자원 변경·삭제 및 추가 상시 컴퓨팅은 없다.
+두 root 모두 적용 후 full plan 변경 0개를 확인했다. Caddy 인증서·실제 GitHub ping 200,
+공개 UI/로그 경로 404·서명 없는 POST 403, 서비스 재시작 후 replay 거부를 검증했다.
+`rogichat status`는 현재 actor/PR 권한 확인 후 서버 health를 점검하고 고정 응답만 쓴다.
+Native `atlantis version`도 프로젝트 workflow를 거치므로 gateway에서 전달하지 않는다.
 작은 EC2 한 대를 만드는 것과 안전한 자동화 경계를 완성하는 일은 별도로 검증한다.
 
 근거: [Atlantis security](https://www.runatlantis.io/docs/security),

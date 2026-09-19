@@ -48,7 +48,7 @@
 ## 남은 인프라 결정
 
 1. 조직 통합 청구의 RI 실제 할인 배분 확인. 계정 자원 조회만으로 할인 귀속을 단정하지 않는다.
-2. [별도 관리 EC2](../infrastructure/atlantis/management.md): t3a.small·30 GiB·IPv4, 약 US$23.47/월. 15개 신규 자원 plan 사용자 승인 후 생성. Atlantis 연결·권한 실행은 검증 전 비활성.
+2. [별도 관리 EC2](../infrastructure/atlantis/management.md): t3a.small·30 GiB·IPv4, 약 US$23.47/월. 15개 신규 자원 plan 사용자 승인 후 생성. GitHub App/HTTPS 연결 점검 완료, 권한 있는 Terraform 실행은 비활성.
 3. Tailnet 장기 운영 태그·키 만료 정책과 운영 DB의 복구 목표·reader 필요 여부.
 
 ## GitHub Actions와 Atlantis가 실행되는 곳
@@ -69,7 +69,8 @@ SSH 배포용 장비가 생기는 것은 아니다.
 관리 장비가 있어도 안전하지 않다. 서버에 고정한 실행 정책·승인 SHA와 최소 권한이 필요하다.
 앱/DB 호스트에 광범위 cloud 권한의 Atlantis를 같이 설치하지 않는다.
 사용자 승인으로 별도 관리 EC2를 생성했고 Tailnet·SSM·SSH·재부팅을 검증했다.
-Atlantis 수신기·인가기·worker는 아직 활성화하지 않았다.
+Atlantis와 HTTPS gateway는 연결 점검 모드로 활성화했다. plan/apply 인가기 연결과
+격리 worker는 아직 활성화하지 않았다.
 [Atlantis requirements](https://www.runatlantis.io/docs/requirements.html),
 [Atlantis security](https://www.runatlantis.io/docs/security.html).
 

@@ -59,7 +59,8 @@ Prisma `migrate dev`의 shadow DB 생성 권한은 QA 배포 계정에 주지 �
 migration 파일은 백엔드 세션 소유이며 인프라 작업이 대신 생성하지 않는다.
 
 **아직 미완료:** 최종 앱 image·port·health 계약, 실제 서비스별 publisher/deployer,
-Atlantis 인가기·격리 worker·GitHub App·webhook. 위 요구를 문서화한 것으로 작동하는
+Atlantis 인가기의 실행 연결·격리 worker. GitHub App·HTTPS webhook은 연결했고
+현재 `rogichat status` 점검만 허용한다. 위 요구를 문서화한 것으로 작동하는
 자동 배포가 생겼다고 보고하지 않는다. 앱 artifact가 준비되면 각 경로를 실제로 검증한다.
 
 ## 복구
