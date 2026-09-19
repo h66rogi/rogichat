@@ -36,4 +36,4 @@ jobs:
           .tools/caddy adapt --config infrastructure/runtime/Caddyfile.bootstrap --adapter caddyfile --validate > /dev/null
           docker compose -f infrastructure/runtime/compose.bootstrap.yaml config --quiet
           .tools/caddy adapt --config infrastructure/atlantis/runtime/Caddyfile --adapter caddyfile --validate > /dev/null
-          docker compose -f infrastructure/atlantis/runtime/compose.yaml config --no-env-resolution --quiet
+          ATLANTIS_ENV_FILE=/dev/null docker compose -f infrastructure/atlantis/runtime/compose.yaml config --quiet
