@@ -2,8 +2,9 @@
 
 후로기(h66rogi)를 위한 SOOP 중심 채팅·커뮤니티 서비스.
 비상업적 이용을 허용하는 소스 공개(source-available) 모노레포이며,
-현재 단계는 **보안 기반 설정과 아키텍처 검토**다.
-앱 실행 코드, 클라우드 리소스, 배포 파이프라인은 설계 검토 후 순서대로 구현한다.
+현재 단계는 **보안 기반 설정과 QA 인프라 준비**다.
+private ops와 공개키 목록, QA Terraform·Caddy bootstrap과 검증 CI를 준비했다.
+클라우드 적용·실서비스 배포와 앱 구현은 아직 완료되지 않았다.
 
 ## 라이선스
 
@@ -53,6 +54,9 @@ JavaScript 의존성 관리는 pnpm workspace를 사용한다.
 7. [SOOP 소셜로그인 중계](docs/soop-authentication.md)
 8. [Tailscale·SSH와 GitHub 밖의 배포](docs/host-access.md)
 9. [브랜딩 기준](docs/branding.md)
+10. [공개 소스와 private ops 분리](docs/repository-isolation.md)
+11. [인프라 확정 사항과 남은 결정](docs/infrastructure-readiness.md)
+12. [Service Worker·웹 푸시 기반 요구사항](docs/web-push-foundation.md)
 
 제품 표기는 **로기챗**으로 통일한다. QA 웹은 `qa.rogi.chat`, API는
 `api.qa.rogi.chat`이다. 기존 OAuth callback을 유지하는 로그인 중계만 외부

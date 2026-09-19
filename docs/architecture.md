@@ -59,17 +59,17 @@ flowchart LR
   TF[Atlantis isolated management boundary] --> AWS[AWS / Cloudflare APIs]
 ```
 
-QA API는 Cloudflare DNS-only → Lightsail static IP → Caddy 공개 신뢰 HTTPS → Nest를
-권고한다. 사용자 연결은 HTTPS이며 Caddy가 인증서를 자동 발급·갱신한다. 웹은
+QA API는 Cloudflare DNS-only → Lightsail static IP → Caddy 공개 신뢰 HTTPS → Nest로
+확정했다. 사용자 연결은 HTTPS이며 Caddy가 인증서를 자동 발급·갱신한다. 웹은
 Cloudflare proxy → Full(strict) → Caddy → Next를 제안한다. 공유 호스트의 80/443은
 직접 API/ACME 접근을 허용하고 웹 hostname의 origin 우회는 Caddy에서 별도로 차단한다.
 API에는 Cloudflare proxy/WAF 보호가 적용되지 않는다. Cloudflare SSL Rule로 origin
 인증서를 브라우저에 그대로 전달할 수는 없다. [host 접근과 TLS 설계](host-access.md)에
 발급·갱신·방화벽·client IP 신뢰 경계를 기록했다. 관리 SSH는 Tailscale 위 OpenSSH로
-제한하고 개인키·공개키는 GitHub 밖에서 보관한다.
+제한하고 개인키는 GitHub 밖, 공개키는 private ops의 승인된 키 목록에서 관리한다.
 
 공개 소스·일반 IaC·검증 CI와 private 운영 명세/외부 실행기를 분리하는
-[저장소 분리안](repository-isolation.md)을 권고한다. GitHub Free private의 승인·보호
+[저장소 분리안](repository-isolation.md)은 승인됐다. GitHub Free private의 승인·보호
 제약 때문에 ops push/merge가 즉시 cloud 적용으로 이어지지 않도록 한다.
 
 Docker Compose에서 web/api는 non-root, healthcheck, restart 정책, 로그 회전,

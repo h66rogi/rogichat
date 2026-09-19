@@ -1,6 +1,6 @@
 # 공개 저장소에서의 Atlantis 설계 비교
 
-상태: 사용자 최종 선택 전. 아직 Atlantis/webhook/credential을 연결하지 않았다.
+상태: private ops 분리 B안 승인. 상시 실행 위치는 논의 중이며 Atlantis/webhook/credential은 아직 연결하지 않았다.
 **설계 판단:** 공개 저장소에서도 제한된 운영은 가능하지만, 표준 설정 몇 개만으로
 자격증명 유출 방지를 보증할 수 없다. 아래 A안의 추가 실행 경계를 구축·시험할 수
 있으면 선택 가능하다. 초기 로기챗에는 B안을 권고하며 공개 CI 자체는 유지할 수 있다.
@@ -149,4 +149,5 @@ operator 계정 탈취, provider 취약점, 검토 누락 위험은 통과 후�
 
 private control repo를 선택해도 SSH 키를 GitHub Secrets에 넣지 않는다.
 실제 배포는 [Tailscale 내부 관리 실행기](../../docs/host-access.md)가 수행한다.
-최종 선택은 사용자에게 남겨두며 이번 변경에서는 CI/CD 실행 위치를 활성화하지 않았다.
+private ops 생성은 완료했다. 실제 CI/CD 적용 실행 위치는 추가 설명 후 사용자와 논의 중이다.
+비교는 [인프라 준비 상태](../../docs/infrastructure-readiness.md)를 따른다.

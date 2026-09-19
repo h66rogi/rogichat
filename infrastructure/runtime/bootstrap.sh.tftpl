@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y ca-certificates curl ufw docker.io docker-compose-v2
+
+# SSH is limited at both the provider firewall and the host. Docker only publishes
+# 80/443; never rely on UFW to hide an accidentally published database port.
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 80/tcp
+ufw allow 443/tcp
+%{ for cidr in bootstrap_ssh_cidrs ~}
+ufw allow from '${cidr}' to any port 22 proto tcp
+%{ endfor ~}
+ufw allow in on tailscale0 to any port 22 proto tcp
+ufw --force enable
+
+cat > /etc/ssh/sshd_config.d/00-rogichat.conf <<'SSH'
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+SSH
+sshd -t
+systemctl reload ssh
+
+install -d -m 0755 /usr/share/keyrings
+curl --fail --silent --show-error https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg
+curl --fail --silent --show-error https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list -o /etc/apt/sources.list.d/tailscale.list
+apt-get update
+apt-get install -y tailscale
+systemctl enable --now tailscaled docker
+# Enrollment is performed over the approved SSH channel, never in user_data.
+
+install -d -m 0750 /opt/rogichat/bootstrap
+printf %s '${compose_base64}' | base64 --decode > /opt/rogichat/bootstrap/compose.yaml
+printf %s '${caddyfile_base64}' | base64 --decode > /opt/rogichat/bootstrap/Caddyfile
+cd /opt/rogichat/bootstrap
+docker compose config --quiet
+docker compose up -d

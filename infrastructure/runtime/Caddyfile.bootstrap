@@ -1,0 +1,16 @@
+{
+	admin localhost:2019
+}
+
+api.qa.rogi.chat {
+	# No access log until a reviewed redaction policy is installed.
+	# This is host readiness, explicitly not the future NestJS health endpoint.
+	@infra path /_infra/health
+	handle @infra {
+		respond "rogichat QA edge ready" 200
+	}
+	handle {
+		header Retry-After "300"
+		respond "로기챗 QA를 준비하고 있습니다." 503
+	}
+}

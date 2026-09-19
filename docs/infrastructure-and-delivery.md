@@ -50,8 +50,8 @@ Cloudflare provider는 v5 계열의 현재 스키마로 작성하며 v4 예제�
 ## 호스트 접근과 비밀 전달
 
 Lightsail은 기존 tailnet에 가입하고 **Tailscale 위 OpenSSH public-key 인증**을 사용한다.
-서버에는 공개키만 등록하고 개인키·공개키 모두 GitHub 저장소/Secrets/log/artifact에
-넣지 않는다. Terraform 실행 시 외부 공개키 파일을 입력하며, 키가 포함될 수 있는
+서버에는 공개키만 등록한다. 개인키는 GitHub 저장소/Secrets/log/artifact에 넣지 않고,
+공개키는 private ops에서 GitOps로 관리한다. Terraform에는 승인된 ops SHA의 파일을 입력하며,
 state/plan도 비공개로 유지한다. 개인키는 Terraform으로 생성하지 않는다.
 초기 IP 한정 SSH→tailnet 확인→public SSH 차단 순서와 복구 경로는
 [host 접근 문서](host-access.md)에 정의했다. SSM/keyless Tailscale SSH는 기본안이 아니다.
@@ -77,11 +77,11 @@ registry/image 이름을 제한하고 비밀은 root 소유 파일로 주입한�
 초기 live workflow는 보안 CI뿐이다. 위 앱 workflow는 scaffold 단계에서 생성한다.
 표의 배포 결과는 pipeline 전체의 산출물이며 SSH 실행 위치가 GitHub라는 뜻은 아니다.
 [Atlantis/CI/CD A·B·C 비교](../infrastructure/atlantis/README.md)에서 공개 CI와
-권한 있는 실행을 분리하는 B안을 권고했다. 사용자의 최종 선택 전에는 연결하지 않는다.
+권한 있는 실행을 분리하는 B안을 승인받았다. 실제 실행기 위치는 추가 논의 중이다.
 [GitHub Free 조직의 저장소 분리안](repository-isolation.md)은 public rogichat의 소스·CI,
 private rogichat-ops의 운영 명세, 외부 실행기의 cloud/SSH 권한으로 B안을 구체화한다.
 Free private의 branch protection/environment approval을 전제로 하지 않으며, 운영 명세
-merge와 실행 승인은 분리한다. QA API TLS는 [DNS-only + Caddy](host-access.md)를 권고한다.
+merge와 실행 승인은 분리한다. QA API TLS는 [DNS-only + Caddy](host-access.md)로 승인됐다.
 GHCR은 Docker/OCI 이미지용이며 pnpm/Maven/SPM 저장소를 대체하지 않는다.
 패키지는 우선 monorepo 내부 소비만 하므로 외부 package publish 권한이 필요 없다.
 

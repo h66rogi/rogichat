@@ -1,8 +1,9 @@
 # Lightsail 접근: Tailscale + OpenSSH
 
 확정: 서울 QA Lightsail을 기존 tailnet에 연결한다. 서버에는 승인된 SSH 공개키만
-등록하며 개인키·공개키 모두 GitHub 저장소, Secrets, Actions 로그/artifact, GHCR 이미지에
-올리지 않는다. Tailscale은 네트워크이고 사용자 인증은 OpenSSH key로 유지한다.
+등록한다. 개인키는 GitHub 저장소/Secrets/log/artifact/image에 올리지 않는다.
+2026-09-19 추가 승인에 따라 공개키는 private `rogichat-ops`에서 GitOps로 관리하며,
+이 공개 저장소에는 계속 올리지 않는다. Tailscale은 네트워크이고 사용자 인증은 OpenSSH key로 유지한다.
 Tailscale SSH의 keyless 인증은 이번 요구의 대체 수단으로 사용하지 않는다.
 [Tailscale SSH 문서](https://tailscale.com/docs/features/tailscale-ssh).
 
@@ -12,7 +13,7 @@ Tailscale SSH의 keyless 인증은 이번 요구의 대체 수단으로 사용�
 |---|---|---|
 | 운영자 SSH 개인키 | 운영자 기기의 안전한 키 저장소 | Terraform·GitHub로 전달하지 않음 |
 | 배포 SSH 개인키 | Tailscale 내부의 전용 관리 실행기 | GitHub secret이나 runner로 전달하지 않음 |
-| 대응 공개키 | Lightsail key pair/host authorized_keys, 관리자의 비공개 파일 | IaC 실행 시 외부 파일 입력; Git·image 금지 |
+| 대응 공개키 | private ops의 access/qa/keys, Lightsail key pair/authorized_keys | 승인된 ops SHA의 공개키 파일 입력; public Git·image 금지 |
 | host key 검증 자료 | 관리 실행기의 비공개 known_hosts | TOFU 자동 수락·검증 해제 금지 |
 | Tailscale 초기 등록 자격증명 | 관리 영역의 일회용 전달 경로 | user_data·plan·CI 로그에 포함 금지 |
 | 가입 후 Tailscale node state | 호스트 root 소유 디렉터리 | 이미지에 bake하지 않음 |
@@ -26,7 +27,7 @@ Git에는 `file(var.ssh_public_key_path)` 같은 구조만 둘 수 있으며 실
 
 ## 부트스트랩과 정상 접근
 
-1. 외부 공개키 파일로 전용 Lightsail key pair를 import하고 인스턴스가 참조하게 한다.
+1. private ops의 승인된 공개키 파일로 전용 Lightsail key pair를 import하고 인스턴스가 참조하게 한다.
 2. SSH 최초 접근은 운영자 고정 IP의 임시 `/32`와 IPv6 정책까지 IaC로 제한한다.
    관리자의 실제 IP는 Git 밖 입력이다. 초기 OS/Docker/Tailscale 패키지는 자격증명 없이 설치한다.
 3. 외부 등록 경로로 Tailscale에 가입시키고 전용 `tag:rogichat-qa`를 부여한다.
@@ -67,10 +68,10 @@ root에 준한다는 점은 그대로 남으므로 일반 shell을 주지 않는
 줄일 수 있다. 하지만 OpenSSH 개인키 문제는 해결하지 않으므로 현재 기본안으로
 선택하지 않는다. [Tailscale WIF](https://tailscale.com/docs/features/workload-identity-federation).
 
-## API hostname의 인증서: DNS-only + Caddy 권고
+## API hostname의 인증서: DNS-only + Caddy 확정
 
 사용자의 origin 인증서 직접 사용 의도에 맞춰 QA API는 **DNS-only + Caddy 자동 HTTPS**를
-우선 제안한다. 아직 DNS나 SSL 설정을 변경한 상태는 아니다.
+사용자 승인을 받았다. Terraform·Caddy 설정은 준비했으며 아직 live DNS나 SSL 설정은 변경하지 않았다.
 
 ```text
 DNS 조회: Cloudflare authoritative DNS → Lightsail static IP

@@ -12,7 +12,7 @@
 - `pre-push`와 CI: 현재 index 및 모든 reachable Git 이력의 Gitleaks 검사.
 - 체크섬으로 고정한 Gitleaks 8.30.1. 누락·실행 실패 시 차단.
 - 인라인 `gitleaks:allow` 무시, `.gitleaksignore` 금지, 전체 baseline 예외 없음.
-- SSH 공개키도 게시 금지: `.pub`/authorized_keys/known_hosts 경로 차단 및
+- 이 PUBLIC 저장소에는 SSH 공개키도 게시 금지(private ops의 승인된 키 목록만 예외): `.pub`/authorized_keys/known_hosts 경로 차단 및
   임의 파일·과거 커밋 내 OpenSSH 공개키 본문을 별도 Gitleaks 규칙으로 검사.
 - PR은 GitHub-hosted 일회성 runner, 읽기 전용 token, 자격증명 없는 checkout.
 - Actions SHA 고정, 보안 경로 CODEOWNERS 지정, Dependabot Actions 업데이트.
@@ -32,7 +32,8 @@
 | Actions AWS 인증 | GitHub OIDC + repo/environment 한정 trust | 정적 키 금지 |
 | Terraform state·plan | 접근 제한 원격 backend/관리 영역 | 금지 |
 | Apple/Android 서명 키 | 보호된 배포 환경 secret, 임시 keychain/파일 | 금지 |
-| SSH 개인키·공개키 | GitHub 밖의 관리 실행기·서버 authorized_keys | GitHub Secrets/log/artifact에도 금지 |
+| SSH 개인키 | GitHub 밖 관리 실행기 | GitHub Secrets/log/artifact에도 금지 |
+| SSH 공개키 | private rogichat-ops의 access 목록 및 서버 | public repo 게시 금지, private GitOps는 사용자 승인 |
 | NEXT_PUBLIC 값·앱 번들 설정 | 누구나 볼 수 있는 주소/공개 식별자만 | 공개로 취급 |
 | API 계약·테스트 | 합성 데이터, 비식별 fixture | 가능 |
 

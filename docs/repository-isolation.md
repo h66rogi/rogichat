@@ -1,6 +1,7 @@
 # 공개 소스와 비공개 운영 저장소
 
-상태: 2026-09-19 설계 제안. `h66rogi/rogichat-ops`는 제안 이름이며 아직 생성하지 않았다.
+상태: 2026-09-19 사용자 승인으로 `h66rogi/rogichat-ops` private 저장소를 생성했다.
+공개키 GitOps 예외도 승인됐다. 상시 Atlantis·배포 실행기의 배치는 추가 설명 후 논의 중이다.
 GitHub 조직의 Free 플랜을 확인했다. 실제 권한 있는 실행과 Atlantis 연결은 별도 구현·검증 대상이다.
 
 ## 공개 범위와 소유권
@@ -12,13 +13,13 @@ CI 설정이 공개된 것 자체보다, 그 CI가 실행하는 코드와 사용
 | 위치 | 포함할 내용 | 실행 권한 |
 |---|---|---|
 | public `h66rogi/rogichat` | apps/packages 전체, lockfile, Dockerfile, Terraform 모듈·환경 root, 값 없는 설정 예제, Compose/Caddy 템플릿, CI·배포 프로토콜 문서 | hosted PR 검증은 read-only; 검토된 qa 소스의 별도 publisher만 GHCR 쓰기 |
-| private `h66rogi/rogichat-ops` | 환경별 source SHA/root 선택, 서비스별 image digest, 실제 비밀 아닌 운영 입력·참조, 배포 요청 이력, 운영 정책 원본 | 요청·검증 역할; 저장소 push 자체에는 cloud/SSH 적용 권한 없음 |
-| GitHub 밖 관리 영역 | state/plan/full log, cloud·broker 자격증명, SSH 개인키·공개키·known_hosts, Tailscale 등록 정보, 인증서 키, 모바일 signing 자산 | 서버가 관리하는 인가·승인 후 plan/apply/deploy |
+| private `h66rogi/rogichat-ops` | 환경별 source SHA/root 선택, 서비스별 image digest, 실제 비밀 아닌 운영 입력·참조, 배포 요청 이력, SSH 공개키 목록, 운영 정책 원본 | 요청·검증 역할; 저장소 push 자체에는 cloud/SSH 적용 권한 없음 |
+| GitHub 밖 관리 영역 | state/plan/full log, cloud·broker 자격증명, SSH 개인키·known_hosts, Tailscale 등록 정보, 인증서 키, 모바일 signing 자산 | 서버가 관리하는 인가·승인 후 plan/apply/deploy |
 
 IaC 구현의 원본은 공개 모노레포에 둔다. ops에서 Terraform 소스를 복제·수정하지 않고
 immutable commit SHA로 참조한다. 공개 템플릿으로 제3자도 자기 환경에 구축할 수 있게 한다.
-private는 비밀 보관함이 아니다. SSH 공개키를 포함한 금지 자산은 private Git/Secrets/
-Actions log·artifact에도 넣지 않는다. 운영 정책 원본의 변경도 관리 실행기에 자동 반영하지 않는다.
+private는 비밀 보관함이 아니다. 공개키만 지정 access 경로에 허용하고, 개인키·토큰 등
+금지 자산은 private Git/Secrets/Actions log·artifact에도 넣지 않는다. 운영 정책 원본의 변경도 관리 실행기에 자동 반영하지 않는다.
 
 ## GitHub Free 조직의 제약
 
@@ -105,6 +106,11 @@ saved plan 승인 절차로 QA를 bootstrap할 수 있다. Atlantis를 켜는 �
 CI 전체를 private로 옮기는 C안은 공개 피드백·무료 빌드 이점을 줄이며, 코드 실행 위험은
 여전히 남으므로 초기 기본안으로 선택하지 않는다.
 
-생성 전 검토할 구체 범위는 `rogichat-ops` private/qa, write 권한 최소화, 조직 read 상속의
-허용 범위, 외부 관리 실행 위치다. 다음으로 악성/변경된 명세·승인 후 push·토큰 만료·동시
-배포·키 유출을 검증한다. 아직 repo 생성, 조직 권한 변경, 신규 credential/webhook 연결은 없다.
+추가 검토할 범위는 조직 read 상속의 허용 범위와 관리 실행 위치다.
+다음으로 악성/변경된 명세·승인 후 push·토큰 만료·동시
+배포·키 유출을 검증한다. private repo와 공개키 목록은 생성했다. 조직 권한 변경과 신규 credential/webhook 연결은 없다.
+
+SSH public-key 원본은 private ops `access/qa/keys`와 manifest에서 관리하고,
+검증된 전체 목록을 서버 authorized_keys로 렌더링한다. public 소스 checkout에 키를 복사하지
+않고 Terraform에 private ops 파일의 외부 경로를 전달한다. 개인키의 저장 정책은 변경하지 않았다.
+실행 위치별 운영 방식은 [남은 인프라 결정](infrastructure-readiness.md)에 정리했다.
