@@ -54,6 +54,38 @@ def zip_directory(directory, path):
     return 'sha256:' + archive.file_hash(path)
 
 
+def oci_tar(root, descriptor, *, mutate=None):
+    identity = descriptor['images']['runtime']['config_id']
+    with tarfile.open(root / 'runtime.tar') as tar:
+        config = tar.extractfile(identity[7:] + '.json').read()
+    layer = gzip.compress(b'synthetic layer bytes')
+    config_name = 'blobs/sha256/' + identity[7:]
+    layer_name = 'blobs/sha256/' + archive.sha256(layer)
+    manifest = {'schemaVersion': 2, 'mediaType': 'application/vnd.oci.image.manifest.v1+json',
+                'config': {'mediaType': 'application/vnd.oci.image.config.v1+json', 'digest': identity, 'size': len(config)},
+                'layers': [{'mediaType': 'application/vnd.oci.image.layer.v1.tar+gzip',
+                            'digest': 'sha256:' + archive.sha256(layer), 'size': len(layer)}]}
+    if mutate == 'config':
+        manifest['config']['digest'] = 'sha256:' + 'f' * 64
+    if mutate == 'layer':
+        manifest['layers'][0]['digest'] = 'sha256:' + 'e' * 64
+    raw = json.dumps(manifest).encode()
+    reference = {'mediaType': manifest['mediaType'], 'digest': 'sha256:' + archive.sha256(raw), 'size': len(raw)}
+    index = {'schemaVersion': 2, 'mediaType': 'application/vnd.oci.image.index.v1+json', 'manifests': [reference]}
+    if mutate == 'multiple':
+        index['manifests'].append(reference)
+    if mutate == 'raw_hash':
+        raw += b'altered'
+    with tarfile.open(root / 'runtime.tar', 'w') as tar:
+        for name, data in [(config_name, config), (layer_name, layer), ('index.json', json.dumps(index).encode()),
+             ('oci-layout', b'{"imageLayoutVersion":"1.0.0"}'), ('blobs/sha256/' + reference['digest'][7:], raw),
+             ('manifest.json', json.dumps([{'Config': config_name, 'Layers': [layer_name], 'RepoTags': None}]).encode())]:
+            item = tarfile.TarInfo(name)
+            item.size = len(data)
+            tar.addfile(item, io.BytesIO(data))
+    return reference
+
+
 class ArchiveTests(unittest.TestCase):
     def test_complete_crypto_chain(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -68,19 +100,38 @@ class ArchiveTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / 'input'
             descriptor = build(root)
-            identity = descriptor['images']['runtime']['config_id']
-            with tarfile.open(root / 'runtime.tar') as tar:
-                config = tar.extractfile(identity[7:] + '.json').read()
-            layer = gzip.compress(b'synthetic layer bytes')
-            config_name = 'blobs/sha256/' + identity[7:]
-            layer_name = 'blobs/sha256/' + archive.sha256(layer)
-            with tarfile.open(root / 'runtime.tar', 'w') as tar:
-                for name, data in [(config_name, config), (layer_name, layer), ('manifest.json',
-                     json.dumps([{'Config': config_name, 'Layers': [layer_name], 'RepoTags': None}]).encode())]:
-                    item = tarfile.TarInfo(name)
-                    item.size = len(data)
-                    tar.addfile(item, io.BytesIO(data))
-            archive.verify_tar(root / 'runtime.tar', identity, descriptor['source_sha'])
+            reference = oci_tar(root, descriptor)
+            config = archive.verify_tar(root / 'runtime.tar', descriptor['images']['runtime']['config_id'], descriptor['source_sha'])
+            self.assertEqual(config['_archive_manifest'], reference)
+
+    def test_oci_index_manifest_config_layer_chain_rejects_tampering(self):
+        for mutate in ['config', 'layer', 'multiple', 'raw_hash']:
+            with self.subTest(mutate=mutate), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary) / 'input'
+                descriptor = build(root)
+                oci_tar(root, descriptor, mutate=mutate)
+                with self.assertRaises(ValueError):
+                    archive.verify_tar(root / 'runtime.tar', descriptor['images']['runtime']['config_id'], descriptor['source_sha'])
+
+    def test_typed_containerd_identity_requires_manifest_descriptor_no_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / 'input'
+            descriptor = build(root)
+            reference = oci_tar(root, descriptor)
+            expected = descriptor['images']['runtime']
+            config = archive.verify_tar(root / 'runtime.tar', expected['config_id'], descriptor['source_sha'])
+        approval = {'execution_identity': 'archive-manifest', 'runtime_config_id': expected['config_id'],
+                    'runtime_execution_id': reference['digest']}
+        data = {'Id': reference['digest'], 'Descriptor': reference, 'Architecture': 'amd64', 'Os': 'linux',
+                'Config': config['config'], 'RootFS': {'Layers': config['rootfs']['diff_ids']}}
+        release.verify_archive_image_data(data, expected, config, descriptor['source_sha'], approval, 'runtime')
+        for field, value in [('Id', expected['config_id']), ('Descriptor', None),
+                             ('Descriptor', {**reference, 'digest': 'sha256:' + '0' * 64})]:
+            with self.assertRaises(ValueError):
+                release.verify_archive_image_data({**data, field: value}, expected, config, descriptor['source_sha'], approval, 'runtime')
+        with self.assertRaises(ValueError):
+            release.verify_archive_image_data(data, expected, config, descriptor['source_sha'],
+                                             {**approval, 'execution_identity': 'config'}, 'runtime')
 
     def test_changed_layer_rejected_even_with_valid_tar_container(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -156,6 +207,22 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 archive.verify_tar(root / 'runtime.tar', descriptor['images']['runtime']['config_id'], descriptor['source_sha'])
 
+    def test_expected_zip_filename_symlink_rejected_with_exact_entry_count(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            build(root / 'input')
+            with zipfile.ZipFile(root / 'export.zip', 'w') as zipped:
+                for item in (root / 'input').iterdir():
+                    if item.name == 'runtime.tar':
+                        link = zipfile.ZipInfo(item.name)
+                        link.external_attr = 0o120777 << 16
+                        zipped.writestr(link, '/etc/passwd')
+                    else:
+                        zipped.write(item, item.name)
+            with self.assertRaises(ValueError):
+                archive.validate_zip(root / 'export.zip', 'sha256:' + archive.file_hash(root / 'export.zip'), root / 'output')
+            self.assertFalse((root / 'output/runtime.tar').exists())
+
     def test_exact_trusted_run_only(self):
         good = {'head_sha': 'a' * 40, 'head_branch': 'qa', 'event': 'workflow_dispatch', 'status': 'completed',
                 'conclusion': 'success', 'repository': {'full_name': archive.REPOSITORY},
@@ -191,14 +258,17 @@ class ArchiveTests(unittest.TestCase):
         request = request_fixture()
         request['archive'] = {'export_sha': 'b' * 40, 'export_run': 10, 'export_attempt': 1, 'artifact_id': 20,
                               'artifact_sha256': 'sha256:' + 'c' * 64, 'runtime_config_id': 'sha256:' + 'd' * 64,
-                              'migration_config_id': 'sha256:' + 'e' * 64, 'validator_sha256': 'f' * 64}
+                              'migration_config_id': 'sha256:' + 'e' * 64, 'validator_sha256': 'f' * 64,
+                              'execution_identity': 'config', 'runtime_execution_id': 'sha256:' + 'd' * 64,
+                              'migration_execution_id': 'sha256:' + 'e' * 64}
         release.validate_request(request)
         self.assertEqual(release.execution_image(request, 'runtime'), 'sha256:' + 'd' * 64)
         with patch.object(release, 'verify_archive_images') as offline, patch.object(release, 'verify_image') as registry:
             release.verify_release_images(request)
             offline.assert_called_once_with(request)
             registry.assert_not_called()
-        for field, value in [('export_attempt', True), ('artifact_sha256', 'bad'), ('runtime_config_id', 'latest')]:
+        for field, value in [('export_attempt', True), ('artifact_sha256', 'bad'), ('runtime_config_id', 'latest'),
+                             ('execution_identity', 'auto'), ('runtime_execution_id', 'sha256:' + 'c' * 64)]:
             broken = copy.deepcopy(request)
             broken['archive'][field] = value
             with self.assertRaises(ValueError):

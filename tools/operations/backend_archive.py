@@ -110,6 +110,9 @@ def verify_tar(path, config_id, source):
     """
     small = {}
     hashes = {}
+    raw_hashes = {}
+    sizes = {}
+    compressed = {}
     seen = set()
     total = 0
     with tarfile.open(path, mode='r:') as archive:
@@ -121,19 +124,26 @@ def verify_tar(path, config_id, source):
             if member.isdir():
                 continue
             total += member.size
+            sizes[member.name] = member.size
             require(total <= LIMIT and member.size <= LIMIT)
             stream = archive.extractfile(member)
             require(stream is not None)
             head = stream.read(2)
+            compressed[member.name] = head == b'\x1f\x8b'
             stream.seek(0)
             is_config = member.name in (config_id[7:] + '.json', 'blobs/sha256/' + config_id[7:])
-            if is_config or member.name == 'manifest.json':
+            if is_config or member.name in ('manifest.json', 'index.json', 'oci-layout'):
                 require(member.size <= 4 * 1024**2 and head != b'\x1f\x8b')
                 raw = stream.read()
                 small[member.name] = raw
                 hashes[member.name] = sha256(raw)
+                raw_hashes[member.name] = hashes[member.name]
             else:
-                hashes[member.name] = stream_hash(gzip.GzipFile(fileobj=stream) if head == b'\x1f\x8b' else stream)
+                raw_hashes[member.name] = stream_hash(stream)
+                stream.seek(0)
+                hashes[member.name] = stream_hash(gzip.GzipFile(fileobj=stream)) if head == b'\x1f\x8b' else raw_hashes[member.name]
+            if member.name.startswith('blobs/sha256/'):
+                require(member.name == 'blobs/sha256/' + raw_hashes[member.name])
     manifest = json.loads(small['manifest.json'])
     require(type(manifest) is list and len(manifest) == 1)
     entry = manifest[0]
@@ -142,6 +152,36 @@ def verify_tar(path, config_id, source):
     config = json.loads(config_raw)
     validate_config(config, source)
     require(["sha256:" + hashes[name] for name in entry['Layers']] == config['rootfs']['diff_ids'])
+    # Docker 29 containerd uses the archive manifest digest as local image ID,
+    # while classic graph drivers use the config digest. Bind BOTH identities;
+    # selecting which one to execute is an explicit reviewed host request.
+    config['_archive_manifest'] = None
+    if 'index.json' in small or 'oci-layout' in small:
+        require(json.loads(small['oci-layout']) == {'imageLayoutVersion': '1.0.0'})
+        index = json.loads(small['index.json'])
+        require(index['schemaVersion'] == 2 and index['mediaType'] == 'application/vnd.oci.image.index.v1+json'
+                and len(index['manifests']) == 1)
+        reference = index['manifests'][0]
+        require(reference['mediaType'] == 'application/vnd.oci.image.manifest.v1+json'
+                and re.fullmatch(r'sha256:[a-f0-9]{64}', reference['digest']))
+        name = 'blobs/sha256/' + reference['digest'][7:]
+        require(raw_hashes[name] == reference['digest'][7:] and sizes[name] == reference['size']
+                and sizes[name] <= 4 * 1024**2)
+        with tarfile.open(path, mode='r:') as archive:
+            raw_manifest = archive.extractfile(name).read()
+        manifest = json.loads(raw_manifest)
+        require(manifest['schemaVersion'] == 2 and manifest['mediaType'] == reference['mediaType'])
+        require(entry['Config'] == 'blobs/sha256/' + config_id[7:]
+                and manifest['config']['digest'] == config_id and manifest['config']['size'] == len(config_raw)
+                and manifest['config']['mediaType'] == 'application/vnd.oci.image.config.v1+json')
+        require(len(manifest['layers']) == len(entry['Layers']))
+        for layer, layer_name in zip(manifest['layers'], entry['Layers']):
+            require(layer['digest'] == 'sha256:' + raw_hashes[layer_name] and layer['size'] == sizes[layer_name]
+                    and layer_name == 'blobs/sha256/' + layer['digest'][7:]
+                    and layer['mediaType'] == ('application/vnd.oci.image.layer.v1.tar+gzip'
+                                              if compressed[layer_name] else 'application/vnd.oci.image.layer.v1.tar'))
+        config['_archive_manifest'] = {'digest': reference['digest'], 'size': reference['size'],
+                                       'mediaType': reference['mediaType']}
     return config
 
 

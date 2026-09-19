@@ -67,13 +67,18 @@ def validate_request(value):
     if 'archive' in value:
         archive = value['archive']
         require(type(archive) is dict and set(archive) == {'export_sha', 'export_run', 'export_attempt',
-                'artifact_id', 'artifact_sha256', 'runtime_config_id', 'migration_config_id', 'validator_sha256'})
+                'artifact_id', 'artifact_sha256', 'runtime_config_id', 'migration_config_id', 'validator_sha256',
+                'execution_identity', 'runtime_execution_id', 'migration_execution_id'})
+        require(archive['execution_identity'] in ('config', 'archive-manifest'))
         require(type(archive['export_sha']) is str and SHA.fullmatch(archive['export_sha']))
         require(all(type(archive[key]) is int and archive[key] > 0
                     for key in ('export_run', 'export_attempt', 'artifact_id')))
         require(type(archive['validator_sha256']) is str and HASH.fullmatch(archive['validator_sha256']))
         require(all(type(archive[key]) is str and re.fullmatch(r'sha256:[a-f0-9]{64}', archive[key])
-                    for key in ('artifact_sha256', 'runtime_config_id', 'migration_config_id')))
+                    for key in ('artifact_sha256', 'runtime_config_id', 'migration_config_id',
+                                'runtime_execution_id', 'migration_execution_id')))
+        if archive['execution_identity'] == 'config':
+            require(all(archive[role + '_execution_id'] == archive[role + '_config_id'] for role in ('runtime', 'migration')))
     require(type(value['source_sha']) is str and SHA.fullmatch(value['source_sha']))
     for key, repo in [('runtime_image', 'rogichat-api'), ('migration_image', 'rogichat-api-migration')]:
         require(type(value[key]) is str and re.fullmatch(r'ghcr\.io/h66rogi/' + repo + r'@sha256:[a-f0-9]{64}', value[key]))
@@ -144,8 +149,25 @@ def verify_image(image, source_sha):
 
 
 def execution_image(request, role):
-    # A config digest is a Docker image ID, not an invented registry manifest.
-    return request['archive'][role + '_config_id'] if 'archive' in request else request[role + '_image']
+    return request['archive'][role + '_execution_id'] if 'archive' in request else request[role + '_image']
+
+
+def verify_archive_image_data(data, expected, config, source, approval, role):
+    identity = approval[role + '_execution_id']
+    require(expected['config_id'] == approval[role + '_config_id'])
+    if approval['execution_identity'] == 'config':
+        require(identity == expected['config_id'])
+    else:
+        require(approval['execution_identity'] == 'archive-manifest'
+                and config['_archive_manifest'] is not None
+                and identity == config['_archive_manifest']['digest']
+                and data.get('Descriptor') == config['_archive_manifest'])
+    require(data['Id'] == identity and data['Architecture'] == 'amd64'
+            and data['Os'] == 'linux' and data['Config']['User'] == '10001:10001'
+            and data['Config']['Entrypoint'] == ['node']
+            and data['Config']['Labels'].get('org.opencontainers.image.source') == SOURCE
+            and data['Config']['Labels'].get('org.opencontainers.image.revision') == source
+            and data['RootFS']['Layers'] == config['rootfs']['diff_ids'])
 
 
 def verify_archive_images(request):
@@ -167,14 +189,9 @@ def verify_archive_images(request):
         for role in ('runtime', 'migration'):
             expected = descriptor['images'][role]
             require(expected['image'] == request[role + '_image']
-                    and expected['config_id'] == execution_image(request, role))
-            data = json.loads(docker('image', 'inspect', expected['config_id']))[0]
-            require(data['Id'] == expected['config_id'] and data['Architecture'] == 'amd64'
-                    and data['Os'] == 'linux' and data['Config']['User'] == '10001:10001'
-                    and data['Config']['Entrypoint'] == ['node']
-                    and data['Config']['Labels'].get('org.opencontainers.image.source') == SOURCE
-                    and data['Config']['Labels'].get('org.opencontainers.image.revision') == request['source_sha']
-                    and data['RootFS']['Layers'] == configs[role]['rootfs']['diff_ids'])
+                    and expected['config_id'] == approval[role + '_config_id'])
+            data = json.loads(docker('image', 'inspect', execution_image(request, role)))[0]
+            verify_archive_image_data(data, expected, configs[role], request['source_sha'], approval, role)
 
 
 def verify_release_images(request):

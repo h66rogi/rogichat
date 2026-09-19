@@ -119,15 +119,29 @@ Docker tar는 경로를 추출하지 않고 config 및 layer 내용을 stream ha
 
 - `export_sha`, `export_run`, `export_attempt`, `artifact_id`, `artifact_sha256`
 - `runtime_config_id`, `migration_config_id` (각각 `sha256:<64 hex>`)
+- `execution_identity`: `config` 또는 `archive-manifest` (자동 감지/fallback 없음)
+- `runtime_execution_id`, `migration_execution_id`: 선택한 타입의 검증된 immutable ID
 - `validator_sha256` (서버에 설치한 검토된 `backend_archive.py` SHA-256)
 
-`archive-approval.json`은 앞의 7개 값을 제안할 뿐 배포 권한이 아니다. 운영자가 validator hash와
+`archive-approval.json`은 export/config 값 7개를 제안할 뿐 배포 권한이 아니다. 운영자가 execution 타입/ID, validator hash와
 다른 요청 필드를 대조해 root-owned 승인 요청에 반영한다. helper는 원본 ZIP/API 증거/registry
 manifest/config/rootfs를 다시 검증하고 로드된 이미지의 실제 ID/labels/RootFS를 검사한다.
 검증에는 `/var/tmp`의 제한된 임시 disk scratch가 필요하며 여유 공간 1GiB를 추가 확보한다.
-앱/migrator 실행은 immutable **Docker config ID**를 사용하고 원래 GHCR manifest digest도 감사
-기록에 유지한다. 두 digest는 서로 다른 개념이며 같다고 보고하지 않는다. registry mode는 기존
+classic graph driver는 `config` 타입, containerd image store는 `archive-manifest` 타입을 명시한다.
+후자는 tar의 OCI layout/index를 검사하고 index의 단일 manifest를 raw blob SHA-256/size로 검증한다.
+그 manifest의 config digest/size와 모든 layer descriptor digest/size/media type이 이미 검증한
+config·layer 파일과 일치해야 한다. `docker inspect`의 실제 `Id`와 `Descriptor`도 정확히 그 manifest와
+일치해야 한다. 임의 관측 ID, 가짜 tag, 서로 다른 타입의 자동 fallback은 허용하지 않는다.
+원래 GHCR manifest digest, config digest, archive manifest digest를 모두 감사 기록에 유지한다.
+서로 다른 세 digest를 같다고 보고하지 않는다. registry mode는 기존
 RepoDigests 검증을 그대로 유지하며 실패 시 자동으로 archive mode로 전환하지 않는다.
+
+Docker 29 신규 설치는 containerd image store가 기본이다. QA Docker 29.1.3에서 `docker load`한
+OCI archive의 `image inspect.Id`/`Descriptor.digest`가 archive manifest digest이고 source CI의 classic
+store ID(config digest)와 다른 것을 확인했다. 이 차이를 위의 명시적 typed identity로 처리하며,
+Docker 저장소 설정 변경/daemon restart/이미지 재태깅을 하지 않는다.
+[Docker containerd image store](https://docs.docker.com/engine/storage/containerd/),
+[OCI image manifest](https://github.com/opencontainers/image-spec/blob/main/manifest.md).
 
 GitHub API 장애/아티팩트 만료/digest 불일치는 배포 차단 조건이다. 만료 뒤에는 같은 source/digest의
 새 trusted export와 새 운영 승인이 필요하다. 실제 배포와 DB migration은 기존 `--apply`
