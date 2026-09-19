@@ -2,7 +2,9 @@
 
 M01 구현: Nest API/독립 worker, 검증된 설정, 안전한 로그, health와 종료 처리,
 격리 MySQL fixture, 단위/HTTP/프로세스/DB 시험, credential 없는 hosted CI.
-인증·채팅·Socket.IO·Prisma domain schema·R2·실제 배포는 아직 구현하지 않았다.
+M02는 Prisma schema/migration과 mysql2 transaction/repository, membership/history/counter/rate
+primitive를 추가한다. [M02 구현 기록](../../docs/backend-m02-implementation.md)을 따른다.
+인증·채팅·Socket.IO·R2 및 실제 QA 앱 배포 완료는 이 문서의 DB 구현과 구분한다.
 
 후속 [제품·권한 설계](../../docs/backend-design.md), [독립 리뷰](../../docs/backend-review.md),
 [다중 인스턴스 구현 계획](../../docs/backend-implementation-plan.md)을 따른다.
@@ -10,7 +12,7 @@ M01 구현: Nest API/독립 worker, 검증된 설정, 안전한 로그, health�
 
 실제 작업 순서는 [저비용 MVP 실행 계획](../../docs/backend-mvp-execution-plan.md)의 M01–M12와
 [후속 리뷰](../../docs/backend-mvp-review.md)를 따른다. API 1 + worker 1, Redis 없이 시작하며
-상시 다중 서버·1,000명 부하는 후속이다. M02 이후 작업은 미착수다.
+상시 다중 서버·1,000명 부하는 후속이다.
 
 ## 개발·검증
 
@@ -30,7 +32,8 @@ pnpm test:integration
 
 마지막 명령은 PATH의 **MySQL 8.0 mysqld**로 새 임시 datadir/loopback port를 만든다.
 기존 MySQL·QA·운영 DB를 사용하지 않는다. 임시 DB/user만 만들고 종료 시 자기 datadir까지 정리한다.
-runtime fixture 계정에는 SELECT만 주어 DDL 거부도 시험한다. root는 fixture 관리에만 사용한다.
+runtime fixture 계정에는 SELECT/INSERT/UPDATE/DELETE만 주어 DDL 거부도 시험한다.
+root는 격리 fixture 관리와 migration 생성/적용에만 사용한다.
 MySQL 없이 integration을 자동 skip하지 않으며 실패한다.
 
 Docker가 있으면 아래 fixture를 대안으로 사용할 수 있다. 고정 digest의 MySQL 8.0.44이고,
@@ -77,11 +80,10 @@ pnpm --filter @rogichat/api dev:worker
 ## Health·종료·스키마 경계
 
 - `GET /live`: 200 `{"status":"ok"}`. DB 생존 여부와 무관한 프로세스 liveness.
-- `GET /ready`: DB 연결+M01 schema gate 성공이면 200 `{"status":"ready"}`, 실패/종료 중이면
+- `GET /ready`: DB 연결+migration manifest 성공이면 200 `{"status":"ready"}`, 실패/종료 중이면
   503 `{"error":{"code":"UNAVAILABLE"}}`. DB명/버전/실패 원문은 반환하지 않는다.
-- **M01은 domain schema가 없으므로 빈 전용 DB만 ready다.** 기존 table/view가 하나라도 보이면
-  mismatch로 거부한다. 앱 startup은 DDL을 실행하지 않는다. M02에서 migration compatibility
-  manifest 기반 gate로 교체해야 하며, 이 빈 DB 검사를 제품 출시 readiness로 사용하지 않는다.
+- 적용한 migration 이름·SHA-256·완료 상태를 manifest와 비교한다. 빈 schema/미완료/알 수 없는
+  active migration은 거부하며 명시적으로 rolled back 처리한 과거 시도만 제외한다. startup DDL은 없다.
 - probe는 fresh query이며 동시 호출만 합친다. 연결 1초/획득 1.2초/query 1초 제한, 실패 연결 정리.
 - worker는 5초 간격으로 겹치지 않게 probe하고 상태 변경만 기록한다. **job 소비는 아직 하지 않는다.**
 - SIGTERM/SIGINT 시 readiness 차단→HTTP/context 종료→DB pool 종료. 10초 초과/실패는 비정상 종료.
@@ -95,9 +97,9 @@ pnpm --filter @rogichat/api dev:worker
 [Nest 12 ESM/Node 계약](https://docs.nestjs.com/migration-guide),
 [Node LTS](https://nodejs.org/en/about/previous-releases),
 [Prisma 지원 버전](https://www.prisma.io/docs/orm/release-status)을 확인했다.
-Prisma stable 7.10 계열은 M02 spike 후보이며 prerelease 8은 도입하지 않았다. M01의 MySQL2
-health adapter는 ORM 선정이나 도메인 repository 구현을 대신하지 않는다.
-패키지 exact version+lockfile, 최소 release age 24시간, dependency install script 전부 차단을 적용한다.
+Prisma stable 7.10.0 CLI를 schema/migration에 사용하며 runtime query는 단일 mysql2 pool을 쓴다.
+패키지 exact version+lockfile, 최소 release age 24시간을 적용한다. 검토한 Prisma 7.10.0의
+Node 검사와 schema-engine 설치 script만 허용하며 나머지 dependency install script는 차단한다.
 
 Backend CI는 build/test만 하며 image 발행·cloud 접속·DB migration·Caddy 변경·배포는 하지 않는다.
 실제 Aurora TLS positive 연결, 앱 image/UID/GID, migration 단일 실행과 public route는 후속 증거다.

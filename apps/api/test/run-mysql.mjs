@@ -23,8 +23,8 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
   server?.kill('SIGTERM');
 });
 
-async function run(command, args) {
-  const proc = spawn(command, args, { stdio: 'ignore' });
+async function run(command, args, env) {
+  const proc = spawn(command, args, { stdio: 'inherit', ...(env ? { env } : {}) });
   const deadline = setTimeout(() => proc.kill('SIGKILL'), 60000);
   try {
     const [code] = await once(proc, 'exit');
@@ -70,11 +70,20 @@ try {
   const runtimePassword = randomBytes(24).toString('hex');
   await admin.query(`CREATE DATABASE \`${databaseName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
   await admin.query("CREATE USER ?@'%' IDENTIFIED BY ?", [username, runtimePassword]);
-  await admin.query(`GRANT SELECT ON \`${databaseName}\`.* TO ?@'%'`, [username]);
+  await admin.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON \`${databaseName}\`.* TO ?@'%'`, [username]);
   stage = 'tests';
   const runtimeUrl = `mysql://${username}:${runtimePassword}@127.0.0.1:${port}/${databaseName}`;
   const adminUrl = `mysql://root:${encodeURIComponent(password)}@127.0.0.1:${port}/${databaseName}`;
-  testProcess = spawn(process.execPath, ['--test', 'test/integration/mysql.test.mjs'], {
+  stage = 'migration';
+  // Generated migrations only, on this harness-owned loopback database. Never reads repository .env.
+  await run('pnpm', ['exec', 'prisma', 'migrate', 'dev', '--name', 'm02_foundation'], {
+    PATH: process.env.PATH, DATABASE_URL: adminUrl,
+  });
+  if (process.argv.includes('--migration-only')) {
+    process.exitCode = 0;
+  } else {
+  stage = 'tests';
+  testProcess = spawn(process.execPath, ['--test', '--test-concurrency=1', 'test/integration/mysql.test.mjs', 'test/integration/transactions.test.mjs'], {
     stdio: 'inherit', env: {
       PATH: process.env.PATH, APP_ENV: 'test', NODE_ENV: 'test', DB_TLS_MODE: 'disabled',
       DATABASE_URL: runtimeUrl, TEST_ADMIN_URL: adminUrl, ROGICHAT_TEST_MYSQL: 'disposable',
@@ -82,6 +91,7 @@ try {
   });
   const [code] = await once(testProcess, 'exit');
   process.exitCode = code ?? 1;
+  }
 } catch {
   console.error(`Disposable MySQL harness failed at ${stage}; no external database was selected.`);
   process.exitCode = 1;

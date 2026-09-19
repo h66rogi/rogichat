@@ -7,4 +7,9 @@ engineStrict: true
 minimumReleaseAge: 1440
 # No dependency may run an installation script without an explicit review.
 allowBuilds:
+  # Reviewed: CLI Node compatibility check and pinned schema-engine download only.
+  prisma@7.10.0: true
+  '@prisma/engines@7.10.0': true
   '*': false
+  '@prisma/engines': set this to true or false
+  prisma: set this to true or false

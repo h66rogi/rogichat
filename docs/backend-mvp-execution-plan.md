@@ -1,6 +1,6 @@
 # 저비용 MVP 백엔드 실행 계획
 
-2026-09-20. **M01 개발 골격 구현, M02–M12 미착수. 실제 앱 배포는 아직 수행하지 않음.**
+2026-09-20. **M01·M02 로컬 구현/검증, M03 작업 중. 실제 QA 앱 배포는 별도 검증 전이다.**
 사용자 최신 결정: 초기 1명 수준 사용, 상시 비용 최소화, 구조상 확장성 유지.
 제품 정책은 [백엔드 설계](backend-design.md), 동시성·sync 상세는
 [기술 구현 계획](backend-implementation-plan.md), 이번 재검토는 [MVP 리뷰](backend-mvp-review.md)를 따른다.
@@ -141,7 +141,7 @@ provider 청구액의 절대 상한은 아니다. 실패 고아·외부 관리 �
 
 ## 6. PR 단위 실행 순서
 
-M01 외 단계는 **미착수**다. 의존 단계의 검증을 통과해야 다음 기능을 올린다. 구현 중 작은 PR로
+M01·M02의 구현 기록은 아래와 [M02 상세](backend-m02-implementation.md)를 따른다. 의존 단계의 검증을 통과해야 다음 기능을 올린다. 구현 중 작은 PR로
 분할할 수 있지만 인가·삭제·복구를 “나중에 붙일 기능”으로 떼지 않는다.
 
 ### M01 — scaffold와 재현 가능한 개발 환경
@@ -158,6 +158,9 @@ hosted runner 검증이며 운영 배포가 아니다. [사용법·M01 schema ga
 - 제외: Redis, 신규 cloud 자원, 모바일/웹 전체 scaffold, 구 서비스 모듈 통째 복사.
 
 ### M02 — DB 기본 schema와 transaction 경계
+
+상태: 로컬 구현 및 실제 MySQL 검증 완료. M01 리뷰 수정과 M02 리뷰 보완 반영.
+QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추적한다.
 
 - 의존: M01. 변경: users/identity/session, room/member/period/grant 기본 migration과 repository.
 - UUIDv4 user PK, `(room_id,id)` scoped unique/FK, membership 최대 1개, UTC와 문자열 collation 확정.

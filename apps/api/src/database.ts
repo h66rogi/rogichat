@@ -2,6 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createPool } from 'mysql2';
 import type { Pool, PoolConnection, RowDataPacket, PoolOptions } from 'mysql2';
 import type { Config } from './config.js';
+import { Transactions } from './transactions.js';
+import { migrationManifest } from './schema-manifest.js';
 
 export type Readiness = { ready: true; reason: 'ready' } | { ready: false; reason: 'database_unavailable' | 'schema_mismatch' };
 export interface Database {
@@ -15,6 +17,7 @@ export function poolOptions(config: Config): PoolOptions {
     host: db.host, port: db.port, user: db.user, password: db.password, database: db.name,
     connectionLimit: db.poolSize, waitForConnections: false, connectTimeout: 1000,
     timezone: 'Z', charset: 'utf8mb4', multipleStatements: false, enableKeepAlive: true,
+    supportBigNumbers: true, bigNumberStrings: true,
     ...(db.tls ? { ssl: { rejectUnauthorized: true, verifyIdentity: true, ...(db.caFile ? { ca: readFileSync(db.caFile, 'utf8') } : {}) } } : {}),
   };
 }
@@ -23,9 +26,11 @@ export class MysqlDatabase implements Database {
   private readonly pool: Pool;
   private inFlight: Promise<Readiness> | undefined;
   private closed = false;
+  readonly transactions: Transactions;
 
   constructor(config: Config) {
     this.pool = createPool(poolOptions(config));
+    this.transactions = new Transactions(this.pool);
   }
 
   check(): Promise<Readiness> {
@@ -56,18 +61,20 @@ export class MysqlDatabase implements Database {
       connection = await this.acquire();
       const active = connection;
       const tables = await new Promise<RowDataPacket[]>((resolve, reject) => {
-        // M01 deliberately has no application schema. Any table means an unknown/mismatched schema.
-        // M02 must replace this gate with the reviewed migration compatibility manifest.
-        active.query<RowDataPacket[]>({ sql: 'SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = DATABASE() LIMIT 1', timeout: 1000 }, (error, rows) => {
+        active.query<RowDataPacket[]>({ sql: 'SELECT migration_name,checksum,finished_at,rolled_back_at FROM _prisma_migrations WHERE rolled_back_at IS NULL ORDER BY migration_name LIMIT 100', timeout: 1000 }, (error, rows) => {
           if (error) reject(error);
           else resolve(rows);
         });
       });
-      return tables.length === 0 ? { ready: true, reason: 'ready' } : { ready: false, reason: 'schema_mismatch' };
-    } catch {
+      const matches = tables.length === migrationManifest.length && tables.every((row, i) => {
+        const expected = migrationManifest[i];
+        return expected && row.migration_name === expected.name && row.checksum === expected.checksum && row.finished_at !== null && row.rolled_back_at === null;
+      });
+      return matches ? { ready: true, reason: 'ready' } : { ready: false, reason: 'schema_mismatch' };
+    } catch (error) {
       connection?.destroy();
       connection = undefined;
-      return { ready: false, reason: 'database_unavailable' };
+      return { ready: false, reason: error && typeof error === 'object' && 'code' in error && error.code === 'ER_NO_SUCH_TABLE' ? 'schema_mismatch' : 'database_unavailable' };
     } finally {
       connection?.release();
     }

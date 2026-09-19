@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { createConnection } from 'mysql2/promise';
 import { readConfig } from '../../dist/config.js';
@@ -27,12 +28,16 @@ test('real MySQL readiness, schema mismatch, least privilege, both entrypoints a
   await waitFor(() => worker.output().includes('"reason":"ready"'));
   const ready = () => fetch(`http://127.0.0.1:${port}/ready`);
   assert.equal((await ready()).status, 200);
-  await admin.query('CREATE TABLE m01_schema_mismatch_fixture (id INT PRIMARY KEY)');
+  const rolledBack = randomUUID();
+  await admin.query('INSERT INTO _prisma_migrations (id,checksum,migration_name,started_at,rolled_back_at) SELECT ?,checksum,migration_name,UTC_TIMESTAMP(3),UTC_TIMESTAMP(3) FROM _prisma_migrations LIMIT 1', [rolledBack]);
+  assert.equal((await database.check()).ready, true);
+  await admin.query('DELETE FROM _prisma_migrations WHERE id=?', [rolledBack]);
+  await admin.query('UPDATE _prisma_migrations SET finished_at=NULL');
   assert.deepEqual(await database.check(), { ready: false, reason: 'schema_mismatch' });
   assert.equal((await ready()).status, 503);
   assert.equal((await fetch(`http://127.0.0.1:${port}/live`)).status, 200);
   await waitFor(() => worker.output().includes('schema_mismatch'), 7000);
-  await admin.query('DROP TABLE m01_schema_mismatch_fixture');
+  await admin.query('UPDATE _prisma_migrations SET finished_at=UTC_TIMESTAMP(3)');
   assert.equal((await ready()).status, 200);
   for (const instance of [api, worker]) {
     instance.proc.kill('SIGTERM');

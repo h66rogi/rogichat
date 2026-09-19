@@ -1,0 +1,231 @@
+datasource db {
+  provider = "mysql"
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DELETING
+  DELETED
+}
+
+enum LinkStatus {
+  VERIFIED
+  REVOKED
+}
+
+enum RoomMode {
+  FAN
+  GROUP
+}
+
+enum RoomStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum MemberRole {
+  FAN
+  STREAMER
+  MEMBER
+}
+
+enum MemberStatus {
+  ACTIVE
+  LEFT
+  BANNED
+}
+
+enum HistoryPolicy {
+  ALL_AVAILABLE
+  SINCE_JOIN
+}
+
+enum JoinPolicy {
+  OPEN_AUTHENTICATED
+  INVITE_ONLY
+  APPROVAL
+  PASSWORD
+}
+
+enum StreamKind {
+  ROOM_SHARED
+  RESTRICTED
+}
+
+enum LoginStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+model users {
+  id                    String     @id @db.Char(36)
+  status                UserStatus @default(ACTIVE)
+  membership_generation BigInt     @default(0) @db.UnsignedBigInt
+  created_at            DateTime   @default(now()) @db.DateTime(3)
+  profile               user_profiles?
+  soop                  platform_soop?
+  identities            auth_identities[]
+  sessions              auth_sessions[]
+  members               room_members[]
+  creator               creator_accounts?
+  admin                 admin_capabilities?
+}
+
+model user_profiles {
+  user_id                       String  @id @db.Char(36)
+  nickname                      String  @db.VarChar(40)
+  birthday_month                Int?    @db.UnsignedTinyInt
+  birthday_day                  Int?    @db.UnsignedTinyInt
+  birthday_visible_to_streamers Boolean @default(false)
+  revision                      BigInt  @default(1) @db.UnsignedBigInt
+  user                          users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
+}
+
+model platform_soop {
+  id               String     @id @db.Char(36)
+  user_id          String     @unique @db.Char(36)
+  provider_subject Bytes      @unique @db.VarBinary(191)
+  status           LinkStatus @default(VERIFIED)
+  verified_at      DateTime   @db.DateTime(3)
+  user             users      @relation(fields: [user_id], references: [id], onDelete: Restrict)
+}
+
+model auth_identities {
+  id         String     @id @db.Char(36)
+  user_id    String     @db.Char(36)
+  provider   String     @db.VarChar(16)
+  issuer     Bytes      @db.VarBinary(191)
+  subject    Bytes      @db.VarBinary(191)
+  status     LinkStatus @default(VERIFIED)
+  user       users      @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  @@unique([provider, issuer, subject])
+}
+
+model auth_sessions {
+  id           String    @id @db.Char(36)
+  user_id      String    @db.Char(36)
+  token_digest Bytes     @unique @db.Binary(32)
+  csrf_digest  Bytes     @db.Binary(32)
+  audience     String    @db.VarChar(32)
+  created_at   DateTime  @default(now()) @db.DateTime(3)
+  expires_at   DateTime  @db.DateTime(3)
+  revoked_at   DateTime? @db.DateTime(3)
+  user         users     @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  @@index([user_id, revoked_at])
+  @@index([expires_at])
+}
+
+model login_transactions {
+  id             String      @id @db.Char(36)
+  state_digest   Bytes       @unique @db.Binary(32)
+  browser_digest Bytes       @db.Binary(32)
+  verifier       Bytes       @db.VarBinary(128)
+  intent         String      @db.VarChar(16)
+  audience       String      @db.VarChar(32)
+  user_id        String?     @db.Char(36)
+  session_id     String?     @db.Char(36)
+  status         LoginStatus @default(PENDING)
+  expires_at     DateTime    @db.DateTime(3)
+  @@index([expires_at])
+}
+
+model creator_accounts {
+  user_id String  @id @db.Char(36)
+  enabled Boolean @default(false)
+  user    users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
+}
+
+model admin_capabilities {
+  user_id      String  @id @db.Char(36)
+  manage_rooms Boolean @default(false)
+  manage_users Boolean @default(false)
+  user         users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
+}
+
+model rooms {
+  id              String       @id @db.Char(36)
+  name            String       @db.VarChar(80)
+  mode            RoomMode
+  status          RoomStatus   @default(ACTIVE)
+  policy_version  Int          @default(1) @db.UnsignedInt
+  history_policy  HistoryPolicy @default(SINCE_JOIN)
+  join_policy     JoinPolicy   @default(OPEN_AUTHENTICATED)
+  owner_member_id String?      @db.Char(36)
+  created_at      DateTime     @default(now()) @db.DateTime(3)
+  owner           room_members? @relation("room_owner", fields: [id, owner_member_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  members         room_members[] @relation("room_members")
+  counter         room_counters?
+  streams         message_streams[]
+}
+
+model room_counters {
+  room_id    String @id @db.Char(36)
+  last_order BigInt @default(0) @db.UnsignedBigInt
+  room       rooms  @relation(fields: [room_id], references: [id], onDelete: Restrict)
+}
+
+model room_members {
+  id               String       @id @db.Char(36)
+  room_id          String       @db.Char(36)
+  user_id          String       @db.Char(36)
+  role             MemberRole
+  status           MemberStatus @default(ACTIVE)
+  active_period_id String?      @unique @db.Char(36)
+  room             rooms        @relation("room_members", fields: [room_id], references: [id], onDelete: Restrict)
+  user             users        @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  owns             rooms[]      @relation("room_owner")
+  periods          membership_periods[] @relation("period_member")
+  active_period    membership_periods? @relation("active_period", fields: [room_id, id, active_period_id], references: [room_id, member_id, id], onDelete: Restrict, onUpdate: Restrict)
+  grants           stream_grants[]
+  @@unique([room_id, id, active_period_id])
+  @@unique([room_id, user_id])
+  @@unique([room_id, id])
+}
+
+model membership_periods {
+  id                 String        @id @db.Char(36)
+  room_id            String        @db.Char(36)
+  member_id          String        @db.Char(36)
+  policy_version     Int           @db.UnsignedInt
+  history_policy     HistoryPolicy
+  visible_from_order BigInt        @db.UnsignedBigInt
+  joined_at          DateTime      @default(now()) @db.DateTime(3)
+  left_at            DateTime?     @db.DateTime(3)
+  member             room_members  @relation("period_member", fields: [room_id, member_id], references: [room_id, id], onDelete: Restrict)
+  active_for         room_members? @relation("active_period")
+  @@unique([room_id, member_id, id])
+}
+
+model message_streams {
+  id      String     @id @db.Char(36)
+  room_id String     @db.Char(36)
+  kind    StreamKind
+  room    rooms      @relation(fields: [room_id], references: [id], onDelete: Restrict)
+  grants  stream_grants[]
+  @@unique([room_id, id])
+}
+
+model stream_grants {
+  id            String       @id @db.Char(36)
+  room_id       String       @db.Char(36)
+  stream_id     String       @db.Char(36)
+  member_id     String       @db.Char(36)
+  can_read      Boolean      @default(false)
+  can_send      Boolean      @default(false)
+  valid_from    DateTime     @default(now()) @db.DateTime(3)
+  expires_at    DateTime?    @db.DateTime(3)
+  revoked_at    DateTime?    @db.DateTime(3)
+  stream        message_streams @relation(fields: [room_id, stream_id], references: [room_id, id], onDelete: Restrict)
+  member        room_members @relation(fields: [room_id, member_id], references: [room_id, id], onDelete: Restrict)
+  @@unique([stream_id, member_id])
+}
+
+model rate_buckets {
+  key_digest Bytes    @id @db.Binary(32)
+  used       Int      @db.UnsignedInt
+  expires_at DateTime @db.DateTime(3)
+  @@index([expires_at])
+}
