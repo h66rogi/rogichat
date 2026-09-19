@@ -42,10 +42,16 @@ resource "aws_lightsail_static_ip" "qa" {
 resource "aws_lightsail_static_ip_attachment" "qa" {
   static_ip_name = aws_lightsail_static_ip.qa.name
   instance_name  = aws_lightsail_instance.qa.name
+  lifecycle {
+    replace_triggered_by = [aws_lightsail_instance.qa.id]
+  }
 }
 
 resource "aws_lightsail_instance_public_ports" "qa" {
   instance_name = aws_lightsail_instance.qa.name
+  lifecycle {
+    replace_triggered_by = [aws_lightsail_instance.qa.id]
+  }
   dynamic "port_info" {
     for_each = toset([80, 443])
     content {
