@@ -1,6 +1,6 @@
 # 인프라 확정 사항과 남은 결정
 
-2026-09-19 기준. 설계·파일 준비와 실제 자원 배포를 구분한다.
+2026-09-20 갱신. 설계·파일 준비와 실제 자원 배포를 구분한다.
 
 ## 확정·준비한 사항
 
@@ -16,8 +16,11 @@
 | 웹 푸시 | Service Worker/Web Push 요구 확정, 제품·인프라 조건 별도 기록 |
 
 현재 로기챗 서버는 없고 API DNS 조회에도 A 응답이 없다. 서버 IP 없이 DNS 레코드를
-먼저 만들지 않는다. Cloudflare token은 사용자가 발급 중이며 실제 zone/record 권한은
-토큰 제공 뒤 확인한다. Caddy 자동 인증서 발급·tailnet 가입·서버 key reconciliation은
+먼저 만들지 않는다. Cloudflare token은 사용자가 macOS Keychain의
+`rogichat-cloudflare-dns` 항목에 제공했다. 토큰 활성·rogi.chat zone 활성·DNS 조회를
+확인했고 토큰 값은 로그나 별도 파일로 복사하지 않았다. DNS Edit는 실제 승인된 레코드
+변경 때 확인하며 권한 시험용 임시 레코드를 만들지 않는다.
+Caddy 자동 인증서 발급·tailnet 가입·서버 key reconciliation은
 아직 실행되지 않았다. mock test는 cloud apply나 실서버 동작의 증거가 아니다.
 
 ## 실제 자원 생성 전에 정할 사항
