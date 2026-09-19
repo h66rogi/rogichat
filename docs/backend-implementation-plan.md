@@ -3,7 +3,9 @@
 2026-09-20. 상태: **구현 전 권고안**. [제품 정책](backend-design.md)은 사용자 확정 사항을
 유지한다. 이 문서의 기술 선택·성능 목표는 구현 spike와 QA 검증으로 확정한다.
 [독립 리뷰 결과](backend-review.md)를 반영했으며 앱 코드·migration·인프라를 배포한 것은 아니다.
-사용자는 예상 규모 미정 상태에서 **동접 1,000명 기준 검토**를 선택했다. 처리 성능 실측값은 아니다.
+최신 결정: **1명 수준 저비용 MVP 운영**, 1,000명은 향후 확장 검토 기준이다.
+실제 구현 순서·초기값·PR별 검증은 [MVP 실행 단계](backend-mvp-execution-plan.md)를 따른다.
+이 문서의 분산 계약은 유지하지만 Redis·상시 복수 API·HA·1,000명 부하를 MVP 출시 조건으로 두지 않는다.
 
 ## 1. 현재 상태와 목표
 
@@ -12,7 +14,7 @@
 failover reader 없음, Caddy bootstrap을 기술한다. 이 리뷰는 live 자원을 조회하지 않았다.
 이전 기반 리뷰의 구축 상태 문구를 현재 배포 증거로 사용하지 않는다.
 
-목표는 단일 코드베이스의 모듈형 API를 처음부터 두 프로세스 이상으로 시험하고,
+목표는 단일 코드베이스의 모듈형 API를 단일 프로세스로 운영하되 필요 시 두 프로세스로 시험하고,
 메시지 저장·현재 권한·재접속 복구를 특정 API 프로세스나 Redis 생존에 의존시키지 않는 것이다.
 QA 단일 호스트에서 두 컨테이너가 정상 동작해도 호스트/AZ 장애에 대한 HA는 아니다.
 
@@ -25,7 +27,7 @@ QA 단일 호스트에서 두 컨테이너가 정상 동작해도 호스트/AZ �
 | 실시간 | Socket.IO WebSocket-only, **본문 없는 sync hint** | 현재 권한으로 REST 변경분을 조회. websocket 미지원 시 앱 수준 HTTP polling |
 | 원본 저장 | Aurora MySQL writer / InnoDB | 메시지·권한·세션·이벤트·outbox·작업 원장은 DB에 영속화 |
 | ORM/SQL | Prisma 우선 spike, repository 경계 내부의 명시적 SQL | 복합 FK·locking·SKIP LOCKED·isolation이 정확히 구현되는지 먼저 시험. 실패하면 SQL query builder 대안 ADR |
-| 서버 간 알림 | Redis-compatible shared bus + Socket.IO Redis adapter | 다중 API 단계에서 도입. Pub/Sub 알림 유실을 허용하고 DB sync로 복구 |
+| 서버 간 알림 | MVP local hint dispatcher, 확장 시 Redis adapter | API가 hint outbox를 소비. 상시 Redis는 초기 불필요 |
 | 작업 실행 | 같은 코드베이스, 별도 worker process; MySQL durable job/outbox | 미디어·삭제·push가 HTTP/API 재시작에 종속되지 않음. API마다 cron 복제 금지 |
 | 파일 | private R2 + API의 60초 GET 서명 | 기존 확정 정책 유지. 원본·썸네일·공개본 모두 인가 |
 | 계약/테스트 | OpenAPI + versioned sync/socket schema + 공통 fixture | TS/Kotlin/Swift 모델·오류·재시도·복구 동작 일치 |
@@ -44,7 +46,7 @@ polling transport를 켜면 다중 노드에서 affinity가 필요하며 Redis a
 [다중 노드](https://socket.io/docs/v4/using-multiple-nodes/).
 
 Redis Streams adapter는 일시적인 Redis 연결 단절 복구에 유리하지만 원본 DB나 영구 업무 큐는 아니다.
-현재는 payload-free hint와 DB 복구가 있으므로 단순 Pub/Sub로 시작한다. 알림 지연이 실제 병목이면
+다중 API 전환 시 payload-free hint와 DB 복구 위에 단순 Pub/Sub를 추가한다. 알림 지연이 실제 병목이면
 Streams를 비교한다. Kafka, 독자 room actor, 마이크로서비스 분리는 초기 필수 의존성으로 두지 않는다.
 [Redis adapter](https://socket.io/docs/v4/redis-adapter/),
 [Streams adapter](https://socket.io/docs/v4/redis-streams-adapter/).
@@ -55,6 +57,9 @@ Streams를 비교한다. Kafka, 독자 room actor, 마이크로서비스 분리�
 `notifications`, `jobs`, `audit`를 Nest 모듈로 분리한다. gateway/controller는 입력 검증과
 command/query 호출만 맡고, 인가·transaction·projection을 transport마다 복제하지 않는다.
 worker는 API와 같은 domain/repository를 사용하지만 실행 권한·동시성·health를 분리한다.
+MVP API는 `REALTIME_HINT` 목적 outbox만 소비하고, worker는 나머지 작업을 소비한다.
+worker가 메모리 bus로 API 프로세스에 직접 emit할 수 있다고 가정하지 않는다. 준비 완료된 미디어/
+publication 작업도 DB event+hint를 남겨 API가 전달한다. startup scheduler와 batch에 명시적 역할 필터를 둔다.
 
 모델은 제품 설계의 공통 room/member/stream 구조를 유지한다. 추가 구현 항목:
 
@@ -120,7 +125,8 @@ ACK는 `clientMessageId`, `messageId`, `status=committed`, version 정도의 최
 message/stream ID, 본문, fan identity, raw sequence, private 건수, Signed URL을 넣지 않는다.
 서버가 인증한 principal channel만 join하며 클라이언트가 임의 user/room channel을 지정할 수 없다.
 private 이벤트는 해당 fan/권한 있는 streamer에게만 힌트를 보내고 방 전체를 깨우지 않는다.
-shared 이벤트의 수신자 확장은 worker에서 chunk 단위로 처리하고 현재 참여권을 재검사한다.
+shared hint 수신자 확장은 MVP API hint dispatcher에서 chunk 단위로 처리하고 현재 참여권을
+재검사한다. worker는 domain event와 hint outbox만 기록한다.
 메시지 저장 transaction에서 전체 팬 수만큼 delivery row를 동기 생성하지 않는다.
 
 gateway의 로컬 연결 상태는 휘발 가능하다. 세션 만료·로그아웃·강퇴에 disconnect를 시도하되
@@ -211,9 +217,14 @@ creator 자격, 방장/공개 capability, 과거 private 열람 grant는 별개�
 소스 삭제 여부를 조회 조건에 포함해 대량 공개본 정리 지연 중에도 접근을 차단한다.
 인용된 메시지의 복사 본문도 원본 삭제 후 반환하지 않으며 revision/outbox/job/log에 남은
 본문을 빠뜨리지 않도록 삭제 inventory를 만든다. 서명 URL을 job payload로 저장하지 않는다.
-삭제 원장은 복구할 DB snapshot과 독립적인 보존 경로에 내보내고 export watermark를 추적한다.
-복구 시 최신 삭제 이력의 완전성을 확인할 수 없으면 serving을 열지 않는다. 구체 보존 기한·
-export 실패 처리·복구 가능한 최종 시점은 P7 운영 계약과 drill에서 확정한다.
+삭제는 인가된 외부 write-ahead intent → DB 차단 → 접수 ACK 순서로 기록한다.
+삭제 원장은 복구할 DB snapshot과 독립적으로 보존하고 replay checkpoint를 추적한다.
+복구 시 최신 삭제 이력의 완전성을 확인할 수 없으면 serving을 열지 않는다. 서비스 관리 본문·파일은
+24시간 이내 삭제, 해당 콘텐츠를 포함한 백업은 요청부터 최대 30일 내 제거한다.
+탈퇴는 본인 메시지·연결 공개본·첨부를 삭제하고 방 퇴장은 보존한다. 구체 작업은 MVP 실행 단계를 따른다.
+공개본의 표시 작성자가 아니라 원본 content owner/deletion root의 탈퇴 상태를 모든 조회와
+URL 발급·quote·publication finalize에서 확인한다. 생일 privacy revision은 streamer별 profile
+동기화로 전파하고 전체 profile replacement로 보호 필드 캐시를 제거한다.
 
 ## 7. worker·파일·분산 제한
 
@@ -234,29 +245,34 @@ DB fence는 이미 시작된 R2 PUT/COPY를 취소하지 못한다. attempt/gene
 작업의 종료/만료와 reconciliation까지 확인한 상태다.
 [Transactional outbox](https://docs.aws.amazon.com/prescriptive-guidance/latest/cloud-design-patterns/transactional-outbox.html).
 
-hint 목적 outbox는 publish 시도 완료일 뿐 기기 전달 완료가 아니다. Redis 단절이면 재시도하되
+hint 목적 outbox는 publish 시도 완료일 뿐 기기 전달 완료가 아니다. MVP는 API 로컬 전달,
+확장 구성은 Redis publish를 사용한다. Redis 단절이면 재시도하되
 DB sync는 계속 복구 경로다. notification/media/delete 목적 작업 상태를 같이 완료 처리하지 않는다.
 Redis Pub/Sub는 단절 동안의 메시지를 보관하지 않는다.
 [Redis Pub/Sub](https://redis.io/docs/latest/develop/pubsub/).
 
 업로드 quota는 DB에서 예약하고 두 API가 같은 사용자의 한도를 동시에 통과하지 못하게 한다.
 완료/거절/만료의 reservation 해제도 멱등이어야 한다. rate limit은 user/room/IP/command별
-분산 원자 counter로 구현한다. Redis rate limiter 장애 시 쓰기/로그인/서명 발급은 무제한 허용하지
+MVP에서는 DB 원자 counter와 작은 local burst 보호로 구현한다. 확장 시 Redis adapter로 전환할 수 있다.
+Redis rate limiter를 도입한 후 장애 시 쓰기/로그인/서명 발급은 무제한 허용하지
 않고 503 또는 검증된 보수적 DB 제한으로 전환한다. 단순 hint bus 장애와 구분한다.
 
 미디어 worker는 API와 별도 CPU/memory/timeout/concurrency/임시 디스크 제한으로 실행한다.
 디코더에는 앱 세션/DB 관리자 자격증명을 주지 않으며 네트워크 egress를 최소화한다.
 quarantine 업로드를 검사한 고정 bytes로 final immutable object를 만들고 READY commit을 수행한다.
 R2 key에 private 신원을 넣지 않으며 공개본에는 별도 key/attachment ID를 사용한다.
-실제 QA bucket에서 presign 만료·CORS·Range·multipart·삭제 경쟁을 시험한다.
+MVP 업로드는 backend의 실제 byte 제한·bounded scratch spool·known-length PUT을 사용한다.
+사용자용 PUT presign/multipart는 후속이며 GET 발급은 현재 인가 후 60초를 유지한다.
+실제 QA bucket에서 PUT 취소/고아 정리·GET presign 만료·CORS·Range·삭제 경쟁을 시험한다.
 [R2 presigned URLs](https://developers.cloudflare.com/r2/api/s3/presigned-urls/).
 
 ## 8. 배치·장애·배포
 
 | 구성 | 최소 검증 배치 | 보장하지 않는 것 |
 |---|---|---|
-| local/CI | API A/B + worker A/B + MySQL + Redis + proxy, 합성 계정 | Aurora/R2의 실제 동작, 호스트 HA |
-| QA | 승인된 호스트 안에서 2 API 프로세스, shared DB/bus, 별도 worker | 호스트·AZ·Caddy 장애 시 지속 서비스 |
+| local/CI 기본 | API 1 + worker 1 + MySQL, 합성 계정; concurrency fixture는 별도 profile | Aurora/R2의 실제 동작, 호스트 HA |
+| QA/MVP | 기존 승인 호스트 안 API 1 + worker 1, 기존 writer DB, Redis 없음 | 호스트·AZ·Caddy 장애 시 지속 서비스 |
+| 확장 검증 profile | API A/B + worker A/B + MySQL + Redis + proxy를 임시 실행 | 상시 cloud 자원/구매 승인이나 HA 검증 아님 |
 | HA 필요 시 별도 승인 | 다중 AZ app hosts + managed LB, Aurora failover reader, Redis 장애 전략, 분리 worker | 기존 QA 비용/plan으로 자동 승인된 구성이 아님 |
 
 Aurora storage 중복과 DB compute failover 준비는 다르다. reader 없는 구성의 복구 시간을
@@ -269,7 +285,11 @@ LB는 WSS upgrade와 idle timeout, trusted forwarded headers, connection limit�
 HTTP polling fallback은 Socket.IO long-polling이 아니라 stateless REST sync다.
 [Caddy reverse proxy](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
 
-배포 순서: 단일 migration job의 additive schema 적용 → 새 digest 기동/내부 smoke → readiness →
+MVP는 단일 migration job의 additive schema 적용 → 구 API admission 차단/drain → 종료 →
+새 digest 기동/내부 smoke/readiness 순으로 짧은 점검 중단을 허용한다. rollback은 이전 digest로 한다.
+무중단을 위해 초기 메모리·호스트 비용을 늘리지 않는다. API와 worker는 독립 교체한다.
+
+다중 API 확장 후 배포 순서: 단일 migration job의 additive schema 적용 → 새 digest 기동/내부 smoke → readiness →
 트래픽 편입 → 구 버전 내부 admission fence + readiness false → LB drain → bounded 종료.
 readiness만 바꿔 기존 keep-alive/WS의 새 명령이 계속 들어오는 상태를 방치하지 않는다.
 socket 종료 전 비민감 reconnect 힌트와 close를 보내고 클라이언트는 jitter로 재인증/sync한다.
@@ -290,9 +310,9 @@ migration/운영 여유 < 검증된 DB connection budget`으로 계산한다. �
 않는다. acquire/query/transaction deadline, circuit breaker, 재접속 jitter를 둔다.
 Aurora 장애 후 DNS/connection 갱신, uncertain commit 동일 키 재시도를 검증한다.
 
-## 9. 관측과 동접 1,000명 시험
+## 9. 관측과 확장 단계의 동접 1,000명 시험
 
-아래 숫자는 **초기 엔지니어링 시험 목표**이며 운영 SLA·측정 결과가 아니다. 동일 리전 부하
+아래 숫자는 **향후 확장 시험 목표**이며 MVP 출시 gate·운영 SLA·측정 결과가 아니다. 동일 리전 부하
 발생기에서 client/API/DB 지연을 분리하고, 성능 시험 계정은 실제 사용자 데이터와 분리한다.
 
 | 시나리오 | 초기 입력/목표 |
@@ -325,15 +345,15 @@ Redis만 죽었다고 healthy REST까지 모두 제거하지 않되 무제한 �
 
 | 단계 | 산출물 / 의존성 | 통과 기준 |
 |---|---|---|
-| P0 계약·spike | transport/sync/오류 schema, ORM/UUID/locking ADR, toolchain lock, 2-node harness | 두 API 동일 키·삭제 race·writer snapshot·native Socket.IO 호환 실증 |
+| P0 계약·spike | transport/sync/오류 schema, ORM/UUID/locking ADR, toolchain lock, 작은 test harness | 두 DB connection의 동일 키·삭제 race·writer snapshot·native 호환 실증 |
 | P1 foundation | Nest scaffold, 설정 검증, health, 구조화 로그, 사용자/SOOP/session DB, projection 규칙 | secret 없는 CI, 세션 A발급→B조회/폐기, UUID·CSRF·CORS·DTO 부정 시험 |
 | P2 방·인가 | room/member/period/grants, FAN/GROUP policy, epoch, 프로필/생일 scope | 2방/복수역할 matrix, join/rejoin 경계, admin deny, grants 변경 reset |
 | P3 텍스트 vertical slice | REST send/delete, receipt, event counter/journal, outbox, snapshot/sync | A저장→B기기 표시, ACK 유실 retry, 삭제·동시 전송·cache 교체 시험 |
-| P4 다중 노드 안정성 | Redis hint, worker lease/fencing, reconnect/polling/drain/backpressure | F01–F08 장애 시험 통과. 이 단계 전 대규모 기능 이식 금지 |
+| P4 MVP 복구·작업 안정성 | local hint, worker lease/fencing, reconnect/polling/drain/backpressure | F01–F03/F05–F08을 단일 실행/임시 동시성 fixture로 검증. Redis는 확장 단계 |
 | P5 개인답장·공개·반응 | private recipient, 오른쪽→왼쪽 swipe 계약, publication 상태, reaction unique | 오발송 금지, 원본 삭제 연쇄, 익명 DTO, 1 reaction 교체 동시성 |
 | P6 미디어 | R2 intent/quota/검증/variant/서명/삭제 worker | 실제 QA R2 60초·Range·검사 중 덮어쓰기·두 worker 경쟁 통과 |
 | P7 알림·읽음·보존 | 최소 정보 push, read-state, 삭제 inventory/원장/복구 절차 | 잘못된 사용자 push 0, 읽음과 sync 분리, 삭제 데이터 restore 후 노출 0 |
-| P8 출시 검증 | 1,000명 부하·soak·승인된 QA 배포/rollback·운영 runbook | 수치 결과/병목/비용/남은 위험 보고, 실제 public HTTPS/WSS와 실행 digest 확인 |
+| P8 MVP 출시 검증 | 1명 실제 시나리오·소규모 합성 부하·복구·승인된 QA 배포/rollback | R2/삭제/백업/인가 evidence, 실제 route/digest 확인. 1,000명은 후속 |
 
 인증 broker 변경/실제 SOOP canonical subject 검증은 P1의 외부 출시 의존성이다.
 P0의 동시성 spike는 합성 최소 테이블/fixture로 선택을 검증하며 P3 전체 기능 구현을 선행 요구하지 않는다.
@@ -341,7 +361,7 @@ mock 로그인은 격리된 test 환경에서만 허용하고 P2–P4 병렬 개
 초기 일반 GROUP 방은 데이터/인가/계약 테스트 fixture로 포함하고 사용자 방 생성 UI까지 확대하지 않는다.
 읽음의 타인 표시·편집·검색·음성·고정 메시지는 미결 제품 범위로 남긴다.
 
-첫 구현 PR은 P0/P1의 최소 scaffold와 **2 API 동시성 test harness**로 제한한다.
+첫 구현 PR은 P0/P1의 최소 scaffold와 **단일 API/worker + MySQL test harness**로 제한한다.
 후속 PR은 한 vertical slice씩 계약→인가→DB→API→복구→테스트 순서로 진행한다.
 계획 작성 승인이 앱 구현이나 cloud apply 승인으로 자동 확대되지는 않는다.
 
@@ -362,19 +382,17 @@ mock 로그인은 격리된 test 환경에서만 허용하고 P2–P4 병렬 개
 | F11 | 과거 백업 복구 후 삭제 원장 재적용 전 serving 시도 | readiness 차단, 삭제 원본/공개본/미디어 재노출 없음 |
 | F12 | 사용자 두 기기 cursor/read-state, 재입장·offline 장기 복귀 | 기기간 skip 없음, 현재 정책 재계산, compacted cursor는 reset |
 
-CI에서는 실제 MySQL/Redis 두 프로세스 통합 시험을 돌린다. mock만으로 F01–F08을 통과시키지 않는다.
+MVP CI는 실제 MySQL와 별도 connection/process의 동시성 시험을 사용한다. Redis가 필요한 F04와
+전체 다중 노드 profile은 실제 두 API를 운영하기 전 확장 gate다. mock만으로 내구성/인가 완료를 주장하지 않는다.
 Aurora 장애/backup restore/R2/외부 브로커·실기기는 승인된 QA 환경에서 별도로 검증한다.
 
-## 11. 남은 의사결정
+## 11. 확정된 후속 결정과 남은 구현 확인
 
-스키마/프로토콜 개발은 위 권고로 시작할 수 있다. 다음은 실제 사용자 데이터를 받기 전 확정한다.
-
-- 계정 탈퇴 시 메시지 삭제 범위, 물리 삭제 완료 기한, 백업 만료와 삭제 표식 수명.
-  삭제 요청 전 기록 보존은 이미 확정이며 다시 묻지 않는다.
-- HA를 요구하는 출시인지, QA 수준 단일 호스트를 허용하는지와 운영 RPO/RTO·비용 상한.
-  1,000명 부하 목표가 HA 자원 구매 승인이나 무중단 SLA는 아니다.
-- 사진/영상 크기·길이/발송 빈도, sticker 등록·검수 주체, 생일 공개의 방별 설정.
-- 실제 소셜로그인 broker 운영 책임·등록/subject, 운영자 예외 열람 절차.
+사용자는 탈퇴 시 본인 메시지·공개본·첨부 삭제, live 24시간 삭제/백업 최대 30일,
+운영자 등록 스티커, 예외 열람 비활성화를 승인했다. 생일 공개는 방별이 아닌 전역 설정 하나다.
+운영은 1명 수준 저비용 MVP, HA는 초기 제외다. 숫자 예산·무중단 SLA를 승인받았다고 해석하지 않는다.
+미디어·rate·pool·작업 빈도는 MVP 실행 단계의 조정 가능한 초기값을 따른다.
+실제 소셜로그인 broker 운영/subject 확인, 복구 drill·청구 점검은 구현 중 증거를 확보할 작업이다.
 
 본문 암호화/key custody는 storage encryption과 별도 위협 모델 ADR로 검토한다.
 서버가 내용을 처리하는 구조이며 E2EE라고 안내하지 않는다. 스키마/성능 근거 없이
