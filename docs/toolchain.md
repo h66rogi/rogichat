@@ -2,7 +2,8 @@
 
 모바일은 2026-09-20 [최신 후보·최소 OS·개발 환경 기록](mobile-foundation.md)을 우선한다.
 기존 앱의 버전은 제약이 아니다. Android 10/API 29, iOS 18.0부터 지원하며,
-최신 stable의 실제 호환 조합은 scaffold 빌드·CI 통과 후 lockfile로 확정한다.
+기본 앱에 채택한 버전과 재현 명령은 [모바일 환경 구성](mobile-environments.md)을 따른다.
+Android Gradle dependency lock과 wrapper checksum을 고정하고 iOS 프로젝트 재생성을 검사한다.
 
 2026-09-19 조회한 **후보 기준**이다. 현재 앱 의존성을 설치한 상태가 아니다.
 scaffold 시 다시 확인해 정확한 버전, lockfile, 컨테이너 digest와 CI runner를 고정한다.
@@ -37,4 +38,5 @@ Context7에서 Next.js, NestJS, Atlantis 라이브러리를 resolve하고 각각
   [Atlantis 보안 문서](https://www.runatlantis.io/docs/security).
 
 모바일 deployment target/minSdk는 빌드 도구의 최신 버전과 별개 결정이다.
-최소 지원 OS는 위 2026-09-20 기준으로 갱신했다. 실제 app/bundle ID와 스토어 등록은 미완료다.
+최소 지원 OS는 위 2026-09-20 기준으로 갱신했다. 앱 식별자는 QA `chat.rogi.rogichat.qa`,
+prod `chat.rogi.rogichat`으로 구성했다. 개발자 포털·스토어 등록은 미완료다.

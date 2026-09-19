@@ -1,0 +1,6 @@
+// Public build configuration. Never place credentials in xcconfig files.
+PRODUCT_BUNDLE_IDENTIFIER = chat.rogi.rogichat.qa
+ROGICHAT_DISPLAY_NAME = 로기챗 QA
+ROGICHAT_ENVIRONMENT = qa
+// Empty expansion prevents xcconfig from treating // as a comment.
+ROGICHAT_API_BASE_URL = https:/$()/api.qa.rogi.chat/v1/

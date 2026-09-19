@@ -2,7 +2,8 @@
 
 2026-09-20. 사용자 결정: 기존 앱 버전에 구속되지 않고 최신 안정 라이브러리와 구조를
 사용한다. 최소 지원 OS 선정은 위임받았다. Apple 로그인과 SOOP 필수 연결을 채택한다.
-이 문서는 구현 기준이며 앱 생성·기능 시험·스토어 배포 완료 기록은 아니다.
+이 문서는 구현 기준이다. QA/prod 기본 프로젝트와 빌드 검증은
+[모바일 환경 구성](mobile-environments.md)에 구현했고, 인증·채팅 기능과 스토어 배포는 남아 있다.
 
 ## 지원 기준
 
@@ -20,9 +21,10 @@ Android compileSdk/targetSdk는 scaffold 시 stable SDK와 Play 제출 요건을
 
 ## 버전 조사
 
-2026-09-20 upstream metadata에서 조회한 stable 후보다. 의존성을 설치하거나 이 조합의
-빌드를 완료한 것은 아니다. 첫 scaffold에서 정확한 버전·lockfile·wrapper checksum과
-CI runner를 고정하고 실제 컴파일 결과를 기록한다. 동적 `+`/무제한 latest는 사용하지 않는다.
+2026-09-20 upstream metadata에서 조회한 stable 후보다. 이후 기본 앱에서는 AGP 9.4.1,
+Gradle 9.7.1, Kotlin 2.4.20, Compose BOM 2026.09.00과 Xcode 26.6을 채택했다.
+실제 채택 범위·lockfile·빌드 명령은 [모바일 환경 구성](mobile-environments.md)에 기록한다.
+나머지 기능 라이브러리는 아직 설치·통합 검증 전이다. 동적 `+`/무제한 latest는 사용하지 않는다.
 
 | 도구/라이브러리 | 조사 후보 | 원본 |
 |---|---|---|

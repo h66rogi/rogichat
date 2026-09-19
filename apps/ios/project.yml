@@ -1,0 +1,74 @@
+name: Rogichat
+options:
+  minimumXcodeGenVersion: 2.44.1
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+configs:
+  Debug-QA: debug
+  Release-QA: release
+  Debug-Prod: debug
+  Release-Prod: release
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "18.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+    GENERATE_INFOPLIST_FILE: NO
+    INFOPLIST_FILE: Resources/Info.plist
+    SUPPORTS_MACCATALYST: NO
+    SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: NO
+    SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD: NO
+    LOCALIZATION_PREFERS_STRING_CATALOGS: YES
+    DEVELOPMENT_LANGUAGE: ko
+    ASSETCATALOG_COMPILER_APPICON_NAME: ""
+targets:
+  Rogichat:
+    type: application
+    platform: iOS
+    settings:
+      base:
+        TARGETED_DEVICE_FAMILY: "1"
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+    sources:
+      - Sources
+    configFiles:
+      Debug-QA: Config/QA.xcconfig
+      Release-QA: Config/QA.xcconfig
+      Debug-Prod: Config/Prod.xcconfig
+      Release-Prod: Config/Prod.xcconfig
+schemes:
+  Rogichat-QA:
+    build:
+      targets:
+        Rogichat: all
+    run:
+      config: Debug-QA
+    test:
+      config: Debug-QA
+    profile:
+      config: Release-QA
+    analyze:
+      config: Debug-QA
+    archive:
+      config: Release-QA
+  Rogichat-Prod:
+    build:
+      targets:
+        Rogichat: all
+    run:
+      config: Debug-Prod
+    test:
+      config: Debug-Prod
+    profile:
+      config: Release-Prod
+    analyze:
+      config: Debug-Prod
+    archive:
+      config: Release-Prod

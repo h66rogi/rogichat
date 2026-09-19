@@ -1,0 +1,48 @@
+name: Mobile foundation
+on:
+  push:
+    branches: [qa, main]
+    paths: ['apps/android/**', 'apps/ios/**', 'tools/mobile/**', '.github/workflows/mobile.yml']
+  pull_request:
+    paths: ['apps/android/**', 'apps/ios/**', 'tools/mobile/**', '.github/workflows/mobile.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mobile-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install pinned Android SDK packages
+        run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
+      - name: Compile every variant and check environment separation
+        working-directory: apps/android
+        run: ./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdDebug :app:assembleProdRelease :app:test :app:lint --no-daemon
+      - name: Verify packaged APK configuration
+        run: python3 tools/mobile/check_android.py
+  ios:
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Verify generated project is current
+        run: |
+          python3 tools/mobile/install_xcodegen.py
+          .tools/xcodegen-2.44.1/xcodegen/bin/xcodegen generate --spec apps/ios/project.yml
+          git diff --exit-code -- apps/ios/Rogichat.xcodeproj
+      - name: Build and inspect QA and production bundles
+        run: python3 tools/mobile/build_ios.py

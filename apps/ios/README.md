@@ -1,14 +1,25 @@
 # iOS
 
-최소 iOS 18.0, iPhone 우선. Swift 6/SwiftUI/Observation과 SPM 기반.
-qa/prod bundle ID, API 주소, signing 환경을 분리한다.
-최신 stable Xcode/Swift와 CI macOS runner 호환 검증 후 생성한다.
-Swift concurrency, Socket.IO adapter, Keychain, GRDB transaction, nullable PATCH를 검증한다.
-기존 team ID·인증서·프로비저닝·push 자산은 가져오지 않는다.
+iOS 18.0 이상, iPhone 우선. Swift 6/SwiftUI 기반 로기챗 기본 앱.
+Xcode 26.6(build 17F113), Swift compiler 6.3.3, iOS SDK 26.5를 사용한다.
 
-[모바일 기반 설계와 버전 후보](../../docs/mobile-foundation.md),
+`Rogichat.xcodeproj`를 열고 scheme을 선택한다.
+
+| scheme | bundle ID | 표시 이름 |
+|---|---|---|
+| Rogichat-QA | `chat.rogi.rogichat.qa` | 로기챗 QA |
+| Rogichat-Prod | `chat.rogi.rogichat` | 로기챗 |
+
+Run은 해당 환경의 Debug, Archive는 Release를 사용한다.
+원본은 `project.yml`과 `Config/*.xcconfig`이며 프로젝트 생성기는 XcodeGen 2.44.1이다.
+기본 앱에는 외부 SPM 의존성이 없어 `Package.resolved`는 아직 없다.
+현재 앱은 시작 화면만 제공하며 로그인·채팅·실기기 서명·스토어 등록은 후속 단계다.
+
+```sh
+# 저장소 루트, DEVELOPER_DIR를 Xcode 26.6의 Contents/Developer로 지정
+python3 tools/mobile/build_ios.py --derived-data /path/to/external/DerivedData/rogichat
+```
+
+[환경 설정·서명 경계·재생성](../../docs/mobile-environments.md),
+[모바일 기반 설계](../../docs/mobile-foundation.md),
 [Apple 로그인·SOOP 필수 연결](../../docs/mobile-authentication.md)을 따른다.
-현재 개발 Mac에 Xcode 26.6(build 17F113)을 설치하고 라이선스 동의·초기 구성을 마쳤다.
-Swift 6.3.3·iOS 26.5 SDK로 SwiftUI/Observation 시험 앱의 unsigned 빌드를 검증했다
-(arm64, 최소 iOS 18.0). 실기기 서명·설치는 별도다. Xcode 27에는 macOS 26.6+가 필요하다.
-앱 프로젝트·Package.resolved·모바일 CI는 아직 생성하지 않았다.

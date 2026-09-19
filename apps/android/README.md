@@ -1,10 +1,22 @@
 # Android
 
-최소 Android 10(API 29). Kotlin/Jetpack Compose, Hilt, Ktor, Room으로 시작한다.
-최신 stable AGP/Kotlin/KSP/Hilt 호환 세트를 검증하고 기존 앱의 버전은 복사하지 않는다.
-Gradle module과 생성 Kotlin SDK를 사용하며 qa/prod applicationId와 signing을 분리한다.
-secret 없는 빌드 CI부터 시작하며 기존 signing·Firebase·고객지원 SDK 설정은 가져오지 않는다.
+Android 10/API 29 이상, Kotlin/Compose 기반 로기챗 기본 앱.
+QA/prod flavor와 Debug/Release 빌드를 분리했다.
 
-[모바일 기반 설계와 버전 후보](../../docs/mobile-foundation.md),
+| flavor | applicationId | 표시 이름 |
+|---|---|---|
+| qa | `chat.rogi.rogichat.qa` | 로기챗 QA |
+| prod | `chat.rogi.rogichat` | 로기챗 |
+
+JDK 17, Android SDK 37.0/Build Tools 37.0.0을 준비하고 실행한다.
+
+```sh
+./gradlew :app:assembleQaDebug :app:assembleProdRelease --no-daemon
+```
+
+QA debug는 개발 키로 서명하며 release는 unsigned다. 두 환경의 동시 설치를 지원한다.
+현재 앱은 시작 화면만 제공하며 로그인·채팅·서명 배포는 후속 단계다.
+
+[환경 설정·전체 검증 명령](../../docs/mobile-environments.md),
+[모바일 기반 설계](../../docs/mobile-foundation.md),
 [Apple 로그인·SOOP 필수 연결](../../docs/mobile-authentication.md)을 따른다.
-현재는 설계 단계이며 Gradle 앱·lockfile·모바일 CI는 아직 생성하지 않았다.
