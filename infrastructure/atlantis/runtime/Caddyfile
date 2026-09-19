@@ -1,0 +1,33 @@
+{
+	admin off
+	servers {
+		protocols h1 h2
+		timeouts {
+			read_header 10s
+			read_body 15s
+			write 90s
+			idle 30s
+		}
+	}
+}
+
+atlantis.qa.rogi.chat {
+	@event {
+		method POST
+		path /events
+	}
+	handle @event {
+		request_body {
+			max_size 512KB
+		}
+		reverse_proxy 127.0.0.1:4142 {
+			transport http {
+				dial_timeout 3s
+				response_header_timeout 80s
+			}
+		}
+	}
+	handle {
+		respond "Not found" 404
+	}
+}

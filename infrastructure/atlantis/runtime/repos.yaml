@@ -1,0 +1,16 @@
+repos:
+  - id: github.com/h66rogi/rogichat-ops
+    branch: /^qa$/
+    workflow: disabled
+    allowed_overrides: []
+    allow_custom_workflows: false
+    pre_workflow_hooks:
+      - run: /bin/false
+workflows:
+  disabled:
+    plan:
+      steps:
+        - run: /bin/false
+    apply:
+      steps:
+        - run: /bin/false

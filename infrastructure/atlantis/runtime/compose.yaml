@@ -1,0 +1,46 @@
+name: rogichat-atlantis
+services:
+  atlantis:
+    image: ghcr.io/runatlantis/atlantis:v0.47.1@sha256:5112319554630f6e4a93bfaf78c1fb9cea024a0eebd210e6563322c1c67df842
+    entrypoint: [atlantis]
+    command: [server, --config=/etc/atlantis/server.yaml]
+    user: "10001:10001"
+    env_file: /etc/rogichat-atlantis/atlantis.env
+    environment:
+      HOME: /var/lib/atlantis
+      AWS_EC2_METADATA_DISABLED: "true"
+    ports: ["127.0.0.1:4141:4141"]
+    volumes:
+      - ./server.yaml:/etc/atlantis/server.yaml:ro
+      - ./repos.yaml:/etc/atlantis/repos.yaml:ro
+      - /etc/rogichat-atlantis/github-app.pem:/run/credentials/github-app.pem:ro
+      - /var/lib/rogichat-atlantis:/var/lib/atlantis
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:mode=1777,size=64m]
+    mem_limit: 768m
+    pids_limit: 150
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "3"}
+  caddy:
+    profiles: [edge]
+    image: caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e
+    network_mode: host
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/lib/rogichat-atlantis-caddy/data:/data
+      - /var/lib/rogichat-atlantis-caddy/config:/config
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp:mode=1777,size=32m]
+    mem_limit: 192m
+    pids_limit: 100
+    logging:
+      driver: json-file
+      options: {max-size: 5m, max-file: "3"}

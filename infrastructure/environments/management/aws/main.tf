@@ -28,7 +28,6 @@ resource "aws_security_group" "management" {
   name        = local.name
   description = "No public ingress; SSM bootstrap and outbound-established Tailscale"
   vpc_id      = aws_vpc.management.id
-  ingress     = []
 }
 resource "aws_vpc_security_group_egress_rule" "management" {
   security_group_id = aws_security_group.management.id

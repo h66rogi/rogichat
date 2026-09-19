@@ -15,6 +15,8 @@ jobs:
         with:
           persist-credentials: false
       - run: python3 tools/infrastructure/install.py
+      - name: Test automation security boundaries
+        run: python3 -m unittest discover -s tools/automation -p 'test_*.py'
       - name: Validate formatting
         run: .tools/terraform fmt -check -recursive infrastructure
       - name: Test with mock providers and ephemeral fixture key
@@ -23,7 +25,7 @@ jobs:
           set -euo pipefail
           ssh-keygen -q -t rsa -b 2048 -N '' -f .tools/test-key
           export TF_VAR_ssh_public_key_path="$PWD/.tools/test-key.pub"
-          for target in qa/aws qa/aws-ec2 qa/cloudflare qa/restore-drill management/aws; do
+          for target in qa/aws qa/aws-ec2 qa/cloudflare qa/restore-drill management/aws management/cloudflare; do
             root="infrastructure/environments/$target"
             .tools/terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
             .tools/terraform -chdir="$root" validate
@@ -33,3 +35,5 @@ jobs:
         run: |
           .tools/caddy adapt --config infrastructure/runtime/Caddyfile.bootstrap --adapter caddyfile --validate > /dev/null
           docker compose -f infrastructure/runtime/compose.bootstrap.yaml config --quiet
+          .tools/caddy adapt --config infrastructure/atlantis/runtime/Caddyfile --adapter caddyfile --validate > /dev/null
+          docker compose -f infrastructure/atlantis/runtime/compose.yaml config --no-env-resolution --quiet

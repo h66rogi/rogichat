@@ -1,0 +1,39 @@
+[Unit]
+Description=Rogichat GitHub webhook gateway (version only)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=rogichat-webhook
+StateDirectoryMode=0700
+WorkingDirectory=/opt/rogichat-atlantis/tools
+LoadCredential=app.json:/etc/rogichat-atlantis/app.json
+LoadCredential=installation.json:/etc/rogichat-atlantis/installation.json
+LoadCredential=github-app.pem:/etc/rogichat-atlantis/github-app.pem
+LoadCredential=webhook-secret:/etc/rogichat-atlantis/webhook-secret
+ExecStart=/usr/bin/python3 /opt/rogichat-atlantis/tools/webhook.py --credentials %d --database /var/lib/rogichat-webhook/deliveries.db
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=yes
+MemoryMax=128M
+TasksMax=20
+IPAddressDeny=169.254.0.0/16 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 100.64.0.0/10 fc00::/7 fe80::/10
+StandardOutput=null
+StandardError=null
+
+[Install]
+WantedBy=multi-user.target

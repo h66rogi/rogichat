@@ -1,7 +1,7 @@
 # 별도 관리 EC2 제안
 
 상태: 2026-09-20. 사용자가 사양·비용·신규 15개 자원 plan을 승인하여 **관리 호스트 생성 완료**.
-Atlantis·webhook·권한 있는 worker도 아직 활성화하지 않았다.
+GitHub App을 private ops 한 곳에 설치했다. [version-only 수신 경로](runtime/README.md)는 구현·검증 중이며 공개 ingress·권한 있는 worker는 아직 활성화하지 않았다.
 
 ## 사양과 비용
 
@@ -62,7 +62,10 @@ Secrets Manager 읽기, 다른 호스트에 SSM command를 실행하는 권한�
 7. 위조 이벤트, 승인 후 push·재plan, 만료·재사용, 동시 apply, 악성 HCL, secret 출력,
    app/DB/metadata 접근, 승인자 권한 회수 시험 후 단계별로 활성화한다.
 
-현재 구현은 **관리 호스트 IaC**까지다. 인가기·worker·GitHub App·webhook은 미구현이다.
+현재 구현은 관리 호스트 IaC, 최소 권한 GitHub App, version-only gateway/서버 설정과
+승인·재전송 방지 단위 테스트까지다. 실제 plan/apply 인가기 연결과 격리 worker는 미구현이다.
+공개 HTTPS 연결은 AWS ingress 2개와 별도 management Cloudflare record 1개의
+저장 plan을 검증한 후 적용한다. 기존 자원 변경·삭제 및 추가 상시 컴퓨팅은 없다.
 작은 EC2 한 대를 만드는 것과 안전한 자동화 경계를 완성하는 일은 별도로 검증한다.
 
 근거: [Atlantis security](https://www.runatlantis.io/docs/security),

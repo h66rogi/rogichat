@@ -1,0 +1,30 @@
+atlantis-url: https://atlantis.qa.rogi.chat
+port: 4141
+data-dir: /var/lib/atlantis
+repo-allowlist: github.com/h66rogi/rogichat-ops
+repo-config: /etc/atlantis/repos.yaml
+gh-app-key-file: /run/credentials/github-app.pem
+# Credential/App IDs are read from the root-owned env file, never this repo.
+# Phase 1 is connectivity only. Never add plan/apply without an isolated worker.
+allow-commands: version
+allow-fork-prs: false
+disable-autoplan: true
+disable-apply-all: true
+autodiscover-mode: disabled
+automerge: false
+write-git-creds: false
+tf-download: false
+parallel-plan: false
+parallel-apply: false
+parallel-pool-size: 1
+fail-on-pre-workflow-hook-error: true
+silence-allowlist-errors: true
+silence-fork-pr-errors: true
+silence-no-projects: true
+silence-vcs-status-no-projects: true
+silence-vcs-status-no-plans: true
+web-basic-auth: true
+web-username: operator
+websocket-check-origin: true
+log-level: warn
+max-comments-per-command: 1
