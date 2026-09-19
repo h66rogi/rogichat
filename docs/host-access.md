@@ -67,15 +67,68 @@ root에 준한다는 점은 그대로 남으므로 일반 shell을 주지 않는
 줄일 수 있다. 하지만 OpenSSH 개인키 문제는 해결하지 않으므로 현재 기본안으로
 선택하지 않는다. [Tailscale WIF](https://tailscale.com/docs/features/workload-identity-federation).
 
-## API hostname의 인증서
+## API hostname의 인증서: DNS-only + Caddy 권고
 
-`api.qa.rogi.chat`은 2단계 subdomain이다. 일반 Cloudflare full setup의 Universal
-SSL만으로는 인증서가 적용되지 않는다. 우선 proxied 구성을 유지하고 해당 hostname을
-포함하는 Advanced Certificate/Total TLS 또는 지원되는 custom certificate를 검토한다.
-현재 계약·비용·설정은 미확인이고 결제/활성화하지 않았다.
-[Cloudflare hostname coverage](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/).
+사용자의 origin 인증서 직접 사용 의도에 맞춰 QA API는 **DNS-only + Caddy 자동 HTTPS**를
+우선 제안한다. 아직 DNS나 SSL 설정을 변경한 상태는 아니다.
 
-DNS-only + origin의 공개 신뢰 인증서는 대안이지만 Cloudflare proxy 보호가 사라지고
-origin 443 허용 범위도 달라진다. proxy 상태만 꺼서 해결하지 않는다. Cloudflare Tunnel도
-edge hostname 인증서 요구를 없애지 못한다. 브라우저의 edge TLS와 Cloudflare→origin
-TLS를 각각 검증한 후 OAuth callback 테스트를 시작한다.
+```text
+DNS 조회: Cloudflare authoritative DNS → Lightsail static IP
+API 연결: 사용자 ── HTTPS / 공개 신뢰 인증서 ── Caddy ── 내부 HTTP ── NestJS
+```
+
+`api.qa.rogi.chat`은 2단계 subdomain이어서 일반 Cloudflare full setup의 Universal
+SSL 범위에 포함되지 않는다. DNS-only에서는 브라우저가 origin의 인증서를 직접 검증하므로
+Caddy가 해당 이름의 Let's Encrypt 등 공개 신뢰 CA 인증서를 발급받으면 된다.
+Cloudflare Origin CA 인증서는 일반 브라우저가 신뢰하지 않으므로 이 경로에 사용하지 않는다.
+[hostname coverage](https://developers.cloudflare.com/ssl/edge-certificates/universal-ssl/limitations/),
+[DNS-only 동작](https://developers.cloudflare.com/dns/proxy-status/),
+[Origin CA 주의사항](https://developers.cloudflare.com/ssl/origin-configuration/origin-ca/).
+
+도메인별 Configuration Rule로 SSL mode를 바꿀 수는 있지만 TLS passthrough가 되지는 않는다.
+proxied HTTPS에서는 **브라우저↔Cloudflare edge**와 **Cloudflare↔origin**의 인증서가 각각
+필요하다. origin에 Caddy 인증서를 설치해도 빠진 edge SAN을 보충하지 못한다.
+Flexible은 브라우저 HTTPS/origin HTTP이며, 브라우저 HTTP/origin HTTPS라는 의미가 아니다.
+SSL Off나 HTTP 로그인으로 우회하지 않는다. 로그인 callback·Secure cookie·API·WebSocket은
+HTTPS/WSS로 유지한다. DNS-only hostname에는 Cloudflare HTTP/SSL Rule이 적용되지 않는다.
+[SSL modes](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/),
+[Flexible](https://developers.cloudflare.com/ssl/origin-configuration/ssl-modes/flexible/).
+
+### Caddy 발급·갱신과 호스트 설정
+
+- DNS A는 해당 static IP를 가리키고 `proxied = false`로 관리한다. AAAA를 만들 경우
+  실제 IPv6 경로·방화벽도 함께 검증한다. CAA가 있다면 선택 CA의 발급을 허용해야 한다.
+- 호스트 80/443을 Caddy에 연결한다. 기본 HTTP-01은 80, TLS-ALPN-01은 443을 사용한다.
+  80은 ACME와 HTTPS redirect에만 쓰고 API/OAuth 응답을 평문으로 서비스하지 않는다.
+  이 방법에는 서버의 Cloudflare DNS API token이 필요 없다.
+- Caddyfile에 `api.qa.rogi.chat`과 `reverse_proxy api:3000` 같은 내부 대상만 선언한다.
+  실제 포트는 앱 scaffold에서 확정한다. Caddy 자동 발급·갱신을 사용하며 Certbot을 동시에
+  돌려 같은 인증서/포트를 경쟁시키지 않는다. Certbot 선택 시 별도 renewal/reload가 필요하다.
+- Docker의 Caddy `/data`를 영속·쓰기 가능 volume으로 보존한다. 인증서 개인키와 ACME
+  계정 키를 Git/image/artifact에 넣지 않는다. 재배포 때 volume 삭제나 반복 재발급을 하지 않는다.
+- 자동 HTTPS는 발급뿐 아니라 갱신 실패·외부 인증서 만료 관측까지 확인한다. 구현 중에는
+  ACME staging으로 경로를 검증한 뒤 공개 신뢰 인증서의 SAN/chain/만료를 외부에서 검사한다.
+
+Context7의 Caddy 공식 문서 조회로 발급 조건·자동 갱신·영속 data 요구를 확인했다.
+[Caddy automatic HTTPS](https://caddyserver.com/docs/automatic-https),
+[reverse proxy](https://caddyserver.com/docs/quick-starts/reverse-proxy).
+
+### 같은 호스트의 웹 프록시와 접근 제어
+
+웹 `qa.rogi.chat`은 proxied + Full(strict)를 유지하는 안이다. API가 DNS-only이므로
+같은 호스트 443을 Cloudflare IP에만 제한할 수 없고, static IP도 공개된다.
+웹의 edge 보호를 유지하려면 Caddy의 **웹 hostname**에 Cloudflare source IP 검증 또는
+Authenticated Origin Pull 검증을 적용하고 직접 접속을 거부한다. API hostname은 일반
+클라이언트를 허용한다. 알 수 없는 Host/SNI는 앱으로 라우팅하지 않는다.
+웹 origin 인증서의 발급 경로는 HTTP-01 예외·갱신 시험 또는 외부 배치 중 구현 시 확정한다.
+
+API에는 Cloudflare WAF/cache/HTTP rate limit이 적용되지 않는다. 로그인·callback·소켓
+연결 제한과 abuse 제어는 API/호스트에 구현한다. direct API가 전달한 CF-Connecting-IP나
+X-Forwarded-For를 무조건 신뢰하지 않는다. Nest는 내부 Caddy hop만 신뢰하고, Caddy는
+직접 연결과 신뢰된 Cloudflare 연결을 구분해 client IP를 전달한다.
+HTTP 요청 제한은 DDoS 방어를 대체하지 않으므로 부하/공격 시 호스트 영향도 남는다.
+[공유 origin IP 노출](https://developers.cloudflare.com/dns/manage-dns-records/troubleshooting/exposed-ip-address/).
+
+검증: 외부 API HTTPS/WSS·OAuth callback·Secure cookie, HTTP redirect, 재시작 후 인증서
+유지와 갱신, 직접 IP+웹 Host 우회 차단, 위조 forwarded header, IPv4/IPv6 경로를 검사한다.
+QA 선택을 prod의 최종 edge 정책으로 자동 승격하지 않는다.

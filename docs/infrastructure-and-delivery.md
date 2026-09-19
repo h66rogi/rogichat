@@ -78,6 +78,10 @@ registry/image 이름을 제한하고 비밀은 root 소유 파일로 주입한�
 표의 배포 결과는 pipeline 전체의 산출물이며 SSH 실행 위치가 GitHub라는 뜻은 아니다.
 [Atlantis/CI/CD A·B·C 비교](../infrastructure/atlantis/README.md)에서 공개 CI와
 권한 있는 실행을 분리하는 B안을 권고했다. 사용자의 최종 선택 전에는 연결하지 않는다.
+[GitHub Free 조직의 저장소 분리안](repository-isolation.md)은 public rogichat의 소스·CI,
+private rogichat-ops의 운영 명세, 외부 실행기의 cloud/SSH 권한으로 B안을 구체화한다.
+Free private의 branch protection/environment approval을 전제로 하지 않으며, 운영 명세
+merge와 실행 승인은 분리한다. QA API TLS는 [DNS-only + Caddy](host-access.md)를 권고한다.
 GHCR은 Docker/OCI 이미지용이며 pnpm/Maven/SPM 저장소를 대체하지 않는다.
 패키지는 우선 monorepo 내부 소비만 하므로 외부 package publish 권한이 필요 없다.
 

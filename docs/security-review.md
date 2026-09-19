@@ -26,6 +26,12 @@
   검토·실증하기 전 webhook을 연결하지 않는다.
 - **SEC-005 / 중간**: host 접근, secret 전달, backup restore는 설계 상태다.
   앱 배포 단계의 완료 조건으로 실제 권한과 복구 결과를 검증한다.
+- **SEC-007 / 높음**: Free private ops에는 public과 같은 branch/environment 보호를
+  전제할 수 없다. [외부 SHA/plan 승인](repository-isolation.md)과 조직 base permission의
+  읽기 범위를 검증한 뒤 실행을 연결한다. private 저장소만 만드는 것으로 해결되지 않는다.
+- **SEC-008 / 중간**: API DNS-only는 공유 origin IP를 노출하고 API의 Cloudflare 보호를
+  제거한다. [Caddy TLS·웹 hostname 우회 차단·client IP 검증](host-access.md)을 배포 전에
+  검증한다. 사용자 연결은 HTTPS/WSS로 유지하며 HTTP OAuth 우회는 하지 않는다.
 
 ## 제한과 재검토
 

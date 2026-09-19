@@ -12,6 +12,7 @@
 |---|---|---|---|
 | 공개 저장소 | push 이후 CI만으로는 유출 예방 불가 | 로컬 index/history 검사 + 서버 Push protection | synthetic 공격 fixture와 서버 설정 read-back |
 | Atlantis | plan도 credential 탈취 경로, hide 설정도 실시간 log는 남음 | public A안 상세화, public CI + private IaC/CD B안 권고 | 공격 테스트·권한 분리 증명 후 사용자 최종 선택 |
+| Free private 운영 | 보호 브랜치/environments 제약, 조직 read 상속 | private ops + GitHub 밖 SHA/plan 승인, 공개 검증 CI 유지 | 운영자 접근 범위·외부 인가기 검증 |
 | IaC 소유권 | 기존 bucket/OIDC 재선언은 이중 소유 발생 | 기존 소유 유지, rogichat state/role만 별도 | prefix IAM/KMS 권한, live backend 설정 |
 | 기존 인프라 | 과거 설치 문서에 퇴역 자원이 섞임 | 최신 baseline만 활용 | 새 프로젝트 때문에 퇴역 자원 재생성 없음 |
 | 재사용 | 최신 웹에서 talk 삭제됨 | 종료 전 qa/삭제 직전 SHA 조사 | 파일 단위 이식 provenance와 dependency audit |
@@ -23,7 +24,7 @@
 | 네이티브 | 각 의존성 최신 버전을 모으면 빌드 불가 가능 | AGP/Kotlin/KSP/Hilt 및 Swift/SPM 호환 검증 | unsigned CI와 API fixture parity |
 | 운영 분리 | QA 쿠키·키·signing이 prod로 번짐 | host-only cookie, 별도 role/state/DB/bundle ID | prod에 QA role 접근 차단 |
 | 소셜로그인 | 기존 OAuth callback을 유지하면서 다른 서비스로 복귀 필요 | user/platform_soop 분리, QA API→broker→SOOP→broker→QA API + code 교환 | 실제 SOOP subject·가입/연결·replay·환경 혼동 검사 |
-| TLS | api.qa.rogi.chat은 Universal SSL 기본 범위 밖 | 추가 edge 인증서 또는 명시적 대안 | 지원 상품/권한·실제 SAN 확인 |
+| TLS | api.qa.rogi.chat은 Universal SSL 기본 범위 밖, SSL Rule은 passthrough가 아님 | API DNS-only + Caddy 공개 신뢰 인증서 권고 | HTTPS/WSS·갱신·웹 origin 우회/forwarded header 검증 |
 | 브랜딩 | 원본 UI·SDK·외부 동의 화면에 기존 이름 잔존 가능 | 제품은 로기챗 전용, 필수 인프라 의존과 분리 | SOOP 등록 앱 이름 변경 가능 여부 |
 
 ## 주요 결정 기록
@@ -38,8 +39,13 @@
 - 제안: QA는 reverse proxy/Next/Nest/PostgreSQL Compose. Redis는 추출 의존에 따라 추가.
 - 제안: public Atlantis A안은 격리/인가/출력/환경 경계 검증 후만 활성화;
   public CI와 비공개 IaC/CD를 분리하는 B안 권고. 최종 판단은 사용자에게 있다.
+- 구체 제안: public `rogichat` 소스·IaC 템플릿·CI, private `rogichat-ops` 운영 명세,
+  외부 관리 실행기의 승인·권한 분리. [Free 제약과 공개 범위](repository-isolation.md) 참조.
+- 구체 제안: API `api.qa.rogi.chat`은 DNS-only + Caddy 자동 HTTPS, 웹은 proxied +
+  Full(strict). 평문 OAuth나 SSL Off를 사용하지 않는다. [TLS 설계](host-access.md) 참조.
 - 미확정: Atlantis 호스트·실행 저장소·승인자, 전용 배포 실행기와 tailnet 관리 권한.
-- 미확정: QA Lightsail bundle, backup 저장 위치·RPO/RTO, Cloudflare zone 권한·API 인증서.
+- 미확정: ops repo 생성·조직 read 상속 범위, QA Lightsail bundle, backup 저장 위치·RPO/RTO,
+  Cloudflare zone 권한·제안 TLS 경로의 실제 발급/갱신.
 - 인증 출시 게이트: broker 운영 지속, SOOP canonical subject, client credential 등록,
   외부 동의 화면 앱 이름. 구체 계약은 [인증 문서](soop-authentication.md)를 따른다.
 - 후속 기능 검토: 약관/가입 세부 절차, 1:N 공개 범위, push notification,

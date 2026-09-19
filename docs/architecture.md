@@ -32,7 +32,7 @@ prod API는 `api.rogi.chat`을 제안한다. 사용자에게 보이는 제품명
 | `packages/design-tokens` | 색·간격·타이포그래피 JSON | CSS/Kotlin/Swift 자산 생성 |
 | `packages/ui-web` | 공유할 React 컴포넌트 | 실제 복수 소비자가 생기면 추출 |
 | `packages/config` | TS/린트 설정 | 런타임 비밀 설정을 넣지 않음 |
-| `infrastructure` | 환경 root·provider 모듈·런타임 운영 | 앱 패키지와 다른 수명 주기 |
+| `infrastructure` | 환경 root·provider 모듈·런타임 템플릿 | 실제 운영 입력·승인 명세는 private ops, 자격증명은 외부 |
 
 pnpm workspace와 Turborepo는 JavaScript 영역의 의존·캐시 그래프를 관리한다.
 Gradle/SPM을 npm으로 대체하지 않는다. 공유 패키지를 미리 모두 구현하지 않고,
@@ -44,8 +44,9 @@ Gradle/SPM을 npm으로 대체하지 않는다. 공유 패키지를 미리 모�
 
 ```mermaid
 flowchart LR
-  C[Web / Android / iOS] --> CF[Cloudflare DNS + edge TLS]
-  CF --> TLS[Origin HTTPS reverse proxy]
+  C[Web / Android / iOS] -->|Web HTTPS| CF[Cloudflare proxy]
+  CF -->|Full strict| TLS[Caddy HTTPS reverse proxy]
+  C -->|API HTTPS - DNS-only| TLS
   subgraph LS[Seoul Lightsail QA - one host]
     TLS -->|qa.rogi.chat| WEB[Next.js container]
     TLS -->|api.qa.rogi.chat| API[NestJS container]
@@ -58,15 +59,18 @@ flowchart LR
   TF[Atlantis isolated management boundary] --> AWS[AWS / Cloudflare APIs]
 ```
 
-초기 제안은 Cloudflare proxy → Lightsail static IP → Caddy HTTPS → 컨테이너다.
-edge-origin은 Full(strict), origin 인증서와 갱신 방법을 실제 DNS 경로에서 검증한다.
-Cloudflare IP만 origin 443에 허용하고 관리 SSH는 Tailscale 위 OpenSSH로 제한한다.
-개인키·공개키는 GitHub 밖에서 보관한다. `api.qa.rogi.chat`의 추가 edge 인증서가
-필요하며 [host 접근과 TLS 설계](host-access.md)에 대안을 기록했다.
-인증서 HTTP challenge 때문에 80을 무조건 열지 않는다. DNS challenge 또는
-관리되는 origin 인증서 중 비밀 전달·갱신 경로까지 구현한 방법을 선택한다.
-Cloudflare Tunnel은 origin 포트 제거의 장점이 있으나 connector token 수명주기와
-관리 경로를 추가하므로 대안으로 기록한다. QA API에 캐시 규칙을 적용하지 않는다.
+QA API는 Cloudflare DNS-only → Lightsail static IP → Caddy 공개 신뢰 HTTPS → Nest를
+권고한다. 사용자 연결은 HTTPS이며 Caddy가 인증서를 자동 발급·갱신한다. 웹은
+Cloudflare proxy → Full(strict) → Caddy → Next를 제안한다. 공유 호스트의 80/443은
+직접 API/ACME 접근을 허용하고 웹 hostname의 origin 우회는 Caddy에서 별도로 차단한다.
+API에는 Cloudflare proxy/WAF 보호가 적용되지 않는다. Cloudflare SSL Rule로 origin
+인증서를 브라우저에 그대로 전달할 수는 없다. [host 접근과 TLS 설계](host-access.md)에
+발급·갱신·방화벽·client IP 신뢰 경계를 기록했다. 관리 SSH는 Tailscale 위 OpenSSH로
+제한하고 개인키·공개키는 GitHub 밖에서 보관한다.
+
+공개 소스·일반 IaC·검증 CI와 private 운영 명세/외부 실행기를 분리하는
+[저장소 분리안](repository-isolation.md)을 권고한다. GitHub Free private의 승인·보호
+제약 때문에 ops push/merge가 즉시 cloud 적용으로 이어지지 않도록 한다.
 
 Docker Compose에서 web/api는 non-root, healthcheck, restart 정책, 로그 회전,
 메모리 제한과 종료 유예를 가진다. DB와 캐시는 host port를 publish하지 않는다.

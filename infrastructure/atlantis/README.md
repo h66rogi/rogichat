@@ -17,6 +17,11 @@
 복제한 Terraform을 별도로 수정하지 않고 source SHA/root/environment/plan digest만
 선택한다. 위치를 비공개로 옮겨도 무검토 PR head를 실행하면 안전하지 않다.
 
+2026-09-19 추가 제안: `h66rogi/rogichat-ops`를 private 운영 저장소로 둔다.
+[공개 범위·GitHub Free 제약·외부 승인 절차](../../docs/repository-isolation.md)를 따른다.
+Free private에서 branch protection/environment approval을 사용할 수 있다고 가정하지
+않으며, private PR merge만으로 Atlantis plan/apply를 허용하지 않는다.
+
 ## A안의 구체 실행 흐름
 
 ```mermaid
