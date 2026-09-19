@@ -71,7 +71,7 @@ resource "aws_lightsail_instance_public_ports" "qa" {
       to_port           = 22
       cidrs             = var.bootstrap_ssh_cidrs
       ipv6_cidrs        = []
-      cidr_list_aliases = []
+      cidr_list_aliases = var.enable_browser_ssh_diagnostics ? ["lightsail-connect"] : []
     }
   }
 }

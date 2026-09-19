@@ -9,32 +9,43 @@
 | 공개 소스 / private ops 분리 | 사용자 승인, h66rogi/rogichat-ops 생성 및 qa 검증 CI 구성 |
 | 운영자 SSH 공개키 | 사용자 지정 키를 private ops에 등록, 전체 목록 검증·렌더링 도구와 공격 입력 테스트 |
 | 개인키 | 기존 관리 장비에 유지, GitHub 업로드 없음 |
-| QA API | DNS-only + Caddy 승인, Terraform DNS root 및 Caddy bootstrap 준비 |
-| AWS | 서울 QA 독립 root, 실제 plan: instance/key pair/static IP/attachment/firewall 5개 생성, 기존 변경·삭제 0 |
+| QA API | DNS-only A 레코드 적용 완료, Caddy 초기화 진단 중 |
+| AWS | 서울 QA instance/key pair/static IP/attachment/firewall 생성 완료, 2 vCPU·4 GiB·80 GB, Ubuntu 24.04, 기본 USD 24/월 |
 | Terraform state | 기존 S3 backend 재사용, rogichat 전용 두 prefix, bucket 자체 미변경 |
 | CI | public 보안 검사·mock IaC/Caddy/Compose 검증, private 키 목록·secret 검사; cloud 권한 없음 |
 | 웹 푸시 | Service Worker/Web Push 요구 확정, 제품·인프라 조건 별도 기록 |
 
-현재 로기챗 서버는 없고 API DNS 조회에도 A 응답이 없다. 서버 IP 없이 DNS 레코드를
-먼저 만들지 않는다. Cloudflare token은 사용자가 macOS Keychain의
-`rogichat-cloudflare-dns` 항목에 제공했다. 토큰 활성·rogi.chat zone 활성·DNS 조회를
-확인했고 토큰 값은 로그나 별도 파일로 복사하지 않았다. DNS Edit는 실제 승인된 레코드
-변경 때 확인하며 권한 시험용 임시 레코드를 만들지 않는다.
-Caddy 자동 인증서 발급·tailnet 가입·서버 key reconciliation은
-아직 실행되지 않았다. mock test는 cloud apply나 실서버 동작의 증거가 아니다.
+## 실제 적용 결과와 현재 차단점
 
-## 실제 자원 생성 전에 정할 사항
+- 사용자가 월 기본 USD 24 사양의 생성을 승인했고 QA 전용 자원을 생성했다.
+  기존 서비스 자원은 변경하지 않았다. 고정 IP와 SSH 공개키 등록을 유지한 채,
+  앱·DB·데이터가 없는 초기 QA 호스트만 bootstrap 수정을 위해 재생성했다.
+- `api.qa.rogi.chat`은 고정 IP의 DNS-only A 레코드다. Cloudflare API와 권한 DNS 서버
+  응답을 확인했고, AWS·Cloudflare 적용 후 전체 plan은 모두 변경 0건이었다.
+- 현재 인스턴스는 running, SSH 22는 운영자 /32에서 연결된다. 80/443은 연결 거부다.
+  Caddy HTTPS·cloud-init 완료·SSH 인증·Tailscale 설치/가입은 아직 실서버 검증 전이다.
+  Terraform 성공이나 mock CI 통과를 런타임 완료로 해석하지 않는다.
+- AWS access-details가 hostKeys를 반환하지 않고 Caddy도 아직 동작하지 않아 최초 SSH
+  신뢰 정보를 확보하지 못했다. 검증 없는 TOFU 접속으로 우회하지 않았다.
+- 진단용 `enable_browser_ssh_diagnostics`는 기본 false다. 별도 승인된 plan에서만
+  bootstrap SSH에 AWS `lightsail-connect` 주소 대역을 잠시 추가하며, 호스트 키를
+  검증하면 즉시 false로 복원한다. 운영자 /32와 80/443은 그대로 유지한다.
+  호스트 UFW가 이미 활성화되어 있으면 provider 방화벽 변경만으로 접속이 보장되지 않는다.
+- 인스턴스 `prevent_destroy=true`를 복구했다. 진단 전에 반복 재생성하지 않는다.
+- 사용자 Cloudflare 토큰은 macOS Keychain `rogichat-cloudflare-dns`에 있으며 Git·CI·
+  서버에 전달하지 않는다. 실제 승인된 DNS 레코드 생성으로 DNS Edit 동작을 확인했다.
+- private ops의 공개키 전체 목록·원자적 교체·실패 rollback 도구와 테스트를 준비했다.
+  새로운 SSH 세션은 사용자 config·agent·연결 공유를 차단하고 지정 키로 재인증한다.
+  현재 서버의 authorized_keys reconciliation은 접속 신뢰 검증 후에 실행한다.
 
-1. **QA 크기·예산**: 권고는 `medium_3_0`, Linux/IPv4, 2 vCPU·4 GiB·80 GB, 월 USD 24.
-   AWS 서울 live bundle API 조회값이며 세금·백업·초과 트래픽·별도 관리 서버 비용은 제외다.
-   instance 하나에 DB/web/api가 함께 있으므로 부하 측정 후 조정한다.
-2. **상시 관리 실행 위치**: 아래 비교에서 선택한다. 현재 개인키 정책을 유지하면
+## 남은 인프라 결정
+
+1. **상시 관리 실행 위치**: 아래 비교에서 선택한다. 현재 개인키 정책을 유지하면
    일반 GitHub-hosted runner만으로 SSH 배포를 끝낼 수 있는 상태는 아니다.
-3. **Tailnet 가입**: 현재 관리 장비의 tailnet 연결은 확인했지만 새 node 등록·tag/grant
-   권한은 미확인이다. 일회성 등록 경로와 운영자→QA SSH 범위를 검증해야 한다.
-
-DNS-only 승인과 private repo 생성 승인은 이미 받았다. 동일 범위를 다시 승인 대상으로
-돌리지 않는다. 실제 Terraform 적용에서는 resource delta·가격·영향을 함께 확인한다.
+2. **Tailnet 가입**: 기존 관리 장비의 연결은 확인했지만 새 node 등록·tag/grant는
+   아직 검증 전이다. 새 SSH 세션과 재부팅 후 접근을 확인한 뒤 공인 SSH를 닫는다.
+3. **초기화 진단**: 추가 방화벽 plan은 기존 자원 생성 승인을 반복 요청하는 것이 아니라
+   임시 관리 접근 대역 확대를 별도로 검토하는 것이다. 상세 실행 증거는 private ops에 둔다.
 
 ## GitHub Actions와 Atlantis가 실행되는 곳
 

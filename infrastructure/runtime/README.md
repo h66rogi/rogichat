@@ -16,7 +16,11 @@ Compose를 준비했고 web/api/DB용 운영 Compose는 앱 scaffold 이후 추�
 `bootstrap.sh.tftpl`은 OS 패키지·Docker·Tailscale daemon·방화벽·SSH hardening과 Caddy를
 설치한다. Tailscale 가입 자격증명은 주입하지 않는다. `compose.bootstrap.yaml`의 Caddy
 2.11.4 이미지는 upstream manifest digest로 고정했고 `/data`, `/config`는 영속 volume이다.
-`Caddyfile.bootstrap`은 `/_infra/health`만 200이며 앱 경로에는 503을 반환한다.
+`Caddyfile.bootstrap`은 `/_infra/health`에 200, 앱 경로에 503을 반환하도록 설계했다.
+`/_infra/ssh-host-key`는 복사한 서버 Ed25519 호스트 공개키 한 파일만 제공한다. 최초
+SSH 신뢰 설정 시 정확한 API hostname의 정상 공개 CA TLS 검증과 DNS/IP 일치를 확인하고,
+redirect를 따라가지 않는다. 운영자 키·개인키는 노출하지 않으며 기존 pinned key를
+자동 교체하지 않는다. 서버 호스트 키 회전 시 snapshot 갱신과 별도 검증이 필요하다.
 이 응답을 Nest readiness나 앱 배포 성공으로 해석하지 않는다. DNS가 실제 static IP를
 가리킨 후 외부 SAN/chain/HTTP redirect를 검증해야 HTTPS 배포 완료다.
 

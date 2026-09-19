@@ -30,7 +30,7 @@ run "bootstrap_ssh_is_scoped" {
     bootstrap_ssh_cidrs = ["192.0.2.42/32"]
   }
   assert {
-    condition     = alltrue([for port in aws_lightsail_instance_public_ports.qa.port_info : port.from_port != 22 || port.cidrs == toset(["192.0.2.42/32"])])
+    condition     = alltrue([for port in aws_lightsail_instance_public_ports.qa.port_info : port.from_port != 22 || (port.cidrs == toset(["192.0.2.42/32"]) && length(port.cidr_list_aliases) == 0)])
     error_message = "Bootstrap SSH must use only the operator /32."
   }
 }
@@ -50,4 +50,26 @@ run "reject_unreachable_initial_host" {
     bootstrap_ssh_cidrs = []
   }
   expect_failures = [aws_lightsail_instance.qa]
+}
+
+run "diagnostics_only_adds_lightsail_browser_range" {
+  command = plan
+  variables {
+    bootstrap_ssh_cidrs            = ["192.0.2.42/32"]
+    enable_browser_ssh_diagnostics = true
+  }
+  assert {
+    condition     = alltrue([for port in aws_lightsail_instance_public_ports.qa.port_info : port.from_port != 22 || (port.cidrs == toset(["192.0.2.42/32"]) && port.cidr_list_aliases == toset(["lightsail-connect"]))])
+    error_message = "Diagnostics must keep the operator scope and only add the AWS browser SSH range."
+  }
+}
+
+run "reject_browser_ssh_after_bootstrap" {
+  command = plan
+  variables {
+    access_phase                   = "tailnet"
+    bootstrap_ssh_cidrs            = []
+    enable_browser_ssh_diagnostics = true
+  }
+  expect_failures = [var.enable_browser_ssh_diagnostics]
 }

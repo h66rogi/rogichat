@@ -35,3 +35,13 @@ variable "bundle_id" {
   default     = "medium_3_0"
   description = "QA Linux IPv4 bundle: 2 vCPU / 4 GiB / 80 GB, live quote USD 24/month on 2026-09-19."
 }
+
+variable "enable_browser_ssh_diagnostics" {
+  type        = bool
+  default     = false
+  description = "Explicitly approved temporary Lightsail browser SSH access for bootstrap diagnosis. Disable immediately after host-key verification."
+  validation {
+    condition     = !var.enable_browser_ssh_diagnostics || var.access_phase == "bootstrap"
+    error_message = "Browser SSH diagnostics are forbidden after bootstrap."
+  }
+}
