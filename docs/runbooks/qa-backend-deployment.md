@@ -6,6 +6,11 @@
 [운영 인계](../qa-operations-handoff.md), [접근 규칙](../host-access.md),
 [MVP 계획](../backend-mvp-execution-plan.md)을 함께 따른다.
 
+GHCR private pull 권한이 없는 QA 호스트는 [검증된 archive transport](../../tools/operations/backend-release.md#명시적-archive-transport-registry-mode의-fallback이-아님)를
+명시적으로 승인해 사용할 수 있다. trusted QA export workflow의 ZIP digest·registry manifest·config ID·
+rootfs 검증을 통과한 image만 전달하며, registry 권한 확대나 가짜 RepoDigest 태깅은 허용하지 않는다.
+이 경로도 실제 `--apply` 전 운영 승인이 필요하고 CI 성공만으로 자동 배포되지 않는다.
+
 ## 승인·소유권
 
 - 사용자 예외 승인: 로기챗 전용 격리 local fixture에서 `prisma migrate dev`로 생성·검증한

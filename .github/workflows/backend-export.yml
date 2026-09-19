@@ -1,0 +1,56 @@
+name: Backend verified image export
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full source SHA with four successful QA push checks
+        required: true
+      runtime_digest:
+        description: Runtime registry sha256 hex (64 characters)
+        required: true
+      migration_digest:
+        description: Migration registry sha256 hex (64 characters)
+        required: true
+
+permissions: {}
+
+jobs:
+  export:
+    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify and export exact published images (no build or deployment)
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPORT_SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPORT_RUNTIME_DIGEST: ${{ inputs.runtime_digest }}
+          EXPORT_MIGRATION_DIGEST: ${{ inputs.migration_digest }}
+        run: python3 tools/operations/backend_archive.py produce
+      - name: Validate ID-only Compose image references without starting services
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          descriptor = json.loads((pathlib.Path(os.environ['RUNNER_TEMP']) / 'rogichat-export/descriptor.json').read_text())
+          image = descriptor['images']['runtime']['config_id']
+          env = {**os.environ, 'ROGICHAT_API_IMAGE': image, 'ROGICHAT_WORKER_IMAGE': image,
+                 'ROGICHAT_EDGE_NETWORK': 'fixture-only-network-not-created'}
+          subprocess.run(['docker', 'compose', '-f', 'infrastructure/runtime/compose.app.yaml', 'config', '--quiet'], env=env, check=True)
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: backend-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rogichat-export/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+          overwrite: false

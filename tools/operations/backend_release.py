@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import fcntl
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -62,7 +63,17 @@ def validate_request(value):
     fields = {'environment', 'source_sha', 'runtime_image', 'migration_image', 'edge_network',
               'database_host_sha256', 'artifacts', 'migrations', 'verification_runs',
               'previous_caddy_sha256', 'request_id', 'expires_at'}
-    require(type(value) is dict and set(value) == fields and value['environment'] == 'qa')
+    require(type(value) is dict and set(value) in (fields, fields | {'archive'}) and value['environment'] == 'qa')
+    if 'archive' in value:
+        archive = value['archive']
+        require(type(archive) is dict and set(archive) == {'export_sha', 'export_run', 'export_attempt',
+                'artifact_id', 'artifact_sha256', 'runtime_config_id', 'migration_config_id', 'validator_sha256'})
+        require(type(archive['export_sha']) is str and SHA.fullmatch(archive['export_sha']))
+        require(all(type(archive[key]) is int and archive[key] > 0
+                    for key in ('export_run', 'export_attempt', 'artifact_id')))
+        require(type(archive['validator_sha256']) is str and HASH.fullmatch(archive['validator_sha256']))
+        require(all(type(archive[key]) is str and re.fullmatch(r'sha256:[a-f0-9]{64}', archive[key])
+                    for key in ('artifact_sha256', 'runtime_config_id', 'migration_config_id')))
     require(type(value['source_sha']) is str and SHA.fullmatch(value['source_sha']))
     for key, repo in [('runtime_image', 'rogichat-api'), ('migration_image', 'rogichat-api-migration')]:
         require(type(value[key]) is str and re.fullmatch(r'ghcr\.io/h66rogi/' + repo + r'@sha256:[a-f0-9]{64}', value[key]))
@@ -86,7 +97,7 @@ def validate_request(value):
     return value
 
 
-def protected(path, *, mode=None):
+def protected(path, *, mode=None, read=True):
     """Every existing parent is root-owned and not group/other writable; no links."""
     require(path.is_absolute())
     for item in [path, *path.parents]:
@@ -95,7 +106,7 @@ def protected(path, *, mode=None):
     require(path.is_file())
     if mode is not None:
         require(stat.S_IMODE(path.stat().st_mode) == mode)
-    return path.read_bytes()
+    return path.read_bytes() if read else None
 
 
 def run(argv, *, timeout=60, data=None):
@@ -130,6 +141,48 @@ def verify_image(image, source_sha):
             and data['Config']['Entrypoint'] == ['node']
             and labels.get('org.opencontainers.image.source') == SOURCE
             and labels.get('org.opencontainers.image.revision') == source_sha)
+
+
+def execution_image(request, role):
+    # A config digest is a Docker image ID, not an invented registry manifest.
+    return request['archive'][role + '_config_id'] if 'archive' in request else request[role + '_image']
+
+
+def verify_archive_images(request):
+    approval = request['archive']
+    module_path = Path(__file__).absolute().parent / 'backend_archive.py'
+    require(digest(protected(module_path)) == approval['validator_sha256'])
+    spec = importlib.util.spec_from_file_location('approved_backend_archive', module_path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    archive_path = RELEASES / request['source_sha'] / 'export.zip'
+    protected(archive_path, read=False)
+    # Private scratch contains public image bytes only; deleted after validation.
+    # ZIP/tars are streamed, never buffered into RAM or extractall'd as paths.
+    with tempfile.TemporaryDirectory(prefix='rogichat-verify-', dir='/var/tmp') as temporary:
+        descriptor, configs = module.validate_zip(archive_path, approval['artifact_sha256'], Path(temporary) / 'verified')
+        module.verify_provenance(descriptor, approval)
+        require(descriptor['source_sha'] == request['source_sha']
+                and descriptor['verification_runs'] == request['verification_runs'])
+        for role in ('runtime', 'migration'):
+            expected = descriptor['images'][role]
+            require(expected['image'] == request[role + '_image']
+                    and expected['config_id'] == execution_image(request, role))
+            data = json.loads(docker('image', 'inspect', expected['config_id']))[0]
+            require(data['Id'] == expected['config_id'] and data['Architecture'] == 'amd64'
+                    and data['Os'] == 'linux' and data['Config']['User'] == '10001:10001'
+                    and data['Config']['Entrypoint'] == ['node']
+                    and data['Config']['Labels'].get('org.opencontainers.image.source') == SOURCE
+                    and data['Config']['Labels'].get('org.opencontainers.image.revision') == request['source_sha']
+                    and data['RootFS']['Layers'] == configs[role]['rootfs']['diff_ids'])
+
+
+def verify_release_images(request):
+    if 'archive' in request:
+        verify_archive_images(request)
+    else:
+        for key in ('runtime_image', 'migration_image'):
+            verify_image(request[key], request['source_sha'])
 
 
 def compose_requires_auth(compose):
@@ -239,7 +292,9 @@ def wait_health(request):
         healthy = True
         for role in ('api', 'worker'):
             item = json.loads(docker('inspect', 'rogichat-qa-' + role))[0]
-            require(item['Config']['Image'] == request['runtime_image'])
+            require(item['Config']['Image'] == execution_image(request, 'runtime'))
+            if 'archive' in request:
+                require(item['Image'] == execution_image(request, 'runtime'))
             if role == 'api':
                 validate_api_ingress(item, request['edge_network'])
             if not item['State']['Running'] or item['State'].get('Health', {}).get('Status') != 'healthy':
@@ -306,12 +361,12 @@ def deploy(request, files, container):
                 '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=16777216,mode=1777']
         for source, target in mounts:
             args.extend(['--mount', f'type=bind,src={source},dst={target},readonly'])
-        docker(*args, request['migration_image'], '/run/release/migrate_entry.mjs', timeout=360)
+        docker(*args, execution_image(request, 'migration'), '/run/release/migrate_entry.mjs', timeout=360)
         secret_path.unlink()
         secret_path = None
         atomic(APP / 'compose.app.yaml', files['compose'])
-        atomic(IMAGES, (f"ROGICHAT_API_IMAGE={request['runtime_image']}\n"
-                        f"ROGICHAT_WORKER_IMAGE={request['runtime_image']}\n"
+        atomic(IMAGES, (f"ROGICHAT_API_IMAGE={execution_image(request, 'runtime')}\n"
+                        f"ROGICHAT_WORKER_IMAGE={execution_image(request, 'runtime')}\n"
                         f"ROGICHAT_EDGE_NETWORK={request['edge_network']}\n").encode(), 0o600)
         atomic(UNIT, files['unit'])
         run(['/usr/bin/systemctl', 'daemon-reload'])
@@ -351,10 +406,9 @@ def main():
     protected(RUNTIME_SECRET, mode=0o440)
     protected(CA)
     verify_ci(request)
-    for key in ('runtime_image', 'migration_image'):
-        # Pull explicitly approved digests separately before invoking this helper.
-        verify_image(request[key], request['source_sha'])
-    verify_auth_secret(files['compose'], request['runtime_image'])
+    # Pull registry digests or load validated archives separately; no credentials.
+    verify_release_images(request)
+    verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
     container = get_caddy(request['edge_network'])
     require(not (RELEASES / ('backup-' + request['request_id'])).exists())
     if not args.apply:
@@ -368,7 +422,7 @@ def main():
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         require(time.time() < request['expires_at'])
         require(digest(protected(CADDY)) == request['previous_caddy_sha256'])
-        verify_auth_secret(files['compose'], request['runtime_image'])
+        verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
         def interrupt(*_):
             raise Rejected('interrupted')
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):

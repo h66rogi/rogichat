@@ -47,7 +47,7 @@ jobs:
       - run: pnpm contracts:check
       - name: Isolated QA release helper contracts
         run: |
-          python3 -m unittest discover -s tools/operations -p 'test_backend_release.py'
+          python3 -m unittest discover -s tools/operations -p 'test_backend_*.py'
           node --test tools/operations/test_migrate_entry.mjs
       - name: MySQL integration and process lifecycle
         env:

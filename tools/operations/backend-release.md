@@ -11,7 +11,8 @@
   `infrastructure/runtime/{compose.app.yaml,rogichat-app@.service,Caddyfile.app,Caddyfile.bootstrap}`와
   `tools/operations/migrate_entry.mjs`다. 운영자가 파일을 직접 검토하고 각 SHA-256을 승인한다.
   image SHA와 별도 helper revision을 사용하면 두 revision과 파일 hash의 관계도 private 기록에 남긴다.
-- 두 GHCR image는 명시적 immutable digest로 미리 pull한다. helper는 pull credential을 취급하지 않는다.
+- 두 GHCR image는 명시적 immutable digest로 미리 pull한다. registry 접근이 없는 호스트는 아래의
+  별도 archive transport를 사용한다. helper는 어느 모드에서도 registry credential을 취급하지 않는다.
 - `/etc/rogichat/backend-release.json`은 root:root `0600`, 아래 폐쇄 schema를 사용한다.
   SSH 사용자에게 이 파일 쓰기 권한이나 임의 Python/Docker sudo를 주지 않는다.
 - 기존 Caddy 프로젝트·read-only config mount·data/config volumes·network가 일치해야 한다.
@@ -78,5 +79,56 @@ Caddy rollback 오류가 나도 두 앱 중단을 각각 시도한다. host/Dock
 
 ```sh
 python3 -m unittest discover -s tools/operations -p 'test_backend_release.py'
+python3 -m unittest discover -s tools/operations -p 'test_backend_archive.py'
 node --test tools/operations/test_migrate_entry.mjs
 ```
+
+## 명시적 archive transport (registry mode의 fallback이 아님)
+
+GHCR 권한 확대·브라우저 credential 추출·가짜 RepoDigest 태깅을 하지 않는다. 검토한
+`backend-export.yml`을 `qa`에서 직접 dispatch하여 **이미 발행된** 두 image의 full source SHA와
+registry manifest digest를 입력한다. 빌드/DB 접근/배포는 하지 않는다. public PR은 실행할 수 없다.
+export job의 자체 GITHUB_TOKEN은 contents/actions/packages **read**만 가지며 임시 Docker config는
+pull 직후 logout/삭제한다. Docker save와 upload에는 registry token을 전달하지 않는다.
+
+Producer는 source의 backend/security/infrastructure/publisher 네 push CI 성공, source→export SHA
+조상 관계, 원본 registry manifest bytes의 SHA-256, config ID와 Docker save의 모든 rootfs diff ID,
+amd64/Linux/nonroot/entrypoint/source label 및 image env의 credential 키 부재를 검사한다.
+Dockerfile은 public source/base image만 복사하며 운영 secret은 빌드 입력으로 제공하지 않는다.
+이는 임의 이미지에 대한 범용 secret 탐지 보증이 아니며 source security CI/검토를 대체하지 않는다.
+
+artifact는 descriptor 1개 + raw manifest 2개 + Docker tar 2개, 1일 보존이며 source/run/attempt별 이름이다.
+관리 환경에서 기존 `gh` 인증으로 다음을 실행한다(출력 폴더는 public Git 밖의 새 임시 경로).
+
+```sh
+python3 tools/operations/backend_archive.py download \
+  --export-sha <approved-40-character-workflow-sha> --run-id <id> --attempt <attempt> \
+  --artifact-id <id> --output <new-external-temporary-directory>
+```
+
+ZIP 자체 SHA-256을 GitHub artifact API의 `digest`와 **일치하지 않으면 실패**시킨다. 단순
+`download-artifact` 경고를 성공으로 취급하지 않는다. 원본 repository/workflow/event/ref/head SHA,
+정확한 run attempt/success, artifact ID/name/expiry, source 네 CI와 crypto chain을 다시 검사한다.
+ZIP은 고정된 5개 일반 파일만 허용하고 duplicate/path traversal/link/암호화/크기 초과를 거부한다.
+Docker tar는 경로를 추출하지 않고 config 및 layer 내용을 stream hashing한다.
+
+운영자가 descriptor의 기존 registry digest와 config ID를 별도 승인하고, 검증한 두 tar만 신뢰 SSH로
+`docker load`한다. 서버 credential 저장은 없다. helper 옆에 검토한 `backend_archive.py`를 root-owned로
+설치하고, source release 디렉터리에 원본 `export.zip`을 root-owned로 둔다. 승인 JSON에는 기존
+필드를 그대로 유지하고 선택적 `archive` 객체만 추가한다:
+
+- `export_sha`, `export_run`, `export_attempt`, `artifact_id`, `artifact_sha256`
+- `runtime_config_id`, `migration_config_id` (각각 `sha256:<64 hex>`)
+- `validator_sha256` (서버에 설치한 검토된 `backend_archive.py` SHA-256)
+
+`archive-approval.json`은 앞의 7개 값을 제안할 뿐 배포 권한이 아니다. 운영자가 validator hash와
+다른 요청 필드를 대조해 root-owned 승인 요청에 반영한다. helper는 원본 ZIP/API 증거/registry
+manifest/config/rootfs를 다시 검증하고 로드된 이미지의 실제 ID/labels/RootFS를 검사한다.
+검증에는 `/var/tmp`의 제한된 임시 disk scratch가 필요하며 여유 공간 1GiB를 추가 확보한다.
+앱/migrator 실행은 immutable **Docker config ID**를 사용하고 원래 GHCR manifest digest도 감사
+기록에 유지한다. 두 digest는 서로 다른 개념이며 같다고 보고하지 않는다. registry mode는 기존
+RepoDigests 검증을 그대로 유지하며 실패 시 자동으로 archive mode로 전환하지 않는다.
+
+GitHub API 장애/아티팩트 만료/digest 불일치는 배포 차단 조건이다. 만료 뒤에는 같은 source/digest의
+새 trusted export와 새 운영 승인이 필요하다. 실제 배포와 DB migration은 기존 `--apply`
+승인/실패 시 503 계약 그대로다.
