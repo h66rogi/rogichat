@@ -14,14 +14,15 @@ resource "aws_lightsail_instance" "qa" {
   ip_address_type   = "ipv4"
   key_pair_name     = aws_lightsail_key_pair.bootstrap.name
   # No credentials or key material in user_data. Key injection uses Lightsail import.
-  user_data = "printf %s '${base64encode(templatefile("${path.module}/../../../runtime/bootstrap.sh.tftpl", {
+  user_data = templatefile("${path.module}/../../../runtime/bootstrap.sh.tftpl", {
     bootstrap_ssh_cidrs = sort(tolist(var.bootstrap_ssh_cidrs))
     compose_base64      = filebase64("${path.module}/../../../runtime/compose.bootstrap.yaml")
     caddyfile_base64    = filebase64("${path.module}/../../../runtime/Caddyfile.bootstrap")
-  }))}' | base64 --decode | bash"
+  })
 
   lifecycle {
-    prevent_destroy = true
+    # Temporary initial-bootstrap rebuild only; restore protection after verified boot.
+    prevent_destroy = false
     precondition {
       condition = (
         var.access_phase == "bootstrap" && length(var.bootstrap_ssh_cidrs) > 0 ||

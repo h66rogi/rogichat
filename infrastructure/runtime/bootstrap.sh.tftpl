@@ -2,7 +2,7 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl ufw docker.io docker-compose-v2
+apt-get -o DPkg::Lock::Timeout=300 install -y ca-certificates curl ufw docker.io docker-compose-v2
 
 # SSH is limited at both the provider firewall and the host. Docker only publishes
 # 80/443; never rely on UFW to hide an accidentally published database port.
@@ -29,13 +29,17 @@ install -d -m 0755 /usr/share/keyrings
 curl --fail --silent --show-error https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg -o /usr/share/keyrings/tailscale-archive-keyring.gpg
 curl --fail --silent --show-error https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list -o /etc/apt/sources.list.d/tailscale.list
 apt-get update
-apt-get install -y tailscale
+apt-get -o DPkg::Lock::Timeout=300 install -y tailscale
 systemctl enable --now tailscaled docker
 # Enrollment is performed over the approved SSH channel, never in user_data.
 
 install -d -m 0750 /opt/rogichat/bootstrap
 printf %s '${compose_base64}' | base64 --decode > /opt/rogichat/bootstrap/compose.yaml
 printf %s '${caddyfile_base64}' | base64 --decode > /opt/rogichat/bootstrap/Caddyfile
+# Only the SSH HOST public key, never a user key or a private key. WebPKI-authenticated
+# delivery supplies the initial SSH trust anchor when Lightsail returns no hostKeys.
+install -d -m 0755 /opt/rogichat/bootstrap/host-keys
+install -m 0644 /etc/ssh/ssh_host_ed25519_key.pub /opt/rogichat/bootstrap/host-keys/ssh_host_ed25519_key.pub
 cd /opt/rogichat/bootstrap
 docker compose config --quiet
 docker compose up -d

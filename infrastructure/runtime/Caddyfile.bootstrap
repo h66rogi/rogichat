@@ -5,6 +5,13 @@
 api.qa.rogi.chat {
 	# No access log until a reviewed redaction policy is installed.
 	# This is host readiness, explicitly not the future NestJS health endpoint.
+	@hostkey path /_infra/ssh-host-key
+	handle @hostkey {
+		header Cache-Control "no-store"
+		root * /srv/host-keys
+		rewrite * /ssh_host_ed25519_key.pub
+		file_server
+	}
 	@infra path /_infra/health
 	handle @infra {
 		respond "rogichat QA edge ready" 200

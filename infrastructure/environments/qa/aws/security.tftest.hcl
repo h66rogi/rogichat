@@ -18,6 +18,10 @@ run "normal_operation_closes_public_ssh" {
     condition     = aws_lightsail_instance.qa.name != aws_lightsail_static_ip.qa.name
     error_message = "Lightsail instance and static IP must have distinct resource names."
   }
+  assert {
+    condition     = startswith(aws_lightsail_instance.qa.user_data, "#!/usr/bin/env bash\n")
+    error_message = "Cloud-init shell user_data must start with a shebang."
+  }
 }
 
 run "bootstrap_ssh_is_scoped" {
