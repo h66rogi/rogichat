@@ -114,18 +114,24 @@ public PR CI에는 cloud/서명 자격증명을 주지 않는다. 서명 배포�
 security assessment 검사를 통과했다. `xcodebuild -version`으로 실제 설치 버전을 확인했다.
 시스템 활성 경로는 기존 Command Line Tools를 유지하며 프로젝트별 DEVELOPER_DIR를 사용한다.
 `xcodes` 2.1.0 공식 배포 CLI는 SHA-256과 Apple Developer ID 서명을 확인했다.
-SDK 조회와 컴파일은 Apple 라이선스 동의·first-launch 초기 구성 대기다. SwiftUI/Observation,
-Swift 6, iOS 18용 임시 unsigned 시험 프로젝트를 준비했으며 아직 빌드 성공을 주장하지 않는다.
+운영자가 Apple 라이선스 동의·first-launch 초기 구성을 완료했다. SDK 조회와 임시
+SwiftUI/Observation 앱의 unsigned compile/link까지 성공해 로컬 iOS 빌드 환경을 검증했다.
 최신 Xcode 27 사용에는 OS 업데이트가 필요하고, OS 재부팅/업데이트는 아직 수행하지 않았다.
 
-다음 증거가 모두 있어야 개발 환경 완료로 기록한다.
+확인한 증거:
 
-- `DEVELOPER_DIR=<설치 앱>/Contents/Developer`로 `xcodebuild -version`, `-showsdks`,
-  `xcrun --sdk iphoneos --show-sdk-path`와 Swift compiler 확인.
-- 라이선스/first-launch 필요 여부 확인 및 운영자 처리 후 `-checkFirstLaunchStatus` 성공.
-- 최소 SwiftUI 앱의 iphoneos unsigned compile/link. 로기챗 앱 빌드와 구별해 기록.
-- 실제 device pairing/signing은 별도 확인. unsigned 빌드 성공을 실기기 설치·배포 성공으로
-  표시하지 않는다. private signing key와 provisioning 자료는 공개 저장소에 저장하지 않는다.
+- 프로젝트별 `DEVELOPER_DIR`로 `xcodebuild -version`: Xcode 26.6, build 17F113.
+- `xcodebuild -checkFirstLaunchStatus`: exit 0.
+- `xcodebuild -showsdks`, `xcrun --sdk iphoneos --show-sdk-path`: iOS 26.5 SDK 확인.
+- `xcrun swift --version`: Apple Swift 6.3.3. 시험 프로젝트 language mode는 Swift 6.
+- 임시 SwiftUI/Observation 앱을 `-sdk iphoneos -destination 'generic/platform=iOS'`,
+  `CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO`로 빌드: `BUILD SUCCEEDED`.
+- 결과 실행 파일은 arm64 Mach-O. Info.plist와 `vtool -show-build`에서 최소 iOS 18.0,
+  SDK 26.5 확인. 빌드 산출물은 개발 볼륨의 임시 DerivedData에 보관한다.
+
+이 결과는 도구 환경 시험이며 로기챗 앱 구현·빌드 완료가 아니다. 실제 device pairing/signing,
+실기기 설치와 Simulator 실행은 별도 확인한다. private signing key와 provisioning 자료는
+공개 저장소에 저장하지 않는다.
 
 Xcode 설치·DerivedData는 충분한 공간이 있는 개발 볼륨에 둔다. 시스템의 활성 개발 경로를
 바꾸기 전에 프로젝트별 DEVELOPER_DIR로 먼저 검증한다. 기존 프로젝트의 toolchain을
