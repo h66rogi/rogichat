@@ -1,6 +1,6 @@
 # 저비용 MVP 백엔드 실행 계획
 
-2026-09-20. **M01–M04 내부 구현/검증. 실제 QA 앱 배포와 실제 SOOP 로그인은 각각 별도 gate다.**
+2026-09-20. **M01–M05 내부 구현/검증. 실제 QA 앱 배포와 실제 SOOP 로그인은 각각 별도 gate다.**
 사용자 최신 결정: 초기 1명 수준 사용, 상시 비용 최소화, 구조상 확장성 유지.
 제품 정책은 [백엔드 설계](backend-design.md), 동시성·sync 상세는
 [기술 구현 계획](backend-implementation-plan.md), 이번 재검토는 [MVP 리뷰](backend-mvp-review.md)를 따른다.
@@ -202,6 +202,9 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
 - 산출: `profile.contract.spec`, `access-matrix.spec`, `membership-race.spec` 후보 테스트.
 
 ### M05 — 텍스트 발송·최소 삭제·멱등 영속화
+
+구현·인가·queue 경계: [M05 기록](backend-m05-implementation.md). 로컬 92개 시험 통과
+(unit 47, 실제 MySQL 29, HTTP/process 14, contract 2). 원격 CI/QA rollout은 별도 확인한다.
 
 - 의존: M04. 변경: messages, counter, command receipt, room events, 목적별 outbox, deletion request.
 - 공통 job claim/lease/fence/조건부 완료/retry primitive를 여기서 구현해 M06 dispatcher에 제공한다.

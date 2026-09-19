@@ -15,13 +15,14 @@ import { ApiError } from './auth-core.js';
 import { AUTH, AuthController, authCors } from './auth-http.js';
 import type { AuthRuntime } from './auth-http.js';
 import { CommunityController } from './community-http.js';
+import { MessagesController } from './messages-http.js';
 
 @Module({})
 class RuntimeModule {
   static register(database: Database, lifecycle: LifecycleState, http: boolean, auth?: AuthRuntime): DynamicModule {
     return {
       module: RuntimeModule,
-      controllers: http ? [HealthController, ...(auth ? [AuthController, CommunityController] : [])] : [],
+      controllers: http ? [HealthController, ...(auth ? [AuthController, CommunityController, MessagesController] : [])] : [],
       providers: [{ provide: DATABASE, useValue: database }, { provide: LifecycleState, useValue: lifecycle }, ...(auth ? [{ provide: AUTH, useValue: auth }] : [])],
     };
   }

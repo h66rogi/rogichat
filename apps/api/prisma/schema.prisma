@@ -60,6 +60,29 @@ enum LoginStatus {
   FAILED
 }
 
+enum JobPurpose {
+  REALTIME_HINT
+  MEDIA
+  PUBLICATION
+  PURGE
+  PUSH
+  LEDGER_EXPORT
+}
+
+enum JobState {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum DeletionState {
+  BLOCKED
+  PURGING
+  LIVE_PURGED
+  BACKUPS_EXPIRED
+}
+
 model users {
   id                    String     @id @db.Char(36)
   status                UserStatus @default(ACTIVE)
@@ -73,6 +96,8 @@ model users {
   members               room_members[]
   creator               creator_accounts?
   admin                 admin_capabilities?
+  owned_messages        messages[]
+  deletions             deletion_requests[]
 }
 
 model user_profiles {
@@ -161,6 +186,7 @@ model rooms {
   members         room_members[] @relation("room_members")
   counter         room_counters?
   streams         message_streams[]
+  jobs            jobs[]
 }
 
 model room_counters {
@@ -182,6 +208,10 @@ model room_members {
   periods          membership_periods[] @relation("period_member")
   active_period    membership_periods? @relation("active_period", fields: [room_id, id, active_period_id], references: [room_id, member_id, id], onDelete: Restrict, onUpdate: Restrict)
   grants           stream_grants[]
+  messages         messages[]
+  receipts         command_receipts[]
+  pairs_left       stream_pairs[] @relation("pair_left")
+  pairs_right      stream_pairs[] @relation("pair_right")
   @@unique([room_id, id, active_period_id])
   @@unique([room_id, user_id])
   @@unique([room_id, id])
@@ -207,6 +237,8 @@ model message_streams {
   kind    StreamKind
   room    rooms      @relation(fields: [room_id], references: [id], onDelete: Restrict)
   grants  stream_grants[]
+  messages messages[]
+  pair     stream_pairs?
   @@unique([room_id, id])
 }
 
@@ -241,4 +273,113 @@ model audit_events {
   action        String   @db.VarChar(32)
   created_at    DateTime @default(now()) @db.DateTime(3)
   @@index([room_id, created_at])
+}
+
+model stream_pairs {
+  id              String @id @db.Char(36)
+  room_id         String @db.Char(36)
+  left_member_id  String @db.Char(36)
+  right_member_id String @db.Char(36)
+  stream_id       String @unique @db.Char(36)
+  left            room_members @relation("pair_left", fields: [room_id, left_member_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  right           room_members @relation("pair_right", fields: [room_id, right_member_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  stream          message_streams @relation(fields: [room_id, stream_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([room_id, left_member_id, right_member_id])
+  @@unique([room_id, stream_id])
+}
+
+model messages {
+  id                    String @id @db.Char(36)
+  room_id               String @db.Char(36)
+  stream_id             String @db.Char(36)
+  sender_member_id      String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  deletion_root_id      String? @db.Char(36)
+  quote_id              String? @db.Char(36)
+  content_kind          String @default("TEXT") @db.VarChar(16)
+  text_content          String? @db.Text
+  version               BigInt @default(1) @db.UnsignedBigInt
+  created_order         BigInt @db.UnsignedBigInt
+  created_at            DateTime @default(now()) @db.DateTime(3)
+  deleted_at            DateTime? @db.DateTime(3)
+  moderated             Boolean @default(false)
+  stream                message_streams @relation(fields: [room_id, stream_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  sender                room_members @relation(fields: [room_id, sender_member_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  content_owner         users @relation(fields: [content_owner_user_id], references: [id], onDelete: Restrict)
+  deletion_root         messages? @relation("deletion_root", fields: [room_id, deletion_root_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  publications          messages[] @relation("deletion_root")
+  quote                 messages? @relation("quote", fields: [room_id, quote_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  quoted_by             messages[] @relation("quote")
+  events                room_events[]
+  receipts              command_receipts[]
+  deletion_requests     deletion_requests[]
+  @@unique([room_id, id])
+  @@unique([room_id, stream_id, id])
+  @@index([room_id, stream_id, created_order])
+  @@index([room_id, created_order])
+  @@index([content_owner_user_id, deleted_at])
+}
+
+model command_receipts {
+  id                String @id @db.Char(36)
+  room_id           String @db.Char(36)
+  actor_id          String @db.Char(36)
+  client_message_id String @db.Char(36)
+  message_id        String @db.Char(36)
+  digest_version    Int @default(1) @db.UnsignedTinyInt
+  payload_digest    Bytes? @db.Binary(32)
+  deleted           Boolean @default(false)
+  created_at        DateTime @default(now()) @db.DateTime(3)
+  actor             room_members @relation(fields: [room_id, actor_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  message           messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([room_id, actor_id, client_message_id])
+}
+
+model room_events {
+  id              String @id @db.Char(36)
+  room_id         String @db.Char(36)
+  stream_id       String @db.Char(36)
+  message_id      String @db.Char(36)
+  message_version BigInt @db.UnsignedBigInt
+  event_order     BigInt @db.UnsignedBigInt
+  kind            String @db.VarChar(32)
+  created_at      DateTime @default(now()) @db.DateTime(3)
+  message         messages @relation(fields: [room_id, stream_id, message_id], references: [room_id, stream_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([room_id, event_order])
+  @@index([room_id, stream_id, event_order])
+}
+
+model deletion_requests {
+  id            String @id @db.Char(36)
+  actor_user_id String @db.Char(36)
+  room_id       String @db.Char(36)
+  message_id    String @db.Char(36)
+  state         DeletionState @default(BLOCKED)
+  requested_at  DateTime @default(now()) @db.DateTime(3)
+  actor         users @relation(fields: [actor_user_id], references: [id], onDelete: Restrict)
+  message       messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([actor_user_id, message_id])
+}
+
+// No body/token/URL payload: consumers resolve an authorized current resource.
+model jobs {
+  id              String @id @db.Char(36)
+  purpose         JobPurpose
+  room_id         String? @db.Char(36)
+  resource_id     String? @db.Char(36)
+  state           JobState @default(PENDING)
+  generation      BigInt @default(0) @db.UnsignedBigInt
+  lease_owner     String? @db.Char(36)
+  lease_token     String? @db.Char(36)
+  lease_until     DateTime? @db.DateTime(3)
+  available_at    DateTime @default(now()) @db.DateTime(3)
+  attempts        Int @default(0) @db.UnsignedInt
+  max_attempts    Int @default(5) @db.UnsignedInt
+  last_error_code String? @db.VarChar(32)
+  dedupe_key      Bytes? @db.Binary(32)
+  created_at      DateTime @default(now()) @db.DateTime(3)
+  room            rooms? @relation(fields: [room_id], references: [id], onDelete: Restrict)
+  @@unique([purpose, dedupe_key])
+  @@index([purpose, state, available_at, id])
+  @@index([purpose, state, lease_until, id])
 }
