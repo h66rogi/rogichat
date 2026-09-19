@@ -1,0 +1,27 @@
+[Unit]
+Description=Rogichat QA %i application container
+Requires=docker.service rogichat-runtime-secrets.service
+After=network-online.target docker.service rogichat-runtime-secrets.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+[Service]
+Type=simple
+# Install only the reviewed api and worker instances. Files/env are root-owned;
+# the environment file contains approved image digests/network name, never secrets.
+WorkingDirectory=/opt/rogichat/app
+ExecStartPre=/usr/bin/docker compose --env-file /etc/rogichat/app-images.env -f /opt/rogichat/app/compose.app.yaml config --quiet
+ExecStart=/usr/bin/docker compose --env-file /etc/rogichat/app-images.env -f /opt/rogichat/app/compose.app.yaml up --no-deps --no-build --pull never --abort-on-container-exit --exit-code-from %i %i
+ExecStop=/usr/bin/docker compose --env-file /etc/rogichat/app-images.env -f /opt/rogichat/app/compose.app.yaml stop --timeout 20 %i
+Restart=always
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

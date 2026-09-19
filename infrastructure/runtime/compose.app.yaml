@@ -1,0 +1,91 @@
+name: rogichat-qa-app
+
+x-runtime: &runtime
+  # systemd owns restart ordering after the tmpfs secret has been regenerated.
+  # A Docker restart policy would bypass that ordering on a host reboot.
+  restart: "no"
+  user: "10001:10001"
+  read_only: true
+  init: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  stop_signal: SIGTERM
+  stop_grace_period: 20s
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=16777216,mode=1777
+  volumes:
+    - type: bind
+      source: /run/rogichat/secrets/database.json
+      target: /run/secrets/database.json
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: /etc/rogichat/rds-global-bundle.pem
+      target: /run/secrets/rds-ca.pem
+      read_only: true
+      bind:
+        create_host_path: false
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-environment: &environment
+  APP_ENV: qa
+  NODE_ENV: production
+  DATABASE_SECRET_FILE: /run/secrets/database.json
+  DB_CA_FILE: /run/secrets/rds-ca.pem
+  DB_TLS_MODE: required
+
+services:
+  api:
+    <<: *runtime
+    image: ${ROGICHAT_API_IMAGE:?Set the approved GHCR repository@sha256 digest}
+    # Named containers intentionally prevent scaling local-hint mode beyond one.
+    container_name: rogichat-qa-api
+    command: [dist/main.js]
+    environment:
+      <<: *environment
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DB_POOL_SIZE: "5"
+    mem_limit: 512m
+    cpus: 0.75
+    expose: ["3000"]
+    networks: [edge]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/ready',{signal:AbortSignal.timeout(2500)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+  worker:
+    <<: *runtime
+    image: ${ROGICHAT_WORKER_IMAGE:?Set the approved GHCR repository@sha256 digest}
+    container_name: rogichat-qa-worker
+    command: [dist/worker.js]
+    environment:
+      <<: *environment
+      DB_POOL_SIZE: "2"
+    mem_limit: 384m
+    cpus: 0.5
+    networks: [jobs]
+    # The current worker has no HTTP listener. This verifies its mounted runtime
+    # configuration/DB schema, not job progress; check worker logs/backlog separately.
+    healthcheck:
+      test: [CMD, node, --input-type=module, -e, "import {readConfig} from './dist/config.js';import {MysqlDatabase} from './dist/database.js';const db=new MysqlDatabase(readConfig('worker'));try{const r=await db.check();await db.close();process.exit(r.ready?0:1)}catch{process.exit(1)}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  edge:
+    external: true
+    # Existing Caddy network. Inspect the live network before installing this file.
+    name: ${ROGICHAT_EDGE_NETWORK:?Set the verified existing Caddy network name}
+  jobs:
+    driver: bridge
