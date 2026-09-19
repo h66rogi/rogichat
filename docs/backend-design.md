@@ -5,6 +5,9 @@
 이 문서는 기반 설계의 단일 스트리머 전제와 잠정 메시지 공개 규칙을 구체화한다.
 인프라 구축은 별도 작업이며 이 문서의 존재가 배포·보안 검증 완료를 뜻하지 않는다.
 
+후속 문서: [다각도 리뷰](backend-review.md), [다중 인스턴스 구현 계획](backend-implementation-plan.md).
+제품 확정 정책은 본 문서, transport·sync·worker·장애 시험의 구체적인 권고안은 구현 계획을 따른다.
+
 ## 1. 확정 요구
 
 - 첫 서비스는 후로기와 팬을 위한 방 하나. 처음부터 다중 사용자·다중 방·다중 스트리머를 지원하는 모델을 사용한다.
@@ -62,7 +65,8 @@ DB 저장 ACK만으로 상대방 전달·읽음을 표시하지 않는다.
 제안: NestJS 모듈형 단일 앱, MySQL 호환 DB, 동일 코드베이스의 별도 worker 실행.
 API와 worker는 같은 QA 호스트에 둘 수 있지만 작업 수명은 HTTP 요청과 분리한다.
 영상 처리 프로세스는 동시성·메모리·시간·네트워크를 제한하고 API를 막지 않게 한다.
-Redis는 presence/rate limit/다중 API 전달에 필요한지 검증 후 도입한다.
+다중 API 검증 단계에는 Redis-compatible 공유 hint bus와 분산 rate limiter를 도입하는 안을 권고한다.
+Redis에는 권한 원본·메시지 원본을 두지 않고, 본문 없는 알림 유실은 주기적 DB sync로 복구한다.
 메시지·수신 권한·재시도 상태의 영속 원본은 관계형 DB다.
 
 ```mermaid
@@ -143,6 +147,9 @@ caller는 세션으로 결정한다. `senderId`, 임의 `userId`, `role`, `isPub
 생성하거나 방 전체로 발송할 수 없다. restricted 수신자는 명시적으로 고정한다.
 새 스트리머/매니저 추가·방장 변경이 과거 대화 자동 열람을 뜻하지 않는다.
 공동 운영은 과거 접근 범위를 포함한 별도 권한 변경이며, 어드민도 일반 조회를 우회하지 않는다.
+creator 자격·private 과거 열람 grant와 방장 공개 capability는 별개다. 정당한 방장의 모든
+private 메시지 공개는 `canPublishSource`로 검사하고 일반 열람 grant 부재로 축소하지 않는다.
+방장 지정/이전은 강한 공개 권한 이동으로 감사하며 단순 스트리머 등록으로 부여하지 않는다.
 
 ### 전체공개와 삭제 연쇄
 
@@ -254,7 +261,8 @@ FAN 개인답장과 동일시하거나 팬 간 private 대화를 자동 허용�
 
 발송은 계정·방 참여·대상·콘텐츠 검사 → transaction → ACK 순서다.
 멱등 키, 메시지·첨부, 방 이벤트, outbox를 하나의 transaction에 저장한다.
-멱등 키는 `(room_id,sender_id,client_message_id)`이고 payload hash가 다르면 충돌 처리한다.
+멱등 키는 `(room_id,sender_id,client_message_id)`이고 정규화 payload의 versioned HMAC digest가
+다르면 충돌 처리한다. receipt에 본문/과거 응답 DTO를 보관하지 않으며 재시도에도 현재 인가를 적용한다.
 retry 허용 기간과 키 보존 기간을 맞추며 삭제 후 retry로 메시지가 되살아나지 않게 한다.
 
 내부 순서는 방 counter를 같은 transaction에서 잠그고 증가시키는 안이다. 커밋 순서가 뒤집혀
@@ -264,14 +272,20 @@ cursor 앞의 이벤트를 나중에 놓치지 않게 한다. hot room 잠금 �
 
 outbox는 at-least-once이며 lease·재시도·실패 작업 격리·관측을 둔다. 클라이언트는 이벤트 UUID와
 message version으로 중복·역순 갱신을 처리한다. 소켓 연결 복구에만 의존하지 않고 DB catch-up을 제공한다.
+초기 소켓은 principal별 본문 없는 `sync.required` 힌트만 보낸다. 자동 packet recovery는 끄고
+실제 domain event/본문은 REST sync로 조회한다. 연결이 유지돼도 주기적 sync로 유실된 힌트를 복구한다.
+cursor는 socket 수신 최댓값이 아니라 DB가 인가·스캔을 완료한 경계로만 전진한다.
 목록/이벤트는 인가 필터 후 페이지를 만들고 타인의 건수를 cursor·total로 보내지 않는다.
 소켓 연결과 각 명령 모두 인가한다. 웹 Origin·세션을 검증하고 로그아웃·만료·제재·강퇴 때 구독을 무효화한다.
-fanout·replay·push 실행 직전 현재 권한을 검사하며 회수와 발송은 같은 멤버/방 직렬화 규칙으로 순서를 정한다.
-이미 전달한 bytes의 회수를 보장하지 않는다. 공통 payload도 수신 자격 검사를 생략하지 않는다.
+본문·sync·서명 발급은 writer의 새 짧은 일관된 snapshot에서 인가와 projection을 함께 수행한다.
+mutation은 불변식별 잠금으로 회수와 발송의 선후를 정한다. fanout·push도 실행 전 현재 권한을 확인한다.
+회수 후 새 snapshot의 인가는 거부하지만 회수 전에 승인된 in-flight 응답과 이미 전달한 bytes를
+회수한다고 보장하지 않는다. network I/O 동안 DB lock을 유지하지 않는다. 상세 경계는 구현 계획을 따른다.
 
 읽음은 실제 표시한 권한 있는 메시지를 기준으로 단조 증가한다. 미읽음은 보이는 incoming만
 계산하며 hidden sequence 차감으로 구하지 않는다. 소켓 연결·푸시 성공은 읽음이 아니다.
-팬별 읽음은 다른 팬에게 노출하지 않는다. 삭제/철회 tombstone은 이전 열람자에게만 최소 필드로 전달한다.
+팬별 읽음은 다른 팬에게 노출하지 않는다. 삭제/철회 tombstone은 이전 가시 범위를 확인한 대상에만
+최소 필드로 전달하며 이를 안전하게 판정할 수 없으면 ID 없는 cache reset을 사용한다.
 접근이 사라진 방은 최소 권한 회수 신호로 로컬 데이터를 정리하고 새 수신자에게 private ID를 보내지 않는다.
 typing/presence를 추가할 때도 같은 audience를 적용한다. FAN 방 전체에 팬의 접속·입력 상태를 broadcast하지 않는다.
 오프라인 기기에 대한 삭제 동기화는 다음 인증/접속 때 수행한다. 로그아웃·계정 전환 시 로컬
@@ -350,9 +364,11 @@ decoder는 비신뢰 입력을 처리하므로 프로세스 격리·패치·자�
 | `POST /v1/rooms/:roomId/actors/:actorId/avatar/access` | 열람 가능한 프로필 60초 URL 발급 |
 | `POST/DELETE /v1/push/subscriptions` | 내 기기 구독 등록·해제 |
 
-소켓 이벤트는 `message.created/updated/deleted`, `reaction.updated`, `publication.revoked`,
+REST sync의 domain event는 `message.created/updated/deleted`, `reaction.updated`, `publication.revoked`,
 `read.updated`, `membership.revoked`를 제안한다. schema version·이벤트 UUID·리소스 version을
-두고 HTTP와 같은 DTO projection을 사용한다. 민감 리소스 미존재/접근 불가는 일관된 404,
+두고 현재 viewer별 DTO projection을 사용한다. 초기 소켓에는 이 payload를 직접 싣지 않는다.
+삭제 이벤트는 최소 삭제 projection, 권한 범위를 판정할 수 없으면 ID 없는 cache reset을 사용한다.
+민감 리소스 미존재/접근 불가는 일관된 404,
 인증 실패는 401로 구분하며 validation error로 숨겨진 리소스 존재를 드러내지 않는다.
 
 ## 10. 보안·검증·구현 순서
