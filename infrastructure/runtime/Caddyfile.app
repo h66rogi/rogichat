@@ -17,8 +17,11 @@ api.qa.rogi.chat {
 		respond "rogichat QA edge ready" 200
 	}
 	handle {
-		# The upstream is the private Docker-network alias, never a public host port.
-		reverse_proxy api:3000 {
+		# Use the globally unique container name, not the shared Compose alias "api".
+		# DNS-only public ingress: Caddy is the sole proxy hop. Discard caller IP
+		# claims and send exactly the socket peer IP for the API's trust-proxy=1.
+		reverse_proxy rogichat-qa-api:3000 {
+			header_up X-Forwarded-For {remote_host}
 			header_up -CF-Connecting-IP
 			header_up -Forwarded
 		}

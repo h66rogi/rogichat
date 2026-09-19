@@ -44,7 +44,8 @@ services:
   api:
     <<: *runtime
     image: ${ROGICHAT_API_IMAGE:?Set the approved GHCR repository@sha256 digest}
-    # Named containers intentionally prevent scaling local-hint mode beyond one.
+    # Named containers prevent scaling and provide Caddy's globally unique DNS
+    # target. Do not use the generic Compose service alias "api" at the proxy.
     container_name: rogichat-qa-api
     command: [dist/main.js]
     environment:
@@ -85,7 +86,8 @@ services:
 networks:
   edge:
     external: true
-    # Existing Caddy network. Inspect the live network before installing this file.
+    # Existing Caddy network: only Caddy + this API may remain attached. The
+    # deployer verifies membership and API host-port absence for trust-proxy=1.
     name: ${ROGICHAT_EDGE_NETWORK:?Set the verified existing Caddy network name}
   jobs:
     driver: bridge

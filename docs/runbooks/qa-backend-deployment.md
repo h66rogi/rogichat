@@ -126,8 +126,17 @@ Migration image가 있다는 이유만으로 이 경로가 구축됐다고 보�
    bootstrap 503 또는 같은 schema manifest와 호환되는 M02 이후 digest를 사용한다.
 
 프로파일·OAuth query·Cookie·Authorization·Signed URL을 Caddy access log나 오류 원문에
-기록하지 않는다. Caddy에서 CF-Connecting-IP/Forwarded 입력을 제거하고 앱의 proxy trust는
-검증된 내부 hop만 대상으로 설계한다. 이 template이 인증/CSRF/rate-limit을 구현하는 것은 아니다.
+기록하지 않는다. API DNS-only 경로에서 Caddy는 `X-Forwarded-For`를 `{remote_host}`로
+정확히 덮어쓰고 CF-Connecting-IP/Forwarded를 제거한다. hosted API는 정확히 한 프록시
+hop(`trust proxy = 1`)만 신뢰한다. 이 전제는 API host port 미공개·edge network 단일 연결·
+그 network의 상시 peer가 Caddy와 API 두 개뿐인 조건에서만 유효하다. 배포 helper가 기존/신규
+container 설정과 network membership을 검사한다. 호스트 root/Docker 권한은 신뢰 경계다.
+다른 웹/프록시 container를 같은 network에 붙이거나 LB/Cloudflare proxy를 앞에 추가하려면
+헤더·trust policy를 먼저 재설계한다. 다른 경로 길이를 무조건 한 hop으로 간주하지 않는다.
+Caddy upstream은 generic Compose alias `api` 대신 전역고유 container name `rogichat-qa-api`다.
+위조 X-Forwarded-For/CF-Connecting-IP/Forwarded를 보낸 요청이 같은 실제 client IP로
+처리되는지 인증 rate-limit 테스트로 검증하며 IP echo API나 원문 IP 로그는 만들지 않는다.
+이 template 자체가 인증/CSRF/rate-limit을 구현하는 것은 아니다.
 
 ## 완료 기록
 
