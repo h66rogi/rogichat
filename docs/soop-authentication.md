@@ -1,5 +1,9 @@
 # 로기챗 SOOP 소셜로그인
 
+2026-09-20 추가 결정: Apple 로그인을 지원하며 Apple 가입자도 SOOP 연결 후 채팅을 이용한다.
+기존 SOOP 직접 로그인/연결 중계는 유지한다. 계정 상태·미연결 인가·충돌 처리·심사 검토는
+[Apple 로그인과 SOOP 필수 연결](mobile-authentication.md)을 함께 따른다.
+
 상태: 사용자 요구 반영 설계. 신규 endpoint·broker 등록·DB·세션 구현은 아직 없다.
 QA 웹 `https://qa.rogi.chat`, QA API `https://api.qa.rogi.chat`.
 운영 웹 `https://rogi.chat`, 운영 API `https://api.rogi.chat`은 대응되는 제안이다.
