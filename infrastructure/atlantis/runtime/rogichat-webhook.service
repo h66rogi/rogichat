@@ -1,5 +1,5 @@
 [Unit]
-Description=Rogichat GitHub webhook gateway (version only)
+Description=Rogichat GitHub webhook gateway (connectivity only)
 After=network-online.target docker.service
 Wants=network-online.target
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed webhook gateway. Bootstrap supports only `atlantis version`.
+"""Fail-closed webhook gateway. Bootstrap supports only `rogichat status`.
 
 No repository checkout, Terraform execution, approval grant, or cloud mutation is
 implemented here. Enabling plan/apply requires a separately reviewed worker.
@@ -40,14 +40,18 @@ def classify(body, signature, event, delivery, secret, installation_id):
     comment = payload.get('comment', {})
     command = comment.get('body', '')
     require(type(command) is str)
-    # Do not parse or echo arbitrary CLI text, flags, multiline or alternate commands.
-    require(command == 'atlantis version')
+    # Ignore bot replies and ordinary discussion without entering Atlantis workflows.
+    if payload.get('sender', {}).get('type') == 'Bot':
+        return 'ignore', payload
+    if command != 'rogichat status':
+        require(not command.startswith(('atlantis ', 'rogichat ')))
+        return 'ignore', payload
     require(payload.get('issue', {}).get('pull_request') is not None)
     require(type(payload['issue'].get('number')) is int and payload['issue']['number'] > 0)
     sender = payload.get('sender', {})
     require(sender.get('type') == 'User' and sender.get('id') == comment.get('user', {}).get('id'))
     require(type(sender.get('login')) is str and re.fullmatch(r'[A-Za-z0-9-]{1,39}', sender['login']))
-    return 'version', payload
+    return 'status', payload
 
 
 def check_actor_and_pr(app, payload):
@@ -60,6 +64,7 @@ def check_actor_and_pr(app, payload):
     require(pr['state'] == 'open' and not pr['draft'])
     require(pr['base']['ref'] == 'qa' and pr['base']['repo']['full_name'] == REPOSITORY and pr['base']['repo']['private'])
     require(pr['head']['repo']['full_name'] == REPOSITORY and not pr['head']['repo']['fork'])
+    return token
 
 
 class BoundedServer(ThreadingMixIn, HTTPServer):
@@ -137,13 +142,14 @@ def serve(credentials, database, port):
                     store.accept_delivery(delivery, hashlib.sha256(body).hexdigest())
                 finally:
                     store.db.close()
-                if action == 'version':
-                    check_actor_and_pr(app, payload)
-                    request = Request('http://127.0.0.1:4141/events', data=body, headers={
-                        'Content-Type': 'application/json', 'X-Hub-Signature-256': signature,
-                        'X-GitHub-Event': event, 'X-GitHub-Delivery': delivery}, method='POST')
-                    with urlopen(request, timeout=20) as response:
+                if action == 'status':
+                    token = check_actor_and_pr(app, payload)
+                    # Native `atlantis version` also enters its PR/project pipeline.
+                    # Bootstrap does not forward commands or clone repository code.
+                    with urlopen('http://127.0.0.1:4141/healthz', timeout=5) as response:
                         require(response.status == 200)
+                    app.request('POST', '/repos/' + REPOSITORY + '/issues/' + str(payload['issue']['number']) + '/comments', token,
+                                {'body': 'Infrastructure receiver and Atlantis are healthy. Connectivity-only mode: Terraform plan/apply are disabled.'})
                 self.respond(200, b'accepted\n')
             except (Denied, ValueError, KeyError, TypeError, AttributeError):
                 self.respond(403, b'rejected\n')

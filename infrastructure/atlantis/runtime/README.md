@@ -1,6 +1,6 @@
 # Atlantis connectivity stage
 
-This deployment is deliberately **version-only**. It does not run Terraform and is
+This deployment is deliberately **connectivity-only**. It does not run Terraform and is
 not the completed infrastructure automation worker. Public source CI remains
 credential-free; the App is selected for private `h66rogi/rogichat-ops` only.
 
@@ -12,10 +12,13 @@ credential-free; the App is selected for private `h66rogi/rogichat-ops` only.
 - The gateway verifies HMAC, exact private repo/installation, fresh actor and PR
   data, and durable delivery **and signed-body** deduplication. A fixed eight-thread
   limit bounds concurrency; Caddy bounds body/header receive time and body size.
-- Only the exact `atlantis version` command is forwarded. Push, edited comments,
+- Only the exact `rogichat status` command checks Atlantis health and posts a fixed
+  reply through the App. No command is forwarded into Atlantis during bootstrap. Push, edited comments,
   and other PR events never launch code. Invalid requests get fixed text. Atlantis
-  separately disables all commands except version, discovery, autoplan, custom
+  separately disables all native commands except version, discovery, autoplan, custom
   workflows, overrides and Terraform downloads. All workflow hooks fail closed.
+  Native `atlantis version` also invokes project hooks, so it is not the public
+  connectivity check. Bot replies and ordinary discussion are acknowledged and ignored.
 - App credentials live under root-owned `/etc/rogichat-atlantis` on encrypted EBS.
   Atlantis requires write-git-creds for App authentication; its Git credential
   helper/config lives in a private HOME tmpfs, separate from persisted plan/lock data.
