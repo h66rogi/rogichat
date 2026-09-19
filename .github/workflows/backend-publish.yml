@@ -126,7 +126,9 @@ jobs:
         run: |
           set -euo pipefail
           docker compose -f infrastructure/runtime/compose.app.yaml config --quiet
-          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+          # Official Caddy binary carries cap_net_bind_service. Keep that single
+          # bounding capability so exec succeeds; no network or ports are exposed.
+          docker run --rm --network none --read-only --cap-drop ALL --cap-add NET_BIND_SERVICE --security-opt no-new-privileges \
             --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16777216 \
             --mount "type=bind,src=$PWD/infrastructure/runtime/Caddyfile.app,dst=/etc/caddy/Caddyfile,readonly" \
             --entrypoint caddy caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e \
