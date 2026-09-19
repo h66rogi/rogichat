@@ -19,7 +19,7 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
-    tmpfs: [/tmp:mode=1777,size=64m]
+    tmpfs: ["/tmp:mode=1777,size=64m"]
     mem_limit: 768m
     pids_limit: 150
     logging:
@@ -38,7 +38,7 @@ services:
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
     security_opt: [no-new-privileges:true]
-    tmpfs: [/tmp:mode=1777,size=32m]
+    tmpfs: ["/tmp:mode=1777,size=32m"]
     mem_limit: 192m
     pids_limit: 100
     logging:
