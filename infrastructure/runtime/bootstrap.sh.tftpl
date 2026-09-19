@@ -35,6 +35,9 @@ curl --fail --silent --show-error https://pkgs.tailscale.com/stable/ubuntu/noble
 apt-get update
 apt-get -o DPkg::Lock::Timeout=300 install -y tailscale
 systemctl enable --now tailscaled docker
+# AWS workloads resolve private RDS endpoints through their own VPC resolver.
+# Do not inherit a tailnet-wide split-DNS route to another VPC.
+tailscale set --accept-dns=false --accept-routes=false --ssh=false
 # Enrollment is performed over the approved SSH channel, never in user_data.
 
 install -d -m 0750 /opt/rogichat/bootstrap
