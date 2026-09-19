@@ -1,0 +1,32 @@
+name: Security
+
+on:
+  push:
+    branches: [qa, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  public-repository:
+    name: Public repository guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout complete history
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned secret scanner
+        run: python3 tools/security/install.py
+      - name: Test enforcement
+        run: python3 -m unittest discover -s tools/security -p 'test_*.py'
+      - name: Scan tracked files and all history
+        run: python3 tools/security/check.py all

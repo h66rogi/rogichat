@@ -1,0 +1,6 @@
+title = "Rogichat public repository secret policy"
+
+[extend]
+useDefault = true
+
+# No blanket path, test-fixture, example-file, or historical-baseline exemptions.
