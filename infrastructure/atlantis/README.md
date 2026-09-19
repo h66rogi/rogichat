@@ -1,6 +1,6 @@
 # 공개 저장소에서의 Atlantis 설계 비교
 
-상태: private ops 분리 B안 승인. 상시 실행 위치는 논의 중이며 Atlantis/webhook/credential은 아직 연결하지 않았다.
+상태: private ops 분리 B안 승인. [별도 관리 EC2 사양·15개 자원 plan](management.md)을 사용자 승인 후 생성했다. Atlantis/webhook/credential은 아직 연결하지 않았다.
 **설계 판단:** 공개 저장소에서도 제한된 운영은 가능하지만, 표준 설정 몇 개만으로
 자격증명 유출 방지를 보증할 수 없다. 아래 A안의 추가 실행 경계를 구축·시험할 수
 있으면 선택 가능하다. 초기 로기챗에는 B안을 권고하며 공개 CI 자체는 유지할 수 있다.

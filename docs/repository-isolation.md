@@ -98,7 +98,7 @@ Atlantis UI/로그는 관리망에서만 열고, 필요하면 서명 검증 webh
 
 초기에는 별도 상시 Atlantis 운영비를 들이기 전에 관리 장치에서 동일한 고정 SHA/
 saved plan 승인 절차로 QA를 bootstrap할 수 있다. Atlantis를 켜는 시점은 인가기·실행기
-검증 후 결정한다. 앱 Lightsail에 광범위 cloud 권한을 가진 Atlantis를 함께 넣지 않는다.
+검증 후 결정한다. 앱 호스트에 광범위 cloud 권한을 가진 Atlantis를 함께 넣지 않는다.
 
 ## 결정과 남은 검증
 

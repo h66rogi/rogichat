@@ -8,7 +8,7 @@ variable "qa_static_ip" {
   sensitive = true
   validation {
     condition     = can(cidrnetmask("${var.qa_static_ip}/32"))
-    error_message = "Provide the QA Lightsail static IPv4 address."
+    error_message = "Provide the QA application host static IPv4 address."
   }
 }
 

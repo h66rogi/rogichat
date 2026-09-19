@@ -85,6 +85,6 @@ CPU credit 요금이 생길 수 있다. DB RI는 이 비용까지 무료로 만�
   `--accept-dns=false --accept-routes=false --ssh=false`로 자체 VPC DNS를 사용한다.
   Tailscale은 관리 연결을 제공하고 OpenSSH는 승인된 공개키를 검증한다.
   전역 Tailnet DNS는 변경하지 않았다. 향후 이 호스트의 다른 사설 이름 의존성은 별도 검토한다.
-- API DNS는 기존 Lightsail을 계속 가리킨다. 새 EC2의 Caddy는 DNS 전환 전 staged 상태이며
-  기존 Lightsail은 정상 HTTPS를 제공한다. 새 서비스 경로 전환이나 기존 서버 삭제는 미실행이다.
+- API DNS A 레코드 1건을 EC2 EIP로 전환했다. Caddy 공개 인증서·HTTPS 200, 권한 DNS와 외부 resolver, TTL 300초 경과를 검증했다.
+- 기존 Lightsail에는 앱/DB 데이터가 없음을 확인하고 5개 자원만 삭제했다. 퇴역 root는 빈 상태로 남겨 재생성을 방지하며 후속 plan은 변경 0건이다.
 

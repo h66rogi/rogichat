@@ -10,15 +10,15 @@
 | 운영자 SSH 공개키 | 사용자 지정 키를 private ops에 등록, 전체 목록 검증·렌더링 도구와 공격 입력 테스트 |
 | 개인키 | 기존 관리 장비에 유지, GitHub 업로드 없음 |
 | QA API | DNS-only A 레코드 적용 완료, Caddy HTTPS 200 확인 |
-| AWS | 기존 Lightsail 생성·초기화 복구 완료; EC2 + Aurora 신규 28개 생성·실서버 검증 완료, DNS 전환 대기 |
-| Terraform state | 기존 S3 backend 재사용, rogichat 전용 두 prefix, bucket 자체 미변경 |
+| AWS | EC2 + Aurora 생성·실서버 검증 완료, API DNS 전환·Lightsail 5개 자원 퇴역 완료 |
+| Terraform state | 기존 S3 backend 재사용, rogichat 전용 root별 prefix, bucket 자체 미변경 |
 | CI | public 보안 검사·mock IaC/Caddy/Compose 검증, private 키 목록·secret 검사; cloud 권한 없음 |
 | 웹 푸시 | Service Worker/Web Push 요구 확정, 제품·인프라 조건 별도 기록 |
 
 ## 실제 적용 결과와 전환 상태
 
 - 기존 Lightsail 인스턴스·공개키·고정 IP·IP 연결·방화벽과 API DNS-only를 적용했다.
-  기본 사양은 2 vCPU·4 GiB·80 GB, Ubuntu 24.04, USD 24/월이며 아직 삭제하지 않았다.
+  기본 사양은 2 vCPU·4 GiB·80 GB, Ubuntu 24.04, USD 24/월이며 DNS 전환 검증 후 삭제했다.
 - 초기 실패는 Lightsail이 추가하는 `/bin/sh` 실행 문맥 안에서 Bash 전용 `pipefail`을
   사용한 bootstrap 버그였다. 명시적 Bash 실행으로 소스를 수정하고 기존 서버에서
   재생성 없이 bootstrap을 복구했다. 최초 cloud-init 오류 이력은 남으며 성공으로 덮지 않는다.
@@ -33,15 +33,21 @@
   재부팅 후 재접속을 검증했다. 공인 SSH 포트는 열지 않았다.
 - DB는 Aurora MySQL로 변경했다. [EC2/Aurora 전환안](ec2-aurora-review.md)의 사양·비용을
   승인받아 신규 28개 자원을 생성했다. Aurora available와 EC2에서의 TLS 1.3 CA/hostname
-  검증을 통과했다. 적용 후 전체 plan은 변경 0건이다. API DNS 전환·Lightsail 삭제는 미실행이다.
+  검증을 통과했다. 적용 후 전체 plan은 변경 0건이다. API A 레코드 1건을 EC2로 전환했다. TTL 경과·권한 DNS·외부 resolver·새 EC2의 Caddy 인증서와 HTTPS 200 검증 후 Lightsail 5개 자원을 삭제했다. 퇴역 root의 후속 plan은 변경 0건이다.
 - EC2 초기 SSH socket activation에 필요한 런타임 디렉터리를 준비하도록 소스를 보완하고
   SSM으로 복구했다. Tailnet의 RDS split-DNS 충돌은 이 EC2의 accept-dns=false로 해소했다.
   현재 호스트 검증 성공과 보존된 최초 cloud-init 오류 이력을 구분한다.
 
+## DB·배포 기반
+
+앱/migration DB 계정 분리와 runtime 전용 Secrets Manager 전달을 준비했다. 실제 권한·TLS 검증과
+앱 세션이 이어받을 계약은 [QA 운영 인계](qa-operations-handoff.md)를 따른다. 제품 migration·앱 이미지는
+이 인프라 변경에서 만들지 않는다.
+
 ## 남은 인프라 결정
 
-1. API DNS 전환과 검증 후 기존 Lightsail 정리. 조직 통합 청구의 RI 실제 할인 배분도 확인한다.
-2. 상시 Atlantis/관리 실행 위치. GitHub-hosted CI만으로 상시 Atlantis 서버가 생기지는 않는다.
+1. 조직 통합 청구의 RI 실제 할인 배분 확인. 계정 자원 조회만으로 할인 귀속을 단정하지 않는다.
+2. [별도 관리 EC2](../infrastructure/atlantis/management.md): t3a.small·30 GiB·IPv4, 약 US$23.47/월. 15개 신규 자원 plan 사용자 승인 후 생성. Atlantis 연결·권한 실행은 검증 전 비활성.
 3. Tailnet 장기 운영 태그·키 만료 정책과 운영 DB의 복구 목표·reader 필요 여부.
 
 ## GitHub Actions와 Atlantis가 실행되는 곳
@@ -60,7 +66,7 @@ SSH 배포용 장비가 생기는 것은 아니다.
 별도 관리 장비가 있다면 private ops만 처리하도록 격리한 실행기를 권고한다.
 일반적인 self-hosted runner에 cloud/개인키를 주고 repo의 모든 shell을 실행하는 방식은
 관리 장비가 있어도 안전하지 않다. 서버에 고정한 실행 정책·승인 SHA와 최소 권한이 필요하다.
-앱/DB Lightsail에 광범위 cloud 권한의 Atlantis를 같이 설치하지 않는다.
+앱/DB 호스트에 광범위 cloud 권한의 Atlantis를 같이 설치하지 않는다.
 현재 실행 위치는 사용자 질문에 설명을 보충한 뒤 논의 중이며 임의로 배치하지 않았다.
 [Atlantis requirements](https://www.runatlantis.io/docs/requirements.html),
 [Atlantis security](https://www.runatlantis.io/docs/security.html).
@@ -68,7 +74,7 @@ SSH 배포용 장비가 생기는 것은 아니다.
 ## 앱을 올리기 전 필요하지만 지금 제품 설계를 막지 않는 항목
 
 - Aurora 백업/PITR과 복구 목표: 제안한 7일 보존과 QA RPO/RTO를 restore 시험으로 확인한다.
-  현재 기존 Lightsail에는 DB나 앱 데이터가 없다.
+  퇴역한 Lightsail에는 DB나 앱 데이터가 없었다.
 - Cloudflare zone token은 rogi.chat 전체 DNS를 편집할 수 있으므로 QA/prod의 API 권한 분리가
   자동 보장되지 않는다. 실행 정책은 허용 hostname·resource delta를 제한해야 한다.
 - 조직 base read를 유지할지 운영자 전용 열람으로 좁힐지 결정한다. 현재는 조직 read 상속을

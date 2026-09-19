@@ -16,7 +16,8 @@ The EC2 instance role cannot read the DB admin secret.
 Aurora has one writer and no failover reader. Backups need a restore drill. Lightsail retirement
 is a later reviewed destroy plan after the new user-facing route is verified.
 
-Provisioned and verified on 2026-09-20; API DNS still points at Lightsail. Reconciled bootstrap
+Provisioned and verified on 2026-09-20. API DNS now points at EC2; Caddy HTTPS
+was verified before retiring the five legacy Lightsail resources. Reconciled bootstrap
 accounts for SSM-first SSH socket activation. Tailnet DNS is deliberately not accepted on this
 AWS workload: its RDS endpoints use native VPC DNS. Enrollment must preserve these preferences:
 `tailscale up --hostname=rogichat-qa --accept-dns=false --accept-routes=false --ssh=false`.
