@@ -35,7 +35,8 @@ export interface SettingsSoopModel {
 export interface SettingsNotificationsModel {
   support: 'supported' | 'unsupported' | 'install-required' | 'unknown';
   permission: 'granted' | 'denied' | 'not-asked' | 'unknown';
-  enabled: boolean;
+  /** null means the service has no persisted notification preference to display. */
+  enabled: boolean | null;
   toggle: SettingsActionState;
 }
 

@@ -70,7 +70,7 @@ function AccountSettings({ session, profile: initial, refresh }: { session: Sess
   const model: SettingsViewModel = {
     profile: { ...profile, avatarUrl: null, edit: busy ? unavailable('프로필을 저장하고 있습니다.') : { enabled: true } },
     soop: { status: 'linked', link: unavailable('SOOP 계정이 연결되어 있습니다.') },
-    notifications: { support: 'unknown', permission: 'unknown', enabled: false, toggle: unavailable('알림 구독 기능을 아직 제공하지 않습니다.') },
+    notifications: { support: 'unknown', permission: 'unknown', enabled: null, toggle: unavailable('알림 구독 기능을 아직 제공하지 않습니다.') },
     room: { roomName: '후로기', membership: room.kind === 'ready' ? room.room.joined ? 'joined' : 'left' : room.kind === 'checking' ? 'unknown' : 'unavailable', isOwner: false, leave: room.kind === 'ready' && room.room.joined && !busy ? { enabled: true } : unavailable(room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '채팅방 참여 정보를 확인한 뒤 나갈 수 있습니다.') },
     session: { logout: { enabled: true } },
     account: { deletion: unavailable('계정 탈퇴 기능을 아직 제공하지 않습니다.') },

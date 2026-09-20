@@ -60,3 +60,13 @@ query/fragment removal, no other requests, keyboard focus and axe serious/critic
 violations. The pipeline owner verifies actual Next header precedence and production
 runtime responses; public HTTPS association retrieval and real-device OS verification
 remain deployment/mobile gates.
+
+Final local production verification passed on build `zhIkiKG8Wa3o8uO4GI3fH`: all four
+native browser cases (desktop/mobile), all four native unit cases within the 45-test
+suite, and both QA and production runtime probes. The full integrated browser suite
+passed 90 cases with 2 platform-specific skips. Callback sentinel values never appeared
+in response HTML/headers or rendered content; the address query/fragment cleared,
+no other resources were requested, keyboard focus worked, and axe serious/critical
+violations were zero. QA identities were present and production associations empty
+on the same artifact. This is local HTTP/browser evidence, not public TLS/OS app-link
+verification or native login issuance.
