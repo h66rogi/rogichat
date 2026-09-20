@@ -27,6 +27,11 @@ QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 �
 빌드 8·9는 Android 승인 테스터 분배·원격 APK 해시 일치와 iOS `VALID`·기존 내부 그룹의
 `IN_BETA_TESTING`까지 확인했다. 테스터 설치·실제 로그인 성공을 의미하지 않는다.
 
+후속 SOOP 클라이언트는 Android 빌드 11(`fe07bcf`)의 승인 테스터 분배·원격 해시,
+iOS 빌드 10(`80940d4`, iOS 앱 소스는 `fe07bcf`와 동일)의 `VALID`·기존 내부 그룹
+`IN_BETA_TESTING`·한국어 안내를 확인했다. Android 빌드 10은 실제 화면에서 inset 문제를
+발견해 업로드하지 않았으며 11에서 수정 후 글자 200%의 세로/가로 표시를 재검증했다.
+
 현재 로컬 도구의 실제 사용 절차는 [테스트 배포](mobile-test-distribution.md),
 서명 비밀 취급은 [키체인 보호](mobile-signing-security.md)를 따른다.
 UserDefaults 선언 근거는 [Apple required-reason API 문서](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype)다.

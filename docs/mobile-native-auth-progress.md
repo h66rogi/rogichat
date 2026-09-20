@@ -82,7 +82,7 @@ Android는 실제 APK의 compiled manifest를 읽어 같은 환경의 HTTPS host
 
 배포 도구의 순수 검증과 격리 Keychain 검증은 83개를 통과했다(skip 0).
 
-## 빌드 10의 외부 검증
+## iOS 빌드 10·Android 빌드 11의 외부 검증
 
 제품 소스는 `80940d4d4924d34fef3c054de59c92c2193b30d6`이며 양 OS의 manifest가
 같은 커밋과 `source_dirty:false`를 기록한다. PR #41의 해당 소스에 대한 Mobile required checks를 포함한
@@ -99,7 +99,18 @@ Android 빌드 10의 실제 오류 화면에서 상태 표시줄과 인증 안�
 Firebase 업로드를 보류했다. 배너가 있을 때만 custom top bar에 safeDrawing의 상단·좌우
 inset을 적용하고, NavHost가 이미 적용한 Scaffold inset을 소비해 중첩 화면의 중복 여백도
 방지한다. [Android 공식 inset 안내](https://developer.android.com/develop/ui/compose/system/material-insets)를
-따르며 수정 후 새 Android 빌드 11에서 실화면을 재검증한다. 과거 산출물을 덮어쓰지 않는다.
+따르며 과거 산출물을 덮어쓰지 않았다.
+
+수정 소스 `fe07bcfbb42b52866d1ab521818c984ff081fbc0`의 PR #41 필수 CI는 모두 통과했다.
+Android 빌드 11의 signed APK/AAB와 실제 설치 버전을 확인했고, 글자 200%의 세로/가로
+화면에서 오류 안내와 상태 표시줄 분리, 닫기, 본문 스크롤을 통한 로그인 버튼 접근, 설정
+이동을 검증했다. 앱의 fatal crash 기록은 0개였다. 초기 에뮬레이터 OS 응답 지연은 별도로
+기록했으며 앱·OS 전체 안정성을 검증했다는 뜻은 아니다. 소유한 읽기 전용 emulator는 종료했다.
+
+빌드 11의 Firebase 원격 APK 해시 일치·승인 테스터 분배·등록을 재조회했다. Android 빌드
+10은 업로드하지 않고 보존했다. iOS 빌드 10의 앱 소스는 `fe07bcf`와 동일하며 Android
+레이아웃 수정 때문에 같은 iOS 앱을 다시 올리지 않았다. 테스트 배포와 실제 계정 왕복은
+별개다. 인증·멤버십·채팅의 미완료 gate는 아래에 남긴다.
 
 ## 계속 남는 실제 gate
 
