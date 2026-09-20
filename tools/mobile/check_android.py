@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -38,7 +39,12 @@ def main():
             signing = subprocess.run([signer, "verify", str(apk)], capture_output=True)
             if (signing.returncode == 0) != (mode == "debug"):
                 raise SystemExit(f"{name}: expected local debug signing or unsigned release")
-            print(f"{environment}/{mode}: APK identity, endpoint and signing verified")
+            with zipfile.ZipFile(apk) as package:
+                dex = b"".join(package.read(name) for name in package.namelist() if name.endswith(".dex"))
+            contains_preview = b"sample-room-a" in dex
+            if contains_preview != (environment == "qa"):
+                raise SystemExit(f"{name}: wrong QA wireframe fixture isolation")
+            print(f"{environment}/{mode}: APK identity, endpoint, signing and QA fixture isolation verified")
 
 
 if __name__ == "__main__":

@@ -64,7 +64,11 @@ def main():
             macho = subprocess.check_output(["xcrun", "vtool", "-show-build", str(executable)], text=True)
             if "platform IOS" not in macho or "minos 18.0" not in macho:
                 raise SystemExit("Unexpected executable platform or minimum OS")
-            print(f"{configuration}: unsigned build and bundle configuration verified", flush=True)
+            # Debug builds can place Swift code in a companion debug dylib.
+            code = executable.read_bytes() + b"".join(file.read_bytes() for file in app.glob("*.dylib"))
+            if (b"sample-room-a" in code) != (environment == "qa"):
+                raise SystemExit(f"{configuration}: wrong QA wireframe fixture isolation")
+            print(f"{configuration}: unsigned build, bundle configuration and QA fixture isolation verified", flush=True)
 
 
 if __name__ == "__main__":

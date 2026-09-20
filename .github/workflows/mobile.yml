@@ -27,7 +27,7 @@ jobs:
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - name: Compile every variant and check environment separation
         working-directory: apps/android
-        run: ./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdDebug :app:assembleProdRelease :app:test :app:lint --no-daemon
+        run: ./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdDebug :app:assembleProdRelease :app:test :app:lint :app:lintQaDebug :app:lintQaRelease :app:lintProdRelease --no-daemon
       - name: Verify packaged APK configuration
         run: python3 tools/mobile/check_android.py
       - name: Verify QA release upload guards
@@ -61,5 +61,7 @@ jobs:
           python3 tools/mobile/install_xcodegen.py
           .tools/xcodegen-2.44.1/xcodegen/bin/xcodegen generate --spec apps/ios/project.yml
           git diff --exit-code -- apps/ios/Rogichat.xcodeproj
+      - name: Check wireframe navigation and draft isolation without a simulator
+        run: python3 tools/mobile/check_ios_wireframe.py
       - name: Build and inspect QA and production bundles
         run: python3 tools/mobile/build_ios.py

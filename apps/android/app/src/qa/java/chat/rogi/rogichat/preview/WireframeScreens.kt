@@ -1,0 +1,153 @@
+package chat.rogi.rogichat.preview
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
+import chat.rogi.rogichat.core.design.WireCard
+
+@Composable
+fun LinkWireframe(onPreview: () -> Unit) {
+    WireCard("대화를 시작하기 전") {
+        Text("1. 로기챗 계정으로 로그인")
+        Text("2. 본인의 SOOP 계정 연결")
+        Text("3. 참여할 수 있는 대화방 확인")
+    }
+    Text("Apple 로그인만으로는 대화방을 이용할 수 없어요. SOOP 연결을 완료해야 해요.")
+    OutlinedButton(onClick = {}, enabled = false) { Text("SOOP 계정 연결 · 준비 중") }
+    Button(onClick = onPreview) { Text("연결 이후 화면 미리보기") }
+    Text("계정이 연결되거나 생성되지 않아요.", style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+fun RoomsWireframe(state: WireframeState, onScenario: (ListScenario) -> Unit, onRoom: (String) -> Unit, onSettings: () -> Unit) {
+    Text("${state.role.label} 화면 · 참여 중인 대화방")
+    TextButton(onClick = onSettings) { Text("내 프로필 및 설정") }
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        ListScenario.entries.forEach { scenario ->
+            FilterChip(selected = state.scenario == scenario, onClick = { onScenario(scenario) }, label = { Text(scenario.label) })
+        }
+    }
+    when (state.scenario) {
+        ListScenario.CONTENT -> WireframeFixtures.rooms.forEach { room ->
+            WireCard(room.title) {
+                Text(room.summary)
+                Text("샘플 대화방", style = MaterialTheme.typography.labelSmall)
+                Button(onClick = { onRoom(room.id) }) { Text("대화 보기") }
+            }
+        }
+        ListScenario.LOADING -> WireCard("대화방을 불러오는 중") { Text("목록과 참여 정보를 확인하는 자리예요. 위 ‘목록’으로 돌아갈 수 있어요.") }
+        ListScenario.EMPTY -> WireCard("아직 참여한 대화방이 없어요") { Text("참여 조건이 확인되면 이곳에 대화방이 표시돼요.") }
+        ListScenario.ERROR -> WireCard("목록을 불러오지 못했어요") {
+            Text("연결 오류 화면 예시예요.")
+            OutlinedButton(onClick = { onScenario(ListScenario.CONTENT) }) { Text("다시 시도 화면 미리보기") }
+        }
+    }
+}
+
+@Composable
+fun ChatWireframe(state: WireframeState, onAudience: (PreviewAudience) -> Unit, onTarget: (String) -> Unit,
+                  onDraft: (String) -> Unit, onReport: () -> Unit) {
+    Text(WireframeFixtures.rooms.first { it.id == state.roomId }.title, style = MaterialTheme.typography.titleLarge)
+    Text("오늘 · 샘플 타임라인")
+    WireCard("스트리머 · 전체 대화") { Text("오늘도 만나서 반가워요. 편하게 이야기해 주세요.") }
+    if (state.role == PreviewRole.FAN) {
+        WireCard("나 · 개인 메시지") { Text("오늘 방송도 기대하고 있어요!"); Text("나와 스트리머에게만 보이는 메시지 예시") }
+        WireCard("스트리머 · 개인 답장") { Text("고마워요. 곧 만나요!") }
+    } else {
+        WireframeFixtures.fans.forEach { fan ->
+            WireCard("$fan · 개인 메시지") {
+                Text("오늘 방송도 기대하고 있어요!")
+                TextButton(onClick = { onTarget(fan) }) { Text("이 팬에게 답장 선택") }
+            }
+        }
+    }
+    WireCard("메시지 작성") {
+        if (state.role == PreviewRole.STREAMER) {
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PreviewAudience.entries.forEach { audience ->
+                    FilterChip(selected = state.audience == audience, onClick = { onAudience(audience) }, label = { Text(audience.label) })
+                }
+            }
+            Text(if (state.audience == PreviewAudience.SHARED) "대상: 방 참여자 전체" else "대상: ${state.target ?: "위 메시지에서 팬을 선택해 주세요"}")
+            Text("대상이 바뀌면 미리보기 입력이 지워져요.", style = MaterialTheme.typography.bodySmall)
+        } else Text("대상: 이 방의 스트리머 · 개인 메시지")
+        OutlinedTextField(value = state.draft, onValueChange = onDraft, enabled = state.canCompose,
+            label = { Text("메시지 입력 연습") }, minLines = 2, maxLines = 5, modifier = Modifier.fillMaxWidth())
+        Text("${state.draft.length}/2000 · 입력은 저장되지 않아요", style = MaterialTheme.typography.bodySmall)
+        Button(onClick = {}, enabled = false) { Text("전송 · 준비 중") }
+        Text("첨부·반응·공개 전환은 추후 연결돼요. 실제 메시지가 전송되지 않아요.", style = MaterialTheme.typography.bodySmall)
+    }
+    TextButton(onClick = onReport) { Text("신고 및 차단 안내") }
+}
+
+@Composable
+fun SettingsWireframe(onOpen: (PreviewPage) -> Unit) {
+    WireCard("샘플 계정") {
+        Text("SOOP 연결 정보가 표시될 자리예요.")
+        OutlinedButton(onClick = { onOpen(PreviewPage.PROFILE) }) { Text("내 프로필") }
+        OutlinedButton(onClick = { onOpen(PreviewPage.ACCOUNT) }) { Text("계정 관리") }
+    }
+    WireCard("알림") { Text("푸시 알림 연동 준비 중 · 시스템 권한을 요청하지 않아요.") }
+    WireCard("로기챗 정보") { Text("이용약관 · 개인정보 처리방침 · 문의 경로 준비 중") }
+}
+
+@Composable
+fun ProfileWireframe() {
+    var name by remember { mutableStateOf("샘플 팬") }
+    var birthdayConsent by remember { mutableStateOf(false) }
+    WireCard("프로필 편집 미리보기") {
+        Text("[ 프로필 이미지 ]")
+        OutlinedTextField(value = name, onValueChange = { name = it.take(30) }, label = { Text("표시 이름") }, modifier = Modifier.fillMaxWidth())
+        Text("생일 정보는 선택 사항이에요. 실제 생일은 아직 입력받지 않아요.")
+        FlowRow(Modifier.fillMaxWidth().toggleable(value = birthdayConsent, role = Role.Checkbox,
+            onValueChange = { birthdayConsent = it })) {
+            Checkbox(checked = birthdayConsent, onCheckedChange = null)
+            Text("생일 정보 제공 동의 (선택)")
+        }
+        Button(onClick = {}, enabled = false) { Text("저장 · 준비 중") }
+        Text("변경은 이 화면에서만 보이며 서버에 저장되지 않아요.")
+    }
+}
+
+@Composable
+fun AccountWireframe(onExit: () -> Unit) {
+    WireCard("연결된 계정") { Text("Apple / SOOP 연결 상태가 표시될 자리예요."); Text("연결 해제 및 계정 변경 정책은 준비 중이에요.") }
+    OutlinedButton(onClick = onExit) { Text("미리보기 종료 · 입력 초기화") }
+    WireCard("회원 탈퇴") {
+        Text("탈퇴 시 데이터 처리와 재가입 안내가 표시될 자리예요.")
+        Button(onClick = {}, enabled = false) { Text("탈퇴 · 준비 중") }
+    }
+}
+
+@Composable
+fun ReportWireframe() {
+    var reason by remember { mutableStateOf("스팸 또는 광고") }
+    WireCard("신고 사유 미리보기") {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("스팸 또는 광고", "괴롭힘 또는 불쾌한 내용", "기타").forEach { item ->
+                FilterChip(selected = reason == item, onClick = { reason = item }, label = { Text(item) })
+            }
+        }
+        Text("실제 메시지나 계정이 선택되지 않은 화면 예시예요.")
+        Button(onClick = {}, enabled = false) { Text("신고 제출 · 준비 중") }
+        OutlinedButton(onClick = {}, enabled = false) { Text("사용자 차단 · 준비 중") }
+    }
+}

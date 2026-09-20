@@ -5,6 +5,10 @@
 반영한다. Android/iOS를 함께 진행하며 첫 목표는 **실제 인증 → SOOP 연결 → 방 입장 →
 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
+> 후속 실행: 백엔드 병행 개발에 따라 미연동 화면부터 진행한
+> [첫 QA 와이어프레임 구현·블로커 기록](mobile-wireframe-progress.md)을 참고한다.
+> 아래 표는 계획 작성 당시의 조사 기준이며 최신 구현 완료 목록은 아니다.
+
 ## 1. 기준과 현재 상태
 
 확정 정책은 [모바일 기반](mobile-foundation.md), [인증](mobile-authentication.md),
