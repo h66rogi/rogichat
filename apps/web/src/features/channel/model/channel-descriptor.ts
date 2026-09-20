@@ -32,8 +32,10 @@ export const hurogiChannel: ChannelDescriptor = {
   key: 'hurogi',
   displayName: '후로기',
   platformLabel: 'SOOP',
-  intro: null,
-  officialLinks: [],
+  intro: '후로기에게 메시지를 보내고, 후로기의 공지와 답장을 한 곳에서 확인하는 채널입니다.',
+  // Public, read-only destination supplied by the product team. No account or
+  // channel state is inferred from this external page.
+  officialLinks: [{ label: '브이웨이브 채널', href: 'https://vvave.live/c/6766' }],
   avatarSrc: null,
   features: ['home', 'chat', 'rules', 'settings'],
 };
