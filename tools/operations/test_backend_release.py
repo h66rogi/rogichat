@@ -235,6 +235,93 @@ class RequestTests(unittest.TestCase):
             release.wait_health(fixture())
         self.assertEqual(inspect.call_count, 2)
 
+    def test_push_metadata_rejects_owner_mode_links_and_unbounded_files(self):
+        good = dict(st_mode=stat.S_IFREG | 0o400, st_uid=10001, st_nlink=1, st_size=100)
+        release.validate_push_metadata(SimpleNamespace(**good))
+        for field, value in [('st_uid', 0), ('st_uid', 10002), ('st_nlink', 2),
+                             ('st_mode', stat.S_IFREG | 0o600), ('st_mode', stat.S_IFREG | 0o440),
+                             ('st_mode', stat.S_IFLNK | 0o400), ('st_size', 0), ('st_size', 4097)]:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                release.validate_push_metadata(SimpleNamespace(**{**good, field: value}))
+
+    def test_push_marker_preserves_old_releases_but_rejects_changed_path(self):
+        good = b'      PUSH_VAPID_SECRET_FILE: /run/secrets/push-vapid.json\n' * 2
+        self.assertTrue(release.compose_requires_push(good))
+        for bad in (good.replace(b'/run/secrets/', b'/tmp/'), good + good, good[:len(good)//2]):
+            with self.assertRaises(ValueError): release.compose_requires_push(bad)
+        with patch.object(release.Path, 'lstat') as metadata, patch.object(release, 'docker') as docker:
+            release.verify_push_secret(b'services: {}', fixture()['runtime_image'])
+            metadata.assert_not_called(); docker.assert_not_called()
+
+    def test_push_probe_is_bounded_isolated_and_uses_compiled_parser_for_each_environment(self):
+        good = SimpleNamespace(st_mode=stat.S_IFREG | 0o400, st_uid=10001, st_nlink=1, st_size=100)
+        parent = SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0)
+        compose = b'      PUSH_VAPID_SECRET_FILE: /run/secrets/push-vapid.json\n' * 2
+        for environment, prefix, parents in [('qa', '/etc/rogichat', 3), ('production', '/etc/rogichat/prod', 4)]:
+            with self.subTest(environment=environment), patch.object(release.Path, 'lstat', side_effect=[good]+[parent]*parents), \
+                    patch.object(release, 'docker') as docker, \
+                    patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as cleanup:
+                release.verify_push_secret(compose, fixture()['runtime_image'], environment)
+                args = docker.call_args.args
+                for flag, value in [('--network', 'none'), ('--user', '10001:10001'), ('--pull', 'never'),
+                                    ('--log-driver', 'none'), ('--memory', '128m'), ('--pids-limit', '64')]:
+                    self.assertEqual(args[args.index(flag)+1], value)
+                self.assertIn('--read-only', args)
+                self.assertEqual(args.count('--mount'), 1)
+                self.assertIn(f'type=bind,src={prefix}/push-vapid.json,dst=/run/secrets/push-vapid.json,readonly', args)
+                self.assertIn('APP_ENV='+environment, args)
+                self.assertIn(fixture()['runtime_image'], args)
+                self.assertIn("import('./dist/modules/notifications/push-config.js')", args[-1])
+                self.assertIn('if(!c.vapid)', args[-1])
+                self.assertNotIn('console', args[-1])
+                self.assertEqual(docker.call_args.kwargs['timeout'], 20)
+                self.assertEqual(cleanup.call_args.args[0][-1], args[args.index('--name')+1])
+
+    def test_push_probe_rejects_untrusted_parents_and_cleans_up_parser_failure(self):
+        good = SimpleNamespace(st_mode=stat.S_IFREG | 0o400, st_uid=10001, st_nlink=1, st_size=100)
+        parent = SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0)
+        compose = b'      PUSH_VAPID_SECRET_FILE: /run/secrets/push-vapid.json\n' * 2
+        for mode, uid in [(stat.S_IFDIR | 0o775, 0), (stat.S_IFDIR | 0o755, 10001), (stat.S_IFLNK | 0o755, 0)]:
+            with patch.object(release.Path, 'lstat', side_effect=[good, SimpleNamespace(st_mode=mode, st_uid=uid)]), \
+                    patch.object(release, 'docker') as docker, self.assertRaises(ValueError):
+                release.verify_push_secret(compose, fixture()['runtime_image'])
+            docker.assert_not_called()
+        with patch.object(release.Path, 'lstat', side_effect=[good]+[parent]*3), \
+                patch.object(release, 'docker', side_effect=release.Rejected()), \
+                patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0)) as cleanup, \
+                self.assertRaises(ValueError):
+            release.verify_push_secret(compose, fixture()['runtime_image'])
+        cleanup.assert_called_once()
+
+    def test_push_live_env_and_readonly_bind_match_environment(self):
+        import copy
+        for environment, prefix in [('qa', '/etc/rogichat'), ('production', '/etc/rogichat/prod')]:
+            good = {'Config': {'Env': ['APP_ENV='+environment, 'PUSH_VAPID_SECRET_FILE=/run/secrets/push-vapid.json']},
+                    'Mounts': [{'Destination': '/run/secrets/push-vapid.json', 'Type': 'bind',
+                                'Source': prefix+'/push-vapid.json', 'RW': False}]}
+            release.validate_push_running(good, environment, True)
+            bads = []
+            for field, value in [('RW', True), ('Source', '/tmp/push-vapid.json'), ('Type', 'volume')]:
+                bad = copy.deepcopy(good); bad['Mounts'][0][field] = value; bads.append(bad)
+            for env in [[], ['APP_ENV=local', good['Config']['Env'][1]], ['APP_ENV='+environment]]:
+                bad = copy.deepcopy(good); bad['Config']['Env'] = env; bads.append(bad)
+            bad = copy.deepcopy(good); bad['Mounts'] = []; bads.append(bad)
+            for bad in bads:
+                with self.assertRaises(ValueError): release.validate_push_running(bad, environment, True)
+        release.validate_push_running({'Config': {}}, 'qa')
+
+    def test_push_is_absent_from_shared_migration_anchors_and_migrator(self):
+        root = Path(__file__).resolve().parents[2]
+        for path in ('infrastructure/runtime/compose.app.yaml', 'infrastructure/environments/prod/runtime/compose.app.yaml'):
+            compose = (root/path).read_text()
+            self.assertNotIn('push-vapid', compose.split('services:')[0])
+            self.assertNotIn('PUSH_VAPID_SECRET_FILE', compose.split('services:')[0])
+            self.assertTrue(release.compose_requires_push(compose.encode()))
+            self.assertEqual(compose.count('target: /run/secrets/push-vapid.json'), 2)
+        import inspect
+        migration = inspect.getsource(release.deploy).split('mounts = ')[1].split("print('QA migration")[0]
+        self.assertNotIn('push-vapid', migration)
+
     def test_m02_auth_file_is_not_required_or_read(self):
         with patch.object(release, 'AUTH_SECRET') as secret, patch.object(release, 'docker') as docker:
             release.verify_auth_secret(b'services:\n  api:\n    image: fixture\n', fixture()['runtime_image'])

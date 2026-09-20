@@ -30,3 +30,24 @@ redirect를 따라가지 않는다. 운영자 키·개인키는 노출하지 않
 Cloudflare DNS token은 Caddy에 필요하지 않다. HTTP-01/TLS-ALPN-01을 사용하고 80/443을
 열어 둔다. 웹 hostname은 앱 배포 시 별도 origin 우회 차단과 함께 추가한다.
 [host 접근 설계](../../docs/host-access.md)의 bootstrap·가입·재부팅·인증서 검증을 따른다.
+
+## Web Push custody activation
+
+Before applying a release whose Compose includes `PUSH_VAPID_SECRET_FILE`, the
+trusted operator must provision the existing, distinct QA and production VAPID
+files at `/etc/rogichat/push-vapid.json` and
+`/etc/rogichat/prod/push-vapid.json`. Each must be a regular, non-symlink file
+with one link, owner UID 10001, mode 0400, and root-owned directory parents
+without group/other write permission. No key material or private bindings belong
+in this public repository; release helpers neither generate nor provision keys.
+
+Only API and worker receive the read-only bind at `/run/secrets/push-vapid.json`
+and its environment variable. Shared runtime/migration anchors and DB-only
+probes never receive VAPID. Preflight uses the pinned runtime image as UID 10001,
+read-only and without networking, to execute compiled `readPushConfig` for the
+exact QA/production environment and key pair; it suppresses key output, bounds
+execution and removes its exact container. Runtime health gates also verify the
+API/worker environment and read-only bind. Older reviewed Compose files without
+the variable retain their previous behavior. Native FCM/APNs custody is separate
+and its absence does not prevent Web Push activation. Deployment still requires
+operator-side provisioning, running image verification and real route checks.

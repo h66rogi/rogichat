@@ -218,7 +218,64 @@ def validate_auth_metadata(metadata):
             and 0 < metadata.st_size <= 8192)
 
 
+def compose_requires_push(compose):
+    if b'PUSH_VAPID_SECRET_FILE' not in compose:
+        return False
+    require(compose.count(b'PUSH_VAPID_SECRET_FILE') == 2 and len(re.findall(
+        rb'^      PUSH_VAPID_SECRET_FILE: /run/secrets/push-vapid\.json$', compose, re.MULTILINE)) == 2)
+    return True
+
+
+def validate_push_metadata(metadata):
+    require(stat.S_ISREG(metadata.st_mode) and stat.S_IMODE(metadata.st_mode) == 0o400
+            and metadata.st_uid == 10001 and metadata.st_nlink == 1
+            and 0 < metadata.st_size <= 4096)
+
+
+def verify_push_secret(compose, image, environment='qa'):
+    if not compose_requires_push(compose):
+        return
+    require(environment in ('qa', 'production'))
+    path = Path('/etc/rogichat' + ('/prod' if environment == 'production' else '') + '/push-vapid.json')
+    # Unlike auth, this file must be readable by its nonroot runtime owner only.
+    # Never read its contents in the host wrapper or relax protected() for it.
+    validate_push_metadata(path.lstat())
+    for parent in path.parents:
+        metadata = parent.lstat()
+        require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0 and not metadata.st_mode & 0o022)
+    name = 'rogichat-push-preflight-' + str(uuid.uuid4())
+    code = ("try{const{readPushConfig}=await import('./dist/modules/notifications/push-config.js');"
+            "const c=readPushConfig();if(!c.vapid)process.exit(1);process.exit(0)}catch{process.exit(1)}")
+    try:
+        docker('run', '--rm', '--pull', 'never', '--name', name, '--network', 'none', '--read-only',
+               '--user', '10001:10001', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+               '--memory', '128m', '--pids-limit', '64', '--log-driver', 'none',
+               '--mount', f'type=bind,src={path},dst=/run/secrets/push-vapid.json,readonly',
+               '--env', 'APP_ENV=' + environment, '--env', 'PUSH_VAPID_SECRET_FILE=/run/secrets/push-vapid.json',
+               image, '--input-type=module', '-e', code, timeout=20)
+    finally:
+        result = subprocess.run(['/usr/bin/docker', 'rm', '-f', name], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE, timeout=30)
+        missing = ('Error response from daemon: No such container: ' + name).encode()
+        require(result.returncode == 0 or (result.returncode == 1 and result.stderr.strip() == missing))
+
+
+def validate_push_running(item, environment, required=False):
+    env = dict(entry.split('=', 1) for entry in item['Config'].get('Env', []))
+    mounts = [m for m in item.get('Mounts', []) if m['Destination'] == '/run/secrets/push-vapid.json']
+    if not required and 'PUSH_VAPID_SECRET_FILE' not in env and not mounts:
+        return
+    require(environment in ('qa', 'production'))
+    require(env.get('APP_ENV') == environment
+            and env.get('PUSH_VAPID_SECRET_FILE') == '/run/secrets/push-vapid.json')
+    source = '/etc/rogichat' + ('/prod' if environment == 'production' else '') + '/push-vapid.json'
+    require(len(mounts) == 1 and mounts[0]['Type'] == 'bind'
+            and mounts[0]['Source'] == source and mounts[0]['RW'] is False)
+
+
 def verify_auth_secret(compose, image):
+    # Shared entry point also used by the automatic QA release helper.
+    verify_push_secret(compose, image)
     if not compose_requires_auth(compose):
         return
     # Check size/type before reading. protected() additionally checks every parent
@@ -321,6 +378,8 @@ def inspect_starting_container(role, timeout):
 
 
 def wait_health(request):
+    compose_path = APP / 'compose.app.yaml'
+    push_required = compose_requires_push(protected(compose_path)) if compose_path.exists() else False
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         healthy = True
@@ -334,6 +393,7 @@ def wait_health(request):
             require(item['Config']['Image'] == execution_image(request, 'runtime'))
             if 'archive' in request:
                 require(item['Image'] == execution_image(request, 'runtime'))
+            validate_push_running(item, 'qa', push_required)
             state = item['State']
             require(state['Status'] in ('created', 'running') and not state.get('Paused')
                     and not state.get('OOMKilled') and not state.get('Error'))

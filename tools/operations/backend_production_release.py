@@ -207,7 +207,8 @@ def inspect_container(role):
     return item
 
 
-def validate_running(item, role, request):
+def validate_running(item, role, request, push_required=False):
+    shared.validate_push_running(item, 'production', push_required)
     require(item['Config']['Image'] == shared.execution_image(request,'runtime'))
     if 'archive' in request:
         require(item['Image'] == shared.execution_image(request,'runtime'))
@@ -230,6 +231,8 @@ def validate_running(item, role, request):
 
 
 def wait_health(request):
+    compose_path = APP / 'compose.app.yaml'
+    push_required = shared.compose_requires_push(protected(compose_path)) if compose_path.exists() else False
     deadline = time.monotonic()+90
     while time.monotonic() < deadline:
         healthy = True
@@ -238,7 +241,7 @@ def wait_health(request):
             if item is None or item['State']['Status'] == 'created':
                 healthy = False
             else:
-                healthy = validate_running(item,role,request) and healthy
+                healthy = validate_running(item,role,request,push_required) and healthy
         if healthy:
             return
         time.sleep(2)
@@ -346,6 +349,7 @@ def preflight():
     for role in ('api','worker'):
         inspect_container(role)  # Reject foreign name ownership before draining.
     validate_templates(request,release,files,container)
+    shared.verify_push_secret(files['compose'], shared.execution_image(request,'runtime'), 'production')
     verify_runtime(request,release)
     require(get_caddy(request['edge_network']) == container)
     verify_routes(('/_infra/health',))

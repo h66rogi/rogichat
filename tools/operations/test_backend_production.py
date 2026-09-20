@@ -198,6 +198,8 @@ class ProductionBoundaries(unittest.TestCase):
             self.assertEqual(mounts['/run/secrets/database.json']['source'],str(prod.DATABASE))
             self.assertTrue(all(m['read_only'] and not m['bind'].get('create_host_path',False) for m in mounts.values()))
             self.assertEqual('/run/secrets/auth.json' in mounts,role=='api')
+            self.assertEqual(service['environment']['PUSH_VAPID_SECRET_FILE'], '/run/secrets/push-vapid.json')
+            self.assertEqual(mounts['/run/secrets/push-vapid.json']['source'], '/etc/rogichat/prod/push-vapid.json')
         self.assertEqual(set(data['services']['api']['networks']),{'edge'})
         self.assertEqual(set(data['services']['worker']['networks']),{'jobs'})
 
