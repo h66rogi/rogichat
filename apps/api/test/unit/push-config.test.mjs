@@ -6,12 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { readPushConfig } from '../../dist/modules/notifications/push-config.js';
+import { vapidPrivateKey } from '../support/vapid-key.mjs';
 
 function fixture(t) {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'push-config-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const key = createECDH('prime256v1'); key.generateKeys();
-  const value = { environment: 'qa', subject: 'mailto:push@example.com', publicKey: key.getPublicKey().toString('base64url'), privateKey: key.getPrivateKey().toString('base64url') };
+  const value = { environment: 'qa', subject: 'mailto:push@example.com', publicKey: key.getPublicKey().toString('base64url'), privateKey: vapidPrivateKey(key) };
   const path = join(dir, 'secret.json');
   const write = text => writeFileSync(path, text ?? JSON.stringify(value), { mode: 0o600 });
   write();
@@ -47,11 +48,29 @@ test('secret file rejects ambiguous JSON, unknown fields, malformed UTF8 and non
     Buffer.concat([Buffer.from(json), Buffer.from([0xff])]),
   ]) { f.write(text); assert.throws(() => readPushConfig(f.env), /^Error: invalid_push_vapid$/); }
   const other = createECDH('prime256v1'); other.generateKeys();
-  f.write(JSON.stringify({ ...f.value, privateKey: other.getPrivateKey().toString('base64url') })); assert.throws(() => readPushConfig(f.env), /invalid_push_vapid/);
+  f.write(JSON.stringify({ ...f.value, privateKey: vapidPrivateKey(other) })); assert.throws(() => readPushConfig(f.env), /invalid_push_vapid/);
   // Base64url decoders ignore nonzero pad bits: reject aliases of the same scalar.
   const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
   const last = alphabet.indexOf(f.value.privateKey.at(-1));
   f.write(JSON.stringify({ ...f.value, privateKey: f.value.privateKey.slice(0, -1) + alphabet[last + 1] })); assert.throws(() => readPushConfig(f.env), /invalid_push_vapid/);
+});
+
+test('VAPID fixture preserves short P-256 scalars as canonical 32-byte keys without weakening runtime validation', () => {
+  for (const length of [1, 2, 31, 32]) {
+    const key = createECDH('prime256v1');
+    key.setPrivateKey(Buffer.alloc(length, 0x11));
+    assert.equal(key.getPrivateKey().length, length);
+    const privateKey = vapidPrivateKey(key);
+    const bytes = Buffer.from(privateKey, 'base64url');
+    assert.equal(bytes.length, 32); assert.equal(privateKey.length, 43);
+    assert.deepEqual(bytes.subarray(0, 32 - length), Buffer.alloc(32 - length));
+    assert.deepEqual(bytes.subarray(32 - length), key.getPrivateKey());
+    const restored = createECDH('prime256v1'); restored.setPrivateKey(bytes);
+    assert.deepEqual(restored.getPublicKey(), key.getPublicKey());
+    const env = { APP_ENV: 'test', PUSH_TEST_VAPID_SUBJECT: 'mailto:push@example.com', PUSH_TEST_VAPID_PUBLIC_KEY: key.getPublicKey().toString('base64url'), PUSH_TEST_VAPID_PRIVATE_KEY: privateKey };
+    assert.equal(readPushConfig(env).vapid.privateKey, privateKey);
+    if (length < 32) assert.throws(() => readPushConfig({ ...env, PUSH_TEST_VAPID_PRIVATE_KEY: key.getPrivateKey().toString('base64url') }), /^Error: invalid_push_vapid$/);
+  }
 });
 test('only single-link regular files with private owner modes are accepted', t => {
   const f = fixture(t);
