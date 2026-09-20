@@ -13,6 +13,8 @@
 MB07의 서버 탈퇴 접수는 [후속 구현 계획](mobile-account-deletion-plan.md)으로 구체화했으며
 동결된 양 OS 소스와 검증 경계는 [구현 기록](mobile-account-deletion-progress.md)에 있다.
 이를 실제 접수·물리 삭제 완료로 집계하지 않는다.
+방장 가입 전 실제 팬 전송은 [ROOM_OWNER 연결 기록](mobile-room-owner-progress.md)을 따른다.
+기본방의 공개 READY와 내부 방장 결합을 구분하고, 다음 QA 배포는 통합된 한 묶음으로 만든다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과

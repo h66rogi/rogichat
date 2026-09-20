@@ -52,6 +52,21 @@ class AndroidConversationStoreTest {
         store.snapshot(scope, SnapshotPage(selection.membership.membershipScope, selection.membership.authorizationRevision, messages, SyncCursor("event-initial"), SyncCursor("history-initial"))) {}
         return scope
     }
+    @Test fun roomOwnerUnknownSurvivesColdRestoreWithoutInventingRecipient() = runBlocking {
+        val fan = member().copy(mode = RoomMode.FAN, role = RoomRole.FAN)
+        val first = newStore(); first.authorize(account, "same-credential", "generation") {}
+        val scope = open(first, directory(first, member = fan), emptyList())
+        val command = TextCommand(commandId, m, "ROOM_OWNER", null, null, "가입 전 방장 수신함")
+        first.enqueue(scope, command, 1) {}; first.markSending(scope, commandId) {}
+        databases.forEach { it.close() }
+        val cold = newStore(); val freshAccount = account.copy(localEpoch = 2)
+        cold.authorize(freshAccount, "same-credential", "generation") {}
+        val fresh = open(cold, directory(cold, freshAccount, fan), emptyList())
+        val retained = cold.current(fresh) {}.outbox.single()
+        assertEquals(command, retained.command); assertEquals(OutboxPhase.UNKNOWN, retained.phase)
+        assertFalse("recipientActorId" in retained.command.body())
+        assertTrue(runCatching { cold.markSending(fresh, commandId) {} }.isFailure)
+    }
     @Test fun sameCredentialColdRestoreRetainsOriginalUnknownButNewBindingPurges() = runBlocking {
         val first = newStore(); first.authorize(account, "same-credential", "generation") {}
         val selected = directory(first); val scope = open(first, selected)
