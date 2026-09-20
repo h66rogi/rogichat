@@ -1,5 +1,6 @@
 // Owns only a fresh local datadir or a generated database on an explicitly disposable service.
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { once } from 'node:events';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -78,7 +79,7 @@ try {
   // Generated migrations only, on this harness-owned loopback database. Never reads repository .env.
   const migrationName = process.argv.find(x => x.startsWith('--migration-name='))?.split('=')[1] ?? 'schema_update';
   if (!/^[a-z0-9_]{1,64}$/.test(migrationName)) throw new Error('invalid fixture migration name');
-  await run('pnpm', ['exec', 'prisma', 'migrate', 'dev', '--name', migrationName], {
+  await run(process.execPath, [createRequire(import.meta.url).resolve('prisma'), 'migrate', 'dev', '--name', migrationName], {
     PATH: process.env.PATH, DATABASE_URL: adminUrl,
   });
   if (process.argv.includes('--migration-only')) {
