@@ -838,3 +838,66 @@ model moderation_audit {
   @@index([report_id, created_at])
   @@index([room_id, created_at])
 }
+
+// Bounded recovery discovery only. Never a physical-purge proof or deadline.
+model deletion_purge_discovery {
+  source_id String @db.Char(64)
+  environment String @db.VarChar(10)
+  cursor String? @db.Char(36)
+  next_scan_at DateTime @default(now()) @db.DateTime(3)
+  @@id([source_id, environment])
+}
+
+// ACCOUNT authority/provenance survives content removal and restored children.
+// UUIDs deliberately have no FK to live domain rows.
+model account_content_checkpoints {
+  request_id String @db.Char(36)
+  message_id String @db.Char(36)
+  room_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  deletion_root_id String? @db.Char(36)
+  environment String @db.VarChar(10)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  rows_purged_at DateTime? @db.DateTime(3)
+  @@id([request_id, message_id])
+  @@index([room_id, message_id])
+}
+
+// Each detached reference retains its ownership basis, including unpublished copies.
+model account_media_provenance {
+  request_id String @db.Char(36)
+  reference_kind String @db.VarChar(16)
+  reference_id String @db.Char(36)
+  asset_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  asset_owner_user_id String @db.Char(36)
+  room_id String? @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  disposition String @db.VarChar(16)
+  @@id([request_id, reference_kind, reference_id, asset_id])
+  @@index([asset_id])
+}
+
+// A stable asset continuation with bounded object enumeration, independent of leases.
+model media_cleanup_checkpoints {
+  asset_id String @id @db.Char(36)
+  object_cursor String? @db.Char(36)
+}
+
+// Captured BEFORE storage DELETE; ALLOCATED remains unresolved after DELETE/404.
+model media_cleanup_attempts {
+  object_id String @id @db.Char(36)
+  asset_id String @db.Char(36)
+  attempt_id String @db.Char(36)
+  object_key String @db.VarChar(191)
+  writer_acknowledged Boolean @default(false)
+  delete_observed_at DateTime? @db.DateTime(3)
+  @@index([asset_id, object_id])
+}
+
+model account_media_scans {
+  request_id String @id @db.Char(36)
+  asset_cursor String? @db.Char(36)
+}
