@@ -1,5 +1,5 @@
 import { current, MediaError, uploadInput } from './contracts';
-import type { ImageKind, Receipt, UploadInput } from './contracts';
+import type { MediaKind, Receipt, UploadInput } from './contracts';
 import type { MediaClient } from './client';
 
 export type UploadState = Readonly<{
@@ -56,7 +56,7 @@ export class MediaUpload {
     this.active(generation, signal);
     this.set({ phase: 'pending', ...(this.state.receipt ? { receipt: this.state.receipt } : {}) });
   }
-  async start(kind: ImageKind, file: Blob, roomId?: string): Promise<void> {
+  async start(kind: MediaKind, file: Blob, roomId?: string): Promise<void> {
     current(this.client.lifetime);
     if (this.busy || this.state.phase !== 'empty') throw new MediaError('EXPLICIT_CLEAR_REQUIRED');
     this.intent = uploadInput(kind, file, roomId);
@@ -65,7 +65,9 @@ export class MediaUpload {
     const signal = AbortSignal.any([this.operation.signal, this.client.lifetime.signal]);
     this.busy = true; this.set({ phase: 'reserving' });
     let result: Receipt | undefined;
+    let release: (() => void) | undefined;
     try {
+      release = this.client.reserveUpload(file, signal);
       result = await this.client.reserve(kind, file, roomId, signal);
       this.active(generation, signal); this.set({ phase: 'uploading', receipt: result });
       result = await this.client.upload(result.assetId, file, signal);
@@ -77,7 +79,7 @@ export class MediaUpload {
       // 401/403/404 remove private references. Other failures are uncertain, never replayed.
       if (error instanceof MediaError && [401, 403, 404].includes(error.status)) { this.set({ phase: 'failed' }); return; }
       this.set({ phase: 'uncertain', ...(result ? { receipt: result } : {}) });
-    } finally { if (generation === this.generation) this.busy = false; }
+    } finally { release?.(); if (generation === this.generation) this.busy = false; }
     // No file is kept in instance state or browser storage after this operation.
   }
   async refresh(): Promise<void> {
@@ -96,7 +98,7 @@ export class MediaUpload {
         ? { phase: 'failed' } : { phase: 'uncertain', ...(this.state.receipt ? { receipt: this.state.receipt } : {}) });
     } finally { if (generation === this.generation) this.busy = false; }
   }
-  readyAsset(kind?: ImageKind, roomId?: string): string {
+  readyAsset(kind?: MediaKind, roomId?: string): string {
     current(this.client.lifetime);
     if (kind && (this.intent?.kind !== kind || this.intent.roomId !== roomId)) throw new MediaError('INVALID_CONTEXT');
     if (this.state.phase !== 'ready' || this.state.receipt?.status !== 'ready') throw new MediaError('NOT_READY');

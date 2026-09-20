@@ -110,6 +110,7 @@ function ScopedChatRoom({
 }: ChatRoomViewProps) {
   const media = useMediaScope();
   const [photoTargets, setPhotoTargets] = useState<Record<string, ChatComposerTarget>>({});
+  const [videoTarget, setVideoTarget] = useState<ChatComposerTarget | null>(null);
   const [stickerTarget, setStickerTarget] = useState<ChatComposerTarget | null>(null);
   const permittedFans = useMemo(() => fanRecipients ?? (fanRecipient ? [fanRecipient] : EMPTY_RECIPIENTS), [fanRecipients, fanRecipient]);
   const authorization = useMemo(
@@ -375,8 +376,14 @@ function ScopedChatRoom({
         <Button type="button" className="ml-2" variant="outline" disabled={!target || !media?.configured} onClick={() => {
           if (target) { commitTarget(); setStickerTarget(target); }
         }}>스티커 선택</Button>
+        <Button type="button" className="ml-2" variant="outline" disabled={!target || !media?.configured} onClick={() => {
+          if (target) { commitTarget(); setVideoTarget(target); }
+        }}>영상 첨부</Button>
         {Object.keys(photoTargets).length >= 2 && <p className="text-sm text-muted">사진 첨부는 두 대화까지 유지됩니다. 다른 사진을 준비하려면 열어 둔 첨부를 닫아 주세요.</p>}
         {!media?.configured && <p className="text-sm text-muted">지금은 사진 첨부를 사용할 수 없습니다.</p>}
+      </div>}
+      {onSubmit && videoTarget && isAuthorizedTarget(videoTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(videoTarget) !== currentKey}>
+        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} onClose={() => setVideoTarget(null)} />
       </div>}
       {onSubmit && stickerTarget && isAuthorizedTarget(stickerTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(stickerTarget) !== currentKey}>
         <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} onClose={() => setStickerTarget(null)} />

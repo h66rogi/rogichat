@@ -53,3 +53,12 @@ void test('tiny retained image admits the maximum video/poster reservation in th
   assert.equal(budget.reservedBytes, 60 * MiB + 128 * 1024 + 5);
   image.dispose(); videoAndPoster(); assert.equal(budget.reservedBytes, 0);
 });
+
+void test('concurrent uploads share the playback budget and abort frees the exact reservation', () => {
+  const budget = new MediaBudget(); const parent = new AbortController();
+  const client = new MediaClient({ apiOrigin: 'https://api.qa.rogi.chat', storageOrigins: [], csrf: () => 'A'.repeat(43), budget, lifetime: { signal: parent.signal, isCurrent: () => true } });
+  const video = client.reserveUpload(new Blob([new Uint8Array(50 * MiB)]), parent.signal);
+  const photo = client.reserveUpload(new Blob([new Uint8Array(10 * MiB)]), parent.signal);
+  assert.throws(() => client.reserveUpload(new Blob([new Uint8Array(10 * MiB)]), parent.signal));
+  parent.abort(); assert.equal(budget.reservedBytes, 0); video(); photo(); assert.equal(budget.reservedBytes, 0);
+});

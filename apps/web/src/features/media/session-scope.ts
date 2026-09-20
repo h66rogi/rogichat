@@ -2,6 +2,7 @@ import { ApiError, type ApiClient } from '../../core/api/client';
 import { MediaClient } from './client';
 import type { MediaLifetime } from './contracts';
 import { MediaBudget } from './byte-budget';
+import { VideoClient, type VideoClientOptions } from './video-client';
 
 /** One mounted, verified account/room scope. No browser persistence or signed URL state. */
 export class MediaSessionScope {
@@ -10,13 +11,15 @@ export class MediaSessionScope {
   readonly client: MediaClient;
   readonly configured: boolean;
   readonly budget = new MediaBudget();
+  private readonly videoOptions: VideoClientOptions;
+  videoClient(lifetime: MediaLifetime) { return new VideoClient({ ...this.videoOptions, lifetime }); }
   private readonly parent: MediaLifetime | undefined;
   constructor(api: ApiClient, csrf: string, origins: readonly string[], invalidate: () => void, parent?: MediaLifetime) {
     this.parent = parent;
     this.lifetime = { signal: this.abort.signal, isCurrent: () => !this.abort.signal.aborted && (!parent || (!parent.signal.aborted && parent.isCurrent())) };
     this.configured = origins.length > 0;
     const denied = () => { this.dispose(); invalidate(); };
-    this.client = new MediaClient({ apiOrigin: api.origin, storageOrigins: origins, csrf: () => csrf, lifetime: this.lifetime,
+    const options: VideoClientOptions = { apiOrigin: api.origin, storageOrigins: origins, csrf: () => csrf, lifetime: this.lifetime,
       budget: this.budget,
       onUnauthorized: denied,
       verifySession: async signal => {
@@ -29,7 +32,8 @@ export class MediaSessionScope {
           throw error;
         }
       },
-    });
+    };
+    this.client = new MediaClient(options); this.videoOptions = options;
     parent?.signal.addEventListener('abort', this.dispose, { once: true });
     if (parent?.signal.aborted) this.dispose();
   }

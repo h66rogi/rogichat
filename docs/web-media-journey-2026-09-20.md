@@ -95,3 +95,23 @@ owned real QA page consent checkbox and login button navigated to the actual SOO
 credential screen (provider hostname and visible ID/password fields observed).
 No credentials were entered; this is provider-entry evidence only, not evidence
 of a completed callback, authenticated session, actual room or message delivery.
+
+
+## Full video and reviewed command composition
+
+The reviewed schema-2 command branch is merged without changing its original
+branch. PHOTO/STICKER/VIDEO retain exact immutable wire content and explicit
+same-ID receipt-first retry. The shared production controller now owns native
+IndexedDB recovery; its separate audit records storage boundaries.
+
+VIDEO accepts room-bound MP4/MOV input up to 50 MiB, sends only a confirmed READY
+asset, and renders only the server video/poster reference pair. The reviewed
+video leaf (`446e34c039945037c23195233f2425cf5a263d13`) is mounted for both owned
+unattached previews and message playback. Reference keys include message ID and
+revision; room/session scope invalidation or reference disposal aborts and revokes
+native sources. Explicit load, strong-ETag checked ranges, codec validation and
+60-second renewal retain the leaf contract. Offscreen images release resources;
+video offscreen/paused/ended/background suspension does not download automatically.
+Hosted browser verification requires ffmpeg and generates isolated temporary codec
+fixtures. Actual storage CORS/ETag/Range and real-device memory acceptance remain
+external gates; no deployed video or authenticated-user acceptance is claimed.

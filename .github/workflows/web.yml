@@ -68,6 +68,11 @@ jobs:
         run: pnpm web:build
       - name: Verify production artifacts
         run: pnpm web:check
+      - name: Install real codec test prerequisite
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes ffmpeg
+          ffmpeg -hide_banner -version
       - name: Browser tests against the production artifact
         run: |
           pnpm --filter @rogichat/web exec playwright install --with-deps chromium

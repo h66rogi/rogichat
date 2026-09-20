@@ -1,5 +1,5 @@
 import { current, imageContext, MediaError, receipt, record, stickerPage, uploadInput, uuid } from './contracts';
-import type { ImageContext, ImageKind, MediaLifetime, Receipt, StickerPage } from './contracts';
+import type { ImageContext, MediaKind, MediaLifetime, Receipt, StickerPage } from './contracts';
 import type { MediaByteBudget } from './byte-budget';
 
 // Covers the 50-item catalog, including escaped Unicode labels, with headroom.
@@ -92,7 +92,14 @@ export class MediaClient {
     current(this.lifetime); requestSignal.throwIfAborted();
     return value;
   }
-  async reserve(kind: ImageKind, file: Blob, roomId: string | undefined, signal: AbortSignal): Promise<Receipt> {
+  reserveUpload(file: Blob, signal: AbortSignal): () => void {
+    const release = this.budget?.reserve(file.size);
+    const end = () => { signal.removeEventListener('abort', end); release?.(); };
+    signal.addEventListener('abort', end, { once: true });
+    if (signal.aborted) { end(); signal.throwIfAborted(); }
+    return end;
+  }
+  async reserve(kind: MediaKind, file: Blob, roomId: string | undefined, signal: AbortSignal): Promise<Receipt> {
     const result = receipt(await this.request('/v1/media/upload-intents', 201, signal, uploadInput(kind, file, roomId)));
     if (result.status !== 'reserved') throw new MediaError('INVALID_RESPONSE');
     return result;

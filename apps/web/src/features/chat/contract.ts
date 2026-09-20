@@ -102,8 +102,10 @@ export function projectMessages(messages: readonly ServerMessage[], viewerId: st
   return messages.map((item): ChatTimelineItem => {
     const content = item.content;
     const media = content.type === 'PHOTO' && content.attachments.length > 0 && content.attachments.length <= 4 && content.attachments.every(a => a.variant === 'image' && a.width > 0 && a.height > 0)
-      ? { type: 'PHOTO' as const, assets: content.attachments }
-      : content.type === 'STICKER' ? { type: 'STICKER' as const, assets: [{ assetId: content.assetId, width: content.width, height: content.height }], stickerId: content.stickerId } : undefined;
+      ? { type: 'PHOTO' as const, revision: item.version, assets: content.attachments }
+      : content.type === 'VIDEO' && content.attachments.length === 2 && new Set(content.attachments.map(a => a.assetId)).size === 1 && new Set(content.attachments.map(a => a.variant)).size === 2 && content.attachments.every(a => ['video', 'poster'].includes(a.variant) && a.width > 0 && a.height > 0)
+        ? { type: 'VIDEO' as const, revision: item.version, assets: content.attachments }
+      : content.type === 'STICKER' ? { type: 'STICKER' as const, revision: item.version, assets: [{ assetId: content.assetId, width: content.width, height: content.height }], stickerId: content.stickerId } : undefined;
     if (!media && (content.type !== 'TEXT' || content.text === null)) return { kind: 'unsupported', id: item.id, scope: item.audience, createdAt: item.createdAt, allowedActions: item.allowedActions };
     const body = content.type === 'TEXT' ? content.text! : '';
     if (item.author.kind === 'anonymous') return { kind: 'publication', id: item.id, body, createdAt: item.createdAt, allowedActions: item.allowedActions, ...(media ? { media } : {}) };

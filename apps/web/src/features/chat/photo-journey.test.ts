@@ -108,3 +108,27 @@ void test('STICKER requires explicit catalog selection and retries exact catalog
   assert.deepEqual(writes[0], writes[1]); assert.deepEqual(writes[0]?.content, { type: 'STICKER', stickerId: otherRoomId });
   assert.deepEqual(controller.getSnapshot().items, []); controller.dispose(); assert.equal(catalog.getSnapshot().selected, null); catalog.dispose();
 });
+
+void test('VIDEO requires correct READY room upload, persists one asset and retains exact explicit retry', async () => {
+  const writes: Record<string, unknown>[] = [];
+  const controller = new ChatController(roomId, server(async (_path, options) => {
+    const body = options!.body as Record<string, unknown>; writes.push(body);
+    if (writes.length === 1) throw new TypeError('ACK lost');
+    return { clientMessageId: body.clientMessageId, messageId: otherRoomId, status: 'committed', version: '1' };
+  }));
+  await controller.refresh(); let status = 'processing'; const upload = uploadFor(controller, () => status);
+  await upload.start('VIDEO', new Blob(['test video'], { type: 'video/mp4' }), roomId);
+  assert.equal((await controller.send({ target, body: '', video: upload })).accepted, false); assert.equal(writes.length, 0);
+  status = 'ready'; await upload.refresh();
+  assert.equal((await controller.send({ target, body: '', photo: upload })).accepted, false);
+  const unknown = await controller.send({ target, body: '', video: upload }); assert.equal(unknown.accepted, false);
+  assert.ok(!unknown.accepted && unknown.retryCommandId);
+  assert.equal((await controller.send({ target, body: '', video: upload, retryCommandId: unknown.retryCommandId })).accepted, true);
+  assert.deepEqual(writes[0], writes[1]); assert.deepEqual(writes[0]?.content, { type: 'VIDEO', assetIds: [assetId] });
+  const base = { id: roomId, version: '2', createdAt: '2026-09-20T00:00:00.000Z', audience: 'SHARED', author: { kind: 'anonymous' }, quote: null, counterpart: null, allowedActions: { reply: false, publish: false, delete: false } };
+  const content = { type: 'VIDEO', attachments: ['video', 'poster'].map(variant => ({ assetId, width: 160, height: 90, variant })) };
+  const projected = projectMessages([message({ ...base, content })], assetId, [])[0]!;
+  assert.equal(projected.kind, 'publication'); assert.ok(projected.kind === 'publication' && projected.media?.type === 'VIDEO' && projected.media.revision === '2');
+  assert.equal(projectMessages([message({ ...base, content: { ...content, attachments: [content.attachments[0]] } })], assetId, [])[0]?.kind, 'unsupported');
+  controller.dispose(); upload.dispose();
+});

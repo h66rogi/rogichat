@@ -1,3 +1,4 @@
+import { codecFixture } from './video-fixture';
 import { installMedia, MEDIA_ASSET, MEDIA_CSRF, TEST_IMAGE } from './media-fixture';
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import type { ServerMessage } from '../../src/features/chat/contract';
@@ -495,4 +496,47 @@ test('catalog sticker selection sends its exact ID, retains selection on failure
   expect(state.posts).toHaveLength(2); expect(state.posts[0]).toEqual(state.posts[1]);
   expect(state.posts[0]?.content).toEqual({ type: 'STICKER', stickerId });
   expect(media.accesses).toContainEqual({ variant: 'image', roomId: TEST_ROOM_ID, stickerId });
+});
+
+test('READY video sends one real asset reference and mounted timeline plays scoped validated ranges', async ({ page }) => {
+  const { movie, poster } = await codecFixture();
+  const { account, state, hint } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
+  let ready = false; const accesses: Record<string, unknown>[] = [];
+  await page.route('https://api.qa.rogi.chat/v1/media/**', async route => {
+    if (route.request().method() === 'OPTIONS') return json(route, null, 204);
+    const path = new URL(route.request().url()).pathname;
+    if (path.endsWith('/upload-intents')) { expect(route.request().postDataJSON()).toEqual({ kind: 'VIDEO', contentType: 'video/mp4', byteLength: movie.length, roomId: TEST_ROOM_ID }); return json(route, { assetId: MEDIA_ASSET, status: 'reserved' }, 201); }
+    if (path.endsWith('/content')) { expect(route.request().postDataBuffer()).toEqual(movie); return json(route, { assetId: MEDIA_ASSET, status: 'processing' }, 202); }
+    if (path.endsWith('/access')) { const body = route.request().postDataJSON(); accesses.push(body); return json(route, { url: `https://media.test.invalid/${body.variant}`, expiresIn: 60 }); }
+    return json(route, { assetId: MEDIA_ASSET, status: ready ? 'ready' : 'processing' });
+  });
+  await page.route('https://media.test.invalid/**', async route => {
+    const bytes = new URL(route.request().url()).pathname === '/video' ? movie : poster;
+    const [, from, to] = /^bytes=(\d+)-(\d+)$/.exec(route.request().headers()['range']!)!;
+    return route.fulfill({ status: 206, headers: { ETag: '"video-journey"', 'Content-Type': bytes === movie ? 'video/mp4' : 'image/webp', 'Content-Range': `bytes ${from}-${to}/${bytes.length}`, 'Content-Length': String(Number(to) - Number(from) + 1), 'Access-Control-Allow-Origin': '*', 'Access-Control-Expose-Headers': 'Content-Range, Content-Length, ETag' }, body: bytes.subarray(Number(from), Number(to) + 1) });
+  });
+  const savedId = '66666666-6666-4666-8666-666666666666';
+  await page.route(`**/v1/rooms/${TEST_ROOM_ID}/messages`, async route => {
+    if (route.request().method() === 'OPTIONS') return json(route, null, 204);
+    const body = route.request().postDataJSON(); state.posts.push(body);
+    state.messages.push({ ...incoming, id: savedId, author: { ...incoming.author, actorId: TEST_ACTOR_ID }, content: { type: 'VIDEO', attachments: ['video', 'poster'].map(variant => ({ assetId: MEDIA_ASSET, width: 160, height: 90, variant })) } });
+    return json(route, { clientMessageId: body.clientMessageId, messageId: savedId, status: 'committed', version: '1' });
+  });
+  await page.goto('/chat'); await page.getByRole('button', { name: '영상 첨부', exact: true }).click();
+  await page.getByLabel('영상 선택', { exact: true }).setInputFiles({ name: 'test.mp4', mimeType: 'video/mp4', buffer: movie });
+  await expect(page.getByRole('button', { name: '영상 보내기', exact: true })).toBeDisabled(); expect(state.posts).toHaveLength(0);
+  ready = true; await page.getByRole('button', { name: '이 영상 사용', exact: true }).click();
+  await page.getByRole('button', { name: '영상 보내기', exact: true }).click();
+  await expect(page.getByRole('button', { name: '영상 보내기', exact: true })).toHaveCount(0);
+  expect(state.posts[0]?.content).toEqual({ type: 'VIDEO', assetIds: [MEDIA_ASSET] });
+  await page.getByRole('button', { name: '영상 불러오기', exact: true }).click();
+  const video = page.getByLabel('첨부 영상 재생', { exact: true });
+  await expect.poll(() => video.evaluate(v => (v as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
+  await video.evaluate(v => { (v as HTMLVideoElement).currentTime = 1.25; });
+  await expect.poll(() => video.evaluate(v => (v as HTMLVideoElement).currentTime)).toBeCloseTo(1.25, 1);
+  expect(accesses).toContainEqual({ variant: 'video', roomId: TEST_ROOM_ID, messageId: savedId });
+  expect(accesses).toContainEqual({ variant: 'poster', roomId: TEST_ROOM_ID, messageId: savedId });
+  const blob = await video.getAttribute('src'); state.messages = [incoming]; state.deletedIds = [savedId]; hint();
+  await expect(video).toHaveCount(0);
+  expect(await page.evaluate(async url => fetch(url!).then(() => true, () => false), blob)).toBe(false);
 });

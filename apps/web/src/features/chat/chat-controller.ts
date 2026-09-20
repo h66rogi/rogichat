@@ -550,11 +550,13 @@ export class ChatController {
     try {
       await this.verifySession(); if (!current()) return;
       const auth = await this.authorization(); if (!current()) return; this.publish(auth);
-      if (this.environment) { if (!this.outbox || this.state.storageError) throw new OutboxError('LOCKED'); await this.outbox.beforeLookup(id); if (!current()) return; }
+      const storageSignal = this.outbox?.signal;
+      const active = () => current() && !storageSignal?.aborted;
+      if (this.environment) { if (!this.outbox || this.state.storageError) throw new OutboxError('LOCKED'); await this.outbox.beforeLookup(id); if (!active()) return; }
       const result = receipt(await this.request(this.path(`message-commands/${id}`), { signal: AbortSignal.any([signal, ...(this.outbox ? [this.outbox.signal] : []), AbortSignal.timeout(20000)]) }), id, 'lookup');
-      if (!current()) return;
-      await this.verifySession(); if (!current()) return;
-      if (this.outbox) { await this.outbox.assertCurrent(); if (!current()) return; await this.outbox.settle(result); if (!current()) return; }
+      if (!active()) return;
+      await this.verifySession(); if (!active()) return;
+      if (this.outbox) { await this.outbox.assertCurrent(); if (!active()) return; await this.outbox.settle(result); if (!active()) return; }
       this.commandResult(result);
       this.publish({ notice: result.status === 'deleted' ? '이 전송은 이미 삭제된 메시지입니다.' : '메시지 저장 결과를 확인했습니다.' });
     } catch (error) {
@@ -591,11 +593,12 @@ export class ChatController {
     const text = submission.body.normalize('NFC');
     let content: SendPayload['content'];
     const prior = submission.retryCommandId ? this.commands.get(submission.retryCommandId) : undefined;
-    const media = submission.photo ?? submission.sticker;
-    if (submission.photo && submission.sticker) return { accepted: false, reason: '사진과 스티커는 따로 보내 주세요.' };
+    const media = submission.photo ?? submission.video ?? submission.sticker;
+    if ([submission.photo, submission.video, submission.sticker].filter(Boolean).length > 1) return { accepted: false, reason: '첨부는 종류별로 따로 보내 주세요.' };
     try {
       if (media && (text || submission.quoteMessageId)) throw new Error('MEDIA_ONLY');
       if (submission.photo) content = { type: 'PHOTO', assetIds: [submission.photo.readyAsset('PHOTO', this.roomId)] };
+      else if (submission.video) content = { type: 'VIDEO', assetIds: [submission.video.readyAsset('VIDEO', this.roomId)] };
       else if (submission.sticker) content = { type: 'STICKER', stickerId: submission.sticker.readySticker(this.roomId) };
       else if (!text && prior?.status === 'unknown' && 'payload' in prior && prior.payload.content.type !== 'TEXT') content = prior.payload.content;
       else {
@@ -631,30 +634,34 @@ export class ChatController {
       if (submission.retryCommandId) {
         // A lookup is a read only. 404 stays unknown; only this explicit retry
         // action plus fresh authorization can replay the exact immutable command.
+        const lookupSignal = this.outbox?.signal;
+        const activeLookup = () => current() && !lookupSignal?.aborted;
         try {
-          if (this.outbox && !this.unpersisted.has(clientMessageId)) { await this.outbox.beforeLookup(clientMessageId); if (!current()) throw new Error('STALE_REQUEST'); }
+          if (this.outbox && !this.unpersisted.has(clientMessageId)) { await this.outbox.beforeLookup(clientMessageId); if (!activeLookup()) throw new Error('STALE_REQUEST'); }
           const result = receipt(await this.request(this.path(`message-commands/${clientMessageId}`), { signal: AbortSignal.any([signal, ...(this.outbox ? [this.outbox.signal] : []), AbortSignal.timeout(20000)]) }), clientMessageId, 'lookup');
-          if (!current()) throw new Error('STALE_REQUEST');
-          await this.verifySession(); if (!current()) throw new Error('STALE_REQUEST');
-          if (this.outbox && !this.unpersisted.has(clientMessageId)) { await this.outbox.assertCurrent(); if (!current()) throw new Error('STALE_REQUEST'); await this.outbox.settle(result); if (!current()) throw new Error('STALE_REQUEST'); }
+          if (!activeLookup()) throw new Error('STALE_REQUEST');
+          await this.verifySession(); if (!activeLookup()) throw new Error('STALE_REQUEST');
+          if (this.outbox && !this.unpersisted.has(clientMessageId)) { await this.outbox.assertCurrent(); if (!activeLookup()) throw new Error('STALE_REQUEST'); await this.outbox.settle(result); if (!activeLookup()) throw new Error('STALE_REQUEST'); }
           return this.commandResult(result);
-        } catch (error) { if (Number(recordError(error).status) !== 404 || !current()) throw error; }
+        } catch (error) { if (Number(recordError(error).status) !== 404 || !activeLookup()) throw error; }
         // Reauthorize after the ambiguous receipt, never derive noncommit from it.
         const auth = await this.authorization();
         if (!current() || auth.room.membershipScope !== command.payload.membershipScope) throw new ResetRequired();
         this.publish(auth);
         if (!this.commandAuthorized(command)) throw new ResetRequired();
       }
+      const sendSignal = this.outbox?.signal;
+      const activeSend = () => current() && !sendSignal?.aborted;
       if (this.outbox) {
-        if (this.unpersisted.has(clientMessageId)) { await this.outbox.prepare(this.roomId, command.payload); if (!current()) throw new Error('STALE_REQUEST'); this.unpersisted.delete(clientMessageId); }
-        if (submission.retryCommandId) { await this.outbox.lookupNotFound(clientMessageId); if (!current()) throw new Error('STALE_REQUEST'); }
-        await this.outbox.beforeSend(clientMessageId, Boolean(submission.retryCommandId)); if (!current()) throw new Error('STALE_REQUEST');
+        if (this.unpersisted.has(clientMessageId)) { await this.outbox.prepare(this.roomId, command.payload); if (!activeSend()) throw new Error('STALE_REQUEST'); this.unpersisted.delete(clientMessageId); }
+        if (submission.retryCommandId) { await this.outbox.lookupNotFound(clientMessageId); if (!activeSend()) throw new Error('STALE_REQUEST'); }
+        await this.outbox.beforeSend(clientMessageId, Boolean(submission.retryCommandId)); if (!activeSend()) throw new Error('STALE_REQUEST');
       }
       this.recoverySeen.add(clientMessageId);
       const result = receipt(await this.request(this.path('messages'), { method: 'POST', body: command.payload, signal: AbortSignal.any([signal, ...(this.outbox ? [this.outbox.signal] : []), AbortSignal.timeout(20000)]) }), clientMessageId, 'send');
-      if (!current()) throw new Error('STALE_REQUEST');
-      await this.verifySession(); if (!current()) throw new Error('STALE_REQUEST');
-      if (this.outbox) { await this.outbox.assertCurrent(); if (!current()) throw new Error('STALE_REQUEST'); await this.outbox.settle(result); if (!current()) throw new Error('STALE_REQUEST'); }
+      if (!activeSend()) throw new Error('STALE_REQUEST');
+      await this.verifySession(); if (!activeSend()) throw new Error('STALE_REQUEST');
+      if (this.outbox) { await this.outbox.assertCurrent(); if (!activeSend()) throw new Error('STALE_REQUEST'); await this.outbox.settle(result); if (!activeSend()) throw new Error('STALE_REQUEST'); }
       return this.commandResult(result);
     } catch (error) {
       if (current()) {
