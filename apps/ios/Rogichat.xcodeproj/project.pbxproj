@@ -88,6 +88,7 @@
 		DB07D554713F076B37AC49E7 /* MediaClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA3D56E1D8595D833434A9E /* MediaClient.swift */; };
 		DF33458F2C845BE8D7D740B2 /* SOOPAuthCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24B71449C6C287CB6CE1368A /* SOOPAuthCoordinator.swift */; };
 		E28C74E0B758E613C61A5CC8 /* NativeSessionDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DB7CFF4ADCEE99F65A29EA /* NativeSessionDTO.swift */; };
+		E350421E021EE2E028F0C844 /* SOOPBrowserOperation.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA153C147CAFC07BEB2ACED5 /* SOOPBrowserOperation.swift */; };
 		E4E4258DDEDEBC7AD2AC184F /* RoomsEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = A56178D2E6A4EF7BCB8CE308 /* RoomsEndpoint.swift */; };
 		E581B9252402C6917B5E638C /* RogichatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543B6ADBAB63583E7D86FC10 /* RogichatApp.swift */; };
 		E6C3B5CE3460C74DCF3BD819 /* ActorBlocksPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D333B6D9942C55B3490458 /* ActorBlocksPanel.swift */; };
@@ -188,6 +189,7 @@
 		D53969ED5B74A20CAAA027AD /* AppShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShell.swift; sourceTree = "<group>"; };
 		D57A50796D233D96DE3FDEE9 /* PushLifecycle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PushLifecycle.swift; sourceTree = "<group>"; };
 		D90AC9EB360EAB78A38768D3 /* AccountNotificationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountNotificationModel.swift; sourceTree = "<group>"; };
+		DA153C147CAFC07BEB2ACED5 /* SOOPBrowserOperation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPBrowserOperation.swift; sourceTree = "<group>"; };
 		DA67D817DC8E6189F700503D /* ScreenStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenStatus.swift; sourceTree = "<group>"; };
 		DB09101DB5027396EF821E94 /* SOOPAuthContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPAuthContract.swift; sourceTree = "<group>"; };
 		DE216E2713A8B26A8A1A7479 /* MediaUpload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaUpload.swift; sourceTree = "<group>"; };
@@ -352,6 +354,7 @@
 			children = (
 				DB09101DB5027396EF821E94 /* SOOPAuthContract.swift */,
 				24B71449C6C287CB6CE1368A /* SOOPAuthCoordinator.swift */,
+				DA153C147CAFC07BEB2ACED5 /* SOOPBrowserOperation.swift */,
 				6A1A097B6AD7B7A917F7EA16 /* SOOPBrowserSession.swift */,
 				43501230026F1C91108FFC8A /* SOOPPending.swift */,
 			);
@@ -708,6 +711,7 @@
 				A4B62C9E3590D2CD92C454BC /* RoomsScreenModel.swift in Sources */,
 				5E306130DC45C411D699231E /* SOOPAuthContract.swift in Sources */,
 				DF33458F2C845BE8D7D740B2 /* SOOPAuthCoordinator.swift in Sources */,
+				E350421E021EE2E028F0C844 /* SOOPBrowserOperation.swift in Sources */,
 				4C3A0ADDD16BC7BBFC0E27E6 /* SOOPBrowserSession.swift in Sources */,
 				A48686A0D8747A1F32D8AD42 /* SOOPPending.swift in Sources */,
 				71D49C154F8764B552CDB34A /* ScreenStatus.swift in Sources */,

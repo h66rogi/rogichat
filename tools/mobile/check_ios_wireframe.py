@@ -111,6 +111,7 @@ def main():
             "Sources/Core/Session/NativeSessionService.swift",
             "Sources/Core/Auth/SOOPAuthContract.swift",
             "Sources/Core/Auth/SOOPPending.swift",
+            "Sources/Core/Auth/SOOPBrowserOperation.swift",
             "Sources/Core/Auth/SOOPAuthCoordinator.swift",
         ]
         native_sources += NATIVE_FEATURE_SOURCES
