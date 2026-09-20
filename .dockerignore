@@ -37,6 +37,9 @@
 **/.terraform
 **/node_modules
 **/.next
+**/.next-qa
+**/playwright-report
+**/test-results
 **/dist
 **/build
 **/.gradle

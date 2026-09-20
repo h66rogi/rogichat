@@ -5,6 +5,28 @@
 [통합 구현 계획](mobile-implementation-plan.md)이며, 이 문서는 출처와 판단 근거다.
 기존 앱의 출시 여부만으로 아래 코드의 사용성·정합성·보안이 검증됐다고 주장하지 않는다.
 
+## 제1원칙 보정 — 기존 구현을 최대한 재사용
+
+사용자의 최신 지시는 **적용 가능한 멜로밍 구현을 최대한 가져오는 것**이다. 아래 초기
+후보 표의 작은 단위 추출은 상한이 아니다. 원본 화면·상태 모델·탐색·OS 연결·테스트를 함께
+검토하고, 로기챗과 무관한 부분을 덜어내며 나머지 구조와 동작을 보존하는 것이 기본이다.
+원본이 크거나 오래됐다는 이유, 새 wrapper 작성이 쉽다는 이유만으로 전체 재작성을 선택하지 않는다.
+채팅 UX 제외, 참조 저장소 읽기 전용, 운영 설정/서명/브랜드 자산 미이식 경계는 유지한다.
+
+R01–R08은 기존 작업의 실제 추출 증거이며 **충분한 재사용이나 제품 완성의 증거는 아니다.**
+특히 R07 shell과 이후 notification/lifecycle 신규 구현은 원본의 적용 가능한 구현을
+버린 부분이 없는지 다시 대조한다. 재사용 가능한 코드가 확인되면 수정 이식을 우선한다.
+실행 순서와 제품/테스트 경계는 [통합 계획 §2.1·§8](mobile-implementation-plan.md)을 따른다.
+
+후속 변경마다 다음을 기록한다. 이 기록은 아직 수행하지 않은 소스 이식을 완료로 집계하지 않는다.
+
+| 판단 | 필요한 근거 |
+|---|---|
+| 그대로 또는 수정 재사용 | 원본 commit·파일·심볼, 대상 파일, 보존한 동작과 변경한 부분, 관련 테스트 |
+| 원본 일부 제외 | 불필요한 사업 기능·운영 의존·확인된 결함 등 해당 부분의 구체적인 이유 |
+| 신규 작성 | 대응 원본 부재 또는 계약/플랫폼 차이, 수정 재사용으로 해결하기 어려운 이유 |
+| 서버 계약 대기 | 의존 계약 ID와 해제 증거, 그동안 완성할 수 있는 제품 화면/상태/OS 구현 |
+
 ## 조사 기준과 경계
 
 | 대상 | 고정한 기준 | 확인 범위 |
@@ -25,9 +47,9 @@
 | 단위/근거 파일 | 재사용 판단 | 가져올 범위와 바꿀 점 | 대상/확인 기준 |
 |---|---|---|---|
 | `DS/component/MelomingNavigationBar.kt`, `MelomingTopBar.kt` | 수정 재사용 우선 | navigation item·선택·label·click·insets 구조. 브랜드/탭 목록/도메인 제거, route 자체는 주입 | `core/design`, app shell; 선택 의미·TalkBack·큰 글자 |
-| `APP/navigation/MelomingNavHost.kt` | 필요한 로직 추출 | 탭 `saveState/restoreState`, `launchSingleTop` 처리. 상품·결제·analytics·인증 graph 전체는 제외 | app navigation; back·중복 진입·로그아웃 stack 폐기 |
-| `MORE/MoreScreen.kt`의 `SectionTitle`, `MenuItem` | 작은 함수 수정 재사용 우선 | 설정 section/row·보조 설명·클릭 영역. 전체 screen의 사업 기능/사용자 model은 제외 | `feature/settings` + 공통 row; 상태별 접근성과 destructive action 분리 |
-| `MORE/NotificationSettingsScreen.kt` | UI와 OS 연결 단위 추출 | 권한 설명·OS 설정 이동 추출. **복귀 권한 재조회는 신규 보강**. 기존 알림 종류·서버 토글 API는 미채택 | `feature/settings`, notification permission adapter |
+| `APP/navigation/MelomingNavHost.kt` | 탐색 구조 수정 재사용 우선 | 탭 `saveState/restoreState`, `launchSingleTop`과 목적지 연결 구조. 상품·결제·analytics graph 제거, 로기챗 인증 계약 적용 | app navigation; back·중복 진입·로그아웃 stack 폐기 |
+| `MORE/MoreScreen.kt`, `MoreUiState.kt`, `MoreNavigation.kt` | 설정 화면·상태·진입 흐름 수정 재사용 우선 | section/row만이 아니라 적용 가능한 전체 화면 구조·프로필/설정 탐색 재사용. 사업 기능과 사용자 model은 로기챗 계약으로 조정 | `feature/settings` + 공통 UI; 상태별 접근성과 destructive action 분리 |
+| `MORE/NotificationSettingsScreen.kt` | 화면과 OS 연결 흐름 수정 재사용 우선 | 권한 설명·OS 설정 이동 재사용. **복귀 권한 재조회 보강**. 기존 알림 종류·서버 토글 API는 로기챗 계약으로 교체 | `feature/settings`, notification permission adapter |
 | `DS/component/MelomingButton.kt`, `LoadingIndicator.kt`, `EmptyView.kt`, `SectionHeader.kt` | 수정 재사용 우선 | disabled/loading/empty 표현 추출. **오류/retry 상태는 신규 보강**. 리소스·색상·문구 교체 | `core/design`; loading/empty/error 분리, 중복 클릭 방지 |
 | `APP/push/NotificationRouter.kt`, 해당 `app/src/test/.../push/NotificationRouterTest.kt` | parser/시험 발상 추출 후 재설계 | 미소비 route 개념·payload 정규화. replay=1을 소비 확인 없이 재생하거나 미지 URL 외부 실행하는 fallback은 제외 | route parser/coordinator; consume·dedupe·인가·URL allowlist |
 | `core/data/.../push/PushNotificationManager.kt` | OS/provider adapter 단위 수정 재사용 | 권한 조회·provider callback 처리 단위. 권한 허용/등록 성공 혼동, 오류 미전파, 계정 generation 없는 binding은 재설계 | MB02c mock port, MB07 실제 등록; 늦은 token callback/로그아웃 시험 |
@@ -47,21 +69,21 @@
 
 | 단위/근거 파일 | 재사용 판단 | 가져올 범위와 바꿀 점 | 대상/확인 기준 |
 |---|---|---|---|
-| `Presentation/Navigation/MainTabView.swift`, `AppRouter.swift` | 필요한 로직 추출 | 탭/NavigationStack/목적지 분리. 전역 singleton, 서비스별 탭·Int ID·공유 mutable path는 제외 | app shell + `@MainActor` router; tab restore·back·dismiss·session reset |
-| `Presentation/More/MyPageView.swift`의 `MyPageSection`, `MyActionRow` | 작은 view 수정 재사용 우선 | **실제 MainTab의 활성 설정 진입은 MyPage**. section/row·icon·subtitle·action 추출. wallet/order/auth 결합 전체 view 제외 | `Features/Settings`, `Core/Design`; 접근성·Dynamic Type |
+| `Presentation/Navigation/MainTabView.swift`, `AppRouter.swift` | 탐색 구조 수정 재사용 우선 | 탭/NavigationStack/목적지 연결 재사용. 전역 결합과 공유 mutable path 보정, 서비스별 탭·Int ID 교체 | app shell + `@MainActor` router; tab restore·back·dismiss·session reset |
+| `Presentation/More/MyPageView.swift`와 내부 `MyPageSection`, `MyActionRow` | 설정 화면·진입 흐름 수정 재사용 우선 | **실제 MainTab의 활성 설정 진입은 MyPage**. 적용 가능한 전체 화면 구조·프로필/설정 탐색과 section/row 재사용. wallet/order 제거, auth 결합은 로기챗 계약으로 조정 | `Features/Settings`, `Core/Design`; 접근성·Dynamic Type |
 | `Presentation/More/MoreView.swift` | 보조 후보 | 단순 설정 표현 참고 가능하나 활성 화면이라고 가정하지 않음 | 사용 경로·중복 여부 확인 후 필요한 단위만 |
 | `Presentation/Notifications/NotificationSettingsView.swift` | UI/OS 연결 단위 수정 재사용 | 설명·OS 설정 이동·재조회. 기존 preference 종류와 등록 여부 판단은 교체. load 시 PATCH 및 연속 toggle rollback race 방지 | permission adapter와 설정 model 분리 |
 | `Presentation/Common/Components/{LoadingView,ErrorView,FlowLayout}.swift`, `Core/State/{Loadable,LoadableView}.swift` | 수정 재사용 우선 | 단일 resource 화면 상태·retry UI. `Error` 노출·Equatable 및 Sendable 의미 재검토. 이전 값은 현재 권한이 확인된 같은 scope에서만 유지 | `Core/Design/State`; 단일 resource용, 여러 축 상태를 한 enum에 합치지 않음 |
 | `Core/Push/PushNotificationManager.swift` | lifecycle 경험/adapter 추출 | cold start payload 임시 보관·consumer 준비 뒤 1회 전달. 직접 navigation, 전역 singleton·계정 fence 없는 처리는 제외 | coordinator; foreground/tap 구분, 중복 소비·늦은 콜백 시험 |
 | `Core/Notifications/NotificationBadgeManager.swift`, `Presentation/Notifications/NotificationsView*.swift` | 표시 후보, 서버 기능 보류 | badge view/목록 상태만 후보. 기존 unread 기준·이력 API는 채택하지 않음 | 알림함/읽음 계약 확정 후 선택 구현 |
-| `Core/Network/{APIClient,APIEndpoint,APIError}.swift` | transport 경계 재작성 우선 | request 생성/취소/오류 분류 경험 후보. 기존 envelope·refresh·전역 auth coupling은 교체 | URLSession adapter, C01/C07/C08; cancellation/비JSON/401·403 구분 |
-| `Core/Auth/KeychainService.swift` | wrapper 단위 재작성 우선 | 원본은 직접 SecItem이 아닌 **KeychainAccess actor wrapper**. 책임 분리만 참고하고 선택한 저장 API로 재작성. 고정 service·`try?` 오류 은폐·access/refresh 전제 제거 | bundle별 service, 설치 marker, 접근성 옵션과 실패 전파 시험 |
+| `Core/Network/{APIClient,APIEndpoint,APIError}.swift` | transport 구현 수정 재사용 우선 | 적용 가능한 request 생성/취소/오류 분류 코드 보존. 기존 envelope·refresh·전역 auth 결합은 계약에 맞게 교체 | URLSession adapter, C01/C07/C08; cancellation/비JSON/401·403 구분 |
+| `Core/Auth/KeychainService.swift` | wrapper 수정 재사용 우선 | 원본은 직접 SecItem이 아닌 **KeychainAccess actor wrapper**. 보호 저장 구현을 우선 검토하고 고정 service·`try?` 오류 은폐·access/refresh 전제를 보정. 저장 API를 교체하면 이유 기록 | bundle별 service, 설치 marker, 접근성 옵션과 실패 전파 시험 |
 | `Core/Version/{VersionCheckService,ForceUpdateView}.swift` | 로컬 버전과 서버 정책 분리 | 버전/업데이트 안내 UI 후보. 기존 endpoint·store ID·실패 시 차단 정책 제외 | 설정 앱 정보 먼저, 원격 업데이트 정책은 별도 계약 |
 | `Presentation/More/MoreView.swift`의 `SafariView`, `Presentation/Navigation/SafariView.swift`의 `RouterSafariURL` | 수정 재사용 후보 | SFSafariViewController wrapper와 typed sheet item 추출; 전역 URL Identifiable 확장은 제외 | HTTPS allowlist, 민감 URL 로그 없음, 실패/닫기 UI |
 | `Presentation/Common/Components/InAppWebView.swift` | 제외 | 원본 auth-cookie 주입 WebView를 정책/인증 browser adapter로 재사용하지 않음 | 인증은 시스템 인증 세션, 정책/지원은 위 제한된 browser 경로 |
 
-원본 Swift 5.9/iOS 16 구현을 그대로 Swift 6/iOS 18에 옮기지 않는다. 순수 View는 작은
-단위로 유지하고 상태 소유권은 명시적 주입/Observation, session 작업은 actor 경계에 맞춘다.
+원본 Swift 5.9/iOS 16 구현은 Swift 6/iOS 18에 맞춰 수정 재사용한다. 화면 구조를 보존하면서
+상태 소유권은 명시적 주입/Observation, session 작업은 actor 경계에 맞춘다.
 기존 전역 manager를 새 이름의 전역 manager로 바꾸는 것만으로 이식을 완료하지 않는다.
 
 ## 추가 재사용 후보와 결함 보정
@@ -74,7 +96,7 @@
 - Android 원본 navigation bar의 icon-only 선택 semantics, iOS MyActionRow의 subtitle 1줄
   제한은 수정 대상이다. `selected/Role.Tab`, 큰 글자·긴 한글·단일 VoiceOver action을 시험한다.
 - 실제 APIClient/secure store는 기존 refresh endpoint·access/refresh pair·silent failure를
-  옮기지 않고 새 계약으로 경계를 다시 구현한다. iOS refresh 대기 continuation 정리,
+  옮기지 않고 새 계약에 맞게 기존 구현을 수정한다. iOS refresh 대기 continuation 정리,
   Android BODY logging·URL token callback처럼 별도 위험이 있는 경로는 추출 목록에서 제외한다.
   위험 분석은 로기챗 채택 범위 판정이며 원본 서비스 보안 검증 전체를 뜻하지 않는다.
 
@@ -97,9 +119,10 @@
 직접 의존성 | 출처·권리·고지 확인 | 검증 결과 | 미해결 blocker`
 
 위 표는 **최초 후보 조사**이며 실제 반영 상태는 아래 추출 기록을 따른다.
-원본을 읽고 전부 새로 작성한 경우는 “신규”로 기록한다. 실제 이식은 순수
-컴포넌트 → 화면 조립 → OS adapter → 서버 adapter 순으로 진행하고, 원본 test 중 의미 있는
-규칙도 적응해 이식한다. 원본 git history·환경 파일·private 운영 자료는 가져오지 않는다.
+원본을 읽고 전부 새로 작성한 경우는 “신규”로 기록한다. 실제 이식은
+화면/기능의 적용 가능한 흐름을 기준으로 공통 UI·화면 상태·탐색·OS adapter를 함께 검토하고,
+서버 adapter는 계약 확정 후 연결한다. 원본 test 중 의미 있는 규칙도 적응해 이식한다.
+원본 git history·환경 파일·private 운영 자료는 가져오지 않는다.
 
 ## 실제 추출 기록 — 공통 기반 1차
 

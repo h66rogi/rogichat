@@ -2,12 +2,15 @@
 
 2026-09-20. 상태: **구현을 위한 계획이며 기능 완료 기록이 아니다.**
 초기 조사 `6123ae2`, 첫 QA 와이어프레임 `9a028b9`에 공통 기반 재사용 조사를 통합했다.
-사용자 보정: **멜로밍의 탐색·설정·알림·공통 앱 구현을 우선 재사용하고 채팅 UX는 제외**한다.
-즉시 목표는 서버 없이 진행할 수 있는 공통 shell·설정·OS 상태 기반이며, 실제 서비스의 첫
+**제1원칙: meloming-ios/android에서 가능한 구현을 최대한 가져와 재사용한다.**
+화면·기능 흐름·공통 기반까지 적용하며, 멜로밍 채팅 UX는 제외한다.
+사용자의 최신 보정에 따라 QA에도 **실제 출시용 MVP와 같은 제품 구성**을 사용한다.
+즉시 목표는 기존 미리보기 중심 구성을 이 원칙으로 교체하는 것이며, 실제 서비스의 첫
 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
-> 후속 실행: 백엔드 병행 개발에 따라 미연동 화면부터 진행한
-> [첫 QA 와이어프레임 구현·블로커 기록](mobile-wireframe-progress.md)을 참고한다.
+> [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
+> [공통 기반 기록](mobile-common-foundation-progress.md)은 이전 구현의 증거다.
+> 그 안의 QA 미리보기 배포 허용·샘플 계정 선택 정책은 폐기한다. 앱 코드의 교체는 아직 남아 있다.
 > 실행 정책은 이 통합 계획을 따른다. 재사용 파일/심볼 근거는
 > [공통 기반 조사](mobile-reuse-audit.md), 다관점 판정은 [리뷰 기록](mobile-implementation-review.md)에 있다.
 
@@ -20,7 +23,7 @@
 
 | 영역 | 조사 시점 증거 | 계획에서의 취급 |
 |---|---|---|
-| 네이티브 앱 | `9a028b9`에서 QA 전용 탐색/미연동 화면, prod 시작 화면 구현 | MB00/02 일부. 실제 세션/저장/통신은 미구현 |
+| 네이티브 앱 | `4e222de`까지 QA 미리보기·역할 선택, prod SignedOut 고정 shell 구현 | 일부 공통 코드만 유지 후보. 제품 구성은 교체 대상이며 MB02 완료로 간주하지 않음. 실제 세션/저장/통신은 미구현 |
 | 빌드/배포 | QA/prod 분리, 서명 도구, Firebase/TestFlight 시험과 테스터 그룹 연결 | 기존 [배포 절차](mobile-test-distribution.md) 재사용 |
 | M03 인증 | 웹 쿠키/Origin/CSRF, `/auth/session`, SOOP start/callback | 네이티브 handoff·Apple 인증은 미구현 |
 | M04–M07 | 방·프로필·텍스트·삭제·sync·힌트·공개·반응과 합성 fixture | HTTP 계약을 확인하며 활용; live 성공과 구별 |
@@ -84,11 +87,15 @@ KMP/TCA 등 추가 아키텍처 프레임워크 도입은 이번 기반 작업 �
 실행 순서·제품 정책·gate의 단일 기준은 **이 문서**다. foundation은 요약, wireframe-progress는
 구현 시점 기록, review는 결정 근거다. 별도의 경쟁하는 재사용 로드맵을 운영하지 않는다.
 
-- 기본 선택은 **작은 구현 단위의 수정 재사용**이다. 독립적인 설정 행/section, navigation bar,
-  loading/error/empty/button부터 실제 코드를 추출한다. 원본을 읽고 새로 작성한 코드는
-  재사용 완료로 집계하지 않는다. 접근성 결함과 legacy 의존까지 보존하지는 않는다.
-- screen 전체·전역 singleton·원본 DI graph·사업 기능·원본 버전을 일괄 이식하지 않는다.
-  원본 스타일과 shell 구조를 필요한 단위로 가져오되 로기챗 이름/토큰/목적지로 바꾼다.
+- 기본 선택은 **기존 구현의 수정 재사용**이다. 해당 기능의 원본 화면·상태 모델·탐색·
+  OS 연결·테스트를 먼저 읽고, 로기챗에 적용 가능한 전체 흐름을 가져온다. 재사용을 작은
+  row/button 함수로 제한하지 않는다. 필요한 컴포넌트 분리는 기능 이식을 위한 수단이다.
+- 새 구현은 원본 부재, 로기챗 계약과의 구체적인 불일치, 확인된 결함 등 이유를 기록한 뒤
+  선택한다. 원본을 읽고 새로 작성한 코드는 재사용 완료로 집계하지 않는다.
+  기존 코드가 크거나 라이브러리가 오래됐다는 이유만으로 전체를 새로 쓰지 않는다.
+- 화면의 유용한 구조·상호작용·상태 처리를 보존하고 로기챗 이름·토큰·목적지·계약으로
+  수정한다. 관련 없는 사업 기능·운영 설정은 제거하며, singleton/DI 결합과 접근성 결함은
+  필요한 경계에서 고친다. 최신 SDK/라이브러리 적용과 기존 앱 구현 재사용을 함께 수행한다.
 - Android는 `core/design`, `feature/settings`, app navigation부터 책임을 분리한다.
   예: `SettingsRow/SettingsSection`, `AppNavigationBar/AppTopBar`, `AppRouter`.
   물리 Gradle 모듈 분리는 재사용 경계에 실제 코드가 생길 때 수행한다.
@@ -96,10 +103,11 @@ KMP/TCA 등 추가 아키텍처 프레임워크 도입은 이번 기반 작업 �
   추출한다. UI는 `@MainActor`/Observation으로 주입하고 delegate 입력은 Sendable 값으로
   정규화한다. actor 사이 raw notification dictionary를 전달하지 않고 await 뒤 generation을
   재확인한다. 경고를 blanket `@unchecked Sendable`로 숨기지 않는다.
-- settings/button/navigation 등 공통 코드와 screen model은 main/shared 영역에 둔다.
-  합성 계정·방·시나리오·preview 진입·QA adapter는 QA source set/컴파일 조건에 남긴다.
-  공통 화면의 prod 컴파일과 가짜 서비스 상태의 prod 노출은 별개다. 계약 전 prod 서비스 진입은
-  계속 차단하며, 공통 UI 이동을 위해 preview gate를 인증 domain으로 승격하지 않는다.
+- 제품 화면·상태 모델·앱 조립부는 main/shared 영역에 둔다. QA/prod는 같은 제품 경로를
+  실행하고 endpoint·식별자·서명 등 환경 설정을 분리한다. 실제 계정/권한에 따른 분기는 유지한다.
+  합성 계정·방·역할 선택·preview 진입·fake adapter는 test 또는 개발 preview target에만 둔다.
+  QA flavor/`ROGICHAT_QA` 자체는 테스트 코드 격리 조건이 아니다. TestFlight/App Distribution
+  산출물에도 합성 진입이 없어야 한다. 인증 전 private 화면은 양 환경 모두 실제 gate로 차단한다.
 - 원본 고정 endpoint/ID/브랜드/서명/분석·결제·방송·고객지원 SDK를 제거한다. 사용자 재사용
   지시는 자체 코드 재사용 작업의 승인으로 취급한다. 출처/third-party 고지와 배포 권리를
   파일별로 확인하고 불명확한 코드·자산 단위만 보류한다. 전체 공통 기반 작업을 멈추지 않는다.
@@ -127,8 +135,8 @@ ID를 승계하지 않는다. 인증 completion은 content route hint와 별도 
 | Ready | 대화/설정, 현재 허용된 방/프로필 | 처음 진입 시 방 하나면 재인가 후 바로 열 수 있음; 설정 접근은 항상 유지 |
 | Blocked / AccountClosing | 서버 정책에 맞는 계정 종료/지원 | 일반 대화·알림/전송 작업 정지; 차단 사유 이상 데이터 추론 금지 |
 
-현재 QA의 `rooms → settings`만 가능한 reducer는 실서비스 권한 정책이 아니다. MB02b에서
-QA 제한 계정 시나리오에도 설정/계정 관리 진입을 추가한다. 방 하나 자동 진입은 bootstrap의
+테스트용 reducer와 역할 선택기는 실서비스 권한 정책이 아니다. MB02b에서 실제 이용 상태에
+따라 설정/계정 관리에 진입하고, 제한 계정 시나리오는 테스트에서 검증한다. 방 하나 자동 진입은 bootstrap의
 첫 진입 판단에만 적용하고 목록 뒤로 가기/설정 복귀 때마다 강제로 다시 chat을 열지 않는다.
 
 설정 모델은 row/section, 값, enabled/loading/saving/error, action을 화면에 주입한다.
@@ -136,7 +144,10 @@ QA 제한 계정 시나리오에도 설정/계정 관리 진입을 추가한다.
 서버 설정의 초기 미조회 상태를 true/저장 완료로 표시하지 않는다. 로딩으로 값을 대입하는
 것과 사용자 변경 command를 분리하고, 빠른 연속 토글은 직렬화 또는 revision으로 최신 의도를
 보장한다. 실패 rollback이 더 최근 선택을 덮어쓰지 않아야 한다. destructive action은 확인
-화면을 거치며 실제 API 미연결이면 준비 중으로 표시한다.
+화면을 거친다. 실제 API 미연결 기능을 `저장 준비 중`·가짜 성공·작동하지 않는 메뉴로
+배포하지 않는다. 화면/상태 모델은 완성하고 개발 preview와 테스트에서 상태를 검증한다.
+필수 인증·계정 기능의 미연결은 통합 완료를 막는 블로커로 기록한다. 선택 기능은 완성될 때
+제품 탐색에 연결한다. 실제 서비스 오류·빈 상태는 사용자에게 필요한 안내와 가능한 행동을 제공한다.
 
 ### 2.3 알림·링크·앱 복귀의 선행 기반
 
@@ -145,9 +156,9 @@ QA 제한 계정 시나리오에도 설정/계정 관리 진입을 추가한다.
 OS 설정 복귀 시 권한을 다시 읽는다. Android runtime permission뿐 아니라 전체 앱/채널 차단,
 iOS notDetermined/denied/authorized/provisional 등 플랫폼 상태를 adapter에서 다룬다.
 
-MB02c는 permission read/settings-open, 합성 provider, route parser와 UI까지 구현한다.
-QA 미리보기에서는 자동 permission prompt·SDK 초기화·device 등록을 하지 않는다. 실제 OS
-adapter와 권한 요청은 사용자가 명시적으로 누른 설정 action에 연결하며 합성 상태와 분리한다.
+MB02c는 permission read/settings-open, route parser와 제품 UI까지 구현한다.
+합성 provider는 테스트에 격리한다. 실제 OS adapter와 권한 요청은 맥락에 맞는 사용자 action에
+연결하며, 권한/등록 상태를 사용자가 임의 선택하는 진단 UI를 제품에 노출하지 않는다.
 FCM/APNs runtime 구성·등록·발송·해제는 **C09 계약 합의와 서버 준비 확인 후 MB07에서
 구현**하고, 실기기 전달 시험으로 C09/MB07 통합 검증을 완료한다. 계약 합의와 기능 완료를
 구분해 SDK 구현과 전달 시험이 서로를 선행 조건으로 요구하지 않게 한다. 현재 Firebase App
@@ -242,10 +253,11 @@ mapper가 변환한다. 약관 필요 상태와 연결 진행/취소 상태는 A
 - Apple identity 철회·SOOP 재검증·정지·탈퇴 결과를 서버와 앱에 연결한다. 로그아웃/탈퇴 시
   socket, 진행 요청, DB 관찰, 전송 작업을 정지하고 계정 데이터를 제거한다.
 
-실제 provider 연동이 막혀 있는 동안 test/preview 및 **QA 설치 앱의 명시적 오프라인 화면
-미리보기**로 개발한다. QA Release에도 비인증 synthetic adapter를 허용하되 실제 API와
-연결하거나 session/capability로 사용할 수 없다. prod Debug/Release에는 fixture/preview
-진입이 없어야 한다. hosted QA의 mock login·고정 사용자 토큰·인증 우회는 금지한다.
+실제 provider 연동이 막혀 있는 동안 화면과 상태 처리는 제품 코드로 개발하고 test/개발
+preview에서 검증한다. **QA Release의 synthetic adapter 허용 정책은 폐기한다.**
+QA/prod 배포 산출물 모두 fixture/preview 진입이 없어야 한다. QA에서만 가짜 로그인으로
+완성된 앱처럼 이동시키거나 prod를 별도의 축소된 시작 화면으로 유지하지 않는다.
+hosted QA의 mock login·고정 사용자 토큰·인증 우회도 금지한다.
 
 ## 5. 화면·입력 모델
 
@@ -378,38 +390,57 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 
 | 단계 | 선행 | 구체적인 산출물 | 통과 조건 |
 |---|---|---|---|
-| MB00 — 기준 고정 | 없음 | 현재 baseline/미완료 gate 기록, 양 OS module skeleton, synthetic personas와 화면 목록 | 기존 QA/prod·배포 검증 유지, 계정/방 2개 이상의 fixture |
+| MB00 — 기준 고정 | 없음 | 현재 baseline/미완료 gate 기록, 양 OS module skeleton, 원본→대상 재사용 목록, 제품 화면 목록 | 기존 환경·배포 도구 검증 유지; 계정/방 fixture는 테스트에만 포함 |
 | MB01 — 계약 확정 | MB00, 서버 구조 보정 경계 합의 | C01–C08 ADR, 작은 auth/room/message/sync OpenAPI, JSON fixture, 고정 DTO generator | backend 응답과 양 OS 모델 parity, 공개 projection 검증, D 항목 결정 |
-| MB02 — 앱 기반 | MB00; 서버 adapter만 확정 계약 의존 | 아래 MB02a–d: 공통 구현 추출·shell·설정·OS 경계부터, 이후 API/Session/DB | 재사용 ledger, QA/prod 격리, gate/상태 복구와 adapter 시험 |
+| MB02 — 앱 기반 | MB00; 서버 adapter만 확정 계약 의존 | 아래 MB02a–d: 원본 기능 흐름 재사용·제품 shell·설정·OS 경계부터, 이후 API/Session/DB | 재사용/신규 사유 ledger, QA/prod 공통 제품 경로, 배포 fixture 배제, gate/상태 복구와 adapter 시험 |
 | MB03 — 실제 인증·방 | MB01/02, Apple/provider/broker 등록·실연동 | 시스템 인증, Apple/SOOP 연결, bootstrap, 방 입장, 초기 profile/settings, 최소 logout/작업 취소/세션·cache 정리 | Android/iPhone 실제 왕복·취소·재시작·충돌·기한 만료·계정 교체 시험 |
 | MB04 — 텍스트와 복구 | MB03, C04/C05/C06 확정 | 로컬 outbox, snapshot/events/history, 최소 SHARED/PRIVATE composer와 스트리머 수신자 식별, 삭제, REST fallback, socket adapter | 팬 PRIVATE→스트리머, 스트리머 SHARED/PRIVATE→팬의 두 OS 왕복, ACK 유실+강제 종료, 중복/역순/reset/철회 시험 |
 | MB05 — 대화 UX | MB04, M07 확인 | 스와이프·답장 선택 UX/접근성, 전체공개 상태, 반응, scroll anchor | 대상 오발송 0, 익명 공개본 역추적 정보 0, 원본 삭제 연쇄 반영 |
 | MB06 — 미디어 | MB04/05, M08 계약·실배포 검증 | picker/전처리, upload 상태 머신, 처리 대기·재시도, authorized URL loader, 스티커/아바타 | 권한/URL 만료/취소/재시작/크기·형식 거부 및 계정 전환 시험 |
 | MB07 — 계정·알림·출시 UX | MB03/04, C09 계약 합의, 서버 lifecycle/push/moderation/delete 준비 | MB03 logout 확장, 서버 탈퇴, 신고/차단, 생일 공개 철회, MB02c adapter에 실제 push binding/선호 설정/재인가 연결 | 늦은 push/callback/응답의 계정 혼입 0, 데이터 삭제·정책 링크·접근성 |
-| MB08 — 내부 기능 검증 | MB03–05, 서버 실데이터 gate | QA 서명 빌드, 합성/승인 계정 시나리오, 지원 OS 실기기 결과 | 설치 성공과 기능 성공 분리, 알려진 제한 기록, 출시 기능은 MB06/07 포함 후 별도 승인 |
+| MB08 — 내부 기능 검증 | MB03–05, 서버 실데이터 gate | QA 서명 빌드와 승인된 실제 QA 계정 시나리오, 지원 OS 실기기 결과; 합성 상태는 별도 테스트 | 설치 성공과 기능 성공 분리, 알려진 제한 기록, 출시 기능은 MB06/07 포함 후 별도 승인 |
 
 ### MB02 실행 분할과 현재 우선순위
 
 | 순서 | 구체적인 산출물 | 선행/통과 gate | 막힐 때 계속할 일 |
 |---|---|---|---|
-| MB02a — 재사용 단위·공통 UI | audit 후보 중 Android nav/topbar·settings row/section·button/empty/loading, iOS MyPageSection/MyActionRow·loading/error 상태 추출. 로기챗 token과 문자열·접근성 보강, provenance ledger | MB00 기준 SHA, 파일별 권리/의존 확인. 원본 legacy 자산·도메인·사업 SDK 없음; 원본 vs 수정 vs 신규 구분. 양 OS light/dark/긴 한글/큰 글자/스크린리더 확인 | 불명확 코드 단위만 보류; 독립 단위 추출과 화면 상태 시험 |
-| MB02b — shell·설정 조립 | 대화/설정 루트, typed route, 설정/앱 정보/프로필/계정 UI. shared screen과 QA adapter 분리, LinkRequired 계정 관리 진입, back/tab 복원 | MB02a. SignedOut/LinkRequired/Ready/Blocked gate fixture, 방 하나 자동 진입·설정 복귀, 중복 탭·Activity 재생성/stack dismiss. 실제 세션 없이 prod 서비스 진입 금지 | 정책 URL/API 미확정 행은 준비 중. auth flow 실연동을 기다리지 않음 |
-| MB02c — OS 알림·링크·lifecycle | permission/read/settings-open port, 알림 설정 3축 UI, 안전한 parser와 pending intent/consume, foreground coordinator. synthetic provider 및 OS adapter 분리 | MB02b; OS 호출에는 실제 platform 의미 검증. cold/warm/중복/TTL/다른 환경/잘못된 URL/계정 변경 fixture, prompt 자동 실행 없음. 실제 등록/푸시 성공은 MB07까지 보류 | 서버 선호 설정 대신 명시적 미연동 상태, 알림함/badge는 별도 결정 전 제외 |
-| MB02d — 서비스 adapter·영속 기반 | C01/07/08 기반 APIClient/오류·SessionManager, 계정별 저장소와 test clock, Room/GRDB migration; 필요 부분만 참조 wrapper 수정 재사용 | 확정된 MB01 계약만 연결. 원본 refresh/WebView token/민감 logging 금지. 실제 SQLite·secure store 오류·취소·generation 시험 | 미확정 adapter는 port/fixture만, 다른 UI 작업 진행 |
+| MB02a — 재사용 단위·공통 UI | 원본 theme·navigation·settings·공통 상태의 구조와 유용한 구현을 수정 재사용. R01–R08도 원본 화면 맥락과 다시 비교하고 지나친 축소를 보정 | MB00 기준 SHA, 파일별 권리/의존 확인. 재작성 사유와 실제 추출 구분. 양 OS light/dark/긴 한글/큰 글자/스크린리더 확인 | 불명확 코드 단위만 보류; 독립된 화면/기능 재사용 계속 |
+| MB02b — shell·설정 조립 | 원본 NavHost/MainTab/AppRouter, More/MyPage·프로필 흐름을 적용 가능한 범위에서 재사용. 대화/설정 루트, 계정 gate, back/tab 복원. QA/prod 동일 제품 조립부 | MB02a. 합성 선택기/preview 진입을 배포 target에서 제거. SignedOut/LinkRequired/Ready/Blocked, 방 하나 자동 진입·설정 복귀, Activity 재생성/stack dismiss 시험 | 정책 URL/API 미확정 부분은 블로커 기록; 화면 상태·입력·복원은 개발 preview/테스트로 검증 |
+| MB02c — OS 알림·링크·lifecycle | 원본 알림 설정·권한·앱 복귀 흐름과 테스트를 재사용하고 기존 결함을 보정. 안전한 parser/pending intent, 실제 OS 상태와 서버 선호/등록 분리 | MB02b; OS 설정 복귀, cold/warm/중복/TTL/환경/계정 변경 시험. 합성 provider는 테스트 전용. 실제 등록/푸시 성공은 MB07까지 보류 | 서버 계약 없이 가능한 실제 OS 동작 완성; 제품 UI에 서버 미연동/provider 진단 행을 추가하지 않음 |
+| MB02d — 서비스 adapter·영속 기반 | 원본 APIClient/오류·보호 저장의 적용 가능한 코드를 수정 재사용. C01/07/08에 맞춘 SessionManager와 계정별 저장소, Room/GRDB migration | 확정된 MB01 계약만 연결. 재작성 부분은 원본과 계약 불일치 근거 기록. 원본 refresh/WebView token/민감 logging 금지. 실제 SQLite·secure store 오류·취소·generation 시험 | 미확정 adapter는 port/fixture만, 다른 제품 코드 진행 |
 
-MB00 preview 이후 MB02a 공통 UI 추출, MB02b shell/설정, MB02c OS 조회·순수 route queue를
-구현했다. [공통 기반 진행 기록](mobile-common-foundation-progress.md)의 완료/미연동/기기 미확인
-구분을 따른다. 프로필·계정 공통 화면과 확인 대화상자, 알림 OS 어댑터/foreground epoch/QA 상태 선택기도 이어서 구현했다. 단계 전체 완료는 아니며 실제 서비스 adapter와 기기 검증 gate는 남아 있다.
-MB01 ADR/fixture 정리는 병행하고 준비된 계약에 한해 MB02d를 진행한다. MB03 및 이후 실제
-기능 완료 gate는 낮추지 않는다. 채팅 상세 UX는 공통 기반 이후 로기챗 자체 설계로 이어간다.
+현재 `4e222de`에는 일부 공통 UI 추출·shell·OS 조회·route queue와 QA 미리보기가 있다.
+[기존 기록](mobile-common-foundation-progress.md)의 구현 사실은 남기되, 사용자 보정에 따라
+**제품 구성과 재사용 범위에 대한 MB02 완료 판정은 다시 검증한다.** QA 상태 선택기를 더
+확장하거나 미리보기 화면의 문구만 교체하는 작업으로 이 보정을 완료하지 않는다.
+
+다음 순서로 기존 MB02를 보정한다. 별도의 경쟁 계획이나 단계 번호를 만들지 않는다.
+
+1. **원본과 대상 대응 확정:** audit의 화면/기능별로 원본 View·상태 모델·라우팅·OS 연결·
+   테스트를 함께 읽는다. 재사용/수정/제외/신규 사유와 대상 파일을 기록한다. 원본이 가진
+   화면 완성도와 상태 처리를 일부 row 추출만으로 대체하지 않았는지 대조한다.
+2. **제품 조립부와 배포 경계 교체:** Android QA/prod `AppEntry`, iOS `RogichatApp`의
+   QA `WireframeHost` 분기를 공통 제품 조립부로 통합한다. 합성 시나리오는 테스트/개발
+   preview target으로 이동한다. `check_android.py`·`build_ios.py`의 **QA fixture 포함 필수**
+   검사를 **양 배포 환경 fixture 제외** 검사로 바꾸고 실제 APK/실행 파일을 검사한다.
+3. **설정·탐색·OS 기능 재사용 완성:** 원본의 적용 가능한 전체 화면 흐름을 MB02a–c에
+   반영한다. 상태 소유권·복귀·실제 시스템 설정 이동과 접근성을 검증한다. 프로필 저장·탈퇴·
+   서버 알림 선호 등 미연결 작업은 블로커로 남기며 가짜 작동 버튼을 배포하지 않는다.
+4. **준비된 서비스 계약 연결:** MB01 ADR/fixture 정리를 병행하고 확정된 계약부터 MB02d와
+   MB03에 연결한다. 필수 인증이 막혔다면 실제 이용 가능한 MVP 완료/로그인 성공으로
+   보고하지 않는다. 채팅은 별도 설계로 MB04 이후 이어간다.
+
+각 항목은 실제 코드 검증과 배포 경계 교체가 끝나야 완료다. **이번 원칙/계획 수정만으로
+기존 설치 앱이 수정되거나 새 버전이 배포된 것은 아니다.**
 표의 gate는 **단계 최종 완료 기준**이다. MB02a의 코드·컴파일·상태/격리 검사를 통과한
 단위는 실기기 접근성 검사가 남아도 MB02b/c 조립을 계속할 수 있다. 미확인 기기·스크린리더
 항목은 ledger에 남기고 사용성/기능 QA 완료나 공개 출시 완료로 보고하지 않는다. 제한을
-명시한 내부 QA 빌드 배포는 기기 검증을 위한 수단으로 허용한다. 미확정 서버 계약·출처 단위만
-보류하고 독립 구현을 진행하되, 인증·인가·프로덕션 격리 gate를 낮추지는 않는다.
+명시한 내부 QA 빌드 배포는 기기 검증을 위한 수단으로 허용한다. 다만 제품 구성·양 환경
+fixture 배제 기준을 먼저 충족해야 한다. 미확정 서버 계약·출처 단위만 보류하고 독립 구현을
+진행하되, 인증·인가·배포 품질 gate를 낮추지는 않는다.
 
-QA 초안의 화면/역할 변경 시 입력 초기화는 preview 수명 정책이고 §6의 실서비스 영속 초안
-보존/권한 철회 규칙을 대체하지 않는다.
+기존 QA 초안의 화면/역할 변경 시 입력 초기화는 폐기되는 preview host의 정책이다.
+제품에는 §6의 영속 초안 보존/권한 철회 규칙을 적용한다.
 
 PR은 (a) 서버 계약/fixture, (b) Android adapter/상태, (c) iOS adapter/상태, (d) 양 OS
 통합 시나리오로 나눌 수 있다. 계약 PR을 기준으로 양 OS를 병행하고 한 OS만 기능 완성한 뒤
@@ -462,7 +493,8 @@ Node/Next 빌드·dev server는 로컬에서 실행하지 않고 hosted CI를 �
 
 각 단계 완료 기록에는 source SHA, 계약 schema version, 시험 결과, 남은 gate를 남긴다.
 실기기 계정/로그/스크린샷에 담긴 개인 정보와 서명 자료는 외부 private 위치에 보관한다.
-공개 문서에는 합성 사례와 비민감한 결과만 기록한다. 자기 변경만 검사·commit·qa push하고
+공개 문서에는 합성 사례와 비민감한 결과만 기록한다. 자기 변경만 검사·commit·task branch에
+push하고 QA 대상 PR의 필수 검증을 통과시켜 병합한 뒤
 원격 CI를 확인한다. 테스트 배포와 main 승격/스토어 출시를 구별한다.
 
 ## 10. 선행 결정과 위험 관리

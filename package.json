@@ -10,6 +10,13 @@
     "test:unit": "pnpm --filter @rogichat/api test:unit",
     "test:integration": "pnpm --filter @rogichat/api test:integration",
     "test:e2e": "pnpm --filter @rogichat/api test:e2e",
-    "contracts:check": "pnpm --filter @rogichat/api contracts:check"
+    "contracts:check": "pnpm --filter @rogichat/api contracts:check",
+    "web:lint": "pnpm --filter @rogichat/web lint",
+    "web:typecheck": "pnpm --filter @rogichat/web typecheck",
+    "web:build": "pnpm --filter @rogichat/web build",
+    "web:build:qa": "pnpm --filter @rogichat/web build:qa",
+    "web:test:unit": "pnpm --filter @rogichat/web test:unit",
+    "web:test": "pnpm --filter @rogichat/web test",
+    "web:check": "pnpm --filter @rogichat/web check"
   }
 }
