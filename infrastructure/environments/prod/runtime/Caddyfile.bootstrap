@@ -1,0 +1,16 @@
+{
+	admin localhost:2019
+}
+
+rogi.chat, api.rogi.chat {
+	# Staged only. Start after a separately reviewed DNS cutover.
+	# No access logs or application/OAuth routes at this foundation stage.
+	@infra path /_infra/health
+	handle @infra {
+		respond "rogichat production edge ready" 200
+	}
+	handle {
+		header Retry-After "300"
+		respond "로기챗을 준비하고 있습니다." 503
+	}
+}
