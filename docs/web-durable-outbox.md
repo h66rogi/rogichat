@@ -61,7 +61,8 @@ Ownership uses a random tab ID, monotonically increasing integer fence and
 transaction; background/close releases opportunistically and failures fall back
 to lease expiry. BroadcastChannel is unnecessary for correctness. Fresh changed
 session/M/A authority fences an older tab and irreversibly scrubs old payloads;
-A→B→A cannot restore them. A stale revoke cannot scrub a successor fence.
+A→B→A cannot restore them. A separate monotonic authority epoch allows confirmed revocation across an ordinary
+same-session lease handoff while rejecting stale revocation across authority ABA.
 
 Limits: 256 command records, 2 MiB encoded records, 15-minute payload eligibility,
 24-hour receipt identity retention, maximum 10,000 complete-manifest rooms.

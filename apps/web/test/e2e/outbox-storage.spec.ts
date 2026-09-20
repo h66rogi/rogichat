@@ -165,3 +165,27 @@ test('missing native store state refuses writes instead of recreating evicted co
   });
   expect(result).toBe(true);
 });
+
+test('confirmed revoke crosses same-session lease handoff but cannot cross authority ABA', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const payload = { clientMessageId: crypto.randomUUID(), membershipScope: token, intent: 'SHARED' as const, content: { type: 'TEXT' as const, text: 'erase on logout' } };
+    const first = await DurableOutbox.open('revoke'), second = await DurableOutbox.open('revoke');
+    await first.authorize(authority); await first.prepare(roomId, payload); first.suspend();
+    await second.authorize(authority); await first.revoke();
+    const fenced = await second.assertCurrent().then(() => false, () => true);
+    await second.authorize(authority);
+    const erased = !(await second.recover(roomId))[0]!.payload;
+    second.suspend(); await first.authorize(authority); first.suspend();
+    await second.authorize({ ...authority, sessionKey: 'b'.repeat(64) });
+    await second.authorize(authority);
+    const newId = crypto.randomUUID(); await second.prepare(roomId, { ...payload, clientMessageId: newId });
+    await first.revoke();
+    const retained = Boolean((await second.recover(roomId)).find(record => record.clientMessageId === newId)?.payload);
+    first.close(); second.close(); return { fenced, erased, retained };
+  });
+  expect(result).toEqual({ fenced: true, erased: true, retained: true });
+});

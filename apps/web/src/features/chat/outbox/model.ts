@@ -21,10 +21,10 @@ export interface OutboxRecord {
   attempted: boolean; payload?: OutboxPayload; result?: Receipt;
 }
 export interface OutboxState {
-  schema: 1; fence: number; owner: string | null; leaseUntil: number;
+  schema: 1; fence: number; authorityEpoch: number; owner: string | null; leaseUntil: number;
   authority: OutboxAuthority | null; records: OutboxRecord[];
 }
-export function emptyState(): OutboxState { return { schema: 1, fence: 0, owner: null, leaseUntil: 0, authority: null, records: [] }; }
+export function emptyState(): OutboxState { return { schema: 1, fence: 0, authorityEpoch: 0, owner: null, leaseUntil: 0, authority: null, records: [] }; }
 export function normalizeAuthority(value: OutboxAuthority): OutboxAuthority {
   if (!/^[a-f0-9]{64}$/.test(value.sessionKey) || value.rooms.length > 10_000) throw new OutboxError('INVALID_COMMAND');
   const rooms = value.rooms.map(room => ({ roomId: uuid(room.roomId), membershipScope: token(room.membershipScope), authorizationRevision: token(room.authorizationRevision) })).sort((a, b) => a.roomId < b.roomId ? -1 : 1);

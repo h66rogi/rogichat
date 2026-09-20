@@ -12,7 +12,7 @@ export class DurableOutbox {
   private generation = 0;
   private stopped = false;
   private authority: OutboxAuthority | null = null;
-  private lastGrant: { authority: OutboxAuthority; fence: number } | null = null;
+  private lastGrant: { authority: OutboxAuthority; epoch: number } | null = null;
   private lookup404 = new Set<string>();
   private readonly pending = new Set<IDBTransaction>();
   private readonly abort = new AbortController();
@@ -51,7 +51,7 @@ export class DurableOutbox {
         // Observe only an erasure fence, never unlock or expose persisted authority/content.
         void outbox.transaction(state => {
           expire(state, Date.now());
-          return state.authority ? { authority: state.authority, fence: state.fence } : null;
+          return state.authority ? { authority: state.authority, epoch: state.authorityEpoch } : null;
         }).then(grant => { outbox.lastGrant = grant; resolve(outbox); }, error => { outbox.close(); reject(error); });
       };
     });
@@ -70,7 +70,7 @@ export class DurableOutbox {
           if (this.stopped || generation !== this.generation) throw new OutboxError('LOCKED');
           const state = request.result as OutboxState | undefined;
           // An evicted/corrupt store is never recreated by an active writer.
-          if (!state || state.schema !== 1 || !Number.isSafeInteger(state.fence) || !Array.isArray(state.records)) throw new OutboxError('UPDATE_REQUIRED');
+          if (!state || state.schema !== 1 || !Number.isSafeInteger(state.fence) || !Number.isSafeInteger(state.authorityEpoch) || !Array.isArray(state.records)) throw new OutboxError('UPDATE_REQUIRED');
           result = structuredClone(work(state));
           tx.objectStore('state').put(state, 'singleton');
         } catch (caught) { error = caught; tx.abort(); }
@@ -100,18 +100,19 @@ export class DurableOutbox {
     const generation = ++this.generation;
     this.operationAbort.abort(); this.operationAbort = new AbortController();
     this.authority = null; this.fence = null; this.lookup404.clear();
-    const fence = await this.transaction(state => {
+    const grant = await this.transaction(state => {
       const now = Date.now();
       if (state.owner !== null && state.owner !== this.owner && state.leaseUntil > now && JSON.stringify(state.authority) === JSON.stringify(authority)) throw new OutboxError('BUSY');
-      if (state.fence >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
+      if (state.fence >= Number.MAX_SAFE_INTEGER || state.authorityEpoch >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
+      if (JSON.stringify(state.authority) !== JSON.stringify(authority)) state.authorityEpoch++;
       state.fence++; state.owner = this.owner; state.leaseUntil = now + OUTBOX_LIMITS.leaseMs;
       applyAuthority(state, authority, now);
       // Every recovered command (even a crash before SEND) starts receipt-first.
       for (const record of state.records) record.attempted = true;
-      return state.fence;
+      return { fence: state.fence, epoch: state.authorityEpoch };
     }, generation);
     if (generation !== this.generation) throw new OutboxError('LOCKED');
-    this.fence = fence; this.authority = authority; this.lastGrant = { authority, fence };
+    this.fence = grant.fence; this.authority = authority; this.lastGrant = { authority, epoch: grant.epoch };
   }
   async assertCurrent(): Promise<void> { await this.transaction(state => { this.guard(state); }); }
   async prepare(roomId: string, value: OutboxPayload): Promise<OutboxRecord> {
@@ -192,9 +193,9 @@ export class DurableOutbox {
     this.suspend();
     await this.transaction(state => {
       // A stale logout completion cannot erase a successor session's new input.
-      if (!grant || state.fence !== grant.fence || JSON.stringify(state.authority) !== JSON.stringify(grant.authority)) return;
-      if (state.fence >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
-      state.fence++; state.owner = null; state.leaseUntil = 0; state.authority = null;
+      if (!grant || state.authorityEpoch !== grant.epoch || JSON.stringify(state.authority) !== JSON.stringify(grant.authority)) return;
+      if (state.fence >= Number.MAX_SAFE_INTEGER || state.authorityEpoch >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
+      state.fence++; state.authorityEpoch++; state.owner = null; state.leaseUntil = 0; state.authority = null;
       for (const record of state.records) { delete record.payload; if (record.result?.status !== 'deleted') delete record.result; }
     });
     if (this.lastGrant === grant) this.lastGrant = null;
