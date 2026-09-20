@@ -18,7 +18,11 @@ extension RoomsDatabase {
         try write(conversation: scope) { db in
             guard command.roomID == scope.room.id, command.membershipScope == scope.room.membershipScope,
                   try Bool.fetchOne(db, sql: "SELECT ready FROM conversation WHERE room=?", arguments: [scope.room.id]) == true else { throw ConversationError.staleScope }
-            guard command.intent == "PRIVATE" ? (scope.room.mode == "FAN" || command.quoteID != nil) : (scope.room.mode == "GROUP" || scope.room.role == "STREAMER") else { throw ConversationError.forbidden }
+            if command.intent == "ROOM_OWNER" {
+                guard scope.room.mode == "FAN", scope.room.role == "FAN" else { throw ConversationError.forbidden }
+            } else {
+                guard command.intent == "PRIVATE" ? (scope.room.mode == "FAN" || command.quoteID != nil) : (scope.room.mode == "GROUP" || scope.room.role == "STREAMER") else { throw ConversationError.forbidden }
+            }
             if let quote = command.quoteID {
                 guard command.intent == "PRIVATE", let data = try Data.fetchOne(db, sql: "SELECT value FROM timeline WHERE room=? AND id=? AND deleted=0", arguments: [scope.room.id, quote]) else { throw ConversationError.forbidden }
                 let message = try JSONDecoder().decode(ConversationMessage.self, from: data)
