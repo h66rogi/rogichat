@@ -22,7 +22,7 @@ data class ActionSelection(val scope: ActionScope, val messageId: String, val ve
 enum class MessageAction { DELETE, PUBLISH, SET_REACTION, REMOVE_REACTION, REPORT, BLOCK_ACTOR }
 enum class ActionPhase { UNKNOWN, REPORTED, ACTOR_BLOCKED, REACTED, BLOCKED, PREPARING, PUBLISHED, REVOKED, REJECTED }
 data class ActionRecord(val id: String, val selection: ActionSelection, val action: MessageAction,
-    val phase: ActionPhase, val receiptId: String? = null, val publishedMessageId: String? = null, val emoji: String? = null, val reportReason: ReportReason? = null)
+    val phase: ActionPhase, val receiptId: String? = null, val publishedMessageId: String? = null, val emoji: String? = null, val reportReason: ReportReason? = null, val observedBlocked: Boolean? = null)
 /** Implement in the parent's account DB transaction. put must be durable before returning.
  * Do not persist credentials/content. UNKNOWN survives process death and is never replayed. */
 interface ActionJournal {
@@ -73,6 +73,11 @@ class MessageActionState(private val journal: ActionJournal) {
     @Synchronized fun reset() = select(null)
     internal fun admits(value: ActionSelection, expected: Long) = generation == expected && selection == value
     @Synchronized fun capture(): ActionViewToken? = selection?.let { ActionViewToken(it, generation) }
+    @Synchronized fun blockedActions(token: ActionViewToken): Set<MessageAction> {
+        if (!admits(token.selection, token.generation)) return MessageAction.entries.toSet()
+        val records = journal.records()
+        return MessageAction.entries.filter { action -> records.any { it.conflicts(token.selection, action) } }.toSet()
+    }
     @Synchronized fun begin(token: ActionViewToken, action: MessageAction, emoji: String? = null, reportReason: ReportReason? = null): ActionPermit {
         val captured = token.selection
         check(admits(captured, token.generation) && pending == null) { "stale_action" }
@@ -83,8 +88,7 @@ class MessageActionState(private val journal: ActionJournal) {
             MessageAction.DELETE -> captured.hints.delete && !captured.anonymous
             MessageAction.PUBLISH -> captured.hints.publish && !captured.anonymous && captured.contentKind in setOf("TEXT", "PHOTO")
         }) { "action_unavailable" }
-        check(journal.records().none { it.selection.scope.partition == captured.scope.partition &&
-            it.selection.messageId == captured.messageId && it.phase in setOf(ActionPhase.UNKNOWN, ActionPhase.PREPARING, ActionPhase.BLOCKED, ActionPhase.ACTOR_BLOCKED) }) { "reconcile_required" }
+        check(action !in blockedActions(token)) { "reconcile_required" }
         if (action == MessageAction.SET_REACTION) require(emoji in reactionChoices) else require(emoji == null)
         require(action == MessageAction.REPORT || reportReason == null)
         val record = ActionRecord(UUID.randomUUID().toString(), captured, action, ActionPhase.UNKNOWN, emoji = emoji, reportReason = reportReason)
@@ -132,7 +136,7 @@ class MessageActionState(private val journal: ActionJournal) {
     /** Authoritative committed DB tombstone, never inferred from a 404 or page omission. */
     @Synchronized fun deleted(scope: ActionScope, messageId: String) {
         journal.records().filter { it.selection.scope.partition == scope.partition && it.selection.messageId == messageId }
-            .forEach { journal.put(it.copy(selection = it.selection.tombstone(), phase = ActionPhase.BLOCKED, publishedMessageId = null)) }
+            .forEach { journal.put(it.copy(selection = it.selection.tombstone(), publishedMessageId = null)) }
         if (selection?.scope == scope && selection?.messageId == messageId) reset()
     }
     @Synchronized fun reportStatus(token: ActionViewToken, recordId: String, receipt: ReportReceipt): Boolean {
@@ -160,3 +164,21 @@ class MessageActionState(private val journal: ActionJournal) {
 val reactionChoices = listOf("👍", "❤️", "😂", "😮", "😢", "👏")
 
 private fun ActionSelection.tombstone() = copy(hints = ActionHints(false, false), contentKind = "TOMBSTONE", anonymous = true, visibleActorId = null)
+
+/** Unrelated uncertain mutations never disable safety reporting/blocking. */
+private fun ActionRecord.conflicts(target: ActionSelection, candidate: MessageAction): Boolean {
+    val left = selection.scope; val right = target.scope
+    if (listOf(left.environment, left.accountId, left.roomId) != listOf(right.environment, right.accountId, right.roomId)) return false
+    if (action == MessageAction.BLOCK_ACTOR && candidate == MessageAction.BLOCK_ACTOR)
+        return selection.visibleActorId == target.visibleActorId && phase in setOf(ActionPhase.UNKNOWN, ActionPhase.ACTOR_BLOCKED) && observedBlocked != false
+    if (selection.messageId != target.messageId) return false
+    if (phase == ActionPhase.BLOCKED || selection.contentKind == "TOMBSTONE") return true
+    if (phase !in setOf(ActionPhase.UNKNOWN, ActionPhase.PREPARING)) return false
+    return when (action) {
+        MessageAction.REPORT -> candidate == MessageAction.REPORT
+        MessageAction.BLOCK_ACTOR -> false
+        MessageAction.SET_REACTION, MessageAction.REMOVE_REACTION -> candidate in setOf(MessageAction.SET_REACTION, MessageAction.REMOVE_REACTION)
+        MessageAction.DELETE -> candidate in setOf(MessageAction.DELETE, MessageAction.PUBLISH, MessageAction.SET_REACTION, MessageAction.REMOVE_REACTION)
+        MessageAction.PUBLISH -> candidate in setOf(MessageAction.DELETE, MessageAction.PUBLISH)
+    }
+}

@@ -31,7 +31,7 @@ struct ActionSelection: Codable, Equatable, Sendable {
     var visibleActorId: String? = nil
     var valid: Bool { scope.valid && (!anonymous || visibleActorId == nil) && (visibleActorId.map(actionID) ?? true) && actionID(messageId) && version.range(of: "^[1-9][0-9]{0,19}$", options: .regularExpression) != nil && version.utf8.allSatisfy { (48...57).contains($0) } && UInt64(version).map { $0 > 0 } == true }
 }
-enum MessageAction: String, Codable, Sendable { case delete, publish, setReaction, removeReaction, report, blockActor }
+enum MessageAction: String, Codable, CaseIterable, Sendable { case delete, publish, setReaction, removeReaction, report, blockActor }
 enum ActionPhase: String, Codable, Sendable { case unknown, reported, actorBlocked, reacted, blocked, preparing, published, revoked, rejected }
 struct ActionRecord: Codable, Equatable, Sendable {
     let id: String
@@ -42,6 +42,7 @@ struct ActionRecord: Codable, Equatable, Sendable {
     var publishedMessageId: String?
     var emoji: String?
     var reportReason: ReportReason?
+    var observedBlocked: Bool?
 }
 /// Parent implements with its account DB transaction; a successful put MUST be durable.
 /// UNKNOWN records survive process death, never authorize a replay, and contain no credential/content.
@@ -96,6 +97,11 @@ final class ActionPermit: @unchecked Sendable {
     func reset() { generation &+= 1; pending?.revoke(); pending = nil; selection = nil; presentation = nil }
     func capture() -> ActionViewToken? { selection.map { ActionViewToken(selection: $0, generation: generation) } }
     func admits(_ token: ActionViewToken) -> Bool { token.generation == generation && token.selection == selection }
+    func blockedActions(_ token: ActionViewToken) throws -> Set<MessageAction> {
+        guard admits(token) else { return Set(MessageAction.allCases) }
+        let records = try journal.records()
+        return Set(MessageAction.allCases.filter { action in records.contains { $0.conflicts(token.selection, candidate: action) } })
+    }
     func begin(_ token: ActionViewToken, action: MessageAction, emoji: String? = nil, reportReason: ReportReason? = nil) throws -> ActionPermit {
         guard admits(token), pending == nil else { throw MessageActionError.stale }
         let captured = token.selection
@@ -109,10 +115,7 @@ final class ActionPermit: @unchecked Sendable {
         }
         if action != .report, reportReason != nil { throw MessageActionError.invalidResponse }
         if action != .setReaction, emoji != nil { throw MessageActionError.invalidResponse }
-        guard try !journal.records().contains(where: {
-            $0.selection.scope.partition == captured.scope.partition && $0.selection.messageId == captured.messageId
-                && [.unknown, .preparing, .blocked, .actorBlocked].contains($0.phase)
-        }) else { throw MessageActionError.reconcileRequired }
+        guard try !blockedActions(token).contains(action) else { throw MessageActionError.reconcileRequired }
         let record = ActionRecord(id: UUID().uuidString.lowercased(), selection: captured, action: action, phase: .unknown, emoji: emoji, reportReason: reportReason)
         try journal.put(record)
         let permit = ActionPermit(record); pending = permit; presentation = record; return permit
@@ -147,7 +150,7 @@ final class ActionPermit: @unchecked Sendable {
     /// Accept only an authoritative tombstone already committed in the parent DB.
     func deleted(_ scope: ActionScope, messageId: String) throws {
         for var record in try journal.records() where record.selection.scope.partition == scope.partition && record.selection.messageId == messageId {
-            record.phase = .blocked; record.selection = record.selection.tombstone; record.publishedMessageId = nil; try journal.put(record)
+            record.selection = record.selection.tombstone; record.publishedMessageId = nil; try journal.put(record)
         }
         if selection?.scope == scope, selection?.messageId == messageId { reset() }
     }
@@ -171,4 +174,24 @@ let reactionChoices = ["👍", "❤️", "😂", "😮", "😢", "👏"]
 private extension ActionSelection {
     var tombstone: ActionSelection { ActionSelection(scope: scope, messageId: messageId, version: version,
         hints: ActionHints(delete: false, publish: false), contentKind: "TOMBSTONE", anonymous: true) }
+}
+
+private extension ActionRecord {
+    func conflicts(_ target: ActionSelection, candidate: MessageAction) -> Bool {
+        let left = selection.scope; let right = target.scope
+        guard [left.environment, left.accountId, left.roomId] == [right.environment, right.accountId, right.roomId] else { return false }
+        if action == .blockActor, candidate == .blockActor {
+            return selection.visibleActorId == target.visibleActorId && [.unknown, .actorBlocked].contains(phase) && observedBlocked != false
+        }
+        guard selection.messageId == target.messageId else { return false }
+        if phase == .blocked || selection.contentKind == "TOMBSTONE" { return true }
+        guard [.unknown, .preparing].contains(phase) else { return false }
+        switch action {
+        case .report: return candidate == .report
+        case .blockActor: return false
+        case .setReaction, .removeReaction: return [.setReaction, .removeReaction].contains(candidate)
+        case .delete: return [.delete, .publish, .setReaction, .removeReaction].contains(candidate)
+        case .publish: return [.delete, .publish].contains(candidate)
+        }
+    }
 }

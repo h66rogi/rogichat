@@ -14,7 +14,7 @@ private class DiskJournal(private val path: Path) : ActionJournal {
             fun field(key: String) = p.getProperty("$index.$key")
             val scope = ActionScope(field("environment"), field("account"), field("session"), field("room"), field("actor"), field("membership"), field("authorization"), field("cache"))
             val selection = ActionSelection(scope, field("message"), field("version"), ActionHints(field("delete").toBoolean(), field("publish").toBoolean()), field("kind"), field("anonymous").toBoolean(), field("visibleActor"))
-            ActionRecord(field("id"), selection, MessageAction.valueOf(field("action")), ActionPhase.valueOf(field("phase")), field("receipt"), field("published"), field("emoji"), field("reason")?.let(ReportReason::valueOf))
+            ActionRecord(field("id"), selection, MessageAction.valueOf(field("action")), ActionPhase.valueOf(field("phase")), field("receipt"), field("published"), field("emoji"), field("reason")?.let(ReportReason::valueOf), field("observed")?.toBoolean())
         }
     }
     override fun put(record: ActionRecord) {
@@ -28,7 +28,7 @@ private class DiskJournal(private val path: Path) : ActionJournal {
                 "message" to s.messageId, "version" to s.version, "delete" to s.hints.delete.toString(), "publish" to s.hints.publish.toString(),
                 "kind" to s.contentKind, "anonymous" to s.anonymous.toString(), "visibleActor" to s.visibleActorId,
                 "id" to r.id, "action" to r.action.name, "phase" to r.phase.name, "receipt" to r.receiptId,
-                "published" to r.publishedMessageId, "emoji" to r.emoji, "reason" to r.reportReason?.name).forEach { (k,v) -> if (v != null) p["$i.$k"] = v }
+                "published" to r.publishedMessageId, "emoji" to r.emoji, "reason" to r.reportReason?.name, "observed" to r.observedBlocked?.toString()).forEach { (k,v) -> if (v != null) p["$i.$k"] = v }
         }
         val temp = path.resolveSibling("next.properties")
         Files.newOutputStream(temp).use { p.store(it, null) }
@@ -42,6 +42,11 @@ private class TestAnchors : ScrollAnchorStore {
         val key = scope.partition + scope.authorizationRevision
         if (anchor == null) values.remove(key) else values[key] = anchor
     }
+}
+private class TestBlockJournal : BlockJournal {
+    val values = mutableListOf<UnblockRecord>()
+    override fun records() = values.toList()
+    override fun put(record: UnblockRecord) { values.removeAll { it.id == record.id }; values.add(record) }
 }
 class MessageActionChecks {
     @Test fun regression() = runChecks()
@@ -122,6 +127,53 @@ class MessageActionChecks {
                 rejects { lateRead.claim() }; verify(!position.finish(lateRead, true, b))
                 rejects { MessageReadWire.saved("""{"messageId":null,"extra":1}""") }
                 rejects { actionId(a + "\n") }
+                Files.delete(path); state.select(selected)
+                val uncertainReaction = state.begin(state.capture()!!, MessageAction.SET_REACTION, "👍")
+                uncertainReaction.claim(); state.finish(uncertainReaction, ActionResult.Unknown)
+                verify(MessageAction.REPORT !in state.blockedActions(state.capture()!!))
+                val independentReport = state.begin(state.capture()!!, MessageAction.REPORT, reportReason = ReportReason.SPAM)
+                independentReport.claim(); state.finish(independentReport, ActionResult.Unknown)
+                val independentBlock = state.begin(state.capture()!!, MessageAction.BLOCK_ACTOR)
+                independentBlock.claim(); state.finish(independentBlock, ActionResult.Unknown)
+                verify(journal.records().size == 3 && journal.records().all { it.phase == ActionPhase.UNKNOWN })
+                rejects { state.begin(state.capture()!!, MessageAction.REMOVE_REACTION) }
+                val blockJournal = TestBlockJournal(); val manager = ActorBlocksState(blockJournal, journal)
+                val blockScope = BlockScope("qa", a, b, c, d); manager.select(blockScope)
+                val page = manager.refresh()!!
+                verify(ActorBlocksWire.list(page).path == "rooms/$c/blocks")
+                val rows = ActorBlocksWire.page("""{"blocks":[{"actorId":"$b","blockedAt":"2026-09-20T00:00:00.000Z"}],"next":null}""")
+                verify(manager.accept(page, rows) == BlockReset(blockScope))
+                verify(journal.records().last().phase == ActionPhase.UNKNOWN && journal.records().last().observedBlocked == true)
+                val oldView = manager.capture()!!; val unblock = manager.unblock(oldView, b); unblock.claim()
+                verify(unblock.request().method == "DELETE" && unblock.request().body == null)
+                verify(ActorBlocksWire.result(unblock, 200, """{"actorId":"$b","blocked":false,"resetRequired":true}""") == UnblockOutcome.ACKNOWLEDGED)
+                verify(ActorBlocksWire.result(unblock, 200, """{"actorId":"$d","blocked":false,"resetRequired":true}""") == UnblockOutcome.UNKNOWN)
+                manager.finish(unblock, UnblockOutcome.UNKNOWN)
+                rejects { manager.unblock(oldView, b) }
+                val recovery = manager.refresh()!!
+                verify(manager.accept(recovery, BlockPage(emptyList(), null)) == BlockReset(blockScope))
+                verify(blockJournal.records().single().outcome == UnblockOutcome.UNKNOWN && blockJournal.records().single().observedBlocked == false)
+                verify(journal.records().last().phase == ActionPhase.UNKNOWN && journal.records().last().observedBlocked == false)
+                verify(manager.complete && manager.blocks.isEmpty())
+                val oldPage = manager.refresh()!!; manager.select(null); manager.select(blockScope)
+                verify(manager.accept(oldPage, rows) == null)
+                val newPage = manager.refresh()!!; manager.accept(newPage, rows)
+                val lateUnblock = manager.unblock(manager.capture()!!, b); manager.select(null); manager.select(blockScope)
+                rejects { lateUnblock.claim() }; verify(manager.finish(lateUnblock, UnblockOutcome.ACKNOWLEDGED) == null)
+                val id5 = "44444444-4444-5444-8444-444444444444"
+                verify(MessageActionWire.result(MessageAction.DELETE, 200, """{"requestId":"$id5","status":"blocked"}""") == ActionResult.Deleted(id5))
+                rejects { actionId(id5) } // Actual server route identifier is v4-only.
+                val staleList = manager.refresh()!!
+                val oldBlock = journal.records().single { it.action == MessageAction.BLOCK_ACTOR }
+                journal.put(oldBlock.copy(phase = ActionPhase.ACTOR_BLOCKED)) // A late block receipt overtakes GET.
+                verify(manager.accept(staleList, rows) == null && manager.failed && !manager.complete)
+                val partial = manager.refresh()!!
+                verify(manager.accept(partial, rows.copy(next = b)) == null && !manager.complete)
+                val continuation = manager.more()!!
+                verify(ActorBlocksWire.list(continuation).path.endsWith("?after=$b"))
+                verify(manager.accept(continuation, BlockPage(emptyList(), null)) == BlockReset(blockScope))
+                state.deleted(scope, b)
+                verify(journal.records().single { it.action == MessageAction.REPORT }.phase == ActionPhase.UNKNOWN)
                 println("MessageActionChecks: $count checks passed (contract/state/disk-journal reconstruction/viewport)")
             } finally { temp.toFile().deleteRecursively() }
         }

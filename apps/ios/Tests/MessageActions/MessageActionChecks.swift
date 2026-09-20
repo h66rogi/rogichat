@@ -19,6 +19,11 @@ import Foundation
     func load(_ scope: ActionScope) -> ScrollAnchor? { values[scope.partition + [scope.authorizationRevision]] }
     func save(_ scope: ActionScope, anchor: ScrollAnchor?) { values[scope.partition + [scope.authorizationRevision]] = anchor }
 }
+@MainActor final class TestBlockJournal: BlockJournal {
+    var values: [UnblockRecord] = []
+    func records() -> [UnblockRecord] { values }
+    func put(_ record: UnblockRecord) { values.removeAll { $0.id == record.id }; values.append(record) }
+}
 @main struct MessageActionChecks {
     static let a = "11111111-1111-4111-8111-111111111111"
     static let b = "22222222-2222-4222-8222-222222222222"
@@ -109,6 +114,53 @@ import Foundation
         rejects { try lateRead.claim() }; check(try !position.finish(lateRead, acknowledged: true, savedMessageId: b))
         rejects { _ = try MessageReadWire.saved(data("{\"messageId\":null,\"extra\":1}")) }
         check(!actionID(a + "\n")); check(!MessageReadWire.validContext(context + "\n"))
+        try FileManager.default.removeItem(at: journal.url); try state.select(selected)
+        let uncertainReaction = try state.begin(state.capture()!, action: .setReaction, emoji: "👍")
+        try uncertainReaction.claim(); _ = try state.finish(uncertainReaction, result: .unknown)
+        check(try !state.blockedActions(state.capture()!).contains(.report))
+        let independentReport = try state.begin(state.capture()!, action: .report, reportReason: .spam)
+        try independentReport.claim(); _ = try state.finish(independentReport, result: .unknown)
+        let independentBlock = try state.begin(state.capture()!, action: .blockActor)
+        try independentBlock.claim(); _ = try state.finish(independentBlock, result: .unknown)
+        check(try journal.records().count == 3 && journal.records().allSatisfy { $0.phase == .unknown })
+        rejects { _ = try state.begin(state.capture()!, action: .removeReaction) }
+        let blockJournal = TestBlockJournal(); let manager = ActorBlocksState(journal: blockJournal, actionJournal: journal)
+        let blockScope = BlockScope(environment: "qa", accountId: a, sessionEpoch: b, roomId: c, viewEpoch: d)
+        try manager.select(blockScope); let page = try manager.refresh()!
+        check(try ActorBlocksWire.list(page).path == "rooms/\(c)/blocks")
+        let rows = try ActorBlocksWire.page(data("{\"blocks\":[{\"actorId\":\"\(b)\",\"blockedAt\":\"2026-09-20T00:00:00.000Z\"}],\"next\":null}"))
+        check(try manager.accept(page, page: rows) == BlockReset(scope: blockScope))
+        check(try journal.records().last?.phase == .unknown && journal.records().last?.observedBlocked == true)
+        let oldView = manager.capture()!; let unblock = try manager.unblock(oldView, actorId: b); try unblock.claim()
+        check(unblock.request().method == "DELETE" && unblock.request().body == nil)
+        check(ActorBlocksWire.result(unblock, status: 200, data: data("{\"actorId\":\"\(b)\",\"blocked\":false,\"resetRequired\":true}")) == .acknowledged)
+        check(ActorBlocksWire.result(unblock, status: 200, data: data("{\"actorId\":\"\(d)\",\"blocked\":false,\"resetRequired\":true}")) == .unknown)
+        _ = try manager.finish(unblock, outcome: .unknown)
+        rejects { _ = try manager.unblock(oldView, actorId: b) }
+        let recovery = try manager.refresh()!
+        check(try manager.accept(recovery, page: BlockPage(blocks: [], next: nil)) == BlockReset(scope: blockScope))
+        check(blockJournal.records().first?.outcome == .unknown && blockJournal.records().first?.observedBlocked == false)
+        check(try journal.records().last?.phase == .unknown && journal.records().last?.observedBlocked == false)
+        check(manager.complete && manager.blocks.isEmpty)
+        let oldPage = try manager.refresh()!; try manager.select(nil); try manager.select(blockScope)
+        check(try manager.accept(oldPage, page: rows) == nil)
+        let newPage = try manager.refresh()!; _ = try manager.accept(newPage, page: rows)
+        let lateUnblock = try manager.unblock(manager.capture()!, actorId: b); try manager.select(nil); try manager.select(blockScope)
+        rejects { try lateUnblock.claim() }; check(try manager.finish(lateUnblock, outcome: .acknowledged) == nil)
+        let id5 = "44444444-4444-5444-8444-444444444444"
+        check(MessageActionWire.result(.delete, status: 200, data: data("{\"requestId\":\"\(id5)\",\"status\":\"blocked\"}")) == .deleted(id5))
+        check(!actionID(id5))
+        let staleList = try manager.refresh()!
+        var oldBlock = try journal.records().first { $0.action == .blockActor }!
+        oldBlock.phase = .actorBlocked; try journal.put(oldBlock)
+        check(try manager.accept(staleList, page: rows) == nil && manager.failed && !manager.complete)
+        let partial = try manager.refresh()!
+        check(try manager.accept(partial, page: BlockPage(blocks: rows.blocks, next: b)) == nil && !manager.complete)
+        let continuation = manager.more()!
+        check(try ActorBlocksWire.list(continuation).path.hasSuffix("?after=\(b)"))
+        check(try manager.accept(continuation, page: BlockPage(blocks: [], next: nil)) == BlockReset(scope: blockScope))
+        try state.deleted(scope, messageId: b)
+        check(try journal.records().first { $0.action == .report }?.phase == .unknown)
         print("MessageActionChecks: \(checks) checks passed (contract/state/disk-journal reconstruction/viewport)")
     }
 }

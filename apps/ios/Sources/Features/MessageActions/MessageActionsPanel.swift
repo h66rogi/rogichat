@@ -6,11 +6,12 @@ struct MessageActionsPanel: View {
     let record: ActionRecord?
     let busy: Bool
     let reactions: MessageReactions?
+    let unavailableActions: Set<MessageAction>
     let onAction: (ActionViewToken, MessageAction, String?) -> Void
     let onRefresh: (ActionViewToken) -> Void
     private struct Confirmation { let token: ActionViewToken; let action: MessageAction }
     @State private var confirmation: Confirmation?
-    private var blocked: Bool { busy || record.map { [.unknown, .preparing, .blocked, .actorBlocked].contains($0.phase) } == true }
+    private func blocked(_ action: MessageAction) -> Bool { busy || unavailableActions.contains(action) }
     var body: some View {
         VStack(alignment: .leading) {
             if busy { ProgressView() }
@@ -21,16 +22,16 @@ struct MessageActionsPanel: View {
             if record?.phase != .blocked {
                 HStack {
                     if token.selection.hints.delete, !token.selection.anonymous {
-                        Button("삭제", role: .destructive) { confirmation = Confirmation(token: token, action: .delete) }.disabled(blocked)
+                        Button("삭제", role: .destructive) { confirmation = Confirmation(token: token, action: .delete) }.disabled(blocked(.delete))
                     }
                     if token.selection.hints.publish, !token.selection.anonymous, ["TEXT", "PHOTO"].contains(token.selection.contentKind) {
-                        Button("익명으로 공개") { confirmation = Confirmation(token: token, action: .publish) }.disabled(blocked)
+                        Button("익명으로 공개") { confirmation = Confirmation(token: token, action: .publish) }.disabled(blocked(.publish))
                     }
                 }
                 HStack { ForEach(reactionChoices, id: \.self) { emoji in
-                    Button(emoji) { onAction(token, .setReaction, emoji) }.disabled(blocked)
+                    Button(emoji) { onAction(token, .setReaction, emoji) }.disabled(blocked(.setReaction))
                 } }
-                if reactions?.mine != nil { Button("내 반응 취소") { onAction(token, .removeReaction, nil) }.disabled(blocked) }
+                if reactions?.mine != nil { Button("내 반응 취소") { onAction(token, .removeReaction, nil) }.disabled(blocked(.removeReaction)) }
             }
             Button("현재 상태 확인") { onRefresh(token) }.disabled(busy)
         }
@@ -42,7 +43,7 @@ struct MessageActionsPanel: View {
                 let action = captured.action
                 Button(action == .delete ? "삭제" : "공개", role: action == .delete ? .destructive : nil) {
                     confirmation = nil; onAction(captured.token, action, nil)
-                }.disabled(blocked)
+                }.disabled(blocked(action))
                 Button("취소", role: .cancel) { confirmation = nil }
             } message: { captured in
                 Text(captured.action == .delete ? "이 메시지를 삭제할까요? 연결된 공개본도 더 이상 볼 수 없어요."
@@ -65,6 +66,7 @@ func actionStatus(_ phase: ActionPhase) -> String {
 }
 
 struct MessageModerationPanel: View {
+    let unavailableActions: Set<MessageAction>
     let token: ActionViewToken
     let busy: Bool
     let onAction: (ActionViewToken, MessageAction, ReportReason?) -> Void
@@ -72,9 +74,9 @@ struct MessageModerationPanel: View {
     @State private var blockToken: ActionViewToken?
     var body: some View {
         VStack(alignment: .leading) {
-            Button("신고") { reportToken = token }.disabled(busy)
+            Button("신고") { reportToken = token }.disabled(busy || unavailableActions.contains(.report))
             if !token.selection.anonymous, let actor = token.selection.visibleActorId, actor != token.selection.scope.actorId {
-                Button("작성자 차단") { blockToken = token }.disabled(busy)
+                Button("작성자 차단") { blockToken = token }.disabled(busy || unavailableActions.contains(.blockActor))
             }
         }
         .onChange(of: token) { _, _ in reportToken = nil; blockToken = nil }
