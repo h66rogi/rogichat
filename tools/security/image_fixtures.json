@@ -1,0 +1,472 @@
+{
+  "reviewed_on": "2026-09-20",
+  "policy": "Only exact file-content or generated metadata SHA-256 plus listed detector rules. No directory, layer, arbitrary key or future-version exclusions.",
+  "files": [
+    {
+      "sha256": "004b8fcfcdb51dcf357ebe36e60b8480f4d550630a8b1c0d1c589f3cc28c2103",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-0",
+      "file": "tarball (expanded):package/src/internal/schedule/interval.ts",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "0c50296ee73dae94efc3f0da4936b1146ca6ce2217acfabb44c19c9a33fa30e5",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-2",
+      "file": "tarball (expanded):node v24.13/https.d.ts",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "1300a33af16967e998983b364ab9988cd5c20e94c44e75d642dbeda1dbc255d9",
+      "rules": [
+        "image-public-key"
+      ],
+      "source": "node-base",
+      "file": "usr/local/lib/node_modules/npm/node_modules/@sigstore/tuf/seeds.json",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "173e97d2088ad812e2fe441550a63e9b2303626dad39cc9a5d2f9d49cad18b94",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/share/man/man1/openssl-sess_id.1ssl.gz",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "1784560ac4bf26b27d3e84863de0629a1e291e4567d9160a903a6ec49d01a77c",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/include/linux/netfilter/nf_tables.h",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "1b73ffb5cba2f5ba219ef8fff57f9b34f77d7dd4b0229f6396c022f796e7993d",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/local/lib/node_modules/npm/node_modules/just-diff/index.cjs",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "1eb2218b69ce0ed3b15a20a087ba8c03a9efd2d4e899d3206d59b4fd0807508c",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-3",
+      "file": "tarball (expanded):package/Readme.md",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "20e0bccfb7eef5f15c430bbbb1a769b0acbdd063efc97b5d6eda3dbf50518e39",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-4",
+      "file": "tarball (expanded):package/build/cli.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "22209661452d6589fe02fd57ebc3cf2f04f1f11184288c23789629924809dc9a",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-5",
+      "file": "tarball (expanded):package/dist/get-keys.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "2282e21b67892c4c3a5a015b41a9e3151071713ed9d7a6fe94d65dd1b01b40ee",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-0",
+      "file": "tarball (expanded):package/dist/cjs/internal/schedule/intervals.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "25d36eebea73f67fc31f573ed5025287b5c1abeee63b247ce77d4da974f420ff",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/lib/python3/dist-packages/mercurial/locale/pt_BR/LC_MESSAGES/hg.mo",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "2843cd46c617cf771c32e6f8a2a11585d83510ec528e3aeff8f7a7f0445420ba",
+      "rules": [
+        "image-public-key"
+      ],
+      "source": "node-base",
+      "file": "usr/bin/ssh-keygen",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "2d3eef1b11e8da9dcd695711f8fe468b7320058652196b82290c53321cecfb93",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/local/lib/node_modules/npm/node_modules/just-diff/index.mjs",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "371d233a6982a5ecd4ab64e392e9aca8476141cf52133b66057a01bb75da1fe5",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "Debian package trigger entry name (structured metadata)",
+      "review": "Exact UTF-8 Python json.dumps name object; name is directory/package:architecture.extension assembled from metadata. Verified official base entry, generic filename false positive.",
+      "kind": "entry-name-metadata",
+      "metadata": {
+        "directory": "var/lib/dpkg/info",
+        "package": "libkeyutils1",
+        "architecture": "amd64",
+        "extension": "triggers"
+      }
+    },
+    {
+      "sha256": "3a96fa94a9666d269d5e3f29f249532c5187ab198d61dd33e708a64a310cf201",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/lib/x86_64-linux-gnu/perl/5.36.0/CORE/cop.h",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "3c250e7e82d2bd4c3219c4b86ca7b373bef2f506d68764867fd759dbb77de8f2",
+      "rules": [
+        "curl-auth-user"
+      ],
+      "source": "node-base",
+      "file": "usr/share/man/man1/curl.1.gz",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "46190bae1a82429db72041c1b74b0cbd9251e54a9beb4bd3a3810342c85c3d5d",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/include/mit-krb5/krb5/krb5.h",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "4dae9b283df0b4606089d2e442c1f12932a106665701a69fbab64c1ef3181513",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/lib/python3.11/distutils/msvccompiler.py",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "59958f8c227d668f44601757d6650033384a2cb7121df537f2c78e97cb787c9e",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/share/doc/linux-libc-dev/changelog.Debian.gz",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "5cd7b41fc1dace4846880647547a638740104c7da257b2cb93b219b8aec7d1b1",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-6",
+      "file": "tarball (expanded):package/dist/parser.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "5d8a19bc75307f6c3a4b805f1693be379c2c236f3795d759fe20f6a74fe61b5b",
+      "rules": [
+        "private-key"
+      ],
+      "source": "npm-7",
+      "file": "tarball (expanded):package/README.md",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "5f2f4f8962d10facde6faf47653106eda83b26ab8236f2870d724c14140025e0",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-0",
+      "file": "tarball (expanded):package/src/internal/schedule/intervals.ts",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "6a1b0a5f643bd84fed31d2291995ebe8ccaf886cd1810646c7bef65ba427715b",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-0",
+      "file": "tarball (expanded):package/dist/cjs/internal/schedule/interval.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "779b25d20249988bea2c1aa6bbeb218f5ae7ea8a9d30ce4f54ea37372965cc4b",
+      "rules": [
+        "private-key"
+      ],
+      "source": "node-base",
+      "file": "usr/lib/x86_64-linux-gnu/libgnutls.so.30.34.3",
+      "review": "GnuTLS 3.7.9 self-test PEM blocks compared byte-for-byte with upstream crypto-selftests-pk.c; exact library bytes in verified official Node base.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "7f3ed83449d6f03a747c46561063ec57845ee88364df41b26fb434cafc5bd464",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/lib/python3/dist-packages/mercurial/crecord.py",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "8efd36c160d4cdaefd411f6ab70525e549f006603731df59d2ac5561d52aabbe",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-8",
+      "file": "tarball (expanded):package/dist/simple-traverse.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "91e487a50ccc428fbc9cc3dafd52386cd1de41e0dda99ec3850575679c6530d0",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-9",
+      "file": "tarball (expanded):package/dist/pgcrypto.tar.gz (expanded):lib/postgresql/pgcrypto.so",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "972e9be5b203202b0341f886ff538bb88cce1caa4a0e8088758047aa83ff7a2e",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/local/lib/node_modules/npm/node_modules/@npmcli/arborist/README.md",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "9caf6631f26c5464e90ade7ba54397febeea2c8bbc7c23fa8a890753bf55ea2a",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/include/sqlite3ext.h",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "9fd9726f2e2a072546ab9e27ef9c8dc70bdb842034ca010c77a7caf32d09f54f",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/include/unicode/ucol.h",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "ab9ead3242d473bd551044ac448b5cfc761496a5351bf0895d98fd7277e4da51",
+      "rules": [
+        "private-key"
+      ],
+      "source": "npm-7",
+      "file": "tarball (expanded):package/README-es.md",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "abd6f0e7b4e2af310243e202fd908ea64cda545786222f0a3d3f62426e8ad66e",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/local/lib/node_modules/corepack/dist/lib/corepack.cjs",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "ad22807d40d3586458dc3cd7efb3e6068e2adc18719d65d13b192ff5519fd6df",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-0",
+      "file": "tarball (expanded):package/dist/esm/internal/schedule/interval.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "ae149cc5055063207afa909df8a7ccea3d45c7f114cadcb90581413229e5c4e8",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-10",
+      "file": "tarball (expanded):package/readme.md",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "af13e8937e47b790f5dd927054e5812c4c8582bca5eb107802b4152720dbd82a",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/include/linux/nl80211.h",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "b2eca5aab93387bfd865ba65df16b904458229093a380bf03f391b1e10658304",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/bin/openssl",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "bfeed0cbae15c8f0bf889967a68a35f6507487194517849cf9eee426c729875d",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-0",
+      "file": "tarball (expanded):package/dist/esm/internal/schedule/intervals.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "c52c2a94f960bd19629b09ce63357602cf1f8932c1a843da5c9127d3cfd24c6a",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/share/doc/libgnutls30/NEWS.gz",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "c6a1eac0fd498d7cd1ae044dbcc56cee8e1e2f71aa553a50b8c7024c01ec0429",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/share/doc/libpq-dev/changelog.Debian.gz",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "d1cfc2c045fc2eaf98a34ea3248a300b1e398ac6e003cdfe8c32bd37c3f19090",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "Debian package trigger entry name (structured metadata)",
+      "review": "Exact UTF-8 Python json.dumps name object; name is directory/package:architecture.extension assembled from metadata. Verified official base entry, generic filename false positive.",
+      "kind": "entry-name-metadata",
+      "metadata": {
+        "directory": "var/lib/dpkg/info",
+        "package": "libgssapi-krb5-2",
+        "architecture": "amd64",
+        "extension": "triggers"
+      }
+    },
+    {
+      "sha256": "d7494011f09884d3f287558c9c29fd72fe77162b23a4ca875fe78b9e00c24043",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/lib/python3/dist-packages/mercurial/__pycache__/crecord.cpython-311.pyc",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "e2646db4452454958fd1a6efc170c4f54ad833b81a319577a28f78087899413f",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "npm-11",
+      "file": "tarball (expanded):package/dist/node_modules/get-pnpm/lib/npmSigningKeys.js",
+      "review": "Integrity-verified public npm package documentation/code; detector false positive.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "e481655791a9b75f4d5957e40101d7d0b5d9c13a18d1ca233731d03365ad0aec",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/lib/x86_64-linux-gnu/libssh2.so.1.0.1",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "eb74fc0740b7f858a03e319e077c1698d2083325f3154c67771b120fb48f8520",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "node-base",
+      "file": "usr/local/include/node/v8-internal.h",
+      "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
+      "kind": "file-bytes"
+    }
+  ],
+  "sources": {
+    "npm-0": "https://registry.npmjs.org/effect/-/effect-3.20.0.tgz",
+    "node-base": "docker.io/library/node:24.21.0-bookworm@sha256:64af3819f9275802414d7cdc38c27e9d82bd564dec4d4da87d008255d36c63b4",
+    "npm-2": "https://registry.npmjs.org/@types/node/-/node-24.13.5.tgz",
+    "npm-3": "https://registry.npmjs.org/@nestjs/platform-express/-/platform-express-12.0.3.tgz",
+    "npm-4": "https://registry.npmjs.org/prisma/-/prisma-7.10.0.tgz",
+    "npm-5": "https://registry.npmjs.org/@typescript-eslint/visitor-keys/-/visitor-keys-8.70.0.tgz",
+    "npm-6": "https://registry.npmjs.org/@typescript-eslint/parser/-/parser-8.70.0.tgz",
+    "npm-7": "https://registry.npmjs.org/dotenv/-/dotenv-17.4.2.tgz",
+    "npm-8": "https://registry.npmjs.org/@typescript-eslint/typescript-estree/-/typescript-estree-8.70.0.tgz",
+    "npm-9": "https://registry.npmjs.org/@electric-sql/pglite/-/pglite-0.4.3.tgz",
+    "npm-10": "https://registry.npmjs.org/file-type/-/file-type-22.1.0.tgz",
+    "npm-11": "https://registry.npmjs.org/pnpm/-/pnpm-12.4.2.tgz"
+  }
+}

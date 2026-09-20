@@ -72,9 +72,12 @@ private required deployment reviewers까지 자동 제공하는 것은 아니다
    ops/source에 담긴 임의 shell·Compose·workflow를 root 권한으로 실행하지 않는다.
    앱별 배포는 독립적으로 요청하되 host 공통 lock으로 직렬화한다.
 
-public 저장소의 branch protection은 활용하되 현재 설치된 ruleset은 삭제·force-push
-방지에 한정된다. 필수 리뷰·CI가 이미 강제된 상태라고 간주하지 않는다.
-release workflow 활성화 전에 보호 범위와 승인자 목록을 검토·설정해야 한다.
+2026-09-20 사용자 승인에 따라 public QA는 작업 브랜치의 PR에서 필수 검사를
+통과한 뒤 반영한다. 직접 push와 관리자 bypass 없이 보안·백엔드·인프라·모바일
+최종 상태를 요구하며, 1인 운영을 위해 다른 사람의 리뷰 승인은 필수로 두지 않는다.
+기존 삭제·force-push 방지 규칙은 유지한다. 실제 GitHub 정책은 private ops의
+버전 관리된 정책과 reconcile/read-back 결과로 확인한다. 자세한 절차와 남는
+신뢰 경계는 [보안 보완 가이드](security-hardening.md)를 따른다.
 
 ## Atlantis 배치
 

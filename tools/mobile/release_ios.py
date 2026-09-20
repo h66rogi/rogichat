@@ -3,6 +3,7 @@ import json
 from pathlib import Path
 import plistlib
 import zipfile
+from keychain_unlock import unlock
 
 from release_common import APP_ID, API_URL, ROOT, AppStoreConnect, capture, external, manifest, new_output, private_write, run, save_manifest, sha256, tree_sha256
 
@@ -12,11 +13,7 @@ def unlock_signing(cfg):
     ios = cfg["ios"]
     if not ios.get("keychain"):
         return
-    keychain = external(ios["keychain"])
-    password_file = external(ios["keychain_password_file"])
-    if password_file.stat().st_mode & 0o077:
-        raise ValueError("Keychain password file must have mode 600")
-    capture(["security", "unlock-keychain", "-p", password_file.read_text().strip(), str(keychain)])
+    unlock(ios["keychain"], ios["keychain_password_file"])
 
 
 def inspect_info(info, number, version):

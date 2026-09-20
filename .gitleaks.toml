@@ -9,3 +9,8 @@ useDefault = true
 id = "rogichat-ssh-public-key"
 description = "SSH public key material is also prohibited by repository policy"
 regex = '''(?:ssh-(?:rsa|ed25519|dss)(?:-cert-v01@openssh\.com)?|ecdsa-sha2-nistp(?:256|384|521)(?:-cert-v01@openssh\.com)?|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/]{20,}={0,3}'''
+
+[[rules]]
+id = "rogichat-public-key-formats"
+description = "PEM and RFC4716 public keys are prohibited"
+regex = '''(?:-----BEGIN (?:RSA |EC )?PUBLIC KEY-----|---- BEGIN SSH2 PUBLIC KEY ----)\r?\n'''

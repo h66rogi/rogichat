@@ -2,9 +2,7 @@ name: Mobile foundation
 on:
   push:
     branches: [qa, main]
-    paths: ['apps/android/**', 'apps/ios/**', 'tools/mobile/**', '.github/workflows/mobile.yml']
   pull_request:
-    paths: ['apps/android/**', 'apps/ios/**', 'tools/mobile/**', '.github/workflows/mobile.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,7 +10,23 @@ concurrency:
   group: mobile-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 tools/mobile/changed.py
   android:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -48,6 +62,8 @@ jobs:
           python3 tools/mobile/qa_release.py --config "$RUNNER_TEMP/rogichat-signing-test/config.json" android-init-key
           python3 tools/mobile/qa_release.py --config "$RUNNER_TEMP/rogichat-signing-test/config.json" android-build --build-number 7
   ios:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -63,5 +79,31 @@ jobs:
           git diff --exit-code -- apps/ios/Rogichat.xcodeproj
       - name: Check wireframe navigation and draft isolation without a simulator
         run: python3 tools/mobile/check_ios_wireframe.py
+      - name: Verify signing security with a disposable keychain
+        env:
+          ROGICHAT_TEST_DISPOSABLE_KEYCHAIN: '1'
+        run: python3 -m unittest discover -s tools/mobile -p 'test_*.py'
       - name: Build and inspect QA and production bundles
         run: python3 tools/mobile/build_ios.py
+  required:
+    name: Mobile required checks
+    if: always()
+    needs: [changes, android, ios]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require successful builds when mobile inputs changed
+        env:
+          CHANGE_RESULT: ${{ needs.changes.result }}
+          CHANGED: ${{ needs.changes.outputs.changed }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          IOS_RESULT: ${{ needs.ios.result }}
+        run: |
+          test "$CHANGE_RESULT" = success
+          if test "$CHANGED" = true; then
+            test "$ANDROID_RESULT" = success
+            test "$IOS_RESULT" = success
+          else
+            test "$CHANGED" = false
+            test "$ANDROID_RESULT" = skipped
+            test "$IOS_RESULT" = skipped
+          fi
