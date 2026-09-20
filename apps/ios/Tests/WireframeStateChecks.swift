@@ -57,7 +57,30 @@ struct WireframeStateChecks {
         single.openRoom("sample-room-b"); precondition(single.page == .rooms)
         checkRoutes()
         checkProfile()
+        checkNotificationLifecycle()
         print("iOS: preview draft isolation, access gates, independent tab stacks, scope reset, route parser and pending-intent race checks passed")
+    }
+    static func checkNotificationLifecycle() {
+        var foreground = ForegroundState()
+        foreground.transition(true); foreground.transition(true); precondition(foreground.epoch == 1)
+        foreground.transition(false); foreground.transition(false); foreground.transition(true)
+        precondition(foreground.epoch == 2)
+        var state = NotificationReadState(); precondition(!state.observing && state.snapshot == nil)
+        let first = state.begin(), second = state.begin()
+        state.finish(first, NotificationSnapshot(authorization: .allowed)); precondition(state.reading && state.snapshot == nil)
+        state.finish(second, NotificationSnapshot(authorization: .denied)); precondition(state.snapshot?.authorization == .denied)
+        state.fail(first); precondition(state.snapshot?.authorization == .denied && !state.failed)
+        let cancelled = state.begin(); state.cancel(); state.finish(cancelled, NotificationSnapshot(authorization: .allowed))
+        precondition(state.snapshot?.authorization == .denied)
+        let retry = state.begin(); state.fail(retry); precondition(state.failed && state.snapshot == nil)
+        var queue = PendingRouteQueue()
+        queue.offer(RoomRouteHint(roomID: "a"), eventID: "a", now: 0, expectedScope: queue.scopeToken)
+        let a = queue.begin(now: 0)!
+        queue.offer(RoomRouteHint(roomID: "b"), eventID: "b", now: 1, expectedScope: queue.scopeToken)
+        precondition(!queue.cancel(a))
+        let b = queue.begin(now: 1)!; precondition(queue.cancel(b))
+        precondition(queue.consume(b, now: 2) == nil && queue.begin(now: 2) == nil)
+        print("Notification lifecycle: foreground dedupe, stale read/cancel/retry and pending cancellation passed")
     }
     static func checkProfile() {
         var editor = ProfileEditor(baseline: "original")

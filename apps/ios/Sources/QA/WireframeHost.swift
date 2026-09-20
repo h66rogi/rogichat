@@ -40,7 +40,7 @@ struct WireframeHost: View {
                 case .account: AccountScreen(account: AccountPresentation(signInSummary: "샘플 로그인 상태 · 실제 계정 미연동",
                     connectionSummary: state.navigation.access == .linkRequired ? "연결이 필요한 상태 예시" : "연결 이후 상태 예시 · 실제 연결 안 됨"), onEndPreview: { state.reset() })
                 case .report: ReportWireframe()
-                case .notifications: NotificationSettingsScreen()
+                case .notifications: NotificationPreview()
                 case .about: AboutScreen()
                 case .status: ScreenStatus(title: state.navigation.access.rawValue, message: "계정 이용 상태 안내 화면이에요. 설정에서 앱 정보와 지원을 확인할 수 있어요.")
                 }

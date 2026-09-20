@@ -17,6 +17,8 @@ def main():
             str(ROOT / "apps/ios/Sources/Core/Navigation/ShellNavigation.swift"),
             str(ROOT / "apps/ios/Sources/Core/Navigation/PendingRoute.swift"),
             str(ROOT / "apps/ios/Sources/Features/Settings/ProfileEditor.swift"),
+            str(ROOT / "apps/ios/Sources/Core/Navigation/ForegroundState.swift"),
+            str(ROOT / "apps/ios/Sources/Features/Settings/NotificationState.swift"),
             str(ROOT / "apps/ios/Sources/QA/WireframeState.swift"),
             str(ROOT / "apps/ios/Tests/WireframeStateChecks.swift"), "-o", str(executable),
         ], check=True)

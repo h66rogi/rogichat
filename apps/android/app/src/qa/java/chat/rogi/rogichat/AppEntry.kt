@@ -65,7 +65,7 @@ fun AppEntry() {
                     state = WireframeState(role = state.role)
                 }
             PreviewPage.REPORT -> ReportWireframe()
-            PreviewPage.NOTIFICATIONS -> NotificationSettingsScreen()
+            PreviewPage.NOTIFICATIONS -> NotificationPreview()
             PreviewPage.ABOUT -> AboutScreen()
             PreviewPage.STATUS -> ScreenStatus(state.navigation.access.label, "계정 이용 상태 안내 화면이에요. 설정에서 앱 정보와 지원을 확인할 수 있어요.")
         }

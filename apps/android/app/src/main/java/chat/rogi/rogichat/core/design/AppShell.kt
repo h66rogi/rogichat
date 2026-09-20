@@ -15,13 +15,15 @@ import chat.rogi.rogichat.core.navigation.*
 fun AppShell(navigation: ShellNavigation, onTab: (AppTab) -> Unit, onBack: () -> Unit,
              banner: @Composable () -> Unit = {}, content: @Composable ColumnScope.() -> Unit) {
     BackHandler(navigation.canGoBack, onBack = onBack)
-    Scaffold(bottomBar = { AppNavigationBar(navigation.tab, onTab) }) { insets ->
-        Column(Modifier.fillMaxSize().padding(insets).imePadding()) {
-            banner()
-            AppTopBar(navigation.page.title, if (navigation.canGoBack) onBack else null)
-            key(navigation.tab, navigation.page) {
-                Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
+    AppForeground {
+        Scaffold(bottomBar = { AppNavigationBar(navigation.tab, onTab) }) { insets ->
+            Column(Modifier.fillMaxSize().padding(insets).imePadding()) {
+                banner()
+                AppTopBar(navigation.page.title, if (navigation.canGoBack) onBack else null)
+                key(navigation.tab, navigation.page) {
+                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp), content = content)
+                }
             }
         }
     }

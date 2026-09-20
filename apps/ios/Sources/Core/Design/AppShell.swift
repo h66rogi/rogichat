@@ -1,7 +1,17 @@
 import SwiftUI
 
+private struct ForegroundEpochKey: EnvironmentKey { static let defaultValue: UInt64 = 0 }
+extension EnvironmentValues {
+    var foregroundEpoch: UInt64 {
+        get { self[ForegroundEpochKey.self] }
+        set { self[ForegroundEpochKey.self] = newValue }
+    }
+}
+
 // Reduced TabView + per-tab NavigationStack composition; provenance R07.
 struct AppShell<Content: View>: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var foreground = ForegroundState()
     let navigation: ShellNavigation
     let onTab: (AppTab) -> Void
     let onPop: ([AppPage], AppTab) -> Void
@@ -18,6 +28,8 @@ struct AppShell<Content: View>: View {
                 .tag(tab)
             }
         }.tint(.primary)
+        .environment(\.foregroundEpoch, foreground.epoch)
+        .onChange(of: scenePhase, initial: true) { _, phase in foreground.transition(phase == .active) }
     }
     private func page(_ value: AppPage) -> some View {
         ScrollView {

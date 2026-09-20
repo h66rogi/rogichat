@@ -54,7 +54,8 @@ QA 포함/prod 제외를 실제 APK와 iOS 실행 파일에서 검사한다. 기
 - 실제 OS 설정 화면·키보드·뒤로 제스처·VoiceOver/TalkBack·큰 글자·기기 설치 QA는 미확인이다.
   빌드/상태 검사로 UI 사용성이나 실제 provider 연동 성공을 주장하지 않는다.
 
-다음 독립 작업은 위 기기 UI 확인과 설정/계정 상세의 공통 화면 모델 정리다. allowlist/계정
+1차 구현 시점의 다음 독립 작업은 기기 UI 확인과 설정/계정 상세의 공통 화면 모델 정리였다.
+후속 2·3차 구현은 아래에 기록한다. allowlist/계정
 재인가 계약이 합의되면 준비된 route queue를 실제 coordinator에 연결한다. C09 전에는 알림
 선호 설정 저장·푸시 등록·전달 성공을 구현 완료로 처리하지 않는다. 채팅 UX는 별도 설계한다.
 
@@ -79,3 +80,28 @@ QA 포함/prod 제외를 실제 APK와 iOS 실행 파일에서 검사한다. 기
 Firebase App Distribution에 올린다. 업로드뿐 아니라 처리 상태와 기존 테스터 접근을 확인한다.
 앱 기록과 개인 식별자가 든 배포 영수증은 Git 밖에 보관한다. Android 수신자 정보가 없으면
 업로드와 배포를 구분하고, 그 입력만 기다리며 다음 독립 구현을 계속한다.
+
+## 3차 — 알림 OS 어댑터·복귀 신호·취소
+
+- 양 OS `AppShell`에서 foreground epoch를 발행한다. 같은 active 신호는 합치며 inactive 뒤
+  active 복귀만 새 epoch가 된다. 알림 화면은 명시적 조회/설정 열기 이후에만 복귀 조회를 한다.
+- OS 읽기/설정 열기를 `NotificationSystem`으로 분리하고 화면은 `NotificationSnapshot`과
+  `NotificationReadState`를 사용한다. 조회 revision이 다른 응답과 취소 후 결과를 버리며
+  Android 권한 조회 오류를 실패 상태로 표시한다. iOS 설정 열기 명령은 화면 재표시로 반복하지 않는다.
+- QA 알림 화면에서 실제 기기와 합성 미확인/조회 중/차단/허용/오류를 구분해 선택한다. Android는
+  채널 없음/차단, iOS는 미요청/알림 표시 꺼짐/조용한 알림 예시를 더 제공한다. 합성 화면에서
+  OS 설정을 실행하지 않는다. prod에는 이 선택기나 합성 상태 데이터가 포함되지 않는다.
+- pending route에 ticket별 명시 취소를 추가했다. A 처리 중 B가 들어왔을 때 A의 늦은 취소가
+  B를 지우지 않는지 검사한다. 실제 OS link 등록·인가·화면 이동 coordinator는 C02/C03 뒤다.
+- foreground 중복, 취소/새 조회 이후 늦은 응답, 오류와 재시도, 최신 pending 취소를 양 OS에서
+  검사했다. foreground 모델은 서버 sync나 session 복원 성공을 뜻하지 않는다.
+
+### 계속 남는 외부 조건
+
+- C01/02/03/07/08: 현재 원격 QA의 native 인증·bootstrap·DTO 계약이 준비되지 않아 실제
+  프로필 저장/로그아웃/탈퇴·서버/영속 adapter를 연결하지 않았다. 백엔드의 진행 중 변경은 건드리지 않았다.
+- C09: 실제 push SDK/token/binding/preference·전달 검증은 계약과 서버 준비 뒤에 진행한다.
+- 정책/지원 공개 URL, 실제 기기 접근성·키보드·OS 화면·설치 검증은 미완료다. 현재 Mac에서
+  Android 연결 기기가 없고 등록된 iPhone은 unavailable이다. GUI/Simulator는 실행하지 않았다.
+- Firebase 업로드 대상 QA 앱은 확인했지만 테스터/그룹은 0명/0개였다. 수신자 응답 전에는
+  업로드 상태만 기록하며 배포나 설치 완료로 주장하지 않는다. TestFlight는 기존 내부 그룹을 사용한다.
