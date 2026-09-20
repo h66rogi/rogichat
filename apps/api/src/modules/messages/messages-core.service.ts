@@ -103,7 +103,8 @@ export class MessagesCoreService {
 
   // Caller revalidates the current session/account/SOOP on this SAME transaction handle.
   async send(tx: Transaction, roomId: string, userId: string, input: SendInput, key: Buffer) {
-    const room = await this.repository.room(tx, identifier(roomId));
+    const owner = await this.access.lockRoomSendOwner(tx, identifier(roomId));
+    const room = await this.repository.room(tx, roomId);
     if (!room) throw new ApiError('NOT_FOUND', 404);
     const member = await this.repository.member(tx, roomId, userId);
     if (!member) throw new ApiError('NOT_FOUND', 404);
@@ -118,6 +119,8 @@ export class MessagesCoreService {
       if (!previous || !await this.readable(tx, viewer, previous)) throw new ApiError('NOT_FOUND', 404);
       return { clientMessageId: input.clientMessageId, messageId: previous.id, status: 'committed' as const, version: String(previous.version) };
     }
+    // Existing receipts reconcile history; only a new commit requires a live owner.
+    await this.access.requireRoomSendOwner(tx, roomId, room.owner_member_id, owner);
     const streamId = await this.sendStream(tx, viewer, input);
     if (input.quoteId) {
       const quote = await this.load(tx, roomId, input.quoteId);

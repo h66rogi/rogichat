@@ -445,5 +445,28 @@ R2 credential/backup expiry/실제 비용과 복구 증거는 개발·운영 검
 계정 탈퇴 시 sole owner인 방의 보존/운영자 재지정은 새 메시지 차단 상태로 안전하게 처리하며
 임의 팬을 owner로 승격시키지 않는다. 재지정은 운영 command로 별도 감사한다.
 
+새 메시지 admission은 room owner를 Prisma로 한 건 발견한 뒤 해당 account PK를 current
+`FOR UPDATE`로 잠그고, 기존 room lock 아래 owner pointer와 동일 방의 STREAMER/활성
+membership·period를 다시 검증한다. 발견 snapshot과 현재 pointer가 다르면 CONFLICT로
+종료하며 stale snapshot으로 새 owner를 반복 탐색하지 않는다. owner 없음/부적격 또는
+DELETING/DELETED는 NOT_FOUND로 새 발송을 차단한다. SUSPENDED는 방 폐쇄/탈퇴로
+간주하지 않으며 기존 recipient/session 정책은 그대로 적용한다.
+
+owner account lock은 room/member/counter/message/job보다 먼저 얻고 commit까지 유지한다.
+계정 탈퇴 admission이 방 전체를 잠그거나 scan할 필요가 없다. 기존 actor session/account
+lock과 cross-account 경합은 기존 confirmed-rollback bounded retry와 8초 transaction 예산을
+유지한다. owner fence는 기존 committed/deleted receipt 처리 뒤 NEW command에만 적용한다.
+과거 receipt의 payload conflict·현재 read ACL 검증, 독립 작성 콘텐츠 조회·작성자 삭제는
+그대로 유지하고 room status/owner/role을 자동 변경하지 않는다.
+
+publication은 authenticated publisher/current account lock과 현재 room owner 검증을 이미
+수행하며 worker도 publisher account → room → publication/source 순서로 재검증한다.
+미디어 upload/변환 자체는 이 send fence의 대상이 아니지만 PHOTO/VIDEO/STICKER를 포함한
+모든 새 send는 attachment/counter 생성 전에 같은 fence를 통과한다. 소유자 탈퇴가 독립
+작성자의 기존 미디어/메시지 read ACL을 일괄 차단하지 않는다.
+검증은 `room-owner-send-fence.test.mjs`의 실제 MySQL 두 connection 양방향 경합,
+RR stale snapshot, FAN/GROUP, receipt·조회·삭제·SUSPENDED·invalid owner 회귀로 수행한다.
+이 코드 검증은 QA 배포나 계정 탈퇴 전체 구현 완료를 의미하지 않는다.
+
 제품 완료란 M01–M12의 코드·tests·실제 QA evidence가 갖춰진 상태다. M01 완료는 개발 골격과
 격리 테스트·CI까지이며 인증·채팅 기능이나 운영 배포 완료와 구분한다.

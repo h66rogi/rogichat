@@ -51,6 +51,11 @@ export const roomProfile = bind(UsersCoreService, 'roomProfile');
 export const profileManifest = bind(UsersCoreService, 'profileManifest');
 export const activeMember = bind(AccessService, 'requireActiveMember');
 export const createRoom = bind(RoomStateService, 'createRoom');
+// Explicit isolated provisioning: callers choose an existing member, never send admission.
+export async function assignRoomOwner(tx, roomId, actorId) {
+  await tx.prisma.room_members.update({ where: { id: actorId }, data: { role: 'STREAMER' }, select: { id: true } });
+  await tx.prisma.rooms.update({ where: { id: roomId }, data: { owner_member_id: actorId }, select: { id: true } });
+}
 export const joinRoom = bind(RoomStateService, 'joinRoom');
 export const leaveRoom = bind(RoomStateService, 'leaveRoom');
 export const lockRoom = bind(RoomStateService, 'lockRoom');

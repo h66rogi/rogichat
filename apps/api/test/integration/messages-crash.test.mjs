@@ -1,4 +1,4 @@
-import { createUser, createRoom, joinRoom } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -27,7 +27,7 @@ test('lost client ACK plus actual API SIGKILL is recovered by the same command i
     const user = await createUser(tx, 'crash 합성');
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), user, Buffer.from(`fixture-crash-${randomUUID()}`)]);
     const room = await createRoom(tx, 'crash 합성방', 'GROUP');
-    await joinRoom(tx, room, user);
+    await assignRoomOwner(tx, room, await joinRoom(tx, room, user));
     return { user, room, ...await sessions.issue(tx, user) };
   });
   const port = await unusedPort();

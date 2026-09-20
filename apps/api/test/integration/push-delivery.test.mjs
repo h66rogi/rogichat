@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createECDH, randomBytes, randomUUID } from 'node:crypto';
-import { createUser, createRoom, joinRoom, sendMessage, activeMember, loadMessage, readable, leaveRoom } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, activeMember, loadMessage, readable, leaveRoom } from '../support/domain-fixture.mjs';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
@@ -32,7 +32,7 @@ async function fixture(t) {
     const sender = await createUser(tx, '합성 발신자'); const recipient = await createUser(tx, '합성 수신자');
     for (const userId of [sender, recipient]) await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: userId, provider_subject: randomBytes(24), verified_at: await tx.now() } });
     const issued = await sessions.issue(tx, recipient); const principal = await sessions.require(tx, issued.token);
-    const room = await createRoom(tx, '푸시 합성방', 'GROUP'); await joinRoom(tx, room, sender); const member = await joinRoom(tx, room, recipient);
+    const room = await createRoom(tx, '푸시 합성방', 'GROUP'); await assignRoomOwner(tx, room, await joinRoom(tx, room, sender)); const member = await joinRoom(tx, room, recipient);
     await notifications.setPreferences(tx, recipient, true);
     const subscription = await notifications.register(tx, principal, audience, input);
     return { sender, recipient, room, member, issued, principal, subscription };

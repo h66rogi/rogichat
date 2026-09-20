@@ -168,7 +168,7 @@ Prisma except the specifically identified arithmetic/lease/limiter statements.
 | `modules/auth/session.repository.ts` | `findCurrent` (write) | Lock session, current account and SOOP status together before mutation |
 | `modules/auth/identity.repository.ts` | `findSubject`, `account`, `linked` | Lock unique subject/account/link before identity creation or link mutation |
 | `modules/auth/login.repository.ts` | `pending`, `processing` | Lock unexpired single-use login state before claim/finalization |
-| `modules/access/membership.repository.ts` | `findActive` (write) | Current room/member/active-period authorization locks |
+| `modules/access/membership.repository.ts` | `findActive` (write), `lockRoomSendOwner` | Current room/member/active-period authorization locks; one discovered owner account PK locked before room for new-message admission, with current owner-pointer/member revalidation |
 | `modules/rooms/rooms.repository.ts` | `manager` (write), `eligibleOwner`, `activeOwner` | Capability, eligible owner and active owner-period locks |
 | `modules/rooms/room-state.repository.ts` | `lockRoom`, `counter`, `member`, `leavingMember` | Room serialization, monotonic event counter, membership transition locks |
 | `modules/messages/messages.repository.ts` | `load` (write), `grant` (write), `sharedStreams`, `target`, `pair`, `sendGrants`, `room`, `member`, `receipt` | Current content-owner/deletion/quote, grant, stream, member and idempotent receipt locks |

@@ -72,7 +72,7 @@ export class MessagesRepository {
   }
 
   async room(tx: Transaction, roomId: string): Promise<MessageRoomRow | undefined> {
-    const [row] = await tx.rows<MessageRoomRow>('SELECT id,status FROM rooms WHERE id=? FOR UPDATE', [roomId]);
+    const [row] = await tx.rows<MessageRoomRow>('SELECT id,status,owner_member_id FROM rooms WHERE id=? FOR UPDATE', [roomId]);
     return row;
   }
 

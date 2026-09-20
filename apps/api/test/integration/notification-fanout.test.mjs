@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createUser, createRoom, joinRoom, sendMessage, sendInput } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, sendInput } from '../support/domain-fixture.mjs';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
@@ -24,7 +24,7 @@ async function fixture(t, count) {
     const sender = await createUser(tx, '발송 합성 작성자'), recipient = await createUser(tx, '발송 합성 수신자');
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), recipient, Buffer.from(randomUUID())]);
     const room = await createRoom(tx, '발송 합성 방', 'GROUP');
-    await joinRoom(tx, room, sender); await joinRoom(tx, room, recipient);
+    await assignRoomOwner(tx, room, await joinRoom(tx, room, sender)); await joinRoom(tx, room, recipient);
     const session = await sessions.issue(tx, recipient);
     const principal = await sessions.require(tx, session.token, session.csrf);
     const user = await tx.prisma.users.findUnique({ where: { id: recipient }, select: { membership_generation: true } });

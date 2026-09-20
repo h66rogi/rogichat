@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { NestFactory } from '@nestjs/core';
-import { createUser, createRoom, joinRoom, leaveRoom, sendMessage, sendInput, deleteMessage, nextOrder } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom, leaveRoom, sendMessage, sendInput, deleteMessage, nextOrder } from '../support/domain-fixture.mjs';
 import { ReadStateCoreModule } from '../../dist/modules/read-state/read-state-core.module.js';
 import { ReadStateCoreService } from '../../dist/modules/read-state/read-state-core.service.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
@@ -26,6 +26,7 @@ async function fixture(t) {
   const room = await db.transactions.write(async tx => {
     const id = await createRoom(tx, '읽음 합성 방', 'GROUP');
     for (const person of [owner, a, b]) person.actor = await joinRoom(tx, id, person.id);
+    await assignRoomOwner(tx, id, owner.actor);
     return id;
   });
   const authenticated = (person, writable, action) => db.transactions[writable ? 'write' : 'read'](async tx => {
