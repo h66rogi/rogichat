@@ -53,7 +53,12 @@ final class AppleAuthorization: NSObject, ASAuthorizationControllerDelegate, ASA
             }
         }
     }
-    func cancel() { finish(.failure(AppleAuthorizationFailure.cancelled)) }
+    func cancel() {
+        let active = controller
+        // Detach before native cancellation can invoke its delegate again.
+        finish(.failure(AppleAuthorizationFailure.cancelled))
+        active?.cancel()
+    }
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         // ASAuthorizationController asks while the operation retains its real window.
         guard let anchor else { preconditionFailure("Apple presentation requested outside active operation") }

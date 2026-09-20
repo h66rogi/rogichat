@@ -65,8 +65,8 @@ dependency and project mounting to the existing Android/iOS single writers.
 4. iOS owns `AppleAuthorization` for the whole UI request, passes the actual
    presentation window and returned nonce/state, then sends extracted material
    only to the complete endpoint. Native credential extraction never logs in.
-   Cancellation detaches delegates and rejects late callbacks; native sheet
-   dismissal and window lifecycle must be verified on device.
+   Cancellation detaches delegates, invokes the native controller cancel API and
+   rejects late callbacks; sheet dismissal/window lifecycle still need device evidence.
 5. Protect and persist random installationId plus canonical 32-byte bindingSecret
    once per environment **before first registration**. Retain across account
    transitions, including APNs logout (APNs cannot rotate on demand). Resolve
@@ -137,6 +137,12 @@ duplicate route and TTL. Swift Apple wire checks cover native nonce DTO,
 login/link consent differences and one-shot scope cancellation. Swift device SDK
 strict-concurrency typecheck covers the native Apple/permission/UI primitives.
 Additional Android JUnit contract tests await the parent's normal unit matrix.
+
+Follow-up checks also passed: Swift request builders against the existing native
+session dependency set, and the Android native push JUnit contract with the exact
+existing strict JSON parser isolated for a low-memory compiler invocation.
+Native cancellation uses the SDK's iOS 16+ `ASAuthorizationController.cancel`,
+supported by this app's minimum OS; see [Apple cancellation contract](https://developer.apple.com/documentation/authenticationservices/asauthorizationcontroller/cancel()).
 
 Remaining: backend tested/published frozen SHA reconciliation; OS mounts and
 protected pending/binding generation persistence; parent full build/CI; actual
