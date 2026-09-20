@@ -71,7 +71,7 @@ actor DeletionColdAPI: SOOPRequesting {
     func revokeSOOPCredential(_ credential: NativeCredential) async {}
 }
 @MainActor final class DeletionColdBrowser: SOOPBrowsing {
-    func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, validate: @Sendable () throws -> Void) async throws -> URL { throw CancellationError() }
+    func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, expiresAt: Date, validate: @Sendable () throws -> Void) async throws -> URL { throw CancellationError() }
     func deliver(_ url: URL, operation: UUID) -> Bool { false }
     func cancel(operation: UUID) {}
 }

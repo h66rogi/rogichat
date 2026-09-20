@@ -20,7 +20,8 @@ struct SOOPPending: Codable, Equatable, Sendable, CustomStringConvertible, Custo
     var description: String { "SOOPPending(<redacted>)" }
     var debugDescription: String { description }
     var customMirror: Mirror { Mirror(self, children: ["pending": "<redacted>"]) }
-    func isCurrent(at now: Date) -> Bool { now >= createdAt && now.timeIntervalSince(createdAt) < 600 }
+    var expiresAt: Date { createdAt.addingTimeInterval(600) }
+    func isCurrent(at now: Date) -> Bool { now >= createdAt && now < expiresAt }
 }
 protocol SOOPAuthStoring: NativeCredentialStoring {
     func beginAuth(intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending

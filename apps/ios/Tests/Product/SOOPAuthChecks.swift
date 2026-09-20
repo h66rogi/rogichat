@@ -13,7 +13,7 @@ final class AuthBytes: CredentialBytesStoring, @unchecked Sendable {
     var current: UUID?
     private var continuation: CheckedContinuation<URL, any Error>?
     private var waiter: CheckedContinuation<Void, Never>?
-    func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, validate: @Sendable () throws -> Void) async throws -> URL {
+    func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, expiresAt: Date, validate: @Sendable () throws -> Void) async throws -> URL {
         try validate()
         if let current { cancel(operation: current) }
         current = operation
@@ -96,6 +96,44 @@ final class AuthClock: @unchecked Sendable {
     func read() -> Date { lock.withLock { value } }
     func set(_ value: Date) { lock.withLock { self.value = value } }
 }
+actor BrowserSleeper {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var waiter: CheckedContinuation<Void, Never>?
+    private(set) var duration: Duration?
+    func sleep(_ duration: Duration) async {
+        self.duration = duration
+        await withCheckedContinuation { continuation = $0; waiter?.resume(); waiter = nil }
+    }
+    func wait() async { if continuation != nil { return }; await withCheckedContinuation { waiter = $0 } }
+    // Deliberately ignores cancellation to exercise late scheduler delivery.
+    func fire() { let value = continuation; continuation = nil; value?.resume() }
+}
+@MainActor final class ExpiringAuthBrowser: SOOPBrowsing {
+    let clock: AuthClock
+    let timer: BrowserSleeper
+    var operation: SOOPBrowserOperation?
+    private(set) var deadline: Date?
+    private(set) var closed = 0
+    init(clock: AuthClock, timer: BrowserSleeper) { self.clock = clock; self.timer = timer }
+    func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, expiresAt: Date, validate: @Sendable () throws -> Void) async throws -> URL {
+        try validate(); self.operation?.finish(.failure(CancellationError()))
+        let clock = clock; let timer = timer
+        let value = SOOPBrowserOperation(id: operation, expiresAt: expiresAt, now: { clock.read() }, sleep: { await timer.sleep($0) })
+        self.operation = value; deadline = expiresAt
+        return try await value.run(start: {}, onFinish: { [weak self, weak value] in
+            guard let self, let value, self.operation === value else { return }
+            self.operation = nil; self.closed += 1
+        })
+    }
+    func deliver(_ url: URL, operation: UUID) -> Bool {
+        guard let current = self.operation, current.id == operation else { return false }
+        return current.finish(.success(url))
+    }
+    func cancel(operation: UUID) {
+        guard let current = self.operation, current.id == operation else { return }
+        current.finish(.failure(CancellationError()))
+    }
+}
 struct AuthNativeAPI: NativeRequesting {
     var restricted = false
     func perform(_ endpoint: NativeEndpoint, credential: NativeCredential) async throws -> Data {
@@ -130,8 +168,8 @@ struct AuthNativeAPI: NativeRequesting {
         catch let actual { check(String(describing: actual) == String(describing: error)) }
     }
     @MainActor static func main() async throws {
-        try contract(); try persistence(); try await flows(); try await fences(); try await scopedErrors()
-        print("iOS SOOP: exact headers/callback/PKCE, persisted proof epoch, cold return, one-shot exchange, cancel/newer-account/late-success, consent and failed-install recovery passed")
+        try contract(); try persistence(); try await flows(); try await fences(); try await scopedErrors(); try await browserExpiry()
+        print("iOS SOOP: exact headers/callback/PKCE, persisted proof epoch, cold return, one-shot exchange, cancel/newer-account/late-success, consent, failed-install and browser-expiry recovery passed")
     }
     static func contract() throws {
         let generated = try SOOPProof.generate()
@@ -370,14 +408,85 @@ struct AuthNativeAPI: NativeRequesting {
         // A previous callback can never finish the newer browser continuation.
         do {
             let browser = AuthBrowser(); let first = UUID(); let second = UUID()
-            let one = Task { try await browser.authorize(URL(string:"https://api.qa.rogi.chat")!,environment:.qa,operation:first,validate:{}) }
+            let one = Task { try await browser.authorize(URL(string:"https://api.qa.rogi.chat")!,environment:.qa,operation:first,expiresAt:now.addingTimeInterval(600),validate:{}) }
             await browser.wait(); browser.cancel(operation:first)
-            let two = Task { try await browser.authorize(URL(string:"https://api.qa.rogi.chat")!,environment:.qa,operation:second,validate:{}) }
+            let two = Task { try await browser.authorize(URL(string:"https://api.qa.rogi.chat")!,environment:.qa,operation:second,expiresAt:now.addingTimeInterval(600),validate:{}) }
             await browser.wait()
             check(!browser.deliver(callback(proof.state),operation:first) && browser.current == second)
             check(browser.deliver(callback(proof.state),operation:second))
             _ = try await two.value
             do { _ = try await one.value; preconditionFailure("browser cancel") } catch is CancellationError {}
+        }
+    }
+    @MainActor static func browserExpiry() async throws {
+        let url = callback(proof.state)
+        // The real service/coordinator forwards the protected deadline, and timer
+        // expiry releases busy state without exchange, credential install or replay.
+        do {
+            let (store, _, directory) = try fixture(); defer { try? FileManager.default.removeItem(at: directory) }
+            let clock = AuthClock(now); let timer = BrowserSleeper(); let browser = ExpiringAuthBrowser(clock: clock, timer: timer)
+            let api = AuthAPI()
+            let coordinator = SOOPAuthCoordinator(environment: .qa, store: store, api: api, browser: browser, now: { clock.read() })
+            let service = NativeSessionService(environment: .qa, api: AuthNativeAPI(), store: store, now: { clock.read() }, auth: coordinator)
+            let session = AppSession(service: service); await session.restore()
+            let flow = Task { await session.signIn(.soop, consent: true) }
+            await timer.wait()
+            let pending = try store.pendingAuth(now: now)!
+            check(browser.deadline == pending.expiresAt && pending.expiresAt == now.addingTimeInterval(600))
+            check(await timer.duration == .seconds(600))
+            clock.set(pending.expiresAt); await timer.fire(); await flow.value
+            check(!session.busy && session.access == .signedOut && session.errorMessage == SOOPAuthError.expired.errorDescription)
+            check(browser.closed == 1 && browser.operation == nil)
+            check(try store.pendingAuth(now: clock.read()) == nil && store.read() == nil)
+            check(await api.starts == 1); check(await api.exchanges == 0)
+            do { _ = try await coordinator.accept(url); preconditionFailure("late callback") } catch SOOPAuthError.failed {}
+            check(await api.exchanges == 0)
+        }
+        // Opening after start IO consumes only the remaining original lifetime.
+        do {
+            let clock = AuthClock(now.addingTimeInterval(45)); let timer = BrowserSleeper()
+            let operation = SOOPBrowserOperation(id: UUID(), expiresAt: now.addingTimeInterval(600), now: { clock.read() }, sleep: { await timer.sleep($0) })
+            var closed = 0
+            let result = Task { try await operation.run(start: {}, onFinish: { closed += 1 }) }
+            await timer.wait(); check(await timer.duration == .seconds(555))
+            check(operation.finish(.success(url)))
+            check(try await result.value == url && closed == 1)
+            await timer.fire()
+            check(!operation.finish(.failure(SOOPAuthError.expired)) && closed == 1)
+        }
+        // A callback winning the scheduler race at the deadline is still expired.
+        do {
+            let clock = AuthClock(now); let timer = BrowserSleeper()
+            let operation = SOOPBrowserOperation(id: UUID(), expiresAt: now.addingTimeInterval(600), now: { clock.read() }, sleep: { await timer.sleep($0) })
+            var closed = 0
+            let result = Task { try await operation.run(start: {}, onFinish: { closed += 1 }) }
+            await timer.wait(); clock.set(now.addingTimeInterval(600))
+            check(operation.finish(.success(url)))
+            do { _ = try await result.value; preconditionFailure("expired callback") } catch SOOPAuthError.expired {}
+            await timer.fire(); check(closed == 1 && !operation.finish(.success(url)))
+        }
+        // Cancelling an old browser, then firing its timer/callback, cannot finish
+        // a replacement browser or resume the old continuation twice.
+        do {
+            let clock = AuthClock(now); let oldTimer = BrowserSleeper(); let newTimer = BrowserSleeper()
+            let first = SOOPBrowserOperation(id: UUID(), expiresAt: now.addingTimeInterval(600), now: { clock.read() }, sleep: { await oldTimer.sleep($0) })
+            let second = SOOPBrowserOperation(id: UUID(), expiresAt: now.addingTimeInterval(600), now: { clock.read() }, sleep: { await newTimer.sleep($0) })
+            var oldClosed = 0; var newClosed = 0
+            let old = Task { try await first.run(start: {}, onFinish: { oldClosed += 1 }) }
+            await oldTimer.wait(); old.cancel()
+            do { _ = try await old.value; preconditionFailure("cancelled browser") } catch is CancellationError {}
+            let new = Task { try await second.run(start: {}, onFinish: { newClosed += 1 }) }
+            await newTimer.wait(); await oldTimer.fire()
+            check(!first.finish(.success(url)) && oldClosed == 1 && newClosed == 0)
+            check(second.finish(.success(url))); check(try await new.value == url && newClosed == 1)
+            await newTimer.fire()
+        }
+        do {
+            let operation = SOOPBrowserOperation(id: UUID(), expiresAt: now, now: { now })
+            var starts = 0; var closed = 0
+            do { _ = try await operation.run(start: { starts += 1 }, onFinish: { closed += 1 }); preconditionFailure("expired admission") }
+            catch SOOPAuthError.expired {}
+            check(starts == 0 && closed == 1 && !operation.finish(.success(url)))
         }
     }
     @MainActor static func scopedErrors() async throws {

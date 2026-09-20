@@ -5,50 +5,44 @@ import UIKit
 // and presentation-context implementation. Callback tokens/custom schemes are not reused.
 @MainActor final class SOOPBrowserSession: NSObject, SOOPBrowsing, ASWebAuthenticationPresentationContextProviding {
     private var session: ASWebAuthenticationSession?
-    private var continuation: CheckedContinuation<URL, any Error>?
-    private var operation: UUID?
+    private var operation: SOOPBrowserOperation?
     private var anchor: UIWindow?
-    func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, validate: @Sendable () throws -> Void) async throws -> URL {
+    func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, expiresAt: Date, validate: @Sendable () throws -> Void) async throws -> URL {
         try validate()
-        finish(.failure(CancellationError()))
+        self.operation?.finish(.failure(CancellationError()))
         guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
             .first(where: { $0.activationState == .foregroundActive }),
               let window = scene.windows.first(where: \.isKeyWindow) else { throw SOOPAuthError.browserUnavailable }
         anchor = window
-        let id = operation; self.operation = id
-        return try await withTaskCancellationHandler {
-            try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
-                self.continuation = continuation
+        let pending = SOOPBrowserOperation(id: operation, expiresAt: expiresAt)
+        self.operation = pending
+        return try await pending.run(start: {
                 let session = ASWebAuthenticationSession(url: url, callback: .https(host: environment.webHost, path: "/mobile/auth/complete")) { [weak self] url, error in
                     Task { @MainActor in
-                        guard let self, self.operation == id else { return }
-                        if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin { self.finish(.failure(CancellationError())) }
-                        else if error != nil { self.finish(.failure(SOOPAuthError.browserUnavailable)) }
-                        else if let url { self.finish(.success(url)) }
-                        else { self.finish(.failure(ProductError.invalidResponse)) }
+                        guard let self, self.operation === pending else { return }
+                        if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin { pending.finish(.failure(CancellationError())) }
+                        else if error != nil { pending.finish(.failure(SOOPAuthError.browserUnavailable)) }
+                        else if let url { pending.finish(.success(url)) }
+                        else { pending.finish(.failure(ProductError.invalidResponse)) }
                     }
                 }
                 self.session = session
                 session.presentationContextProvider = self
                 session.prefersEphemeralWebBrowserSession = false
-                if !session.start() { finish(.failure(SOOPAuthError.browserUnavailable)) }
-            }
-        } onCancel: { Task { @MainActor [weak self] in if self?.operation == id { self?.cancel(operation: id) } } }
+                if !session.start() { pending.finish(.failure(SOOPAuthError.browserUnavailable)) }
+        }, onFinish: { [weak self, weak pending] in
+            guard let self, let pending, self.operation === pending else { return }
+            self.operation = nil
+            self.session?.cancel(); self.session = nil; self.anchor = nil
+        })
     }
     func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor { anchor ?? ASPresentationAnchor() }
     func deliver(_ url: URL, operation: UUID) -> Bool {
-        guard self.operation == operation, continuation != nil else { return false }
-        finish(.success(url)); return true
+        guard let pending = self.operation, pending.id == operation else { return false }
+        return pending.finish(.success(url))
     }
     func cancel(operation: UUID) {
-        guard self.operation == operation else { return }
-        finish(.failure(CancellationError()))
-    }
-    private func finish(_ result: Result<URL, any Error>) {
-        let continuation = continuation
-        self.continuation = nil; operation = nil
-        session?.cancel(); session = nil; anchor = nil
-        continuation?.resume(with: result)
+        guard let pending = self.operation, pending.id == operation else { return }
+        pending.finish(.failure(CancellationError()))
     }
 }
