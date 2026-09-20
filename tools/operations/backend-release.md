@@ -66,6 +66,11 @@ JSON/DSN을 shell argument, env, history, 로그에 넣지 않는다. 앱 instan
 실패/interrupt 시 bootstrap 503으로 유지하고 API/worker를 중단한다. 임시 migration container와
 secret을 정리하며 자동 DB down migration이나 M01 재시작은 하지 않는다. 호환되는 M02 이후 image로
 복귀하려면 현재 schema와 일치하는 새 승인 요청을 만든다. 기존 config 백업은 자동 삭제하지 않는다.
+Migration container 정리는 앱 활성화 전 필수 gate다. Docker timeout/OS 오류/비정상 종료에도
+독립 `finally`에서 임시 credential 파일을 unlink하며, 정확히 해당 container가 이미 없는 경우만
+정상으로 인정한다. 정리를 확인하지 못하면 성공 출력·앱 시작·완료 marker를 남기지 않는다.
+Docker 자체 장애에서는 unlink 후에도 기존 bind mount를 가진 orphan이 남을 수 있으므로
+해당 exact container의 종료·제거를 별도로 확인해야 한다. 파일 삭제만으로 권한 회수를 보장하지 않는다.
 Caddy rollback 오류가 나도 두 앱 중단을 각각 시도한다. host/Docker/systemd 장애로 복구 명령까지
 실패한 경우 503·앱 중단을 보장했다고 보고하지 않고 실제 경로/프로세스를 직접 확인한다.
 전원 장애/SIGKILL은 finally를 보장하지 않으므로 `/run` 잔여 파일·migration container·schema 상태와
