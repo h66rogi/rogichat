@@ -1,5 +1,6 @@
 import { current, imageContext, MediaError, receipt, record, stickerPage, uploadInput, uuid } from './contracts';
 import type { ImageContext, ImageKind, MediaLifetime, Receipt, StickerPage } from './contracts';
+import type { MediaByteBudget } from './byte-budget';
 
 // Covers the 50-item catalog, including escaped Unicode labels, with headroom.
 const MAX_METADATA_BYTES = 64 * 1024;
@@ -11,14 +12,20 @@ export interface MediaClientOptions {
   readonly csrf: () => string;
   readonly lifetime: MediaLifetime;
   readonly transport?: typeof fetch;
+  readonly verifySession?: (signal: AbortSignal) => Promise<void>;
+  readonly onUnauthorized?: () => void;
+  readonly budget?: MediaByteBudget;
 }
-export interface ImageLease { readonly blob: Blob; readonly expiresAt: number }
+export interface ImageLease { readonly blob: Blob; readonly expiresAt: number; readonly release?: () => void }
 export class MediaClient {
   readonly lifetime: MediaLifetime;
   private readonly origin: string;
   private readonly origins: ReadonlySet<string>;
   private readonly csrf: () => string;
   private readonly transport: typeof fetch;
+  private readonly verifySession: MediaClientOptions['verifySession'];
+  private readonly onUnauthorized: MediaClientOptions['onUnauthorized'];
+  private readonly budget: MediaByteBudget | undefined;
   constructor(options: MediaClientOptions) {
     if (!['https://api.qa.rogi.chat', 'https://api.rogi.chat'].includes(options.apiOrigin)) throw new MediaError('INVALID_ORIGIN');
     this.origin = options.apiOrigin;
@@ -28,6 +35,8 @@ export class MediaClient {
       return value;
     }));
     this.csrf = options.csrf; this.lifetime = options.lifetime;
+    this.verifySession = options.verifySession; this.onUnauthorized = options.onUnauthorized;
+    this.budget = options.budget;
     const transport = options.transport ?? fetch;
     this.transport = (input, init) => transport(input, init);
   }
@@ -52,7 +61,10 @@ export class MediaClient {
     let value: unknown;
     try {
       current(this.lifetime); requestSignal.throwIfAborted();
-      if (response.status !== expectedStatus) throw new MediaError('REQUEST_FAILED', response.status);
+      if (response.status !== expectedStatus) {
+        if (response.status === 401) this.onUnauthorized?.();
+        throw new MediaError('REQUEST_FAILED', response.status);
+      }
       if (!reader || response.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new MediaError('INVALID_RESPONSE');
       const declared = response.headers.get('content-length');
       if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_METADATA_BYTES)) throw new MediaError('INVALID_RESPONSE');
@@ -76,6 +88,8 @@ export class MediaClient {
       reader?.releaseLock();
     }
     current(this.lifetime); requestSignal.throwIfAborted();
+    await this.verifySession?.(requestSignal);
+    current(this.lifetime); requestSignal.throwIfAborted();
     return value;
   }
   async reserve(kind: ImageKind, file: Blob, roomId: string | undefined, signal: AbortSignal): Promise<Receipt> {
@@ -95,6 +109,19 @@ export class MediaClient {
     return stickerPage(await this.request(`/v1/rooms/${uuid(roomId)}/stickers${after === undefined ? '' : `?after=${uuid(after)}`}`, 200, signal));
   }
   async image(assetId: string, context: ImageContext, signal: AbortSignal): Promise<ImageLease> {
+    let reservation = this.budget?.reserve(10 * 1024 * 1024);
+    const owned = AbortSignal.any([signal, this.lifetime.signal]);
+    const release = () => { owned.removeEventListener('abort', release); reservation?.(); };
+    owned.addEventListener('abort', release, { once: true });
+    try {
+      owned.throwIfAborted(); const result = await this.imageBytes(assetId, context, signal); owned.throwIfAborted();
+      // Transfer is bounded at 10MiB; retained capacity follows verified bytes, not the worst-case cap.
+      reservation?.(); reservation = this.budget?.reserve(result.blob.size);
+      return { ...result, release };
+    }
+    catch (error) { release(); throw error; }
+  }
+  private async imageBytes(assetId: string, context: ImageContext, signal: AbortSignal): Promise<ImageLease> {
     // Start expiry before admission: a delayed response must never extend the URL lifetime.
     const expiresAt = Date.now() + 60_000;
     if (!this.origins.size) throw new MediaError('MEDIA_UNAVAILABLE');
@@ -128,6 +155,8 @@ export class MediaClient {
         chunks.push(new Uint8Array(part.value));
       }
       if (!size) throw new MediaError('INVALID_RESPONSE');
+      await this.verifySession?.(transferSignal);
+      current(this.lifetime); transferSignal.throwIfAborted();
       return { blob: new Blob(chunks, { type }), expiresAt };
     } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
   }

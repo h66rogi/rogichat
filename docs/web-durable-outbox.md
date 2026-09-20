@@ -99,3 +99,17 @@ and an injected native transaction quota failure. Production UI mounting and
 cold-restart/unknown-send browser verification are owned jointly with the
 controller integrator and remain required before product completion is claimed.
 No current QA real-account or deployment success is claimed.
+
+
+## Shared controller mount
+
+The production room passes the canonical environment to the durable owner. Full
+live session and complete membership-manifest checks authorize the store before
+recovery or writes. Unknown recovered records appear as receipt controls without
+restoring draft text; cold recovery performs GET only. Explicit retry performs
+receipt lookup and fresh authorization before same-ID SEND. New writes persist
+before POST, and confirmed receipts settle in IDB before the in-memory result and
+fresh server projection read. Storage failures retain input and expose an explicit
+reconnect control. Logout/confirmed authentication loss synchronously fences
+active stores, then completes the authority-fenced erasure before closing them.
+Product browser cold-restart evidence remains pending aggregate PR verification.

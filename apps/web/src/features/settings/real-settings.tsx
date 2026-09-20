@@ -7,6 +7,8 @@ import { PrivateGate } from '@/features/auth/auth-panel';
 import { clearLogoutPending, invalidateSession, setLogoutPending, usePrivateSession } from '@/features/auth/private-session';
 import { useRoom } from '@/features/channel/session/use-room';
 import { SettingsView } from './SettingsView';
+import { AvatarEditor } from '@/features/media/AvatarEditor';
+import { SessionMediaProvider } from '@/features/media/session-ui';
 import type { SettingsProfilePatch, SettingsViewModel } from './types';
 export function RealSettings() {
   const { state, refresh } = usePrivateSession();
@@ -23,20 +25,30 @@ function AccountSettings({ session, profile: initial, refresh }: { session: Sess
   const request = useRef<AbortController | null>(null);
   const loggingOut = useRef(false);
   const leaving = useRef(false);
+  const saving = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; request.current?.abort(); }; }, []);
-  const save = async (patch: SettingsProfilePatch) => {
-    if (busy) return;
+  const save = async (patch: SettingsProfilePatch & { avatarAssetId?: string | null }): Promise<boolean> => {
+    if (busy || saving.current) return false;
+    saving.current = true;
     setBusy(true); setNotice('');
     const controller = new AbortController(); request.current = controller;
     try {
       const next = await api.request<Profile>('/v1/me/profile', { method: 'PATCH', body: patch, csrf: session.csrfToken, signal: controller.signal });
-      if (!mounted.current) return;
-      setProfile(validateProfile(next)); setNotice('프로필을 저장했습니다.');
+      validateProfile(next);
+      // Reconcile from persisted state before displaying a newly attached avatar.
+      const confirmed = patch.avatarAssetId !== undefined ? await api.profile(controller.signal) : next;
+      const binding = await api.session(controller.signal);
+      if (!mounted.current) return false;
+      if (binding.csrfToken !== session.csrfToken || binding.soopLinkStatus !== 'VERIFIED') { invalidateSession(); return false; }
+      if (patch.avatarAssetId !== undefined && (confirmed.avatar?.assetId ?? null) !== patch.avatarAssetId) throw new ApiError(502, 'INVALID_PROFILE');
+      setProfile(validateProfile(confirmed)); setNotice('프로필을 저장했습니다.');
+      return true;
     } catch (e) {
-      if (!mounted.current) return;
-      if (e instanceof ApiError && [401, 403].includes(e.status)) { invalidateSession(); return; }
+      if (!mounted.current) return false;
+      if (e instanceof ApiError && [401, 403].includes(e.status)) { invalidateSession(); return false; }
       setNotice(e instanceof ApiError ? e.message : '저장 결과를 확인하지 못했습니다. 다시 확인한 뒤 저장해 주세요.');
-    } finally { if (mounted.current) setBusy(false); }
+      return false;
+    } finally { saving.current = false; if (mounted.current) setBusy(false); }
   };
   const logout = async () => {
     if (loggingOut.current) return;
@@ -75,5 +87,6 @@ function AccountSettings({ session, profile: initial, refresh }: { session: Sess
     session: { logout: { enabled: true } },
     account: { deletion: unavailable('계정 탈퇴 기능을 아직 제공하지 않습니다.') },
   };
-  return <><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={save} onLogout={logout} onLeaveRoom={leave} /></>;
+  return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLeaveRoom={leave}
+    avatarEditor={<AvatarEditor assetId={profile.avatar?.assetId ?? null} busy={busy} save={assetId => save({ avatarAssetId: assetId })} />} /></SessionMediaProvider>;
 }

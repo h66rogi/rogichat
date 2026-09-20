@@ -100,11 +100,16 @@ export function receipt(value: unknown, expected: string, transport: 'lookup' | 
 }
 export function projectMessages(messages: readonly ServerMessage[], viewerId: string, profiles: readonly ChatActorRef[]): ChatTimelineItem[] {
   return messages.map((item): ChatTimelineItem => {
-    if (item.content.type !== 'TEXT' || item.content.text === null) return { kind: 'unsupported', id: item.id, scope: item.audience, createdAt: item.createdAt, allowedActions: item.allowedActions };
-    if (item.author.kind === 'anonymous') return { kind: 'publication', id: item.id, body: item.content.text, createdAt: item.createdAt, allowedActions: item.allowedActions };
+    const content = item.content;
+    const media = content.type === 'PHOTO' && content.attachments.length > 0 && content.attachments.length <= 4 && content.attachments.every(a => a.variant === 'image' && a.width > 0 && a.height > 0)
+      ? { type: 'PHOTO' as const, assets: content.attachments }
+      : content.type === 'STICKER' ? { type: 'STICKER' as const, assets: [{ assetId: content.assetId, width: content.width, height: content.height }], stickerId: content.stickerId } : undefined;
+    if (!media && (content.type !== 'TEXT' || content.text === null)) return { kind: 'unsupported', id: item.id, scope: item.audience, createdAt: item.createdAt, allowedActions: item.allowedActions };
+    const body = content.type === 'TEXT' ? content.text! : '';
+    if (item.author.kind === 'anonymous') return { kind: 'publication', id: item.id, body, createdAt: item.createdAt, allowedActions: item.allowedActions, ...(media ? { media } : {}) };
     const author = item.author;
     const recipient = profiles.find(p => p.actorId === item.counterpart?.actorId);
-    return { kind: 'message', id: item.id, scope: item.audience, createdAt: item.createdAt, body: item.content.text, allowedActions: item.allowedActions,
+    return { kind: 'message', id: item.id, scope: item.audience, createdAt: item.createdAt, body, allowedActions: item.allowedActions, ...(media ? { media } : {}),
       ...(recipient ? { recipient } : {}), counterpartActorId: item.counterpart?.actorId ?? null,
       author: { actorId: author.actorId, displayName: author.nickname, avatarUrl: null, role: profiles.find(p => p.actorId === author.actorId)?.role }, isOwn: author.actorId === viewerId, status: 'saved',
       ...(item.quote ? { quote: { messageId: item.quote.id, authorName: '인용 메시지', excerpt: item.quote.content.text } } : {}) };

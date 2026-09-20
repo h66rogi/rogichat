@@ -1,3 +1,4 @@
+import { installMedia, MEDIA_ASSET, MEDIA_CSRF, TEST_IMAGE } from './media-fixture';
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import type { ServerMessage } from '../../src/features/chat/contract';
 import AxeBuilder from '@axe-core/playwright';
@@ -56,6 +57,40 @@ async function chatApi(page: Page) {
   });
   return { account, state, hint: () => { for (const socket of state.sockets) socket.send('42["sync.required",{"schemaVersion":1}]'); } };
 }
+
+test('READY photo retries the same command, preserves text draft and clears bytes on deletion', async ({ page }) => {
+  const { account, state, hint } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
+  const media = await installMedia(page); let fail = true;
+  const savedId = '66666666-6666-4666-8666-666666666666';
+  await page.route(`**/v1/rooms/${TEST_ROOM_ID}/messages`, async route => {
+    if (route.request().method() === 'OPTIONS') return json(route, null, 204);
+    const body = route.request().postDataJSON() as Record<string, unknown>; state.posts.push(body);
+    if (fail) return json(route, {}, 503);
+    state.messages.push({ ...incoming, id: savedId, author: { kind: 'member', actorId: TEST_ACTOR_ID, nickname: '테스트 팬', avatar: null }, content: { type: 'PHOTO', attachments: [{ assetId: MEDIA_ASSET, width: 1, height: 1, variant: 'image' }] } });
+    return json(route, { clientMessageId: body.clientMessageId, messageId: savedId, status: 'committed', version: '1' });
+  });
+  await page.goto('/chat');
+  await page.getByTestId('chat-composer-input').fill('별도로 보낼 글');
+  await page.getByRole('button', { name: '사진 첨부', exact: true }).click();
+  await page.getByLabel('이미지 선택', { exact: true }).setInputFiles(TEST_IMAGE);
+  await expect.poll(() => media.statusReads).toBeGreaterThan(0);
+  await expect(page.getByRole('button', { name: '사진 보내기', exact: true })).toBeDisabled();
+  media.ready = true;
+  await page.getByRole('button', { name: '이 이미지 사용' }).click();
+  await page.getByRole('button', { name: '사진 보내기', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: '전송 결과가 확인되지 않았습니다' })).toBeVisible();
+  fail = false; await page.getByRole('button', { name: '사진 보내기', exact: true }).click();
+  const image = page.getByRole('img', { name: '대화 사진 1' });
+  await expect(image).toBeVisible();
+  await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도로 보낼 글');
+  expect(state.posts).toHaveLength(2); expect(state.posts[0]).toEqual(state.posts[1]);
+  expect(state.posts[0]).toMatchObject({ intent: 'PRIVATE', recipientActorId: streamerId, content: { type: 'PHOTO', assetIds: [MEDIA_ASSET] } });
+  expect(media.accesses).toContainEqual({ variant: 'image', roomId: TEST_ROOM_ID, messageId: savedId });
+  const blob = await image.getAttribute('src'); expect(blob).toMatch(/^blob:/);
+  state.messages = [incoming]; state.deletedIds = [savedId]; hint();
+  await expect(image).toHaveCount(0);
+  expect(await page.evaluate(async url => fetch(url!).then(() => true, () => false), blob)).toBe(false);
+});
 
 test('real chat keeps IME and pending focus, surfaces failure and retries the same command', async ({ page }) => {
   const { state } = await chatApi(page);
@@ -434,4 +469,30 @@ test('room loss from reaction during held SEND scrubs before late send settles a
   await expect(page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true })).toHaveCount(0);
   release(); await expect(page.getByRole('button', { name: '전송 1 결과 조회', exact: true })).toBeEnabled();
   await expect(input).toHaveValue(''); expect(state.posts).toHaveLength(1);
+});
+
+test('catalog sticker selection sends its exact ID, retains selection on failure and preserves text', async ({ page }) => {
+  const { account, state } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
+  const media = await installMedia(page); const stickerId = '88888888-8888-4888-8888-888888888888';
+  let fail = true;
+  await page.route(`**/v1/rooms/${TEST_ROOM_ID}/stickers*`, route => json(route, { items: [{ id: stickerId, assetId: MEDIA_ASSET, label: '카탈로그 스티커' }], nextCursor: null }));
+  await page.route(`**/v1/rooms/${TEST_ROOM_ID}/messages`, async route => {
+    if (route.request().method() === 'OPTIONS') return json(route, null, 204);
+    const body = route.request().postDataJSON() as Record<string, unknown>; state.posts.push(body);
+    if (fail) return json(route, {}, 503);
+    return json(route, { clientMessageId: body.clientMessageId, messageId: incoming.id, status: 'committed', version: '1' });
+  });
+  await page.goto('/chat'); await page.getByTestId('chat-composer-input').fill('별도 글');
+  await page.getByRole('button', { name: '스티커 선택', exact: true }).click();
+  await expect(page.getByRole('button', { name: '스티커 보내기', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '카탈로그 스티커', exact: true }).click();
+  await expect(page.getByRole('img', { name: '선택한 스티커: 카탈로그 스티커' })).toBeVisible();
+  await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
+  await expect(page.getByText('전송 결과가 확인되지 않았습니다. 다시 보내기는 같은 전송 기록을 조회하고 현재 권한으로 재확인합니다.')).toBeVisible();
+  fail = false; await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
+  await expect(page.getByRole('button', { name: '스티커 보내기', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도 글');
+  expect(state.posts).toHaveLength(2); expect(state.posts[0]).toEqual(state.posts[1]);
+  expect(state.posts[0]?.content).toEqual({ type: 'STICKER', stickerId });
+  expect(media.accesses).toContainEqual({ variant: 'image', roomId: TEST_ROOM_ID, stickerId });
 });

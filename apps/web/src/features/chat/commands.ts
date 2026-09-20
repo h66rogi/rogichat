@@ -3,7 +3,7 @@ import type { Receipt, RoomMembership } from './contract';
 export interface SendPayload {
   readonly clientMessageId: string; readonly membershipScope: string;
   readonly intent: 'SHARED' | 'PRIVATE'; readonly recipientActorId?: string; readonly quoteId?: string;
-  readonly content: Readonly<{ type: 'TEXT'; text: string }>;
+  readonly content: Readonly<{ type: 'TEXT'; text: string } | { type: 'PHOTO' | 'VIDEO'; assetIds: readonly string[] } | { type: 'STICKER'; stickerId: string }>;
 }
 export interface PendingCommand {
   readonly status: 'unknown'; readonly clientMessageId: string;
@@ -31,8 +31,19 @@ export class SendCommands {
     }
     const clientMessageId = crypto.randomUUID();
     const command: PendingCommand = Object.freeze({ status: 'unknown', clientMessageId, accountPartition, sessionBinding, membershipGeneration, roomId: room.roomId,
-      payload: Object.freeze({ ...body, content: Object.freeze({ ...body.content }), clientMessageId, membershipScope: room.membershipScope }) });
+      payload: Object.freeze({ ...body, content: Object.freeze('assetIds' in body.content ? { ...body.content, assetIds: Object.freeze([...body.content.assetIds]) } : { ...body.content }), clientMessageId, membershipScope: room.membershipScope }) });
     this.records.set(clientMessageId, command); return command;
+  }
+  /** Import only records already fenced and sanitized by durable storage. Never populate composer drafts. */
+  restore(command: CommandRecord) {
+    const prior = this.records.get(command.clientMessageId);
+    if (prior?.status === 'deleted') return;
+    if (this.records.size >= 256 && !prior) throw new Error('COMMAND_CAPACITY');
+    if (command.status === 'unknown' && 'payload' in command) {
+      const content = command.payload.content;
+      this.records.set(command.clientMessageId, Object.freeze({ ...command, payload: Object.freeze({ ...command.payload,
+        content: Object.freeze('assetIds' in content ? { ...content, assetIds: Object.freeze([...content.assetIds]) } : { ...content }) }) }));
+    } else this.records.set(command.clientMessageId, Object.freeze({ ...command }));
   }
   settle(result: Receipt) {
     const prior = this.records.get(result.clientMessageId);

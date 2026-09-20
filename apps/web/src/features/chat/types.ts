@@ -6,7 +6,10 @@
  * items and their own PRIVATE conversation; that projection happens before this layer.
  */
 
+import type { MediaUpload } from '../media/upload';
+import type { StickerCatalog } from '../media/sticker-catalog';
 export type ChatScope = 'SHARED' | 'PRIVATE';
+export interface ChatImageContent { type: 'PHOTO' | 'STICKER'; assets: readonly { assetId: string; width: number; height: number }[]; stickerId?: string }
 
 export type ChatViewerRole = 'FAN' | 'STREAMER';
 
@@ -45,6 +48,7 @@ export interface ChatMessageItemModel {
   recipient?: ChatActorRef;
   isOwn: boolean;
   body: string;
+  media?: ChatImageContent;
   /** ISO 8601 timestamp. */
   createdAt: string;
   status: ChatMessageStatus;
@@ -62,6 +66,7 @@ export interface ChatPublicationItemModel {
   allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
   id: string;
   body: string;
+  media?: ChatImageContent;
   createdAt: string;
 }
 
@@ -82,6 +87,9 @@ export interface ChatComposerSubmission {
   target: ChatComposerTarget;
   body: string;
   quoteMessageId?: string;
+  /** Actual READY upload owned by this draft, never a caller-invented asset ID. */
+  photo?: MediaUpload;
+  sticker?: StickerCatalog;
   retryCommandId?: string;
 }
 

@@ -4,6 +4,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { WifiOff } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { useMediaScope } from '@/features/media/session-ui';
+import { PhotoDraftComposer } from './ChatMedia';
+import { StickerPicker } from './StickerPicker';
 import { cn } from '@/shared/lib/cn';
 
 import type { ComposerStore } from './chat-memory';
@@ -104,6 +108,9 @@ function ScopedChatRoom({
   connectionNotice,
   className,
 }: ChatRoomViewProps) {
+  const media = useMediaScope();
+  const [photoTargets, setPhotoTargets] = useState<Record<string, ChatComposerTarget>>({});
+  const [stickerTarget, setStickerTarget] = useState<ChatComposerTarget | null>(null);
   const permittedFans = useMemo(() => fanRecipients ?? (fanRecipient ? [fanRecipient] : EMPTY_RECIPIENTS), [fanRecipients, fanRecipient]);
   const authorization = useMemo(
     () => ({ viewerRole, fanRecipient, fanRecipients: permittedFans, streamerRecipients }),
@@ -361,6 +368,24 @@ function ScopedChatRoom({
         announcement={announcement}
         disabled={onSubmit === undefined}
       />
+      {onSubmit && <div className="border-t border-line px-3 py-2">
+        <Button type="button" variant="outline" disabled={!target || !media?.configured || (Object.keys(photoTargets).length >= 2 && !photoTargets[draftKeyFor(target)])} onClick={() => {
+          if (target) { commitTarget(); setPhotoTargets(previous => previous[draftKeyFor(target)] || Object.keys(previous).length < 2 ? { ...previous, [draftKeyFor(target)]: target } : previous); }
+        }}>사진 첨부</Button>
+        <Button type="button" className="ml-2" variant="outline" disabled={!target || !media?.configured} onClick={() => {
+          if (target) { commitTarget(); setStickerTarget(target); }
+        }}>스티커 선택</Button>
+        {Object.keys(photoTargets).length >= 2 && <p className="text-sm text-muted">사진 첨부는 두 대화까지 유지됩니다. 다른 사진을 준비하려면 열어 둔 첨부를 닫아 주세요.</p>}
+        {!media?.configured && <p className="text-sm text-muted">지금은 사진 첨부를 사용할 수 없습니다.</p>}
+      </div>}
+      {onSubmit && stickerTarget && isAuthorizedTarget(stickerTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(stickerTarget) !== currentKey}>
+        <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} onClose={() => setStickerTarget(null)} />
+      </div>}
+      {onSubmit && Object.entries(photoTargets).filter(([, value]) => isAuthorizedTarget(value, authorization)).map(([key, value]) => <div key={key} hidden={key !== currentKey} className="max-h-96 overflow-y-auto">
+        <PhotoDraftComposer target={value} onSubmit={onSubmit} onClose={() => setPhotoTargets(previous => {
+          const next = { ...previous }; delete next[key]; return next;
+        })} />
+      </div>)}
     </section>
   );
 }

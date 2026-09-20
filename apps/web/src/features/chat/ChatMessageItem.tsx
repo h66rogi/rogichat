@@ -6,6 +6,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
 import { cn } from '@/shared/lib/cn';
 
 import { ReactionControl } from './ReactionControl';
+import { ChatMediaImages } from './ChatMedia';
 import { DeleteMessageControl } from './DeleteMessageControl';
 import { formatTimeLabel, parseIsoDate } from './formatters';
 import type {
@@ -61,7 +62,7 @@ function MessageRow({
 }) {
   const isOwn = item.isOwn;
   const isPrivate = item.scope === 'PRIVATE';
-  const canReply = item.allowedActions?.reply === true && onReplyPrivate !== undefined;
+  const canReply = !item.media && item.allowedActions?.reply === true && onReplyPrivate !== undefined;
   const timeLabel = timeLabelFor(item.createdAt);
 
   return (
@@ -96,7 +97,7 @@ function MessageRow({
               item.status === 'rejected' && 'opacity-80',
             )}
           >
-            {item.body}
+            {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : item.body}
           </div>
 
           <div className="flex shrink-0 flex-col items-end gap-0.5 pb-0.5 text-[12px] text-muted">
@@ -219,7 +220,7 @@ function PublicationRow({ item, onDelete }: { item: ChatPublicationItemModel; on
           </span>
           <time dateTime={item.createdAt}>{timeLabelFor(item.createdAt)}</time>
         </div>
-        <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>
+        {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>}
         <ReactionControl messageId={item.id} />
         {item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
       </div>
