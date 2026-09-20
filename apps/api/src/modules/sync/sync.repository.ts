@@ -5,8 +5,8 @@ import type { Transaction } from '../../infrastructure/database/transactions.js'
 export class SyncRepository {
 async clock(tx: Transaction): Promise<Date> { return (await tx.rows<RowDataPacket>('SELECT UTC_TIMESTAMP(3) AS now'))[0]!.now as Date; }
   async state(tx: Transaction, actorId: string) {
-    const row = await tx.prisma.room_members.findUnique({ where: { id: actorId }, select: { acl_epoch: true, user: { select: { membership_generation: true } }, room: { select: { policy_version: true, counter: { select: { last_order: true } } } } } });
-    return row?.room.counter ? [{ acl_epoch: String(row.acl_epoch), policy_version: row.room.policy_version, membership_generation: String(row.user.membership_generation), last_order: String(row.room.counter.last_order) }] : [];
+    const row = await tx.prisma.room_members.findUnique({ where: { id: actorId }, select: { acl_epoch: true, user: { select: { membership_generation: true } }, room: { select: { policy_version: true, content_epoch: true, counter: { select: { last_order: true } } } } } });
+    return row?.room.counter ? [{ acl_epoch: String(row.acl_epoch), policy_version: row.room.policy_version, content_epoch: String(row.room.content_epoch), membership_generation: String(row.user.membership_generation), last_order: String(row.room.counter.last_order) }] : [];
   }
   async grants(tx: Transaction, roomId: string, actorId: string) {
     const now = await tx.now();

@@ -97,6 +97,13 @@ export class NotificationsCoreService {
   }
   revokeSession(tx: Transaction, sessionId: string): Promise<number> { return this.repository.revokeSession(tx, sessionId); }
   invalidateSubscription(tx: Transaction, id: string, generation: bigint): Promise<number> { return this.repository.invalidate(tx, id, generation); }
+  // MESSAGE purge holds the current blocked message/room lock. This port only
+  // removes its fanout/delivery jobs and intents, never recipient preferences.
+  purgeMessage(tx: Transaction, roomId: string, messageId: string, limit: number): Promise<{ deleted: number; done: boolean }> {
+    if (!tx.writable) throw new Error('transaction_not_writable');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new Error('invalid_purge_limit');
+    return this.repository.purgeMessage(tx, roomId, messageId, limit);
+  }
   purgeAccount(tx: Transaction, userId: string, limit: number): Promise<{ deleted: number; done: boolean }> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new Error('invalid_purge_limit');
     return this.repository.purgeAccount(tx, userId, limit);

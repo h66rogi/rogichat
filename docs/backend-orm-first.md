@@ -338,3 +338,13 @@ returned with the lock itself to defeat older repeatable-read snapshots. All
 creates, updates, bounded binding cleanup and ordinary lookup operations use
 Prisma; external ledger I/O remains outside transactions. See
 [ACCOUNT admission](backend-account-deletion-admission.md) for ordering and limits.
+
+## MESSAGE physical-row subset
+
+`modules/deletion/message-purge.repository.ts` retains individual bound current
+locking reads for immutable intent, account, room, message, deletion request and
+last job fence. `DeletionRepository.messageExists` is a current root-existence
+lock for replay after physical deletion; a failed author check is not absence. All discovery/CRUD uses Prisma after those parent locks in a fresh
+transaction. The job clock is sampled after lock acquisition. See
+[the bounded purge contract](backend-message-row-purge.md) for deferred media,
+retained dedupe metadata and cursor invalidation; no runtime handler is installed.
