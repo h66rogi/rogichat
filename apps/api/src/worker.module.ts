@@ -16,6 +16,10 @@ import { PublicationsCoreService } from './modules/publications/publications-cor
 import { MediaWorkerModule } from './modules/media/media-worker.module.js';
 import { MediaCopyService } from './modules/media/media-copy.service.js';
 import { MediaWorkerService } from './modules/media/media-worker.service.js';
+import { PushModule, PushTransportModule } from './modules/notifications/push-module.js';
+import { PushDeliveryService } from './modules/notifications/push-delivery.service.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { NotificationFanoutModule, NotificationFanoutService } from './modules/notifications/notification-fanout.service.js';
 
 @Module({})
 export class WorkerModule {
@@ -24,12 +28,15 @@ export class WorkerModule {
   }
   static production(settings: RuntimeSettings): DynamicModule {
     const infrastructure = DatabaseModule.register({ config: settings.config });
+    const push = settings.push ?? { audience: `rogi-${settings.config.environment}`, vapid: null };
+    const transport = PushTransportModule.register(push);
     return { module: WorkerModule, imports: [infrastructure, JobsModule.register(infrastructure, 'worker'), PublicationsCoreModule,
+      PushModule.register(infrastructure, NotificationsModule, transport), NotificationFanoutModule.register(infrastructure, push.audience),
       ...(settings.media ? [MediaWorkerModule.register(infrastructure, settings.media)] : [])], providers: [
       { provide: SafeLogger, useFactory: () => new SafeLogger('worker') }, WorkerRuntimeService,
-      { provide: WorkerLoop, inject: [Jobs, LifecycleState, Transactions, PublicationsCoreService, DATABASE, ...(settings.media ? [MediaWorkerService, MediaCopyService] : [])],
-        useFactory: (jobs: Jobs, lifecycle: LifecycleState, transactions: Transactions, publications: PublicationsCoreService, database: Database, media?: MediaWorkerService, copies?: MediaCopyService) => new WorkerLoop(jobs, lifecycle,
-          { PUBLICATION: lease => copies ? copies.processPublication(lease) : publications.publishText(transactions, lease), ...(media ? { MEDIA: media.processMedia.bind(media) } : {}) },
+      { provide: WorkerLoop, inject: [Jobs, LifecycleState, Transactions, PublicationsCoreService, DATABASE, PushDeliveryService, NotificationFanoutService, ...(settings.media ? [MediaWorkerService, MediaCopyService] : [])],
+        useFactory: (jobs: Jobs, lifecycle: LifecycleState, transactions: Transactions, publications: PublicationsCoreService, database: Database, delivery: PushDeliveryService, fanout: NotificationFanoutService, media?: MediaWorkerService, copies?: MediaCopyService) => new WorkerLoop(jobs, lifecycle,
+          { PUBLICATION: lease => copies ? copies.processPublication(lease) : publications.publishText(transactions, lease), PUSH: lease => lease.roomId === null ? fanout.consume(lease) : delivery.consume(lease), ...(media ? { MEDIA: media.processMedia.bind(media) } : {}) },
           { ready: async () => (await database.check()).ready, leaseMs: settings.media ? 300000 : 30000 }) },
     ] };
   }

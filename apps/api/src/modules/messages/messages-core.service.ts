@@ -92,6 +92,9 @@ export class MessagesCoreService {
   async recordEvent(tx: Transaction, row: { id: string; room_id: string; stream_id: string }, version: string, order: bigint, kind: 'MESSAGE_CREATED' | 'MESSAGE_DELETED' | 'MESSAGE_UPDATED') {
     const id = await this.repository.event(tx, row, version, order, kind);
     await this.jobs.enqueue(tx, { purpose: 'REALTIME_HINT', roomId: row.room_id, resourceId: id, dedupeKey: digest(`hint:${id}`) });
+    // Body-free fanout intent; recipient discovery stays out of the message tx.
+    // NULL room distinguishes it from PUSH delivery intents (which carry a room).
+    if (kind === 'MESSAGE_CREATED') await this.jobs.enqueue(tx, { purpose: 'PUSH', resourceId: row.id, dedupeKey: digest(`push-fanout:${row.id}`) });
   }
 
   // Caller revalidates the current session/account/SOOP on this SAME transaction handle.

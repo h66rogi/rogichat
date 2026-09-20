@@ -306,3 +306,24 @@ barrier observes the new ORM owner-reference read while retaining the original
 concurrency assertion. Other unit fixture adapters and moved imports are coordinated
 with the Nest worker. This ownership list does not transfer unrelated source,
 mobile, infrastructure or security edits to the ORM worker.
+
+## M11 scoped SQL exceptions
+
+Ordinary own-state, preference, subscription, delivery and fanout persistence uses
+generated Prisma operations on the caller transaction. New fixed-identifier,
+bound-value SQL is limited to these cases:
+
+- Read-state room locks preserve room-before-member ordering for advancement and
+  leave/rejoin races.
+- Notification account/session/SOOP, preference and subscription current reads
+  serialize registration and dispatch with revocation, account deletion and CAS.
+- Push intent production locks current recipient/source/root state before adding
+  references that account deletion must subsequently remove.
+- Push delivery explicitly locks the room before membership/message checks.
+  Delivery and fanout lease admission/completion lock the job first, then sample
+  fresh DB time, preventing expiry during a lock wait from admitting an effect.
+- Bounded account purge joins polymorphic PUSH fanout resource IDs to message/root
+  ownership before LIMIT; jobs have no Prisma relation for that resource union.
+
+No external provider or DNS I/O occurs under those locks. M10 callers must fence
+the account before invoking the exported bounded cleanup services.

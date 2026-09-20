@@ -163,7 +163,10 @@ test('actual worker SIGKILL and restart process durable publication without clai
   await waitFor(() => first.output().includes('started')); first.proc.kill('SIGKILL');
   const [code, signal] = await first.exited; assert.equal(code, null); assert.equal(signal, 'SIGKILL');
   assert.equal((await f.status(publication.publicationId)).status, 'preparing');
-  await f.db.transactions.write(tx => tx.execute("UPDATE jobs SET available_at=UTC_TIMESTAMP(3) WHERE purpose='PUBLICATION' AND resource_id=?", [publication.publicationId]));
+  // Earlier integration fixtures leave PUSH work in the shared disposable DB.
+  // Give this test's own publication first FIFO eligibility; this verifies
+  // process durability, not a cross-purpose queue latency/fairness guarantee.
+  await f.db.transactions.write(tx => tx.execute("UPDATE jobs SET available_at=TIMESTAMPADD(HOUR,-1,UTC_TIMESTAMP(3)) WHERE purpose='PUBLICATION' AND resource_id=?", [publication.publicationId]));
   const second = child('worker', { DATABASE_URL: process.env.DATABASE_URL }); f.children.push(second);
   await waitFor(() => second.output().includes('started'));
   await waitFor(async () => (await f.status(publication.publicationId)).status === 'published', 15000);
