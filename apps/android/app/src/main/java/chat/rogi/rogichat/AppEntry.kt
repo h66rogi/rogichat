@@ -162,7 +162,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("talks") {
                 ProductPage(if (session.access == ShellAccess.SIGNED_OUT) "로기챗" else "대화", scroll = false) {
                     when (session.access) {
-                        ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy || authState.active || deletionState.blocksSession, sessionModel::signIn, session.notice)
+                        ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy || authState.active || deletionState.blocksSession, sessionModel::signIn, session.notice, services.access?.let { sessionModel::password }, services.auth?.rulesUrl)
                         ShellAccess.LINK_REQUIRED -> LinkAccountScreen(operation.busy || authState.active, if (services.actions?.canLinkSoop == true) sessionModel::linkSoop else null)
                         ShellAccess.READY -> if (services.rooms != null && session.accountPartition != null) {
                             val roomsModel: RoomsViewModel = viewModel { RoomsViewModel(services.rooms, RoomsAccountScope(requireNotNull(privateAccount).id, session.generation, requireNotNull(session.accountPartition))) }
@@ -196,6 +196,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                         onAccount = if (privateAccount != null) ({ open("account") }) else null,
                         onAppearance = { open("appearance") }, onNotifications = { open("notifications") }, onAbout = { open("about") },
                         onBlocks = if (session.access == ShellAccess.READY && services.blocks != null && session.accountPartition != null) ({ open("blocks") }) else null,
+                        accessSection = { if (privateAccount != null && services.access != null) AccountAccessSettings(services.access, renderedIdentity, operation.busy, sessionModel::password) },
                         profileModel = profileModel, avatar = { profile ->
                             if (session.access == ShellAccess.READY && services.accountMedia != null && session.accountPartition != null)
                                 chat.rogi.rogichat.feature.media.AccountProfileAvatar(services.accountMedia, renderedIdentity, profile.avatarAssetId)

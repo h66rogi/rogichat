@@ -35,9 +35,9 @@ export class MessagesCoreService {
     // The publisher actor remains the policy subject without exposing it in DTOs.
     if (await this.access.actorBlocked(tx, row.room_id, viewer.id, row.sender_member_id)) return false;
     const grant = row.stream_kind === 'RESTRICTED' ? await this.repository.grant(tx, row.room_id, row.stream_id, viewer.id) : undefined;
-    const allowed = canReadMessage({ accountActive: true, soopLinked: true, roomId: viewer.room_id, memberRoomId: viewer.room_id,
+    const allowed = canReadMessage({ accountActive: true, chatEnabled: true, roomId: viewer.room_id, memberRoomId: viewer.room_id,
       roomActive: true, memberId: viewer.id, memberActive: true, periodActive: true,
-      visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: null }, {
+      visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: null, delegated: Boolean(viewer.temporaryGrantId) }, {
       roomId: row.room_id, streamId: row.stream_id, streamRoomId: row.room_id, streamKind: row.stream_kind,
       order: BigInt(row.created_order), deleted: row.deleted_at !== null, moderated: Number(row.moderated) === 1,
       deletionRootBlocked: Number(row.root_blocked) === 1 || ['DELETING', 'DELETED'].includes(row.content_owner_status),
@@ -53,7 +53,10 @@ export class MessagesCoreService {
     let quote: { id: string; content: { type: 'TEXT'; text: string } } | null = null;
     if (row.quote_id && !row.deletion_root_id) {
       const source = await this.load(tx, row.room_id, row.quote_id);
-      if (source && (source.stream_kind === 'ROOM_SHARED' || source.stream_id === row.stream_id) && await this.readable(tx, viewer, source) && source.content_kind === 'TEXT' && source.text_content !== null) {
+      const sameAudience = source && (source.stream_kind === 'ROOM_SHARED' || source.stream_id === row.stream_id ||
+        row.stream_kind === 'RESTRICTED' && source.sender_member_id !== row.sender_member_id &&
+        Boolean(await this.repository.quotePair(tx, row.room_id, row.stream_id, row.sender_member_id, source.sender_member_id)));
+      if (source && sameAudience && await this.readable(tx, viewer, source) && source.content_kind === 'TEXT' && source.text_content !== null) {
         quote = { id: source.id, content: { type: 'TEXT', text: source.text_content } };
       }
     }
@@ -92,10 +95,12 @@ export class MessagesCoreService {
     const members = [viewer.id, input.recipientActorId!].sort() as [string, string];
     const pair = await this.repository.pair(tx, viewer.room_id, members);
     const streamId = pair ? String(pair.stream_id) : randomUUID();
-    if (!pair) await this.repository.createPair(tx, viewer.room_id, streamId, members);
+    // The delegated participant receives NO durable private read/send authority.
+    // Their live room grant supplies it; the real recipient retains their reply.
+    if (!pair) await this.repository.createPair(tx, viewer.room_id, streamId, members, viewer.temporaryGrantId ? viewer.id : target.delegated ? target.id : undefined);
     // Existing pairs never repair revoked grants, including after a participant rejoins.
     const grants = await this.repository.sendGrants(tx, viewer.room_id, streamId, members);
-    if (grants.length !== 2 || grants.some(g => Number(g.can_read) !== 1) || !grants.some(g => g.member_id === viewer.id && Number(g.can_send) === 1)) throw new ApiError('FORBIDDEN', 403);
+    if (grants.length !== 2 || !grants.every(g => g.member_id === viewer.id ? Boolean(viewer.temporaryGrantId) || Number(g.can_read) === 1 && Number(g.can_send) === 1 : Boolean(target.delegated) || Number(g.can_read) === 1)) throw new ApiError('FORBIDDEN', 403);
     return streamId;
   }
 
@@ -141,14 +146,24 @@ export class MessagesCoreService {
       const grant = await this.repository.sendGrants(tx, roomId, streamId, [viewer.id, viewer.id]);
       if (grant.length !== 1 || Number(grant[0]!.can_read) !== 1 || Number(grant[0]!.can_send) !== 1) throw new ApiError('FORBIDDEN', 403);
     } else {
-      await this.access.requireRoomSendOwner(tx, roomId, room.owner_member_id, owner);
+      const delegatedTarget = input.intent === 'PRIVATE' && (await this.repository.target(tx, roomId, input.recipientActorId!))?.delegated;
+      if (!viewer.temporaryGrantId && !delegatedTarget) await this.access.requireRoomSendOwner(tx, roomId, room.owner_member_id, owner);
       if (input.intent === 'ROOM_OWNER' && (viewer.mode !== 'FAN' || viewer.role !== 'FAN')) throw new ApiError('FORBIDDEN', 403);
       streamId = await this.sendStream(tx, viewer, input.intent === 'ROOM_OWNER'
         ? { ...input, intent: 'PRIVATE', recipientActorId: room.owner_member_id } : input);
     }
     if (input.quoteId) {
       const quote = await this.load(tx, roomId, input.quoteId);
-      if (!quote || !await this.readable(tx, viewer, quote) || (quote.stream_kind !== 'ROOM_SHARED' && quote.stream_id !== streamId)) throw new ApiError('NOT_FOUND', 404);
+      if (!quote || !await this.readable(tx, viewer, quote)) throw new ApiError('NOT_FOUND', 404);
+      if (quote.stream_kind !== 'ROOM_SHARED' && quote.stream_id !== streamId) {
+        // A temporary operator may answer an owner's inbox back to its actual
+        // original fan only. This is not forwarding to a different audience.
+        if (!viewer.temporaryGrantId || input.intent !== 'PRIVATE' || input.recipientActorId !== quote.sender_member_id || quote.deletion_root_id) throw new ApiError('NOT_FOUND', 404);
+        const target = await this.repository.target(tx, roomId, input.recipientActorId);
+        if (!target || target.role !== 'FAN') throw new ApiError('NOT_FOUND', 404);
+        const peer = await this.access.requireActiveMember(tx, roomId, target.user_id);
+        if (!await this.readable(tx, peer, quote) || !await this.repository.quotePair(tx, roomId, streamId, viewer.id, peer.id)) throw new ApiError('NOT_FOUND', 404);
+      }
     }
     const id = randomUUID(); const order = await this.roomState.nextOrder(tx, roomId);
     if (input.content.type === 'STICKER') await this.stickers.requireSend(tx, roomId, input.content.stickerId);

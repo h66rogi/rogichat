@@ -1,6 +1,7 @@
 import { affected } from '../../infrastructure/database/transactions.js';
 import type { Prisma } from '../../generated/prisma/client.js';
-import { Injectable } from '@nestjs/common';
+import { chatUser } from '../auth/chat-entitlement.js';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import type { ActiveMember } from '../access/membership.repository.js';
 import { canonicalProfileId } from '../auth/soop-profile.contract.js';
@@ -31,6 +32,15 @@ function projectProfile(row: SelectedProfile, active = true): ProfileRow {
 
 @Injectable()
 export class UsersRepository {
+  private async delegates(tx: Transaction, roomId: string, actorId?: string) {
+    const rows = await tx.prisma.room_test_grants.findMany({ where: { room_id: roomId,
+      ...(actorId ? { member_id: actorId } : {}), revoked_at: null, expires_at: { gt: await tx.now() },
+      member: { role: 'FAN', status: 'ACTIVE', room: { mode: 'FAN', status: 'ACTIVE' },
+        active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', admin: { is: { manage_test_access: true } } } } },
+      take: 10001, select: { member_id: true, period_id: true, member: { select: { active_period_id: true } } } });
+    if (rows.length > 10000) throw new ServiceUnavailableException();
+    return new Set(rows.filter(row => row.period_id === row.member.active_period_id).map(row => row.member_id));
+  }
   async selfSoop(tx: Transaction, userId: string) {
     const row = await tx.prisma.platform_soop.findUnique({ where: { user_id: userId }, select: { status: true, provider_subject: true,
       profile_image_url: true, user: { select: { profile: { select: { avatar_customized: true, avatar_asset_id: true, provider_profile_initialized: true } } } } } });
@@ -69,24 +79,28 @@ export class UsersRepository {
     return tx.prisma.profile_changes.create({ data: { id: change, user_id: userId, public_changed: publicChanged, streamer_changed: streamerChanged }, select: { id: true } });
   }
   async actor(tx: Transaction, roomId: string, actorId: string) {
-    const rows = await tx.prisma.room_members.findMany({ where: { room_id: roomId, id: actorId, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } }, profile: { isNot: null } } }, select: { id: true, role: true, active_period_id: true, user: { select: { profile: { select: profileSelect } } } } });
-    return rows.map(row => ({ ...projectProfile(row.user.profile!), actor_id: row.id, role: row.role as ActiveMember['role'], active_period_id: row.active_period_id! }));
+    const delegated = (await this.delegates(tx, roomId, actorId)).has(actorId);
+    const rows = await tx.prisma.room_members.findMany({ where: { room_id: roomId, id: actorId, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { ...chatUser(await tx.now()), profile: { isNot: null } } }, select: { id: true, role: true, active_period_id: true, user: { select: { profile: { select: profileSelect } } } } });
+    return rows.map(row => ({ ...projectProfile(row.user.profile!), actor_id: row.id, role: (delegated ? 'STREAMER' : row.role) as ActiveMember['role'], active_period_id: row.active_period_id! }));
   }
-  actorAvatar(tx: Transaction, roomId: string, actorId: string) {
+  async actorAvatar(tx: Transaction, roomId: string, actorId: string) {
     // Access proof only: no nickname, birthday or provider identity is loaded.
-    return tx.prisma.room_members.findFirst({ where: { room_id: roomId, id: actorId, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } } }, select: {
+    const delegated = (await this.delegates(tx, roomId, actorId)).has(actorId);
+    const row = await tx.prisma.room_members.findFirst({ where: { room_id: roomId, id: actorId, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { ...chatUser(await tx.now()) } }, select: {
       id: true, role: true, user_id: true,
       user: { select: { profile: { select: { avatar: { select: { id: true, owner_user_id: true, kind: true, room_id: true, state: true, deleted_at: true } } } } } },
     } });
+    return row ? { ...row, role: delegated ? 'STREAMER' as const : row.role } : null;
   }
   async manifestCandidates(tx: Transaction, roomId: string, actorId: string, after: string) {
     const blocks = await tx.prisma.actor_blocks.findMany({ where: { room_id: roomId, blocker_actor_id: actorId }, select: { target_actor_id: true } });
-    return tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { gt: after, notIn: blocks.map(row => row.target_actor_id) }, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } } }, orderBy: { id: 'asc' }, take: 51, select: { id: true } });
+    return tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { gt: after, notIn: blocks.map(row => row.target_actor_id) }, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { ...chatUser(await tx.now()) } }, orderBy: { id: 'asc' }, take: 51, select: { id: true } });
   }
   async syncProfiles(tx: Transaction, role: string, birthdayRole: string, roomId: string, mode: string, visibilityRole: string, actorId: string) {
+    const delegates = await this.delegates(tx, roomId);
     const blocks = await tx.prisma.actor_blocks.findMany({ where: { room_id: roomId, blocker_actor_id: actorId }, select: { target_actor_id: true } });
-    const rows = await tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { notIn: blocks.map(row => row.target_actor_id) }, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } }, profile: { isNot: null } }, ...(mode === 'GROUP' || visibilityRole === 'STREAMER' ? {} : { OR: [{ role: 'STREAMER' as const }, { id: actorId }] }) }, orderBy: { id: 'asc' }, take: 10001, select: { id: true, role: true, user: { select: { profile: { select: profileSelect } } } } });
-    return rows.map(row => { const profile = projectProfile(row.user.profile!); return { id: row.id, role: row.role, nickname: profile.nickname, avatar_id: profile.visible_avatar_id, provider_avatar_available: profile.provider_avatar_url !== null, month: role === 'STREAMER' && profile.birthday_visible_to_streamers === 1 ? profile.birthday_month : null, day: birthdayRole === 'STREAMER' && profile.birthday_visible_to_streamers === 1 ? profile.birthday_day : null }; });
+    const rows = await tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { notIn: blocks.map(row => row.target_actor_id) }, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { ...chatUser(await tx.now()), profile: { isNot: null } }, ...(mode === 'GROUP' || visibilityRole === 'STREAMER' ? {} : { OR: [{ role: 'STREAMER' as const }, { id: actorId }, { id: { in: [...delegates] } }] }) }, orderBy: { id: 'asc' }, take: 10001, select: { id: true, role: true, user: { select: { profile: { select: profileSelect } } } } });
+    return rows.map(row => { const profile = projectProfile(row.user.profile!); return { id: row.id, role: delegates.has(row.id) ? 'STREAMER' as const : row.role, nickname: profile.nickname, avatar_id: profile.visible_avatar_id, provider_avatar_available: profile.provider_avatar_url !== null, month: role === 'STREAMER' && profile.birthday_visible_to_streamers === 1 ? profile.birthday_month : null, day: birthdayRole === 'STREAMER' && profile.birthday_visible_to_streamers === 1 ? profile.birthday_day : null }; });
   }
 
 }

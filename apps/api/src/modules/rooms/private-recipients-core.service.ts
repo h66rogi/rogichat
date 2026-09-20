@@ -31,14 +31,13 @@ export class PrivateRecipientsCoreService {
       const pairs = candidates.length ? await this.repository.pairs(tx, roomId, viewer.id, candidates.map(candidate => candidate.id), now) : [];
       const byRecipient = new Map(pairs.map(pair => [pair.left_member_id === viewer.id ? pair.right_member_id : pair.left_member_id, pair]));
       for (const candidate of candidates) {
-        if (blocked.has(candidate.id)) continue;
+        if (candidate.id === viewer.id || blocked.has(candidate.id)) continue;
         if (!candidate.active_period || candidate.active_period.member_id !== candidate.id ||
           candidate.active_period.room_id !== roomId || candidate.active_period.left_at !== null) continue;
         const pair = byRecipient.get(candidate.id);
         if (pair) {
           const grants = pair.stream.grants.filter(grant => grant.member_id === viewer.id || grant.member_id === candidate.id);
-          if (pair.stream.room_id !== roomId || pair.stream.kind !== 'RESTRICTED' || grants.length !== 2 || grants.some(grant => !grant.can_read) ||
-            !grants.some(grant => grant.member_id === viewer.id && grant.can_send)) continue;
+          if (pair.stream.room_id !== roomId || pair.stream.kind !== 'RESTRICTED' || grants.length !== 2 || !grants.every(grant => grant.member_id === viewer.id ? Boolean(viewer.temporaryGrantId) || grant.can_read && grant.can_send : candidate.delegated || grant.can_read)) continue;
         }
         const profile = candidate.user.profile;
         if (!profile) continue;

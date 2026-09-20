@@ -11,7 +11,7 @@ extension SOOPRequesting {
     }
 }
 enum SOOPRequest: Sendable {
-    case start(SOOPStart), exchange(SOOPExchange)
+    case start(SOOPStart), exchange(SOOPExchange), password(PasswordInput)
     func request(environment: NativeEnvironment, credential: NativeCredential?) throws -> URLRequest {
         let path: String
         let body: Data
@@ -19,6 +19,9 @@ enum SOOPRequest: Sendable {
         case .start(let input):
             guard input.intent == .login ? credential == nil && input.termsVersion == "2026-09-20" : credential != nil && input.termsVersion == nil else { throw SOOPAuthError.invalidRequest }
             path = "auth/native/soop/transactions"; body = try JSONEncoder().encode(input)
+        case .password(let input):
+            guard input.changing == (credential != nil) else { throw ProductError.sessionChanged }
+            path = input.changing ? "auth/password/change" : "auth/password/login"; body = try input.body()
         case .exchange(let input): path = "auth/native/completions/exchange"; body = try JSONEncoder().encode(input)
         }
         var request = URLRequest(url: environment.baseURL.appendingPathComponent(path))

@@ -41,6 +41,9 @@ final class RedirectProbe: @unchecked Sendable {
     var completed: Bool { lock.withLock { called } }
 }
 actor ControlledNativeAPI: NativeRequesting {
+    func performAccess(_ input: AccountAccessRequest, credential: NativeCredential, admit: @escaping @Sendable () throws -> Void) async throws -> Data {
+        try admit(); return try await perform(.session,credential:credential)
+    }
     private var reply: Result<Data, ProductError> = .success(Data())
     private var blocked = false
     private var pending: CheckedContinuation<Data, any Error>?
@@ -99,6 +102,8 @@ actor ControlledNativeAPI: NativeRequesting {
         try checkHTTPAndDTO()
         try checkStore()
         try await checkResponseBound()
+        try await checkAdminAccessScope()
+        try await checkReviewerEntitlement()
         try await checkLifecycle()
         try await checkRaces()
         print("iOS native transport: request isolation, exact DTOs, durable install/logout intent, credential CAS, expiry/401, truthful logout, cancellation and stale-response fences passed")
@@ -218,6 +223,55 @@ actor ControlledNativeAPI: NativeRequesting {
         bytes.setReadFailure(false)
         let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
         check(values.isExcludedFromBackup == true)
+    }
+    @MainActor static func checkAdminAccessScope() async throws {
+        let requestID = UUID()
+        let (method,path,body,status,after) = try AccountAccessRequest.issue(accountID,requestID,900,"기능 확인").wire()
+        check(method == "POST" && path == "admin/rooms/\(accountID)/test-grants" && status == 201 && after == nil)
+        let payload = try JSONSerialization.jsonObject(with:body!) as! [String:Any]
+        check(Set(payload.keys) == ["requestId","durationSeconds","reason"])
+        expect(.invalidResponse) { _ = try AccountAccessRequest.issue(accountID,requestID,3601,"확인").wire() }
+        expect(.invalidResponse) { _ = try AccountAccessRequest.revoke("../me",accountID,"확인").wire() }
+        let (store,_,directory) = try fixture(); defer { try? FileManager.default.removeItem(at:directory) }
+        var value = try JSONSerialization.jsonObject(with:sessionData()) as! [String:Any]
+        value["accountPartition"] = String(repeating:"A",count:43)
+        let ready = try JSONSerialization.data(withJSONObject:value)
+        let api = ControlledNativeAPI(); await api.configure(.success(ready))
+        let service = NativeSessionService(environment:.qa,api:api,store:store,now:{now})
+        let app = AppSession(service:service); await app.restore()
+        let oldScope = app.roomsScope; check(oldScope != nil)
+        await api.configure(.success(ready),blocked:true)
+        let refresh = Task { await app.refreshAccessScope(expected:app.generation) }
+        await api.wait(); check(app.roomsScope == nil)
+        do { try oldScope?.check(); preconditionFailure("old role scope must close before response") } catch {}
+        await api.finish(.success(ready)); await refresh.value
+        check(app.roomsScope != nil && app.roomsScope !== oldScope)
+        await api.configure(.success(Data("{}".utf8)),blocked:true)
+        let pending = Task { try await service.accessRequest(.me) }
+        await api.wait(); try await service.signOut(); await api.finish(.success(Data("{}".utf8)))
+        await expectAsync(.sessionChanged) { _ = try await pending.value }
+        check(try store.read() == nil)
+    }
+    @MainActor static func checkReviewerEntitlement() async throws {
+        let (store, _, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let api = ControlledNativeAPI()
+        let service = NativeSessionService(environment: .qa, api: api, store: store, now: { now })
+        var value = try JSONSerialization.jsonObject(with: sessionData()) as! [String: Any]
+        value["soopLinkStatus"] = "REQUIRED"
+        let entitled = try JSONSerialization.data(withJSONObject: value)
+        await api.configure(.success(entitled))
+        let app = AppSession(service: service)
+        await app.restore()
+        check(app.access == .ready && app.account?.soopConnected == false)
+        for invalid in [["capabilities": ["chat": false]], ["onboardingState": "SOOP_LINK_REQUIRED"], ["soopLinkStatus": "UNKNOWN"]] as [[String: Any]] {
+            let body = try JSONSerialization.data(withJSONObject: value.merging(invalid) { _, new in new })
+            let dto = try JSONDecoder().decode(NativeSessionDTO.self, from: body)
+            expect(.invalidResponse) { _ = try dto.snapshot(credential: credential, now: now) }
+        }
+        await api.configure(.success(try sessionData(linked: false)))
+        await app.revalidate()
+        check(app.access == .linkRequired && app.account?.soopConnected == false)
     }
     @MainActor static func checkLifecycle() async throws {
         let (store, bytes, directory) = try fixture()

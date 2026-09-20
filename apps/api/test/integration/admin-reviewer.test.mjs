@@ -1,0 +1,210 @@
+import 'reflect-metadata';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { URLSearchParams } from 'node:url';
+import { createApi } from '../../dist/application.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { PrismaDatabase } from '../../dist/infrastructure/database/database.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
+import { PasswordHasher } from '../../dist/modules/auth/password/password-hasher.js';
+import { AdminBootstrapService } from '../../dist/modules/admin/admin-bootstrap.service.js';
+import { AdminBootstrapRepository } from '../../dist/modules/admin/admin-bootstrap.repository.js';
+import { adminBootstrapRequest } from '../../dist/modules/admin/admin-bootstrap.request.js';
+import { RealtimeRepository } from '../../dist/modules/realtime/realtime.repository.js';
+import { MediaRepository } from '../../dist/modules/media/media.repository.js';
+import { createRoom, joinRoom, createUser } from '../support/domain-fixture.mjs';
+import { responseContract } from '../support/openapi-response.mjs';
+
+async function fixture(t) {
+  assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
+  const db = new PrismaDatabase(readConfig('api'));
+  const config = { audience: 'rogi-test', origin: 'http://localhost:3001', callback: 'http://localhost:3000/v1/auth/soop/callback', secure: false, key: randomBytes(32), broker: undefined };
+  const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
+  const bootstrap = new AdminBootstrapService(db.transactions, new AdminBootstrapRepository(), new PasswordHasher(), 'qa', config.key);
+  const subject = `isolated_${randomBytes(8).toString('hex')}`;
+  const operator = await db.transactions.write(async tx => {
+    const id = await createUser(tx, '격리 운영자');
+    await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: id, provider_subject: Buffer.from(subject), verified_at: await tx.now() } });
+    return id;
+  });
+  const base = { version: 1, environment: 'qa', operatorUserId: operator, expectedSubject: subject };
+  const adminRequest = adminBootstrapRequest({ ...base, scope: 'ADMIN_TEST_ACCESS', requestId: randomUUID() });
+  await bootstrap.apply(adminRequest); await bootstrap.apply(adminRequest);
+  const reviewer = randomUUID(), loginId = `review-${randomBytes(8).toString('hex')}`, password = randomBytes(24).toString('base64url');
+  const reviewerRequest = adminBootstrapRequest({ ...base, scope: 'REVIEWER_ACCOUNT', requestId: randomUUID(), targetUserId: reviewer, loginId, password, nickname: '격리 심사자', expiresAt: new Date(Date.now() + 86400000).toISOString() });
+  await bootstrap.apply(reviewerRequest); await bootstrap.apply(reviewerRequest);
+  const seed = await db.transactions.write(async tx => {
+    const room = await createRoom(tx, '격리 권한 방', 'FAN');
+    await tx.prisma.default_room_bindings.create({ data: { key: randomBytes(8).toString('hex'), room_id: room } });
+    const actorId = await joinRoom(tx, room, operator);
+    return { room, actorId, operatorSession: await sessions.issue(tx, operator) };
+  });
+  let logs = '';
+  const app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config });
+  await app.listen(0, '127.0.0.1'); t.after(async () => { await app.close(); await db.close(); });
+  const url = await app.getUrl(), verify = responseContract(app, config);
+  const request = async (path, method = 'GET', body, headers = {}) => {
+    const response = await fetch(`${url}${path}`, { method, headers: { ...headers, ...(body === undefined ? {} : { 'content-type': 'application/json' }) }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    const text = await response.text(), data = text ? JSON.parse(text) : undefined;
+    verify(method, path, response.status, data);
+    return { status: response.status, data, cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  };
+  const login = (extra = {}, headers = {}) => request('/v1/auth/password/login', 'POST', { clientId: 'web', loginId, password, termsVersion: '2026-09-20', ...extra }, { origin: config.origin, ...headers });
+  const headers = session => ({ cookie: `rogi_session=${session.token}`, origin: config.origin, 'x-csrf-token': session.csrf });
+  return { db, config, bootstrap, base, adminRequest, reviewerRequest, operator, reviewer, loginId, password, sessions, ...seed, request, login, headers, logs: () => logs };
+}
+
+test('real password reviewer uses existing session transports and chat without forged SOOP; credentials rotate and stale cookies recover', { timeout: 60000 }, async t => {
+  const f = await fixture(t);
+  assert.equal((await f.login({ password: randomBytes(24).toString('hex') })).status, 401);
+  assert.equal((await f.login({ loginId: 'no-such-credential' })).status, 401);
+  const login = await f.login(); assert.equal(login.status, 200); assert.ok(login.cookie);
+  assert.equal(login.data.soopLinkStatus, 'REQUIRED'); assert.equal(login.data.onboardingState, 'READY'); assert.equal(login.data.capabilities.chat, true);
+  const web = { cookie: login.cookie, origin: f.config.origin, 'x-csrf-token': login.data.csrfToken };
+  assert.equal((await f.request('/v1/me/profile', 'GET', undefined, web)).data.soop, null);
+  assert.equal((await f.request('/v1/me/capabilities', 'GET', undefined, web)).data.admin.enabled, false);
+  assert.equal((await f.request(`/v1/rooms/${f.room}/join`, 'POST', {}, web)).status, 200);
+  assert.equal((await f.request(`/v1/admin/rooms/${f.room}/test-grants`, 'POST', { requestId: randomUUID(), durationSeconds: 60, reason: '격리 검사' }, web)).status, 403);
+  assert.equal((await f.login({}, { cookie: login.cookie })).status, 400); // Valid prior cookie still needs CSRF.
+  await f.db.transactions.write(tx => tx.prisma.auth_sessions.updateMany({ where: { user_id: f.reviewer }, data: { revoked_at: new Date() } }));
+  const recovered = await f.login({}, { cookie: login.cookie }); assert.equal(recovered.status, 200);
+  await f.db.transactions.write(tx => tx.prisma.auth_sessions.updateMany({ where: { user_id: f.reviewer }, data: { expires_at: new Date(0) } }));
+  const unexpired = await f.login({}, { cookie: recovered.cookie }); assert.equal(unexpired.status, 200);
+  const native = await f.request('/v1/auth/password/login', 'POST', { clientId: 'ios', loginId: f.loginId.toUpperCase(), password: f.password, termsVersion: '2026-09-20' }, { 'x-rogi-client': 'ios' });
+  assert.equal(native.status, 200); assert.equal(native.cookie, undefined); assert.equal(native.data.session.soopLinkStatus, 'REQUIRED');
+  const nativeHeaders = { authorization: `Bearer ${native.data.accessToken}`, 'x-rogi-client': 'ios' };
+  assert.equal((await f.request('/v1/auth/session', 'GET', undefined, nativeHeaders)).status, 200);
+  const next = randomBytes(24).toString('base64url');
+  const changed = await f.request('/v1/auth/password/change', 'POST', { clientId: 'web', currentPassword: f.password, newPassword: next }, { cookie: unexpired.cookie, origin: f.config.origin, 'x-csrf-token': unexpired.data.csrfToken });
+  assert.equal(changed.status, 200); assert.notEqual(changed.cookie, unexpired.cookie);
+  assert.equal((await f.request('/v1/auth/session', 'GET', undefined, nativeHeaders)).status, 401);
+  const state = await f.db.transactions.read(async tx => ({ platform: await tx.prisma.platform_soop.count({ where: { user_id: f.reviewer } }), account: await tx.prisma.password_accounts.findUnique({ where: { user_id: f.reviewer } }) }));
+  assert.equal(state.platform, 0); assert.equal(state.account.revision, 2n); assert.ok(!state.account.password_hash.includes(next));
+  assert.ok(!f.logs().includes(next)); assert.ok(!f.logs().includes(f.password));
+  for (const mode of ['read', 'write']) assert.equal((await f.db.transactions[mode](tx => new MediaRepository().owner(tx, f.reviewer))).length, 1);
+  await f.bootstrap.apply(adminBootstrapRequest({ ...f.base, scope: 'REVIEWER_REVOKE', requestId: randomUUID(), targetUserId: f.reviewer }));
+  assert.equal((await f.request('/v1/auth/session', 'GET', undefined, { cookie: changed.cookie })).status, 401);
+  assert.equal((await f.login({ password: next })).status, 401);
+  for (const mode of ['read', 'write']) assert.equal((await f.db.transactions[mode](tx => new MediaRepository().owner(tx, f.reviewer))).length, 0);
+});
+
+test('room self-delegation is period-bound, audited/idempotent and revocable across message, sync, recipients and worker hints', { timeout: 60000 }, async t => {
+  const f = await fixture(t), admin = f.headers(f.operatorSession);
+  const login = await f.login(), fan = { cookie: login.cookie, origin: f.config.origin, 'x-csrf-token': login.data.csrfToken };
+  const joined = await f.request(`/v1/rooms/${f.room}/join`, 'POST', {}, fan); assert.equal(joined.status, 200);
+  const root = `/v1/rooms/${f.room}`, grants = `/v1/admin/rooms/${f.room}/test-grants`;
+  const send = (intent, headers, membershipScope, extra = {}) => f.request(`${root}/messages`, 'POST', { clientMessageId: randomUUID(), membershipScope, intent, content: { type: 'TEXT', text: '격리 영속 메시지' }, ...extra }, headers);
+  const message = await send('ROOM_OWNER', fan, joined.data.membershipScope); assert.equal(message.status, 200);
+  assert.equal((await f.request(`${root}/messages/${message.data.messageId}`, 'GET', undefined, admin)).status, 404);
+  assert.equal((await f.request(`${root}/actors/${f.actorId}/profile`, 'GET', undefined, fan)).status, 404);
+  const body = { requestId: randomUUID(), durationSeconds: 600, reason: '격리 운영 검사' };
+  const [grant, duplicate] = await Promise.all([f.request(grants, 'POST', body, admin), f.request(grants, 'POST', body, admin)]);
+  assert.equal(grant.status, 201); assert.deepEqual(duplicate.data, grant.data);
+  assert.equal((await f.request(grants, 'POST', { ...body, durationSeconds: 601 }, admin)).status, 409);
+  const capabilities = await f.request(`${root}/capabilities`, 'GET', undefined, admin);
+  assert.equal(capabilities.data.effectiveRole, 'STREAMER'); assert.equal(capabilities.data.temporaryStreamer.grantId, grant.data.grantId);
+  const actor = await f.request(`${root}/actors/${f.actorId}/profile`, 'GET', undefined, fan);
+  assert.equal(actor.status, 200); assert.equal(actor.data.profile.role, 'STREAMER'); assert.equal(actor.data.profile.userId, undefined);
+  const read = await f.request(`${root}/messages/${message.data.messageId}`, 'GET', undefined, admin); assert.equal(read.status, 200); assert.equal(read.data.allowedActions.reply, true);
+  const query = new URLSearchParams({ deviceId: randomUUID(), cacheId: randomUUID() }).toString();
+  const sync = await f.request(`/v1/sync?${query}`, 'GET', undefined, admin);
+  assert.equal(sync.data.rooms.find(r => r.roomId === f.room).role, 'STREAMER');
+  const snapshot = await f.request(`${root}/snapshot?${query}`, 'GET', undefined, admin);
+  const fanBefore = await f.request(`${root}/profile-sync?${query}`, 'GET', undefined, fan);
+  assert.equal(fanBefore.data.profiles.some(p => p.actorId === f.actorId && p.role === 'STREAMER'), true);
+  assert.equal(snapshot.data.messages.some(m => m.id === message.data.messageId), true);
+  const scope = snapshot.data.membershipScope;
+  assert.equal((await send('SHARED', admin, scope)).status, 200);
+  const reply = await send('PRIVATE', admin, scope, { recipientActorId: joined.data.actorId, quoteId: message.data.messageId }); assert.equal(reply.status, 200);
+  const fanReply = await f.request(`${root}/messages/${reply.data.messageId}`, 'GET', undefined, fan);
+  assert.equal(fanReply.status, 200); assert.equal(fanReply.data.quote.id, message.data.messageId);
+  const fanMessages = await f.request(`${root}/snapshot?${query}`, 'GET', undefined, fan);
+  assert.equal(fanMessages.data.messages.find(m => m.id === reply.data.messageId).quote.id, message.data.messageId);
+  const stranger = await f.db.transactions.write(async tx => {
+    const userId = await createUser(tx, '격리 다른 팬');
+    await tx.prisma.users.update({ where: { id: userId }, data: { reviewer_expires_at: new Date(Date.now() + 3600000) } });
+    return joinRoom(tx, f.room, userId);
+  });
+  assert.equal((await send('PRIVATE', admin, scope, { recipientActorId: stranger, quoteId: message.data.messageId })).status, 404);
+  const recipients = await f.request(`${root}/private-recipients`, 'GET', undefined, admin); assert.equal(recipients.status, 200); assert.equal(recipients.data.recipients.some(r => r.actorId === joined.data.actorId), true);
+  const before = await f.db.transactions.read(async tx => ({ room: await tx.prisma.rooms.findUnique({ where: { id: f.room } }), member: await tx.prisma.room_members.findUnique({ where: { id: f.actorId } }), audit: await tx.prisma.access_audit.count({ where: { grant_id: grant.data.grantId } }) }));
+  assert.equal(before.room.owner_member_id, null); assert.equal(before.member.role, 'FAN'); assert.equal(before.audit, 1);
+  assert.equal((await f.request(`${grants}/${grant.data.grantId}/revoke`, 'POST', { reason: '검사 종료' }, admin)).status, 204);
+  assert.equal((await f.request(`${grants}/${grant.data.grantId}/revoke`, 'POST', { reason: '검사 종료' }, admin)).status, 204);
+  assert.equal((await f.request(`${root}/messages/${message.data.messageId}`, 'GET', undefined, admin)).status, 404);
+  assert.equal((await f.request(`${root}/messages/${reply.data.messageId}`, 'GET', undefined, admin)).status, 404);
+  assert.equal((await send('SHARED', admin, scope)).status, 403);
+  const events = await f.request(`${root}/events?${query}&cursor=${snapshot.data.nextCursor}`, 'GET', undefined, admin); assert.equal(events.data.resetRequired, true);
+  assert.equal((await f.request(`${root}/capabilities`, 'GET', undefined, admin)).data.effectiveRole, 'FAN');
+  assert.equal((await f.request(`${root}/actors/${f.actorId}/profile`, 'GET', undefined, fan)).status, 404);
+  const fanAfter = await f.request(`${root}/profile-sync?${query}`, 'GET', undefined, fan);
+  assert.notEqual(fanAfter.data.authorizationRevision, fanBefore.data.authorizationRevision);
+  assert.equal(fanAfter.data.membershipScope, fanBefore.data.membershipScope);
+  const again = await f.request(grants, 'POST', { ...body, requestId: randomUUID() }, admin); assert.equal(again.status, 201);
+  const activeProfile = await f.request(`${root}/profile-sync?${query}`, 'GET', undefined, fan);
+  await f.db.transactions.write(tx => tx.prisma.room_test_grants.update({ where: { id: again.data.grantId }, data: { expires_at: new Date(0) } }));
+  assert.equal((await f.request(`${root}/capabilities`, 'GET', undefined, admin)).data.effectiveRole, 'FAN');
+  assert.equal((await f.request(`${root}/messages/${message.data.messageId}`, 'GET', undefined, admin)).status, 404);
+  assert.equal((await f.request(`${root}/messages/${reply.data.messageId}`, 'GET', undefined, admin)).status, 404);
+  assert.equal((await send('PRIVATE', admin, scope, { recipientActorId: joined.data.actorId, quoteId: message.data.messageId })).status, 404);
+  const expiredProfile = await f.request(`${root}/profile-sync?${query}`, 'GET', undefined, fan);
+  assert.notEqual(expiredProfile.data.authorizationRevision, activeProfile.data.authorizationRevision);
+  assert.equal(expiredProfile.data.profiles.some(p => p.actorId === f.actorId), false);
+  assert.equal((await f.request(`${root}/messages/${reply.data.messageId}`, 'GET', undefined, fan)).data.quote.id, message.data.messageId);
+  await f.db.transactions.write(async tx => {
+    const source = await tx.prisma.messages.findUniqueOrThrow({ where: { id: message.data.messageId }, select: { stream_id: true } });
+    await tx.prisma.stream_grants.updateMany({ where: { stream_id: source.stream_id, member_id: joined.data.actorId }, data: { revoked_at: new Date() } });
+  });
+  // Receiving a reply cannot preserve quote content after independent source ACL loss.
+  assert.equal((await f.request(`${root}/messages/${reply.data.messageId}`, 'GET', undefined, fan)).data.quote, null);
+  const withdrawnQuote = await f.request(`${root}/snapshot?${query}`, 'GET', undefined, fan);
+  assert.equal(withdrawnQuote.data.messages.find(m => m.id === reply.data.messageId).quote, null);
+  for (const mode of ['read', 'write']) assert.equal((await f.db.transactions[mode](tx => new MediaRepository().owner(tx, f.reviewer))).length, 1);
+  await f.db.transactions.write(tx => tx.prisma.users.update({ where: { id: f.reviewer }, data: { reviewer_expires_at: new Date(0) } }));
+  assert.equal((await f.request('/v1/auth/session', 'GET', undefined, fan)).data.capabilities.chat, false);
+  assert.equal((await f.request(root + '/snapshot?' + query, 'GET', undefined, fan)).status, 403);
+  const valid = await f.db.transactions.read(async tx => new RealtimeRepository().validSessions(tx, (await tx.prisma.auth_sessions.findMany({ where: { user_id: f.reviewer }, select: { id: true } })).map(s => s.id), f.config.audience));
+  assert.equal(valid.size, 0);
+  for (const mode of ['read', 'write']) assert.equal((await f.db.transactions[mode](tx => new MediaRepository().owner(tx, f.reviewer))).length, 0);
+});
+
+test('delegation cannot escape room, period or owner fences and membership exit permanently revokes its receipt', async t => {
+  const f = await fixture(t), admin = f.headers(f.operatorSession), grants = `/v1/admin/rooms/${f.room}/test-grants`;
+  const body = { requestId: randomUUID(), durationSeconds: 60, reason: '격리 경계 검사' };
+  const otherRoom = await f.db.transactions.write(tx => createRoom(tx, '격리 다른 방', 'FAN'));
+  assert.equal((await f.request(`/v1/admin/rooms/${otherRoom}/test-grants`, 'POST', body, admin)).status, 404);
+  assert.equal((await f.request(grants, 'POST', { ...body, actorId: randomUUID() }, admin)).status, 400);
+  const issued = await f.request(grants, 'POST', body, admin); assert.equal(issued.status, 201);
+  assert.equal((await f.request(grants, 'POST', { ...body, requestId: randomUUID() }, admin)).status, 409);
+  assert.equal((await f.request(`/v1/admin/rooms/${otherRoom}/test-grants/${issued.data.grantId}/revoke`, 'POST', { reason: 'wrong room' }, admin)).status, 404);
+  const owner = await f.db.transactions.write(async tx => {
+    const userId = await createUser(tx, '격리 실제 소유자'), actorId = await joinRoom(tx, f.room, userId);
+    await tx.prisma.room_members.update({ where: { id: actorId }, data: { role: 'STREAMER' } });
+    await tx.prisma.rooms.update({ where: { id: f.room }, data: { owner_member_id: actorId } }); return actorId;
+  });
+  assert.equal((await f.request(`/v1/rooms/${f.room}/bans/${owner}`, 'POST', {}, admin)).status, 403);
+  assert.equal((await f.request(`/v1/rooms/${f.room}/leave`, 'POST', {}, admin)).status, 204);
+  assert.equal((await f.request(`/v1/rooms/${f.room}/join`, 'POST', {}, admin)).status, 200);
+  assert.equal((await f.request(`/v1/rooms/${f.room}/capabilities`, 'GET', undefined, admin)).data.effectiveRole, 'FAN');
+  const replay = await f.request(grants, 'POST', body, admin); assert.equal(replay.data.grantId, issued.data.grantId); assert.ok(replay.data.revokedAt);
+  assert.equal((await f.request(`/v1/rooms/${f.room}/capabilities`, 'GET', undefined, admin)).data.temporaryStreamer, null);
+});
+
+test('verified Apple independently grants chat, and revoked Apple never masquerades as SOOP', async t => {
+  const f = await fixture(t);
+  const apple = await f.db.transactions.write(async tx => {
+    const id = await createUser(tx, '격리 Apple 사용자');
+    const identity = randomUUID(); await tx.prisma.auth_identities.create({ data: { id: identity, user_id: id, provider: 'apple', issuer: Buffer.from('https://appleid.apple.com'), scope: 'isolated', subject: randomBytes(24), verified_at: await tx.now() } });
+    return { id, identity, session: await f.sessions.issue(tx, id) };
+  });
+  const headers = f.headers(apple.session), session = await f.request('/v1/auth/session', 'GET', undefined, headers);
+  assert.equal(session.data.soopLinkStatus, 'REQUIRED'); assert.equal(session.data.capabilities.chat, true);
+  assert.equal((await f.request(`/v1/rooms/${f.room}/join`, 'POST', {}, headers)).status, 200);
+  await f.db.transactions.write(tx => tx.prisma.auth_identities.update({ where: { id: apple.identity }, data: { status: 'REVOKED', revoked_at: new Date() } }));
+  assert.equal((await f.request('/v1/auth/session', 'GET', undefined, headers)).data.capabilities.chat, false);
+  await assert.rejects(f.bootstrap.apply({ ...f.adminRequest, requestId: randomUUID(), expectedSubject: 'wrong_identity' }), /admin_identity_mismatch/);
+  await assert.rejects(f.bootstrap.apply({ ...f.reviewerRequest, nickname: 'conflicting nickname' }), /admin_receipt_conflict/);
+});

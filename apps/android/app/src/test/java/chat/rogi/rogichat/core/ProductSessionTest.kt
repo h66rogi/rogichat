@@ -26,9 +26,10 @@ class ProductSessionTest {
         assertNotNull(services.profiles)
         assertNull(services.rooms)
     }
-    @Test fun readyRequiresLinkedSoopAccountAndSignedOutNeverContainsProfile() {
+    @Test fun readyPreservesProviderTruthAndSignedOutNeverContainsProfile() {
         val account = AccountSummary("id", "name", "Apple", false)
-        assertThrows(IllegalArgumentException::class.java) { SessionSnapshot(ShellAccess.READY, account) }
+        assertFalse(requireNotNull(SessionSnapshot(ShellAccess.READY, account).account).soopConnected)
+        assertThrows(IllegalArgumentException::class.java) { SessionSnapshot(ShellAccess.READY) }
         assertThrows(IllegalArgumentException::class.java) { SessionSnapshot(ShellAccess.SIGNED_OUT, account) }
         assertThrows(IllegalArgumentException::class.java) { SessionSnapshot(ShellAccess.RESTORING, account) }
         assertThrows(IllegalArgumentException::class.java) { SessionSnapshot(ShellAccess.RETRYABLE_FAILURE, account) }

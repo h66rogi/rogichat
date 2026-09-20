@@ -79,7 +79,7 @@ private class AuthApi : NativeApi {
     var sessionBlock: suspend () -> String = { projection(linked = false) }
     override suspend fun postAuth(route: ApiRoute, token: String?, body: String): String {
         requests.add(Triple(route, token, body))
-        return when (route) { ApiRoute.SOOP_START -> startBlock(); ApiRoute.SOOP_EXCHANGE -> exchangeBlock(); else -> error("unexpected") }
+        return when (route) { ApiRoute.SOOP_START -> startBlock(); ApiRoute.SOOP_EXCHANGE, ApiRoute.PASSWORD_LOGIN, ApiRoute.PASSWORD_CHANGE -> exchangeBlock(); else -> error("unexpected") }
     }
     override suspend fun get(route: ApiRoute, token: String): String { sessionCalls++; return sessionBlock() }
     override suspend fun patch(route: ApiRoute, token: String, body: String): String = error("unexpected")
@@ -105,6 +105,52 @@ private class AuthFixture(val store: AuthStore = AuthStore(), val pending: AuthP
 }
 
 class NativeSoopAuthTest {
+    @Test fun passwordLoginAndRotationReuseProtectedInstallAndNeverPersistPassword() = runTest {
+        val f = AuthFixture(); f.model.restore()
+        val input = PasswordInput("reviewer.real", "a correct password")
+        assertTrue(f.model.password(input,SessionIdentity.from(f.model.session.value)).isSuccess)
+        assertEquals(NEW_TOKEN,f.store.value?.token); assertEquals(ShellAccess.READY,f.model.session.value.access)
+        assertEquals(0,f.pending.writes); assertNull(f.pending.value)
+        assertFalse(input.toString().contains(input.password))
+        assertEquals(ApiRoute.PASSWORD_LOGIN,f.api.requests.single().first); assertNull(f.api.requests.single().second)
+        f.api.exchangeBlock = { exchangeResponse("p".repeat(43)) }
+        assertTrue(f.model.password(PasswordInput(password="a correct password",newPassword="a replacement password"),SessionIdentity.from(f.model.session.value)).isSuccess)
+        assertEquals("p".repeat(43),f.store.value?.token); assertEquals(NEW_TOKEN,f.api.requests.last().second)
+    }
+    @Test fun passwordLateResultAfterCancelCannotInstallAndIsRevoked() = runTest {
+        val f = AuthFixture(); f.model.restore()
+        val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+        f.api.exchangeBlock = { entered.complete(Unit); release.await(); exchangeResponse() }
+        val operation = async { f.model.password(PasswordInput("reviewer.real","a correct password"),SessionIdentity.from(f.model.session.value)) }
+        entered.await(); f.model.cancelAuthentication(); release.complete(Unit)
+        try { operation.await() } catch (_: CancellationException) {}
+        assertNull(f.store.value); assertEquals(ShellAccess.SIGNED_OUT,f.model.session.value.access); assertTrue(NEW_TOKEN in f.api.revoked)
+    }
+    @Test fun passwordStorageFailureAndChangedAccountCannotPublishSuccess() = runTest {
+        val f = AuthFixture(); f.model.restore(); f.store.failWriteAfterMutation = true
+        assertTrue(f.model.password(PasswordInput("reviewer.real","a correct password"),SessionIdentity.from(f.model.session.value)).isFailure)
+        assertNull(f.store.value); assertTrue(NEW_TOKEN in f.api.revoked)
+        val g = AuthFixture(AuthStore(NativeCredential(TOKEN,EXPIRY)))
+        g.model.restore(); g.api.exchangeBlock = { exchangeResponse(account=OTHER) }
+        assertTrue(g.model.password(PasswordInput(password="a correct password",newPassword="a replacement password"),SessionIdentity.from(g.model.session.value)).isFailure)
+        assertEquals(TOKEN,g.store.value?.token); assertNotEquals(OTHER,g.model.session.value.account?.id)
+    }
+    @Test fun rejectedPasswordSessionRevokesValidUnpublishedIssuance() = runTest {
+        val f = AuthFixture(); f.model.restore()
+        f.api.exchangeBlock = { exchangeResponse().replace("\"chat\":true", "\"chat\":false") }
+        assertTrue(f.model.password(PasswordInput("reviewer.real","a correct password"),SessionIdentity.from(f.model.session.value)).isFailure)
+        assertNull(f.store.value); assertTrue(NEW_TOKEN in f.api.revoked)
+    }
+    @Test fun passwordValidationUsesUnicodeScalarsAndExactUnnormalizedBytes() {
+        assertTrue(PasswordInput.validPassword("😀".repeat(12)))
+        assertFalse(PasswordInput.validPassword("😀".repeat(65)))
+        assertFalse(PasswordInput.validPassword("a".repeat(12)+"\n"))
+        assertFalse(PasswordInput.validPassword("a".repeat(12)+"\ud800"))
+        assertThrows(IllegalArgumentException::class.java) { PasswordInput("bad@id","a correct password") }
+        val input = PasswordInput("reviewer.real"," a correct password ")
+        assertEquals(input.password,Json.parseToJsonElement(input.body()).jsonObject.getValue("password").jsonPrimitive.content)
+    }
+
     @Test fun appleUsesExistingDurableProofAndPublicHeadersThenColdCallbackConsumesOnce() = runTest {
         val f = AuthFixture(); f.model.restore()
         assertTrue(f.model.startAppleLogin("old").isFailure); assertTrue(f.api.appleRequests.isEmpty())

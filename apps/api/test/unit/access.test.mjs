@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { canReadMessage, canPublishSource, validBirthday, nickname } from '../../dist/modules/access/access.policy.js';
 
 const actor = {
-  accountActive: true, soopLinked: true, roomId: 'room-a', roomActive: true,
+  accountActive: true, chatEnabled: true, roomId: 'room-a', roomActive: true,
   memberId: 'owner-a', memberRoomId: 'room-a', memberActive: true, periodActive: true,
   visibleFrom: 10n, role: 'STREAMER', ownerMemberId: 'owner-a',
 };
@@ -14,7 +14,7 @@ const message = { roomId: 'room-a', streamId: 'stream-a', streamRoomId: 'room-a'
 test('read/publish denial matrix enforces current account, room, period, scoped grant and original-owner deletion', () => {
   assert.equal(canReadMessage(actor, message), true);
   assert.equal(canPublishSource(actor, message), true);
-  for (const field of ['accountActive', 'soopLinked', 'roomActive', 'memberActive', 'periodActive']) {
+  for (const field of ['accountActive', 'chatEnabled', 'roomActive', 'memberActive', 'periodActive']) {
     assert.equal(canReadMessage({ ...actor, [field]: false }, message), false, field);
     assert.equal(canPublishSource({ ...actor, [field]: false }, message), false, field);
   }

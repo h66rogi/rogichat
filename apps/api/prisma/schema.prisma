@@ -106,6 +106,7 @@ model users {
   status                UserStatus @default(ACTIVE)
   membership_generation BigInt     @default(0) @db.UnsignedBigInt
   terms_version         String?    @db.VarChar(32)
+  reviewer_expires_at   DateTime?  @db.DateTime(3)
   created_at            DateTime   @default(now()) @db.DateTime(3)
   profile               user_profiles?
   soop                  platform_soop?
@@ -114,6 +115,7 @@ model users {
   members               room_members[]
   creator               creator_accounts?
   admin                 admin_capabilities?
+  password_account      password_accounts?
   owned_messages        messages[]
   deletions             deletion_requests[]
   media                 media_assets[]
@@ -230,6 +232,7 @@ model admin_capabilities {
   manage_rooms Boolean @default(false)
   manage_users Boolean @default(false)
   manage_stickers Boolean @default(false)
+  manage_test_access Boolean @default(false)
   user         users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
 }
 
@@ -279,9 +282,52 @@ model room_members {
   pairs_right      stream_pairs[] @relation("pair_right")
   publications     message_publications[]
   reactions        message_reactions[]
+  delegations      room_test_grants[]
   @@unique([room_id, id, active_period_id])
   @@unique([room_id, user_id])
   @@unique([room_id, id])
+}
+
+// Real credentials, never a fabricated provider identity. Login IDs are private.
+model password_accounts {
+  user_id       String @id @db.Char(36)
+  login_id      String @unique @db.VarChar(64)
+  password_hash String @db.VarChar(256)
+  revision      BigInt @default(1) @db.UnsignedBigInt
+  disabled_at   DateTime? @db.DateTime(3)
+  created_at    DateTime @default(now()) @db.DateTime(3)
+  updated_at    DateTime @default(now()) @updatedAt @db.DateTime(3)
+  user          users @relation(fields: [user_id], references: [id], onDelete: Restrict)
+}
+
+// Period-bound delegation never changes physical membership role or room owner.
+model room_test_grants {
+  id             String @id @db.Char(36)
+  room_id        String @db.Char(36)
+  member_id      String @db.Char(36)
+  period_id      String @db.Char(36)
+  request_id     String @db.Char(36)
+  payload_digest Bytes @db.Binary(32)
+  created_at     DateTime @default(now()) @db.DateTime(3)
+  expires_at     DateTime @db.DateTime(3)
+  revoked_at     DateTime? @db.DateTime(3)
+  member         room_members @relation(fields: [room_id, member_id], references: [room_id, id], onDelete: Restrict)
+  @@unique([member_id, request_id])
+  @@index([room_id, member_id, expires_at])
+}
+
+// Body-free authority trail; no passwords, provider subjects or profile payloads.
+model access_audit {
+  id               String @id @db.Char(36)
+  operator_user_id  String @db.Char(36)
+  target_user_id    String? @db.Char(36)
+  room_id          String? @db.Char(36)
+  grant_id         String? @db.Char(36)
+  action           String @db.VarChar(40)
+  reason_digest    Bytes? @db.Binary(32)
+  created_at       DateTime @default(now()) @db.DateTime(3)
+  @@index([operator_user_id, created_at])
+  @@index([target_user_id, created_at])
 }
 
 // Body-free projection invalidation. A REALTIME_HINT with room_id NULL references this table.

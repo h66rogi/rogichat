@@ -40,7 +40,7 @@ export class ModerationService {
     return this.transactions.read(async tx => {
       const principal = await this.auth.require(tx, credentials);
       const now = await tx.now();
-      const result = await this.core.blockRooms(tx, principal.userId, this.recoveryCursor.after(cursor, principal, now), principal.soopLinked);
+      const result = await this.core.blockRooms(tx, principal.userId, this.recoveryCursor.after(cursor, principal, now), principal.chatEnabled);
       return { rooms: result.rooms, nextCursor: this.recoveryCursor.next(result.nextRoomId, principal, now) };
     });
   }

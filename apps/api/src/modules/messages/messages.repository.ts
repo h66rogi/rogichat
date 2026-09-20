@@ -1,3 +1,5 @@
+import { chatAccountSql } from '../auth/chat-entitlement.js';
+import { delegatedMemberSql } from '../access/delegation-policy.js';
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2';
@@ -52,19 +54,23 @@ export class MessagesRepository {
   }
 
   async target(tx: Transaction, roomId: string, actorId: string): Promise<MessageTargetRow | undefined> {
-    const [row] = await tx.rows<MessageTargetRow>(`SELECT m.id,m.role FROM room_members m JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id JOIN users u ON u.id=m.user_id AND u.status='ACTIVE' JOIN platform_soop s ON s.user_id=u.id AND s.status='VERIFIED' WHERE m.room_id=? AND m.id=? AND m.status='ACTIVE' AND p.left_at IS NULL FOR UPDATE`, [roomId, actorId]);
-    return row;
+    const [row] = await tx.rows<Omit<MessageTargetRow, 'delegated'> & { delegated: number }>(`SELECT m.id,m.user_id,m.role,${delegatedMemberSql('m')} AS delegated FROM room_members m JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id JOIN users u ON u.id=m.user_id AND u.status='ACTIVE' LEFT JOIN platform_soop s ON s.user_id=u.id WHERE ${chatAccountSql('u', 's')} AND m.room_id=? AND m.id=? AND m.status='ACTIVE' AND p.left_at IS NULL FOR UPDATE`, [roomId, actorId]);
+    return row ? { ...row, role: Number(row.delegated) === 1 ? 'STREAMER' : row.role, delegated: Number(row.delegated) === 1 } : undefined;
   }
 
   async pair(tx: Transaction, roomId: string, members: [string, string]): Promise<MessagePairRow | undefined> {
     const [row] = await tx.rows<MessagePairRow>('SELECT stream_id FROM stream_pairs WHERE room_id=? AND left_member_id=? AND right_member_id=? FOR UPDATE', [roomId, ...members]);
     return row;
   }
+  quotePair(tx: Transaction, roomId: string, streamId: string, sender: string, originalAuthor: string) {
+    const members = [sender, originalAuthor].sort() as [string, string];
+    return tx.prisma.stream_pairs.findFirst({ where: { room_id: roomId, stream_id: streamId, left_member_id: members[0], right_member_id: members[1] }, select: { id: true } });
+  }
 
-  async createPair(tx: Transaction, roomId: string, streamId: string, members: [string, string]): Promise<void> {
+  async createPair(tx: Transaction, roomId: string, streamId: string, members: [string, string], delegatedActorId?: string): Promise<void> {
     await tx.prisma.message_streams.create({ data: { id: streamId, room_id: roomId, kind: 'RESTRICTED' }, select: { id: true } });
     await tx.prisma.stream_pairs.create({ data: { id: randomUUID(), room_id: roomId, left_member_id: members[0], right_member_id: members[1], stream_id: streamId }, select: { id: true } });
-    await tx.prisma.stream_grants.createMany({ data: members.map(member_id => ({ id: randomUUID(), room_id: roomId, stream_id: streamId, member_id, can_read: true, can_send: true })) });
+    await tx.prisma.stream_grants.createMany({ data: members.map(member_id => ({ id: randomUUID(), room_id: roomId, stream_id: streamId, member_id, can_read: member_id !== delegatedActorId, can_send: member_id !== delegatedActorId })) });
     await tx.prisma.room_members.updateMany({ where: { room_id: roomId, id: { in: members } }, data: { acl_epoch: { increment: 1n } } });
   }
   async pendingOwner(tx: Transaction, roomId: string): Promise<boolean> {

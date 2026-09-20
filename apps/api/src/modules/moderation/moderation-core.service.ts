@@ -61,7 +61,7 @@ export class ModerationCoreService {
       const target = await this.repository.target(tx, roomId, actorId);
       // Same legitimate actor visibility as profiles. In FAN rooms this never
       // turns an anonymous publication into a source fan discovery oracle.
-      if (!target || target.status !== 'ACTIVE' || !target.active_period_id || !target.valid_period_id || target.period_left_at !== null || target.account_status !== 'ACTIVE' || target.soop_status !== 'VERIFIED' ||
+      if (!target || target.status !== 'ACTIVE' || !target.active_period_id || !target.valid_period_id || target.period_left_at !== null || target.account_status !== 'ACTIVE' || Number(target.chat_allowed) !== 1 ||
         (viewer.mode === 'FAN' && viewer.role !== 'STREAMER' && target.role !== 'STREAMER')) throw new ApiError('NOT_FOUND', 404);
     }
     if (await this.repository.setBlock(tx, roomId, member.id, actorId, blocked)) {
@@ -73,15 +73,15 @@ export class ModerationCoreService {
   async bans(tx: Transaction, userId: string, roomId: string, after: string) {
     const room = await this.lockRoom(tx, roomId);
     const viewer = await this.access.requireActiveMember(tx, roomId, userId);
-    if (room.owner_member_id !== viewer.id || viewer.role !== 'STREAMER') throw new ApiError('FORBIDDEN', 403);
+    if ((room.owner_member_id !== viewer.id && !viewer.temporaryGrantId) || viewer.role !== 'STREAMER') throw new ApiError('FORBIDDEN', 403);
     const rows = await this.repository.bans(tx, roomId, after);
     return { bans: rows.slice(0, 50).map(row => ({ actorId: row.id })), next: rows.length > 50 ? rows[49]!.id : null };
   }
   async ban(tx: Transaction, userId: string, roomId: string, actorId: string, banned: boolean) {
     const room = await this.lockRoom(tx, roomId);
     const viewer = await this.access.requireActiveMember(tx, roomId, userId);
-    if (room.owner_member_id !== viewer.id || viewer.role !== 'STREAMER') throw new ApiError('FORBIDDEN', 403);
-    if (actorId === viewer.id) throw new ApiError('FORBIDDEN', 403);
+    if ((room.owner_member_id !== viewer.id && !viewer.temporaryGrantId) || viewer.role !== 'STREAMER') throw new ApiError('FORBIDDEN', 403);
+    if (actorId === viewer.id || actorId === room.owner_member_id) throw new ApiError('FORBIDDEN', 403);
     const target = await this.repository.target(tx, roomId, actorId);
     if (!target) throw new ApiError('NOT_FOUND', 404);
     if ((target.status === 'BANNED') !== banned) {

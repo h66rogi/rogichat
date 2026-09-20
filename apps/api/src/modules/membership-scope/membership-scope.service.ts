@@ -17,11 +17,11 @@ export class MembershipScopeService {
     if (!result) throw new ApiError('NOT_FOUND', 404);
     return result;
   }
-  // Three bounded queries for the entire selected room set, never per-room ACL fanout.
+  // Bounded batched queries for the selected room set, never per-room ACL fanout.
   async batch(tx: Transaction, userId: string, roomIds: string[], now: Date) {
     if (roomIds.length > maximum) throw new ServiceUnavailableException();
     if (!roomIds.length) return new Map<string, { membershipScope: string; authorizationRevision: string }>();
-    const { members, grants, revoked } = await this.repository.batch(tx, userId, roomIds, now);
+    const { members, grants, revoked, delegations } = await this.repository.batch(tx, userId, roomIds, now);
     const byMember = new Map<string, object[]>();
     for (const { member_id, ...grant } of grants) {
       const rows = byMember.get(member_id) ?? [];
@@ -33,7 +33,8 @@ export class MembershipScopeService {
     return new Map(members.map(m => [m.room_id, {
       membershipScope: membershipScope(authorizationKey(this.config), this.config.audience, userId, m.room_id, m.active_period_id!),
       authorizationRevision: createHmac('sha256', authorizationKey(this.config)).update('authorization-revision:v1:').update(JSON.stringify([this.config.audience,
-        [m.id, m.role, m.room.mode, m.active_period_id, String(m.active_period!.visible_from_order), String(m.acl_epoch), m.room.policy_version, String(m.room.content_epoch), String(m.user.membership_generation), byMember.get(m.id) ?? [], byRoom.get(m.room_id) ?? []]])).digest('base64url'),
+        [m.id, m.role, m.room.mode, m.active_period_id, String(m.active_period!.visible_from_order), String(m.acl_epoch), m.room.policy_version, String(m.room.content_epoch), String(m.user.membership_generation), byMember.get(m.id) ?? [], byRoom.get(m.room_id) ?? [],
+          ...(delegations?.some(g => g.room_id === m.room_id) ? [delegations.filter(g => g.room_id === m.room_id).map(g => [g.id, g.member_id, g.period_id, g.expires_at, g.revoked_at, !g.revoked_at && g.expires_at > now && g.period_id === g.member.active_period_id])] : [])]])).digest('base64url'),
     }]));
   }
 }
