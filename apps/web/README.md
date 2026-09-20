@@ -5,6 +5,7 @@
 
 - [프론트엔드 웹 구현 계획](../../docs/frontend-web-implementation-plan.md): 화면, 멜로밍 선별 이식, 서버 계약, 단계별 완료 조건
 - [DESIGN.md](DESIGN.md): Airbnb 스타일을 적용한 로기챗 웹 디자인 기준
+- [다층 독립 리뷰 기록](../../docs/frontend-web-implementation-review.md): 지적·반영·재검토 결과와 남은 구현 gate
 
 Next.js App Router 기반. 최신 stable scaffold는 설계 리뷰 다음 단계다.
 QA 웹은 `qa.rogi.chat`, API는 `api.qa.rogi.chat/v1`, Socket.IO transport는
