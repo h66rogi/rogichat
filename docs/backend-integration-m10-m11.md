@@ -41,13 +41,20 @@ the logical database and currently verified MySQL server UUID, preserving nonce
 history and migration bytes. Approved MOBILE source and final hosted acceptance
 are still pending; real joined restore execution remains a separate operator gate.
 
+Approved infrastructure source `0af4cef1b2044f82e96bd4858027cde60564eef7`
+adds optional, default-off ledger-copy IAM roles and conditional object policies,
+with mock-rendered policy tests. All required leaf checks passed before its normal
+merge; the six infrastructure files remain unchanged. This source change does
+not apply Terraform, bind real principals or enable ledger-copy access.
+
 | Evidence boundary | Immutable source / result |
 |---|---|
 | Accepted backend, migrations 1–23 | `7d1bd35df63d7f3aa707934a4473608e7dd6b59d`; backend run above, all required PR checks passed |
 | Approved WEB leaf | `a92ebfc85398d368032195b901f42211b2983f62`; [hosted browser run](https://github.com/h66rogi/rogichat/actions/runs/35510393707), 235 first-pass + 1 retry-pass, 2 opposite-device skips |
 | Combined WEB/backend checkpoint | `609c08f3cef1755c48d244a5a9095293fed92318`; [WEB](https://github.com/h66rogi/rogichat/actions/runs/35510801843) passed, [backend](https://github.com/h66rogi/rogichat/actions/runs/35510801787) passed; [quality](https://github.com/h66rogi/rogichat/actions/runs/35510801733) stopped at the setup deadline |
 | Restore/schema-24 source | `7b559b645ef2b71fc5492d79895142745d0d6ead`; includes physical/logical target binding and accepted media source, final aggregate hosted acceptance pending |
-| Soak and supplementary scale | No accepted 30-minute result recorded here; no 1,000-client capacity claim |
+| Source-23 soak | [Run 35510608984](https://github.com/h66rogi/rogichat/actions/runs/35510608984) passed at `db2a27a151732dcb2b778db93926ca446d5624c7`; executor metrics pending, not final schema-24 performance acceptance |
+| Supplementary 1,000-client diagnostic | [Run 35511656540](https://github.com/h66rogi/rogichat/actions/runs/35511656540) at source `81f2603773506596459aa1ab20a1beab14442365` / tested merge `d8f5b01e96736808aa136accc275a00005cdefd0`: 33 quality tests passed, storm failed; 946 projections, 54 recovery HTTP 503s, 54 clients missed 20 seconds; no capacity claim |
 | External providers, restored service, QA routes | Not established by these credential-free tests; infrastructure/provider execution remains separate |
 
 The follow-up preserves accepted `4216aaaa53cc657a2d15e11cd12e53ce159e3b3b`
