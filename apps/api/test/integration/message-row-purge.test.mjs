@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { MembershipScopeService } from '../../dist/modules/membership-scope/membership-scope.service.js';
+import { MembershipScopeRepository } from '../../dist/modules/membership-scope/membership-scope.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -64,7 +66,7 @@ async function fixture(t) {
     }
     assert.fail('bounded purge did not converge');
   };
-  const sync = new SyncCoreService(key, 'purge-test', new SyncRepository(), context.get(AccessService), context.get(MessagesQueryService), context.get(UsersCoreService));
+  const sync = new SyncCoreService(key, 'purge-test', new SyncRepository(), context.get(AccessService), context.get(MessagesQueryService), context.get(UsersCoreService), new MembershipScopeService({ key, audience: 'purge-test' }, new MembershipScopeRepository()));
   const principal = { userId: state.peer, sessionId: randomUUID() }, input = { deviceId: randomUUID(), cacheId: randomUUID(), limit: 1 };
   const roomSync = (method, cursor) => db.transactions.read(tx => sync[method](tx, principal, state.room, { ...input, ...(cursor ? { cursor } : {}) }));
   return { db, ...state, body, source, block, step, finish, roomSync,
@@ -93,7 +95,9 @@ test('bounded physical MESSAGE purge survives restart, preserves dedupe/replay a
   assert.equal((await f.roomSync('history', snapshot.historyCursor)).resetRequired, true);
   assert.equal((await f.roomSync('profiles', profiles.nextCursor)).resetRequired, true);
   const fresh = await f.roomSync('snapshot');
-  assert.equal(fresh.resetRequired, false); assert.ok(fresh.messages.every(message => message.quote === null));
+  assert.equal(fresh.resetRequired, false);
+  assert.equal(fresh.membershipScope, snapshot.membershipScope);
+  assert.notEqual(fresh.authorizationRevision, snapshot.authorizationRevision); assert.ok(fresh.messages.every(message => message.quote === null));
   for (const quote of quotes) {
     const view = await f.db.transactions.read(tx => getMessage(tx, f.room, f.peer, quote.messageId));
     assert.equal(view.content.text, '독립 본문 유지'); assert.equal(view.quote, null);

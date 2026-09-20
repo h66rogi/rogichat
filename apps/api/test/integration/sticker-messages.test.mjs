@@ -1,4 +1,6 @@
 import { deletionFixture } from '../support/deletion-fixture.mjs';
+
+import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
 import { createRoom, joinRoom, sendMessage, sendInput, stickers, processMedia, recoverMedia, enqueueJob } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -51,6 +53,7 @@ async function fixture(t) {
   app = await createApi(db, { event() {} }, undefined, { sessions, config }, { store, prefix: 'test', spool: {} }, 'test', deletionFixture());
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const call = async (who, method, path, body, headers = {}) => {
+    await scopeNewHttpIntent(db, config, who.id, method, path, body);
     const response = await fetch(`${base}/v1${path}`, { method, headers: { origin: config.origin,
       cookie: `rogi_session=${who.token}`, 'x-csrf-token': who.csrf,
       ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...headers },

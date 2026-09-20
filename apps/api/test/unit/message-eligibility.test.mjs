@@ -7,7 +7,7 @@ import { MessagesCoreService } from '../../dist/modules/messages/messages-core.s
 import { MessagesQueryService } from '../../dist/modules/messages/messages-query.service.js';
 
 function fixture() {
-  const tx = {}, room = randomUUID(), own = randomUUID(), peer = randomUUID(), stream = randomUUID();
+  const tx = { now: async () => new Date(0) }, room = randomUUID(), own = randomUUID(), peer = randomUUID(), stream = randomUUID();
   const viewer = { id: own, user_id: randomUUID(), room_id: room, active_period_id: randomUUID(), visible_from_order: '0' };
   const pair = { room_id: room, stream_id: stream, left_member_id: own, right_member_id: peer };
   const members = [

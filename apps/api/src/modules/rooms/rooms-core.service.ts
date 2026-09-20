@@ -1,3 +1,4 @@
+import { MembershipScopeService } from '../membership-scope/membership-scope.service.js';
 import { provisionRoomInput, historyPolicyInput } from './dto/room.dto.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { RoomsRepository } from './rooms.repository.js';
@@ -18,7 +19,7 @@ function domainError(error: unknown): never {
 
 @Injectable()
 export class RoomsCoreService {
-  constructor(@Inject(RoomsRepository) private readonly repository: RoomsRepository, @Inject(RoomStateService) private readonly state: RoomStateService) {}
+  constructor(@Inject(RoomsRepository) private readonly repository: RoomsRepository, @Inject(RoomStateService) private readonly state: RoomStateService, @Inject(MembershipScopeService) private readonly scopes: MembershipScopeService) {}
   private async manager(tx: Transaction, userId: string): Promise<boolean> {
     const [row] = await this.repository.manager(tx, userId);
     return Number(row?.manage_rooms) === 1;
@@ -43,14 +44,15 @@ export class RoomsCoreService {
   }
   async listRooms(tx: Transaction, userId: string, after?: string) {
     const rows = await this.repository.visibleRooms(tx, userId, after ? identifier(after) : '');
-    return { rooms: rows.slice(0, 50).map(r => ({ roomId: r.id, name: r.name, mode: r.mode, joined: r.member_status === 'ACTIVE', ...(r.member_status === 'ACTIVE' ? { actorId: r.actor_id } : {}) })), next: rows.length > 50 ? rows[49]!.id : null };
+    const scopes = await this.scopes.batch(tx, userId, rows.slice(0, 50).filter(r => r.member_status === 'ACTIVE').map(r => r.id), await tx.now());
+    return { rooms: rows.slice(0, 50).map(r => ({ roomId: r.id, name: r.name, mode: r.mode, joined: scopes.has(r.id), ...(scopes.has(r.id) ? { actorId: r.actor_id, ...scopes.get(r.id)! } : {}) })), next: rows.length > 50 ? rows[49]!.id : null };
   }
   async enterRoom(tx: Transaction, roomId: string, userId: string) {
     try {
       const actorId = await this.state.joinRoom(tx, identifier(roomId), userId);
       // Return this membership's snapshot, not the room's later mutable policy.
       const [period] = await this.repository.period(tx, actorId);
-      return { actorId, historyPolicy: period!.history_policy, policyVersion: period!.policy_version, visibleFromOrder: String(period!.visible_from_order) };
+      return { actorId, historyPolicy: period!.history_policy, policyVersion: period!.policy_version, ...await this.scopes.one(tx, userId, roomId, await tx.now()) };
     } catch (error) { domainError(error); }
   }
   async exitRoom(tx: Transaction, roomId: string, userId: string) {

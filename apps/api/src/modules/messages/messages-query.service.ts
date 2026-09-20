@@ -19,12 +19,13 @@ export class MessagesQueryService {
   constructor(@Inject(MessagesQueryRepository) private readonly repository: MessagesQueryRepository,
     @Inject(MessageEligibilityService) private readonly eligibility: MessageEligibilityService) {}
 
-  async page(tx: Transaction, viewer: ActiveMember, window: MessageWindow, limit: number): Promise<MessagePage> {
+  async page(tx: Transaction, viewer: ActiveMember, window: MessageWindow, limit: number, now?: Date): Promise<MessagePage> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ServiceUnavailableException();
-    const rows = await this.repository.page(tx, viewer.id, viewer.room_id, viewer.visible_from_order, window, limit + 1);
+    const capturedNow = now ?? await tx.now();
+    const rows = await this.repository.page(tx, viewer.id, viewer.room_id, viewer.visible_from_order, window, limit + 1, capturedNow);
     // The repository applies ACL before LIMIT. Project only the page, never the lookahead
     // row, and never expose source identifiers, grants, SQL rows or storage keys to Sync.
-    const hints = await this.eligibility.project(tx, viewer, rows.slice(0, limit).filter(row => Number(row.blocked) !== 1).map(row => String(row.id)));
+    const hints = await this.eligibility.project(tx, viewer, rows.slice(0, limit).filter(row => Number(row.blocked) !== 1).map(row => String(row.id)), capturedNow);
     const items = rows.slice(0, limit).map((row): MessagePageItem => {
       const position = { id: String(row.id), version: String(row.version), createdOrder: String(row.created_order),
         eventOrder: row.event_order === undefined ? null : String(row.event_order) };
@@ -37,8 +38,8 @@ export class MessagesQueryService {
     return { items, hasMore: rows.length > limit };
   }
 
-  async affected(tx: Transaction, viewer: ActiveMember, from: string, high: string): Promise<boolean> {
-    return (await this.repository.affected(tx, viewer.room_id, viewer.id, viewer.visible_from_order, from, high)).length > 0;
+  async affected(tx: Transaction, viewer: ActiveMember, from: string, high: string, now?: Date): Promise<boolean> {
+    return (await this.repository.affected(tx, viewer.room_id, viewer.id, viewer.visible_from_order, from, high, now ?? await tx.now())).length > 0;
   }
   async stickerRevocations(tx: Transaction, viewer: ActiveMember) {
     const rows = await this.repository.stickerRevocations(tx, viewer.room_id, viewer.id, viewer.visible_from_order);

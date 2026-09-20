@@ -348,3 +348,9 @@ lock for replay after physical deletion; a failed author check is not absence. A
 transaction. The job clock is sampled after lock acquisition. See
 [the bounded purge contract](backend-message-row-purge.md) for deferred media,
 retained dedupe metadata and cursor invalidation; no runtime handler is installed.
+
+C06 exception: `membership-scope/membership-scope.repository.ts` uses one bound
+ACL-before-DISTINCT/LIMIT query for revoked sticker IDs across the selected room
+set. This preserves the exact viewer ACL vector with aggregate 10,001-row bounds
+and no per-room fanout; ordinary reads remain generated Prisma operations. The
+captured DB time is passed to all temporal predicates for response consistency.

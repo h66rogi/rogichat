@@ -10,6 +10,11 @@ import { DeletionReplayRepository } from '../../dist/modules/deletion/deletion-r
 import { DeletionReconciler } from '../../dist/modules/deletion/deletion-reconciler.js';
 import { messageDeletionId, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
 import { deletionFixture } from '../support/deletion-fixture.mjs';
+
+import { createConnection } from 'mysql2/promise';
+import { waitFor } from '../helpers.mjs';
+import { sendMessageScoped } from '../support/domain-fixture.mjs';
+import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
 import { createUser, createRoom, joinRoom, nextOrder, sendInput, sendMessage } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
@@ -50,6 +55,7 @@ async function fixture(t, mode = 'FAN', configured = true) {
   };
   await restart();
   const call = async (who, method, path, body, headers = {}) => {
+    await scopeNewHttpIntent(db, config, who.id, method, path, body);
     const response = await fetch(`${base}/v1${path}`, { method, headers: {
       Origin: config.origin, ...(headers.Authorization ? {} : { Cookie: `rogi_session=${who.token}`, 'X-CSRF-Token': who.csrf }),
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers,
@@ -161,7 +167,7 @@ test('author deletion after leaving and room closure is durable, idempotent and 
   await f.restart();
   for (const retry of [body, { ...body, content: { type: 'TEXT', text: '삭제 후 다른 본문' } }]) {
     const result = await f.send(f.fan1, retry);
-    assert.equal(result.status, 200); assert.deepEqual(result.body, { clientMessageId: body.clientMessageId, messageId: sent.body.messageId, status: 'deleted' });
+    assert.equal(result.status, 404); assert.deepEqual(result.body, { error: { code: 'NOT_FOUND' } });
   }
   const rows = await f.db.transactions.read(async tx => ({
     message: (await tx.rows('SELECT text_content,deleted_at,version FROM messages WHERE id=?', [sent.body.messageId]))[0],
@@ -215,7 +221,8 @@ test('rollback keeps counter/message/receipt/events/jobs atomic; join/send order
   ]);
   assert.equal(sent.status, 200); assert.equal(joined.status, 200);
   const [stored] = await f.db.transactions.read(tx => tx.rows('SELECT created_order FROM messages WHERE id=?', [sent.body.messageId]));
-  const visible = BigInt(stored.created_order) >= BigInt(joined.body.visibleFromOrder);
+  const [period] = await f.db.transactions.read(tx => tx.rows('SELECT p.visible_from_order FROM membership_periods p JOIN room_members m ON m.active_period_id=p.id WHERE m.id=?', [joined.body.actorId]));
+  const visible = BigInt(stored.created_order) >= BigInt(period.visible_from_order);
   assert.equal((await f.get(f.outsider, sent.body.messageId)).status, visible ? 200 : 404);
   for (const table of ['messages', 'command_receipts', 'room_events', 'jobs']) {
     const [count] = await f.db.transactions.read(tx => tx.rows(`SELECT COUNT(*) AS total FROM ${table} WHERE room_id=?`, [f.room]));
@@ -264,7 +271,7 @@ test('own receipt reconciliation survives lost ACK/restart and isolates identica
   await f.restart(); // Sender lost the ACK; reconcile without posting another command.
   assert.deepEqual((await lookup(f.owner)).body, sent.body);
   assert.equal((await lookup(f.fan1)).status, 404);
-  const other = await f.send(f.fan1, body); assert.equal(other.status, 200);
+  const other = await f.send(f.fan1, { ...body, membershipScope: undefined }); assert.equal(other.status, 200);
   assert.notEqual(other.body.messageId, sent.body.messageId);
   assert.deepEqual((await lookup(f.fan1)).body, other.body);
   const native = await f.db.transactions.write(tx => f.sessions.issueNative(tx, f.owner.id, 'ios'));
@@ -465,4 +472,69 @@ test('synthetic adapter acknowledgment loss after deletion commit does not repla
   await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService), f.db.transactions, new DeletionReplayRepository()).tick();
   assert.equal(applications, 2);
   assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_requests.count({ where: { message_id: sent.body.messageId } })), 1);
+});
+
+test('C06 retains pending scope across rejoin and fences both committed and deleted receipts with fresh authorization', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'GROUP');
+  const body = f.command('scope-bound pending');
+  const first = await f.send(f.fan1, body); assert.equal(first.status, 200);
+  const oldScope = body.membershipScope;
+  const [stored] = await f.db.transactions.read(tx => tx.rows('SELECT payload_digest FROM command_receipts WHERE room_id=? AND actor_id=? AND client_message_id=?', [f.room, f.fan1.actor, body.clientMessageId]));
+  const canonical = { clientMessageId: body.clientMessageId, intent: 'SHARED', recipientActorId: null, quoteId: null, content: body.content };
+  assert.deepEqual(stored.payload_digest, createHmac('sha256', f.config.key).update('message-command:v1:').update(JSON.stringify(canonical)).digest());
+  assert.equal((await f.call(f.fan1, 'POST', `/rooms/${f.room}/leave`, {})).status, 204);
+  const joined = await f.call(f.fan1, 'POST', `/rooms/${f.room}/join`, {}); assert.equal(joined.status, 200);
+  assert.notEqual(joined.body.membershipScope, oldScope);
+  await f.nextBurst(f.fan1);
+  for (const deleted of [false, true]) {
+    if (deleted) assert.equal((await f.remove(f.fan1, first.body.messageId)).status, 200);
+    const retry = await f.send(f.fan1, body);
+    assert.equal(retry.status, 409); assert.deepEqual(retry.body, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH' } });
+  }
+  const fresh = f.command('new action new intent');
+  assert.equal((await f.send(f.fan1, fresh)).status, 200);
+  assert.equal(fresh.membershipScope, joined.body.membershipScope);
+  await f.db.transactions.write(tx => tx.execute("UPDATE platform_soop SET status='REVOKED' WHERE user_id=?", [f.fan1.id]));
+  const denied = await f.send(f.fan1, body); assert.equal(denied.status, 403); assert.deepEqual(denied.body, { error: { code: 'SOOP_LINK_REQUIRED' } });
+});
+
+test('C06 actual MySQL room lock serializes rejoin before a pending committed/deleted SEND retry', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'GROUP');
+  const admin = await createConnection(process.env.TEST_ADMIN_URL); t.after(() => admin.end());
+  const second = new MysqlDatabase(readConfig('api')); t.after(() => second.close());
+  for (const deleted of [false, true]) {
+    await f.nextBurst(f.fan1);
+    const body = f.command('locked scope'); const sent = await f.send(f.fan1, body); assert.equal(sent.status, 200);
+    if (deleted) await f.remove(f.fan1, sent.body.messageId);
+    let unlock, locked;
+    const acquired = new Promise(resolve => { locked = resolve; });
+    const release = new Promise(resolve => { unlock = resolve; });
+    const transition = f.db.transactions.write(async tx => {
+      await f.sessions.require(tx, f.fan1.token, f.fan1.csrf, true);
+      await tx.rows('SELECT id FROM rooms WHERE id=? FOR UPDATE', [f.room]);
+      const [member] = await tx.rows('SELECT active_period_id FROM room_members WHERE id=? FOR UPDATE', [f.fan1.actor]);
+      await tx.execute('UPDATE membership_periods SET left_at=UTC_TIMESTAMP(3) WHERE id=?', [member.active_period_id]);
+      await tx.execute("UPDATE room_members SET status='LEFT',active_period_id=NULL WHERE id=?", [f.fan1.actor]);
+      await joinRoom(tx, f.room, f.fan1.id);
+      locked(); await release;
+    });
+    await acquired;
+    const retry = second.transactions.write(async tx => {
+      await f.sessions.require(tx, f.fan1.token, f.fan1.csrf, true);
+      return sendMessageScoped(tx, f.room, f.fan1.id, sendInput(body), f.config.key, f.config.audience);
+    });
+    let early;
+    const outcome = retry.then(value => ({ value }), error => ({ error }));
+    void outcome.then(result => { early = result; });
+    try {
+      await waitFor(async () => {
+        if (early) assert.fail(`retry ended before lock observation: ${early.error?.code ?? early.error?.name ?? 'success'}`);
+        // The holder has already completed its queries. An in-flight current-session
+        // SELECT on the second pool must wait on that exact session/account lock.
+        const [rows] = await admin.query("SELECT ID FROM information_schema.processlist WHERE COMMAND IN ('Query','Execute') AND INFO LIKE 'SELECT s.id,s.user_id,s.csrf_digest%'");
+        return rows.length > 0;
+      }, 1500);
+    } finally { unlock(); }
+    await transition; const result = await outcome; assert.equal(result.error?.code, 'MEMBERSHIP_SCOPE_MISMATCH');
+  }
 });

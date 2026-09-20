@@ -1,6 +1,8 @@
 import { MessageEligibilityService } from './message-eligibility.service.js';
 import { messageDeletionId } from '../deletion/deletion-ledger.js';
 import type { DeletionIntent, LedgerEnvironment } from '../deletion/deletion-ledger.js';
+
+import { membershipScope } from '../membership-scope/membership-scope.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
@@ -102,17 +104,20 @@ export class MessagesCoreService {
   }
 
   // Caller revalidates the current session/account/SOOP on this SAME transaction handle.
-  async send(tx: Transaction, roomId: string, userId: string, input: SendInput, key: Buffer) {
+  async send(tx: Transaction, roomId: string, userId: string, input: SendInput, key: Buffer, audience: string) {
     const owner = await this.access.lockRoomSendOwner(tx, identifier(roomId));
     const room = await this.repository.room(tx, roomId);
     if (!room) throw new ApiError('NOT_FOUND', 404);
     const member = await this.repository.member(tx, roomId, userId);
     if (!member) throw new ApiError('NOT_FOUND', 404);
-    const hash = createHmac('sha256', key).update('message-command:v1:').update(JSON.stringify(input)).digest();
-    const receipt = await this.repository.receipt(tx, roomId, String(member.id), input.clientMessageId);
-    if (receipt && Number(receipt.deleted) === 1) return { clientMessageId: input.clientMessageId, messageId: String(receipt.message_id), status: 'deleted' as const };
     if (room.status !== 'ACTIVE') throw new ApiError('NOT_FOUND', 404);
     const viewer = await this.access.requireActiveMember(tx, roomId, userId);
+    if (input.membershipScope !== membershipScope(key, audience, userId, roomId, viewer.active_period_id)) throw new ApiError('MEMBERSHIP_SCOPE_MISMATCH', 409);
+    // Preserve the exact v1 digest field order and null normalization across membership periods.
+    const payload = { clientMessageId: input.clientMessageId, intent: input.intent, recipientActorId: input.recipientActorId, quoteId: input.quoteId, content: input.content };
+    const hash = createHmac('sha256', key).update('message-command:v1:').update(JSON.stringify(payload)).digest();
+    const receipt = await this.repository.receipt(tx, roomId, String(member.id), input.clientMessageId);
+    if (receipt && Number(receipt.deleted) === 1) return { clientMessageId: input.clientMessageId, messageId: String(receipt.message_id), status: 'deleted' as const };
     if (receipt) {
       if (Number(receipt.digest_version) !== 1 || !Buffer.isBuffer(receipt.payload_digest) || receipt.payload_digest.length !== 32 || !timingSafeEqual(hash, receipt.payload_digest)) throw new ApiError('CONFLICT', 409);
       const previous = await this.load(tx, roomId, String(receipt.message_id));
