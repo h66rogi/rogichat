@@ -1,0 +1,41 @@
+{
+  "sourceCommit": "d013dd2c8543b34eea343fa7a302fea57ce6b953",
+  "scope": "Reviewed generic test-only helpers; no runtime imports or private configuration",
+  "adaptations": [
+    "Restrict hosted repository allowlist to public target only",
+    "Qualify TextDecoder with globalThis for repository lint",
+    "Remove unused destructured bindings and local variable for lint; add explanation to intentional empty catch"
+  ],
+  "files": [
+    {
+      "path": "tools/restore_proof.mjs",
+      "sourceSha256": "ed7314665cc4c3f62d768851c39631a32ee894458569d47312c4f96624443974",
+      "copiedSha256": "fe5bf4f9985a55f28a698fe5cc09db17105c270212d1193a824e6ec0be6aff2d"
+    },
+    {
+      "path": "tools/restore_isolation.mjs",
+      "sourceSha256": "162ac84344cf9d20ac89af287dbbb6b507a25834484349b5a98bd877a73288c9",
+      "copiedSha256": "c64857ff7e583bd8d14b74611fd2a073bfb74991d91ccc1f4dc5d96434a8f896"
+    },
+    {
+      "path": "tools/restore_backend_driver.mjs",
+      "sourceSha256": "e35df559d3a30f2ab908ac84f96430555389f8ac6f796607363557f521157aa9",
+      "copiedSha256": "5bd8aab690e9de4b42fddecbd84c09ed247d0908a00d508ee1f80b2c15280aea"
+    },
+    {
+      "path": "tools/restore_fixture_media.mjs",
+      "sourceSha256": "228bb468b211bba7ef3aa8e2f30211eb2f9bbaee3f82ac0c0deb0c0557997bc5",
+      "copiedSha256": "228bb468b211bba7ef3aa8e2f30211eb2f9bbaee3f82ac0c0deb0c0557997bc5"
+    },
+    {
+      "path": "tools/restore_storage_fence.mjs",
+      "sourceSha256": "b0a828c197174cdbc005c78dd3d6de294282789d5a087db2136b06897e879738",
+      "copiedSha256": "b0a828c197174cdbc005c78dd3d6de294282789d5a087db2136b06897e879738"
+    },
+    {
+      "path": "tools/restore_storage_namespace.py",
+      "sourceSha256": "cf462d40f48a722130e88e5b22f279d0a03f135180ee38a86feb8a0399208377",
+      "copiedSha256": "b8ee28f8a0ec202f394286f7f52c84de657b054ce9a0ce681ec775e3b5ca378a"
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+name: Backend M12 joined restore proof
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-m12-restore-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  joined-restore:
+    if: github.event.label.name == 'm12-restore'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0.44@sha256:9c3380eac945af0736031b200027f581925927c81e010056214a4bd6b6693714
+        env:
+          # Disposable hosted runner fixture, never a service credential.
+          MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --silent"
+          --health-interval=5s --health-timeout=3s --health-retries=30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          path: harness
+          fetch-depth: 0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          ref: 7b559b645ef2b71fc5492d79895142745d0d6ead
+          path: runtime
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: harness/.node-version
+          package-manager-cache: false
+      - name: Install locked dependencies and build test target
+        run: |
+          npm install --global pnpm@12.4.2 --ignore-scripts
+          cd runtime
+          test "$(git rev-parse HEAD)" = 7b559b645ef2b71fc5492d79895142745d0d6ead
+          pnpm install --frozen-lockfile
+          pnpm --filter @rogichat/api build
+          test -z "$(git status --porcelain --untracked-files=all)"
+          cd ../harness
+          pnpm install --frozen-lockfile
+          pnpm --filter @rogichat/api build
+          pnpm --filter @rogichat/api lint
+          git diff 7b559b645ef2b71fc5492d79895142745d0d6ead --exit-code -- apps/api/src apps/api/prisma
+      - name: Execute joined backup, custody, replay, release and HTTP authorization drills
+        env:
+          ROGICHAT_TEST_MYSQL: disposable
+          TEST_MYSQL_PORT: ${{ job.services.mysql.ports[3306] }}
+          TEST_MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
+          M12_EVIDENCE_DIR: ${{ runner.temp }}/m12-restore-evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$M12_EVIDENCE_DIR"
+          cd harness
+          export M12_SOURCE_SHA="$(git rev-parse HEAD)"
+          cd apps/api
+          node test/run-mysql.mjs --restore 2>&1 | tee "$M12_EVIDENCE_DIR/execution.log"
+      - name: Publish isolated evidence even when assertions fail
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: m12-restore-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/m12-restore-evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Confirm generated migrations and tracked files unchanged
+        run: git -C harness diff --exit-code && git -C runtime diff --exit-code

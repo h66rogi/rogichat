@@ -129,3 +129,11 @@ there is no in-place supersession or checkpoint-deletion procedure. This binding
 is not proof that a provider assigns globally unique physical identities: the
 independent custodian must verify target provisioning and ownership. A clone
 which retains an old server UUID is not automatically a new restore target.
+
+## Joined hosted proof
+
+The `m12-restore` PR label executes `node test/run-mysql.mjs --restore` on a disposable hosted MySQL service. The harness and runtime use separate checkouts: runtime is fixed at `7b559b645ef2b71fc5492d79895142745d0d6ead`, and its entire compiled tree must match independently reviewed SHA256 `5c711fee7fc14edd42f121c9b8c38757ab3113a6633417919ee5e32f4c2a6057`. The current harness build must match that same digest. No service credentials, deployment targets or live objects enter this job.
+
+`test/restore/joined.test.mjs` reuses the existing logical backup and domain fixtures, then restores into another randomly named database. A protected namespace supplies real nonempty PHOTO and VIDEO objects. Generic test-only driver provenance and derivative hashes live in `test/support/restore-driver/provenance.json`. The custody helper rotates the dedicated disposable password and drains existing sessions; the fixture tests both the old writer and old authentication, as well as an INDEX-only foreign principal.
+
+The scenario executes the actual operator module for ledger replay and quarantine, separate-process attestation, two concurrent consumers of one release nonce, independent receipt recovery, and actual lease loss. It probes product HTTP with old and new WEB/native sessions, restored numeric counters and membership periods, old cursors/M/A, and explicitly reconstructed permissions. Source/build mismatch, incomplete/corrupt/unavailable ledger, pending admission, permission drift, changed/missing/orphan media and replayed release must fail closed. Evidence is only accepted after an observed successful run; implementation alone is not execution evidence. The release receipt remains `servingAuthorized:false`, and local kernel custody is not proof of live R2 or Aurora PITR behavior.
