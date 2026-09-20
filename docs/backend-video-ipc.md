@@ -10,7 +10,9 @@ One Unix connection carries exactly one conversion. The request is a four-byte
 big-endian length followed by 2–1024 bytes of UTF-8 JSON produced by
 `JSON.stringify({version: 1, intent: {kind, contentType, byteLength}})`, followed
 by exactly `intent.byteLength` input bytes. JSON must round-trip byte-for-byte;
-this rejects duplicate properties and ambiguous encodings. Unknown versions,
+the original header bytes are compared with canonical UTF-8 JSON after fatal
+UTF-8 decoding, rejecting a leading BOM, invalid UTF-8, duplicate properties and
+ambiguous encodings. Unknown versions,
 properties, kinds, roles, content types, and untrusted paths/binaries are rejected.
 
 The request writer **stays open** until the response is complete. EOF, socket
@@ -88,7 +90,9 @@ captures the positive PID returned by spawn and sends `SIGKILL` only to its
 negative process-group ID, at most once; unknown PIDs and zero are never signaled.
 Unsupported platforms fail closed. Deadline, abort, pipe error/premature close,
 and socket cancellation kill the group. Leader exit also kills the group before
-awaiting child `close`, covering descendants that keep inherited stdout open.
+awaiting child `close`, including the inherited-stdout case exercised by tests.
+Leader exit and stdio close are not independent proof that every descendant has
+exited: a descendant can close its inherited pipes or leave the process group.
 `server.close(callback)` cancels active connections and waits for child close and
 scratch cleanup before invoking the callback. Native binaries default to fixed
 `/usr/bin` paths; optional server-construction paths are trusted local configuration
@@ -104,7 +108,14 @@ success. Decoder output polling is only defense in depth.
 Tests use synthetic media and synthetic descendant processes. Local macOS tests
 exercise real SIGKILL group termination on timeout, abort, leader exit with an
 inherited pipe, stdout overflow/error/early close, client close/error, and server
-shutdown. Protocol tests exercise fragmentation/coalescing, invalid metadata,
+shutdown. These tests separately poll the recorded synthetic grandchild PID
+until it is absent or a non-executing zombie; that evidence covers that known
+process only, not enumeration or independently verified exit of all descendants.
+The production path sends a group signal and awaits leader/stdio close; it does
+not perform the tests' independent PID check or prove all-descendant exit before
+scratch cleanup or the server-close callback.
+Protocol tests exercise fragmentation/coalescing, leading BOM and invalid UTF-8
+rejection, canonical Unicode preservation, invalid metadata,
 version rejection, byte limits, second-output failure, delayed trailing data,
 abort during the poster/EOF wait, and restoration of spool reservations.
 The native suite checks real H.264/AAC/WebP IPC plus the existing orientation,

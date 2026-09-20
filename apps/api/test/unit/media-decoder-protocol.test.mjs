@@ -57,6 +57,35 @@ async function rawRequest(path, headerChunks, body) {
   } finally { socket.destroy(); }
 }
 
+test('readFrame rejects a UTF-8 BOM before otherwise canonical JSON', async () => {
+  const header = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('{"version":1}')]);
+  const length = Buffer.alloc(4); length.writeUInt32BE(header.length);
+  const socket = new PassThrough();
+  try {
+    const rejected = assert.rejects(readFrame(socket, AbortSignal.timeout(1000)), { message: 'decoder_protocol' });
+    socket.end(Buffer.concat([length, header]));
+    await rejected;
+  } finally { socket.destroy(); }
+});
+
+test('readFrame rejects invalid UTF-8 but preserves canonical Unicode JSON', async () => {
+  const header = Buffer.concat([Buffer.from('{"value":"'), Buffer.from([0xc3, 0x28]), Buffer.from('"}')]);
+  const length = Buffer.alloc(4); length.writeUInt32BE(header.length);
+  const socket = new PassThrough();
+  try {
+    const rejected = assert.rejects(readFrame(socket, AbortSignal.timeout(1000)), { message: 'decoder_protocol' });
+    socket.end(Buffer.concat([length, header]));
+    await rejected;
+  } finally { socket.destroy(); }
+  const canonical = new PassThrough();
+  try {
+    const value = { value: '로기챗 😀 \uFEFF \uFFFD' };
+    const received = readFrame(canonical, AbortSignal.timeout(1000));
+    canonical.end(frame(value));
+    assert.deepEqual(await received, value);
+  } finally { canonical.destroy(); }
+});
+
 test('real PNG streams through Unix socket, length-delimited upload, isolated child and canonical WebP response without inherited secrets', async t => {
   const f = await fixture(t); const bytes = await png();
   const original = childProcess.spawn; let observed;

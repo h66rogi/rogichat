@@ -31,10 +31,12 @@ export function readFrame(socket: Socket, signal: AbortSignal): Promise<unknown>
             socket.pause(); cleanup();
             if (offset < chunk.length) socket.unshift(chunk.subarray(offset));
             try {
-              const encoded = new TextDecoder('utf-8', { fatal: true }).decode(header.subarray(4));
+              const original = header.subarray(4);
+              const encoded = new TextDecoder('utf-8', { fatal: true }).decode(original);
               const value: unknown = JSON.parse(encoded);
+              // Compare original bytes: UTF-8 decoding strips a leading BOM.
               // Canonical JSON forbids duplicate keys and ambiguous encodings.
-              if (JSON.stringify(value) !== encoded) throw new Error('decoder_protocol');
+              if (!original.equals(Buffer.from(JSON.stringify(value), 'utf-8'))) throw new Error('decoder_protocol');
               resolve(value);
             }
             catch { reject(new Error('decoder_protocol')); }
