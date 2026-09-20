@@ -12,6 +12,20 @@ try { fs.writeFileSync("/app/write-probe", "must fail"); process.exit(1); } catc
 id=''
 cleanup() { if test -n "$id"; then docker rm -f "$id" >/dev/null; fi; }
 trap cleanup EXIT
+key_digest() {
+  docker exec "$id" node -e '
+const fs = require("node:fs");
+const crypto = require("node:crypto");
+const file = ".next/cache/rogichat-runtime/prerender-manifest.json";
+if ((fs.statSync(file).mode & 0o777) !== 0o600 || (fs.statSync(".next/cache/rogichat-runtime").mode & 0o777) !== 0o700) throw Error("Unsafe key permissions");
+const manifest = JSON.parse(fs.readFileSync(".next/prerender-manifest.json"));
+if (Object.keys(manifest.preview).length !== 3) throw Error("Missing runtime keys");
+if (Object.values(manifest.preview).some(key => typeof key !== "string" || key.length < 32)) throw Error("Missing runtime keys");
+if (Object.keys(JSON.parse(fs.readFileSync(".next/prerender-manifest.template.json")).preview).length) throw Error("Image template contains keys");
+if (Object.hasOwn(JSON.parse(fs.readFileSync(".next/server/server-reference-manifest.json")), "encryptionKey")) throw Error("Unused action key shipped");
+console.log(crypto.createHash("sha256").update(JSON.stringify(manifest.preview)).digest("hex"));
+'
+}
 for environment in qa production; do
   api_origin=https://api.qa.rogi.chat
   if test "$environment" = production; then api_origin=https://api.rogi.chat; fi
@@ -24,6 +38,13 @@ for environment in qa production; do
     -e NODE_ENV=production -e "ROGICHAT_WEB_ENV=$environment" -e "ROGICHAT_API_ORIGIN=$api_origin" "${room_env[@]}" "$image")
   port=$(docker port "$id" 3000/tcp | cut -d: -f2)
   if ! node tools/web/check-runtime.mjs "http://127.0.0.1:$port" "$environment"; then docker logs "$id"; exit 1; fi
+  before_restart=$(key_digest)
+  [[ "$before_restart" =~ ^[a-f0-9]{64}$ ]]
+  docker restart --time 15 "$id" >/dev/null
+  node tools/web/check-runtime.mjs "http://127.0.0.1:$port" "$environment"
+  after_restart=$(key_digest)
+  [[ "$after_restart" =~ ^[a-f0-9]{64}$ ]]
+  test "$before_restart" != "$after_restart"
   docker stop --time 15 "$id" >/dev/null
   # Next 16.3.5 drains connections, then deliberately exits 128 + SIGTERM.
   exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$id")

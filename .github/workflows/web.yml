@@ -58,6 +58,7 @@ jobs:
           npm install --global pnpm@12.4.2 --ignore-scripts
           pnpm install --frozen-lockfile
       - run: python3 -m unittest discover -s tools/web -p 'test_*.py'
+      - run: node --test tools/web/*.test.mjs
       - run: pnpm web:lint
       - run: pnpm web:typecheck
       - run: pnpm web:test:unit

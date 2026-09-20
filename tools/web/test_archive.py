@@ -89,7 +89,7 @@ class WebArchiveTests(unittest.TestCase):
                         'workflow_run': {'id': 100, 'head_sha': producer['sha']},
                         'name': f"web-{descriptor['source_sha']}-100-2"}
             compare = {'status': 'ahead', 'merge_base_commit': {'sha': descriptor['source_sha']}}
-            with patch.object(archive.core, 'api', side_effect=[run, artifact, compare]), patch.object(archive.core, 'verify_source') as verify:
+            with patch.object(archive.core, 'api', side_effect=[run, artifact, compare]), patch.object(archive.core, 'verify_source') as verify, patch.object(archive, 'verify_publication_proof'):
                 archive.verify_provenance(descriptor, approval)
                 verify.assert_called_once()
             wrong = {**run, 'path': '.github/workflows/backend-export.yml'}
@@ -99,6 +99,81 @@ class WebArchiveTests(unittest.TestCase):
             with patch.object(archive.core, 'api', side_effect=[run, {**artifact, 'digest': 'sha256:' + 'd' * 64}]):
                 with self.assertRaises(ValueError):
                     archive.verify_provenance(descriptor, approval)
+
+
+class PublicationProofTests(unittest.TestCase):
+    def proof_fixture(self, directory):
+        descriptor, _ = fixture(directory)
+        source = descriptor['source_sha']
+        publication_id = descriptor['verification_runs']['web-publish.yml']
+        run = {'head_sha': source, 'head_branch': 'qa', 'event': 'push', 'status': 'completed',
+               'conclusion': 'success', 'repository': {'full_name': archive.core.REPOSITORY},
+               'head_repository': {'full_name': archive.core.REPOSITORY},
+               'path': '.github/workflows/web-publish.yml', 'run_attempt': 1,
+               'run_started_at': '2026-09-20T01:00:00Z'}
+        export = {**run, 'head_sha': descriptor['producer']['sha'], 'event': 'workflow_dispatch',
+                  'path': '.github/workflows/web-export.yml', 'run_attempt': 2,
+                  'run_started_at': '2026-09-20T02:00:00Z'}
+        artifact = {'id': 300, 'name': f'web-publication-proof-{source}-1', 'expired': False,
+                    'created_at': '2026-09-20T01:05:00Z',
+                    'workflow_run': {'id': publication_id, 'head_sha': source}}
+        image = descriptor['images']['runtime']
+        proof = {'schemaVersion': 1, 'repository': archive.core.REPOSITORY, 'sourceSha': source,
+                 'image': image['image'], 'checkedImageId': image['config_id'], 'platform': 'linux/amd64',
+                 'publicationAttempt': 1, 'publicationRun': f'https://github.com/{archive.core.REPOSITORY}/actions/runs/{publication_id}',
+                 'runtimeEnvironmentsVerified': ['qa', 'production'],
+                 'verification': [{'workflow': name, 'id': identity, 'sha': source}
+                                  for name, identity in descriptor['verification_runs'].items() if name != 'web-publish.yml']}
+        return descriptor, run, export, artifact, proof
+
+    def verify(self, descriptor, run, export, artifact, proof):
+        listing = {'total_count': 1, 'artifacts': [artifact]}
+        with patch.object(archive.core, 'api', side_effect=[run, export, listing]), patch.object(archive, 'download_proof', return_value=proof):
+            archive.verify_publication_proof(descriptor)
+
+    def test_same_source_other_image_config_or_attempt_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            descriptor, run, export, artifact, proof = self.proof_fixture(Path(root))
+            self.verify(descriptor, run, export, artifact, proof)
+            for key, value in [('image', 'ghcr.io/h66rogi/rogichat-web@sha256:' + 'f' * 64),
+                               ('checkedImageId', 'sha256:' + 'f' * 64), ('publicationAttempt', 2), ('platform', 'linux/arm64')]:
+                with self.assertRaises(ValueError):
+                    self.verify(descriptor, run, export, artifact, {**proof, key: value})
+
+    def test_later_publication_attempt_or_replaced_artifact_rejected(self):
+        with tempfile.TemporaryDirectory() as root:
+            descriptor, run, export, artifact, proof = self.proof_fixture(Path(root))
+            with self.assertRaises(ValueError):
+                self.verify(descriptor, {**run, 'run_attempt': 2, 'run_started_at': '2026-09-20T03:00:00Z'}, export,
+                            {**artifact, 'name': artifact['name'][:-1] + '2', 'created_at': '2026-09-20T03:05:00Z'},
+                            {**proof, 'publicationAttempt': 2})
+            with self.assertRaises(ValueError):
+                self.verify(descriptor, run, export, {**artifact, 'created_at': '2026-09-20T03:00:00Z'}, proof)
+            with self.assertRaises(ValueError):
+                self.verify(descriptor, run, export, {**artifact, 'expired': True}, proof)
+
+    def test_proof_zip_hash_name_and_expansion_are_bounded(self):
+        def zipped(name, value):
+            stream = io.BytesIO()
+            with archive.zipfile.ZipFile(stream, 'w', compression=archive.zipfile.ZIP_DEFLATED) as output:
+                output.writestr(name, value)
+            data = stream.getvalue()
+            return data, 'sha256:' + archive.core.sha256(data)
+        data, digest = zipped('web-publication-proof.json', '{}')
+        self.assertEqual(archive.proof_zip(data, digest), {})
+        with self.assertRaises(ValueError):
+            archive.proof_zip(data, 'sha256:' + 'f' * 64)
+        for name, value in [('../web-publication-proof.json', '{}'), ('web-publication-proof.json', 'x' * 65537)]:
+            data, digest = zipped(name, value)
+            with self.assertRaises(ValueError):
+                archive.proof_zip(data, digest)
+
+    def test_redirect_never_forwards_github_authorization_to_storage(self):
+        request = archive.urllib.request.Request('https://api.github.com/artifact', headers={'Authorization': 'Bearer unit-test-value'})
+        redirected = archive.SafeRedirect().redirect_request(request, None, 302, '', {}, 'https://example.invalid/signed-artifact')
+        self.assertFalse(redirected.has_header('Authorization'))
+        with self.assertRaises(ValueError):
+            archive.SafeRedirect().redirect_request(request, None, 302, '', {}, 'http://example.invalid/artifact')
 
 
 if __name__ == '__main__':

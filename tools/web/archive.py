@@ -6,11 +6,18 @@ No build, host registry credentials, Docker load, or deployment is performed.
 """
 from __future__ import annotations
 import argparse
+from datetime import datetime
+import io
 import importlib.util
 import json
+import os
+import stat
 from pathlib import Path
 import subprocess
 import sys
+import urllib.parse
+import urllib.request
+import zipfile
 
 spec = importlib.util.spec_from_file_location('rogichat_web_archive_core', Path(__file__).resolve().parents[1] / 'operations/backend_archive.py')
 core = importlib.util.module_from_spec(spec)
@@ -55,6 +62,7 @@ def verify_provenance(descriptor, approval, token=None):
             and artifact['workflow_run']['head_sha'] == producer['sha']
             and artifact['name'] == f"web-{descriptor['source_sha']}-{producer['run_id']}-{producer['run_attempt']}")
     core.verify_source(descriptor['source_sha'], descriptor['verification_runs'], token)
+    verify_publication_proof(descriptor, token)
     compare = core.api(f"compare/{descriptor['source_sha']}...{producer['sha']}", token)
     require(compare['status'] in ('ahead', 'identical') and compare['merge_base_commit']['sha'] == descriptor['source_sha'])
 
@@ -81,6 +89,104 @@ def download(args):
     print('Trusted web artifact, registry manifest, image config and rootfs verified; not loaded or deployed.')
 
 
+class SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, new_url):
+        target = urllib.parse.urlsplit(new_url)
+        require(target.scheme == 'https' and not target.username and not target.password)
+        redirected = super().redirect_request(request, response, code, message, headers, new_url)
+        if redirected and target.netloc != urllib.parse.urlsplit(request.full_url).netloc:
+            redirected.remove_header('Authorization')
+        return redirected
+
+
+def proof_zip(data, expected_digest):
+    require(len(data) <= 1024**2 and 'sha256:' + core.sha256(data) == expected_digest)
+    with zipfile.ZipFile(io.BytesIO(data)) as zipped:
+        entries = zipped.infolist()
+        require(len(entries) == 1)
+        entry = entries[0]
+        require(entry.filename == 'web-publication-proof.json' and not entry.is_dir()
+                and not entry.flag_bits & 1 and not stat.S_ISLNK(entry.external_attr >> 16) and entry.file_size <= 65536)
+        value = json.loads(zipped.read(entry))
+    require(type(value) is dict)
+    return value
+
+
+def download_proof(artifact, token):
+    artifact_id = artifact['id']
+    require(type(artifact_id) is int and artifact_id > 0)
+    headers = {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
+    if token:
+        headers['Authorization'] = 'Bearer ' + token
+    request = urllib.request.Request(f'https://api.github.com/repos/{core.REPOSITORY}/actions/artifacts/{artifact_id}/zip', headers=headers)
+    with urllib.request.build_opener(SafeRedirect()).open(request, timeout=30) as response:
+        if response.headers.get('Content-Length'):
+            require(int(response.headers['Content-Length']) <= 1024**2)
+        data = response.read(1024**2 + 1)
+    return proof_zip(data, artifact['digest'])
+
+
+def timestamp(value):
+    result = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    require(result.tzinfo is not None)
+    return result
+
+
+def verify_publication_proof(descriptor, token=None):
+    source = descriptor['source_sha']
+    publication_id = descriptor['verification_runs']['web-publish.yml']
+    run = core.api(f'actions/runs/{publication_id}', token)
+    core.verify_run(run, source, 'web-publish.yml')
+    attempt = run['run_attempt']
+    require(type(attempt) is int and attempt > 0)
+    producer = descriptor['producer']
+    export = core.api(f"actions/runs/{producer['run_id']}/attempts/{producer['run_attempt']}", token)
+    # The producer can still be running while it validates its own archive.
+    require(export['head_sha'] == producer['sha'] and export['head_branch'] == 'qa'
+            and export['event'] == 'workflow_dispatch' and export['path'] == '.github/workflows/web-export.yml'
+            and export['repository']['full_name'] == core.REPOSITORY
+            and export['head_repository']['full_name'] == core.REPOSITORY
+            and export['run_attempt'] == producer['run_attempt'])
+    cutoff = timestamp(export['run_started_at'])
+    listing = core.api(f'actions/runs/{publication_id}/artifacts?per_page=100', token)
+    require(type(listing['artifacts']) is list and listing['total_count'] <= 100)
+    name = f'web-publication-proof-{source}-{attempt}'
+    candidates = [item for item in listing['artifacts'] if item['name'] == name]
+    require(len(candidates) == 1)
+    artifact = candidates[0]
+    require(not artifact['expired'] and artifact['workflow_run']['id'] == publication_id
+            and artifact['workflow_run']['head_sha'] == source)
+    # No schema extension: GitHub's immutable artifact creation time fences the
+    # proof to the approved export attempt. Later publisher attempts/replacement
+    # uploads cannot silently replace evidence after this export began.
+    require(timestamp(run['run_started_at']) <= cutoff and timestamp(artifact['created_at']) <= cutoff)
+    proof = download_proof(artifact, token)
+    image = descriptor['images']['runtime']
+    require(proof['schemaVersion'] == 1 and proof['repository'] == core.REPOSITORY
+            and proof['sourceSha'] == source and proof['image'] == image['image']
+            and proof['checkedImageId'] == image['config_id'] and proof['platform'] == 'linux/amd64'
+            and proof['publicationAttempt'] == attempt
+            and proof['publicationRun'] == f'https://github.com/{core.REPOSITORY}/actions/runs/{publication_id}'
+            and proof['runtimeEnvironmentsVerified'] == ['qa', 'production'])
+    verification = proof['verification']
+    require(type(verification) is list and len(verification) == 5)
+    expected = {name: identity for name, identity in descriptor['verification_runs'].items() if name != 'web-publish.yml'}
+    require({item['workflow']: item['id'] for item in verification} == expected
+            and all(item['sha'] == source for item in verification))
+
+
+def produce():
+    # The GitHub token stays in memory; core removes it from subprocess env and
+    # destroys its isolated registry config before saving the archive.
+    token = os.environ['GITHUB_TOKEN']
+    core.produce()
+    directory = Path(os.environ['RUNNER_TEMP']) / 'rogichat-export'
+    descriptor, _ = validate_directory(directory)
+    verify_publication_proof(descriptor, token)
+    del token
+    print('Archive digest and config match the exact pre-existing trusted publication proof.')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -92,7 +198,7 @@ def main():
     get.add_argument('--artifact-id', type=int, required=True)
     get.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
-    core.produce() if args.command == 'produce' else download(args)
+    produce() if args.command == 'produce' else download(args)
 
 
 if __name__ == '__main__':

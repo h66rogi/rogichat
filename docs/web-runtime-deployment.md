@@ -29,16 +29,32 @@ pnpm 12.4.2 are pinned; both base images and GitHub Actions are digest/SHA pinne
 The final image contains traced standalone files, static assets and public files.
 It runs as `10001:10001`, listens on `0.0.0.0:3000` and supports a read-only root.
 Mount `/tmp` and `/app/apps/web/.next/cache` as bounded tmpfs; the cache mount must
-be writable by UID/GID 10001. Drop all capabilities and enable no-new-privileges.
+be writable by UID/GID 10001 and is required for startup. Drop all capabilities and enable no-new-privileges.
 `GET /healthz` is unauthenticated, returns minimal JSON with HTTP 200, and checks
 runtime configuration without requiring an authenticated API session.
 
+Before the final image copy, runtime preparation removes generated framework
+keys and rejects any enabled Server Actions or remaining copies of those keys.
+The image carries a keyless prerender template. Startup creates fresh cryptographic
+keys atomically in the cache tmpfs, with directory mode 0700 and file mode 0600;
+restarts rotate these keys. No fixed keys or generated-key scanner exclusions are
+used. Enabling Server Actions requires a separately reviewed runtime key contract.
+
 `tools/web/check-image.sh IMAGE` verifies nonroot identity, read-only filesystem,
 health, server-rendered API origin, Host header isolation, absent preview/API-proxy
-routes and clean SIGTERM exit for both runtime configurations of the same image.
+routes and graceful SIGTERM exit (143, as defined by pinned Next.js) for both runtime
+configurations of the same image, including restart key rotation, private file
+modes and inaccessible manifest/cache HTTP paths.
 The production build gate scans route manifests and application artifacts for
 preview/fixture content; the all-layer scanner independently checks image layers
 and metadata for prohibited material, failing closed.
+
+The exact `/mobile/auth/complete` fallback returns static HTML with no-store,
+no-referrer and a hash-based restrictive CSP; it neither reflects nor exchanges
+callback parameters. Legacy `/auth/login` redirects use a relative or exact
+configured web origin, never a request Host header. The two `/.well-known/`
+association endpoints return reviewed QA identities only in QA and empty valid
+associations in production until production identities receive separate review.
 
 ## Verification and publication
 
@@ -82,6 +98,10 @@ workflow on QA. Supply the published source SHA and registry digest hex. The
 exporter verifies the five exact-source push checks plus web publication, checks
 that the exporter QA commit descends from the source, pulls only the immutable
 image, verifies its raw registry manifest and config, and logs out before saving.
+The producer and consumer additionally bind the requested digest and config ID
+to the successful publication run's exact-attempt proof artifact, verify its
+GitHub artifact digest and five CI run identities, and reject proofs created or
+replaced after the export attempt began. Descriptor version 1 stays unchanged.
 Every exported layer is scanned before a one-day Actions artifact is uploaded.
 
 The `web-<source>-<run>-<attempt>` artifact contains exactly `descriptor.json`,

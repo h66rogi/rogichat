@@ -10,9 +10,10 @@ COPY patches ./patches
 RUN pnpm --filter @rogichat/web... install --frozen-lockfile --ignore-scripts \
     && rm -rf /root/.cache/pnpm
 COPY apps/web ./apps/web
-COPY tools/web/check-production.mjs ./tools/web/check-production.mjs
+COPY tools/web/check-production.mjs tools/web/prepare-runtime.mjs tools/web/runtime-server.mjs ./tools/web/
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-RUN pnpm --filter @rogichat/web build && node tools/web/check-production.mjs
+RUN pnpm --filter @rogichat/web build && node tools/web/check-production.mjs \
+    && node tools/web/prepare-runtime.mjs
 
 FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
 RUN groupadd --gid 10001 rogichat && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin rogichat

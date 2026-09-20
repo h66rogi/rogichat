@@ -42,6 +42,7 @@
     "next.config.ts",
     "playwright.config.ts",
     "src/**/*.ts",
+    "src/app/.well-known/**/*.ts",
     "src/**/*.tsx",
     "test/**/*.ts",
     ".next/types/**/*.ts",
