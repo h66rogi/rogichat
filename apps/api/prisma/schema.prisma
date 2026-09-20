@@ -154,7 +154,10 @@ model auth_identities {
   subject    Bytes      @db.VarBinary(191)
   status     LinkStatus @default(VERIFIED)
   user       users      @relation(fields: [user_id], references: [id], onDelete: Restrict)
-  @@unique([provider, issuer, subject])
+  scope      String     @default("") @db.VarChar(64)
+  verified_at DateTime? @db.DateTime(3)
+  revoked_at DateTime? @db.DateTime(3)
+  @@unique([provider, issuer, scope, subject])
 }
 
 model auth_sessions {
@@ -900,4 +903,59 @@ model media_cleanup_attempts {
 model account_media_scans {
   request_id String @id @db.Char(36)
   asset_cursor String? @db.Char(36)
+}
+
+// Apple stages are separate from the SOOP broker protocol.
+model apple_auth_transactions {
+  id String @id @db.Char(36)
+  audience String @db.VarChar(32)
+  client_id String @db.VarChar(16)
+  intent String @db.VarChar(16)
+  state_digest Bytes @unique @db.Binary(32)
+  nonce String @db.VarChar(43)
+  code_challenge String @db.VarChar(43)
+  return_state String @db.VarChar(43)
+  user_id String? @db.Char(36)
+  session_id String? @db.Char(36)
+  bound_generation BigInt? @db.UnsignedBigInt
+  terms_version String? @db.VarChar(32)
+  status LoginStatus @default(PENDING)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  expires_at DateTime @db.DateTime(3)
+  code_digest Bytes? @unique @db.Binary(32)
+  completion_digest Bytes? @unique @db.Binary(32)
+  completion_expires DateTime? @db.DateTime(3)
+  proof Bytes? @db.Blob
+  @@index([expires_at])
+  @@index([user_id, status])
+}
+
+// Encrypted token obligation exists before account admission, including abandoned proofs.
+model apple_provider_credentials {
+  id String @id @db.Char(36)
+  transaction_id String @unique @db.Char(36)
+  lease_token String? @db.Char(36)
+  identity_id String? @db.Char(36)
+  user_id String? @db.Char(36)
+  audience String @db.VarChar(191)
+  token Bytes? @db.Blob
+  status String @default("PENDING") @db.VarChar(24)
+  expires_at DateTime @db.DateTime(3)
+  available_at DateTime @default(now()) @db.DateTime(3)
+  attempts Int @default(0) @db.UnsignedInt
+  @@index([status, available_at])
+  @@index([user_id, status])
+}
+
+model apple_notification_receipts {
+  digest Bytes @id @db.Binary(32)
+  received_at DateTime @default(now()) @db.DateTime(3)
+}
+
+// A notification before first login must invalidate a proof already in flight.
+model apple_identity_events {
+  scope String @db.VarChar(64)
+  subject Bytes @db.VarBinary(191)
+  revoked_at DateTime @db.DateTime(3)
+  @@id([scope, subject])
 }
