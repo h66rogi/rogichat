@@ -189,3 +189,8 @@ DB v4 적용 후 이전 v3 전용 Android 바이너리로의 단순 downgrade는
 취소, scope 폐기, 갱신 시 새 bytes, 이전 요청의 늦은 완료와 새 구독 분리, 실패 후
 명시적 재시도를 검증한다. Android 실제 Room migration CI도 최초 PR HEAD에서 통과했다.
 BACKEND 최종 독립 리뷰는 중앙 지시에 따라 기존 WEB 담당에게 근거와 남은 조건을 전달했다.
+
+최종 composition 리뷰에서 iOS 설정 헤더의 MediaClient에 API 주소 전달 누락을 발견해
+수정했다. API base URL은 이제 Swift 생성자의 기본값 없는 필수 값이므로 설정 헤더·
+프로필 편집·대화 중 어느 경로라도 전달을 빠뜨리면 실제 앱 빌드가 실패한다. QA와 Prod
+각각의 기본 사진 ticket 경로를 회귀 검사하며 다른 환경 origin은 허용하지 않는다.

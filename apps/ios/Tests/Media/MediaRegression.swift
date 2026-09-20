@@ -1,5 +1,6 @@
 import Foundation
 
+private let testAPIBaseURL = URL(string: "https://api.qa.rogi.chat/v1/")!
 private let asset = "10000000-0000-4000-8000-000000000001"
 private let room = "20000000-0000-4000-8000-000000000001"
 private final class Scope: MediaScope, @unchecked Sendable {
@@ -40,13 +41,17 @@ private func expectFailure(_ body: () throws -> Void) throws {
         let selfScope = Scope(roomID: nil)
         let providerReceipt = "{\"url\":\"https://api.qa.rogi.chat/v1/profile-images?ticket=\(String(repeating: "a", count: 64))\",\"expiresIn\":60}"
         let providerTransport = Transport([providerReceipt, providerReceipt])
-        let ownPhoto = try await MediaClient(transport: providerTransport, scope: selfScope, apiBaseURL: URL(string: "https://api.qa.rogi.chat/v1/")).providerAvatar()
+        let ownPhoto = try await MediaClient(transport: providerTransport, scope: selfScope, apiBaseURL: testAPIBaseURL).providerAvatar()
         let selfRequest = await providerTransport.requests[0]
         precondition(selfRequest.path == "me/provider-avatar/access" && selfRequest.method == "POST" && selfRequest.jsonBody == nil)
         _ = try ownPhoto.checkedURL(scope: selfScope)
         selfScope.invalidate()
         try expectFailure { _ = try ownPhoto.checkedURL(scope: selfScope) }
-        _ = try await MediaClient(transport: providerTransport, scope: Scope(), apiBaseURL: URL(string: "https://api.qa.rogi.chat/v1/")).providerAvatar(actorID: asset)
+        _ = try await MediaClient(transport: providerTransport, scope: Scope(), apiBaseURL: testAPIBaseURL).providerAvatar(actorID: asset)
+        let prodScope = Scope(roomID: nil), prodBase = URL(string: "https://api.rogi.chat/v1/")!
+        let prodReceipt = providerReceipt.replacingOccurrences(of: "api.qa.rogi.chat", with: "api.rogi.chat")
+        let prod = try await MediaClient(transport: Transport([prodReceipt]), scope: prodScope, apiBaseURL: prodBase).providerAvatar()
+        let prodURL = try prod.checkedURL(scope: prodScope); precondition(prodURL.host == "api.rogi.chat")
         let actorRequest = await providerTransport.requests[1]
         precondition(actorRequest.path == "rooms/\(room)/actors/\(asset)/provider-avatar/access" && actorRequest.jsonBody == nil)
         let base = URL(string: "https://api.qa.rogi.chat/v1/")!, ticket = String(repeating: "a", count: 64)
@@ -92,7 +97,7 @@ private func expectFailure(_ body: () throws -> Void) throws {
         precondition(identity != MediaPresentationIdentity(scopeID: "one", assetID: asset, access: .message(room: room, message: asset, variant: .poster)))
         let overlapURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try Data([1]).write(to: overlapURL)
-        let overlapping = MediaUpload(client: MediaClient(transport: SleepingTransport(), scope: scope), journal: Journal())
+        let overlapping = MediaUpload(client: MediaClient(transport: SleepingTransport(), scope: scope, apiBaseURL: testAPIBaseURL), journal: Journal())
         let active = Task { try await overlapping.start(MediaFile(url: overlapURL, kind: .photo, contentType: "image/png")) }
         while case .idle = overlapping.state { await Task.yield() }
         do { _ = try await overlapping.recover(PendingMedia(assetId: asset, kind: .photo)); fatalError("overlap admitted") }
@@ -104,7 +109,7 @@ private func expectFailure(_ body: () throws -> Void) throws {
         try Data([1, 2, 3]).write(to: fileURL)
         let file = try MediaFile(url: fileURL, kind: .video, contentType: "video/mp4")
         let transport = Transport([receipt("reserved"), receipt("processing"), receipt("ready"), "{\"id\":\"\(asset)\",\"avatar\":null}"])
-        let client = MediaClient(transport: transport, scope: scope)
+        let client = MediaClient(transport: transport, scope: scope, apiBaseURL: testAPIBaseURL)
         let journal = Journal(); let upload = MediaUpload(client: client, journal: journal)
         let result = try await upload.start(file)
         precondition(result.status == .ready && !FileManager.default.fileExists(atPath: fileURL.path))
@@ -112,21 +117,21 @@ private func expectFailure(_ body: () throws -> Void) throws {
         precondition(requests.map(\.expectedStatus) == [201, 202, 200])
         precondition(requests[1].upload?.byteLength == 3 && requests[1].jsonBody == nil)
         let saved = await journal.pending; precondition(saved.count == 1)
-        try await MediaClient(transport: transport, scope: Scope(roomID: nil)).updateAvatar(nil)
+        try await MediaClient(transport: transport, scope: Scope(roomID: nil), apiBaseURL: testAPIBaseURL).updateAvatar(nil)
         let patch = await transport.requests.last!
         precondition(String(data: patch.jsonBody!, encoding: .utf8) == "{\"avatarAssetId\":null}")
         try await upload.acknowledged(asset)
         let cleared = await journal.pending; precondition(cleared.isEmpty)
         let recoveredTransport = Transport([receipt("ready")])
-        let recovered = MediaUpload(client: MediaClient(transport: recoveredTransport, scope: scope), journal: journal)
+        let recovered = MediaUpload(client: MediaClient(transport: recoveredTransport, scope: scope, apiBaseURL: testAPIBaseURL), journal: journal)
         _ = try await recovered.recover(PendingMedia(assetId: asset, kind: .video))
         let recoveryCalls = await recoveredTransport.requests; precondition(recoveryCalls.map(\.method) == ["GET"])
         let stale = Scope(); let staleTransport = Transport([receipt("ready")], invalidate: stale)
-        do { _ = try await MediaClient(transport: staleTransport, scope: stale).status(asset); fatalError("stale completion escaped") }
+        do { _ = try await MediaClient(transport: staleTransport, scope: stale, apiBaseURL: testAPIBaseURL).status(asset); fatalError("stale completion escaped") }
         catch is CancellationError { }
         let failedURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try Data([1]).write(to: failedURL)
-        let failureUpload = MediaUpload(client: MediaClient(transport: Transport([receipt("reserved")]), scope: scope), journal: journal)
+        let failureUpload = MediaUpload(client: MediaClient(transport: Transport([receipt("reserved")]), scope: scope, apiBaseURL: testAPIBaseURL), journal: journal)
         do { _ = try await failureUpload.start(MediaFile(url: failedURL, kind: .photo, contentType: "image/png")); fatalError("expected 403") }
         catch MediaError.response(403, _) { }
         precondition(!FileManager.default.fileExists(atPath: failedURL.path))
