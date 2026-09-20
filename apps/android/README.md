@@ -40,7 +40,16 @@ fixture adapter. Authoritative session 401 removes only the current session;
 LINK errors never clear a newer account. Offline logout removes the local
 credential and reports unconfirmed server revoke.
 Appearance is saved on device; notification settings read and open actual OS
-settings. No disconnected server preference switches are displayed.
+settings independently of the authenticated account's server preferences.
+M11 GET preferences and explicit account-wide disable use real Bearer requests.
+Disabling explains its effect on other devices and the web, sends the latest
+positive uint64-string `expectedGeneration`, and only applies a confirmed response.
+Conflict or uncertain results trigger a read, never automatic write replay.
+Enabling native push, registration and FCM remain unavailable; no permission
+request, optimistic toggle, default-enabled state or synthetic success is added.
+Read-state UUID/context DTOs and closed transport are available for future C05/C06
+integration. No screen reports read progress, calculates unread counts or borrows
+Meloming chat UX from this foundation.
 
 Use JDK 17 and the installed Android SDK. Examples:
 
@@ -69,3 +78,9 @@ partial protected writes, cancel/logout failures, and explicit consent. Tests us
 isolated fakes under `src/test`; no successful broker/device authentication is
 claimed by these tests. App Link hosts are `qa.rogi.chat` and `rogi.chat`, with
 exact path `/mobile/auth/complete`, no custom-scheme fallback.
+
+M11 tests cover strict generations/DTOs, exact transport, session-scoped mutation
+admission, request inversion, single-flight disable, conflict/lost-response reads,
+expiry and account teardown. Preferences stay in their account's feature state;
+they are not persisted in shared device preferences. Unit tests do not establish
+hosted M11 deployment, native push-provider availability or device delivery.
