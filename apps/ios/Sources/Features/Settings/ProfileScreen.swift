@@ -1,38 +1,93 @@
 import SwiftUI
 
+// Adapted ProfileSettingsView's Form, async save, inline error and dismiss-on-success.
+// Uses Rogichat's profile policy and explicit nullable PATCH fields.
 struct ProfileScreen: View {
-    let editor: ProfileEditor
-    let onEdit: (String) -> Void
-    let onDiscard: () -> Void
-    let onRetry: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: ProfileDraft
+    @State private var saving = false
+    @State private var errorMessage: String?
     @State private var confirmingDiscard = false
+    @State private var saveTask: Task<Void, Never>?
+    @FocusState private var editingName: Bool
+    let onSave: (ProfileUpdate) async throws -> Void
+
+    init(profile: AccountProfile, onSave: @escaping (ProfileUpdate) async throws -> Void) {
+        _draft = State(initialValue: ProfileDraft(profile: profile))
+        self.onSave = onSave
+    }
     var body: some View {
-        Group {
-            switch editor.phase {
-            case .loading: ScreenStatus(title: "프로필을 불러오는 중", message: "잠시만 기다려 주세요.", loading: true)
-            case .failed: ScreenStatus(title: "프로필을 불러오지 못했어요", message: "다시 시도해 주세요.", retry: onRetry)
-            case .unavailable: ScreenStatus(title: "프로필 연결 준비 중", message: "계정 정보 연결 후 편집할 수 있어요.")
-            case .ready:
-                SettingsSection(title: "표시 이름") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        TextField("표시 이름", text: Binding(get: { editor.draft }, set: onEdit))
-                            .textFieldStyle(.roundedBorder).accessibilityLabel("표시 이름")
-                        Text(editor.error ?? "\(editor.length)/40").font(.footnote)
-                            .foregroundStyle(editor.error == nil ? Color.secondary : Color.red)
-                        Text("변경한 이름은 아직 저장되지 않아요. 이 실행에서만 입력이 유지돼요.").font(.footnote)
-                        Button("저장 · 준비 중") {}.buttonStyle(.borderedProminent).disabled(true)
-                        Button("입력 되돌리기") { confirmingDiscard = true }.disabled(!editor.changed)
-                    }.padding(16)
+        Form {
+            Section {
+                TextField("표시 이름", text: Binding(get: { draft.name.draft }, set: { draft.name.edit($0) }))
+                    .focused($editingName).textContentType(.nickname).submitLabel(.done)
+                    .onSubmit { editingName = false }.accessibilityLabel("표시 이름")
+                HStack {
+                    Text(draft.name.error ?? "대화에서 사용할 이름이에요.")
+                        .foregroundStyle(draft.name.error == nil ? Color.secondary : .red)
+                    Spacer(minLength: 8)
+                    Text("\(draft.name.length)/40").foregroundStyle(.secondary).monospacedDigit()
+                }.font(.footnote)
+            } header: { Text("표시 이름") }
+            Section {
+                Toggle("생일 등록", isOn: Binding(get: { draft.birthday != nil }, set: { enabled in
+                    draft.birthday = enabled ? Birthday(month: 1, day: 1) : nil
+                    if !enabled { draft.birthdayVisibleToStreamers = false }
+                }))
+                if let birthday = draft.birthday {
+                    Picker("월", selection: Binding(get: { birthday.month }, set: { month in
+                        draft.birthday = Birthday(month: month, day: min(birthday.day, Birthday.days(in: month)))
+                    })) {
+                        ForEach(1...12, id: \.self) { Text("\($0)월").tag($0) }
+                    }
+                    Picker("일", selection: Binding(get: { draft.birthday?.day ?? 1 }, set: { day in
+                        draft.birthday = Birthday(month: draft.birthday?.month ?? 1, day: day)
+                    })) {
+                        ForEach(1...max(1, Birthday.days(in: birthday.month)), id: \.self) { Text("\($0)일").tag($0) }
+                    }
+                    Toggle("스트리머에게 생일 공개", isOn: $draft.birthdayVisibleToStreamers)
                 }
-                SettingsSection(title: "선택 정보") {
-                    SettingsRow(icon: "photo", title: "프로필 사진", subtitle: "사진 설정 준비 중", enabled: false)
-                    SettingsRow(icon: "gift", title: "생일과 공개 범위", subtitle: "선택 정보 설정 준비 중 · 생일을 입력받지 않아요", enabled: false)
-                }
+            } header: { Text("생일 · 선택") }
+              footer: { Text("태어난 연도는 수집하지 않아요. 공개를 선택하면 참여한 대화방의 스트리머에게 생일을 보여줘요.") }
+            if let errorMessage {
+                Section { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
             }
         }
-        .alert("입력을 되돌릴까요?", isPresented: $confirmingDiscard) {
-            Button("취소", role: .cancel) {}
-            Button("되돌리기", role: .destructive, action: onDiscard)
-        } message: { Text("이름 입력을 처음 값으로 되돌려요.") }
+        .disabled(saving)
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("프로필 수정").navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden()
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("취소") { if draft.changed { confirmingDiscard = true } else { dismiss() } }.disabled(saving)
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(action: save) {
+                    if saving { ProgressView().accessibilityLabel("저장하는 중") } else { Text("저장").fontWeight(.semibold) }
+                }.disabled(!draft.canSave || saving)
+            }
+        }
+        .interactiveDismissDisabled(draft.changed || saving)
+        .confirmationDialog("변경한 내용을 저장하지 않고 나갈까요?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
+            Button("변경 사항 버리기", role: .destructive) { dismiss() }
+            Button("계속 수정하기", role: .cancel) {}
+        }
+        .onDisappear { saveTask?.cancel() }
+    }
+    private func save() {
+        guard draft.canSave, !saving else { return }
+        saving = true; errorMessage = nil; editingName = false
+        let update = draft.update
+        saveTask = Task { @MainActor in
+            defer { saving = false }
+            do {
+                try await onSave(update)
+                guard !Task.isCancelled else { return }
+                dismiss()
+            } catch {
+                guard !Task.isCancelled else { return }
+                errorMessage = "프로필을 저장하지 못했어요. 입력한 내용을 확인하고 다시 시도해 주세요."
+            }
+        }
     }
 }

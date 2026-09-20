@@ -1,4 +1,4 @@
-import { users } from '../support/domain-fixture.mjs';
+import { users, authorizedMediaObject } from '../support/domain-fixture.mjs';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,6 +47,7 @@ async function fixture(t) {
   const update = (person, body) => auth(person, true, tx => profiles.updateProfile(tx, person.id, body));
   const self = person => auth(person, false, tx => profiles.selfProfile(tx, person.id));
   const actor = (viewer, person) => auth(viewer, false, tx => profiles.roomProfile(tx, room, viewer.id, person.actor, key));
+  const accessAvatar = (viewer, person, assetId, context = {}) => auth(viewer, false, tx => authorizedMediaObject(tx, viewer.id, assetId, { roomId: room, actorId: person.actor, variant: 'image', ...context }));
   // Synthetic asset state is solely profile/authorization setup: NOT decoder, quota, or R2 proof.
   const asset = (person = a, options = {}) => db.transactions.write(async tx => {
     const id = randomUUID();
@@ -65,7 +66,7 @@ async function fixture(t) {
     const jobs = await tx.rows("SELECT id,state FROM jobs WHERE purpose='MEDIA' AND resource_id=?", [id]);
     return { row, jobs };
   });
-  return { db, profiles, streamer, a, b, room, auth, update, self, actor, asset, changes, state };
+  return { db, profiles, streamer, a, b, room, auth, update, self, actor, accessAvatar, asset, changes, state };
 }
 
 test('own READY room-null avatar attaches with minimal self/actor DTOs and FAN profile privacy', { timeout: 20000 }, async t => {
@@ -166,4 +167,51 @@ test('an already assigned avatar remains assignable after intent expiry without 
   assert.deepEqual(await f.changes(f.a), changes);
   assert.equal((await f.state(avatar)).row.state, 'READY');
   assert.deepEqual((await f.state(avatar)).jobs, []);
+});
+
+test('avatar object authorization uses the same FAN profile boundary and an exact current reference', { timeout: 20000 }, async t => {
+  const f = await fixture(t), avatar = await f.asset(), streamerAvatar = await f.asset(f.streamer);
+  await f.update(f.a, { avatarAssetId: avatar });
+  await f.update(f.streamer, { avatarAssetId: streamerAvatar });
+  for (const viewer of [f.streamer, f.a]) assert.match(await f.accessAvatar(viewer, f.a, avatar), new RegExp(`^test/${avatar}/`));
+  assert.match(await f.accessAvatar(f.b, f.streamer, streamerAvatar), new RegExp(`^test/${streamerAvatar}/`));
+  await denied(f.accessAvatar(f.b, f.a, avatar));
+  await denied(f.accessAvatar(f.streamer, f.b, avatar));
+  await denied(f.accessAvatar(f.streamer, f.a, await f.asset()));
+  await denied(f.accessAvatar(f.streamer, f.a, avatar, { roomId: randomUUID() }));
+  for (const context of [{ roomId: undefined }, { messageId: randomUUID() }, { variant: 'poster' }, { variant: 'video' }, { actorId: randomUUID() }]) {
+    await denied(f.accessAvatar(f.streamer, f.a, avatar, context));
+  }
+  // A GROUP uses ordinary current member visibility, never a global user-ID lookup.
+  await f.db.transactions.write(tx => tx.prisma.rooms.update({ where: { id: f.room }, data: { mode: 'GROUP' } }));
+  assert.match(await f.accessAvatar(f.b, f.a, avatar), new RegExp(`^test/${avatar}/`));
+});
+
+test('avatar access denies stale replacement and removal but not expiry of an installed profile reference', { timeout: 20000 }, async t => {
+  const f = await fixture(t), old = await f.asset(), next = await f.asset();
+  await f.update(f.a, { avatarAssetId: old });
+  await f.db.transactions.write(tx => tx.prisma.media_assets.update({ where: { id: old }, data: { expires_at: new Date(0) } }));
+  assert.match(await f.accessAvatar(f.streamer, f.a, old), new RegExp(`^test/${old}/`));
+  await f.update(f.a, { avatarAssetId: next });
+  await denied(f.accessAvatar(f.streamer, f.a, old));
+  assert.match(await f.accessAvatar(f.streamer, f.a, next), new RegExp(`^test/${next}/`));
+  await f.update(f.a, { avatarAssetId: null });
+  await denied(f.accessAvatar(f.streamer, f.a, next));
+});
+
+test('avatar URLs cannot be issued after current room, member, account or provider revocation', { timeout: 30000 }, async t => {
+  const f = await fixture(t), avatar = await f.asset();
+  await f.update(f.a, { avatarAssetId: avatar });
+  const rejectThenRestore = async (change, restore) => {
+    await f.db.transactions.write(change);
+    await denied(f.accessAvatar(f.streamer, f.a, avatar));
+    await f.db.transactions.write(restore);
+  };
+  await rejectThenRestore(tx => tx.prisma.rooms.update({ where: { id: f.room }, data: { status: 'CLOSED' } }), tx => tx.prisma.rooms.update({ where: { id: f.room }, data: { status: 'ACTIVE' } }));
+  for (const person of [f.a, f.streamer]) {
+    await rejectThenRestore(tx => tx.prisma.room_members.update({ where: { id: person.actor }, data: { status: 'LEFT' } }), tx => tx.prisma.room_members.update({ where: { id: person.actor }, data: { status: 'ACTIVE' } }));
+    await rejectThenRestore(tx => tx.prisma.membership_periods.updateMany({ where: { room_id: f.room, member_id: person.actor }, data: { left_at: new Date() } }), tx => tx.prisma.membership_periods.updateMany({ where: { room_id: f.room, member_id: person.actor }, data: { left_at: null } }));
+  }
+  await rejectThenRestore(tx => tx.prisma.users.update({ where: { id: f.a.id }, data: { status: 'DELETING' } }), tx => tx.prisma.users.update({ where: { id: f.a.id }, data: { status: 'ACTIVE' } }));
+  await rejectThenRestore(tx => tx.prisma.platform_soop.updateMany({ where: { user_id: f.a.id }, data: { status: 'REVOKED' } }), tx => tx.prisma.platform_soop.updateMany({ where: { user_id: f.a.id }, data: { status: 'VERIFIED' } }));
 });

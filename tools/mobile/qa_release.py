@@ -39,10 +39,10 @@ def doctor(cfg):
         print("Android " + key + ":", "present" if external(cfg["android"][key]).is_file() else "missing")
     try:
         asc = AppStoreConnect(cfg)
-        bundle = asc.request("bundleIds", {"filter[identifier]": APP_ID})["data"]
-        apps = asc.request("apps", {"filter[bundleId]": APP_ID})["data"]
-        print("Apple QA bundle:", "registered" if bundle else "missing")
-        print("App Store Connect QA app:", "registered" if apps else "missing")
+        asc.bundle()
+        print("Apple QA bundle: registered")
+        asc.app()
+        print("App Store Connect QA app: registered")
     except (ValueError, RuntimeError) as error:
         print("Apple:", error)
     if cfg["firebase"].get("project_id") and cfg["firebase"].get("app_id"):

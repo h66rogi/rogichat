@@ -140,6 +140,7 @@ Prisma except the specifically identified arithmetic/lease/limiter statements.
 | `modules/rooms/room-state.repository.ts` | `lockRoom`, `counter`, `member`, `leavingMember` | Room serialization, monotonic event counter, membership transition locks |
 | `modules/messages/messages.repository.ts` | `load` (write), `grant` (write), `sharedStreams`, `target`, `pair`, `sendGrants`, `room`, `member`, `receipt` | Current content-owner/deletion/quote, grant, stream, member and idempotent receipt locks |
 | same | `requireAsset` (two queries), `ownedMessage`, `deletionRequest`, `attachedAssets`, `nextDeletionOrder` | Attachment exclusivity and author-deletion graph/counter locks, including LEFT/CLOSED cases |
+| same | `stickerInvalidationBatch` | Current revoked-catalog/message rows, at most 50 in one locked room; an earlier ORM candidate snapshot cannot repeat completed invalidations |
 | `modules/messages/messages-query.repository.ts` | `page`, `affected` | Correlated ACL/source-deletion/quote visibility and event impact before LIMIT; batched attachment projection uses Prisma |
 | `modules/reactions/reactions.repository.ts` | `counts` | Binary emoji grouping/order avoids collation merging different emoji |
 | same | `lockRoom`, `prior` | Current room and single-reaction replacement locks |
@@ -155,7 +156,7 @@ Prisma except the specifically identified arithmetic/lease/limiter statements.
 | same | `epoch` | DB UTC hour formatted identically to SQL recovery-dedupe hash |
 | same | `attachments`, `avatars`, `catalog`, `copies` | Current attachment/avatar/approved sticker/preparing-publication reference locks before deletion |
 | `modules/users/users.repository.ts` | `lockOwner`, `lockProfile`, `attachableAvatar` | Current account/profile and eligible avatar locks |
-| `modules/stickers/stickers.repository.ts` | `operator`, `asset`, `byAsset` (write), `catalog` (write), `lockAsset` | Approval capability, current asset-owner, catalog uniqueness and attachment locks |
+| `modules/stickers/stickers.repository.ts` | `operator`, `lockRegistrar`, `serviceAsset` (write), `byAsset` (write), `catalog` (write), `lockAsset` | Current capability, initial registrar-before-asset approval fence, READY asset/object, catalog uniqueness and attachment locks; approved service assets never lock the registrar after the asset |
 | `modules/realtime/realtime.repository.ts` | `validSessions` with event/profile refs | Correlated event/profile ACL checks batch recipients before fan-out; ordinary session validity and resource existence use Prisma |
 | `infrastructure/rate-limit/rate-limit.repository.ts` | `consumeRate` initial upsert and locking read | Exclusive duplicate-key admission avoids observed INSERT IGNORE upgrade deadlocks; reset/increment use Prisma |
 | same | `collectExpiredRates` candidate read | Bounded expiry cleanup with SKIP LOCKED; deletion uses Prisma |

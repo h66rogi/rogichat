@@ -11,7 +11,7 @@ struct ScreenStatus: View {
             if loading { ProgressView().scaleEffect(1.2) }
             Text(title).font(.headline)
             Text(message).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.center)
-            if let retry { Button("다시 시도 화면 미리보기", action: retry).buttonStyle(.bordered) }
+            if let retry { Button("다시 시도", action: retry).buttonStyle(.borderedProminent) }
         }
         .padding(24).frame(maxWidth: .infinity)
     }

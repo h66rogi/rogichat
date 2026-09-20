@@ -4,12 +4,13 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import zipfile
+from product_guards import inspect_android_package, inspect_product_sources
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
+    inspect_product_sources(platforms=("android",))
     sdk = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
     if not sdk:
         raise SystemExit("Set ANDROID_HOME to the Android SDK directory")
@@ -39,12 +40,8 @@ def main():
             signing = subprocess.run([signer, "verify", str(apk)], capture_output=True)
             if (signing.returncode == 0) != (mode == "debug"):
                 raise SystemExit(f"{name}: expected local debug signing or unsigned release")
-            with zipfile.ZipFile(apk) as package:
-                dex = b"".join(package.read(name) for name in package.namelist() if name.endswith(".dex"))
-            contains_preview = b"sample-room-a" in dex
-            if contains_preview != (environment == "qa"):
-                raise SystemExit(f"{name}: wrong QA wireframe fixture isolation")
-            print(f"{environment}/{mode}: APK identity, endpoint, signing and QA fixture isolation verified")
+            inspect_android_package(apk)
+            print(f"{environment}/{mode}: APK identity, endpoint, signing and product fixture exclusion verified")
 
 
 if __name__ == "__main__":

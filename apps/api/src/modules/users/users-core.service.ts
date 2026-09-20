@@ -52,9 +52,24 @@ export class UsersCoreService {
     return this.selfProfile(tx, userId);
   }
 
+  private canViewActor(viewer: ActiveMember, actorId: string, role: string): boolean {
+    return viewer.mode !== 'FAN' || viewer.role === 'STREAMER' || role === 'STREAMER' || actorId === viewer.id;
+  }
+
+  // Same snapshot as media authorization. This proves a current, room-visible
+  // profile reference, not ownership of an arbitrary globally scoped asset.
+  async requireActorAvatar(tx: Transaction, roomId: string, userId: string, actorId: string, assetId: string): Promise<void> {
+    const viewer = await this.access.requireActiveMember(tx, uuid(roomId), userId);
+    const profile = await this.repository.actorAvatar(tx, roomId, uuid(actorId));
+    const avatar = profile?.user.profile?.avatar;
+    if (!profile || !this.canViewActor(viewer, profile.id, profile.role) || !avatar || avatar.id !== uuid(assetId) ||
+      avatar.owner_user_id !== profile.user_id || avatar.kind !== 'AVATAR' || avatar.room_id !== null ||
+      avatar.state !== 'READY' || avatar.deleted_at !== null) throw new ApiError('NOT_FOUND', 404);
+  }
+
   private async actorProfile(tx: Transaction, viewer: ActiveMember, actorId: string, key: Buffer) {
     const [profile] = await this.repository.actor(tx, viewer.room_id, uuid(actorId));
-    if (!profile || (viewer.mode === 'FAN' && viewer.role !== 'STREAMER' && profile.role !== 'STREAMER' && profile.actor_id !== viewer.id)) throw new ApiError('NOT_FOUND', 404);
+    if (!profile || !this.canViewActor(viewer, profile.actor_id, profile.role)) throw new ApiError('NOT_FOUND', 404);
     const visibleBirthday = viewer.role === 'STREAMER' && Number(profile.birthday_visible_to_streamers) === 1 && profile.birthday_month !== null && profile.birthday_day !== null ? { month: profile.birthday_month, day: profile.birthday_day } : null;
     const projection = projectActorProfileDto({ actorId: profile.actor_id, nickname: profile.nickname, avatar: profile.visible_avatar_id ? { assetId: profile.visible_avatar_id } : null, role: profile.role, visibleBirthday });
     // Opaque viewer-specific revision of visible fields only: hidden birthdays never signal activity to fans.

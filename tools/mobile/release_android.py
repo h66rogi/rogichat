@@ -7,6 +7,7 @@ import subprocess
 import urllib.request
 
 from release_common import APP_ID, API_URL, ROOT, capture, external, manifest, new_output, private_write, required, run, save_manifest, sha256
+from product_guards import inspect_android_package, inspect_product_sources
 
 BUNDLETOOL_VERSION = "1.18.3"
 BUNDLETOOL_SHA = "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29"
@@ -34,6 +35,7 @@ def sdk_tool(name):
 
 
 def verify_apk(path, number, version):
+    inspect_android_package(path)
     capture([sdk_tool("apksigner"), "verify", str(path)])
     info = capture([sdk_tool("aapt2"), "dump", "badging", str(path)])
     for expected in (f"package: name='{APP_ID}'", f"versionCode='{number}'", f"versionName='{version}-qa'", "application-label:'로기챗 QA'"):
@@ -47,6 +49,7 @@ def verify_apk(path, number, version):
 
 
 def build(cfg, number, version):
+    inspect_product_sources(platforms=("android",))
     android = cfg["android"]
     required(android, "keystore", "password_file", "key_alias")
     keystore = external(android["keystore"])
@@ -69,6 +72,7 @@ def build(cfg, number, version):
         target.chmod(0o600)
         artifacts[kind] = target
     verify_apk(artifacts["apk"], number, version)
+    inspect_android_package(artifacts["aab"])
     run(bundletool() + ["validate", "--bundle=" + str(artifacts["aab"])], directory / "bundle-validation.log")
     for xpath, expected in (("/manifest/@package", APP_ID), ("/manifest/@android:versionCode", str(number)),
                             ("/manifest/@android:versionName", version + "-qa")):
