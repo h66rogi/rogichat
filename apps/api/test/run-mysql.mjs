@@ -33,6 +33,9 @@ async function run(command, args, env) {
 }
 
 try {
+  if (process.argv.includes('--quality') && (!process.env.TEST_MYSQL_PORT || process.env.ROGICHAT_TEST_MYSQL !== 'disposable')) {
+    throw new Error('quality suite requires an explicitly disposable MySQL service; local datadir fallback forbidden');
+  }
   let port;
   let password;
   if (process.env.TEST_MYSQL_PORT) {
@@ -86,18 +89,21 @@ try {
   } else {
   stage = 'tests';
   // Discover committed test names so newly added regressions cannot silently miss CI.
-  let integrationFiles = (await readdir(new URL('./integration/', import.meta.url)))
-    .filter(name => name.endsWith('.test.mjs')).sort().map(name => join('test', 'integration', name));
+  const suite = process.argv.includes('--quality') ? 'quality' : 'integration';
+  let integrationFiles = (await readdir(new URL(`./${suite}/`, import.meta.url)))
+    .filter(name => name.endsWith('.test.mjs')).sort().map(name => join('test', suite, name));
   const requested = process.argv.filter(arg => arg.startsWith('--test-file=')).map(arg => arg.slice('--test-file='.length));
   if (requested.length) {
-    if (requested.some(name => !/^[a-z0-9-]+\.test\.mjs$/.test(name) || !integrationFiles.includes(join('test', 'integration', name)))) throw new Error('unknown integration test');
-    integrationFiles = requested.map(name => join('test', 'integration', name));
+    if (requested.some(name => !/^[a-z0-9-]+\.test\.mjs$/.test(name) || !integrationFiles.includes(join('test', suite, name)))) throw new Error('unknown integration test');
+    integrationFiles = requested.map(name => join('test', suite, name));
   }
   if (!integrationFiles.length) throw new Error('integration tests missing');
   testProcess = spawn(process.execPath, ['--test', '--test-concurrency=1', ...integrationFiles], {
     stdio: 'inherit', env: {
       PATH: process.env.PATH, APP_ENV: 'test', NODE_ENV: 'test', DB_TLS_MODE: 'disabled',
       DATABASE_URL: runtimeUrl, TEST_ADMIN_URL: adminUrl, ROGICHAT_TEST_MYSQL: 'disposable',
+      M12_EVIDENCE_DIR: process.env.M12_EVIDENCE_DIR ?? '',
+      M12_SOURCE_SHA: process.env.M12_SOURCE_SHA ?? '',
     },
   });
   const [code] = await once(testProcess, 'exit');
