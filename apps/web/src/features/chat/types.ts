@@ -6,7 +6,10 @@
  * items and their own PRIVATE conversation; that projection happens before this layer.
  */
 
+import type { MediaUpload } from '../media/upload';
+import type { StickerCatalog } from '../media/sticker-catalog';
 export type ChatScope = 'SHARED' | 'PRIVATE';
+export interface ChatImageContent { type: 'PHOTO' | 'STICKER' | 'VIDEO'; revision: string; assets: readonly { assetId: string; width: number; height: number; variant?: string }[]; stickerId?: string }
 
 export type ChatViewerRole = 'FAN' | 'STREAMER';
 
@@ -36,6 +39,8 @@ export interface ChatQuotePreview {
 
 export interface ChatMessageItemModel {
   kind: 'message';
+  counterpartActorId?: string | null;
+  allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
   id: string;
   scope: ChatScope;
   author: ChatActorRef;
@@ -43,6 +48,7 @@ export interface ChatMessageItemModel {
   recipient?: ChatActorRef;
   isOwn: boolean;
   body: string;
+  media?: ChatImageContent;
   /** ISO 8601 timestamp. */
   createdAt: string;
   status: ChatMessageStatus;
@@ -57,14 +63,17 @@ export interface ChatMessageItemModel {
  */
 export interface ChatPublicationItemModel {
   kind: 'publication';
+  allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
   id: string;
   body: string;
+  media?: ChatImageContent;
   createdAt: string;
 }
 
 /** Content the client cannot render yet. Shown as a safe placeholder, never as raw data. */
 export interface ChatUnsupportedItemModel {
   kind: 'unsupported';
+  allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
   id: string;
   scope: ChatScope;
   createdAt: string;
@@ -78,7 +87,12 @@ export interface ChatComposerSubmission {
   target: ChatComposerTarget;
   body: string;
   quoteMessageId?: string;
+  /** Actual READY upload owned by this draft, never a caller-invented asset ID. */
+  photo?: MediaUpload;
+  video?: MediaUpload;
+  sticker?: StickerCatalog;
+  retryCommandId?: string;
 }
 
 /** Returned by the controller `onSubmit`. On `accepted: false` the composer keeps the draft. */
-export type ChatSubmitResult = { accepted: true; note?: string } | { accepted: false; reason: string };
+export type ChatSubmitResult = { accepted: true; note?: string } | { accepted: false; reason: string; retryCommandId?: string };

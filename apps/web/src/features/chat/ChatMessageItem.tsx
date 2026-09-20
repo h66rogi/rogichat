@@ -1,11 +1,13 @@
 'use client';
 
+import { ChatPrivacyActions } from './ChatPrivacyActions';
 import { Ban, Check, CircleAlert, CornerUpLeft, Lock, LoaderCircle, Megaphone, Reply } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
 import { cn } from '@/shared/lib/cn';
 
 import { ReactionControl } from './ReactionControl';
+import { ChatMediaImages } from './ChatMedia';
 import { DeleteMessageControl } from './DeleteMessageControl';
 import { formatTimeLabel, parseIsoDate } from './formatters';
 import type {
@@ -42,8 +44,8 @@ export interface ChatMessageItemProps {
 }
 
 export function ChatMessageItem({ item, viewerRole, onReplyPrivate, onDelete }: ChatMessageItemProps) {
-  if (item.kind === 'publication') return <PublicationRow item={item} />;
-  if (item.kind === 'unsupported') return <UnsupportedRow item={item} />;
+  if (item.kind === 'publication') return <PublicationRow item={item} onDelete={onDelete} />;
+  if (item.kind === 'unsupported') return <UnsupportedRow item={item} onDelete={onDelete} />;
   if (item.status === 'deleted') return <TombstoneRow item={item} />;
   return <MessageRow item={item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} />;
 }
@@ -61,7 +63,7 @@ function MessageRow({
 }) {
   const isOwn = item.isOwn;
   const isPrivate = item.scope === 'PRIVATE';
-  const canReply = !isOwn && onReplyPrivate !== undefined;
+  const canReply = !item.media && item.allowedActions?.reply === true && onReplyPrivate !== undefined;
   const timeLabel = timeLabelFor(item.createdAt);
 
   return (
@@ -96,7 +98,7 @@ function MessageRow({
               item.status === 'rejected' && 'opacity-80',
             )}
           >
-            {item.body}
+            {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : item.body}
           </div>
 
           <div className="flex shrink-0 flex-col items-end gap-0.5 pb-0.5 text-[12px] text-muted">
@@ -104,7 +106,7 @@ function MessageRow({
             <time dateTime={item.createdAt}>{timeLabel}</time>
           </div>
 
-          {isOwn && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
+          {item.allowedActions?.delete && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
 
           {canReply && (
             <button
@@ -119,7 +121,7 @@ function MessageRow({
           )}
         </div>
 
-        {item.status === 'saved' && <ReactionControl messageId={item.id} />}
+        {item.status === 'saved' && <><ReactionControl messageId={item.id} /><ChatPrivacyActions messageId={item.id} /></>}
 
         {item.statusNote && (item.status === 'rejected' || item.status === 'unknown') && (
           <p className={cn('px-1 text-[12px]', item.status === 'rejected' ? 'text-danger' : 'text-muted')}>{item.statusNote}</p>
@@ -208,7 +210,7 @@ function QuoteBlock({ quote, align }: { quote: ChatQuotePreview; align: 'start' 
   );
 }
 
-function PublicationRow({ item }: { item: ChatPublicationItemModel }) {
+function PublicationRow({ item, onDelete }: { item: ChatPublicationItemModel; onDelete?: ((id: string) => Promise<ChatSubmitResult>) | undefined }) {
   return (
     <div className="flex justify-center px-4 py-2" data-scope="PUBLICATION">
       <div className="flex w-full max-w-[36rem] flex-col gap-1.5 rounded-md border border-line bg-canvas px-4 py-3">
@@ -219,8 +221,10 @@ function PublicationRow({ item }: { item: ChatPublicationItemModel }) {
           </span>
           <time dateTime={item.createdAt}>{timeLabelFor(item.createdAt)}</time>
         </div>
-        <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>
+        {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>}
         <ReactionControl messageId={item.id} />
+        <ChatPrivacyActions messageId={item.id} />
+        {item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
       </div>
     </div>
   );
@@ -239,12 +243,14 @@ function TombstoneRow({ item }: { item: ChatMessageItemModel }) {
   );
 }
 
-function UnsupportedRow({ item }: { item: ChatUnsupportedItemModel }) {
+function UnsupportedRow({ item, onDelete }: { item: ChatUnsupportedItemModel; onDelete?: ((id: string) => Promise<ChatSubmitResult>) | undefined }) {
   return (
     <div className="flex justify-center px-4 py-1.5" data-status="unsupported">
       <div className="inline-flex items-center gap-2 rounded-lg bg-surface-soft px-3 py-2 text-[14px] text-muted">
         <CircleAlert className="size-4" aria-hidden="true" />
         <span>이 화면에서 표시할 수 없는 내용입니다.</span>
+        <ChatPrivacyActions messageId={item.id} />
+        {item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
         <time dateTime={item.createdAt} className="text-[12px]">
           {timeLabelFor(item.createdAt)}
         </time>
@@ -260,5 +266,5 @@ function timeLabelFor(iso: string): string {
 
 function replyLabelFor(item: ChatMessageItemModel, viewerRole: ChatViewerRole): string {
   if (viewerRole === 'FAN') return '이 메시지를 인용해 답장';
-  return `${item.author.displayName}님에게 개인 답장`;
+  return `${item.recipient?.displayName ?? item.author.displayName}님에게 개인 답장`;
 }

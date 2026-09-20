@@ -1,3 +1,5 @@
+import { exact, token } from '../../features/chat/contract';
+import type { ServerMessage } from '../../features/chat/contract';
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -6,10 +8,10 @@ export class ApiError extends Error {
     this.status = status; this.code = code;
   }
 }
-export interface Session { authenticated: true; soopLinkStatus: 'VERIFIED' | 'REQUIRED'; csrfToken: string }
+export interface Session { authenticated: true; soopLinkStatus: 'VERIFIED' | 'REQUIRED'; csrfToken: string; accountPartition: string }
 export interface Profile { id: string; nickname: string; avatar: { assetId: string } | null; birthday: { month: number; day: number } | null; birthdayVisibleToStreamers: boolean }
 export interface Room { roomId: string; name: string; mode: string; joined: boolean; actorId?: string }
-export interface Message { id: string; version: string; createdAt: string; audience: 'SHARED' | 'PRIVATE'; author: { kind: 'anonymous' } | { kind: 'member'; actorId: string; nickname: string; avatar: { assetId: string } | null }; content: { type: 'TEXT'; text: string | null } | { type: 'PHOTO' | 'VIDEO' | 'STICKER' }; quote: { id: string; content: { type: 'TEXT'; text: string } } | null }
+export type Message = ServerMessage;
 export class ApiClient {
   readonly origin: string;
   private readonly transport: typeof fetch;
@@ -32,7 +34,16 @@ export class ApiClient {
     });
     if (!response.ok) {
       // Never render or log upstream text, token values, HTML or private response bodies.
-      throw new ApiError(response.status, 'REQUEST_FAILED');
+      let code = 'REQUEST_FAILED';
+      try {
+        if (response.headers.get('content-type')?.includes('application/json')) {
+          const envelope = exact(await response.json(), ['error']);
+          const error = exact(envelope.error, ['code']);
+          const allowed: Record<number, readonly string[]> = { 400: ['INVALID_REQUEST'], 401: ['UNAUTHENTICATED'], 403: ['FORBIDDEN', 'SOOP_LINK_REQUIRED'], 404: ['NOT_FOUND'], 409: ['MEMBERSHIP_SCOPE_MISMATCH', 'CONFLICT'], 429: ['RATE_LIMITED'] };
+          if (typeof error.code === 'string' && allowed[response.status]?.includes(error.code)) code = error.code;
+        }
+      } catch { /* Malformed or non-allowlisted bodies remain opaque. */ }
+      throw new ApiError(response.status, code);
     }
     if (response.status === 204) return undefined as T;
     if (!response.headers.get('content-type')?.includes('application/json')) throw new ApiError(502, 'INVALID_RESPONSE');
@@ -41,6 +52,7 @@ export class ApiClient {
   async session(signal?: AbortSignal): Promise<Session> {
     const value = await this.request<Session>('/v1/auth/session', signal ? { signal } : {});
     if (!value || value.authenticated !== true || typeof value.csrfToken !== 'string' || value.csrfToken.length < 16 || !['VERIFIED', 'REQUIRED'].includes(value.soopLinkStatus)) throw new ApiError(502, 'INVALID_SESSION');
+    try { exact(value, ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition']); token(value.accountPartition); } catch { throw new ApiError(502, 'INVALID_SESSION'); }
     return value;
   }
   async profile(signal?: AbortSignal): Promise<Profile> {
