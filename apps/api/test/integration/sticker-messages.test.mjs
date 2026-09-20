@@ -212,7 +212,7 @@ test('revocation immediately resets only viewers who could see the sticker befor
   assert.deepEqual((await f.sync(f.other, 'events', { cursor: hidden.nextCursor })).body.events, []);
 });
 
-test('revocation batches are bounded, fenced, durable across closed rooms and already deleted storage', { timeout: 30000 }, async t => {
+test('revocation batches are bounded across closed rooms and legacy deleted markers still require object cleanup', { timeout: 30000 }, async t => {
   const f = await fixture(t), item = await f.catalog();
   for (let index = 0; index < 52; index++) await f.directSend(f.owner, item);
   await f.directSend(f.owner, item, f.rooms[1]);
@@ -238,7 +238,16 @@ test('revocation batches are bounded, fenced, durable across closed rooms and al
   }
   assert.deepEqual(previous, { moderated: 53, events: 53 });
   assert.equal(await f.process(await f.lease(item.assetId)), 'completed');
-  assert.deepEqual(await counts(), previous); assert.deepEqual(f.removed, []);
+  assert.deepEqual(await counts(), previous);
+  // The legacy asset marker alone cannot certify that its still-READY object
+  // was deleted. Known write metadata permits one ordered DELETE with proof.
+  assert.deepEqual(f.removed, [item.objectKey]);
+  await f.db.transactions.read(async tx => {
+    const object = await tx.prisma.media_objects.findFirstOrThrow({ where: { asset_id: item.assetId } });
+    const proof = await tx.prisma.media_cleanup_attempts.findUniqueOrThrow({ where: { object_id: object.id } });
+    assert.equal(object.state, 'DELETED'); assert.equal(proof.object_key, item.objectKey);
+    assert.equal(proof.writer_acknowledged, true); assert.ok(proof.delete_observed_at);
+  });
 });
 
 test('two concurrent revocation workers commit only one message invalidation and keep a durable continuation', { timeout: 20000 }, async t => {
