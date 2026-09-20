@@ -45,20 +45,26 @@ App Distribution 업로드 인증과 앱의 FCM 설정은 별개다. 앱의 FCM 
 형식과 대상 검사를 따른다. SDK 설정 경로가 완전히 없으면 푸시만 사용할 수 없고 서명
 빌드는 가능하다. 명시했지만 잘못된 설정이나 다른 앱/환경의 설정은 빌드를 차단한다.
 
-원격 Mac 터미널을 Windows 브라우저로 인증할 때는 다음 명령을 사용한다.
+Firebase 배포는 개인 OAuth 로그인 대신 **전용 서비스 계정**을 사용한다. 프로젝트 관리자가
+한 번 서비스 계정을 만들고 `roles/firebaseappdistro.admin`을 부여한다. 이 역할에는
+배포 및 앱 확인에 필요한 `firebase.clients.list`도 포함된다. Owner/Editor나 다른 제품의
+관리 역할을 부여하지 않는다. JSON 키는 모든 Git 밖의 mode 600 파일에 저장하고 외부
+설정의 `firebase.credentials_file`에 그 절대 경로를 지정한다. 앱의 FCM 설정 파일과 다르다.
 
 ```sh
-firebase login --reauth --no-localhost
 python3 tools/mobile/qa_release.py doctor
 ```
 
-인증 코드는 Mac 터미널에만 입력한다. `doctor`는 Apple QA Bundle ID/App Store Connect
-앱 레코드와 Firebase Android 앱의 package name까지 확인한다.
+`doctor`, APK 업로드, 업로드 후 검증이 모두 같은 서비스 계정을 사용한다. 개인 사용자
+세션과 `FIREBASE_TOKEN`은 배포 인증에 사용하지 않으며, 매 배포마다 로그인/문자 인증할
+필요가 없다. 짧은 access token은 자동 발급·갱신한다. 서비스 계정이나 키가 폐기되거나
+조직 정책으로 만료되면 관리자가 자격 증명을 복구해야 한다. 무조건 영구 유효한 토큰을
+저장하는 방식은 아니다. 로컬 키는 이 신뢰된 Mac에서만 사용하고 공개 PR job·앱 바이너리·
+로그·GitHub Secrets로 복사하지 않는다. 향후 CI federation은 별도 신뢰/권한 검토 대상이다.
 
-`zsh: command not found: firebase`는 인증 실패가 아니라 CLI 탐색 경로 문제다. NVM으로
-설치했다면 해당 셸에서 NVM을 불러오고 Firebase CLI를 설치한 Node 버전을 선택한다.
-또는 설치된 `node`와 `firebase-tools/lib/bin/firebase.js`의 절대 경로로 같은 login 명령을
-실행한다. 다른 Node 버전에 중복 설치하거나 기존 로그인·배포 기록을 지울 필요는 없다.
+`zsh: command not found: firebase`는 CLI 탐색 경로 문제다. NVM을 불러오고 Firebase CLI가
+설치된 Node 버전을 선택한다. 배포 도구는 `node`와 `firebase`를 PATH에서 찾는다.
+기존 사용자 로그인이나 배포 기록을 지울 필요는 없다.
 
 새 환경에서는 QA 전용 Firebase 프로젝트와 Android 앱을 CLI/콘솔로 등록한 후 외부 설정에
 ID를 넣는다. App Store Connect에는 iOS 앱을 이름 `로기챗 QA`, 기본 언어 한국어,
@@ -175,7 +181,7 @@ xcodebuild -showdestinations -project apps/ios/Rogichat.xcodeproj -scheme Rogich
 임시 키는 runner의 저장소 밖에 생성하고 CI 종료 시 폐기한다. 실제 계정 자격증명·배포 키는
 CI/PR에 제공하지 않으며 CI에서 Firebase/TestFlight 업로드를 수행하지 않는다.
 
-참고: [Firebase CLI 원격 인증](https://firebase.google.com/docs/cli),
+참고: [Firebase 서비스 계정 인증](https://firebase.google.com/docs/app-distribution/authenticate-service-account?platform=android),
 [Firebase APK 배포](https://firebase.google.com/docs/app-distribution/android/distribute-cli),
 [App Tester 설정](https://firebase.google.com/docs/app-distribution/get-set-up-as-a-tester?platform=android),
 [Apple 빌드 업로드](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/),

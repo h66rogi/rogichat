@@ -48,7 +48,7 @@ def doctor(cfg):
         print("Apple:", error)
     if cfg["firebase"].get("project_id") and cfg["firebase"].get("app_id"):
         try:
-            apps = release_android.firebase_json(["apps:list", "ANDROID", "--project", cfg["firebase"]["project_id"]], external(cfg["artifact_root"]))
+            apps = release_android.firebase_json(["apps:list", "ANDROID", "--project", cfg["firebase"]["project_id"]], external(cfg["artifact_root"]), cfg)
             matches = [app for app in apps if app.get("appId") == cfg["firebase"]["app_id"] and app.get("packageName") == APP_ID]
             print("Firebase QA app:", "verified" if len(matches) == 1 else "missing/mismatched")
         except (ValueError, RuntimeError) as error:

@@ -228,8 +228,8 @@ class ReleaseGuards(unittest.TestCase):
 
     def test_firebase_upload_success_can_omit_result(self):
         response = subprocess.CompletedProcess([], 0, '{"status":"success"}', 'upload succeeded')
-        with patch.object(release_android.subprocess, "run", return_value=response):
-            result = release_android.firebase_json(["appdistribution:distribute", "fixture.apk"], self.root)
+        with patch("firebase_auth.credentials", return_value=self.root / "service.json"), patch.object(release_android.subprocess, "run", return_value=response):
+            result = release_android.firebase_json(["appdistribution:distribute", "fixture.apk"], self.root, {"firebase": {"project_id": "fixture"}})
         self.assertEqual(result["status"], "success")
         self.assertTrue((self.root / "firebase-appdistribution-distribute.log").is_file())
 

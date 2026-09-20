@@ -408,7 +408,8 @@ class APIBoundaries(unittest.TestCase):
         self.assertEqual(request.get_method(), "POST")
         self.assertEqual(request.get_header("Authorization"), "Bearer fixture-access")
         firebase = object.__new__(Firebase)
-        firebase.project, firebase.token = "projects/123", "fixture-access"
+        firebase.project = "projects/123"
+        firebase.auth = Mock(); firebase.auth.get.return_value = "fixture-access"
         response.read.side_effect = AssertionError("distribution acknowledgement must not depend on body parsing")
         with patch("urllib.request.build_opener", return_value=opener):
             self.assertEqual(firebase.request("projects/123/apps/app/releases/release:distribute", body={"testerEmails": []}), {})
@@ -417,7 +418,7 @@ class APIBoundaries(unittest.TestCase):
 
     def test_binary_stream_is_size_bounded_and_sends_no_bearer(self):
         api = object.__new__(Firebase)
-        api.token = "fixture-access"
+        api.auth = Mock(); api.auth.get.return_value = "fixture-access"
         url = "https://firebaseappdistribution.googleapis.com/file"
         opener = Mock()
         opener.open.return_value = io.BytesIO(b"verified")
@@ -434,8 +435,8 @@ class APIBoundaries(unittest.TestCase):
     def test_firebase_cli_drops_ambient_code_hooks_and_debug_flags(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.dict(os.environ, {"NODE_OPTIONS": "--require malicious", "NODE_PATH": "/untrusted", "PYTHONPATH": "/untrusted", "DEBUG": "*", "FIREBASE_DEBUG": "true"}):
-                with patch("release_android.subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"status":"success","result":[]}', "")) as run:
-                    self.assertEqual(firebase_json(["apps:list"], directory), [])
+                with patch("firebase_auth.credentials", return_value=Path(directory) / "service.json"), patch("release_android.subprocess.run", return_value=subprocess.CompletedProcess([], 0, '{"status":"success","result":[]}', "")) as run:
+                    self.assertEqual(firebase_json(["apps:list"], directory, {"firebase": {"project_id": "fixture"}}), [])
             environment = run.call_args.kwargs["env"]
             for key in ("NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "DEBUG", "FIREBASE_DEBUG"):
                 self.assertNotIn(key, environment)
