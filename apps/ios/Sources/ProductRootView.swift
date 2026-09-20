@@ -137,7 +137,7 @@ struct ProductRootView: View {
             SettingsScreen(account: session.account, capabilities: session.capabilities, onOpen: { navigation.open($0) }, onSignIn: { navigation.selectTab(.talks) }, canManageBlocks: session.roomsScope != nil, hasDeletionHistory: session.account == nil && !session.deletions.isEmpty, onDeletionHistory: { session.showDeletionHistory = true },
                 onLoadProfile: { try await session.loadProfile() }, avatar: { profile in
                     guard let scope = session.roomsScope else { return AnyView(Text("사진을 확인할 수 없어요").font(.caption)) }
-                    let client = MediaClient(transport: AccountMediaTransport(session: session, original: scope), scope: AccountMediaScope(original: scope))
+                    let client = MediaClient(transport: AccountMediaTransport(session: session, original: scope), scope: AccountMediaScope(original: scope), apiBaseURL: nativeEnvironment.baseURL)
                     if let asset = profile.avatarAssetID { return AnyView(AuthorizedMedia(client: client, assetID: asset, access: .preview(.image), avatar: true)) }
                     return AnyView(AuthorizedProviderAvatar(client: client))
                 }).id(session.generation)

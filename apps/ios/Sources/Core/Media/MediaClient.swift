@@ -17,7 +17,7 @@ protocol MediaTransport: Sendable { func perform(_ request: MediaRequest, scope:
 struct MediaClient: Sendable {
     let transport: any MediaTransport
     let scope: any MediaScope
-    var apiBaseURL: URL? = nil
+    let apiBaseURL: URL
     private func request(_ request: MediaRequest) async throws -> Data {
         try scope.check(); try Task.checkCancellation(); try request.upload?.validate()
         let result = try await transport.perform(request, scope: scope)
