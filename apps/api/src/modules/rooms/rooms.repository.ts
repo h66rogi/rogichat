@@ -13,15 +13,6 @@ export class RoomsRepository {
   eligibleOwner(tx: Transaction, ownerId: string) {
     return tx.rows<RowDataPacket>("SELECT u.id FROM users u JOIN creator_accounts c ON c.user_id=u.id AND c.enabled=1 JOIN platform_soop s ON s.user_id=u.id AND s.status='VERIFIED' WHERE u.id=? AND u.status='ACTIVE' FOR UPDATE", [ownerId]);
   }
-  initialPolicy(tx: Transaction, policy: string, roomId: string) {
-    return affected(tx.prisma.rooms.updateMany({ where: { id: roomId }, data: { history_policy: policy as 'ALL_AVAILABLE' | 'SINCE_JOIN' } }));
-  }
-  promoteOwner(tx: Transaction, actorId: string) {
-    return affected(tx.prisma.room_members.updateMany({ where: { id: actorId }, data: { role: 'STREAMER' } }));
-  }
-  assignOwner(tx: Transaction, actorId: string, roomId: string) {
-    return affected(tx.prisma.rooms.updateMany({ where: { id: roomId }, data: { owner_member_id: actorId } }));
-  }
   async visibleRooms(tx: Transaction, userId: string, after: string) {
     const rows = await tx.prisma.rooms.findMany({ where: { status: 'ACTIVE', id: { gt: after }, members: { none: { user_id: userId, status: 'BANNED' } }, OR: [{ join_policy: 'OPEN_AUTHENTICATED' }, { members: { some: { user_id: userId, status: 'ACTIVE' } } }] }, orderBy: { id: 'asc' }, take: 51, select: { id: true, name: true, mode: true, members: { where: { user_id: userId }, select: { id: true, status: true } } } });
     return rows.map(row => ({ id: row.id, name: row.name, mode: row.mode, actor_id: row.members[0]?.id ?? null, member_status: row.members[0]?.status ?? null }));
