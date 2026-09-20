@@ -17,7 +17,7 @@ or request Host header selects an API origin. Browser requests go directly to
 the API with `credentials: include`; the API owns host-only cookies, explicit
 credentialed CORS and CSRF protection. Invalid runtime configuration fails closed.
 
-`ROGICHAT_DEFAULT_ROOM_ID` is optional; absent or empty means no configured room.
+`ROGICHAT_DEFAULT_ROOM_ID` is optional. An explicit UUID takes precedence; when absent or empty, the web accepts only one server-marked `isDefault: true` room across the directory. Without either binding it shows the unopened state.
 A nonempty value must be a valid UUID. It
 selects a real API-authorized room, never a synthetic fallback. Leaving it unset
 keeps the app usable without inventing a room list.

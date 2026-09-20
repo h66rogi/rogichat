@@ -23,9 +23,26 @@ class ConversationViewModelTest {
         override suspend fun history(handle: ConversationHandle) = Unit
         override suspend fun moreRecipients(handle: ConversationHandle) = Unit
         override suspend fun reconcile(handle: ConversationHandle) = Unit
-        override suspend fun send(handle: ConversationHandle, intent: TextSendIntent): Result<Unit> = error("not invoked")
+        var sent: TextSendIntent? = null
+        override suspend fun send(handle: ConversationHandle, intent: TextSendIntent): Result<Unit> { sent = intent; return Result.success(Unit) }
     }
     private fun data(message: ConversationMessage) = ConversationData(scope, listOf(message), emptyList(), true, SyncCursor("events"), null, emptyList())
+    @Test fun fanWithoutRecipientsSendsToRoomOwnerAndPrivateReplyRemainsExplicit() = runTest {
+        val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.FAN))
+        val fanScope = scope.copy(selection = selected)
+        val original = ConversationDtos.message(messageProjection())
+        val state = MutableStateFlow(ConversationState(loading = false, data = data(original).copy(scope = fanScope)))
+        val repository = Repository(state)
+        val model = ConversationViewModel(repository, selected, backgroundScope)
+        runCurrent(); assertTrue(model.roomOwnerAllowed()); assertTrue(state.value.recipients.isEmpty())
+        model.text("방장 수신함"); model.send(fanScope); runCurrent()
+        assertEquals("ROOM_OWNER", repository.sent!!.command.intent)
+        assertNull(repository.sent!!.command.recipient); assertNull(repository.sent!!.recipientRevision)
+        model.reply(original, fanScope); model.text("특정 메시지 답장"); model.send(fanScope); runCurrent()
+        assertEquals("PRIVATE", repository.sent!!.command.intent); assertEquals(original.replyTarget, repository.sent!!.command.recipient)
+        model.clearReply(); model.text("다시 방장에게"); model.send(fanScope); runCurrent()
+        assertEquals("ROOM_OWNER", repository.sent!!.command.intent)
+    }
     @Test fun equalVersionProjectionReplacesQuotedBodyAndRemovedReplyClearsOriginalContentAndTarget() = runTest {
         val original = ConversationDtos.message(messageProjection())
         val state = MutableStateFlow(ConversationState(loading = false, data = data(original)))

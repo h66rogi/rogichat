@@ -38,9 +38,10 @@ struct RoomsScreen: View {
                     Section("둘러보기") {
                         ForEach(discoverable) { room in
                             roomRow(name: room.name, mode: room.mode) {
-                                Button("참여") {
+                                if room.availability == .ownerPending { Text("방장 확인 대기 중").font(.subheadline).foregroundStyle(.secondary) }
+                                else { Button("참여") {
                                     if let intent = model.selection(roomID: room.id, roomName: room.name, displayedCycle: listing.cycle, action: .join, membership: nil) { model.submit(intent) }
-                                }.buttonStyle(.bordered).disabled(!model.canAct).accessibilityLabel("\(room.name)에 참여")
+                                }.buttonStyle(.bordered).disabled(!model.canAct).accessibilityLabel("\(room.name)에 참여") }
                             }
                         }
                         if discoverable.isEmpty {

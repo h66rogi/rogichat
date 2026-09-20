@@ -17,7 +17,7 @@ data class Birthday(val month: Int, val day: Int) {
     }
 }
 data class UserProfile(val id: String, val nickname: String, val birthday: Birthday?, val birthdayVisibleToStreamers: Boolean,
-                       val avatarAssetId: String? = null) {
+                       val avatarAssetId: String? = null, val soopDisplayId: String? = null, val providerAvatarUrl: String? = null) {
     init { require(id.isNotBlank()); require(ProfileEditor(nickname).error == null) }
 }
 sealed interface FieldChange<out T> {
@@ -57,13 +57,13 @@ data class ProfileUiState(
 // ProfileSettingsViewModel's load/edit/save/error lifecycle adapted from the reference.
 // Domain validation + explicit clear semantics come from Rogichat's verified profile contract.
 class ProfileViewModel(private val repository: ProfileRepository, private val accountId: String,
-                       private val injectedScope: CoroutineScope? = null) : ViewModel() {
+                       private val injectedScope: CoroutineScope? = null, autoLoad: Boolean = true) : ViewModel() {
     private val scope get() = injectedScope ?: viewModelScope
     private val mutable = MutableStateFlow(ProfileUiState())
     val uiState = mutable.asStateFlow()
     private var revision = 0L
     private var job: Job? = null
-    init { load() }
+    init { if (autoLoad) load() }
     fun load() {
         if (mutable.value.isSaving) return
         job?.cancel()

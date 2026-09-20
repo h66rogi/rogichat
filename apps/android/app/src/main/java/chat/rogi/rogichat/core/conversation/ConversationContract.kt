@@ -59,7 +59,7 @@ sealed interface HistoryPage {
 data class ActorBirthday(val month: Int, val day: Int) {
     init { require(month in 1..12 && day in 1..java.time.Month.of(month).length(true)) }
 }
-data class ConversationProfile(val actorId: RoomId, val nickname: String, val avatar: RoomId?, val role: RoomRole, val birthday: ActorBirthday?)
+data class ConversationProfile(val actorId: RoomId, val nickname: String, val avatar: RoomId?, val role: RoomRole, val birthday: ActorBirthday?, val providerAvatarAvailable: Boolean = false)
 sealed interface ProfilePage {
     data object Reset : ProfilePage
     data class Success(val membership: RoomScopeToken, val authorization: RoomScopeToken,
@@ -78,7 +78,8 @@ sealed interface CommandReceipt {
 data class TextCommand(val clientMessageId: RoomId, val membership: RoomScopeToken, val intent: String,
                        val recipient: RoomId?, val quote: RoomId?, val text: String, val media: MediaContent? = null) {
     init {
-        require(intent in setOf("SHARED", "PRIVATE") && ((intent == "PRIVATE") == (recipient != null)))
+        require(intent in setOf("SHARED", "PRIVATE", "ROOM_OWNER") && ((intent == "PRIVATE") == (recipient != null)))
+        require(intent != "ROOM_OWNER" || quote == null)
         require(if (media == null) text == normalizeText(text) else text.isEmpty())
     }
     override fun toString() = "TextCommand([redacted])"
@@ -135,7 +136,7 @@ object ConversationDtos {
         } else {
             val profiles = values.map { element -> val value = element.jsonObject
                 val birthday = value["birthday"]?.let { birth -> val fields = birth.jsonObject; ActorBirthday(fields.number("month"), fields.number("day")) }
-                ConversationProfile(value.id("actorId"), value.nickname(), value.avatar(), RoomRole.valueOf(value.string("role")), birthday)
+                ConversationProfile(value.id("actorId"), value.nickname(), value.avatar(), RoomRole.valueOf(value.string("role")), birthday, if ("providerAvatarAvailable" in value) value.flag("providerAvatarAvailable") else false)
             }
             require(profiles.map { it.actorId }.distinct().size == profiles.size)
             val next = root.cursor("nextCursor"); val complete = root.flag("complete")

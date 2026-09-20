@@ -94,3 +94,27 @@ void test('only exact status-bound safe codes survive; raw fields, expected scop
     await assert.rejects(client.request('/v1/example'), (error: unknown) => error instanceof ApiError && error.status === status && error.code === expected && !JSON.stringify(error).includes('private'));
   }
 });
+
+void test('self profile separates provider display ID from internal ID and accepts legacy responses', async () => {
+  const profile = { id: '33333333-3333-4333-8333-333333333333', nickname: '직접 설정한 이름', avatar: null, birthday: null, birthdayVisibleToStreamers: false };
+  for (const extra of [{}, { soop: null }, { soop: { displayId: 'synthetic_fan' } }, { soop: { displayId: 'legacy:fan' } }]) {
+    const value = { ...profile, ...extra };
+    const result = await new ApiClient(origin, async () => Response.json(value)).profile();
+    assert.deepEqual(result, value);
+    assert.equal(result.nickname, profile.nickname);
+  }
+  for (const soop of ['', [], {}, { displayId: '' }, { displayId: 123 }, { displayId: 'x'.repeat(129) }, { displayId: 'https://example.com' }, { displayId: 'fan', token: 'synthetic' }]) {
+    await assert.rejects(new ApiClient(origin, async () => Response.json({ ...profile, soop })).profile(), (e: unknown) => e instanceof ApiError && e.code === 'INVALID_PROFILE');
+  }
+});
+
+void test('provider avatars accept only bounded canonical SOOP CDN URLs', async () => {
+  const profile = { id: 'synthetic-internal', nickname: '수동 이름', avatar: null, birthday: null, birthdayVisibleToStreamers: false };
+  const canonical = 'https://stimg.sooplive.com/LOGO/sy/synthetic_fan/synthetic_fan.jpg';
+  for (const providerAvatarUrl of [null, canonical, 'https://profile.img.sooplive.co.kr/LOGO/sy/synthetic_fan/m/synthetic_fan.webp?t=123']) {
+    assert.equal((await new ApiClient(origin, async () => Response.json({ ...profile, providerAvatarUrl })).profile()).providerAvatarUrl, providerAvatarUrl);
+  }
+  for (const providerAvatarUrl of [false, 'https://evil.example/image.jpg', canonical + '\n', canonical + '?token=x', canonical.replace('/sy/', '/zz/'), canonical.replace('synthetic_fan.jpg', 'other.jpg'), canonical.replace('https:', 'http:')]) {
+    await assert.rejects(new ApiClient(origin, async () => Response.json({ ...profile, providerAvatarUrl })).profile(), (e: unknown) => e instanceof ApiError && e.code === 'INVALID_PROFILE');
+  }
+});

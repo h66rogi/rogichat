@@ -41,7 +41,7 @@ export class RoomsCoreService {
   async listRooms(tx: Transaction, userId: string, after?: string) {
     const rows = await this.repository.visibleRooms(tx, userId, after ? identifier(after) : '');
     const scopes = await this.scopes.batch(tx, userId, rows.slice(0, 50).filter(r => r.member_status === 'ACTIVE').map(r => r.id), await tx.now());
-    return { rooms: rows.slice(0, 50).map(r => ({ roomId: r.id, name: r.name, mode: r.mode, joined: scopes.has(r.id), ...(scopes.has(r.id) ? { actorId: r.actor_id, ...scopes.get(r.id)! } : {}) })), next: rows.length > 50 ? rows[49]!.id : null };
+    return { rooms: rows.slice(0, 50).map(r => ({ roomId: r.id, name: r.name, mode: r.mode, joined: scopes.has(r.id), ...(r.isDefault ? { isDefault: true, availability: r.availability } : {}), ...(scopes.has(r.id) ? { actorId: r.actor_id, ...scopes.get(r.id)! } : {}) })), next: rows.length > 50 ? rows[49]!.id : null };
   }
   async enterRoom(tx: Transaction, roomId: string, userId: string) {
     try {

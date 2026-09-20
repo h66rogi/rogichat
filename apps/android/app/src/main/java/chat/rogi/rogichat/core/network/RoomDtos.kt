@@ -28,11 +28,13 @@ enum class HistoryPolicy { ALL_AVAILABLE, SINCE_JOIN }
 data class RoomJoinAcknowledgement(val actorId: RoomId, val historyPolicy: HistoryPolicy, val policyVersion: Long,
                                    val membershipScope: RoomScopeToken, val authorizationRevision: RoomScopeToken)
 enum class RoomMode { FAN, GROUP }
+enum class RoomAvailability { READY, OWNER_PENDING }
 enum class RoomRole { FAN, MEMBER, STREAMER }
 data class Membership(val roomId: RoomId, val name: String, val mode: RoomMode, val actorId: RoomId,
                       val role: RoomRole, val membershipScope: RoomScopeToken, val authorizationRevision: RoomScopeToken)
 data class DiscoveredRoom(val roomId: RoomId, val name: String, val mode: RoomMode,
-                          val actorId: RoomId?, val membershipScope: RoomScopeToken?, val authorizationRevision: RoomScopeToken?)
+                          val actorId: RoomId?, val membershipScope: RoomScopeToken?, val authorizationRevision: RoomScopeToken?,
+                          val isDefault: Boolean = false, val availability: RoomAvailability = RoomAvailability.READY)
 data class DiscoveryPage(val rooms: List<DiscoveredRoom>, val next: RoomId?)
 sealed interface MembershipPage {
     data object Reset : MembershipPage
@@ -56,11 +58,14 @@ object RoomDtos {
         val rooms = root.getValue("rooms").jsonArray.also { require(it.size <= 50) }.map { value ->
             val room = value.jsonObject
             val joined = room.bool("joined")
+            val isDefault = if ("isDefault" in room) room.bool("isDefault") else false
+            val availability = if ("availability" in room) RoomAvailability.valueOf(room.string("availability")) else RoomAvailability.READY
+            require(availability != RoomAvailability.OWNER_PENDING || (isDefault && !joined))
             if (!joined) require(listOf("actorId", "membershipScope", "authorizationRevision").none { it in room })
             DiscoveredRoom(room.id("roomId"), room.name(), RoomMode.valueOf(room.string("mode")),
                 if (joined) room.id("actorId") else null,
                 if (joined) RoomScopeToken(room.string("membershipScope")) else null,
-                if (joined) RoomScopeToken(room.string("authorizationRevision")) else null)
+                if (joined) RoomScopeToken(room.string("authorizationRevision")) else null, isDefault, availability)
         }
         require(rooms.map { it.roomId }.distinct().size == rooms.size)
         DiscoveryPage(rooms, root.nullableString("next")?.let(::RoomId)).also {

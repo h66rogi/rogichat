@@ -75,6 +75,19 @@ class NativeTransportTest {
         assertEquals(0, api.gets)
         assertTrue(model.providers.isEmpty()); assertFalse(model.canLinkSoop)
     }
+    @Test fun selfProviderProfileIsAdditiveAndCannotReplaceAccountIdentity() {
+        val previous = NativeDtos.profile(profile())
+        assertNull(previous.soopDisplayId); assertNull(previous.providerAvatarUrl)
+        val body = profile(nickname = "직접 바꾼 이름").dropLast(1) + """, "soop":{"displayId":"provider_id"}, "providerAvatarUrl":"https://profile.img.sooplive.co.kr/LOGO/pr/provider_id/provider_id.jpg"}"""
+        val imported = NativeDtos.profile(body)
+        assertEquals(OWN, imported.id); assertEquals("직접 바꾼 이름", imported.nickname)
+        assertEquals("provider_id", imported.soopDisplayId); assertNotNull(imported.providerAvatarUrl)
+        val cleared = NativeDtos.profile(profile().dropLast(1) + """, "soop":null, "providerAvatarUrl":null}""")
+        assertNull(cleared.soopDisplayId); assertNull(cleared.providerAvatarUrl)
+        assertThrows(InvalidResponse::class.java) { NativeDtos.profile(body.replace("https://", "http://")) }
+        assertThrows(InvalidResponse::class.java) { NativeDtos.profile(body.replace("\"displayId\":\"provider_id\"", "\"displayId\":5")) }
+        assertEquals("{\"nickname\":\"수정\"}", NativeDtos.profilePatch(ProfileChanges("수정", FieldChange.Unchanged, null)))
+    }
     @Test fun protectedReadFailureRemainsRetryableAndDoesNotMasqueradeAsMissing() = runTest {
         val store = TestStore().apply { readFailure = true }; val model = gateway(store)
         assertTrue(model.restore().isFailure)

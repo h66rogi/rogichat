@@ -29,12 +29,14 @@ final class ConversationScreenModel {
     private var sendTask: Task<Void, Never>?
     init(coordinator: any ConversationCoordinating) { self.coordinator = coordinator }
     var active: Bool { (try? scope.check()) != nil }
+    var roomOwnerAllowed: Bool { scope.room.mode == "FAN" && scope.room.role == "FAN" }
+    var roomOwnerTarget: Bool { roomOwnerAllowed && privateTarget == nil && quote == nil }
     var sharedAllowed: Bool { scope.room.mode == "GROUP" || scope.room.role == "STREAMER" }
-    var targetName: String { recipient?.nickname ?? privateReplyName ?? (sharedAllowed ? "전체 대화" : "받는 사람 선택") }
+    var targetName: String { recipient?.nickname ?? privateReplyName ?? (roomOwnerAllowed ? "방장에게만" : sharedAllowed ? "전체 대화" : "받는 사람 선택") }
     var privateTarget: String? { recipient?.id ?? privateReplyTarget }
     var canSend: Bool {
         active && listing?.ready == true && !loading && !loadingHistory && !sending && !checking &&
-        (sharedAllowed || privateTarget != nil) && (try? ConversationWire.normalizedText(draft)) != nil
+        (sharedAllowed || roomOwnerTarget || privateTarget != nil) && (try? ConversationWire.normalizedText(draft)) != nil
     }
     func load() async { if listing == nil, !loading { await refresh() } }
     func refresh() async {
@@ -71,7 +73,7 @@ final class ConversationScreenModel {
         } catch { recipientsError = Self.message(error) }
     }
     func choose(_ value: PrivateRecipient?) {
-        guard active, value == nil ? sharedAllowed : recipients.contains(where: { $0.id == value?.id }) else { return }
+        guard active, value == nil ? (sharedAllowed || roomOwnerAllowed) : recipients.contains(where: { $0.id == value?.id }) else { return }
         recipient = value; privateReplyTarget = nil; privateReplyName = nil; quote = nil
     }
     func reply(to displayed: ConversationMessage) {
@@ -92,7 +94,7 @@ final class ConversationScreenModel {
         guard canSend else { return }
         let input = draft; let target = privateTarget; let quoteID = quote?.id
         let command: TextCommand
-        do { command = try TextCommand(roomID: scope.room.id, membershipScope: scope.room.membershipScope, recipientActorID: target, quoteID: quoteID, text: input) }
+        do { command = try TextCommand(roomID: scope.room.id, membershipScope: scope.room.membershipScope, recipientActorID: target, quoteID: quoteID, toRoomOwner: roomOwnerTarget, text: input) }
         catch { self.error = Self.message(error); return }
         sending = true; error = nil
         sendTask = Task {
@@ -108,9 +110,9 @@ final class ConversationScreenModel {
     }
     func sendAttachment(_ attachment: OutgoingAttachment) async throws -> TextCommand {
         guard active, listing?.ready == true, !loading, !loadingHistory, !sending, !checking,
-              sharedAllowed || privateTarget != nil else { throw ConversationError.busy }
+              sharedAllowed || roomOwnerTarget || privateTarget != nil else { throw ConversationError.busy }
         let command = try TextCommand(roomID: scope.room.id, membershipScope: scope.room.membershipScope,
-            recipientActorID: privateTarget, quoteID: quote?.id, attachment: attachment)
+            recipientActorID: privateTarget, quoteID: quote?.id, toRoomOwner: roomOwnerTarget, attachment: attachment)
         sending = true; error = nil; defer { sending = false }
         do {
             let result = try await coordinator.send(command); try scope.check(); state = .loaded(result)

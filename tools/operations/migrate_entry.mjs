@@ -122,6 +122,20 @@ async function runPrisma(url) {
   });
 }
 
+export async function initializeCatalog(run = spawn) {
+  // The protected QA gate above is unchanged. Use only the approved runtime
+  // DML credential, never the DDL credential, for versioned domain initialization.
+  await new Promise((resolve, reject) => {
+    const child = run(process.execPath, ['/workspace/apps/api/dist/modules/owner-bootstrap/default-room-initialize.js'], {
+      cwd: '/workspace/apps/api', env: { PATH: '/usr/local/bin:/usr/bin:/bin', NODE_ENV: 'production', APP_ENV: 'qa',
+        DATABASE_SECRET_FILE: '/run/secrets/database.json', DB_TLS_MODE: 'required', DB_CA_FILE: CA, DB_POOL_SIZE: '1' },
+      stdio: 'ignore', timeout: 60000, killSignal: 'SIGKILL',
+    });
+    child.once('error', reject);
+    child.once('exit', (code, signal) => code === 0 && !signal ? resolve() : reject(new Error('initialization failed')));
+  });
+}
+
 export async function main() {
   if (process.argv.length !== 2 || process.getuid() !== 10001) fail();
   const approval = JSON.parse(fs.readFileSync(`${ROOT}/approval.json`, 'utf8'));
@@ -144,6 +158,7 @@ export async function main() {
     // Re-read runtime grants after migration: DDL must remain impossible by policy.
     const [grants] = await runtimeConnection.query('SHOW GRANTS FOR CURRENT_USER()');
     validateGrants(grants, 'rogichat_app');
+    await initializeCatalog();
     console.log('QA migration applied; manifest, TLS and runtime grants verified.');
   } finally { await Promise.all([runtimeConnection.end(), migratorConnection?.end()]); }
 }

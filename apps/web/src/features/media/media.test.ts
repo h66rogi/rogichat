@@ -310,3 +310,63 @@ void test('abort cancels a pending metadata read and releases its lock', async (
     assert.equal(stream.locked, false);
   }
 });
+
+void test('provider avatar reads use exact API ticket URL without cookie or CSRF forwarding', async () => {
+  const url = 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64);
+  const { client, calls } = setup([json({ url, expiresIn: 60 }), image()]);
+  const result = await client.providerAvatar(room, asset, idleSignal());
+  assert.equal(result.blob.type, 'image/webp');
+  assert.equal(calls[0]?.url, `https://api.qa.rogi.chat/v1/rooms/${room}/actors/${asset}/provider-avatar/access`);
+  assert.equal(calls[0]?.init.body, '{}');
+  assert.equal(calls[1]?.url, url);
+  assert.equal(calls[1]?.init.credentials, 'omit');
+  assert.equal(calls[1]?.init.headers, undefined);
+  assert.equal(calls[1]?.init.redirect, 'error');
+  assert.equal(calls[1]?.init.referrerPolicy, 'no-referrer');
+  result.release?.();
+});
+void test('provider avatar rejects untrusted origins, paths, extra query, wrong type and oversized body', async () => {
+  const base = 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64);
+  for (const url of [base.replace('api.qa.rogi.chat', 'evil.example'), base.replace('profile-images', 'me/profile'), base + '&extra=1', base + '#hash', base.replace('https:', 'http:')]) {
+    const state = setup([json({ url, expiresIn: 60 })]);
+    await assert.rejects(state.client.providerAvatar(room, asset, idleSignal()));
+    assert.equal(state.calls.length, 1);
+  }
+  for (const response of [new Response('not-image', { headers: { 'Content-Type': 'image/svg+xml' } }), new Response(new Uint8Array(2 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'image/jpeg' } })]) {
+    const state = setup([json({ url: base, expiresIn: 60 }), response]);
+    await assert.rejects(state.client.providerAvatar(room, asset, idleSignal()));
+  }
+});
+
+void test('provider avatar admission bounds distinct transfers and discards cancelled queued work', async () => {
+  const lifetime = new AbortController();
+  const completions: Array<() => void> = [];
+  let admissions = 0;
+  let active = 0;
+  let peak = 0;
+  const client = new MediaClient({ apiOrigin: 'https://api.qa.rogi.chat', storageOrigins: [],
+    csrf: () => 'a'.repeat(43), lifetime: { signal: lifetime.signal, isCurrent: () => true },
+    transport: async (_url, init) => {
+      if (init?.method === 'POST') {
+        admissions++;
+        return json({ url: 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64), expiresIn: 60 });
+      }
+      active++; peak = Math.max(peak, active);
+      return new Promise<Response>(resolve => { completions.push(() => { active--; resolve(image()); }); });
+    } });
+  const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+  const first = client.providerAvatar(room, asset, idleSignal());
+  const second = client.providerAvatar(room, room, idleSignal());
+  const cancelled = new AbortController();
+  const abandoned = assert.rejects(client.providerAvatar(room, asset, cancelled.signal), /abort/i);
+  const next = client.providerAvatar(room, room, idleSignal());
+  await tick(); assert.equal(admissions, 2); assert.equal(completions.length, 2);
+  cancelled.abort(); await abandoned;
+  completions.shift()!(); (await first).release?.();
+  await tick(); assert.equal(admissions, 3); assert.equal(peak, 2);
+  completions.shift()!(); completions.shift()!();
+  for (const lease of await Promise.all([second, next])) lease.release?.();
+  lifetime.abort();
+  await assert.rejects(client.providerAvatar(room, asset, idleSignal()), /abort/i);
+  assert.equal(admissions, 3);
+});

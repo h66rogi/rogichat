@@ -9,17 +9,19 @@ public struct TextCommand: Codable, Equatable, Identifiable, Sendable {
     public let quoteID: String?
     public let text: String
     public let attachmentContent: OutgoingAttachment?
-    public init(roomID: String, membershipScope: String, recipientActorID: String? = nil, quoteID: String? = nil, attachment: OutgoingAttachment) throws {
+    public init(roomID: String, membershipScope: String, recipientActorID: String? = nil, quoteID: String? = nil, toRoomOwner: Bool = false, attachment: OutgoingAttachment) throws {
+        guard !toRoomOwner || (recipientActorID == nil && quoteID == nil) else { throw ConversationError.invalidText }
         guard RoomsWire.uuid(roomID), RoomsWire.token(membershipScope), recipientActorID.map(RoomsWire.uuid) ?? true, quoteID.map(RoomsWire.uuid) ?? true else { throw ConversationError.invalidText }
         try attachment.validate()
         id = UUID().uuidString.lowercased(); self.roomID = roomID; self.membershipScope = membershipScope
-        intent = recipientActorID == nil ? "SHARED" : "PRIVATE"; self.recipientActorID = recipientActorID; self.quoteID = quoteID
+        intent = toRoomOwner ? "ROOM_OWNER" : recipientActorID == nil ? "SHARED" : "PRIVATE"; self.recipientActorID = recipientActorID; self.quoteID = quoteID
         text = ""; attachmentContent = attachment
     }
-    public init(roomID: String, membershipScope: String, recipientActorID: String? = nil, quoteID: String? = nil, text: String) throws {
+    public init(roomID: String, membershipScope: String, recipientActorID: String? = nil, quoteID: String? = nil, toRoomOwner: Bool = false, text: String) throws {
+        guard !toRoomOwner || (recipientActorID == nil && quoteID == nil) else { throw ConversationError.invalidText }
         guard RoomsWire.uuid(roomID), RoomsWire.token(membershipScope), recipientActorID.map(RoomsWire.uuid) ?? true, quoteID.map(RoomsWire.uuid) ?? true else { throw ConversationError.invalidText }
         self.id = UUID().uuidString.lowercased(); self.roomID = roomID; self.membershipScope = membershipScope
-        self.intent = recipientActorID == nil ? "SHARED" : "PRIVATE"; self.recipientActorID = recipientActorID; self.quoteID = quoteID; self.text = try ConversationWire.normalizedText(text); attachmentContent = nil
+        self.intent = toRoomOwner ? "ROOM_OWNER" : recipientActorID == nil ? "SHARED" : "PRIVATE"; self.recipientActorID = recipientActorID; self.quoteID = quoteID; self.text = try ConversationWire.normalizedText(text); attachmentContent = nil
     }
     enum CodingKeys: CodingKey { case id, roomID, membershipScope, intent, recipientActorID, quoteID, text, attachmentContent }
     public init(from decoder: any Decoder) throws {
@@ -27,7 +29,8 @@ public struct TextCommand: Codable, Equatable, Identifiable, Sendable {
         id = try c.decode(String.self, forKey: .id); roomID = try c.decode(String.self, forKey: .roomID); membershipScope = try c.decode(String.self, forKey: .membershipScope)
         intent = try c.decode(String.self, forKey: .intent); recipientActorID = try c.decodeIfPresent(String.self, forKey: .recipientActorID); quoteID = try c.decodeIfPresent(String.self, forKey: .quoteID); text = try c.decode(String.self, forKey: .text); attachmentContent = try c.decodeIfPresent(OutgoingAttachment.self, forKey: .attachmentContent)
         guard RoomsWire.uuid(id), RoomsWire.uuid(roomID), RoomsWire.token(membershipScope), quoteID.map(RoomsWire.uuid) ?? true,
-              (intent == "SHARED" && recipientActorID == nil) || (intent == "PRIVATE" && recipientActorID.map(RoomsWire.uuid) == true),
+              (intent == "SHARED" && recipientActorID == nil) || (intent == "PRIVATE" && recipientActorID.map(RoomsWire.uuid) == true) ||
+              (intent == "ROOM_OWNER" && recipientActorID == nil && quoteID == nil),
               (attachmentContent == nil ? try ConversationWire.normalizedText(text) == text : text.isEmpty) else { throw ConversationError.persistence }
         try attachmentContent?.validate()
     }

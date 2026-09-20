@@ -18,6 +18,8 @@ export interface ChatActorRef {
   actorId: string;
   displayName: string;
   avatarUrl: string | null;
+  avatarAssetId?: string;
+  providerAvatarAvailable?: boolean;
   role?: ChatViewerRole | undefined;
 }
 
@@ -81,7 +83,7 @@ export interface ChatUnsupportedItemModel {
 
 export type ChatTimelineItem = ChatMessageItemModel | ChatPublicationItemModel | ChatUnsupportedItemModel;
 
-export type ChatComposerTarget = { scope: 'SHARED' } | { scope: 'PRIVATE'; recipient: ChatActorRef };
+export type ChatComposerTarget = { scope: 'SHARED' } | { scope: 'ROOM_OWNER' } | { scope: 'PRIVATE'; recipient: ChatActorRef };
 
 export interface ChatComposerSubmission {
   target: ChatComposerTarget;

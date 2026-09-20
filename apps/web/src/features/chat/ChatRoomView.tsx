@@ -1,5 +1,7 @@
 'use client';
 
+import { ChatActorAvatar } from './ChatActorAvatar';
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { WifiOff } from 'lucide-react';
 
@@ -62,10 +64,12 @@ export interface ChatRoomViewProps {
   viewer: ChatActorRef;
   viewerRole: ChatViewerRole;
   items: ChatTimelineItem[];
-  /** FAN only: the server-authorized streamer recipient. `null`/absent locks the composer. */
+  /** FAN only: an explicit server-authorized streamer recipient for PRIVATE replies. */
   fanRecipient?: ChatActorRef | null | undefined;
-  /** Complete server-permitted targets. Multiple targets require explicit selection. */
+  /** Complete server-permitted actor targets; the room-owner inbox has its own target. */
   fanRecipients?: readonly ChatActorRef[] | undefined;
+  /** Actual FAN membership permits a private room-owner inbox without inventing an actor. */
+  fanRoomOwner?: boolean | undefined;
   /** STREAMER only: fans the server authorized for PRIVATE replies. SHARED is always available. */
   streamerRecipients?: readonly ChatActorRef[] | undefined;
   initialTarget?: ChatComposerTarget | undefined;
@@ -98,6 +102,7 @@ function ScopedChatRoom({
   items,
   fanRecipient = null,
   fanRecipients,
+  fanRoomOwner = false,
   streamerRecipients = EMPTY_RECIPIENTS,
   initialTarget,
   onSubmit,
@@ -116,18 +121,18 @@ function ScopedChatRoom({
   const [stickerTarget, setStickerTarget] = useState<ChatComposerTarget | null>(null);
   const permittedFans = useMemo(() => fanRecipients ?? (fanRecipient ? [fanRecipient] : EMPTY_RECIPIENTS), [fanRecipients, fanRecipient]);
   const authorization = useMemo(
-    () => ({ viewerRole, fanRecipient, fanRecipients: permittedFans, streamerRecipients }),
-    [viewerRole, fanRecipient, permittedFans, streamerRecipients],
+    () => ({ viewerRole, fanRecipient, fanRecipients: permittedFans, fanRoomOwner, streamerRecipients }),
+    [viewerRole, fanRecipient, permittedFans, fanRoomOwner, streamerRecipients],
   );
 
   const targetOptions = useMemo<ChatComposerTarget[]>(() => {
     if (viewerRole === 'FAN') {
-      return permittedFans.map(recipient => ({ scope: 'PRIVATE', recipient }));
+      return fanRoomOwner ? [{ scope: 'ROOM_OWNER' }, ...permittedFans.map<ChatComposerTarget>(recipient => ({ scope: 'PRIVATE', recipient }))] : permittedFans.map(recipient => ({ scope: 'PRIVATE', recipient }));
     }
     return [{ scope: 'SHARED' }, ...streamerRecipients.map<ChatComposerTarget>((recipient) => ({ scope: 'PRIVATE', recipient }))];
-  }, [viewerRole, permittedFans, streamerRecipients]);
+  }, [viewerRole, permittedFans, fanRoomOwner, streamerRecipients]);
 
-  const defaultTarget = viewerRole === 'FAN' && targetOptions.length !== 1 ? null : targetOptions[0] ?? null;
+  const defaultTarget = viewerRole === 'FAN' && !fanRoomOwner && targetOptions.length !== 1 ? null : targetOptions[0] ?? null;
 
   const [requestedTarget, setRequestedTarget] = useState<ChatComposerTarget | null>(() => {
     const parked = composerMemory?.getComposer().target;
@@ -180,7 +185,7 @@ function ScopedChatRoom({
     return '보낼 대상이 없습니다.';
   }, [onSubmit, target, draftKeyTarget, viewerRole, permittedFans.length]);
 
-  // A fan without a confirmed recipient has no draft at all; nothing falls back to the SHARED draft.
+  // A fan without an authorized actor or room-owner target has no draft; never fall back to SHARED.
   const currentKey: ChatDraftKey | null = draftKeyTarget ? draftKeyFor(draftKeyTarget) : null;
   const draft = draftKeyTarget ? readDraft(drafts, draftKeyTarget) : EMPTY_DRAFT;
   const notice = currentKey ? (notices[currentKey] ?? null) : null;
@@ -332,7 +337,7 @@ function ScopedChatRoom({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="truncate text-[18px] font-semibold text-ink">{roomName}</h1>
           <div className="flex items-center gap-2 text-[14px] text-muted">
-            <span className="truncate">{viewer.displayName}</span>
+            <ChatActorAvatar actor={viewer} /><span className="truncate">{viewer.displayName}</span>
             <Badge variant={viewerRole === 'STREAMER' ? 'brand' : 'secondary'}>{viewerRole === 'STREAMER' ? '스트리머' : '팬'}</Badge>
           </div>
         </div>
