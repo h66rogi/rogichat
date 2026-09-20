@@ -87,3 +87,18 @@ and [libssh 0.10.6 pki_gcrypt.c](https://github.com/libssh/libssh-mirror/blob/li
 Regression tests exercise the real scanner: exact delimiter bytes pass, changed
 bytes fail, other secret detectors still fire, and a fresh ephemeral RSA key in
 an unrelated image file remains blocked under the complete reviewed policy.
+
+A separate independent review verified two scanner-generated filename objects
+for Debian `ldconfig` trigger files. Existing typed `entry-name-metadata` policy
+binds their exact JSON bytes and `generic-api-key` rule only:
+
+| Debian package | Exact JSON-object SHA-256 |
+| --- | --- |
+| libpciaccess0 | `1d30b1380969e545b17dfa215dc1fce099a74f36c384653c17f1618620110e86` |
+| libglapi-mesa | `349481123fdd9ad2ddef21a65ec698049e95de201e451bb65e55e07ba1893668` |
+
+Both names use directory `var/lib/dpkg/info`, architecture `amd64` and extension
+`triggers`, assembled by the typed policy. These are not exemptions for file
+contents. Signed package checksums and URLs
+are recorded with the typed entries. Tests require changed names, altered typed
+metadata and real secret patterns inside these filenames to remain blocked.

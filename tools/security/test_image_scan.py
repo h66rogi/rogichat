@@ -151,6 +151,21 @@ class ImageScanTests(unittest.TestCase):
         with self.assertRaises(scan.Blocked):
             self.run_scan(image([tar([('tmp/unrelated-key', key)])]), fixtures=actual_policy)
 
+    def test_native_trigger_metadata_exceptions_reject_changed_names_and_secret_contents(self):
+        policy = json.loads(Path(scan.__file__).with_name('image_fixtures.json').read_text())['files']
+        for package in ['libpciaccess0', 'libglapi-mesa']:
+            with self.subTest(package=package):
+                name = f'var/lib/dpkg/info/{package}:amd64.triggers'
+                self.assertGreater(self.run_scan(image([tar([(name, b'activate-noawait ldconfig\n')])]), fixtures=policy).suppressed, 0)
+                with self.assertRaises(scan.Blocked):
+                    self.run_scan(image([tar([(name.replace(':amd64.', ':amd65.'), b'ordinary trigger')])]), fixtures=policy)
+                with self.assertRaises(scan.Blocked):
+                    self.run_scan(image([tar([(name, self.token())])]), fixtures=policy)
+                entry = next(item for item in policy if item.get('metadata', {}).get('package') == package)
+                changed = {**entry, 'metadata': {**entry['metadata'], 'architecture': 'arm64'}}
+                with self.assertRaisesRegex(scan.Blocked, 'metadata fixture digest mismatch'):
+                    self.run_scan(image([tar([(name, b'ordinary trigger')])]), fixtures=[changed])
+
     def test_forbidden_paths_state_and_traversal(self):
         for name, data in [('app/.env', b'x'), ('../escape', b'x'), ('app/data', b'{"terraform_version":"1.0","resources":[]}')]:
             with self.subTest(name=name), self.assertRaises(scan.Blocked):
