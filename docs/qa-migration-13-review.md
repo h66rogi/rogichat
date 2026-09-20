@@ -54,13 +54,25 @@ Reviewed-source tool hashes (not claims about currently installed host files):
 | tools/operations/backend_release.py | 66a1ee09cde74093f07a3425ee67fd860bb1232af035360ad6fb4c196e0e3153 |
 | tools/operations/backend_archive.py | de080861afb71e5053f31f5cf28cb2cef164b9f09da9b15c05a54e2ecaea9459 |
 
-At review time there is no successful backend export for source 397d2f0. Earlier
-f6958c5 archives contain only twelve migrations and cannot execute this change.
-A fresh trusted export of these exact published images must establish its run,
-attempt, artifact ID, artifact ZIP digest, config IDs and typed archive execution
-IDs. Reuse the reviewed archive/migrator mechanism, not an older image/archive.
-Do not invent or substitute those missing identities. A later source requires
-its own evidence even if the SQL is unchanged.
+The subsequent trusted export was downloaded and verified without loading an
+image or changing a host. Export run `35495706289`, attempt `1`, ran the reviewed
+workflow at `597a7454796b251f6c96e7b5ff0fae7d83aaa577` for image source
+`397d2f0b59868c1a0579c92ef74a1852c5ce66e6`. Workflow source and image source are
+deliberately recorded separately.
+
+- Artifact ID: `10600780191`; ZIP size: `751501595` bytes.
+- ZIP SHA-256: `780aa6be7ffdd835e204d6d95a3ca3950bd4d6e7785730d3ae0975ec0440e432`.
+- Runtime config ID: `sha256:1695e58ffba8ec95afdf38a37eff47d63a9f7d5da2dbfa312e5a4c71cb64f7ce`.
+- Migrator config ID: `sha256:519cb05378eb99b5a669821dbb58c0ec9e51a8abb1954c2a5b89ee58a7a3d136`.
+- Runtime TAR SHA-256: `3302eba191383a5a0819b0f1b249eb299a5caed8788e93f308f9aec86f63024c`.
+- Migrator TAR SHA-256: `b8786c124f0357c90faaa11a6400ef4f871b32535d7513b8455c020a58cc6063`.
+- Typed runtime archive execution ID: `sha256:80c07e89f8403b202c08614eb3807e3a30f7a40ebb0c636d8af2a65869059b69`.
+- Typed migrator archive execution ID: `sha256:809f61fa9bb461b4e0025fe71838a79ed4aae22d142fc69ec651f03657c28604`.
+
+Registry digests, config IDs and typed archive execution IDs are not interchangeable.
+Host-side inspection after an authorized load must independently verify the
+expected identity. The old twelve-migration archive cannot execute this change.
+A later source requires its own evidence even when its SQL is unchanged.
 
 ## Execution gates
 
@@ -98,7 +110,18 @@ Inspect actual state after host/Docker failure; successful cleanup is not assume
 readiness requires an exact twelve-entry migration manifest; the added entry
 would fail readiness despite additive SQL compatibility. Recovery requires a new
 reviewed runtime that recognizes all thirteen migrations and the actual schema,
-plus a new release approval. No compatible rollback artifact is claimed here.
+plus a new release approval. A separately reviewed recovery source is available
+at `39758b2904b693a11ff33c80c5686a07b4ccea5b` (draft PR #49), with the exact same
+thirteen schema/migration bytes. Hosted run `35497538130` passed 242 unit,
+18 e2e, 10 contract and 179 MySQL tests, including exact-12 rejection, exact-13
+API/worker readiness, no-op migration, partial/checksum/extra-entry rejection,
+capability rollback and retained cleanup; image safety also passed. This is
+source evidence, **not a published or deployed rollback artifact**. Its fixed
+composition disables new native issuance, PHOTO publication and VIDEO preparation
+while retaining cleanup of existing work. It shares database/decoder/core code
+with the candidate and is not a remedy for every possible incident. Review
+incident-specific behavior and client compatibility before choosing it; publish,
+export and approve its own immutable images before any recovery execution.
 
 Partial DDL failure requires read-only schema/history inspection and a separately
 reviewed recovery decision. No reset, destructive down migration, edited generated
