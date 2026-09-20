@@ -14,6 +14,7 @@ import { WorkerRuntimeService } from './modules/jobs/worker-runtime.service.js';
 import { PublicationsCoreModule } from './modules/publications/publications-core.module.js';
 import { PublicationsCoreService } from './modules/publications/publications-core.service.js';
 import { MediaWorkerModule } from './modules/media/media-worker.module.js';
+import { MediaCopyService } from './modules/media/media-copy.service.js';
 import { MediaWorkerService } from './modules/media/media-worker.service.js';
 
 @Module({})
@@ -26,9 +27,9 @@ export class WorkerModule {
     return { module: WorkerModule, imports: [infrastructure, JobsModule.register(infrastructure, 'worker'), PublicationsCoreModule,
       ...(settings.media ? [MediaWorkerModule.register(infrastructure, settings.media)] : [])], providers: [
       { provide: SafeLogger, useFactory: () => new SafeLogger('worker') }, WorkerRuntimeService,
-      { provide: WorkerLoop, inject: [Jobs, LifecycleState, Transactions, PublicationsCoreService, DATABASE, ...(settings.media ? [MediaWorkerService] : [])],
-        useFactory: (jobs: Jobs, lifecycle: LifecycleState, transactions: Transactions, publications: PublicationsCoreService, database: Database, media?: MediaWorkerService) => new WorkerLoop(jobs, lifecycle,
-          { PUBLICATION: lease => publications.publishText(transactions, lease), ...(media ? { MEDIA: media.processMedia.bind(media) } : {}) },
+      { provide: WorkerLoop, inject: [Jobs, LifecycleState, Transactions, PublicationsCoreService, DATABASE, ...(settings.media ? [MediaWorkerService, MediaCopyService] : [])],
+        useFactory: (jobs: Jobs, lifecycle: LifecycleState, transactions: Transactions, publications: PublicationsCoreService, database: Database, media?: MediaWorkerService, copies?: MediaCopyService) => new WorkerLoop(jobs, lifecycle,
+          { PUBLICATION: lease => copies ? copies.processPublication(lease) : publications.publishText(transactions, lease), ...(media ? { MEDIA: media.processMedia.bind(media) } : {}) },
           { ready: async () => (await database.check()).ready, leaseMs: settings.media ? 300000 : 30000 }) },
     ] };
   }
