@@ -62,3 +62,28 @@ A reviewed media release uses v2 and explicit decoder image, config and executio
 identities. A non-media release uses v1 and no decoder fields. Archive download
 writes the decoder config ID for v2; the release owner supplies the separately
 verified execution ID, with no automatic fallback. Exporting is not deployment.
+
+## Exact native-library scanner review
+
+The independent 2026-09-20 security review verified the signed Bookworm
+`InRelease` → `Packages.xz` → package → library chain, plus signed `Sources.xz`
+and upstream source. Two required shared libraries contain NUL-separated PEM
+parser/serializer delimiters, with no private key body. The scanner's printable
+normalization joins those literals. Only the following full-file hashes are
+permitted for the `private-key` detector; other rules and modified bytes still
+fail. No directory, filename, package, layer or global-rule exception is used.
+
+| Library | Exact amd64 file SHA-256 |
+| --- | --- |
+| libmbedcrypto.so.2.28.3 | `c04f91fdb172e17ddb21c9e0b75c04cb4f802bdfc40bb65484550746cd0019a8` |
+| libssh-gcrypt.so.4.9.6 | `6733636aeb1c5d541aa06c578a95d12c2253c4e99fc85623595341905d3d6221` |
+
+Package URLs and exact package checksums are recorded in
+`tools/security/image_fixtures.json`. The signed index is the
+[Bookworm snapshot InRelease](https://snapshot.debian.org/archive/debian/20260920T000000Z/dists/bookworm/InRelease).
+The delimiter definitions are in
+[Mbed TLS v2.28.3 pkparse.c](https://github.com/Mbed-TLS/mbedtls/blob/v2.28.3/library/pkparse.c#L1253)
+and [libssh 0.10.6 pki_gcrypt.c](https://github.com/libssh/libssh-mirror/blob/libssh-0.10.6/src/pki_gcrypt.c#L46).
+Regression tests exercise the real scanner: exact delimiter bytes pass, changed
+bytes fail, other secret detectors still fire, and a fresh ephemeral RSA key in
+an unrelated image file remains blocked under the complete reviewed policy.

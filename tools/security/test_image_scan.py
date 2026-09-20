@@ -129,6 +129,28 @@ class ImageScanTests(unittest.TestCase):
         with self.assertRaises(scan.Blocked):
             self.run_scan(image([tar([('public-fixture', fixture)])]), fixtures=allowed)
 
+    def test_native_parser_delimiters_exact_bytes_only_and_real_keys_stay_blocked(self):
+        # Binary-to-printable normalization joins parser header/footer literals.
+        # No key body exists; this models the reviewed native-library false positive.
+        marker = b'PRIVATE' + b' KEY'
+        fixture = (b'-----BEGIN RSA ' + marker + b'-----\0-----END RSA ' + marker + b'-----\0') * 3
+        allowed = [{'sha256': scan.digest(fixture), 'rules': ['private-key']}]
+        self.assertGreater(self.run_scan(image([tar([('usr/lib/parser.so', fixture)])]), fixtures=allowed).suppressed, 0)
+        with self.assertRaises(scan.Blocked):
+            self.run_scan(image([tar([('usr/lib/parser.so', fixture + b'\0')])]), fixtures=allowed)
+        other_rule = fixture + b'\n' + self.token()
+        with self.assertRaises(scan.Blocked):
+            self.run_scan(image([tar([('usr/lib/parser.so', other_rule)])]),
+                          fixtures=[{'sha256': scan.digest(other_rule), 'rules': ['private-key']}])
+        # Fresh ephemeral key remains only in memory; never logged or committed.
+        key = subprocess.run(['openssl', 'genpkey', '-algorithm', 'RSA', '-pkeyopt', 'rsa_keygen_bits:2048'],
+                             capture_output=True, check=True, timeout=30).stdout
+        with self.assertRaises(scan.Blocked):
+            self.run_scan(image([tar([('usr/lib/parser.so', fixture), ('tmp/unrelated-key', key)])]), fixtures=allowed)
+        actual_policy = json.loads(Path(scan.__file__).with_name('image_fixtures.json').read_text())['files']
+        with self.assertRaises(scan.Blocked):
+            self.run_scan(image([tar([('tmp/unrelated-key', key)])]), fixtures=actual_policy)
+
     def test_forbidden_paths_state_and_traversal(self):
         for name, data in [('app/.env', b'x'), ('../escape', b'x'), ('app/data', b'{"terraform_version":"1.0","resources":[]}')]:
             with self.subTest(name=name), self.assertRaises(scan.Blocked):
