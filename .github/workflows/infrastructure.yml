@@ -39,3 +39,14 @@ jobs:
           docker compose -f infrastructure/environments/prod/runtime/compose.bootstrap.yaml config --quiet
           .tools/caddy adapt --config infrastructure/atlantis/runtime/Caddyfile --adapter caddyfile --validate > /dev/null
           ATLANTIS_ENV_FILE=/dev/null docker compose -f infrastructure/atlantis/runtime/compose.yaml config --quiet
+          for env in qa prod; do
+            .tools/caddy adapt --config "infrastructure/runtime/web/Caddyfile.$env" --adapter caddyfile --validate > /dev/null
+            ROGICHAT_WEB_IMAGE=ghcr.io/h66rogi/rogichat-web@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+              docker compose -f infrastructure/runtime/web/compose.yaml -f "infrastructure/runtime/web/compose.$env.yaml" config --quiet
+            if test "$env" = qa; then edge=infrastructure/runtime/compose.bootstrap.yaml; else edge=infrastructure/environments/prod/runtime/compose.bootstrap.yaml; fi
+            docker compose -f "$edge" -f "infrastructure/runtime/web/edge.$env.yaml" config --quiet
+          done
+      - name: Verify web runtime and release boundaries
+        run: |
+          python3 tools/operations/check_web_runtime.py
+          python3 -m unittest discover -s tools/operations -p 'test_web_*.py'

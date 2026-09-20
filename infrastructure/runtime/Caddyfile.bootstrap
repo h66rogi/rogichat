@@ -2,6 +2,9 @@
 	admin localhost:2019
 }
 
+# Optional reviewed web site; absent until separately deployed.
+import /etc/caddy/sites/*.caddy
+
 api.qa.rogi.chat {
 	# No access log until a reviewed redaction policy is installed.
 	# This is host readiness, explicitly not the future NestJS health endpoint.

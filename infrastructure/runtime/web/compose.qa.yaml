@@ -1,0 +1,12 @@
+name: rogichat-qa-web
+services:
+  web:
+    container_name: rogichat-qa-web
+    environment:
+      ROGICHAT_DEFAULT_ROOM_ID: ${ROGICHAT_DEFAULT_ROOM_ID:-}
+      ROGICHAT_WEB_ENV: qa
+      ROGICHAT_API_ORIGIN: https://api.qa.rogi.chat
+networks:
+  web:
+    name: rogichat-qa-web
+    external: true

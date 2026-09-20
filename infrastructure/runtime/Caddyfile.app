@@ -2,6 +2,9 @@
 	admin localhost:2019
 }
 
+# Optional reviewed web site; absent until separately deployed.
+import /etc/caddy/sites/*.caddy
+
 api.qa.rogi.chat {
 	# Preserve the existing certificate/data volumes and infrastructure endpoints.
 	# No access log: OAuth query strings and credentials must not be recorded.

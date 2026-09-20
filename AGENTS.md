@@ -1,5 +1,21 @@
 # Rogichat contributor rules
 
+## Production product requirement (all apps)
+
+- Build the real releasable product in both QA and production. QA changes service
+  configuration and data, not the product into a demo or preview application.
+- Do not implement or ship preview routes, role selectors, synthetic accounts,
+  fabricated conversations, fake success, or fixture-backed product adapters.
+  Missing data must render an honest empty state; failed or unavailable services
+  must expose the appropriate error/retry or unavailable state without inventing data.
+- Synthetic fixtures belong only in isolated automated tests and must not enter
+  application runtime bundles. This applies to web, API, Android and iOS equally.
+- Implement real authentication, authorization, persistence and API integrations.
+  Track unavailable dependencies explicitly and continue independent work.
+- Deployment completion requires the running immutable artifact, health checks
+  and actual user route verification; a build, preview or published image alone
+  is not deployment completion.
+
 ## Mobile first principle: reuse Meloming implementations
 
 - For Android/iOS, reuse as much applicable implementation from `meloming-android`
@@ -18,8 +34,8 @@
   private configuration, legacy assets and identifiers still apply.
 - Build a production-quality MVP. QA and prod use the same product composition
   and user flows, with environment-specific configuration and real account state.
-  Synthetic accounts/rooms, role or access selectors and preview entry points
-  belong only in tests or development previews excluded from distributed builds.
+  Synthetic accounts/rooms and role or access selectors belong only in isolated
+  automated tests. Do not create a separate preview product composition.
 - Backend blockers belong in the implementation plan. Continue independent
   product implementation without fake success, disconnected placeholder controls
   or developer diagnostics presented as finished user-facing functionality.
