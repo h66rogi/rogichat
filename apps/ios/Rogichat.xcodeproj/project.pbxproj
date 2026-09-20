@@ -811,6 +811,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				PROVISIONING_PROFILE_SPECIFIER = "$(ROGICHAT_PROVISIONING_PROFILE)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;
@@ -827,6 +828,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				PROVISIONING_PROFILE_SPECIFIER = "$(ROGICHAT_PROVISIONING_PROFILE)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;
@@ -992,6 +994,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				PROVISIONING_PROFILE_SPECIFIER = "$(ROGICHAT_PROVISIONING_PROFILE)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;
@@ -1008,6 +1011,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				PROVISIONING_PROFILE_SPECIFIER = "$(ROGICHAT_PROVISIONING_PROFILE)";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;

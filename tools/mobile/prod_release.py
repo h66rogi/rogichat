@@ -180,7 +180,7 @@ def ios_archive(cfg, number, version, commit):
          "-archivePath", str(archive), "-derivedDataPath", str(directory / "DerivedData"),
          "-clonedSourcePackagesDirPath", str(directory / "SourcePackages"), "-packageCachePath", str(directory / "PackageCache"),
          "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=" + ios["team_id"], "CODE_SIGN_IDENTITY=" + ios["signing_certificate"],
-         "PROVISIONING_PROFILE_SPECIFIER=" + PROFILE_NAME, "CURRENT_PROJECT_VERSION=" + str(number),
+         "ROGICHAT_PROVISIONING_PROFILE=" + PROFILE_NAME, "CURRENT_PROJECT_VERSION=" + str(number),
          "MARKETING_VERSION=" + version, "archive"], directory / "archive.log", env=environment())
     executable = inspect_app(archive / "Products/Applications/Rogichat.app", cfg, number, version)
     save(directory, "ios", number, version, commit, {"archive_info": archive / "Info.plist", "executable": executable},

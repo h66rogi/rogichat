@@ -2,6 +2,7 @@
 from copy import deepcopy
 import json
 from pathlib import Path
+import re
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -169,9 +170,30 @@ class IOSDependenciesTests(unittest.TestCase):
         self.assertIn("DEVELOPMENT_TEAM=TESTTEAM00", command)
         self.assertIn("CODE_SIGN_STYLE=Manual", command)
         self.assertIn("CODE_SIGN_IDENTITY=" + "A" * 40, command)
-        self.assertIn("PROVISIONING_PROFILE_SPECIFIER=" + QA_PROFILE, command)
+        self.assertIn("ROGICHAT_PROVISIONING_PROFILE=" + QA_PROFILE, command)
+        self.assertFalse(any(arg.startswith(("PROVISIONING_PROFILE=", "PROVISIONING_PROFILE_SPECIFIER=")) for arg in command))
+        self.assertNotIn("CODE_SIGNING_ALLOWED=NO", command)
         self.assertNotIn("-allowProvisioningUpdates", command)
         self.assertEqual(command[-1], "archive")
+
+    def test_generated_profile_mapping_is_owned_only_by_application_configurations(self):
+        root = Path(__file__).resolve().parents[2]
+        project = (root / "apps/ios/Rogichat.xcodeproj/project.pbxproj").read_text()
+        # Follow the generated target's configuration-list IDs, rather than
+        # accepting four profile assignments anywhere in the project.
+        target = re.search(r"(?ms)^\t\t[0-9A-F]{24} /\* Rogichat \*/ = \{\n\t\t\tisa = PBXNativeTarget;.*?^\t\t\};", project).group()
+        self.assertIn('productType = "com.apple.product-type.application";', target)
+        config_list = re.search(r"buildConfigurationList = ([0-9A-F]{24})", target)[1]
+        listing = re.search(r"(?ms)^\t\t" + config_list + r" /\*.*?^\t\t\};", project).group()
+        config_ids = set(re.findall(r"^\t\t\t\t([0-9A-F]{24}) /\*", listing, re.M))
+        self.assertEqual(len(config_ids), 4)
+        assigned_ids = set()
+        for match in re.finditer(r"(?ms)^\t\t([0-9A-F]{24}) /\*[^\n]*\*/ = \{\n\t\t\tisa = XCBuildConfiguration;.*?^\t\t\};", project):
+            if "PROVISIONING_PROFILE_SPECIFIER" in match[0]:
+                self.assertIn('PROVISIONING_PROFILE_SPECIFIER = "$(ROGICHAT_PROVISIONING_PROFILE)";', match[0])
+                assigned_ids.add(match[1])
+        self.assertEqual(assigned_ids, config_ids)
+        self.assertEqual(project.count("PROVISIONING_PROFILE_SPECIFIER"), 4)
 
 
 if __name__ == "__main__":

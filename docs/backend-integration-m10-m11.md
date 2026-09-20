@@ -52,12 +52,23 @@ runtime evidence rather than an exact-aggregate joined run or live Aurora/R2 pro
 The only merge conflict keeps both `--restore` and `--expansion`, the 180-second
 migration budget and the restore-only five-field runner metadata allowlist.
 
+Final test-only follow-up `d6a949f00864df4a00aaa26e05e1f5eae15863dc` preserves the
+runtime/helper pins and adds forged-release rejection plus retry after a committed
+quarantine interrupted by actual custody loss. The accepted earlier [durable
+receipt](evidence/m12/2026-09-20-joined-restore.json) remains separate from
+[follow-up run 35512987788](https://github.com/h66rogi/rogichat/actions/runs/35512987788),
+whose result is pending at assembly. New controls are not marked passed in advance.
+
 Approved MOBILE `f103f01a8c124701de3091d5b264006b5d24447f` normally merges the
 parent's complete Android/iOS product, persistence, account deletion, media,
 moderation, realtime/push and signing/test-tool histories. Android/iOS source,
 mobile helpers and workflow remain byte-identical to the approved parent. Leaf
 and final aggregate hosted mobile checks plus the parent's integrated-tree review
-remain pending. Signed distribution and device/provider evidence belong to that
+remain pending. Approved signing follow-up
+`d097fa8156bcb9b48f8783a3321017286475d367` scopes QA/production provisioning to
+the app target, retaining SwiftPM resource-bundle signing. Its three focused
+mocked command/profile-mapping checks passed without invoking SDKs, signing or
+provider access. Signed distribution and device/provider evidence belong to that
 owner; unconfigured FCM continues to expose its unavailable state.
 
 Approved infrastructure source `0af4cef1b2044f82e96bd4858027cde60564eef7`
@@ -92,6 +103,10 @@ evidence. A shared finite HTTP budget adds 64 connections above the unchanged
 1,000 realtime ceiling. A separate hosted transport regression must verify fresh
 health access at that ceiling and rejection at the total bound; no database pool,
 admission budget or retry policy is inflated to satisfy the expansion benchmark.
+The first aggregate transport run reached the health/headroom and finite-drop
+assertions but failed its final test-fixture slot-release wait. The custom upgrade
+protocol now consumes EOF and ends its peer; no runtime policy, assertion or
+timeout was changed. Final hosted acceptance must cover that corrected regression.
 
 The follow-up preserves accepted `4216aaaa53cc657a2d15e11cd12e53ce159e3b3b`
 and normally merges these complete source histories:

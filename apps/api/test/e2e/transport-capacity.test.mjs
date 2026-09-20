@@ -16,6 +16,9 @@ test('configured API retains fresh health requests at the realtime socket ceilin
   // Test-only upgrade protocol; no fixture route or adapter enters the app source.
   server.on('upgrade', (_req, socket) => {
     peers.add(socket); socket.once('close', () => peers.delete(socket));
+    // Node hands upgraded sockets to the protocol owner. Consume EOF and close
+    // this test protocol explicitly so a client disconnect releases its slot.
+    socket.once('end', () => socket.end()); socket.resume();
     socket.write('HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: fixture-transport\r\n\r\n');
   });
   t.after(async () => {
