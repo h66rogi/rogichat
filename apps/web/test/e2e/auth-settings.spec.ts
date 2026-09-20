@@ -104,14 +104,27 @@ test('two visible windows reauthorize when a new login publishes its session bin
   await expect(page.getByLabel('닉네임', { exact: true })).toHaveValue('다른 계정');
   await expect(page.getByText('테스트 팬', { exact: true })).toHaveCount(0);
 });
-test('a cookie changing between session and profile reads cannot publish the profile', async ({ page }) => {
+test('a cookie changing between session and profile reads stays private until a stable session is confirmed', async ({ page }) => {
   await installApi(page, true);
+  await page.addInitScript(() => {
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('[data-testid="settings-view"]')) document.documentElement.dataset.privateLeaked = 'true';
+    });
+    observer.observe(document, { subtree: true, childList: true });
+    document.addEventListener('stop-private-race-observer', () => observer.disconnect(), { once: true });
+  });
   let reads = 0;
+  let unstable = true;
   await page.route('**/v1/auth/session', route => {
     reads++;
-    return json(route, { authenticated: true, csrfToken: `synthetic-csrf-session-${reads}`, soopLinkStatus: 'VERIFIED' });
+    return json(route, { authenticated: true, csrfToken: unstable ? `synthetic-csrf-session-${reads}` : 'synthetic-csrf-stable', soopLinkStatus: 'VERIFIED' });
   });
   await page.goto('/settings');
-  await expect(page.getByRole('heading', { name: '연결을 확인할 수 없어요' })).toBeVisible();
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(4);
   await expect(page.getByTestId('settings-view')).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.dataset.privateLeaked)).toBeUndefined();
+  await page.evaluate(() => document.dispatchEvent(new Event('stop-private-race-observer')));
+  unstable = false;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(page.getByTestId('settings-view')).toBeVisible();
 });
