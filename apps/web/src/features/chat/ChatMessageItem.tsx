@@ -5,8 +5,10 @@ import { Ban, Check, CircleAlert, CornerUpLeft, Lock, LoaderCircle, Megaphone, R
 import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
 import { cn } from '@/shared/lib/cn';
 
+import { DeleteMessageControl } from './DeleteMessageControl';
 import { formatTimeLabel, parseIsoDate } from './formatters';
 import type {
+  ChatSubmitResult,
   ChatMessageItemModel,
   ChatMessageStatus,
   ChatPublicationItemModel,
@@ -34,23 +36,26 @@ export interface ChatMessageItemProps {
   item: ChatTimelineItem;
   viewerRole: ChatViewerRole;
   /** Offered only where a private reply makes sense; the room view decides the target. */
+  onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
 }
 
-export function ChatMessageItem({ item, viewerRole, onReplyPrivate }: ChatMessageItemProps) {
+export function ChatMessageItem({ item, viewerRole, onReplyPrivate, onDelete }: ChatMessageItemProps) {
   if (item.kind === 'publication') return <PublicationRow item={item} />;
   if (item.kind === 'unsupported') return <UnsupportedRow item={item} />;
   if (item.status === 'deleted') return <TombstoneRow item={item} />;
-  return <MessageRow item={item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} />;
+  return <MessageRow item={item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} />;
 }
 
 function MessageRow({
   item,
   viewerRole,
   onReplyPrivate,
+  onDelete,
 }: {
   item: ChatMessageItemModel;
   viewerRole: ChatViewerRole;
+  onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
 }) {
   const isOwn = item.isOwn;
@@ -77,7 +82,6 @@ function MessageRow({
         <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-[12px] text-muted', isOwn && 'flex-row-reverse')}>
           {!isOwn && <span className="font-semibold text-body">{item.author.displayName}</span>}
           <ScopeLabel item={item} viewerRole={viewerRole} />
-          {item.isPreviewSample && <span className="rounded-xs bg-surface-strong px-1 text-[11px]">미리보기</span>}
         </div>
 
         {item.quote && <QuoteBlock quote={item.quote} align={isOwn ? 'end' : 'start'} />}
@@ -98,6 +102,8 @@ function MessageRow({
             {isOwn && <StatusMark status={item.status} />}
             <time dateTime={item.createdAt}>{timeLabel}</time>
           </div>
+
+          {isOwn && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
 
           {canReply && (
             <button
@@ -234,7 +240,7 @@ function UnsupportedRow({ item }: { item: ChatUnsupportedItemModel }) {
     <div className="flex justify-center px-4 py-1.5" data-status="unsupported">
       <div className="inline-flex items-center gap-2 rounded-lg bg-surface-soft px-3 py-2 text-[14px] text-muted">
         <CircleAlert className="size-4" aria-hidden="true" />
-        <span>이 버전에서 표시할 수 없는 내용입니다. 앱을 업데이트하면 볼 수 있습니다.</span>
+        <span>이 화면에서 표시할 수 없는 내용입니다.</span>
         <time dateTime={item.createdAt} className="text-[12px]">
           {timeLabelFor(item.createdAt)}
         </time>

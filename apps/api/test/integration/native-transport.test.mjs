@@ -1,3 +1,4 @@
+import { responseContract } from '../support/openapi-response.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -35,8 +36,12 @@ async function fixture(t, http = false) {
   const base = app ? await app.getUrl() : undefined;
   const credentials = { transport: 'NATIVE', token: native.token, clientId: 'ios' };
   const headers = { Authorization: `Bearer ${native.token}`, 'X-Rogi-Client': 'ios' };
-  const call = (method, path, body, extra = {}) => fetch(`${base}${path}`, { method, headers: { ...headers,
+  const validateResponse = app ? responseContract(app, config) : undefined;
+  const call = async (method, path, body, extra = {}) => { const response = await fetch(`${base}${path}`, { method, headers: { ...headers,
     ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+    validateResponse(method, path, response.status, response.headers.get('content-type')?.includes('application/json') ? await response.clone().json() : undefined);
+    return response;
+  };
   const link = () => db.transactions.write(async tx => {
     await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: userId, provider_subject: Buffer.from(`native-fixture-${randomUUID()}`), verified_at: await tx.now() } });
     await tx.prisma.users.update({ where: { id: userId }, data: { membership_generation: { increment: 1n } } });

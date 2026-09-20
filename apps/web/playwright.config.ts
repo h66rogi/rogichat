@@ -1,11 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-/**
- * Browser smoke tests run against the QA build (`.next-qa`, ROGICHAT_WEB_ENV=qa) so the preview screens
- * are reachable. The isolation of the production build is verified separately by
- * tools/web/check-preview-isolation.mjs. Set PLAYWRIGHT_BASE_URL to test an already running server.
- */
-const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3101';
+// Browser tests use the same production artifact with QA runtime configuration.
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:3411';
 
 export default defineConfig({
   testDir: './test/e2e',
@@ -27,9 +23,15 @@ export default defineConfig({
     ? {}
     : {
         webServer: {
-          command: 'node ../../tools/web/serve-standalone.mjs --shape qa --port 3101',
+          command: 'node ../../tools/web/serve-standalone.mjs --port 3411',
           url: baseURL,
-          reuseExistingServer: !process.env.CI,
+          env: {
+            ROGICHAT_WEB_ENV: 'qa',
+            ROGICHAT_API_ORIGIN: 'https://api.qa.rogi.chat',
+            // Test-only room is served by browser interception, never built into the app.
+            ROGICHAT_DEFAULT_ROOM_ID: '11111111-1111-4111-8111-111111111111',
+          },
+          reuseExistingServer: false,
           timeout: 30_000,
         },
       }),

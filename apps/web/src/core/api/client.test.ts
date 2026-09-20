@@ -1,0 +1,59 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { ApiClient, ApiError } from './client';
+const origin = 'https://api.qa.rogi.chat';
+void test('reads use API host cookies without CSRF and never HTTP cache', async () => {
+  let options: RequestInit | undefined;
+  const client = new ApiClient(origin, async (url, init) => { assert.equal(url, origin + '/v1/auth/session'); options = init; return Response.json({ authenticated: true, csrfToken: 'synthetic-test-only', soopLinkStatus: 'VERIFIED' }); });
+  await client.session();
+  assert.equal(options?.credentials, 'include'); assert.equal(options?.cache, 'no-store'); assert.equal(options?.redirect, 'error');
+  assert.equal(new Headers(options?.headers).get('X-CSRF-Token'), null);
+});
+void test('mutations fail closed without CSRF and serialize server contracts', async () => {
+  let count = 0;
+  const client = new ApiClient(origin, async (_url, init) => { count++; assert.equal(new Headers(init?.headers).get('X-CSRF-Token'), 'synthetic-test-only'); assert.equal(init?.body, '{}'); return new Response(null, { status: 204 }); });
+  await assert.rejects(client.request('/v1/auth/logout', { method: 'POST' }), /Missing CSRF/);
+  assert.equal(count, 0);
+  assert.equal(await client.request('/v1/auth/logout', { method: 'POST', csrf: 'synthetic-test-only' }), undefined);
+});
+void test('OAuth login start uses explicit reviewed terms and credentials', async () => {
+  const client = new ApiClient(origin, async (_url, init) => { assert.deepEqual(JSON.parse(String(init?.body)), { intent: 'login', termsVersion: '2026-09-20' }); assert.equal(init?.credentials, 'include'); return Response.json({ authorizeUrl: 'https://provider.example/authorize' }); });
+  assert.equal(await client.authorize('login'), 'https://provider.example/authorize');
+});
+void test('HTTP error bodies never leak private text or server HTML', async () => {
+  for (const status of [400, 401, 403, 404, 429, 503]) {
+    const client = new ApiClient(origin, async () => new Response('private upstream body', { status }));
+    await assert.rejects(client.session(), (error: unknown) => error instanceof ApiError && error.status === status && !error.message.includes('private'));
+  }
+});
+void test('unapproved origin/path and unexpected successful HTML fail closed', async () => {
+  assert.throws(() => new ApiClient('https://other.example'));
+  const client = new ApiClient(origin, async () => new Response('<html>private</html>'));
+  await assert.rejects(client.request('//other.example/v1/session'));
+  await assert.rejects(client.request('/v1/../auth/session'));
+  await assert.rejects(client.session(), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_RESPONSE');
+});
+void test('unsafe OAuth redirect rejected', async () => {
+  const client = new ApiClient(origin, async () => Response.json({ authorizeUrl: 'javascript:alert(1)' }));
+  await assert.rejects(client.authorize('login'));
+});
+
+void test('aborts preserve cancellation and never synthesize authenticated data', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const client = new ApiClient(origin, async (_url, init) => { init?.signal?.throwIfAborted(); throw new Error('unreachable'); });
+  await assert.rejects(client.session(controller.signal), { name: 'AbortError' });
+});
+void test('malformed successful session responses never unlock private UI', async () => {
+  for (const value of [null, {}, { authenticated: false }, { authenticated: true, csrfToken: 'short', soopLinkStatus: 'VERIFIED' }, { authenticated: true, csrfToken: 'synthetic-long-enough', soopLinkStatus: 'UNKNOWN' }]) {
+    const client = new ApiClient(origin, async () => Response.json(value));
+    await assert.rejects(client.session(), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_SESSION');
+  }
+});
+void test('native transport is called without an ApiClient receiver', async () => {
+  const client = new ApiClient(origin, function (this: unknown) {
+    assert.equal(this, undefined);
+    return Promise.resolve(Response.json({ authenticated: true, csrfToken: 'synthetic-csrf-session-A', soopLinkStatus: 'VERIFIED' }));
+  });
+  await client.session();
+});

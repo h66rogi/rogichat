@@ -10,7 +10,7 @@ export async function bootstrapApi(): Promise<void> {
   const logger = new SafeLogger('api');
   try {
     const settings = readRuntimeSettings('api');
-    const app = await createConfiguredApi(AppModule.production(settings), logger, undefined, settings.auth, Boolean(settings.media));
+    const app = await createConfiguredApi(AppModule.production(settings), logger, undefined, settings.auth, Boolean(settings.media), settings.config.environment);
     installShutdown(app.get(LifecycleState), logger, () => app.close());
     await app.listen(settings.config.port, settings.config.host);
     logger.event('started');

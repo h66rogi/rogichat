@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test';
+import { installApi } from './api-fixture';
+test.beforeEach(async ({ page }) => { await installApi(page); });
 
 test.describe('public routes', () => {
   test('/ is 후로기 home and does not redirect', async ({ page }) => {
@@ -17,28 +19,22 @@ test.describe('public routes', () => {
     await expect(page.getByText('개인답장이 공개될 수 있어요')).toBeVisible();
   });
 
-  test('/chat renders the unavailable gate without a timeline', async ({ page }) => {
-    await page.goto('/chat');
-    const gate = page.locator('[data-session-gate]');
-    await expect(gate).toHaveAttribute('data-session-gate', 'unavailable');
-    await expect(page.getByRole('heading', { level: 1, name: '로그인이 아직 연결되지 않았어요' })).toBeVisible();
-    await expect(page.getByTestId('chat-room')).toHaveCount(0);
-    await expect(page.getByRole('link', { name: '로그인 화면 보기' })).toHaveAttribute('href', '/login');
-  });
-
-  test('/settings renders the unavailable gate', async ({ page }) => {
-    await page.goto('/settings');
-    await expect(page.locator('[data-session-gate]')).toHaveAttribute('data-session-gate', 'unavailable');
-    await expect(page.getByTestId('settings-view')).toHaveCount(0);
-  });
-
-  test('/login shows only unavailable auth methods and safe reasons', async ({ page }) => {
+  for (const route of ['/chat', '/settings']) {
+    test(`${route} requires real authentication`, async ({ page }) => {
+      await page.goto(route);
+      await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
+      await expect(page.getByTestId('chat-room')).toHaveCount(0);
+      await expect(page.getByTestId('settings-view')).toHaveCount(0);
+    });
+  }
+  test('/login requires terms and reports provider failure truthfully', async ({ page }) => {
     await page.goto('/login?reason=cancelled');
+    await expect(page.getByText('로그인을 취소했어요. 다시 시도할 수 있어요.')).toBeVisible();
     await expect(page.getByRole('button', { name: 'SOOP으로 로그인' })).toBeDisabled();
-    // Next's route announcer is also role=alert; the login reason is the only <p role="alert">.
-    await expect(page.locator('p[role="alert"]')).toHaveText('로그인을 취소했어요. 다시 시도할 수 있어요.');
-    await page.goto('/login?reason=<script>alert(1)</script>');
-    await expect(page.locator('p[role="alert"]')).toHaveCount(0);
+    await page.getByRole('checkbox').check();
+    await page.getByRole('button', { name: 'SOOP으로 로그인' }).click();
+    await expect(page.getByRole('alert').filter({ hasText: '요청을 완료하지 못했습니다' })).toBeVisible();
+    await expect(page).toHaveURL(/login/);
   });
 
   test('/auth/login forwards an enumerated reason only', async ({ request }) => {
@@ -49,11 +45,15 @@ test.describe('public routes', () => {
     expect(location).not.toContain('SECRET-QUERY-VALUE');
   });
 
-  test('/auth/complete is a placeholder that does not claim success', async ({ page }) => {
+  test('/auth/complete verifies the session instead of claiming success', async ({ page }) => {
     await page.goto('/auth/complete');
-    await expect(page.getByRole('heading', { level: 1 })).toContainText('준비하고 있어요');
-    await expect(page.getByText('로그인 성공으로 표시하지 않아요')).toBeVisible();
+    await expect(page.getByRole('heading', { name: '로기챗 로그인' })).toBeVisible();
   });
+  for (const route of ['/preview', '/preview/chat/fan', '/preview/chat/streamer', '/preview/settings', '/demo', '/mock', '/fixtures']) {
+    test(`${route} is absent from the production application`, async ({ request }) => {
+      expect((await request.get(route)).status()).toBe(404);
+    });
+  }
 
   test('unknown paths render the 404 page', async ({ page }) => {
     const response = await page.goto('/channel/anything');

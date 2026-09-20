@@ -19,6 +19,12 @@ export function NotificationSection({
   const reasonId = useId();
   const switchId = useId();
 
+  if (model.enabled === null) return (
+    <SettingsSection id="notifications" title="알림" description="현재 웹에서는 새 메시지 알림을 제공하지 않습니다.">
+      <p className="text-[14px] text-body">새 메시지는 채팅 화면에서 확인해 주세요.</p>
+    </SettingsSection>
+  );
+
   return (
     <SettingsSection id="notifications" title="알림" description="새 메시지 알림을 이 브라우저에서 받을지 정합니다. 알림 권한은 여기서 켤 때만 요청합니다.">
       <dl className="flex flex-col gap-2">

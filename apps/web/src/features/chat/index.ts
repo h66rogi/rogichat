@@ -25,3 +25,7 @@ export type { ChatComposerNotice, ChatComposerProps } from './ChatComposer';
 export { formatDateLabel, formatTimeLabel, isSameDay, parseIsoDate, truncateExcerpt } from './formatters';
 export { draftKeyFor, isAuthorizedTarget, isSameTarget, readDraft, targetLabel, writeDraft, clearDraft } from './drafts';
 export type { ChatDraft, ChatDraftKey, ChatDrafts } from './drafts';
+
+export { RealChatRoom } from './RealChatRoom';
+export type { RealChatRoomProps } from './RealChatRoom';
+export type { ChatRequest } from './contract';

@@ -3,6 +3,14 @@
   "policy": "Only exact file-content or generated metadata SHA-256 plus listed detector rules. No directory, layer, arbitrary key or future-version exclusions.",
   "files": [
     {
+      "sha256": "056c2dddba96faa35f4dc0740228a241990561290ff3bd5456c7c7dbc5a7a6b9",
+      "rules": ["generic-api-key"],
+      "source": "next-16.3.5",
+      "file": "package/dist/compiled/jsonwebtoken/index.js",
+      "review": "Public bundled JavaScript property-assignment expression, not a credential. Official npm tarball SHA-512 verified against lockfile and full 121051-byte member SHA-256 independently matched by web and backend security reviewers. Exact hash/rule only; modified bytes and other rules must fail closed.",
+      "kind": "file-bytes"
+    },
+    {
       "sha256": "53d24d36b3c037e1c3e00fa727de910ad1f10c55b3b545cad6df7d2061a326a4",
       "rules": ["generic-api-key"],
       "source": "aws-client-s3-3.1135.0",
@@ -472,6 +480,7 @@
     }
   ],
   "sources": {
+    "next-16.3.5": "https://registry.npmjs.org/next/-/next-16.3.5.tgz",
     "aws-client-s3-3.1135.0": "https://registry.npmjs.org/@aws-sdk/client-s3/-/client-s3-3.1135.0.tgz",
     "aws-nested-clients-3.997.45": "https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.45.tgz",
     "npm-0": "https://registry.npmjs.org/effect/-/effect-3.20.0.tgz",

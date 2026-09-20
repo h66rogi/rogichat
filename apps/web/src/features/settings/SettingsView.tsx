@@ -41,11 +41,6 @@ export function SettingsView({
       <header className="flex flex-col gap-1">
         <h1 className="text-[24px] font-semibold text-ink">내 설정</h1>
         <p className="text-[14px] text-muted">프로필, SOOP 연결, 알림, 채팅방 참여와 계정을 관리합니다.</p>
-        {model.previewNotice && (
-          <p className="mt-2 rounded-sm bg-surface-soft px-3 py-2 text-[13px] text-body" data-testid="settings-preview-notice">
-            {model.previewNotice}
-          </p>
-        )}
       </header>
 
       {/* Keyed on the saved values so the local form resyncs after the harness applies a change. */}
