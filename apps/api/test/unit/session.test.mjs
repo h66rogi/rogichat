@@ -39,7 +39,7 @@ test('SessionService revalidates account/SOOP/CSRF each call and returns only th
   const f = fixture();
   const expected = { userId: f.session.user_id, sessionId: f.session.id, soopLinked: true };
   assert.deepEqual(await f.service.require(f.tx, token, proof, true), expected);
-  assert.deepEqual(f.calls[0], ['find', f.tx, digest(token), audience]);
+  assert.deepEqual(f.calls[0], ['find', f.tx, digest(token), audience, { transport: 'WEB' }]);
   for (const invalid of [undefined, '', 'a'.repeat(42), '+'.repeat(43)]) {
     await assert.rejects(f.service.require(f.tx, invalid), { code: 'UNAUTHENTICATED' });
   }
@@ -75,12 +75,14 @@ test('SessionRepository uses same-handle ORM reads/writes, DB clock and command 
     updateMany: async input => { calls.push(['update', input]); return { count: 1 }; },
   } } };
   assert.deepEqual(await repository.findCurrent(tx, digest(token), audience), { id: row.id, user_id: row.user_id, csrf_digest: digest(proof), status: 'ACTIVE', soop_status: 'VERIFIED' });
-  assert.deepEqual(calls[0][1].where, { token_digest: new Uint8Array(digest(token)), audience, revoked_at: null, expires_at: { gt: now } });
+  assert.deepEqual(calls[0][1].where, { token_digest: new Uint8Array(digest(token)), audience, transport: 'WEB', client_id: null, revoked_at: null, expires_at: { gt: now } });
   tx.writable = true; await repository.findCurrent(tx, digest(token), audience);
-  assert.match(calls[1][1], /FOR UPDATE$/); assert.deepEqual(calls[1][2], [digest(token), audience]);
+  assert.match(calls[1][1], /s\.transport=\? AND s\.client_id <=> \?/);
+  assert.match(calls[1][1], /FOR UPDATE$/); assert.deepEqual(calls[1][2], [digest(token), audience, 'WEB', null]);
   const input = { id: randomUUID(), userId: row.user_id, tokenDigest: digest(token), csrfDigest: digest(proof), audience };
   await repository.insert(tx, input);
   assert.equal(calls[2][1].data.expires_at.getTime() - now.getTime(), 7 * 86400000);
+  assert.equal(calls[2][1].data.transport, 'WEB'); assert.equal(calls[2][1].data.client_id, null);
   assert.deepEqual(calls[2][1].select, { id: true });
   await repository.revoke(tx, input.id);
   assert.deepEqual(calls[3], ['update', { where: { id: input.id }, data: { revoked_at: now } }]);

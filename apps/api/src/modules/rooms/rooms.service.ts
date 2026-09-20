@@ -4,13 +4,21 @@ import { AuthService } from '../auth/auth.service.js';
 import type { SessionCredentials, CommandCredentials } from '../auth/auth-context.js';
 import { RoomsCoreService } from './rooms-core.service.js';
 import { RoomMediaCoreService } from '../media/room-media-core.service.js';
+import { PrivateRecipientsCoreService } from './private-recipients-core.service.js';
 
 @Injectable()
 export class RoomsService {
   constructor(@Inject(Transactions) private readonly transactions: Transactions,
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(RoomsCoreService) private readonly rooms: RoomsCoreService,
-    @Inject(RoomMediaCoreService) private readonly mediaPolicy: RoomMediaCoreService) {}
+    @Inject(RoomMediaCoreService) private readonly mediaPolicy: RoomMediaCoreService,
+    @Inject(PrivateRecipientsCoreService) private readonly recipients: PrivateRecipientsCoreService) {}
+  privateRecipients(credentials: SessionCredentials, roomId: string, after?: string) {
+    return this.transactions.read(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      return this.recipients.list(tx, roomId, actor.userId, after);
+    });
+  }
   list(credentials: SessionCredentials, after?: string) {
     return this.transactions.read(async tx => {
       const actor = await this.auth.require(tx, credentials, true);

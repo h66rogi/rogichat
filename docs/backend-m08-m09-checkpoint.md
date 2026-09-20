@@ -134,5 +134,21 @@ Still required for M08/M09 completion:
 5. Actual QA R2 access, cross-room denial, expiry/Range reauthorization, scanner,
    task-branch PR checks, running release and public-route verification.
 
-No QA schema application, host rollout or real R2 verification is claimed by this
-checkpoint. Media remains behind its existing runtime enablement gate.
+## QA foundation deployment evidence
+
+On 2026-09-20, source `0429d71377c28a662b5fb221268514e620df1571`
+was actually deployed to the approved QA API and worker. Eight pending generated
+migrations were applied through the separate approved migration job; all eleven
+manifest names/checksums/success states were independently verified. Runtime TLS
+CA/hostname validation and DML-only grants were retained. Both services were
+active and healthy, used the exact verified image, and had zero restarts at the
+post-release check. No temporary migration container or credential file remained.
+External `/live`, `/ready` and `/_infra/health` each returned 200.
+
+This is foundation deployment evidence, not M08/M09 product acceptance. The
+source predates the follow-up avatar/sticker changes. Anonymous session, rooms
+and profile requests returned 401. The unconfigured broker returned
+`503 AUTH_UNAVAILABLE`; real provider login, native authentication and real R2
+verification remain outstanding. Worker health is not proof of business-job
+processing. Media remains behind its existing runtime enablement gate. Private
+operations retains image provenance, helper revision and execution evidence.
