@@ -159,9 +159,10 @@ What it does, and nothing else:
    signing out cannot silence a tab that is still signed in, and a page that never bound is
    never told to sync. They are re-read after the client list resolves, so a page that signed
    out or rebound mid-wake is not addressed under what it used to be, and records of pages that
-   have gone are dropped. The worker fetches no private data, keeps no Cache API storage and
-   reads no cookie, token or account identifier; bindings are memory only, arriving as
-   `WAKE_BIND` and removed by `WAKE_UNBIND`.
+   have gone are dropped. `WAKE_UNBIND` names the binding being released and removes it only
+   while it is still the one held, so one page signing out and back in before an earlier
+   cleanup arrives keeps its newer binding. The worker fetches no private data, keeps no Cache
+   API storage and reads no cookie, token or account identifier; bindings are memory only.
 5. `notificationclick`: focuses an existing page of this origin, or opens this origin's root.
    The target is fixed; no URL is ever taken from a payload.
 
@@ -189,7 +190,9 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
   stored preference, registers the endpoint, and only then writes `pushEnabled: true`. The
   preference the server keeps is never true while it has no endpoint for this browser.
 - **Per-page binding.** The worker keeps one binding per page and trusts only the page that
-  sent a message, so no tab can bind or unbind on another's behalf.
+  sent a message, so no tab can bind or unbind on another's behalf. A release names the exact
+  binding it held, and a stopped bridge binds, syncs and releases nothing further, so a late
+  teardown cannot remove the lifecycle that replaced it.
 - **Unread is not off.** A failed read leaves `enabled` null with `failure` set, so the UI
   offers a retry; only a server that answered decides that Web Push is unavailable.
 - **Storage.** An unusable `localStorage` — a private window, blocked site data, a full quota —
@@ -264,7 +267,7 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 Node 24.21.0, TypeScript 5.9.3 (the repository pin), from `apps/web`:
 
 - `node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts`
-  — 122 tests, 122 pass, 0 fail.
+  — 126 tests, 126 pass, 0 fail.
 - `tsc --noEmit` over `src/features/push/**` with the repository's strict options
   (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`) — clean.
 - ESLint 10.11.0 with the repository's type-aware rule set over the module's 18 files — 0 errors,

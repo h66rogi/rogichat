@@ -51,7 +51,13 @@ self.addEventListener('message', (event) => {
   // A message speaks only for the page that sent it.
   if (!data || typeof data !== 'object' || !sender || typeof sender.id !== 'string') return;
   if (data.type === WAKE_UNBIND) {
-    // Logout in that page: it stops being told to sync; other pages keep their own binding.
+    // Logout in that page. One page can sign out and back in before an earlier cleanup
+    // arrives, so the record is removed only when it is still the very one being released;
+    // an unbind that names nothing, or names a binding already replaced, removes nothing.
+    const current = bindings.get(sender.id);
+    if (current === undefined) return;
+    if (typeof data.account !== 'string' || typeof data.session !== 'string' || !Number.isInteger(data.generation)) return;
+    if (current.account !== data.account || current.session !== data.session || current.generation !== data.generation) return;
     bindings.delete(sender.id);
     return;
   }

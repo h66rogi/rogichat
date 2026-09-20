@@ -58,7 +58,7 @@ void test('starting binds the worker and syncs the page that is already open', a
   assert.equal(context.started(), 1, 'a wake delivered while no page ran is covered on open');
   context.runs[0]?.();
   stop();
-  assert.deepEqual(context.posted.at(-1), { type: WAKE_UNBIND });
+  assert.deepEqual(context.posted.at(-1), { type: WAKE_UNBIND, account: 'account-one', session: 'session-one', generation: 1 }, 'the release names the binding it held');
 });
 
 void test('a hidden page does not sync until it is shown again', async () => {
@@ -182,7 +182,7 @@ void test('a worker update rebinds the replacement', () => {
   context.control(context.controller);
   assert.equal(context.posted.length, 2, 'the new worker knows nothing until it is told');
   stop();
-  assert.deepEqual(context.posted.at(-1), { type: WAKE_UNBIND });
+  assert.deepEqual(context.posted.at(-1), { type: WAKE_UNBIND, account: 'account-one', session: 'session-one', generation: 1 });
 });
 
 void test('a controller that appears after stopping is not bound', () => {
@@ -191,4 +191,20 @@ void test('a controller that appears after stopping is not bound', () => {
   stop();
   context.control(context.controller);
   assert.ok(context.posted.every(message => (message as { type: string }).type !== WAKE_BIND), 'no stale listener rebinds a closed page');
+});
+
+void test('a stopped bridge stays inert, however often it is stopped or woken', async () => {
+  const context = bridge({ visible: false });
+  const stop = context.start();
+  stop();
+  const releases = context.posted.filter(message => (message as { type: string }).type === WAKE_UNBIND).length;
+  stop();
+  assert.equal(context.posted.filter(message => (message as { type: string }).type === WAKE_UNBIND).length, releases, 'a second stop releases nothing again');
+
+  context.deliver(sync());
+  context.show(true);
+  context.resume.dispatchEvent(new Event('focus'));
+  context.control(context.controller);
+  assert.equal(context.started(), 0);
+  assert.ok(context.posted.every(message => (message as { type: string }).type !== WAKE_BIND || context.posted.indexOf(message) === 0), 'no rebind after stop');
 });

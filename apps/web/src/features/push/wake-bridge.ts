@@ -38,7 +38,11 @@ export interface WakeBridgeOptions {
 /** Binds the worker to this account and syncs on wake, open and resume. Returns a stop function. */
 export function startWakeBridge({ binding, sync, worker, resume, visible }: WakeBridgeOptions): () => void {
   const coalescer = new WakeCoalescer();
+  // One page can replace its lifecycle — a new account, a new session — before the previous
+  // one is torn down, so everything below refuses to act once this bridge has stopped.
+  let stopped = false;
   const run = (): void => {
+    if (stopped) return;
     void coalescer.run(sync).catch(() => {
       // The app reports its own sync failure; the bridge only decides when to run it, and a
       // failed run must not stop later wakes from starting a new one.
@@ -51,10 +55,12 @@ export function startWakeBridge({ binding, sync, worker, resume, visible }: Wake
    * `controllerchange` rather than only once at mount.
    */
   const bind = (): void => {
+    if (stopped) return;
     worker?.controller?.postMessage({ type: WAKE_BIND, account: binding.account, session: binding.session, generation: binding.generation });
   };
 
   const onMessage = (event: { data?: unknown }): void => {
+    if (stopped) return;
     const message = event.data;
     if (!message || typeof message !== 'object') return;
     const { type, account, session, generation } = message as Record<string, unknown>;
@@ -69,7 +75,7 @@ export function startWakeBridge({ binding, sync, worker, resume, visible }: Wake
   bind();
 
   const onResume = (): void => {
-    if (visible()) run();
+    if (!stopped && visible()) run();
   };
   resume?.addEventListener('visibilitychange', onResume);
   resume?.addEventListener('focus', onResume);
@@ -78,11 +84,15 @@ export function startWakeBridge({ binding, sync, worker, resume, visible }: Wake
   if (visible()) run();
 
   return () => {
+    if (stopped) return;
+    stopped = true;
     worker?.removeEventListener('message', onMessage);
     worker?.removeEventListener('controllerchange', bind);
     resume?.removeEventListener('visibilitychange', onResume);
     resume?.removeEventListener('focus', onResume);
-    worker?.controller?.postMessage({ type: WAKE_UNBIND });
+    // Names the binding being released, so a late cleanup cannot remove a newer one this page
+    // has since bound.
+    worker?.controller?.postMessage({ type: WAKE_UNBIND, account: binding.account, session: binding.session, generation: binding.generation });
     // Abandons the running cycle so a late completion cannot disturb the next account's page.
     coalescer.dispose();
   };

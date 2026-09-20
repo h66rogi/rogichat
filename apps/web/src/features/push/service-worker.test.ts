@@ -72,7 +72,8 @@ function worker(clients: Client[] = []) {
   return { handlers, notifications, opened, fire, push, clients, delay };
 }
 
-const bind = { type: WAKE_BIND, account: 'account-one', session: 'session-one', generation: 1 };
+const BINDING = { account: 'account-one', session: 'session-one', generation: 1 };
+const bind = { type: WAKE_BIND, ...BINDING };
 
 void test('the worker registers only wake handlers and caches nothing', () => {
   const context = worker();
@@ -124,7 +125,7 @@ void test('a logout unbinds the worker so a later wake reaches no page', async (
   const page = client('https://qa.rogi.chat/');
   const context = worker([page]);
   await context.fire('message', { data: bind, source: page });
-  await context.fire('message', { data: { type: WAKE_UNBIND }, source: page });
+  await context.fire('message', { data: { type: WAKE_UNBIND, ...BINDING }, source: page });
   await context.fire('push', context.push(WAKE_ONLY_PUSH));
   assert.deepEqual(plain(page.messages), []);
 });
@@ -176,7 +177,7 @@ void test('one page unbinding never silences another that is still signed in', a
   await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-two', generation: 2 }, source: pageB });
 
   // The first tab signs out. It speaks only for itself.
-  await context.fire('message', { data: { type: WAKE_UNBIND }, source: pageA });
+  await context.fire('message', { data: { type: WAKE_UNBIND, account: 'account-one', session: 'session-one', generation: 1 }, source: pageA });
   await context.fire('push', context.push(WAKE_ONLY_PUSH));
 
   assert.deepEqual(plain(pageA.messages), [], 'the page that signed out is not told to sync');
@@ -207,7 +208,7 @@ void test('a page that unbinds while a wake is in flight is not told to sync', a
   const context = worker([page]);
   await context.fire('message', { data: bind, source: page });
   // The page signs out between the wake arriving and the client list resolving.
-  context.delay(async () => { await context.fire('message', { data: { type: WAKE_UNBIND }, source: page }); });
+  context.delay(async () => { await context.fire('message', { data: { type: WAKE_UNBIND, ...BINDING }, source: page }); });
   await context.fire('push', context.push(WAKE_ONLY_PUSH));
   assert.deepEqual(plain(page.messages), [], 'the binding is read after the await, not before');
 });
@@ -233,4 +234,41 @@ void test('a click tells only the focused page, on its own binding', async () =>
   assert.ok(pageA.focused);
   assert.deepEqual(plain(pageA.messages), [{ type: WAKE_SYNC, account: 'account-one', session: 'session-one', generation: 1 }]);
   assert.deepEqual(plain(pageB.messages), [], 'the page that was not focused is left alone');
+});
+
+void test('a late cleanup of one page lifecycle cannot release the next one', async () => {
+  const page = client('https://qa.rogi.chat/');
+  const context = worker([page]);
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-one', generation: 1 }, source: page });
+  // The same tab signs in again before the previous lifecycle finished tearing down.
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-two', generation: 2 }, source: page });
+  await context.fire('message', { data: { type: WAKE_UNBIND, account: 'account-one', session: 'session-one', generation: 1 }, source: page });
+
+  await context.fire('push', context.push(WAKE_ONLY_PUSH));
+  assert.deepEqual(plain(page.messages), [{ type: WAKE_SYNC, account: 'account-one', session: 'session-two', generation: 2 }], 'the newer binding survives the older cleanup');
+});
+
+void test('a page releasing the binding it actually holds is unbound', async () => {
+  const page = client('https://qa.rogi.chat/');
+  const context = worker([page]);
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-two', generation: 2 }, source: page });
+  await context.fire('message', { data: { type: WAKE_UNBIND, account: 'account-one', session: 'session-two', generation: 2 }, source: page });
+  await context.fire('push', context.push(WAKE_ONLY_PUSH));
+  assert.deepEqual(plain(page.messages), []);
+});
+
+void test('an unbind that names nothing releases nothing', async () => {
+  const page = client('https://qa.rogi.chat/');
+  const context = worker([page]);
+  await context.fire('message', { data: bind, source: page });
+  for (const data of [
+    { type: WAKE_UNBIND },
+    { type: WAKE_UNBIND, account: 'account-one' },
+    { type: WAKE_UNBIND, account: 'account-one', session: 'session-one', generation: '1' },
+    { type: WAKE_UNBIND, account: 'account-two', session: 'session-one', generation: 1 },
+  ]) {
+    await context.fire('message', { data, source: page });
+  }
+  await context.fire('push', context.push(WAKE_ONLY_PUSH));
+  assert.deepEqual(plain(page.messages), [{ type: WAKE_SYNC, ...BINDING }], 'only an exact release removes the binding');
 });
