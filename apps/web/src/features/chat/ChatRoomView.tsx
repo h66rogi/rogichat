@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Info, WifiOff } from 'lucide-react';
+import { WifiOff } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/badge';
 import { cn } from '@/shared/lib/cn';
@@ -67,8 +67,6 @@ export interface ChatRoomViewProps {
   isLoadingOlder?: boolean | undefined;
   /** Short connection/recovery text, e.g. "연결을 다시 시도하는 중". */
   connectionNotice?: string | undefined;
-  /** Banner text for preview screens, e.g. "미리보기 화면입니다. 실제 계정과 연결되지 않았습니다." */
-  previewNotice?: string | undefined;
   className?: string | undefined;
 }
 
@@ -93,7 +91,6 @@ function ScopedChatRoom({
   hasOlder,
   isLoadingOlder,
   connectionNotice,
-  previewNotice,
   className,
 }: ChatRoomViewProps) {
   const authorization = useMemo(
@@ -148,10 +145,10 @@ function ScopedChatRoom({
   }, [requestedTarget, draftKeyTarget]);
 
   const lockedReason = useMemo(() => {
-    if (onSubmit === undefined) return '미리보기 화면에서는 메시지를 보낼 수 없습니다.';
+    if (onSubmit === undefined) return '현재 메시지를 보낼 수 없습니다. 잠시 후 다시 확인해 주세요.';
     if (target !== null) return undefined;
     if (draftKeyTarget !== null) return '보낼 대상을 다시 확인하는 중입니다. 작성 중인 내용은 유지됩니다.';
-    if (viewerRole === 'FAN') return '아직 메시지를 받을 스트리머가 확인되지 않았습니다. 잠시 후 다시 시도해 주세요.';
+    if (viewerRole === 'FAN') return '지금은 개인 메시지를 보낼 수 있는 대상이 없습니다. 잠시 후 다시 확인해 주세요.';
     return '보낼 대상이 없습니다.';
   }, [onSubmit, target, draftKeyTarget, viewerRole]);
 
@@ -296,7 +293,7 @@ function ScopedChatRoom({
         setAnnouncement(
           result.accepted
             ? `${label}에게 보낸 메시지가 접수되었습니다.`
-            : `${label}에게 보낸 메시지가 거부되었습니다. 해당 대상으로 돌아가면 이유와 작성 내용을 볼 수 있습니다.`,
+            : `${label}에게 보낸 메시지의 전송을 확인하지 못했습니다. 해당 대상으로 돌아가면 안내와 작성 내용을 볼 수 있습니다.`,
         );
       }
     })();
@@ -319,12 +316,6 @@ function ScopedChatRoom({
             <Badge variant={viewerRole === 'STREAMER' ? 'brand' : 'secondary'}>{viewerRole === 'STREAMER' ? '스트리머' : '팬'}</Badge>
           </div>
         </div>
-        {previewNotice && (
-          <p className="flex items-start gap-2 rounded-sm bg-surface-soft px-3 py-2 text-[13px] text-body" data-testid="chat-preview-notice">
-            <Info className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
-            <span>{previewNotice}</span>
-          </p>
-        )}
         {connectionNotice && (
           <p className="flex items-start gap-2 rounded-sm border border-line px-3 py-2 text-[13px] text-body" role="status" data-testid="chat-connection-notice">
             <WifiOff className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
