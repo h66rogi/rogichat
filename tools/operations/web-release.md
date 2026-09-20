@@ -186,15 +186,18 @@ no automatic fallback and no fabricated tag/digest. A request may explicitly add
 | `validator_sha256` | Hash of reviewed sibling `backend_archive.py` |
 | `web_validator_sha256` | Hash of reviewed `tools/web/archive.py` |
 
-The reviewed initial dependency is publisher commit
-`2b9d544e88ff94059f75eb260f02ab2b732a4169`. Its web wrapper SHA-256 is
-`9de22dfc0224d18de889070c7c7af23d157baedb8f6c0cdb0b3af9e8fab97cc7`; the backend
-core SHA-256 is
-`095f3928cafce683f5d4d17d18a3a5cd8bd0d2e10ab2e913149fdc3f1adf276f`. Integrate
-the reviewed publisher dependency before invoking archive mode. Install both
-reviewed validator files in the same repository-relative layout as the helper. The web wrapper loads its own isolated instance of the backend core;
-no backend policy or file is modified. The helper verifies both modules' hashes
-and protected ownership before importing the wrapper.
+Select the final source SHA from the successful trusted web publication run and
+its verified proof, then inspect `tools/web/archive.py` and
+`tools/operations/backend_archive.py` at that exact source. Compute SHA-256 from
+each file's exact bytes in that reviewed checkout and pin the results as
+`web_validator_sha256` and `validator_sha256` in the operator-approved request;
+do not reuse hashes from an earlier publisher or a moving branch. The web
+validator must bind the archive digest and config to the exact-attempt publication
+proof and reject proof replacement after the export attempt began. Install both
+reviewed files in the same repository-relative layout as the helper. The web
+wrapper loads an isolated instance of the backend core; no backend policy or file
+is modified. The helper verifies both modules' hashes and protected ownership
+before importing the wrapper.
 
 The fixed transport is
 `/opt/rogichat/releases/<source_sha>/web-export/export.zip`, including on production.
