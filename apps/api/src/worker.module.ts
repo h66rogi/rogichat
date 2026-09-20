@@ -1,3 +1,5 @@
+import { PurgeWorkerModule } from './modules/deletion/purge-worker.module.js';
+import { PurgeWorkerService } from './modules/deletion/purge-worker.service.js';
 import { DeletionModule } from './modules/deletion/deletion.module.js';
 import { Module } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
@@ -33,12 +35,17 @@ export class WorkerModule {
     const transport = PushTransportModule.register(push);
     return { module: WorkerModule, imports: [infrastructure, JobsModule.register(infrastructure, 'worker'), PublicationsCoreModule, DeletionModule.register(infrastructure, settings.deletion, true),
       PushModule.register(infrastructure, NotificationsModule, transport), NotificationFanoutModule.register(infrastructure, push.audience),
+      ...(settings.deletion ? [PurgeWorkerModule.register(infrastructure, settings.deletion)] : []),
       ...(settings.media ? [MediaWorkerModule.register(infrastructure, settings.media)] : [])], providers: [
       { provide: SafeLogger, useFactory: () => new SafeLogger('worker') }, WorkerRuntimeService,
-      { provide: WorkerLoop, inject: [Jobs, LifecycleState, Transactions, PublicationsCoreService, DATABASE, PushDeliveryService, NotificationFanoutService, ...(settings.media ? [MediaWorkerService, MediaCopyService] : [])],
-        useFactory: (jobs: Jobs, lifecycle: LifecycleState, transactions: Transactions, publications: PublicationsCoreService, database: Database, delivery: PushDeliveryService, fanout: NotificationFanoutService, media?: MediaWorkerService, copies?: MediaCopyService) => new WorkerLoop(jobs, lifecycle,
-          { PUBLICATION: lease => copies ? copies.processPublication(lease) : publications.publishText(transactions, lease), PUSH: lease => lease.roomId === null ? fanout.consume(lease) : delivery.consume(lease), ...(media ? { MEDIA: media.processMedia.bind(media) } : {}) },
-          { ready: async () => (await database.check()).ready, leaseMs: settings.media ? 300000 : 30000 }) },
+      { provide: WorkerLoop, inject: [Jobs, LifecycleState, Transactions, PublicationsCoreService, DATABASE, PushDeliveryService, NotificationFanoutService, ...(settings.deletion ? [PurgeWorkerService] : []), ...(settings.media ? [MediaWorkerService, MediaCopyService] : [])],
+        useFactory: (jobs: Jobs, lifecycle: LifecycleState, transactions: Transactions, publications: PublicationsCoreService, database: Database, delivery: PushDeliveryService, fanout: NotificationFanoutService, ...optional: (PurgeWorkerService | MediaWorkerService | MediaCopyService)[]) => {
+          const purge = settings.deletion ? optional.shift() as PurgeWorkerService : undefined;
+          const media = settings.media ? optional.shift() as MediaWorkerService : undefined;
+          const copies = settings.media ? optional.shift() as MediaCopyService : undefined;
+          return new WorkerLoop(jobs, lifecycle,
+          { ...(purge ? { PURGE: purge.process.bind(purge) } : {}), PUBLICATION: lease => copies ? copies.processPublication(lease) : publications.publishText(transactions, lease), PUSH: lease => lease.roomId === null ? fanout.consume(lease) : delivery.consume(lease), ...(media ? { MEDIA: media.processMedia.bind(media) } : {}) },
+          { ready: async () => (await database.check()).ready, leaseMs: settings.media ? 300000 : 30000 }); } },
     ] };
   }
 }

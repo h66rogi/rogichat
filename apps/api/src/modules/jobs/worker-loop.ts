@@ -4,7 +4,7 @@ import { JOB_PURPOSES } from './jobs.policy.js';
 import type { JobLease, JobPurpose } from './jobs.policy.js';
 import type { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
 
-export type WorkerResult = 'completed' | 'lease_lost';
+export type WorkerResult = 'completed' | 'lease_lost' | 'progress' | 'deferred' | 'subset_drained';
 export type WorkerHandler = (lease: JobLease) => Promise<WorkerResult>;
 export interface WorkerOptions {
   // Must consult current DB/schema readiness, not a once-at-start cached success.
@@ -13,8 +13,8 @@ export interface WorkerOptions {
   maxPerTick?: number;
   leaseMs?: number;
 }
-export interface WorkerTick { claimed: number; completed: number; leaseLost: number; retried: number; failed: number }
-const empty = (): WorkerTick => ({ claimed: 0, completed: 0, leaseLost: 0, retried: 0, failed: 0 });
+export interface WorkerTick { claimed: number; completed: number; leaseLost: number; retried: number; failed: number; progress: number; deferred: number; subsetDrained: number }
+const empty = (): WorkerTick => ({ claimed: 0, completed: 0, leaseLost: 0, retried: 0, failed: 0, progress: 0, deferred: 0, subsetDrained: 0 });
 function bounded(value: number, min: number, max: number): number {
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error('invalid_worker_policy');
   return value;
@@ -26,6 +26,8 @@ function bounded(value: number, min: number, max: number): number {
 export class WorkerLoop {
   private readonly handlers: Readonly<Partial<Record<JobPurpose, WorkerHandler>>>;
   private readonly purposes: readonly JobPurpose[];
+  private readonly otherPurposes: readonly JobPurpose[];
+  private claimTurn = 0;
   private readonly ready: () => Promise<boolean>;
   private readonly pollMs: number;
   private readonly maxPerTick: number;
@@ -43,6 +45,7 @@ export class WorkerLoop {
     this.handlers = Object.freeze({ ...handlers });
     // The queue SQL also prioritizes PURGE. No purpose is installed by default.
     this.purposes = Object.freeze((['PURGE', 'MEDIA', 'PUBLICATION', 'PUSH', 'LEDGER_EXPORT'] as const).filter(purpose => Object.hasOwn(this.handlers, purpose)));
+    this.otherPurposes = Object.freeze(this.purposes.filter(purpose => purpose !== 'PURGE'));
     this.ready = options.ready;
     this.pollMs = bounded(options.pollMs ?? 5000, 100, 60000);
     this.maxPerTick = bounded(options.maxPerTick ?? 10, 1, 10);
@@ -71,8 +74,13 @@ export class WorkerLoop {
     for (let index = 0; index < this.maxPerTick && !this.stopped && !this.lifecycle.draining; index++) {
       if (await this.ready() !== true || this.stopped || this.lifecycle.draining) break;
       // Claim one at a time: a slow handler must not consume nine other jobs' lease time in a local queue.
-      const [lease] = await this.jobs.claim({ purposes: this.purposes, limit: 1, leaseMs: this.leaseMs });
-      if (!lease) break;
+      // Reserve every fourth claim for other installed purposes. Priority-only
+      // ordering can otherwise starve them forever behind retained purge rechecks.
+      // The production ten-claim tick reserves capacity even after restart; the
+      // turn also carries across short/manual ticks within a running process.
+      const reserved = this.purposes.includes('PURGE') && this.otherPurposes.length > 0 && this.claimTurn++ % 4 === 3;
+      const [lease] = await this.jobs.claim({ purposes: reserved ? this.otherPurposes : this.purposes, limit: 1, leaseMs: this.leaseMs });
+      if (!lease) { if (reserved) continue; break; }
       counts.claimed++;
       if (this.stopped || this.lifecycle.draining) {
         // Readiness/stop can change during claim. No new domain work starts after the stop boundary.
@@ -85,6 +93,9 @@ export class WorkerLoop {
       try {
         const result = await handler(lease);
         if (result === 'completed') counts.completed++;
+        else if (result === 'progress') counts.progress++;
+        else if (result === 'deferred') counts.deferred++;
+        else if (result === 'subset_drained') counts.subsetDrained++;
         else if (result === 'lease_lost') counts.leaseLost++;
         else throw new JobFailure('PERMANENT_FAILURE', true);
       } catch (error) {
