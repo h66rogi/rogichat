@@ -375,3 +375,14 @@ subject·partition·권한 키가 아니다. 수동 이름·사진·사진 삭�
 | ID | 원본·기존 구현 | 대상 | 재사용와 새 계약의 경계 |
 |---|---|---|---|
 | R67 | R55/R64와 같은 원본 이미지 cache·ProfileImage 대조; 기존 MediaClient/MediaDownload 직접 재사용 | provider 전용 URL 검증·ProviderAvatarLoads | **기존 전송 재사용 + 새 권한 수명 처리**: provider 조회권은 설정된 API origin의 `/v1/profile-images`와 단일 opaque ticket만 허용하고 JPEG/WebP 2 MiB로 제한한다. 원본의 URL 전역 cache는 만료되는 계정/방 권한과 맞지 않아 그대로 이식하지 않는다. 계정/방의 원래 scope+actor별 활성 화면에서만 요청·bytes를 공유하고 마지막 화면 종료 때 취소·폐기한다. 동시 전송 2개, 대기 15초, 갱신 시 새 조회권과 bytes를 함께 받는다. 일반 asset의 서명 URL 계약은 유지한다. |
+
+
+## 방장 수신함 전송 확장
+
+| ID | 원본·대상 | 재사용와 새 계약의 경계 |
+|---|---|---|
+| R68 | 기존 Rogichat ConversationScreen/ViewModel, TextCommand, Room/GRDB outbox, MediaClient/ConversationMedia; 기반 원본은 R64 이전의 공통 UI·상태 재사용 항목 | **기존 제품 구현 직접 확장**: ROOM_OWNER를 기존 전송·영속·receipt 복구·미디어 명령에 추가한다. 멜로밍 채팅 UX는 사용자 제외 조건을 유지하며 가져오지 않는다. 멜로밍의 원본 일반 로그인·설정은 이 새 수신함 계약을 구현하지 않으므로 별도 채팅 계층 복사로 대체하지 않는다. 서버가 결정한 FAN 권한 및 실제 recipient projection을 그대로 사용한다. |
+
+R66의 `OWNER_PENDING` 처리 코드는 과거 계약의 호환 처리다. 실제 팬 접근이 가능한
+기본방은 방장 미가입 여부와 무관하게 READY이며, 이번 앱은 그 상태에서 수신 actor 없이
+ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록](mobile-room-owner-progress.md)에 있다.

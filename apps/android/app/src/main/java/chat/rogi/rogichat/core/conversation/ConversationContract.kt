@@ -78,7 +78,8 @@ sealed interface CommandReceipt {
 data class TextCommand(val clientMessageId: RoomId, val membership: RoomScopeToken, val intent: String,
                        val recipient: RoomId?, val quote: RoomId?, val text: String, val media: MediaContent? = null) {
     init {
-        require(intent in setOf("SHARED", "PRIVATE") && ((intent == "PRIVATE") == (recipient != null)))
+        require(intent in setOf("SHARED", "PRIVATE", "ROOM_OWNER") && ((intent == "PRIVATE") == (recipient != null)))
+        require(intent != "ROOM_OWNER" || quote == null)
         require(if (media == null) text == normalizeText(text) else text.isEmpty())
     }
     override fun toString() = "TextCommand([redacted])"

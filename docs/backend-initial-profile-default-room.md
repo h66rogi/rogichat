@@ -65,9 +65,21 @@ service's official migration/initialization entrypoint.
 
 The stable catalog room UUID is `bdcc3129-e4a8-49ec-9491-ce9ca62cb5d3`, display name
 `후로기`, mode `FAN`, initial history `SINCE_JOIN`. The room, counter and shared
-stream are created atomically, initially CLOSED without a fake owner. Directory
-responses identify it with `isDefault:true, availability:OWNER_PENDING`; it cannot
-be joined until the real owner is bound. Other closed rooms remain undiscoverable.
+stream are created atomically, ACTIVE without a fake owner. Directory responses
+identify it with `isDefault:true, availability:READY`: availability describes fan
+access, not owner onboarding. Verified fans can join and read immediately.
+Other closed rooms remain undiscoverable; bootstrap never reopens them.
+
+Fans send `intent:ROOM_OWNER` without `recipientActorId`. Before first owner
+binding this creates a real RESTRICTED stream with only the sender's grant and
+no pair; room locking makes one inbox per fan. Normal message receipts, order,
+deletion, media and ACL checks apply. Other fans cannot read it. `committed`
+means persistent storage, never a claim that the absent streamer received/read it.
+At real owner binding the same streams gain the actual owner grant and pair,
+without replacing messages, fan memberships or revoked grants. The first owner's
+history begins at zero to receive this backlog; fan history snapshots do not change.
+After binding ROOM_OWNER resolves the existing owner pair and normal owner-account
+guards. Explicit PRIVATE replies still require a real recipient actor.
 
 Optional `DEFAULT_ROOM_SECRET_FILE` is a protected regular file (max 2 KiB;
 root/runtime-owned, private permissions) containing only `expectedSubject` and
@@ -82,6 +94,10 @@ Multiple API instances serialize on the singleton registry and reuse the graph.
 An unrelated preexisting catalog-ID room is a conflict, never silently adopted.
 After binding, bootstrap never reopens, recreates or overwrites a changed/deleted
 room. Missing owner is retried every ten seconds; successful binding stops polling.
+The approved live upgrade starts from schema 24: the earlier CLOSED-catalog schema
+25 candidate was never activated. An existing CLOSED catalog fails closed, even
+when never bound; automatic startup cannot distinguish an operator closure from
+an old disposable candidate. Do not silently reopen it or rewrite migration 25.
 
 ## Rollout and rollback
 

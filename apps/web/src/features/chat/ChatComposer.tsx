@@ -170,7 +170,7 @@ export function ChatComposer({
               composingRef.current = false;
             }}
             rows={1}
-            placeholder={target?.scope === 'PRIVATE' ? `${target.recipient.displayName}님에게만 보이는 메시지` : '전체 참여자에게 보낼 메시지'}
+            placeholder={target?.scope === 'PRIVATE' ? `${target.recipient.displayName}님에게만 보이는 메시지` : target?.scope === 'ROOM_OWNER' ? '방장에게만 보이는 메시지' : '전체 참여자에게 보낼 메시지'}
             readOnly={isSubmitting}
             aria-busy={isSubmitting}
             autoComplete="off"
@@ -270,7 +270,7 @@ function TargetRow({
           })}
         </RadioGroup.Root>
       ) : (
-        <span className={cn('inline-flex min-h-11 items-center gap-1.5 text-[14px] font-semibold', target?.scope === 'PRIVATE' ? 'text-action' : 'text-ink')}>
+        <span className={cn('inline-flex min-h-11 items-center gap-1.5 text-[14px] font-semibold', target !== null && target.scope !== 'SHARED' ? 'text-action' : 'text-ink')}>
           {target === null ? null : target.scope === 'SHARED' ? <Megaphone className="size-4" aria-hidden="true" /> : <Lock className="size-4" aria-hidden="true" />}
           {label}
         </span>
@@ -278,7 +278,7 @@ function TargetRow({
 
       {/* Announced whenever the target changes; also referenced by the input's aria-describedby. */}
       <span id={labelId} className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {target === null ? '보낼 대상이 없어 전송이 중지되었습니다' : `보낼 대상: ${label}${target.scope === 'PRIVATE' ? '. 개인 메시지' : '. 전체 공개'}`}
+        {target === null ? '보낼 대상이 없어 전송이 중지되었습니다' : `보낼 대상: ${label}${target.scope !== 'SHARED' ? '. 개인 메시지' : '. 전체 공개'}`}
       </span>
     </div>
   );

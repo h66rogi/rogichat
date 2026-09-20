@@ -406,7 +406,9 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
                 val quote = current.messages.singleOrNull { it.id == intent.command.quote } ?: throw InvalidResponse()
                 require(intent.command.intent == "PRIVATE" && quote.actions.reply && quote.replyTarget != null && quote.replyTarget == intent.command.recipient)
             } else if (intent.command.intent == "SHARED") require(membership.mode == RoomMode.GROUP || membership.role == RoomRole.STREAMER)
-            else {
+            else if (intent.command.intent == "ROOM_OWNER") {
+                require(membership.mode == RoomMode.FAN && membership.role == RoomRole.FAN)
+            } else {
                 require(membership.mode == RoomMode.FAN && intent.recipientRevision != null && intent.recipientRevision == entry.state.value.recipientRevision)
                 require(entry.state.value.recipients.any { it.actorId == intent.command.recipient })
             }

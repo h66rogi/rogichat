@@ -147,13 +147,14 @@ fun ConversationScreen(model: ConversationViewModel) {
                     var choosing by remember { mutableStateOf(false) }
                     Box {
                         TextButton(onClick = { choosing = true }, enabled = !draft.submitting) {
-                            Text(state.recipients.find { it.actorId == draft.recipient }?.nickname?.let { "$it 님에게" } ?: "받는 사람 선택")
+                            Text(state.recipients.find { it.actorId == draft.recipient }?.nickname?.let { "$it 님에게" } ?: if (model.roomOwnerAllowed()) "방장에게만" else "받는 사람 선택")
                         }
                         DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
+                            if (model.roomOwnerAllowed()) DropdownMenuItem(text = { Text("방장에게만") }, onClick = { choosing = false; model.clearReply() })
                             state.recipients.forEach { recipient -> DropdownMenuItem(text = { Text(recipient.nickname) }, onClick = {
                                 choosing = false; model.recipient(recipient, state.recipientRevision)
                             }) }
-                            if (state.recipients.isEmpty()) DropdownMenuItem(text = { Text("지금 선택할 수 있는 사람이 없어요.") }, onClick = {}, enabled = false)
+                            if (state.recipients.isEmpty() && !model.roomOwnerAllowed()) DropdownMenuItem(text = { Text("지금 선택할 수 있는 사람이 없어요.") }, onClick = {}, enabled = false)
                             if (state.recipientNext != null) DropdownMenuItem(text = { Text("더 보기") }, onClick = model::moreRecipients)
                         }
                     }

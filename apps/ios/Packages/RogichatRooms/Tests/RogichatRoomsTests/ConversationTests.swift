@@ -16,18 +16,18 @@ private func cm(_ version: String = "1", reply: Bool = true, text: String = "실
 private func cs(_ messages: [[String: Any]] = [], authority: UInt8 = 2) throws -> Data { try cd(["schemaVersion": 2, "resetRequired": false, "membershipScope": ct(), "authorizationRevision": ct(authority), "messages": messages, "nextCursor": "events-0", "historyCursor": "history-0"]) }
 private func ce(_ events: [[String: Any]] = [], next: String = "events-1") throws -> Data { try cd(["schemaVersion": 2, "resetRequired": false, "membershipScope": ct(), "authorizationRevision": ct(2), "events": events, "nextCursor": next, "hasMore": false]) }
 private func cp(_ names: [String] = [], authority: UInt8 = 2) throws -> Data { try cd(["schemaVersion": 2, "resetRequired": false, "membershipScope": ct(), "authorizationRevision": ct(authority), "profiles": names.map { ["actorId": cPeer, "nickname": $0, "avatar": NSNull(), "role": "MEMBER"] as [String: Any] }, "generation": ct(3), "complete": true, "nextCursor": NSNull()]) }
-private func manifestC(_ membership: String = ct(), authority: UInt8 = 2) throws -> MembershipPage { try decodeC(["schemaVersion": 2, "resetRequired": false, "rooms": [["roomId": cRoom, "name": "대화", "mode": "GROUP", "actorId": cActor, "role": "MEMBER", "membershipScope": membership, "authorizationRevision": ct(authority)]], "generation": ct(3), "complete": true, "nextCursor": NSNull()], MembershipPage.self) }
+private func manifestC(_ membership: String = ct(), authority: UInt8 = 2, mode: String = "GROUP", role: String = "MEMBER") throws -> MembershipPage { try decodeC(["schemaVersion": 2, "resetRequired": false, "rooms": [["roomId": cRoom, "name": "대화", "mode": mode, "actorId": cActor, "role": role, "membershipScope": membership, "authorizationRevision": ct(authority)]], "generation": ct(3), "complete": true, "nextCursor": NSNull()], MembershipPage.self) }
 private final class ConversationDisk {
     let directory: URL
     let account: RoomsScope
     let db: RoomsDatabase
     let scope: ConversationScope
-    init(path: URL? = nil, membership: String = ct()) throws {
+    init(path: URL? = nil, membership: String = ct(), mode: String = "GROUP", role: String = "MEMBER") throws {
         directory = path ?? FileManager.default.temporaryDirectory.appendingPathComponent("conversation-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         account = try RoomsScope(partition: ct(8), clientScope: UUID(), expiresAt: Date().addingTimeInterval(3600))
         db = try RoomsDatabase(url: directory.appendingPathComponent("rooms.sqlite"), scope: account, deviceID: cRoom)
-        let request = try db.beginManifest(); _ = try db.manifestPage(manifestC(membership), request: request)
+        let request = try db.beginManifest(); _ = try db.manifestPage(manifestC(membership, mode: mode, role: role), request: request)
         scope = try db.beginConversation(roomID: cRoom, cycle: try #require(db.listing().cycle))
     }
     func snapshot(_ messages: [[String: Any]] = []) throws { try db.applySnapshot(JSONDecoder().decode(ConversationSnapshot.self, from: cs(messages)), scope: scope) }
@@ -342,4 +342,39 @@ private actor ConversationRemote: ConversationFetching {
     quoted["quote"] = NSNull()
     try disk.db.applySingleMessage(decodeC(quoted, ConversationMessage.self), scope: disk.scope)
     #expect(try disk.db.conversationListing(scope: disk.scope).messages.map(\.id) == [cPeer])
+}
+
+@Test func ownerInboxCommandsRoundTripAndRequireFanAuthority() throws {
+    var projection = cm(reply: false); projection["audience"] = "PRIVATE"
+    let pending = try decodeC(projection, ConversationMessage.self)
+    #expect(pending.counterpart == nil && pending.replyRecipient == nil)
+    let command = try TextCommand(roomID: cRoom, membershipScope: ct(), toRoomOwner: true, text: "방장에게")
+    let body = try #require(JSONSerialization.jsonObject(with: command.requestBody()) as? [String: Any])
+    #expect(body["intent"] as? String == "ROOM_OWNER" && body["recipientActorId"] == nil && body["quoteId"] == nil)
+    #expect(try JSONDecoder().decode(TextCommand.self, from: JSONEncoder().encode(command)) == command)
+    for field in ["recipientActorID", "quoteID"] {
+        var stored = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(command)) as? [String: Any])
+        stored[field] = cPeer
+        #expect(throws: (any Error).self) { try JSONDecoder().decode(TextCommand.self, from: cd(stored)) }
+    }
+    #expect(throws: (any Error).self) { try TextCommand(roomID: cRoom, membershipScope: ct(), recipientActorID: cPeer, toRoomOwner: true, text: "거부") }
+    #expect(throws: (any Error).self) { try TextCommand(roomID: cRoom, membershipScope: ct(), quoteID: cMessage, toRoomOwner: true, text: "거부") }
+    for (mode, role) in [("GROUP", "MEMBER"), ("FAN", "STREAMER")] {
+        let invalid = try ConversationDisk(mode: mode, role: role); defer { invalid.remove() }; try invalid.snapshot()
+        #expect(throws: ConversationError.forbidden) { try invalid.db.admitText(command, scope: invalid.scope) }
+    }
+    let disk = try ConversationDisk(mode: "FAN", role: "FAN"); let path = disk.directory
+    defer { try? FileManager.default.removeItem(at: path) }; try disk.snapshot()
+    try disk.db.admitText(command, scope: disk.scope); try disk.db.claimText(command, scope: disk.scope)
+    try disk.close()
+    let cold = try ConversationDisk(path: path, mode: "FAN", role: "FAN"); defer { try? cold.close() }; try cold.snapshot()
+    let restored = try #require(cold.db.conversationListing(scope: cold.scope).commands.first)
+    #expect(restored.phase == .unknown && restored.command == command)
+    #expect(throws: (any Error).self) { try cold.db.claimText(command, scope: cold.scope) }
+    let media = try TextCommand(roomID: cRoom, membershipScope: ct(), toRoomOwner: true, attachment: OutgoingAttachment(type: "PHOTO", assetIds: [cMessage]))
+    try cold.db.admitText(media, scope: cold.scope)
+    #expect(try cold.db.conversationListing(scope: cold.scope).commands.last?.command == media)
+    #expect(try JSONDecoder().decode(TextCommand.self, from: JSONEncoder().encode(media)) == media)
+    let mediaBody = try #require(JSONSerialization.jsonObject(with: media.requestBody()) as? [String: Any])
+    #expect(mediaBody["recipientActorId"] == nil && mediaBody["intent"] as? String == "ROOM_OWNER")
 }
