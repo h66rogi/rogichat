@@ -4,7 +4,7 @@ import { MediaWorkerService } from '../../dist/modules/media/media-worker.servic
 import { MediaWorkerRepository, acknowledgedWrite } from '../../dist/modules/media/media-worker.repository.js';
 
 function fixture(rows = [{ id: 'input', object_key: 'input-key', state: 'ALLOCATED', byte_length: null, sha256: null }]) {
-  let db = { asset: { id: 'asset', state: 'DELETING', reserved_bytes: 100n }, rows: globalThis.structuredClone(rows), budget: 100n, pending: [], completed: [] };
+  let db = { asset: { id: 'asset', state: 'DELETING', reserved_bytes: 100n }, rows: globalThis.structuredClone(rows), budget: 100n, pending: [], completed: [], cursor: 0, provenance: [] };
   const objects = new Set(rows.map(row => row.object_key)), hooks = {};
   const calls = { removes: 0, refunds: 0 };
   let inTransaction = false;
@@ -20,13 +20,26 @@ function fixture(rows = [{ id: 'input', object_key: 'input-key', state: 'ALLOCAT
     async uploading() { return []; }, async recentAttempts() { return []; },
     async objects() { return globalThis.structuredClone(db.rows); },
     async currentObjects() { return globalThis.structuredClone(db.rows); },
-    async deleteObjects() { db.rows.forEach(row => { row.state = 'DELETED'; }); },
+    async cleanupPage() {
+      const page = globalThis.structuredClone(db.rows.slice(db.cursor, db.cursor + 100));
+      db.provenance.push(...page.map(row => row.id)); return page;
+    },
+    async finishPage(_tx, _assetId, page) {
+      for (const planned of page) {
+        const row = db.rows.find(row => row.id === planned.id);
+        if (!row || row.object_key !== planned.object_key) throw new Error('media_cleanup_provenance_conflict');
+        if (acknowledgedWrite(row) && acknowledgedWrite(planned)) row.state = 'DELETED';
+      }
+      db.cursor = page.length ? db.cursor + page.length : 0;
+      return db.rows.every(row => row.state === 'DELETED' && acknowledgedWrite(row) && db.provenance.includes(row.id));
+    },
+    async fence() { return hooks.stale ? [] : [{ id: 'job' }]; },
     async releaseBudget(_tx, bytes) { calls.refunds++; db.budget -= bytes; return { affectedRows: 1 }; },
     async deleteAsset() { db.asset.state = 'DELETED'; db.asset.reserved_bytes = 0n; },
     async renew() { return { affectedRows: 1 }; },
   };
   const jobs = {
-    async enqueue(_tx, input) { db.pending.push(input); },
+    async continueMedia() { if (hooks.stale) throw new Error('media_cleanup_lease_lost'); db.pending = ['stable-asset-job']; },
     async complete(_tx, lease) {
       if (hooks.stale || db.completed.includes(lease.id)) return false;
       db.completed.push(lease.id); return true;
@@ -50,7 +63,7 @@ for (const variant of ['input', 'image', 'video', 'poster', 'publication-image']
   test(`${variant}: provider PUT after DELETE/404 retains key, reservation and restart reconciliation`, async () => {
     const row = { id: variant, object_key: `${variant}-key`, state: 'ALLOCATED', byte_length: null, sha256: null };
     const f = fixture([row]);
-    assert.equal(await f.run(), 'completed');
+    assert.equal(await f.run(), 'progress');
     assert.equal(f.objects.size, 0);
     // Client aborted/crashed or lost its lease; provider completion is independent.
     f.objects.add(row.object_key);
@@ -58,8 +71,9 @@ for (const variant of ['input', 'image', 'video', 'poster', 'publication-image']
     assert.equal(f.state().budget, 100n); assert.equal(f.calls.refunds, 0);
     assert.equal(f.state().pending.length, 1);
     // A new worker has no old process memory. It finds the retained key again.
-    assert.equal(await f.run(), 'completed'); assert.equal(f.objects.size, 0);
-    assert.equal(f.state().pending.length, 2); assert.equal(f.state().budget, 100n);
+    assert.equal(await f.run(), 'deferred'); // cursor wraps without losing the unresolved key
+    assert.equal(await f.run(), 'progress'); assert.equal(f.objects.size, 0);
+    assert.equal(f.state().pending.length, 1); assert.equal(f.state().budget, 100n);
     assert.equal(f.state().asset.reserved_bytes, 100n);
     assert.deepEqual(f.state().rows, [row]);
   });
@@ -80,7 +94,8 @@ for (const change of ['state', 'key', 'membership', 'proof']) test(`current lock
     if (change === 'membership') f.state().rows.push(proven('image'));
     if (change === 'proof') f.state().rows[0].sha256 = null;
   };
-  await assert.rejects(f.run(), { code: 'SOURCE_UNAVAILABLE' });
+  if (change === 'key') await assert.rejects(f.run(), /provenance_conflict/);
+  else await f.run();
   assert.equal(f.state().asset.state, 'DELETING'); assert.equal(f.state().budget, 100n);
   assert.equal(f.calls.refunds, 0); assert.equal(f.state().completed.length, 0);
 });
@@ -91,7 +106,7 @@ test('stale final job fence rolls back reconciliation continuation and preserves
   assert.equal(f.state().pending.length, 0); assert.equal(f.state().completed.length, 0);
   assert.equal(f.state().asset.state, 'DELETING'); assert.equal(f.state().budget, 100n);
   f.hooks.stale = false; delete f.hooks.afterAbsence;
-  assert.equal(await f.run(), 'completed'); assert.equal(f.state().pending.length, 1);
+  assert.equal(await f.run(), 'progress'); assert.equal(f.state().pending.length, 1);
 });
 
 test('legacy DELETED without successful-write evidence is recovered, never trusted as termination', async () => {
@@ -112,10 +127,13 @@ test('acknowledged originals/variants clean normally and quota is released once'
   await f.run(); assert.equal(f.calls.refunds, 1); assert.equal(f.calls.removes, 4);
 });
 
-test('overflow and absence failure retain keys and reservation without completion', async () => {
+test('bounded pages over 500 objects and absence failure retain keys and reservation without completion', async () => {
   const large = fixture(Array.from({ length: 501 }, (_, i) => proven(`row-${i}`)));
-  await assert.rejects(large.run(), { code: 'TEMPORARY_UNAVAILABLE' });
-  assert.equal(large.calls.removes, 0); assert.equal(large.calls.refunds, 0);
+  await large.run(); assert.equal(large.calls.removes, 100); assert.equal(large.calls.refunds, 0);
+  for (let i = 0; i < 5; i++) await large.run();
+  assert.equal(large.calls.removes, 501); assert.equal(large.calls.refunds, 1);
+  assert.equal(large.state().asset.state, 'DELETED');
+  assert.equal(large.state().pending.length, 1);
   const f = fixture(); f.hooks.afterAbsence = () => { throw new Error('absence-unverified'); };
   await assert.rejects(f.run(), /absence-unverified/);
   assert.equal(f.state().budget, 100n); assert.equal(f.state().pending.length, 0);
@@ -127,8 +145,8 @@ test('cleanup inventory uses bounded current locking reads including legacy dele
   const tx = { async rows(sql, values) { queries.push({ sql, values }); return []; } };
   await repository.objects(tx, 'asset'); await repository.currentObjects(tx, 'asset');
   for (const { sql, values } of queries) {
-    assert.match(sql, /ORDER BY id LIMIT 501 FOR UPDATE$/);
-    assert.match(sql, /object_key,state,byte_length,sha256/); assert.doesNotMatch(sql, /state<>/);
+    assert.match(sql, /ORDER BY o.id LIMIT 501 FOR UPDATE$/);
+    assert.match(sql, /object_key,o.state,o.byte_length,o.sha256/); assert.doesNotMatch(sql, /state<>/);
     assert.equal(values.length, 1); assert.equal(values[0], 'asset');
   }
   await repository.recoverable(tx);
@@ -160,4 +178,21 @@ test('real R2 adapter keeps conditional single-attempt PUT on every variant', as
     await assert.rejects(store.put(mediaKey('test', randomUUID(), randomUUID(), variant), path, 7, 'application/octet-stream', new globalThis.AbortController().signal));
   }
   assert.equal(calls, 4, 'no implicit SDK retry may add an unregistered request');
+});
+
+test('late writer acknowledgement after DELETE needs a later ordered DELETE before refund', async () => {
+  const f = fixture();
+  f.hooks.afterAbsence = () => { Object.assign(f.state().rows[0], { state: 'READY', byte_length: '1', sha256: 'a'.repeat(64) }); };
+  await f.run(); assert.equal(f.state().asset.state, 'DELETING'); assert.equal(f.calls.refunds, 0);
+  delete f.hooks.afterAbsence;
+  await f.run(); // bounded cursor wrap
+  assert.equal(f.calls.refunds, 0);
+  await f.run(); assert.equal(f.state().asset.state, 'DELETED'); assert.equal(f.calls.refunds, 1);
+});
+
+test('durable actual PUT acknowledgement proves an ALLOCATED writer, but absence alone does not', () => {
+  const row = { id: 'attempt', object_key: 'key', state: 'ALLOCATED', byte_length: null, sha256: null };
+  assert.equal(acknowledgedWrite(row), false);
+  for (const proof of [true, 1, '1']) assert.equal(acknowledgedWrite({ ...row, writer_acknowledged: proof }), true);
+  for (const proof of [false, 0, null]) assert.equal(acknowledgedWrite({ ...row, writer_acknowledged: proof }), false);
 });

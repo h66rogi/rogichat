@@ -40,6 +40,7 @@ export class NotificationsService {
     const input = parseNotificationPreferences(value); requireCommandProof(credentials);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials);
+      if (input.pushEnabled && !actor.soopLinked) throw new ApiError('SOOP_LINK_REQUIRED', 403);
       if (input.pushEnabled) {
         if (credentials.transport === 'NATIVE') {
           if (!actor.soopLinked) throw new ApiError('SOOP_LINK_REQUIRED', 403);
@@ -54,7 +55,7 @@ export class NotificationsService {
   async register(credentials: CommandCredentials, value: unknown) {
     const input = parsePushSubscription(value); requireCommandProof(credentials);
     // Authenticate before bounded DNS work; reacquire fresh authorization after it.
-    await this.transactions.read(tx => this.auth.require(tx, credentials));
+    await this.transactions.read(tx => this.auth.require(tx, credentials, true));
     if (credentials.transport === 'NATIVE') throw new ApiError('AUTH_UNAVAILABLE', 503);
     this.transport.assertAvailable();
     validatePushKeys(input.keys.p256dh, input.keys.auth);
@@ -65,6 +66,7 @@ export class NotificationsService {
     }
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials);
+      if (!actor.soopLinked) throw new ApiError('SOOP_LINK_REQUIRED', 403);
       return this.core.register(tx, actor, this.config.audience, input);
     });
   }

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
+import { accountSubjectGuards } from './deletion-ledger.js';
 import type { DeletionIntent, LedgerEnvironment } from './deletion-ledger.js';
 import { MAX_AUTH_TRANSACTION_MS } from '../auth/identity-guard.service.js';
 
@@ -12,6 +13,10 @@ export class AccountDeletionRepository {
   subject(tx: Transaction, userId: string) {
     return tx.prisma.platform_soop.findUnique({ where: { user_id: userId }, select: { id: true, provider_subject: true } });
   }
+  appleSubjects(tx: Transaction, userId: string) {
+    return tx.prisma.auth_identities.findMany({ where: { user_id: userId, provider: 'apple' }, orderBy: { id: 'asc' }, take: 9,
+      select: { id: true, issuer: true, scope: true, subject: true } });
+  }
   prior(tx: Transaction, userId: string, environment: LedgerEnvironment) {
     return tx.prisma.deletion_intents.findFirst({ where: { target_id: userId, actor_user_id: userId, scope: 'ACCOUNT', environment },
       orderBy: [{ requested_at: 'asc' }, { request_id: 'asc' }], select: { request_id: true, requested_at: true } });
@@ -20,7 +25,11 @@ export class AccountDeletionRepository {
     // Guard -> current identity -> current account. Never visit rooms or all sessions.
     const [subject] = await tx.rows<{ id: string }>('SELECT id FROM platform_soop WHERE user_id=? FOR UPDATE', [intent.targetId]);
     const [user] = await tx.rows<{ status: string }>('SELECT status FROM users WHERE id=? FOR UPDATE', [intent.targetId]);
-    const covered = Boolean(user) && intent.schemaVersion === 2 && (subject?.id ?? null) === (intent.subjectGuard?.identityId ?? null);
+    const apple = await tx.rows<{ id: string }>('SELECT id FROM auth_identities WHERE user_id=? AND provider=? ORDER BY id FOR UPDATE', [intent.targetId, 'apple']);
+    const guards = accountSubjectGuards(intent);
+    const ids = [...(subject ? [subject.id] : []), ...apple.map(row => row.id)].sort();
+    const covered = Boolean(user) && (intent.schemaVersion === 3 || (intent.schemaVersion === 2 && !apple.length)) &&
+      JSON.stringify(ids) === JSON.stringify(guards.map(guard => guard.identityId).sort());
     const requestedAt = new Date(intent.requestedAt);
     const blockedAt = user ? await tx.now() : null;
     await tx.prisma.account_deletion_obligations.createMany({ data: [{ user_id: intent.targetId, request_id: intent.requestId,

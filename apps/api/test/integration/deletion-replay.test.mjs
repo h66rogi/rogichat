@@ -59,7 +59,7 @@ test('active claim rediscovery preserves phase, lease and failed evidence; metad
   const [row] = await f.entries(); assert.equal(row.claim_token, claim.token); assert.equal(row.claim_epoch, claim.epoch); assert.equal(row.phase, 'APPLY');
   const key = deletionIntentKey('qa', randomUUID()); f.store.rows.set(key, Buffer.from('malformed'));
   const originalList = f.store.list.bind(f.store);
-  f.store.list = async (...args) => { const page = await originalList(...args); return { ...page, sizes: page.keys.map(value => value === key ? 2048 : 400) }; };
+  f.store.list = async (...args) => { const page = await originalList(...args); return { ...page, sizes: page.keys.map(value => value === key ? 4097 : 400) }; };
   await f.discover();
   f.store.list = originalList; await f.discover();
   const invalid = (await f.entries()).find(value => value.key_sha256 === hash(key));

@@ -6,6 +6,7 @@ import type { JobLease } from '../jobs/jobs.policy.js';
 import { NotificationsCoreService } from '../notifications/notifications-core.service.js';
 import { checkedDeletionIntent, encodeDeletionIntent } from './deletion-ledger.js';
 import type { DeletionReceipt, LedgerEnvironment } from './deletion-ledger.js';
+import { MessageDependenciesService } from './message-dependencies.service.js';
 import { MessagePurgeRepository } from './message-purge.repository.js';
 
 export type MessagePurgeResult = { status: 'progress' | 'rows_purged' | 'deferred'; changed: number };
@@ -13,7 +14,8 @@ export type MessagePurgeResult = { status: 'progress' | 'rows_purged' | 'deferre
 @Injectable()
 export class MessagePurgeService {
   constructor(@Inject(MessagePurgeRepository) private readonly repository: MessagePurgeRepository,
-    @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService) {}
+    @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService,
+    @Inject(MessageDependenciesService) private readonly dependencies: MessageDependenciesService) {}
 
   // One fresh transaction per bounded step. No external I/O, hidden inherited RR
   // snapshot, whole-account sweep, job completion or LIVE_PURGED claim.
@@ -47,7 +49,14 @@ export class MessagePurgeService {
         // Missing data is not evidence. A completed proof must match the immutable
         // intent, and restored children must not be mistaken for a finished root.
         const copy = await this.repository.copy(tx, lease.roomId!, intent.target_id);
-        if (!intent.blocked_at || !proof?.rows_purged_at || copy) return finish('deferred');
+        if (!intent.blocked_at || copy) return finish('deferred');
+        if (!proof?.rows_purged_at) {
+          // ACCOUNT may have removed this exact row first. Its FK-free atomic
+          // checkpoint is physical-row evidence, never a synthetic MESSAGE intent.
+          if (!request || request.actor_user_id !== intent.actor_user_id || request.room_id !== intent.room_id || request.message_id !== intent.target_id ||
+            request.requested_at.toISOString() !== intent.requested_at.toISOString() || !await this.repository.accountRemovalProof(tx, lease.roomId!, intent.target_id)) return finish('deferred');
+          await this.repository.recordProof(tx, intent);
+        }
         // FK-free metadata and polymorphic jobs can be restored without the
         // content row. Exact proof authorizes only this target's cleanup, not a
         // room/account sweep or a claim about lost historical child provenance.
@@ -69,20 +78,8 @@ export class MessagePurgeService {
       // Let an independently admitted copy request produce its own exact proof.
       // Otherwise source-first deletion would strand that request at absent/no-proof.
       if (candidate && await this.repository.admittedCopyRequest(tx, roomId, id)) return finish('deferred');
-      const notifications = await this.notifications.purgeMessage(tx, roomId, id, limit);
-      if (!notifications.done) return finish('progress', notifications.deleted);
-      const scrubbed = await this.repository.scrubReceipts(tx, roomId, id, limit);
-      if (scrubbed) return finish('progress', scrubbed);
-      const quotes = await this.repository.clearQuotes(tx, roomId, id, limit);
-      if (quotes) return finish('progress', quotes);
-      const publications = await this.repository.publications(tx, roomId, id, limit);
-      if (publications) return finish('progress', publications);
-      const reactions = await this.repository.reactions(tx, roomId, id, limit);
-      if (reactions) return finish('progress', reactions);
-      const sticker = await this.repository.sticker(tx, roomId, id);
-      if (sticker) return finish('progress', sticker);
-      const events = await this.repository.events(tx, roomId, id, limit);
-      if (events) return finish('progress', events);
+      const dependencies = await this.dependencies.page(tx, roomId, id, limit);
+      if (!dependencies.done) return finish('progress', dependencies.changed);
       if (await this.repository.remove(tx, roomId, id) !== 1) throw new Error('message_purge_row_conflict');
       if (candidate) return finish('progress', 1);
       // Root is last; all remaining dependency probes ran under its room lock.

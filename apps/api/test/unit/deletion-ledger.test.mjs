@@ -37,7 +37,7 @@ test('deletion intent is minimal canonical UUID metadata, with strict environmen
   }
   const account = { ...value, scope: 'ACCOUNT', roomId: null, targetId: value.actorUserId };
   assert.deepEqual(decodeDeletionIntent(encodeDeletionIntent(account), 'qa'), account);
-  for (const data of [Buffer.alloc(1025), Buffer.from([0xff]), Buffer.from(encoded.toString() + ' '),
+  for (const data of [Buffer.alloc(4097), Buffer.from([0xff]), Buffer.from(encoded.toString() + ' '),
     Buffer.from(encoded.toString().replace('{', '{"schemaVersion":1,'))]) {
     assert.throws(() => decodeDeletionIntent(data, 'qa'), { code: 'INVALID_LEDGER_INTENT' });
   }
@@ -103,7 +103,7 @@ test('R2 ledger GET treats only NoSuchKey/404 as absent; bounds streamed bytes a
     Object.assign(new Error('private'), { name: 'NoSuchKey', $metadata: { httpStatusCode: 403 } })]) {
     response = error; await assert.rejects(store.read(key, signal()), { code: 'LEDGER_UNAVAILABLE' });
   }
-  for (const bad of [{ ContentLength: 1025 }, { ContentLength: bytes.length - 1 }, { ContentType: 'text/html' }, { Body: Readable.from([Buffer.alloc(1025)]) }]) {
+  for (const bad of [{ ContentLength: 4097 }, { ContentLength: bytes.length - 1 }, { ContentType: 'text/html' }, { Body: Readable.from([Buffer.alloc(4097)]) }]) {
     response = { Body: Readable.from([bytes]), ContentLength: bytes.length, ContentType: 'application/json', ...bad };
     await assert.rejects(store.read(key, signal()), { code: 'LEDGER_UNAVAILABLE' }); assert.equal(response.Body.destroyed, true);
   }
@@ -219,10 +219,27 @@ test('R2 storage binding survives credential rotation and isolates provider acco
 
 test('R2 invalid size is private inventory evidence but strict inventory still refuses it', async () => {
   const store = new R2DeletionLedgerStore(config()); const key = deletionIntentKey('qa', randomUUID());
-  store.client.send = async () => ({ IsTruncated: false, Contents: [{ Key: key, Size: 1025 }] });
+  store.client.send = async () => ({ IsTruncated: false, Contents: [{ Key: key, Size: 4097 }] });
   const ledger = new DeletionLedger(store, 'qa');
   try {
     const page = await ledger.discover(); assert.equal(page.items[0].classification, 'INVALID_SIZE'); assert.equal(page.items[0].key, null);
     await assert.rejects(ledger.inventory(), { code: 'INVALID_LEDGER_INTENT' });
   } finally { store.close(); }
+});
+
+
+test('ACCOUNT v3 canonical multi-provider guards preserve v2 bytes and reject duplicates/ordering/raw subjects', () => {
+  const actor = randomUUID();
+  const base = { schemaVersion: 2, environment: 'qa', requestId: randomUUID(), actorUserId: actor, scope: 'ACCOUNT', targetId: actor,
+    roomId: null, requestedAt: '2026-09-20T00:00:00.000Z', subjectGuard: { version: 1, identityId: randomUUID(), keyFingerprint: 'a'.repeat(64), subjectHmac: 'b'.repeat(64) } };
+  const oldBytes = encodeDeletionIntent(base);
+  assert.equal(encodeDeletionIntent(decodeDeletionIntent(oldBytes, 'qa')).toString(), oldBytes.toString());
+  const { subjectGuard, ...rest } = base;
+  const value = { ...rest, schemaVersion: 3, subjectGuards: [{ ...subjectGuard, provider: 'soop' },
+    { ...subjectGuard, identityId: randomUUID(), subjectHmac: 'c'.repeat(64), provider: 'apple' }] };
+  assert.deepEqual(decodeDeletionIntent(encodeDeletionIntent(value), 'qa'), value);
+  for (const subjectGuards of [[...value.subjectGuards].reverse(), [value.subjectGuards[0], value.subjectGuards[0]],
+    [{ ...value.subjectGuards[0], subject: 'raw' }], Array(9).fill(value.subjectGuards[0])]) {
+    assert.throws(() => checkedDeletionIntent({ ...value, subjectGuards }, 'qa'), { code: 'INVALID_LEDGER_INTENT' });
+  }
 });
