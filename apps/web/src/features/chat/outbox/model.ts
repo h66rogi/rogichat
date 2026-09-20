@@ -73,8 +73,15 @@ export function insert(state: OutboxState, roomId: string, payload: OutboxPayloa
   }
   expire(state, now);
   const record: OutboxRecord = { clientMessageId: payload.clientMessageId, roomId, accountPartition: authority.accountPartition, sessionKey: authority.sessionKey, membershipScope: room.membershipScope, authorizationRevision: room.authorizationRevision, createdAt: now, payloadExpiresAt: now + OUTBOX_LIMITS.payloadMs, expiresAt: now + OUTBOX_LIMITS.identityMs, attempted: false, payload };
-  if (state.records.length >= OUTBOX_LIMITS.records || new TextEncoder().encode(JSON.stringify([...state.records, record])).length > OUTBOX_LIMITS.bytes) throw new OutboxError('CAPACITY');
-  state.records.push(record); return record;
+  const records = [...state.records];
+  while (records.length >= OUTBOX_LIMITS.records || new TextEncoder().encode(JSON.stringify([...records, record])).length > OUTBOX_LIMITS.bytes) {
+    const settled = records.findIndex(record => record.result !== undefined);
+    if (settled < 0) throw new OutboxError('CAPACITY');
+    // An absent settled ID cannot be retried/looked up through this owner; no
+    // unknown command is evicted and no historical payload is reconstructed.
+    records.splice(settled, 1);
+  }
+  state.records = [...records, record]; return record;
 }
 export function applyReceipt(record: OutboxRecord, value: Receipt) {
   const result = receipt(value, record.clientMessageId, 'lookup');

@@ -26,6 +26,8 @@ export interface SettingsViewProps {
   onDeleteAccount?: (() => void | Promise<void>) | undefined;
   className?: string | undefined;
   avatarEditor?: ReactNode;
+  accountControls?: ReactNode;
+  privacyControls?: ReactNode;
 }
 
 export function SettingsView({
@@ -37,7 +39,7 @@ export function SettingsView({
   onLogout,
   onDeleteAccount,
   className,
-  avatarEditor,
+  avatarEditor, accountControls, privacyControls,
 }: SettingsViewProps) {
   return (
     <div className={cn('mx-auto flex w-full max-w-[40rem] flex-col gap-6 px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]', className)} data-testid="settings-view">
@@ -52,7 +54,8 @@ export function SettingsView({
       <NotificationSection model={model.notifications} onToggle={onToggleNotifications} />
       <RoomLeaveSection model={model.room} onLeave={onLeaveRoom} />
       <SessionSection model={model.session} onLogout={onLogout} />
-      <AccountDeletionSection model={model.account} onDelete={onDeleteAccount} />
+      {accountControls ?? <AccountDeletionSection model={model.account} onDelete={onDeleteAccount} />}
+      {privacyControls}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiError } from '../../core/api/client';
+import { ApiError, type Session } from '../../core/api/client';
 import { PrivacyClient, deletionReceipt, publicationReceipt } from './client';
-import { ACCOUNT_DELETION_PENDING, DeletionFlow, accountBinding, browserPrivacyStore, clearDeletion, isAccountDeletionPending, readDeletion, type MarkerStore } from './deletion';
+import { ACCOUNT_DELETION_PENDING, DeletionFlow, accountBinding, browserPrivacyStore, clearDeletion, isAccountDeletionPending, readDeletion, type MarkerStore, type DeletionPreparation, type DeletionState } from './deletion';
 import { PublicationFlow, canOfferPublication, publicationKey, type PublicationContext } from './publication';
 
 const origin = 'https://api.qa.rogi.chat';
@@ -15,6 +15,10 @@ const context: PublicationContext = { session, generation: 1,
 function store(): MarkerStore {
   const values = new Map<string, string>();
   return { getItem: key => values.get(key) ?? null, setItem: (key, value) => { values.set(key, value); }, removeItem: key => { values.delete(key); } };
+}
+function deletionFlow(client: PrivacyClient, storage: MarkerStore, changed: (state: DeletionState) => void, blocked: (session: Session) => void,
+  preparation: DeletionPreparation = { cleanupBinding: async () => '1'.repeat(64), onPrepare: async () => {} }) {
+  return new DeletionFlow(client, storage, changed, blocked, preparation);
 }
 function response(body: unknown, status = 200) { return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } }); }
 function api(handler: (path: string, init: RequestInit) => Promise<Response> | Response) {
@@ -46,7 +50,7 @@ void test('transport uses approved origin, cookie/CSRF, bounded JSON and exact s
 
 void test('account deletion persists before dispatch, validates receipt then cleans once', async () => {
   const storage = store(); let cleanups = 0; let deletes = 0;
-  const flow = new DeletionFlow(api(path => {
+  const flow = deletionFlow(api(path => {
     if (path.endsWith('/session')) return response(session);
     deletes++; assert.equal(readDeletion(storage)?.phase, 'unknown'); return response({ requestId: id, status: 'blocked' });
   }), storage, () => {}, () => { cleanups++; });
@@ -60,9 +64,9 @@ void test('401, lost ACK, malformed receipt and ledger 503 never prove deletion;
   for (const failure of [() => response({ error: { code: 'UNAUTHENTICATED' } }, 401), () => { throw new TypeError('offline'); }, () => response({ status: 'blocked' }), () => response({}, 503)]) {
     const storage = store(); let deletes = 0; let cleaned = false;
     const client = api(path => { if (path.endsWith('/session')) return response(session); deletes++; return failure(); });
-    const flow = new DeletionFlow(client, storage, () => {}, () => { cleaned = true; });
+    const flow = deletionFlow(client, storage, () => {}, () => { cleaned = true; });
     await flow.submit(session); assert.ok(['unknown', 'unavailable'].includes(flow.state)); assert.equal(cleaned, false);
-    const restored = new DeletionFlow(client, storage, () => {}, () => {}); await restored.recover();
+    const restored = deletionFlow(client, storage, () => {}, () => {}); await restored.recover();
     assert.equal(restored.state, 'ready'); assert.equal(deletes, 1); assert.equal(readDeletion(storage)?.phase, 'unknown');
   }
 });
@@ -74,7 +78,7 @@ void test('recent auth uses login only; different-account reauth never mutates',
     if (path.endsWith('/start')) { assert.deepEqual(JSON.parse(String(init.body)), { intent: 'login', termsVersion: '2026-09-20' }); return response({ authorizeUrl: 'https://example.invalid/auth' }); }
     deletes++; return response({ error: { code: 'RECENT_AUTH_REQUIRED' } }, 403);
   });
-  const flow = new DeletionFlow(client, storage, () => {}, () => {});
+  const flow = deletionFlow(client, storage, () => {}, () => {});
   await flow.submit(session); assert.equal(flow.state, 'reauth'); await flow.login(); switched = true; await flow.recover();
   assert.equal(flow.state, 'differentAccount'); await flow.retry(); assert.equal(deletes, 1);
   await flow.submit({ ...session, accountPartition: 'C'.repeat(42) + 'A' }); assert.equal(deletes, 1);
@@ -83,11 +87,11 @@ void test('recent auth uses login only; different-account reauth never mutates',
 void test('storage failure blocks deletion, stale operation and disposed responses cannot bless newer state', async () => {
   let deletes = 0;
   const storage = store(); storage.setItem = () => { throw new Error('quota'); };
-  const flow = new DeletionFlow(api(path => { if (path.endsWith('/session')) return response(session); deletes++; return response({ requestId: id, status: 'blocked' }); }), storage, () => {}, () => {});
+  const flow = deletionFlow(api(path => { if (path.endsWith('/session')) return response(session); deletes++; return response({ requestId: id, status: 'blocked' }); }), storage, () => {}, () => {});
   await flow.submit(session); assert.equal(deletes, 0); assert.equal(flow.state, 'storageError');
   assert.equal(isAccountDeletionPending({ ...storage, getItem: () => { throw new Error(); } }), true);
   const healthy = store(); let release!: (response: Response) => void; let cleanups = 0;
-  const pending = new DeletionFlow(api(path => path.endsWith('/session') ? response(session) : new Promise(resolve => { release = resolve; })), healthy, () => {}, () => { cleanups++; });
+  const pending = deletionFlow(api(path => path.endsWith('/session') ? response(session) : new Promise(resolve => { release = resolve; })), healthy, () => {}, () => { cleanups++; });
   const work = pending.submit(session);
   while (!release) await new Promise(resolve => setTimeout(resolve, 0));
   const previous = readDeletion(healthy)!;
@@ -140,7 +144,7 @@ void test('stale recovery dismissal cannot clear successor marker; corrupt marke
   const storage = store();
   const a = { version: 1, operation: crypto.randomUUID(), account: await accountBinding(origin, session.accountPartition), phase: 'unknown' };
   storage.setItem(ACCOUNT_DELETION_PENDING, JSON.stringify(a));
-  const recovery = new DeletionFlow(api(() => response(session)), storage, () => {}, () => {});
+  const recovery = deletionFlow(api(() => response(session)), storage, () => {}, () => {});
   await recovery.recover(); assert.equal(recovery.state, 'ready');
   const b = { ...a, operation: crypto.randomUUID() };
   storage.setItem(ACCOUNT_DELETION_PENDING, JSON.stringify(b));
@@ -155,7 +159,7 @@ void test('throwing browser storage getter is deferred and fails closed', async 
   Object.defineProperty(globalThis, 'window', { configurable: true, value: { get localStorage() { throw new DOMException('denied', 'SecurityError'); } } });
   try {
     assert.equal(isAccountDeletionPending(browserPrivacyStore), true);
-    const flow = new DeletionFlow(api(() => response(session)), browserPrivacyStore, () => {}, () => {});
+    const flow = deletionFlow(api(() => response(session)), browserPrivacyStore, () => {}, () => {});
     await flow.recover(); assert.equal(flow.state, 'storageError');
     await flow.submit(session); assert.equal(flow.state, 'storageError');
   } finally {
@@ -193,7 +197,48 @@ void test('noncooperative late publication response after disposal never updates
 void test('reauth marker remains actionable across reload and rotated same-account session still needs confirmation', async () => {
   const storage = store(); let current = session; let deletes = 0;
   const client = api(path => { if (path.endsWith('/session')) return response(current); deletes++; return response({ error: { code: 'RECENT_AUTH_REQUIRED' } }, 403); });
-  const flow = new DeletionFlow(client, storage, () => {}, () => {}); await flow.submit(session);
-  const recovery = new DeletionFlow(client, storage, () => {}, () => {}); await recovery.recover(); assert.equal(recovery.state, 'reauth');
+  const flow = deletionFlow(client, storage, () => {}, () => {}); await flow.submit(session);
+  const recovery = deletionFlow(client, storage, () => {}, () => {}); await recovery.recover(); assert.equal(recovery.state, 'reauth');
   current = { ...session, csrfToken: 'D'.repeat(42) + 'A' }; await recovery.recover(); assert.equal(recovery.state, 'ready'); assert.equal(deletes, 1);
+});
+
+void test('required cleanup persists exact digest before preparation and prevents DELETE on failure', async () => {
+  const storage = store(); let deletes = 0; let prepared = false;
+  const flow = deletionFlow(api(path => { if (path.endsWith('/session')) return response(session); deletes++; return response({ requestId: id, status: 'blocked' }); }), storage, () => {}, () => {}, {
+    cleanupBinding: async captured => { assert.deepEqual(captured, session); return 'e'.repeat(64); },
+    onPrepare: async captured => { assert.deepEqual(captured, session); assert.equal(readDeletion(storage)?.outbox, 'e'.repeat(64)); prepared = true; throw new Error('IndexedDB unavailable'); },
+  });
+  await flow.submit(session); assert.equal(prepared, true); assert.equal(deletes, 0); assert.equal(flow.state, 'prepareError'); assert.equal(readDeletion(storage)?.phase, 'unknown');
+});
+
+void test('invalid cleanup digest blocks marker creation and all mutation', async () => {
+  const storage = store(); let prepared = false; let deletes = 0;
+  const flow = deletionFlow(api(path => { if (path.endsWith('/session')) return response(session); deletes++; return response({ requestId: id, status: 'blocked' }); }), storage, () => {}, () => {}, {
+    cleanupBinding: async () => session.csrfToken, onPrepare: async () => { prepared = true; },
+  });
+  await flow.submit(session); assert.equal(flow.state, 'storageError'); assert.equal(readDeletion(storage), null); assert.equal(prepared, false); assert.equal(deletes, 0);
+});
+
+void test('session switch during asynchronous preparation cannot delete successor account', async () => {
+  const storage = store(); let switched = false; let deletes = 0;
+  const flow = deletionFlow(api(path => {
+    if (path.endsWith('/session')) return response(switched ? { ...session, csrfToken: 'D'.repeat(42) + 'A' } : session);
+    deletes++; return response({ requestId: id, status: 'blocked' });
+  }), storage, () => {}, () => {}, { cleanupBinding: async () => 'e'.repeat(64), onPrepare: async () => { switched = true; } });
+  await flow.submit(session); assert.equal(deletes, 0); assert.equal(flow.state, 'differentAccount');
+});
+
+void test('blocked callback receives captured validated session without postdelete session read', async () => {
+  const storage = store(); let deleted = false; let sessionReads = 0; let cleanupSession: Session | null = null;
+  const flow = deletionFlow(api(path => {
+    if (path.endsWith('/session')) { sessionReads++; assert.equal(deleted, false); return response(session); }
+    deleted = true; return response({ requestId: id, status: 'blocked' });
+  }), storage, () => {}, captured => { cleanupSession = captured; });
+  await flow.submit(session); assert.equal(flow.state, 'blocked'); assert.deepEqual(cleanupSession, session); assert.equal(sessionReads, 2);
+});
+
+void test('legacy marker has no inferred cleanup binding and malformed digest is rejected', async () => {
+  const storage = store(); const marker = { version: 1, operation: crypto.randomUUID(), account: await accountBinding(origin, session.accountPartition), phase: 'unknown' };
+  storage.setItem(ACCOUNT_DELETION_PENDING, JSON.stringify(marker)); assert.equal(readDeletion(storage)?.outbox, undefined);
+  storage.setItem(ACCOUNT_DELETION_PENDING, JSON.stringify({ ...marker, outbox: session.csrfToken })); assert.throws(() => readDeletion(storage)); assert.equal(isAccountDeletionPending(storage), true);
 });

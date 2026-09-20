@@ -23,13 +23,18 @@ class ResetRequired extends Error {}
 const differentHints = (a: ServerMessage, b: ServerMessage) => JSON.stringify([a.counterpart, a.allowedActions]) !== JSON.stringify([b.counterpart, b.allowedActions]);
 
 const activeControllers = new Set<ChatController>();
-export function revokeChatOutboxes() { for (const controller of activeControllers) controller.revokeStorage(); }
+export function revokeChatOutboxes(accountPartition?: string, sessionBinding?: string) {
+  for (const controller of activeControllers) if (accountPartition === undefined || controller.matchesSession(accountPartition, sessionBinding!)) controller.revokeStorage();
+}
+export function suspendChatOutboxes() { for (const controller of activeControllers) controller.suspendStorage(); }
 
 /** Ephemeral, per-mount cache. No browser persistence; every request is bounded by one access epoch. */
 export class ChatController {
   private state = initial();
   private outbox: DurableOutbox | undefined;
   private revoking: Promise<void> | undefined;
+  matchesSession = (account: string, session: string) => this.accountPartition === account && this.sessionBinding === session;
+  suspendStorage = () => { this.outbox?.suspend(); };
   revokeStorage = () => {
     if (!this.outbox) return;
     this.revoking = this.outbox.revoke().catch(error => { this.publish({ storageError: this.storageMessage(error) }); });
@@ -119,6 +124,11 @@ export class ChatController {
     this.roomId = roomId; this.request = request; this.onInvalidate = onInvalidate; this.accountPartition = accountPartition; this.sessionBinding = csrfToken;
   }
   getSnapshot = (): ChatState => this.state;
+  privacyContext = (messageId: string) => {
+    const message = this.messages.find(item => item.id === messageId);
+    return !this.dead && this.state.phase === 'ready' && this.state.room && message
+      ? { scope: this.state.room, generation: this.state.epoch, message } : null;
+  };
   mediaLifetime = (epoch = this.state.epoch): MediaLifetime => {
     const signal = this.abort.signal;
     return { signal, isCurrent: () => !this.dead && !signal.aborted && epoch === this.state.epoch && this.state.phase === 'ready' };

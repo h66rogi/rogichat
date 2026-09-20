@@ -70,3 +70,15 @@ void test('scope and session scrubbing preserve irreversible deleted receipt tom
   applyReceipt(record, { clientMessageId: id, status: 'committed', messageId: roomId, version: '2' });
   assert.deepEqual(record.result, { clientMessageId: id, status: 'deleted' });
 });
+void test('settled receipts can yield capacity without dropping any unknown command', () => {
+  const state = seeded();
+  for (let i = 1; i < OUTBOX_LIMITS.records; i++) insert(state, roomId, { ...payload, clientMessageId: `${String(i).padStart(8, '0')}-1111-4111-8111-111111111111` }, 100);
+  const settled = state.records[120]!;
+  applyReceipt(settled, { clientMessageId: settled.clientMessageId, status: 'deleted' });
+  const unknownIds = state.records.filter(record => !record.result).map(record => record.clientMessageId);
+  const newId = 'ffffffff-1111-4111-8111-111111111111';
+  insert(state, roomId, { ...payload, clientMessageId: newId }, 101);
+  assert.equal(state.records.length, 256);
+  assert.ok(!state.records.some(record => record.clientMessageId === settled.clientMessageId));
+  assert.deepEqual(state.records.filter(record => record.clientMessageId !== newId).map(record => record.clientMessageId), unknownIds);
+});

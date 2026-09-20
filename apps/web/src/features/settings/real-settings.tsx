@@ -8,14 +8,18 @@ import { clearLogoutPending, invalidateSession, setLogoutPending, usePrivateSess
 import { useRoom } from '@/features/channel/session/use-room';
 import { SettingsView } from './SettingsView';
 import { AvatarEditor } from '@/features/media/AvatarEditor';
+import { cleanupBinding, eraseSessionOutbox } from '@/features/auth/outbox-cleanup';
+import { forgetChatMemory } from '@/features/chat/chat-memory';
+import { revokeChatOutboxes } from '@/features/chat/chat-controller';
+import { AccountDeletionControl, BlockedActorsControl, ReportRecovery } from '@/features/privacy';
 import { SessionMediaProvider } from '@/features/media/session-ui';
 import type { SettingsProfilePatch, SettingsViewModel } from './types';
 export function RealSettings() {
   const { state, refresh } = usePrivateSession();
-  if (state.kind !== 'ready') return <PrivateGate state={state} retry={refresh} />;
-  return <AccountSettings key={state.generation} session={state.session} profile={state.profile} refresh={refresh} />;
+  if (state.kind !== 'ready') return <PrivateGate state={state} retry={refresh} allowAccountDeletion />;
+  return <AccountSettings key={state.generation} session={state.session} profile={state.profile} generation={state.generation} refresh={refresh} />;
 }
-function AccountSettings({ session, profile: initial, refresh }: { session: Session; profile: Profile; refresh: () => void }) {
+function AccountSettings({ session, profile: initial, generation, refresh }: { session: Session; profile: Profile; generation: number; refresh: () => void }) {
   const api = useApi();
   const room = useRoom();
   const [profile, setProfile] = useState(initial);
@@ -57,7 +61,8 @@ function AccountSettings({ session, profile: initial, refresh }: { session: Sess
     try {
       const binding = await sessionBinding(session.csrfToken);
       if (!mounted.current) return;
-      marker = setLogoutPending(binding);
+      marker = await setLogoutPending(binding, api.origin, session);
+      await eraseSessionOutbox(api.origin, session);
     } catch { loggingOut.current = false; setNotice('로그아웃 상태를 안전하게 저장할 수 없습니다. 브라우저 저장소를 확인해 주세요.'); return; }
     // The local flag unmounts all private views before the command is sent. Do not abort logout on unmount.
     try {
@@ -88,5 +93,7 @@ function AccountSettings({ session, profile: initial, refresh }: { session: Sess
     account: { deletion: unavailable('계정 탈퇴 기능을 아직 제공하지 않습니다.') },
   };
   return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLeaveRoom={leave}
+    accountControls={<AccountDeletionControl origin={api.origin} session={session} generation={generation} cleanupBinding={current => cleanupBinding(api.origin, current)} onPrepare={current => eraseSessionOutbox(api.origin, current)} onBlocked={current => { revokeChatOutboxes(current.accountPartition, current.csrfToken); forgetChatMemory(); invalidateSession(); }} />}
+    privacyControls={<><ReportRecovery origin={api.origin} session={session} generation={generation} />{room.kind === 'ready' && <BlockedActorsControl origin={api.origin} session={session} generation={generation} roomId={room.room.roomId} onReset={refresh} />}</>}
     avatarEditor={<AvatarEditor assetId={profile.avatar?.assetId ?? null} busy={busy} save={assetId => save({ avatarAssetId: assetId })} />} /></SessionMediaProvider>;
 }

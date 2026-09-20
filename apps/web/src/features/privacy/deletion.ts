@@ -6,7 +6,11 @@ export const DELETION_PENDING = 'rogichat.account-deletion.v1';
 export const ACCOUNT_DELETION_PENDING = DELETION_PENDING;
 export const PRIVACY_CHANGED = 'rogichat-privacy-changed';
 export type DeletionPhase = 'unknown' | 'reauth' | 'blocked';
-export interface DeletionMarker { version: 1; operation: string; account: string; phase: DeletionPhase; auth?: string }
+export interface DeletionMarker { version: 1; operation: string; account: string; phase: DeletionPhase; auth?: string; outbox?: string }
+export interface DeletionPreparation {
+  cleanupBinding(session: Session): Promise<string>;
+  onPrepare(session: Session): Promise<void>;
+}
 export interface MarkerStore { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 /** Accessing window.localStorage itself can throw; defer it into guarded operations. */
 export const browserPrivacyStore: MarkerStore = {
@@ -24,9 +28,10 @@ export async function accountBinding(origin: string, accountPartition: string): 
 export function readDeletion(store: MarkerStore): DeletionMarker | null {
   const raw = store.getItem(DELETION_PENDING);
   if (raw === null) return null;
-  const data = exact(JSON.parse(raw), ['version', 'operation', 'account', 'phase'], ['auth']);
+  const data = exact(JSON.parse(raw), ['version', 'operation', 'account', 'phase'], ['auth', 'outbox']);
   if (data.version !== 1 || typeof data.operation !== 'string' || !/^[0-9a-f-]{36}$/.test(data.operation) || typeof data.account !== 'string' || !/^[a-f0-9]{64}$/.test(data.account) || !['unknown', 'reauth', 'blocked'].includes(String(data.phase))) throw new Error('INVALID_MARKER');
   if ('auth' in data && (typeof data.auth !== 'string' || !/^[a-f0-9]{64}$/.test(data.auth))) throw new Error('INVALID_MARKER');
+  if ('outbox' in data && (typeof data.outbox !== 'string' || !/^[a-f0-9]{64}$/.test(data.outbox))) throw new Error('INVALID_MARKER');
   return data as unknown as DeletionMarker;
 }
 export function updateDeletion(store: MarkerStore, marker: DeletionMarker, phase: DeletionPhase): boolean {
@@ -37,7 +42,7 @@ export function clearDeletion(store: MarkerStore, operation: string): boolean {
   if (readDeletion(store)?.operation !== operation) return false;
   store.removeItem(DELETION_PENDING); return true;
 }
-export type DeletionState = 'idle' | 'checking' | 'sending' | 'reauth' | 'unknown' | 'unavailable' | 'blocked' | 'differentAccount' | 'ready' | 'storageError';
+export type DeletionState = 'idle' | 'checking' | 'preparing' | 'prepareError' | 'sending' | 'reauth' | 'unknown' | 'unavailable' | 'blocked' | 'differentAccount' | 'ready' | 'storageError';
 export class DeletionFlow {
   state: DeletionState = 'idle';
   private active = new AbortController();
@@ -47,9 +52,10 @@ export class DeletionFlow {
   private readonly api: PrivacyClient;
   private readonly store: MarkerStore;
   private readonly changed: (state: DeletionState) => void;
-  private readonly onBlocked: () => void;
-  constructor(api: PrivacyClient, store: MarkerStore, changed: (state: DeletionState) => void, onBlocked: () => void) {
-    this.api = api; this.store = store; this.changed = changed; this.onBlocked = onBlocked;
+  private readonly onBlocked: (session: Session) => void;
+  private readonly preparation: DeletionPreparation;
+  constructor(api: PrivacyClient, store: MarkerStore, changed: (state: DeletionState) => void, onBlocked: (session: Session) => void, preparation: DeletionPreparation) {
+    this.api = api; this.store = store; this.changed = changed; this.onBlocked = onBlocked; this.preparation = preparation;
   }
   private set(state: DeletionState) { if (!this.disposed) { this.state = state; this.changed(state); } }
   dispose() { this.disposed = true; this.active.abort(); }
@@ -96,6 +102,7 @@ export class DeletionFlow {
     this.busy = true; this.set('checking');
     let marker: DeletionMarker | null = null;
     let dispatched = false;
+    let preparing = false;
     try {
       const account = await accountBinding(this.api.origin, expected.accountPartition); this.current();
       const auth = await accountBinding(`${this.api.origin}:session`, expected.csrfToken); this.current();
@@ -104,14 +111,22 @@ export class DeletionFlow {
       if (marker && marker.account !== account) { this.set('differentAccount'); return; }
       const session = await this.api.session(this.active.signal); this.current(marker ?? undefined);
       if (session.accountPartition !== expected.accountPartition || session.csrfToken !== expected.csrfToken) { this.set('differentAccount'); return; }
+      const outbox = await this.preparation.cleanupBinding(session); this.current(marker ?? undefined);
+      if (typeof outbox !== 'string' || !/^[a-f0-9]{64}$/.test(outbox)) throw new Error('INVALID_CLEANUP_BINDING');
       if (!marker) {
-        marker = { version: 1, operation: crypto.randomUUID(), account, phase: 'unknown', auth };
+        // Recheck after async derivation; another tab may have created an intent.
+        if (readDeletion(this.store)) { this.set('unknown'); return; }
+        marker = { version: 1, operation: crypto.randomUUID(), account, phase: 'unknown', auth, outbox };
         this.store.setItem(DELETION_PENDING, JSON.stringify(marker));
       } else {
-        marker = { ...marker, auth };
+        marker = { ...marker, auth, outbox };
         if (!updateDeletion(this.store, marker, 'unknown')) { this.set('unknown'); return; }
       }
-      this.current(marker); this.set('sending');
+      this.current(marker); this.set('preparing'); preparing = true;
+      await this.preparation.onPrepare(session); this.current(marker);
+      const confirmed = await this.api.session(this.active.signal); this.current(marker);
+      if (confirmed.accountPartition !== session.accountPartition || confirmed.csrfToken !== session.csrfToken) { this.set('differentAccount'); return; }
+      this.set('sending');
       dispatched = true;
       await this.api.deleteAccount(session.csrfToken, this.active.signal); this.current(marker);
       // The verified receipt proves access blocked only; physical deletion is separate.
@@ -119,11 +134,11 @@ export class DeletionFlow {
       try { updateDeletion(this.store, marker, 'blocked'); }
       finally {
         try { this.observedRaw = this.store.getItem(DELETION_PENDING); } catch { /* Existing unknown marker remains fail closed. */ }
-        this.set('blocked'); this.onBlocked();
+        this.set('blocked'); this.onBlocked(session);
       }
     } catch (error) {
       if (this.state === 'blocked') return;
-      if (!marker || !dispatched) { this.set('storageError'); return; }
+      if (!marker || !dispatched) { this.set(preparing ? 'prepareError' : 'storageError'); return; }
       if (error instanceof ApiError && error.code === 'RECENT_AUTH_REQUIRED') {
         try { updateDeletion(this.store, marker, 'reauth'); } catch { /* Existing unknown marker is conservative. */ }
         this.set('reauth');

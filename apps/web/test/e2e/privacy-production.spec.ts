@@ -85,7 +85,7 @@ test('different-account reauthentication never deletes the replacement account',
 async function privacyChat(page: Page) {
   const account = await installApi(page, true); account.sessionToken = csrf; account.joined = true;
   const source: ServerMessage = { id: sourceId, version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE', author: { kind: 'member', actorId: fanId, nickname: '격리 테스트 팬', avatar: null }, content: { type: 'TEXT', text: '공개 전 개인 메시지' }, quote: null, counterpart: { actorId: fanId }, allowedActions: { reply: true, publish: true, delete: false } };
-  const state = { publication: 'preparing' as 'preparing' | 'published' | 'revoked', unknown: false, writes: 0, reads: 0, snapshots: 0, syncReads: 0, reports: 0, reportLost: false, reportKey: '', blocked: false, revision: TEST_SCOPES.authorizationRevision, messages: [source] };
+  const state = { publication: 'preparing' as 'preparing' | 'published' | 'revoked', unknown: false, writes: 0, reads: 0, snapshots: 0, syncReads: 0, reports: 0, reportLost: false, reportKey: '', blocked: false, sessionStatus: 200, revision: TEST_SCOPES.authorizationRevision, messages: [source] };
   await page.routeWebSocket('**/v1/realtime/**', socket => {
     socket.send('0' + JSON.stringify({ sid: 'privacy-isolated-engine', upgrades: [], pingInterval: 25000, pingTimeout: 20000, maxPayload: 1024 }));
     socket.onMessage(packet => { if (typeof packet === 'string' && packet.startsWith('40')) socket.send('40' + JSON.stringify({ sid: 'privacy-isolated-socket' })); });
@@ -93,6 +93,7 @@ async function privacyChat(page: Page) {
   await page.route('https://api.qa.rogi.chat/v1/**', async route => {
     const path = new URL(route.request().url()).pathname; const method = route.request().method();
     if (method === 'OPTIONS') return json(route, null, 204);
+    if (path === '/v1/auth/session' && state.sessionStatus !== 200) return json(route, {}, state.sessionStatus);
     const scopes = { ...TEST_SCOPES, authorizationRevision: state.revision };
     const envelope = { schemaVersion: 2, resetRequired: false, ...scopes };
     if (path === '/v1/sync') return json(route, { schemaVersion: 2, resetRequired: false, generation: `privacy-membership-${state.revision}`, rooms: [{ roomId: TEST_ROOM_ID, name: '후로기', actorId: TEST_ACTOR_ID, mode: 'FAN', role: 'STREAMER', ...scopes }], nextCursor: null, complete: true });
@@ -151,4 +152,27 @@ test('visible actor block requires confirmation and settings can explicitly unbl
   await page.getByRole('button', { name: '차단 항목 1 해제', exact: true }).click();
   expect(state.blocked).toBe(true); await page.getByRole('button', { name: '차단 해제 확인', exact: true }).click();
   await expect.poll(() => state.blocked).toBe(false);
+});
+
+test('report predispatch failure has an actionable read-only recovery button', async ({ page }) => {
+  const state = await privacyChat(page); await page.goto('/chat');
+  await page.getByText('메시지 신고', { exact: true }).click();
+  await page.getByLabel('선택한 사유와 내용을 신고로 제출합니다.').check(); state.sessionStatus = 503;
+  await page.getByRole('button', { name: '신고 제출', exact: true }).click();
+  await expect(page.getByText('신고 복구 상태를 저장하거나 로그인 상태를 확인할 수 없습니다. 다시 확인해 주세요.')).toBeVisible();
+  state.sessionStatus = 200; await page.getByRole('button', { name: '신고 접수 확인', exact: true }).click();
+  await expect(page.getByRole('button', { name: '신고 제출', exact: true })).toBeDisabled(); expect(state.reports).toBe(0);
+});
+
+
+test('unlinked authenticated settings permits deletion without a fabricated profile', async ({ page }) => {
+  const { state, account } = await deletionApi(page);
+  let profileReads = 0;
+  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, accountPartition: state.partition, csrfToken: account.sessionToken, soopLinkStatus: 'REQUIRED' }));
+  await page.route('**/v1/me/profile', route => { profileReads++; return json(route, {}, 403); });
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: 'SOOP 계정 연결이 필요해요' })).toBeVisible();
+  await confirmDeletion(page);
+  await expect(page.getByText('탈퇴 요청이 접수되어 계정 접근이 차단되었습니다. 데이터의 물리 삭제가 완료되었다는 뜻은 아닙니다.')).toBeVisible();
+  expect(state.deletes).toBe(1); expect(profileReads).toBe(0);
 });

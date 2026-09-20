@@ -5,14 +5,16 @@ import { forgetChatMemory } from '../chat/chat-memory';
 import { invalidateSession } from '../auth/private-session';
 import { Button } from '../../shared/ui/button';
 import { PrivacyClient } from './client';
-import { ACCOUNT_DELETION_PENDING, PRIVACY_CHANGED, DeletionFlow, browserPrivacyStore, type DeletionState } from './deletion';
+import { ACCOUNT_DELETION_PENDING, PRIVACY_CHANGED, DeletionFlow, browserPrivacyStore, type DeletionState, type DeletionPreparation } from './deletion';
 import { PublicationFlow, canOfferPublication, publicationKey, type PublicationContext, type PublicationState } from './publication';
 
 function privacyChanged() { window.dispatchEvent(new Event(PRIVACY_CHANGED)); }
-function blocked(callback?: () => void) { forgetChatMemory(); callback?.(); privacyChanged(); invalidateSession(); }
+function blocked(session: Session, callback: (session: Session) => void) { forgetChatMemory(); callback(session); privacyChanged(); invalidateSession(); }
 const deletionText: Record<DeletionState, string> = {
   idle: '계정 탈퇴를 요청하면 계정 접근이 차단되며 본인 메시지, 연결 공개본과 첨부가 삭제 대상에 포함됩니다. 방 퇴장과 다른 작업입니다.',
   checking: '현재 로그인 계정을 확인하고 있습니다.', sending: '탈퇴 요청 결과를 확인하고 있습니다.',
+  preparing: '이 기기에 저장된 개인 데이터를 안전하게 정리하고 있습니다.',
+  prepareError: '안전한 준비와 로그인 상태 확인을 완료하지 못해 탈퇴 요청을 보내지 않았습니다. 다시 확인해 주세요.',
   reauth: '최근 15분 이내 인증이 필요합니다. 같은 SOOP 계정으로 다시 로그인한 뒤 설정에서 확인해 주세요. 자동으로 탈퇴를 다시 요청하지 않습니다.',
   unknown: '탈퇴 요청 결과를 확인하지 못했습니다. 응답을 받지 못했어도 요청이 접수되었을 수 있습니다. 로그인 실패만으로 탈퇴 완료를 확인할 수 없습니다.',
   unavailable: '지금은 탈퇴 처리 결과를 확인할 수 없습니다. 요청이 기록되었을 수 있으므로 완료나 취소로 판단하지 않습니다.',
@@ -21,38 +23,42 @@ const deletionText: Record<DeletionState, string> = {
   ready: '같은 계정의 로그인 상태를 확인했습니다. 이전 탈퇴 요청의 취소나 실패를 뜻하지 않습니다. 다시 요청하려면 아래 내용을 확인해 주세요.',
   storageError: '복구 상태를 안전하게 저장하거나 계정을 확인할 수 없습니다. 브라우저 저장소와 연결을 확인해 주세요.',
 };
-export interface AccountDeletionControlProps { origin: string; session: Session; generation: number; onBlocked: () => void }
+export interface AccountDeletionControlProps extends DeletionPreparation { origin: string; session: Session; generation: number; onBlocked: (session: Session) => void }
 export function AccountDeletionControl(props: AccountDeletionControlProps) {
   return <DeletionForm key={JSON.stringify([props.origin, props.session.csrfToken, props.session.accountPartition, props.generation])} {...props} />;
 }
-function DeletionForm({ origin, session, onBlocked }: AccountDeletionControlProps) {
+function DeletionForm({ origin, session, onBlocked, onPrepare, cleanupBinding }: AccountDeletionControlProps) {
   const [state, setState] = useState<DeletionState>('idle');
   const [confirmed, setConfirmed] = useState(false);
   const flow = useRef<DeletionFlow | null>(null);
-  const callback = useRef(onBlocked);
-  useEffect(() => { callback.current = onBlocked; }, [onBlocked]);
+  const callbacks = useRef({ onBlocked, onPrepare, cleanupBinding });
+  useEffect(() => { callbacks.current = { onBlocked, onPrepare, cleanupBinding }; }, [onBlocked, onPrepare, cleanupBinding]);
   useEffect(() => {
-    const instance = new DeletionFlow(new PrivacyClient(origin), browserPrivacyStore, setState, () => blocked(() => callback.current()));
+    const instance = new DeletionFlow(new PrivacyClient(origin), browserPrivacyStore, setState, session => blocked(session, callbacks.current.onBlocked), {
+      cleanupBinding: session => callbacks.current.cleanupBinding(session), onPrepare: session => callbacks.current.onPrepare(session),
+    });
     flow.current = instance;
     return () => { instance.dispose(); flow.current = null; };
   }, [origin]);
-  const busy = state === 'sending' || state === 'checking';
+  const busy = state === 'sending' || state === 'checking' || state === 'preparing';
   const submit = async () => { if (!confirmed) return; setConfirmed(false); await flow.current?.submit(session); privacyChanged(); };
   return <section aria-label="계정 탈퇴" className="space-y-4"><h2 className="font-semibold">계정 탈퇴</h2><p role="status">{deletionText[state]}</p>{state !== 'blocked' && <><label className="flex gap-3"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} /><span>계정 접근 차단과 삭제 요청 내용을 이해하고 탈퇴를 요청합니다.</span></label><Button variant="outline" disabled={!confirmed || busy} onClick={() => void submit()}>계정 탈퇴 요청</Button></>}</section>;
 }
 
-export interface AccountDeletionRecoveryProps { origin: string; onResume: () => void; onBlocked: () => void }
+export interface AccountDeletionRecoveryProps extends DeletionPreparation { origin: string; onResume: () => void; onBlocked: (session: Session) => void }
 /** Must mount ahead of the private gate when isAccountDeletionPending() is true. */
-export function AccountDeletionRecovery({ origin, onResume, onBlocked }: AccountDeletionRecoveryProps) {
+export function AccountDeletionRecovery({ origin, onResume, onBlocked, onPrepare, cleanupBinding }: AccountDeletionRecoveryProps) {
   const [state, setState] = useState<DeletionState>('checking');
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [epoch, setEpoch] = useState(0);
   const flow = useRef<DeletionFlow | null>(null);
-  const callbacks = useRef({ onResume, onBlocked });
-  useEffect(() => { callbacks.current = { onResume, onBlocked }; }, [onResume, onBlocked]);
+  const callbacks = useRef({ onResume, onBlocked, onPrepare, cleanupBinding });
+  useEffect(() => { callbacks.current = { onResume, onBlocked, onPrepare, cleanupBinding }; }, [onResume, onBlocked, onPrepare, cleanupBinding]);
   useEffect(() => {
-    const instance = new DeletionFlow(new PrivacyClient(origin), browserPrivacyStore, setState, () => blocked(callbacks.current.onBlocked));
+    const instance = new DeletionFlow(new PrivacyClient(origin), browserPrivacyStore, setState, session => blocked(session, callbacks.current.onBlocked), {
+      cleanupBinding: session => callbacks.current.cleanupBinding(session), onPrepare: session => callbacks.current.onPrepare(session),
+    });
     flow.current = instance;
     const recover = () => { void instance.recover(); };
     const reset = () => { instance.dispose(); setConsent(false); setEpoch(value => value + 1); };
@@ -85,7 +91,7 @@ export function AccountDeletionRecovery({ origin, onResume, onBlocked }: Account
     if (url) window.location.assign(url);
     else setBusy(false);
   };
-  return <section aria-label="계정 탈퇴 요청 확인" className="mx-auto max-w-xl space-y-4 px-4 py-10"><h1 className="text-xl font-semibold">계정 탈퇴 요청 확인</h1><p role="status">{deletionText[state]}</p>{!['blocked', 'checking', 'sending'].includes(state) && <>
+  return <section aria-label="계정 탈퇴 요청 확인" className="mx-auto max-w-xl space-y-4 px-4 py-10"><h1 className="text-xl font-semibold">계정 탈퇴 요청 확인</h1><p role="status">{deletionText[state]}</p>{!['blocked', 'checking', 'sending', 'preparing'].includes(state) && <>
     <Button disabled={busy} variant="outline" onClick={() => void flow.current?.recover()}>로그인 상태 다시 확인</Button>
     <label className="flex gap-3"><input type="checkbox" checked={consent} disabled={busy} onChange={event => setConsent(event.target.checked)} /><span>{state === 'ready' ? '이전 요청이 접수되었을 수 있음을 이해하며 같은 계정의 탈퇴를 다시 요청합니다.' : <>같은 SOOP 계정으로 로그인합니다. <a href="/rules" className="underline">이용 안내</a>(2026-09-20)를 확인했으며 개인 메시지가 방장에 의해 전체 공개될 수 있음을 이해합니다.</>}</span></label>
     {state === 'ready' ? <Button disabled={!consent || busy} onClick={() => void retry()}>탈퇴 다시 요청</Button> : <Button disabled={!consent || busy} onClick={() => void login()}>같은 SOOP 계정으로 다시 로그인</Button>}

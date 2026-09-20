@@ -1,6 +1,5 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import ts from 'typescript';
 import type * as StorageModule from '../../src/features/chat/outbox/indexeddb';
 import type * as TransportModule from '../../src/features/chat/outbox/transport';
@@ -12,7 +11,7 @@ test.beforeEach(async ({ page, context }) => {
     const name = new URL(route.request().url()).pathname.split('/__outbox_test/')[1]!;
     if (name === 'harness') { await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Isolated storage test</title>' }); return; }
     if (!['outbox/indexeddb', 'outbox/model', 'outbox/transport', 'contract'].includes(name.replace(/\.js$/, ''))) throw new Error('Unexpected isolated module');
-    const source = await readFile(resolve('src/features/chat', name.replace(/\.js$/, '') + '.ts'), 'utf8');
+    const source = await readFile(new URL('../../src/features/chat/' + name.replace(/\.js$/, '') + '.ts', import.meta.url), 'utf8');
     const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext } }).outputText;
     await route.fulfill({ contentType: 'text/javascript', body: output.replace(/from '([^']+)'/g, "from '$1.js'") });
   });
@@ -188,4 +187,66 @@ test('confirmed revoke crosses same-session lease handoff but cannot cross autho
     first.close(); second.close(); return { fenced, erased, retained };
   });
   expect(result).toEqual({ fenced: true, erased: true, retained: true });
+});
+
+test('same-instance authority ABA aborts the original transport before late ACK can settle', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js', transportPath = '/__outbox_test/outbox/transport.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const { sendOutbox } = await import(transportPath) as typeof TransportModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID(), clientMessageId = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const outbox = await DurableOutbox.open('transport-aba'); await outbox.authorize(authority);
+    const failed = await sendOutbox(outbox, roomId, { clientMessageId, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'old transport body' } }, {
+      verify: async () => {}, lookup: async () => {}, send: async () => {
+        await outbox.authorize({ ...authority, sessionKey: 'b'.repeat(64) }); await outbox.authorize(authority);
+        return { clientMessageId, status: 'committed', messageId: crypto.randomUUID(), version: '1' };
+      },
+    }).then(() => false, () => true);
+    const record = (await outbox.recover(roomId))[0]!; outbox.close();
+    return { failed, hasResult: Boolean(record.result), hasPayload: Boolean(record.payload) };
+  });
+  expect(result).toEqual({ failed: true, hasResult: false, hasPayload: false });
+});
+
+test('detached session revoke erases closed-owner payload and protects a successor session', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const first = await DurableOutbox.open('detached'); await first.authorize(authority);
+    const oldId = crypto.randomUUID();
+    await first.prepare(roomId, { clientMessageId: oldId, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'closed owner private body' } }); first.close();
+    await DurableOutbox.revokeSession('detached', token, authority.sessionKey);
+    const next = await DurableOutbox.open('detached'); await next.authorize({ ...authority, sessionKey: 'b'.repeat(64) });
+    const erased = !(await next.recover(roomId))[0]!.payload;
+    const newId = crypto.randomUUID();
+    await next.prepare(roomId, { clientMessageId: newId, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'successor private body' } });
+    await DurableOutbox.revokeSession('detached', token, authority.sessionKey);
+    await DurableOutbox.revokeSession('detached', 'B'.repeat(42) + 'A', 'b'.repeat(64));
+    await next.assertCurrent();
+    const retained = Boolean((await next.recover(roomId)).find(record => record.clientMessageId === newId)?.payload);
+    next.close(); return { erased, retained };
+  });
+  expect(result).toEqual({ erased: true, retained: true });
+});
+
+test('pending-deletion digest cleanup rejects malformed and successor keys before erasure', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const outbox = await DurableOutbox.open('marker'); await outbox.authorize(authority);
+    await outbox.prepare(roomId, { clientMessageId: crypto.randomUUID(), membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'matching session only' } });
+    const invalid = await DurableOutbox.revokeSessionKey('marker', 'not-a-session-key').then(() => false, () => true);
+    await DurableOutbox.revokeSessionKey('marker', 'b'.repeat(64));
+    const retained = Boolean((await outbox.recover(roomId))[0]!.payload);
+    await DurableOutbox.revokeSessionKey('marker', authority.sessionKey);
+    const fenced = await outbox.assertCurrent().then(() => false, () => true);
+    await outbox.authorize(authority); const erased = !(await outbox.recover(roomId))[0]!.payload;
+    outbox.close(); return { invalid, retained, fenced, erased };
+  });
+  expect(result).toEqual({ invalid: true, retained: true, fenced: true, erased: true });
 });

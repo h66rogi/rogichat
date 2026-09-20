@@ -1,5 +1,6 @@
 'use client';
 
+import { ChatPrivacyActions } from './ChatPrivacyActions';
 import { Ban, Check, CircleAlert, CornerUpLeft, Lock, LoaderCircle, Megaphone, Reply } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
@@ -120,7 +121,7 @@ function MessageRow({
           )}
         </div>
 
-        {item.status === 'saved' && <ReactionControl messageId={item.id} />}
+        {item.status === 'saved' && <><ReactionControl messageId={item.id} /><ChatPrivacyActions messageId={item.id} /></>}
 
         {item.statusNote && (item.status === 'rejected' || item.status === 'unknown') && (
           <p className={cn('px-1 text-[12px]', item.status === 'rejected' ? 'text-danger' : 'text-muted')}>{item.statusNote}</p>
@@ -222,6 +223,7 @@ function PublicationRow({ item, onDelete }: { item: ChatPublicationItemModel; on
         </div>
         {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>}
         <ReactionControl messageId={item.id} />
+        <ChatPrivacyActions messageId={item.id} />
         {item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
       </div>
     </div>
@@ -247,6 +249,7 @@ function UnsupportedRow({ item, onDelete }: { item: ChatUnsupportedItemModel; on
       <div className="inline-flex items-center gap-2 rounded-lg bg-surface-soft px-3 py-2 text-[14px] text-muted">
         <CircleAlert className="size-4" aria-hidden="true" />
         <span>이 화면에서 표시할 수 없는 내용입니다.</span>
+        <ChatPrivacyActions messageId={item.id} />
         {item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
         <time dateTime={item.createdAt} className="text-[12px]">
           {timeLabelFor(item.createdAt)}

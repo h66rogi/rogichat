@@ -32,6 +32,24 @@ export class DurableOutbox {
   }
   /** Abort in-flight transport as soon as this tab loses its local authority. */
   get signal(): AbortSignal { return this.operationAbort.signal; }
+  /** Logout must erase the captured session even after every chat controller unmounts. */
+  static async revokeSession(environment: string, accountPartition: string, sessionKey: string): Promise<void> {
+    const identity = normalizeAuthority({ accountPartition, sessionKey, rooms: [] });
+    const outbox = await DurableOutbox.open(environment);
+    try {
+      const stored = outbox.lastGrant?.authority;
+      // A delayed old-session logout must never erase the successor's new commands.
+      if (stored?.accountPartition === identity.accountPartition && stored.sessionKey === identity.sessionKey) await outbox.revoke();
+    } finally { outbox.close(); }
+  }
+  /** Compact pending-deletion markers carry only the environment-bound session digest. */
+  static async revokeSessionKey(environment: string, sessionKey: string): Promise<void> {
+    if (!/^[a-f0-9]{64}$/.test(sessionKey)) throw new OutboxError('INVALID_COMMAND');
+    const outbox = await DurableOutbox.open(environment);
+    try {
+      if (outbox.lastGrant?.authority.sessionKey === sessionKey) await outbox.revoke();
+    } finally { outbox.close(); }
+  }
   static open(environment: string): Promise<DurableOutbox> {
     if (!/^[a-z0-9-]{1,32}$/.test(environment)) return Promise.reject(new OutboxError('INVALID_COMMAND'));
     return new Promise((resolve, reject) => {
