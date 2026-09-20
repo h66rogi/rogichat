@@ -3,7 +3,7 @@ import SwiftUI
 // Adapted MyPageView's account actions and explicit destructive confirmation.
 // Only operations backed by the injected account service are displayed.
 struct AccountScreen: View {
-    let account: AccountProfile
+    let account: AccountSummary
     let capabilities: SessionCapabilities
     let onLink: () -> Void
     let onSignOut: () async throws -> Void
@@ -16,7 +16,7 @@ struct AccountScreen: View {
     var body: some View {
         List {
             Section("로그인 계정") {
-                LabeledContent("로그인 방법", value: account.signInMethod)
+                if let method = account.signInMethod { LabeledContent("로그인 방법", value: method) }
                 LabeledContent("표시 이름", value: account.displayName)
             }
             Section {

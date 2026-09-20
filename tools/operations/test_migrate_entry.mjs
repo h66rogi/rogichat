@@ -1,12 +1,46 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import {connectionURL, validateCredential, validateGrants, validateHistory} from './migrate_entry.mjs';
+import {connectionURL, validateCredential, validateGrants, validateHistory, validateManifest} from './migrate_entry.mjs';
 
 const host = 'rogichat-qa.cluster-fixture.ap-northeast-2.rds.amazonaws.com';
 const hostHash = crypto.createHash('sha256').update(host).digest('hex');
 const credential = {host, port: 3306, database: 'rogichatqa', username: 'rogichat_migrator',
   password: 'fixture-only-@:/?#% special characters'};
+
+const manifest = [
+  {name: '20260919171609_m02_foundation', checksum: 'a'.repeat(64)},
+  {name: '20260920100000_native_transport', checksum: 'b'.repeat(64)},
+];
+
+test('migration approval accepts reordered JSON fields without changing migration identity', () => {
+  const approved = JSON.parse(JSON.stringify(manifest.map(({name, checksum}) => ({checksum, name}))));
+  assert.notEqual(JSON.stringify(manifest), JSON.stringify(approved));
+  validateManifest(manifest, approved);
+  validateManifest(approved, manifest);
+});
+
+test('migration approval still rejects changed, omitted, extra, reordered and duplicate migrations', () => {
+  const invalid = [manifest.slice(1), [...manifest, {...manifest[1], name: '20260921100000_extra'}],
+    [...manifest].reverse(), [manifest[0], manifest[0]],
+    [manifest[0], {...manifest[1], checksum: 'c'.repeat(64)}],
+    [manifest[0], {...manifest[1], name: '20260920100000_different'}]];
+  for (const candidate of invalid) {
+    assert.throws(() => validateManifest(manifest, candidate));
+    assert.throws(() => validateManifest(candidate, manifest));
+  }
+});
+
+test('migration approval rejects malformed manifests and unknown entry fields on both sides', () => {
+  const invalid = [null, {}, [], 'manifest', Array(101).fill(manifest[0]),
+    [null], [[]], [{...manifest[0], extra: true}], [{name: manifest[0].name}],
+    [{...manifest[0], name: 1}], [{...manifest[0], name: 'not_a_migration'}],
+    [{...manifest[0], checksum: 'A'.repeat(64)}], [{...manifest[0], checksum: 1}]];
+  for (const candidate of invalid) {
+    assert.throws(() => validateManifest(candidate, manifest));
+    assert.throws(() => validateManifest(manifest, candidate));
+  }
+});
 
 test('exact QA target, role and secret JSON shape', () => {
   assert.equal(validateCredential(credential, 'rogichat_migrator', hostHash), credential);

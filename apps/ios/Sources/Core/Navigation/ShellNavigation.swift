@@ -34,7 +34,7 @@ struct ShellNavigation: Sendable {
         switch value {
         case .chat: allowed = page == .rooms && access == .ready
         case .report: allowed = page == .chat && access == .ready
-        case .profile: allowed = page == .settings && access == .ready
+        case .profile: allowed = page == .settings && canManageAccount
         case .account: allowed = page == .settings && canManageAccount
         case .notifications, .about, .appearance: allowed = page == .settings
         default: allowed = false

@@ -4,13 +4,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import chat.rogi.rogichat.core.navigation.ShellAccess
 import chat.rogi.rogichat.core.common.request
+import java.time.Clock
+import java.time.Duration
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class SessionOperationState(val busy: Boolean = false, val error: String? = null)
-class SessionViewModel(private val services: ProductServices, private val injectedScope: CoroutineScope? = null) : ViewModel() {
+class SessionViewModel(private val services: ProductServices, private val injectedScope: CoroutineScope? = null,
+                       private val clock: Clock = Clock.systemUTC()) : ViewModel() {
     private val mutable = MutableStateFlow(SessionOperationState())
     private var revision = 0L
     private var startupRequested = false
@@ -18,8 +25,23 @@ class SessionViewModel(private val services: ProductServices, private val inject
     fun start() {
         if (startupRequested) return
         startupRequested = true
+        (injectedScope ?: viewModelScope).launch {
+            // Only auth scope/expiry changes restart this timer; profile edits and retry notices do not.
+            services.session.map { Triple(it.generation, it.account?.id, it.expiresAt) }.distinctUntilChanged().collectLatest { ticket ->
+                val expiresAt = ticket.third ?: return@collectLatest
+                if (ticket.second == null) return@collectLatest
+                while (expiresAt.isAfter(clock.instant())) {
+                    delay(Duration.between(clock.instant(), expiresAt).toMillis().coerceAtLeast(1))
+                }
+                services.actions?.expireSession(ticket.first, expiresAt)
+            }
+        }
         if (services.session.value.access == ShellAccess.RESTORING) restore()
     }
+    fun foreground() { services.actions?.let { actions -> (injectedScope ?: viewModelScope).launch { actions.revalidate() } } }
+    fun retryValidation() { if (services.session.value.account != null) services.actions?.takeIf { it.canRestore }?.let {
+        perform("계정 확인을 완료하지 못했어요.") { it.revalidate() }
+    } }
     fun signIn(provider: SignInProvider) {
         val actions = services.actions ?: return
         if (services.session.value.access != ShellAccess.SIGNED_OUT) return
