@@ -1,3 +1,5 @@
+import { Transactions } from '../../infrastructure/database/transactions.js';
+import { DeletionReplayRepository } from './deletion-replay.repository.js';
 import { IdentityGuardModule } from '../auth/identity-guard.module.js';
 import { AccountDeletionRepository } from './account-deletion.repository.js';
 import { DeletionRepository } from './deletion.repository.js';
@@ -20,7 +22,9 @@ class ReplayLifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
   onApplicationBootstrap() { this.schedule(0); }
   private schedule(ms: number) {
     this.timer = setTimeout(() => {
-      this.pending = this.replay.tick(this.abort.signal).then(() => {}, () => {
+      this.pending = this.replay.tick(this.abort.signal).then(result => {
+        if (result?.discoveryFailed || result?.failed || result?.invalid) process.stderr.write('deletion_replay_unavailable\n');
+      }, () => {
         // Fixed diagnostic only: never log ledger keys, contents or SDK exceptions.
         process.stderr.write('deletion_replay_unavailable\n');
       }).finally(() => { if (!this.abort.signal.aborted) this.schedule(5000); });
@@ -36,8 +40,8 @@ export class DeletionModule {
       ...(options && 'config' in options ? [DeletionLedgerModule.register(options.config)] : [])],
     providers: [DeletionRepository, AccountDeletionRepository, DeletionApplyService,
       ...(!options || 'ledger' in options ? [{ provide: DeletionLedger, useValue: options?.ledger ?? null }] : []),
-      ...(replay && options ? [{ provide: DeletionReconciler, inject: [DeletionLedger, DeletionApplyService],
-        useFactory: (ledger: DeletionLedger, apply: DeletionApplyService) => new DeletionReconciler(ledger, apply) }, ReplayLifecycle] : [])],
+      ...(replay && options ? [DeletionReplayRepository, { provide: DeletionReconciler, inject: [DeletionLedger, DeletionApplyService, Transactions, DeletionReplayRepository],
+        useFactory: (ledger: DeletionLedger, apply: DeletionApplyService, transactions: Transactions, repository: DeletionReplayRepository) => new DeletionReconciler(ledger, apply, transactions, repository) }, ReplayLifecycle] : [])],
     exports: [DeletionApplyService, ...(options && 'config' in options ? [DeletionLedgerModule] : [DeletionLedger])] };
   }
 }

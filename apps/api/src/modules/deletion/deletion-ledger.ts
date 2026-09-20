@@ -23,12 +23,25 @@ export type DeletionIntent = LegacyDeletionIntent | (Omit<LegacyDeletionIntent, 
   readonly roomId: null;
   readonly subjectGuard: Readonly<AccountSubjectGuard> | null;
 });
+export interface LedgerDiscoveryItem {
+  readonly keySha256: string;
+  readonly key: string | null;
+  readonly classification: 'VALID' | 'INVALID_KEY' | 'INVALID_SIZE';
+}
+export interface LedgerListing {
+  keys: string[];
+  cursor: string | null;
+  /** Production listings always include sizes; isolated stores may omit metadata. */
+  sizes?: (number | undefined)[];
+}
 export interface DeletionLedgerStore {
+  /** Canonical storage identity, excluding credentials. Required for replay. */
+  readonly sourceId?: string;
   /** Atomic create only. Existing bytes must never be overwritten. */
   putIfAbsent(key: string, bytes: Uint8Array, signal: AbortSignal): Promise<void>;
   /** Return null only for a confirmed missing object, never permission/network errors. */
   read(key: string, signal: AbortSignal): Promise<Uint8Array | null>;
-  list(cursor: string | null, limit: number, signal: AbortSignal): Promise<{ keys: string[]; cursor: string | null }>;
+  list(cursor: string | null, limit: number, signal: AbortSignal): Promise<LedgerListing>;
   close(): void;
 }
 export class DeletionLedgerError extends Error {
@@ -91,17 +104,39 @@ export class DeletionLedger {
   constructor(private readonly store: DeletionLedgerStore, readonly environment: LedgerEnvironment) {
     if (!['qa', 'production'].includes(environment)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
   }
+  get sourceId(): string {
+    const value = this.store.sourceId;
+    if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    return value;
+  }
   async inventory(cursor: string | null = null, limit = 50, signal?: AbortSignal) {
-    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    const page = await this.discover(cursor, limit, signal);
+    if (page.items.some(item => item.classification !== 'VALID')) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    return { keys: page.items.map(item => item.key!), cursor: page.cursor };
+  }
+  async discover(cursor: string | null = null, limit = 50, signal?: AbortSignal) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+        (cursor !== null && (typeof cursor !== 'string' || !cursor.length || cursor.length > 2048))) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
     const bounded = AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]);
     try {
       bounded.throwIfAborted();
       const page = await this.store.list(cursor, limit, bounded);
-      if (!Array.isArray(page.keys) || page.keys.length > limit || new Set(page.keys).size !== page.keys.length ||
+      if (!page || !Array.isArray(page.keys) || page.keys.length > limit || new Set(page.keys).size !== page.keys.length ||
+          (page.sizes !== undefined && (!Array.isArray(page.sizes) || page.sizes.length !== page.keys.length)) ||
           (page.cursor !== null && (typeof page.cursor !== 'string' || !page.cursor.length || page.cursor.length > 2048 || page.cursor === cursor))) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
-      for (const key of page.keys) this.checkedKey(key);
+      const items: LedgerDiscoveryItem[] = page.keys.map((key, index) => {
+        // Missing identity, an escaped prefix or unbounded metadata invalidates the envelope.
+        if (typeof key !== 'string' || !key.startsWith(`${this.environment}/`) || Buffer.byteLength(key, 'utf8') > 1024 ||
+            Buffer.from(key, 'utf8').toString('utf8') !== key) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+        let classification: LedgerDiscoveryItem['classification'] = 'VALID';
+        try { this.checkedKey(key); } catch { classification = 'INVALID_KEY'; }
+        if (classification === 'VALID' && page.sizes !== undefined &&
+            (!Number.isSafeInteger(page.sizes[index]) || page.sizes[index]! < 1 || page.sizes[index]! > LEDGER_MAX_BYTES)) classification = 'INVALID_SIZE';
+        return { keySha256: createHash('sha256').update(key, 'utf8').digest('hex'),
+          key: classification === 'VALID' ? key : null, classification };
+      });
       bounded.throwIfAborted();
-      return page;
+      return { items, cursor: page.cursor };
     } catch (error) {
       if (error instanceof DeletionLedgerError) throw error;
       throw new DeletionLedgerError('LEDGER_UNAVAILABLE');

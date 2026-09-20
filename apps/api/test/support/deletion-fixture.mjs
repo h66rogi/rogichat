@@ -1,6 +1,8 @@
 // Isolated tests only. Never imported by src or a runtime composition.
+import { randomBytes } from 'node:crypto';
 import { DeletionLedger } from '../../dist/modules/deletion/deletion-ledger.js';
 export class TestLedgerStore {
+  sourceId = randomBytes(32).toString('hex');
   rows = new Map(); loseAck = false; fail = false; beforePut;
   async read(key) { if (this.fail) throw new Error('synthetic_store_failure'); return this.rows.get(key) ?? null; }
   async putIfAbsent(key, bytes) {

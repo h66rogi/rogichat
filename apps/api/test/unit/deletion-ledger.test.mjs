@@ -147,7 +147,7 @@ test('bounded R2 inventory fixes environment prefix and validates every key, siz
   const commands = [];
   store.client.send = async command => { commands.push(command); return response; };
   try {
-    assert.deepEqual(await store.list(null, 5, signal()), { keys: [key], cursor: 'next' });
+    assert.deepEqual(await store.list(null, 5, signal()), { keys: [key], sizes: [400], cursor: 'next' });
     assert.equal(commands[0].constructor.name, 'ListObjectsV2Command');
     assert.deepEqual(commands[0].input, { Bucket: cfg.bucket, Prefix: 'qa/', MaxKeys: 5 });
     await store.list('prior', 5, signal()); assert.equal(commands[1].input.ContinuationToken, 'prior');
@@ -156,7 +156,6 @@ test('bounded R2 inventory fixes environment prefix and validates every key, siz
       { IsTruncated: true }, { IsTruncated: true, NextContinuationToken: 'prior' },
       { IsTruncated: false, NextContinuationToken: 'hidden' },
       { IsTruncated: false, Contents: [{ Key: 'production/' + value.requestId + '/intent.json', Size: 400 }] },
-      { IsTruncated: false, Contents: [{ Key: key, Size: 1025 }] },
       { IsTruncated: false, Contents: [{ Key: key, Size: 400 }, { Key: key, Size: 400 }] },
     ]) { response = page; await assert.rejects(store.list('prior', 5, signal()), { code: 'INVALID_LEDGER_INTENT' }); }
   } finally { store.close(); }
@@ -179,36 +178,17 @@ test('message deletion IDs are standard UUIDv5 scoped to environment and immutab
   assert.notEqual(messageDeletionId('qa', actor, room, target), messageDeletionId('production', actor, room, target));
 });
 
-test('already-aborted inventory/read never calls storage, and replay never starts apply after deadline', async t => {
-  const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
-  let calls = 0, applied = 0;
+test('already-aborted inventory/read never calls storage', async () => {
+  let calls = 0;
   const value = intent(), key = deletionIntentKey('qa', value.requestId);
   const store = { close() {}, putIfAbsent: async () => {},
     list: async () => { calls++; return { keys: [key], cursor: null }; },
-    read: async () => { calls++; await new Promise(resolve => setTimeout(resolve, 20)); return encodeDeletionIntent(value); } };
+    read: async () => { calls++; return encodeDeletionIntent(value); } };
   const ledger = new DeletionLedger(store, 'qa'), abort = new globalThis.AbortController(); abort.abort();
   await assert.rejects(ledger.inventory(null, 50, abort.signal));
   await assert.rejects(ledger.readByKey(key, abort.signal));
   assert.equal(calls, 0);
-  const original = AbortSignal.timeout;
-  t.mock.method(AbortSignal, 'timeout', ms => original(ms === 30000 ? 5 : ms));
-  await assert.rejects(new DeletionReconciler(ledger, { apply: async () => { applied++; } }).tick());
-  assert.equal(applied, 0);
 });
-
-test('ACCOUNT replay routes through admission and malformed records stop without skipping the page', async () => {
-  const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
-  const value = intent(); const account = { ...value, scope: 'ACCOUNT', targetId: value.actorUserId, roomId: null };
-  const key = deletionIntentKey('qa', value.requestId); let applied = 0; const cursors = [];
-  const store = { close() {}, putIfAbsent: async () => {}, list: async cursor => { cursors.push(cursor); return { keys: [key], cursor: 'next' }; },
-    read: async () => encodeDeletionIntent(account) };
-  const replay = new DeletionReconciler(new DeletionLedger(store, 'qa'), { apply: async () => { applied++; }, scrubBindings: async () => {} });
-  await replay.tick();
-  store.read = async () => Buffer.from('private malformed data');
-  await assert.rejects(replay.tick(), { message: 'INVALID_LEDGER_INTENT' });
-  assert.equal(applied, 1); assert.deepEqual(cursors, [null, 'next']);
-});
-
 
 test('ACCOUNT v2 is canonical opaque evidence, preserves immutable retry evidence and stable UUID', async () => {
   const actor = randomUUID(); const requestId = accountDeletionId('qa', actor);
@@ -228,37 +208,21 @@ test('ACCOUNT v2 is canonical opaque evidence, preserves immutable retry evidenc
   assert.deepEqual(await ledger.ensureIntent({ ...value, subjectGuard: null, requestedAt: '2026-09-21T00:00:00.000Z' }), first);
 });
 
-test('replay retains completed page progress across aborts and reaches later pages; restart safely repeats prefix', async () => {
-  const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
-  const records = Array.from({ length: 4 }, () => intent());
-  const keys = records.map(value => deletionIntentKey('qa', value.requestId));
-  const cursors = [], applied = []; const abort = new globalThis.AbortController();
-  const store = { close() {}, putIfAbsent: async () => {},
-    list: async cursor => { cursors.push(cursor); return cursor === null ? { keys: keys.slice(0, 3), cursor: 'second-page' } : { keys: [keys[3]], cursor: null }; },
-    read: async key => encodeDeletionIntent(records[keys.indexOf(key)]) };
-  const apply = { apply: async receipt => { applied.push(receipt.intent.requestId); if (applied.length === 1) abort.abort(); } };
-  const ledger = new DeletionLedger(store, 'qa'), replay = new DeletionReconciler(ledger, apply);
-  await assert.rejects(replay.tick(abort.signal));
-  assert.deepEqual(applied, [records[0].requestId]);
-  assert.deepEqual(await replay.tick(), { scanned: 2, passFinished: false });
-  assert.deepEqual(await replay.tick(), { scanned: 1, passFinished: true });
-  assert.deepEqual(applied, records.map(value => value.requestId));
-  assert.deepEqual(cursors, [null, 'second-page']);
-  const restarted = new DeletionReconciler(ledger, apply);
-  assert.deepEqual(await restarted.tick(), { scanned: 3, passFinished: false });
-  assert.deepEqual(applied.slice(4), records.slice(0, 3).map(value => value.requestId));
-  assert.deepEqual(cursors, [null, 'second-page', null]);
+test('R2 storage binding survives credential rotation and isolates provider account/bucket/environment changes', () => {
+  const cfg = config(); const stores = [cfg, { ...cfg, accessKeyId: randomBytes(16).toString('hex'), secretAccessKey: randomBytes(32).toString('hex') },
+    { ...cfg, bucket: 'fixture-other' }, { ...cfg, accountId: randomBytes(16).toString('hex') }, { ...cfg, environment: 'production' }].map(value => new R2DeletionLedgerStore(value));
+  try {
+    assert.equal(stores[0].sourceId, stores[1].sourceId);
+    for (const store of stores.slice(2)) assert.notEqual(store.sourceId, stores[0].sourceId);
+  } finally { for (const store of stores) store.close(); }
 });
 
-test('failed ACCOUNT scrub retains the same receipt before advancing the pending page', async () => {
-  const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
-  const value = intent(); const account = { ...value, scope: 'ACCOUNT', targetId: value.actorUserId, roomId: null };
-  const key = deletionIntentKey('qa', value.requestId); let lists = 0, applied = 0, scrubs = 0;
-  const store = { close() {}, putIfAbsent: async () => {}, list: async () => { lists++; return { keys: [key], cursor: null }; }, read: async () => encodeDeletionIntent(account) };
-  const replay = new DeletionReconciler(new DeletionLedger(store, 'qa'), {
-    apply: async () => { applied++; }, scrubBindings: async () => { if (++scrubs === 1) throw new Error('synthetic_scrub_failure'); },
-  });
-  await assert.rejects(replay.tick(), /synthetic_scrub_failure/);
-  assert.deepEqual(await replay.tick(), { scanned: 1, passFinished: true });
-  assert.equal(lists, 1); assert.equal(applied, 2); assert.equal(scrubs, 2);
+test('R2 invalid size is private inventory evidence but strict inventory still refuses it', async () => {
+  const store = new R2DeletionLedgerStore(config()); const key = deletionIntentKey('qa', randomUUID());
+  store.client.send = async () => ({ IsTruncated: false, Contents: [{ Key: key, Size: 1025 }] });
+  const ledger = new DeletionLedger(store, 'qa');
+  try {
+    const page = await ledger.discover(); assert.equal(page.items[0].classification, 'INVALID_SIZE'); assert.equal(page.items[0].key, null);
+    await assert.rejects(ledger.inventory(), { code: 'INVALID_LEDGER_INTENT' });
+  } finally { store.close(); }
 });

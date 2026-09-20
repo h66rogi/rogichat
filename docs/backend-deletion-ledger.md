@@ -62,23 +62,68 @@ the harness-owned disposable loopback MySQL; no existing SQL was edited.
 ## Independent bounded replay
 
 The worker starts a separate Nest lifecycle reconciler when a real ledger is
-configured. It does not depend on DB jobs or client retries: an external PUT
-followed by DB failure is discovered from private R2 inventory. Each tick lists
-at most 50 objects (port maximum 100), validates environment/key/size/continuation,
-reads strict canonical bodies by key, and uses the same apply port. It advances
-only after the whole page applies; after the final page it starts again at the
-prefix. An insertion behind the cursor is found by the next full pass, without a
-time watermark. Multiple workers remain idempotent through database locking.
+configured. Discovery and execution have independent durable progress: one bad
+receipt cannot pin the inventory cursor or prevent independent valid receipts
+from applying. A tick registers at most 50 listed objects, then attempts at most
+four separately claimed receipts. Memory contains one bounded page and one body.
+The durable backlog has no TTL or automatic evidence deletion.
 
-Ticks run serially with a 30-second admission/I/O budget and a five-second pause.
-An already started DB apply may finish within its existing eight-second transaction
-budget; a receipt arriving after the replay deadline cannot start apply. Shutdown
-aborts external I/O and awaits the current tick. Per-operation ledger I/O has a
-ten-second abort budget, shorter adapter network deadlines, no SDK retries or
-region redirects, and bounded streamed bodies. Malformed data, unsupported ACCOUNT
-intents or inventory failures stop that page with the fixed diagnostic
-`deletion_replay_unavailable`; no record contents or SDK errors are logged. ACCOUNT
-application is an explicit remaining integration gate, not silently marked done.
+`deletion_replay_sources` binds the cursor and generation to SHA256 of the canonical
+R2 provider/account/bucket/environment tuple. Credentials are excluded, so key
+rotation preserves progress; changing storage creates an isolated source. Replay
+has no environment-only identity fallback and never reads old-source entries
+through a newly configured ledger. `deletion_replay_entries` records object-key
+digests, valid private keys, immutable receipt digests, claim epochs, phases and
+failure evidence. These private rows are not HTTP DTOs or restore authorization.
+
+Discovery claims the source using a DB-clock lease, performs R2 listing outside
+SQL, then registers every item and the next cursor in one fenced transaction.
+Malformed envelope, duplicate/unbounded identity, escaped prefix or invalid
+continuation stops discovery. A bounded in-prefix invalid key or object size is
+registered as non-executable evidence, allowing independent entries to continue.
+Classification/key conflicts set permanent evidence conflict without replacing
+original evidence, resetting an active claim, or turning repaired metadata into
+authorized work. Invalid canonical contents or receipt conflicts remain INVALID.
+Missing/unavailable objects and apply/scrub failures retain due retry obligations.
+A failed discovery or journal transaction still allows registered execution work.
+Current source failure is distinct from retained first/last failure history.
+
+Execution alternates persisted NEW and RETRY lanes with fallback, so repeated
+one-attempt ticks cannot always prefer the same lane. Due retry scheduling moves
+attempted failures forward. Claims have random tokens, monotonic epochs and
+60-second leases; entry locks precede domain mutation. Every transaction retry
+checks the current claim using fresh DB time after lock waits. A separate fenced
+transaction pins the first valid receipt digest before apply. Apply or a bounded
+ACCOUNT scrub and its phase/outcome update commit atomically; the final fence
+checks fresh time again and rolls back expired completion. Stale workers cannot
+clear newer outcomes. Unknown COMMIT acknowledgement is not inferred as success:
+restart reads durable state and replays incomplete work idempotently after expiry.
+No external ledger I/O occurs inside a SQL transaction.
+
+ACCOUNT apply and scrub are separate transactions to preserve callback lock
+ordering. A full 100-login or 100-session batch reports conservative continuation;
+a missing/nonblocked account remains pending. OBSERVED means one bounded replay
+observation, never physical purge. Later discovery generations schedule another
+observation, and full prefix scans discover insertions behind prior cursors.
+`inventoryPassEnded`, empty inventory and per-tick discovered/invalid/attempted/
+applied/pending/failed counts are not a global purge or restore-release gate.
+Unresolved corruption/failures remain durable across process restart.
+
+Ticks are serial with a five-second pause. Discovery has a ten-second admission/
+I/O budget and execution receives a separate twenty-second admission budget after
+discovery drains. These are not hard wall-duration promises: admitted SQL work
+uses existing transaction deadlines and confirmed-rollback retry limits. Shutdown
+aborts external I/O, admits no new work and awaits the current tick; no detached
+transaction is allowed to overlap a later tick. Returned discovery/invalid/failed
+counts and thrown failures preserve the fixed `deletion_replay_unavailable`
+diagnostic, without ledger keys, content or SDK exceptions.
+
+Raw SQL exceptions in the private replay repository are bounded current source/
+entry locks and indexed `FOR UPDATE SKIP LOCKED` candidate selection. Ordinary
+registration, state changes and conditional updates use generated Prisma CRUD
+on the caller transaction. Schema18 and hosted exact-head race-test evidence
+must be reviewed before activation; no source change installs policy, applies
+remote SQL or authorizes deployment.
 
 ## Real configuration and activation gates
 
@@ -142,3 +187,15 @@ build, typecheck, lint and public-repository security scan passed. The final
 secret-parser hardening is covered by the full unit/e2e/contract rerun, including
 actual API/worker runtime-loader subprocess tests. Remote CI is inspected after
 publishing the draft; this local evidence is not deployment evidence.
+
+## Durable replay migration provenance
+
+Prisma 7.10.0 generated `20260920090224_m10_durable_deletion_replay` with
+`migrate dev` on a task-owned loopback MySQL 8.0.44 instance. Its SHA256 is
+`341773fcf5ab14ead777b85c68c8e8c04bf4eb4f9334019c3ce7053782c59e6f`.
+A second fresh database replayed all 18 migrations without drift or unfinished/
+rolled-back entries. The prior 17 migration SQL files remained byte-identical.
+The generated SQL creates only the two replay tables, their due index and the
+RESTRICT source FK; it was not hand-edited. The owned server exited successfully
+and its temporary datadir was removed. This is disposable fixture evidence,
+not remote schema installation or deployment.
