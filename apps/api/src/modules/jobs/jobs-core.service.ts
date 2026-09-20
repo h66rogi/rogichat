@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { uuid } from '../../common/validation/identifier.js';
 import { integer, purpose, leaseValues, MAX_DELAY_MS } from './jobs.policy.js';
-import type { EnqueueJob, JobLease } from './jobs.policy.js';
+import type { EnqueueJob, JobLease, PurgeContinuation } from './jobs.policy.js';
 import { JobsRepository } from './jobs.repository.js';
 @Injectable()
 export class JobsCoreService {
@@ -36,6 +36,10 @@ export class JobsCoreService {
     const result = await this.repository.complete(tx, leaseValues(lease));
     return result.affectedRows === 1;
   }
-
-
+  /** Domain locks first; this must be the last mutation in the domain transaction. */
+  async continuePurge(tx: Transaction, lease: JobLease, outcome: PurgeContinuation): Promise<void> {
+    leaseValues(lease);
+    if (lease.purpose !== 'PURGE' || !lease.resourceId || !['progress', 'deferred', 'subset_drained', 'evidence_unavailable'].includes(outcome)) throw new Error('invalid_purge_continuation');
+    if (!await this.repository.continuePurge(tx, lease, outcome)) throw new Error('purge_lease_lost');
+  }
 }

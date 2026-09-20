@@ -4,7 +4,7 @@ import { JOB_PURPOSES } from './jobs.policy.js';
 import type { JobLease, JobPurpose } from './jobs.policy.js';
 import type { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
 
-export type WorkerResult = 'completed' | 'lease_lost';
+export type WorkerResult = 'completed' | 'lease_lost' | 'progress' | 'deferred' | 'subset_drained';
 export type WorkerHandler = (lease: JobLease) => Promise<WorkerResult>;
 export interface WorkerOptions {
   // Must consult current DB/schema readiness, not a once-at-start cached success.
@@ -13,8 +13,8 @@ export interface WorkerOptions {
   maxPerTick?: number;
   leaseMs?: number;
 }
-export interface WorkerTick { claimed: number; completed: number; leaseLost: number; retried: number; failed: number }
-const empty = (): WorkerTick => ({ claimed: 0, completed: 0, leaseLost: 0, retried: 0, failed: 0 });
+export interface WorkerTick { claimed: number; completed: number; leaseLost: number; retried: number; failed: number; progress: number; deferred: number; subsetDrained: number }
+const empty = (): WorkerTick => ({ claimed: 0, completed: 0, leaseLost: 0, retried: 0, failed: 0, progress: 0, deferred: 0, subsetDrained: 0 });
 function bounded(value: number, min: number, max: number): number {
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error('invalid_worker_policy');
   return value;
@@ -85,6 +85,9 @@ export class WorkerLoop {
       try {
         const result = await handler(lease);
         if (result === 'completed') counts.completed++;
+        else if (result === 'progress') counts.progress++;
+        else if (result === 'deferred') counts.deferred++;
+        else if (result === 'subset_drained') counts.subsetDrained++;
         else if (result === 'lease_lost') counts.leaseLost++;
         else throw new JobFailure('PERMANENT_FAILURE', true);
       } catch (error) {

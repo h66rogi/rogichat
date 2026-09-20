@@ -792,3 +792,12 @@ model deletion_replay_entries {
   @@id([source_id, key_sha256])
   @@index([source_id, state, next_attempt_at, key_sha256], map: "deletion_replay_due")
 }
+
+// Bounded recovery discovery only. Never a physical-purge proof or deadline.
+model deletion_purge_discovery {
+  source_id String @db.Char(64)
+  environment String @db.VarChar(10)
+  cursor String? @db.Char(36)
+  next_scan_at DateTime @default(now()) @db.DateTime(3)
+  @@id([source_id, environment])
+}
