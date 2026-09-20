@@ -398,9 +398,17 @@ test('missing restored actor/room/message persists opaque obligation without syn
   }));
   assert.equal(state.checkpoint.blocked_at, null); assert.equal(state.checkpoint.requested_at.toISOString(), intent.requestedAt);
   for (const key of ['users', 'messages', 'rooms', 'requests']) assert.equal(state[key], 0);
-  await f.db.transactions.write(tx => tx.prisma.deletion_intents.update({ where: { request_id: intent.requestId }, data: { blocked_at: new Date() } }));
+  const originalBlock = new Date('2020-01-02T03:04:06.007Z');
+  await f.db.transactions.write(tx => tx.prisma.deletion_intents.update({ where: { request_id: intent.requestId }, data: { blocked_at: originalBlock } }));
   await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
-  assert.equal((await f.db.transactions.read(tx => tx.prisma.deletion_intents.findUnique({ where: { request_id: intent.requestId } }))).blocked_at, null);
+  const replayed = await f.db.transactions.read(async tx => ({
+    checkpoint: await tx.prisma.deletion_intents.findUnique({ where: { request_id: intent.requestId } }),
+    proofCount: await tx.prisma.message_purge_checkpoints.count({ where: { request_id: intent.requestId } }),
+    requestCount: await tx.prisma.deletion_requests.count({ where: { id: intent.requestId } }),
+  }));
+  assert.equal(replayed.checkpoint.blocked_at.toISOString(), originalBlock.toISOString());
+  assert.equal(replayed.checkpoint.requested_at.toISOString(), intent.requestedAt);
+  assert.equal(replayed.proofCount, 0); assert.equal(replayed.requestCount, 0);
 });
 
 test('malformed inventory key/body fails closed before any corresponding apply', { timeout: 20000 }, async t => {
