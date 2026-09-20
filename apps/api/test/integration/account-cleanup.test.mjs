@@ -289,7 +289,7 @@ test('room cleanup atomically resets other participants event/history/profile cu
   try {
     const query = { deviceId: randomUUID(), cacheId: randomUUID(), limit: '1' };
     const sync = async (path, cursor) => {
-      const params = new URLSearchParams({ ...query, ...(cursor ? { cursor } : {}) });
+      const params = new globalThis.URLSearchParams({ ...query, ...(cursor ? { cursor } : {}) });
       const response = await fetch(`${await app.getUrl()}/v1/rooms/${r.roomId}/${path}?${params}`, {
         headers: { Cookie: `rogi_session=${f.other.token}` },
       });
