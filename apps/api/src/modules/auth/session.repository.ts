@@ -12,6 +12,14 @@ export interface CurrentSession {
 // Every operation uses the caller's handle; this repository never starts a transaction.
 @Injectable()
 export class SessionRepository {
+  async boundNative(tx: Transaction, id: string, audience: string, clientId: NativeClientId) {
+    // Callback has no app Bearer. Lock the stored native session and account,
+    // then check its generation/recent-auth binding in the caller transaction.
+    const [row] = await tx.rows<{ user_id: string; membership_generation: string; recent: number; terms_version: string | null }>(
+      'SELECT s.user_id,u.membership_generation,u.terms_version,(s.created_at>UTC_TIMESTAMP(3)-INTERVAL 15 MINUTE) AS recent FROM auth_sessions s JOIN users u ON u.id=s.user_id WHERE s.id=? AND s.audience=? AND s.transport=? AND s.client_id=? AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP(3) AND u.status=? FOR UPDATE',
+      [id, audience, 'NATIVE', clientId, 'ACTIVE']);
+    return row;
+  }
   async findCurrent(tx: Transaction, tokenDigest: Buffer, audience: string, binding: SessionBinding = { transport: 'WEB' }): Promise<CurrentSession | undefined> {
     if (tx.writable) {
       // Current locking read is retained: a later command must not race session

@@ -37,16 +37,7 @@ export class AuthService {
     return this.unitOfWork.read(async tx => {
       const principal = await this.require(tx, credentials);
       if (credentials.transport === 'NATIVE') {
-        const account = await this.sessionRepository.nativeAccount(tx, principal.sessionId, principal.userId, this.config.audience, credentials.clientId);
-        if (!account) throw new ApiError('UNAUTHENTICATED', 401);
-        const profile = account.user.profile;
-        if (!profile) throw new ApiError('AUTH_UNAVAILABLE', 503);
-        const avatar = profile.avatar;
-        const avatarAssetId = avatar && avatar.owner_user_id === principal.userId && avatar.kind === 'AVATAR' && avatar.room_id === null && avatar.state === 'READY' && avatar.deleted_at === null ? avatar.id : null;
-        const accountGeneration = createHmac('sha256', this.config.key).update('native-account:v1:').update(JSON.stringify([this.config.audience, principal.userId, String(account.user.membership_generation), principal.soopLinked])).digest('base64url');
-        return { authenticated: true, account: { userId: principal.userId, nickname: profile.nickname, avatarAssetId },
-          soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED', onboardingState: principal.soopLinked ? 'READY' : 'SOOP_LINK_REQUIRED',
-          expiresAt: account.expires_at.toISOString(), accountGeneration, capabilities: { chat: principal.soopLinked } };
+        return this.sessionStore.nativeSession(tx, credentials.token, credentials.clientId);
       }
       return { authenticated: true, soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED', csrfToken: this.csrf(credentials.token!) };
     });

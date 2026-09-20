@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import fcntl
 import hashlib
 import importlib.util
@@ -11,10 +12,13 @@ import os
 from pathlib import Path
 import re
 import signal
+import socket
+import ssl
 import stat
 import subprocess
 import tempfile
 import time
+import urllib.error
 import urllib.request
 import uuid
 
@@ -383,9 +387,90 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def external(request):
+    # Caddy obtains its first certificate asynchronously. Allow at most 90s,
+    # with 15s socket timeouts and 2s backoff, all capped by the remaining time.
+    # The Linux operator runs on the main thread: an alarm also bounds DNS and
+    # multi-stage socket operations, which urlopen's timeout alone cannot bound.
     _, _, origin = names(request)
-    with urllib.request.build_opener(NoRedirect).open(origin + '/healthz', timeout=15) as response:
-        require(response.status == 200)
+    previous_timer = signal.getitimer(signal.ITIMER_REAL)
+    started = time.monotonic()
+    deadline = started + 90
+    caller_fired = False
+    def expired(*args):
+        raise Rejected('external web health deadline exceeded')
+
+    def alarm(signum, frame):
+        nonlocal caller_fired
+        if caller_first:
+            caller_fired = True
+            if callable(previous_handler):
+                previous_handler(signum, frame)
+            elif previous_handler == signal.SIG_DFL:
+                signal.signal(signal.SIGALRM, previous_handler)
+                signal.raise_signal(signal.SIGALRM)
+        expired()
+
+    def transient(error):
+        if isinstance(error, ssl.SSLCertVerificationError):
+            return False
+        if isinstance(error, ssl.SSLError):
+            # Caddy can send internal_error while no certificate is available.
+            # Protocol/cipher/hostname/trust failures are never retried.
+            return isinstance(error, ssl.SSLEOFError) or getattr(error, 'reason', None) == 'TLSV1_ALERT_INTERNAL_ERROR'
+        if isinstance(error, socket.gaierror):
+            return error.errno == socket.EAI_AGAIN
+        return isinstance(error, OSError) and error.errno in {
+            errno.ECONNREFUSED, errno.ECONNRESET, errno.ECONNABORTED, errno.ETIMEDOUT,
+        } or isinstance(error, TimeoutError)
+
+    caller_first = 0 < previous_timer[0] <= 90
+    previous_handler = signal.signal(signal.SIGALRM, alarm)
+    try:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            expired()
+        alarm_remaining = min(remaining, previous_timer[0] - (90 - remaining)) if caller_first else remaining
+        if alarm_remaining <= 0:
+            alarm(signal.SIGALRM, None)
+        signal.setitimer(signal.ITIMER_REAL, alarm_remaining)
+        opener = urllib.request.build_opener(NoRedirect)
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                expired()
+            try:
+                with opener.open(origin + '/healthz', timeout=min(15, remaining)) as response:
+                    require(time.monotonic() < deadline, 'external web health deadline exceeded')
+                    if response.status == 200:
+                        return
+                    require(response.status in {502, 503, 504}, 'unexpected external health status')
+            except urllib.error.HTTPError as error:
+                # Only temporary gateway/upstream unavailability is retryable.
+                error.close()
+                require(error.code in {502, 503, 504}, 'unexpected external health status')
+            except urllib.error.URLError as error:
+                if not transient(error.reason):
+                    raise
+            except OSError as error:
+                if not transient(error):
+                    raise
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                expired()
+            time.sleep(min(2, remaining))
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous_handler)
+        # Preserve the caller's absolute deadline, never restart its full budget.
+        if previous_timer[0] > 0:
+            remaining = previous_timer[0] - (time.monotonic() - started)
+            if remaining <= 0 and not caller_fired:
+                # Do not discard an outer timeout that became due during cleanup.
+                remaining = 0.000001
+            elif remaining <= 0 and previous_timer[1] > 0:
+                remaining %= previous_timer[1]
+                remaining = remaining or previous_timer[1]
+            signal.setitimer(signal.ITIMER_REAL, max(0, remaining), previous_timer[1])
 
 
 def apply(prepared):

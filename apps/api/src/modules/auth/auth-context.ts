@@ -18,7 +18,7 @@ export function nativeClientId(value: unknown): NativeClientId {
 
 // Node may discard duplicate Authorization values. Inspect the raw occurrences as
 // well as the normalized value; never let the HTTP parser choose a credential.
-function singleHeader(request: HeaderRequest, name: string): string | undefined {
+export function singleHeader(request: HeaderRequest, name: string): string | undefined {
   const values = request.rawHeaders ?? [];
   let count = 0;
   for (let index = 0; index < values.length; index += 2) if (values[index]?.toLowerCase() === name) count++;

@@ -1,6 +1,10 @@
 name: Web verified image export
 
 on:
+  workflow_run:
+    workflows: [Web image publication]
+    types: [completed]
+    branches: [qa]
   workflow_dispatch:
     inputs:
       source_sha:
@@ -14,7 +18,15 @@ permissions: {}
 
 jobs:
   export:
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'workflow_dispatch'
+    if: >-
+      github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' && github.event.action == 'completed' &&
+        github.event.workflow_run.event == 'push' && github.event.workflow_run.status == 'completed' &&
+        github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'qa' &&
+        github.event.workflow_run.repository.full_name == 'h66rogi/rogichat' &&
+        github.event.workflow_run.head_repository.full_name == 'h66rogi/rogichat' &&
+        github.event.workflow_run.path == '.github/workflows/web-publish.yml'))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -27,6 +39,7 @@ jobs:
           ref: ${{ github.sha }}
           persist-credentials: false
       - name: Verify exact QA source, publication and published image archive
+        id: producer
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EXPORT_SOURCE_SHA: ${{ inputs.source_sha }}
@@ -38,7 +51,7 @@ jobs:
           python3 tools/security/image_scan.py "$RUNNER_TEMP/rogichat-export/runtime.tar"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: web-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: web-${{ steps.producer.outputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/rogichat-export/descriptor.json
             ${{ runner.temp }}/rogichat-export/runtime.tar

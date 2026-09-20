@@ -9,7 +9,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import web_release as w
 
@@ -163,6 +163,218 @@ class ValidationTests(unittest.TestCase):
             w.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://elsewhere.invalid')
 
 
+class ExternalTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 100.0
+        self.starts = []
+        self.response = MagicMock(status=200)
+        self.response.__enter__.return_value = self.response
+        self.opener = MagicMock()
+        for target, kwargs in [
+                ('urllib.request.build_opener', {'return_value': self.opener}),
+                ('time.monotonic', {'side_effect': lambda: self.now}),
+                ('time.sleep', {'side_effect': self.advance}),
+                ('signal.getitimer', {'return_value': (0, 0)}),
+                ('signal.setitimer', {}), ('signal.signal', {'return_value': w.signal.SIG_DFL})]:
+            p = patch('web_release.' + target, **kwargs)
+            mock = p.start()
+            self.addCleanup(p.stop)
+            setattr(self, target.split('.')[-1], mock)
+
+    def advance(self, seconds):
+        self.now += seconds
+
+    def test_immediate_success_uses_verified_default_opener(self):
+        self.opener.open.return_value = self.response
+        w.external(request())
+        self.build_opener.assert_called_once_with(w.NoRedirect)
+        self.opener.open.assert_called_once_with('https://qa.rogi.chat/healthz', timeout=15)
+        self.sleep.assert_not_called()
+        self.response.__exit__.assert_called_once()
+        self.setitimer.assert_has_calls([
+            unittest.mock.call(w.signal.ITIMER_REAL, 90),
+            unittest.mock.call(w.signal.ITIMER_REAL, 0)])
+        self.assertEqual(self.signal.call_args, unittest.mock.call(w.signal.SIGALRM, w.signal.SIG_DFL))
+
+    def test_transient_connection_dns_handshake_and_gateway_then_success(self):
+        handshake = w.ssl.SSLError(1, 'certificate not ready')
+        handshake.reason = 'TLSV1_ALERT_INTERNAL_ERROR'
+        errors = [ConnectionRefusedError(w.errno.ECONNREFUSED, 'not ready'),
+                  ConnectionResetError(w.errno.ECONNRESET, 'reset'), TimeoutError(),
+                  w.socket.gaierror(w.socket.EAI_AGAIN, 'temporary DNS'),
+                  handshake, w.ssl.SSLEOFError(8, 'handshake EOF')]
+        for error in errors:
+            for wrapped in (False, True):
+                with self.subTest(error=error, wrapped=wrapped):
+                    self.opener.open.reset_mock()
+                    self.opener.open.side_effect = [w.urllib.error.URLError(error) if wrapped else error,
+                                                   self.response]
+                    w.external(request())
+                    self.assertEqual(self.opener.open.call_count, 2)
+        for code in (502, 503, 504):
+            body = io.BytesIO(b'unavailable')
+            self.opener.open.side_effect = [w.urllib.error.HTTPError('https://qa.rogi.chat/healthz', code,
+                                                                  'temporary', {}, body), self.response]
+            w.external(request())
+            self.assertTrue(body.closed)
+
+    def test_permanent_tls_dns_configuration_errors_are_not_retried(self):
+        errors = [w.ssl.SSLCertVerificationError(1, 'untrusted certificate'),
+                  w.ssl.SSLCertVerificationError(1, 'hostname mismatch'),
+                  w.ssl.SSLError(1, 'wrong protocol'),
+                  w.socket.gaierror(w.socket.EAI_NONAME, 'unknown host'),
+                  PermissionError(w.errno.EACCES, 'denied'), ValueError('configuration')]
+        for error in errors:
+            for wrapped in (False, True):
+                with self.subTest(error=error, wrapped=wrapped):
+                    self.opener.open.reset_mock()
+                    self.opener.open.side_effect = w.urllib.error.URLError(error) if wrapped else error
+                    with self.assertRaises(type(self.opener.open.side_effect)):
+                        w.external(request())
+                    self.assertEqual(self.opener.open.call_count, 1)
+        self.sleep.assert_not_called()
+
+    def test_redirect_and_unexpected_http_status_fail_immediately(self):
+        for code in (201, 204, 301, 302, 307, 308, 400, 401, 403, 404, 429, 500):
+            with self.subTest(code=code):
+                self.opener.open.reset_mock()
+                self.opener.open.side_effect = w.urllib.error.HTTPError('https://qa.rogi.chat/healthz', code,
+                                                                      'rejected', {}, io.BytesIO())
+                with self.assertRaises(w.Rejected):
+                    w.external(request())
+                self.assertEqual(self.opener.open.call_count, 1)
+        self.opener.open.side_effect = lambda *a, **kw: w.NoRedirect().redirect_request(
+            None, None, 302, '', {}, 'https://elsewhere.invalid')
+        with self.assertRaisesRegex(w.Rejected, 'redirect rejected'):
+            w.external(request())
+        self.sleep.assert_not_called()
+
+    def test_non_error_unexpected_response_is_rejected(self):
+        self.response.status = 204
+        self.opener.open.return_value = self.response
+        with self.assertRaises(w.Rejected):
+            w.external(request())
+        self.sleep.assert_not_called()
+
+    def test_repeated_failure_caps_attempt_timeout_and_sleep_at_deadline(self):
+        def failure(url, timeout):
+            self.starts.append(self.now)
+            self.assertLess(self.now, 190)
+            self.assertLessEqual(timeout, min(15, 190 - self.now))
+            self.advance(timeout)
+            raise TimeoutError()
+        self.opener.open.side_effect = failure
+        with self.assertRaisesRegex(w.Rejected, 'deadline exceeded'):
+            w.external(request())
+        self.assertEqual(self.now, 190)
+        self.assertEqual(self.starts, [100, 117, 134, 151, 168, 185])
+        self.assertEqual(self.opener.open.call_args.kwargs['timeout'], 5)
+
+    def test_fast_failures_stop_without_attempt_at_deadline(self):
+        self.opener.open.side_effect = ConnectionRefusedError(w.errno.ECONNREFUSED, 'not ready')
+        with self.assertRaisesRegex(w.Rejected, 'deadline exceeded'):
+            w.external(request())
+        self.assertEqual(self.opener.open.call_count, 45)
+        self.assertEqual(self.now, 190)
+
+    def test_final_sleep_is_capped_by_remaining_time(self):
+        def failure(*args, **kwargs):
+            self.advance(89.5)
+            raise TimeoutError()
+        self.opener.open.side_effect = failure
+        with self.assertRaisesRegex(w.Rejected, 'deadline exceeded'):
+            w.external(request())
+        self.sleep.assert_called_once_with(0.5)
+        self.assertEqual(self.now, 190)
+        self.assertEqual(self.opener.open.call_count, 1)
+
+    def test_late_success_is_rejected(self):
+        def late(*args, **kwargs):
+            self.advance(90)
+            return self.response
+        self.opener.open.side_effect = late
+        with self.assertRaisesRegex(w.Rejected, 'deadline exceeded'):
+            w.external(request())
+        self.sleep.assert_not_called()
+
+    def test_alarm_interrupts_blocked_probe_and_restores_handler(self):
+        def blocked(*args, **kwargs):
+            handler = self.signal.call_args_list[0].args[1]
+            handler(w.signal.SIGALRM, None)
+        self.opener.open.side_effect = blocked
+        with self.assertRaisesRegex(w.Rejected, 'deadline exceeded'):
+            w.external(request())
+        self.setitimer.assert_called_with(w.signal.ITIMER_REAL, 0)
+        self.signal.assert_called_with(w.signal.SIGALRM, w.signal.SIG_DFL)
+        self.sleep.assert_not_called()
+
+    def test_later_caller_timer_restored_with_elapsed_budget_on_success_and_failure(self):
+        for success in (False, True):
+            with self.subTest(success=success):
+                self.getitimer.return_value = (300, 0)
+                def probe(*args, **kwargs):
+                    self.advance(7)
+                    if success:
+                        return self.response
+                    raise ValueError('configuration rejected')
+                self.opener.open.side_effect = probe
+                if success:
+                    w.external(request())
+                else:
+                    with self.assertRaises(ValueError):
+                        w.external(request())
+                self.setitimer.assert_called_with(w.signal.ITIMER_REAL, 293, 0)
+                self.signal.assert_called_with(w.signal.SIGALRM, w.signal.SIG_DFL)
+
+    def test_earlier_caller_deadline_invokes_original_handler(self):
+        self.getitimer.return_value = (5, 0)
+        original = MagicMock(side_effect=w.Rejected('caller deadline'))
+        self.signal.return_value = original
+        def blocked(*args, **kwargs):
+            self.advance(5)
+            self.signal.call_args_list[0].args[1](w.signal.SIGALRM, None)
+        self.opener.open.side_effect = blocked
+        with self.assertRaisesRegex(w.Rejected, 'caller deadline'):
+            w.external(request())
+        original.assert_called_once_with(w.signal.SIGALRM, None)
+        self.assertEqual(self.setitimer.call_args_list[0], unittest.mock.call(w.signal.ITIMER_REAL, 5))
+        self.setitimer.assert_called_with(w.signal.ITIMER_REAL, 0, 0)
+        self.signal.assert_called_with(w.signal.SIGALRM, original)
+        self.sleep.assert_not_called()
+
+    def test_caller_timer_preserved_after_health_deadline(self):
+        self.getitimer.return_value = (300, 0)
+        self.opener.open.side_effect = TimeoutError()
+        with self.assertRaisesRegex(w.Rejected, 'deadline exceeded'):
+            w.external(request())
+        self.setitimer.assert_called_with(w.signal.ITIMER_REAL, 210, 0)
+
+    def test_periodic_caller_timer_preserves_interval_and_phase(self):
+        self.getitimer.return_value = (5, 10)
+        self.signal.return_value = MagicMock()
+        def blocked(*args, **kwargs):
+            self.advance(6)
+            self.signal.call_args_list[0].args[1](w.signal.SIGALRM, None)
+        self.opener.open.side_effect = blocked
+        with self.assertRaisesRegex(w.Rejected, 'deadline exceeded'):
+            w.external(request())
+        self.setitimer.assert_called_with(w.signal.ITIMER_REAL, 9, 10)
+
+
+class ExternalAlarmTests(unittest.TestCase):
+    def test_real_alarm_interrupts_blocking_io_without_network(self):
+        previous = w.signal.getsignal(w.signal.SIGALRM)
+        opener = MagicMock()
+        opener.open.side_effect = lambda *args, **kwargs: time.sleep(1)
+        # Leave 20ms for the real Unix timer; no host or network is contacted.
+        with patch.object(w.time, 'monotonic', side_effect=[0, 89.98, 89.98]), \
+                patch.object(w.urllib.request, 'build_opener', return_value=opener):
+            with self.assertRaisesRegex(w.Rejected, 'deadline exceeded'):
+                w.external(request())
+        self.assertEqual(w.signal.getsignal(w.signal.SIGALRM), previous)
+        self.assertEqual(w.signal.getitimer(w.signal.ITIMER_REAL), (0, 0))
+
+
 class EdgeSnapshotTests(unittest.TestCase):
     def setUp(self):
         self.r = request()
@@ -239,6 +451,12 @@ class ArchiveTests(unittest.TestCase):
                 'execution_id': 'sha256:' + 'e' * 64, 'validator_sha256': 'f' * 64, 'web_validator_sha256': 'd' * 64}
 
     def test_complete_archive_crypto_chain_and_tamper(self):
+        self.check_archive_crypto_chain('workflow_dispatch')
+
+    def test_automatic_archive_crypto_chain_and_tamper(self):
+        self.check_archive_crypto_chain('workflow_run')
+
+    def check_archive_crypto_chain(self, event):
         # Isolated instance of the real reused archive core, configured like the
         # publisher. Only HTTP metadata is stubbed; the full verifier chain is real.
         spec = importlib.util.spec_from_file_location('test_web_archive_core', Path(w.__file__).parent.parent / 'web/archive.py')
@@ -274,7 +492,7 @@ class ArchiveTests(unittest.TestCase):
             (folder / 'runtime.manifest.json').write_bytes(raw_manifest)
             descriptor = {'version': 1, 'repository': 'h66rogi/rogichat', 'source_sha': r['source_sha'],
                           'producer': {'sha': a['export_sha'], 'run_id': a['export_run'], 'run_attempt': a['export_attempt'],
-                                       'event': 'workflow_dispatch', 'ref': 'refs/heads/qa'},
+                                       'event': event, 'ref': 'refs/heads/qa'},
                           'verification_runs': r['verification_runs'], 'images': {'runtime': {
                               'image': r['image'], 'config_id': a['config_id'],
                               'archive_sha256': validator.core.file_hash(folder / 'runtime.tar')}}}
@@ -286,7 +504,7 @@ class ArchiveTests(unittest.TestCase):
                            'platform': 'linux/amd64', 'publicationAttempt': 1,
                            'publicationRun': f'https://github.com/{validator.core.REPOSITORY}/actions/runs/{publication_id}',
                            'runtimeEnvironmentsVerified': ['qa', 'production'],
-                           'verification': [{'workflow': name, 'id': identity, 'sha': r['source_sha']}
+                           'verification': [{'workflow': name, 'id': identity, 'attempt': 1, 'sha': r['source_sha']}
                                             for name, identity in r['verification_runs'].items() if name != 'web-publish.yml']}
             with zipfile.ZipFile(folder / 'publication-proof.zip', 'w') as proof:
                 proof.writestr('web-publication-proof.json', json.dumps(proof_value))
@@ -303,10 +521,10 @@ class ArchiveTests(unittest.TestCase):
                    'run_started_at': '2026-09-20T01:00:00Z',
                    'repository': {'full_name': validator.core.REPOSITORY},
                    'head_repository': {'full_name': validator.core.REPOSITORY}}
-            metadata = {f'actions/runs/{identity}': {**run, 'path': '.github/workflows/' + name}
+            metadata = {f'actions/runs/{identity}/attempts/1': {**run, 'id': identity, 'path': '.github/workflows/' + name}
                         for name, identity in r['verification_runs'].items()}
             metadata[f"actions/runs/{a['export_run']}/attempts/{a['export_attempt']}"] = {
-                **run, 'head_sha': a['export_sha'], 'event': 'workflow_dispatch',
+                **run, 'id': a['export_run'], 'head_sha': a['export_sha'], 'event': event,
                 'path': '.github/workflows/web-export.yml', 'run_started_at': '2026-09-20T02:00:00Z'}
             metadata[f"actions/artifacts/{a['artifact_id']}"] = {
                 'expired': False, 'digest': a['artifact_sha256'],
@@ -327,7 +545,7 @@ class ArchiveTests(unittest.TestCase):
                 return io.BytesIO(json.dumps(metadata[key]).encode())
             with patch.object(w, 'RELEASES', root), patch.object(w, 'protected', side_effect=read), patch.object(w, 'load_archive_validator', return_value=validator), patch.object(validator.core.urllib.request, 'urlopen', side_effect=public_metadata) as http, patch.object(validator, 'download_proof', side_effect=AssertionError('host ZIP download forbidden')), patch.object(validator.core, 'command', side_effect=AssertionError('host credential command forbidden')):
                 w.verify_archive(r, d)
-                self.assertEqual(http.call_count, 12)
+                self.assertEqual(http.call_count, 11)
                 (folder / 'export.zip').write_bytes(b'tampered')
                 with self.assertRaises(ValueError):
                     w.verify_archive(r, d)
@@ -382,6 +600,7 @@ class ArchiveTests(unittest.TestCase):
 
 class ApplyTests(unittest.TestCase):
     def setUp(self):
+        self.real_external = w.external
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
@@ -421,6 +640,21 @@ class ApplyTests(unittest.TestCase):
         self.assertFalse(self.current.exists())
         self.assertFalse(self.site.exists())
         self.assertIn(unittest.mock.call('rm', '-s', '-f', 'web'), self.compose.call_args_list)
+        self.assertEqual((self.receipts / self.r['request_id']).read_text(), 'attempted\n')
+
+    def test_external_retry_exhaustion_rolls_back_first_activation(self):
+        self.external.side_effect = self.real_external
+        opener = MagicMock()
+        opener.open.side_effect = w.urllib.error.HTTPError('https://qa.rogi.chat/healthz', 503,
+                                                        'not ready', {}, io.BytesIO())
+        with patch.object(w.urllib.request, 'build_opener', return_value=opener), \
+                patch.object(w.time, 'monotonic', side_effect=[0, 0, 0, 90]):
+            with self.assertRaisesRegex(w.Rejected, 'previous web state restored'):
+                w.apply(self.prepared)
+        self.assertFalse(self.current.exists())
+        self.assertFalse(self.site.exists())
+        self.assertIn(unittest.mock.call('rm', '-s', '-f', 'web'), self.compose.call_args_list)
+        self.assertEqual(self.reload_caddy.call_count, 2)
         self.assertEqual((self.receipts / self.r['request_id']).read_text(), 'attempted\n')
 
     def test_failed_external_restores_previous_web_and_site(self):

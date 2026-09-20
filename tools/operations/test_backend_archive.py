@@ -87,6 +87,37 @@ def oci_tar(root, descriptor, *, mutate=None):
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_backend_defaults_remain_manual_only(self):
+        with tempfile.TemporaryDirectory() as temp:
+            descriptor = build(Path(temp) / 'archive')
+            descriptor['producer']['event'] = 'workflow_run'
+            with self.assertRaises(ValueError):
+                archive.validate_descriptor(descriptor)
+            self.assertEqual(archive.validate_descriptor(descriptor, producer_events=frozenset({'workflow_run'})), descriptor)
+            approval = {'export_sha': 'd' * 40, 'export_run': 10, 'export_attempt': 1}
+            automatic = {'head_sha': 'd' * 40, 'head_branch': 'qa', 'event': 'workflow_run'}
+            with patch.object(archive, 'api', return_value=automatic), self.assertRaises(ValueError):
+                archive.verify_provenance(descriptor, approval)
+        env = {'EXPORT_SOURCE_SHA': 'a' * 40, 'GITHUB_SHA': 'b' * 40,
+               'GITHUB_REPOSITORY': archive.REPOSITORY, 'GITHUB_REF': 'refs/heads/qa',
+               'GITHUB_EVENT_NAME': 'workflow_run'}
+        with patch.dict(archive.os.environ, env), patch.object(archive, 'api') as api, self.assertRaises(ValueError):
+            archive.produce()
+        api.assert_not_called()
+
+    def test_supplied_runs_are_independently_verified_before_pull(self):
+        env = {'EXPORT_SOURCE_SHA': 'a' * 40, 'GITHUB_SHA': 'b' * 40,
+               'GITHUB_REPOSITORY': archive.REPOSITORY, 'GITHUB_REF': 'refs/heads/qa',
+               'GITHUB_EVENT_NAME': 'workflow_dispatch', 'GITHUB_TOKEN': 'test-only'}
+        runs = {workflow: i + 1 for i, workflow in enumerate(sorted(archive.WORKFLOWS))}
+        invalid = {'head_sha': 'c' * 40}
+        with patch.dict(archive.os.environ, env), patch.object(archive, 'api', return_value=invalid) as api, patch.object(archive, 'command') as command, self.assertRaises(ValueError):
+            archive.produce(verification_runs=runs)
+        api.assert_called_once_with('actions/runs/1', 'test-only')
+        command.assert_not_called()
+        with patch.dict(archive.os.environ, env), self.assertRaises(ValueError):
+            archive.produce(expected_event='workflow_run', verification_runs=runs)
+
     def test_complete_crypto_chain(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary)
