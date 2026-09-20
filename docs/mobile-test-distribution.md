@@ -129,7 +129,7 @@ API에서 같은 build number가 이미 보이거나 로컬 업로드 시도 기
 연결한다. 테스터가 TestFlight에서 설치 가능한지까지 확인해야 테스트 배포 완료다.
 이 도구는 테스터 초대나 외부 심사 제출을 자동으로 수행하지 않는다.
 
-현재 미연동 QA 와이어프레임에는 암호화 구현이나 외부 라이브러리가 없으므로
+현재 iOS 앱에는 별도 암호화 구현이나 외부 라이브러리가 없으므로
 `ITSAppUsesNonExemptEncryption=false`를 plist에 명시한다. 암호화 기능이나 의존성을
 추가할 때에는 [Apple의 해당 키 설명](https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption)에 따라 선언을 다시 검토한다.
 

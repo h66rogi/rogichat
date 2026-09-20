@@ -54,7 +54,7 @@ fun NotificationSettingsContent(state: NotificationReadState, openFailure: Strin
         if (state.failed && onRead != null) TextButton(onClick = onRead) { Text("다시 확인") }
     }
     SettingsDivider()
-    if (onOpen != null) SettingsRow("기기 알림 설정", "알림 허용, 소리와 표시 방식을 관리해요.", onClick = onOpen)
+    if (onOpen != null) SettingsRow("기기 알림 설정", "이 기기에서 제공하는 로기챗 알림 설정을 확인해요.", onClick = onOpen)
     if (openFailure != null) Text(openFailure, color = MaterialTheme.colorScheme.error,
         modifier = Modifier.padding(20.dp))
 }

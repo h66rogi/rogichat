@@ -193,3 +193,8 @@ iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b`로 고정한다. 원본은 읽기
 native tab 구성은 컴파일되지만 실기기 화면/스크린리더 결과를 대신하지 않는다.
 네이티브 인증·원격 프로필 저장·logout/delete·방 입장·채팅·푸시는 구현 완료로 집계하지 않는다.
 제품 앱은 실제 native adapter가 없으면 로그인 버튼이나 합성 계정을 제공하지 않는다.
+
+iOS `Resources/PrivacyInfo.xcprivacy`는 원본에 대응 파일이 없어 **신규**로 작성한 플랫폼
+메타데이터다. 실제 `@AppStorage`의 앱 전용 화면 모드 설정에 해당하는 UserDefaults
+`CA92.1`만 선언했다. 필요하지 않은 원본 SDK/추적 선언은 가져오지 않는다.
+선언 파일·정확한 앱 식별·서명 승격 경계는 [배포 준비 점검](mobile-release-readiness.md)을 따른다.

@@ -39,6 +39,11 @@ fixture를 DEX 추가 파일, 앱 리소스, iOS debug dylib/Framework, IPA에 �
 포함한다. 플랫폼 자체 Preview API나 일반 메시지 미리보기 기능을 일괄 금지하지 않는다.
 이 검사가 임의의 모든 가짜 기능을 자동 판별하는 것은 아니므로 화면 코드 리뷰도 함께 수행한다.
 
+iOS는 실제 화면 모드 저장에 필요한 UserDefaults 사용 사유 `CA92.1`을 개인정보 manifest에
+선언하고 app/IPA의 포함 여부와 내용을 검사한다. Apple 앱 검색은 접두사 일치를 허용하지
+않고 반환된 identifier/bundleId의 정확한 일치를 확인한다. Prod 서명·운영 자동화의 실제
+준비 상태와 잔여 항목은 [배포 준비 점검](mobile-release-readiness.md)에 기록한다.
+
 ## 독립 리뷰에서 보정한 경계
 
 - Ready 상태는 실제 계정과 SOOP 연결을 요구한다.
@@ -64,7 +69,7 @@ fixture를 DEX 추가 파일, 앱 리소스, iOS debug dylib/Framework, IPA에 �
 | 채팅/미디어 | 원본 Talk/TalkV2는 이식하지 않음. room 목록은 별도 주입형 경계 | MB04–06의 실제 입장·메시지·영속 전송·복구 구현 |
 | C09 알림 | 기기 알림 상태/설정 이동만 실제 동작 | 서버 선호·기기 binding·FCM/APNs 등록/전달/해제 |
 | 정책/지원 | 확인된 로기챗 게시 주소·지원 경로 없음 | 실제 게시된 정책/지원으로 연결, legacy URL 승계 금지 |
-| 기기 사용성 | 연결된 Android 기기 없음, 등록된 iPhone 둘 다 unavailable | 설치 실행·큰 글자·화면 크기·키보드·VoiceOver/TalkBack 확인 |
+| 기기 사용성 | Android API 36.1 읽기 전용 에뮬레이터에서 서명/R8 앱 실행·설정·재실행 저장·글자 200% 확인. 물리 Android/iPhone 미연결 | 지원 OS 실기기·다양한 화면·키보드·VoiceOver/TalkBack 확인 |
 
 기본 제품은 `현재 버전에서는 앱 로그인을 지원하지 않아요.`라고 상태를 명시한다.
 존재하지 않는 endpoint, 웹 Origin 위장, cookie 추출, 가짜 Apple/SOOP 성공으로 위 블로커를
@@ -73,7 +78,8 @@ fixture를 DEX 추가 파일, 앱 리소스, iOS debug dylib/Framework, IPA에 �
 
 ## 검증 기록
 
-- 서명 도구·배포 경계 Python 회귀 테스트 36개 통과. macOS 일회용 keychain 검사 포함.
+- 서명 도구·배포 경계 Python 회귀 테스트 43개를 모두 통과했다. 개인정보 manifest·Apple
+  앱 정확한 식별 검사를 추가했으며 macOS 일회용 keychain 검사도 실행했다.
 - Swift 6 strict concurrency host 검사 통과: 기존 순수 상태/route race 및 새 제품 상태.
   생일/PATCH null, 중복 저장, 인증 메타데이터 보존, 로그아웃 중 늦은 저장, 잘못된 세션,
   SOOP gate, 미지원 로그인의 계정 생성 방지, 복구 중 쓰기·취소/재시도·잘못된 생일을 검사했다.
@@ -82,6 +88,9 @@ fixture를 DEX 추가 파일, 앱 리소스, iOS debug dylib/Framework, IPA에 �
 - Android QA/prod Debug/Release 4종과 Release R8/resource shrink, 엄격한 lint 및
   단위 테스트 60개(QA 34/prod 26, 실패·skip 없음)를 통과했다. 수동 화면 모드와 시스템
   표시줄 색의 불일치를 수정한 뒤 동일 전체 검사를 다시 통과했다.
+- Android 서명 산출물의 실제 시작·설정/라이선스·dark 모드 재실행 복원·OS 설정 복귀와
+  글자 200%를 추가 확인했다. OS가 아직 제공하지 않는 조작을 암시하던 알림 설명은
+  현재 기기 설정의 확인 기능을 정확히 설명하도록 양 OS에서 수정했다.
 - 제품 소스 guard, 공개 저장소 보안 scanner, 변경 Markdown의 상대 링크 검사를 통과했다.
   참조 저장소 두 곳은 수정하지 않았으며 API/DB·웹·인프라 변경을 포함하지 않는다.
 

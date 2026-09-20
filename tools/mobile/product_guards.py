@@ -5,10 +5,24 @@ platform Preview APIs and third-party symbols are not evidence of a demo app.
 Run source checks before building and artifact checks again before uploading.
 """
 from pathlib import Path
+import plistlib
 import re
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
+
+# Current iOS runtime stores only app-private appearance preferences through
+# AppStorage/UserDefaults. Adding collection, tracking or another required-reason
+# API requires updating both the truthful declaration and this release policy.
+EXPECTED_IOS_PRIVACY = {
+    "NSPrivacyTracking": False,
+    "NSPrivacyTrackingDomains": [],
+    "NSPrivacyCollectedDataTypes": [],
+    "NSPrivacyAccessedAPITypes": [{
+        "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
+        "NSPrivacyAccessedAPITypeReasons": ["CA92.1"],
+    }],
+}
 
 RETIRED_MARKERS = (
     "WireframeHost", "WireframeFixtures", "WireframeState", "WireframeScreens",
@@ -41,11 +55,26 @@ def inspect_android_package(path: Path):
             inspect_product_data(package.read(name), f"{path.name}/{name}")
 
 
+def inspect_ios_privacy(data: bytes, label: str):
+    try:
+        declaration = plistlib.loads(data)
+    except (plistlib.InvalidFileException, ValueError, TypeError, OverflowError) as error:
+        raise ValueError(f"{label}: invalid iOS privacy manifest") from error
+    if (not isinstance(declaration, dict)
+            or type(declaration.get("NSPrivacyTracking")) is not bool
+            or declaration != EXPECTED_IOS_PRIVACY):
+        raise ValueError(f"{label}: iOS privacy manifest must match current nontracking, app-private UserDefaults use")
+
+
 def inspect_ios_app(app: Path, executable_name: str):
     if not executable_name or Path(executable_name).name != executable_name:
         raise ValueError("iOS bundle has an invalid executable name")
     if not (app / executable_name).is_file():
         raise ValueError("iOS bundle has no executable code")
+    privacy = app / "PrivacyInfo.xcprivacy"
+    if not privacy.is_file():
+        raise ValueError("iOS bundle is missing PrivacyInfo.xcprivacy")
+    inspect_ios_privacy(privacy.read_bytes(), app.name)
     for path in app.rglob("*"):
         if path.is_file():
             inspect_product_data(path.read_bytes(), f"{app.name}/{path.relative_to(app)}")
@@ -56,6 +85,10 @@ def inspect_ios_package(package: zipfile.ZipFile, app_prefix: str, executable_na
         raise ValueError("iOS bundle has an invalid executable name")
     if app_prefix + executable_name not in package.namelist():
         raise ValueError("IPA has no executable code")
+    privacy = app_prefix + "PrivacyInfo.xcprivacy"
+    if package.namelist().count(privacy) != 1:
+        raise ValueError("IPA must contain exactly one app PrivacyInfo.xcprivacy")
+    inspect_ios_privacy(package.read(privacy), app_prefix)
     for name in package.namelist():
         if name.startswith(app_prefix) and not name.endswith("/"):
             inspect_product_data(package.read(name), name)

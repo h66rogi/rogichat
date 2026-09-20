@@ -1,11 +1,14 @@
 """Regression mutations must fail even when no fixture room text is present."""
 from pathlib import Path
+from copy import deepcopy
+import plistlib
 import tempfile
 import unittest
 import zipfile
 
-from product_guards import (RETIRED_MARKERS, inspect_android_package, inspect_ios_app,
-                            inspect_ios_package, inspect_product_data, inspect_product_sources)
+from product_guards import (EXPECTED_IOS_PRIVACY, RETIRED_MARKERS, inspect_android_package,
+                            inspect_ios_app, inspect_ios_package, inspect_ios_privacy,
+                            inspect_product_data, inspect_product_sources)
 
 
 class ProductGuardsTest(unittest.TestCase):
@@ -95,6 +98,7 @@ class ProductGuardsTest(unittest.TestCase):
     def test_ios_archive_checks_debug_dylib_and_resources(self):
         app = self.root / "Rogichat.app"
         self.write("Rogichat.app/Rogichat", "real code")
+        self.write("Rogichat.app/PrivacyInfo.xcprivacy", plistlib.dumps(EXPECTED_IOS_PRIVACY).decode())
         inspect_ios_app(app, "Rogichat")
         for name in ("Rogichat.debug.dylib", "Fixtures.json", "Frameworks/Feature.framework/Feature"):
             path = self.write("Rogichat.app/" + name, "PreviewRole")
@@ -105,10 +109,59 @@ class ProductGuardsTest(unittest.TestCase):
     def test_ios_ipa_checks_code_and_resources(self):
         prefix = "Payload/Rogichat.app/"
         for name in ("Rogichat", "Rogichat.debug.dylib", "Fixtures.json"):
-            path = self.package("mutated.ipa", {prefix + "Rogichat": b"real code", prefix + name: b"WireframeHost"})
+            path = self.package("mutated.ipa", {prefix + "Rogichat": b"real code", prefix + name: b"WireframeHost",
+                                               prefix + "PrivacyInfo.xcprivacy": plistlib.dumps(EXPECTED_IOS_PRIVACY)})
             with zipfile.ZipFile(path) as package, self.subTest(name=name):
                 with self.assertRaisesRegex(ValueError, "retired demo content"):
                     inspect_ios_package(package, prefix, "Rogichat")
+
+    def test_missing_privacy_manifest_blocks_built_app_and_ipa(self):
+        self.write("Rogichat.app/Rogichat", "real code")
+        with self.assertRaisesRegex(ValueError, "missing PrivacyInfo"):
+            inspect_ios_app(self.root / "Rogichat.app", "Rogichat")
+        path = self.package("missing.ipa", {"Payload/Rogichat.app/Rogichat": b"real code"})
+        with zipfile.ZipFile(path) as package, self.assertRaisesRegex(ValueError, "exactly one app PrivacyInfo"):
+            inspect_ios_package(package, "Payload/Rogichat.app/", "Rogichat")
+
+    def test_current_privacy_declaration_accepts_xml_and_binary_plists(self):
+        for format in (plistlib.FMT_XML, plistlib.FMT_BINARY):
+            inspect_ios_privacy(plistlib.dumps(EXPECTED_IOS_PRIVACY, fmt=format), "fixture")
+
+    def test_wrong_reason_category_collection_and_tracking_fail_closed(self):
+        mutations = []
+        for key, value in (("NSPrivacyTracking", True), ("NSPrivacyTracking", 0),
+                           ("NSPrivacyTrackingDomains", ["tracking.example.invalid"]),
+                           ("NSPrivacyCollectedDataTypes", [{"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeEmailAddress"}]),
+                           ("NSPrivacyAccessedAPITypes", [])):
+            declaration = deepcopy(EXPECTED_IOS_PRIVACY)
+            declaration[key] = value
+            mutations.append(declaration)
+        for key, value in (("NSPrivacyAccessedAPIType", "NSPrivacyAccessedAPICategoryFileTimestamp"),
+                           ("NSPrivacyAccessedAPITypeReasons", ["1C8F.1"])):
+            declaration = deepcopy(EXPECTED_IOS_PRIVACY)
+            declaration["NSPrivacyAccessedAPITypes"][0][key] = value
+            mutations.append(declaration)
+        for key in EXPECTED_IOS_PRIVACY:
+            declaration = deepcopy(EXPECTED_IOS_PRIVACY)
+            declaration.pop(key)
+            mutations.append(declaration)
+        for declaration in mutations:
+            with self.subTest(declaration=declaration), self.assertRaisesRegex(ValueError, "privacy manifest"):
+                inspect_ios_privacy(plistlib.dumps(declaration), "fixture")
+
+    def test_wrong_packaged_privacy_manifest_blocks_app_and_ipa(self):
+        self.write("Rogichat.app/Rogichat", "real code")
+        self.write("Rogichat.app/PrivacyInfo.xcprivacy", plistlib.dumps({}).decode())
+        with self.assertRaisesRegex(ValueError, "privacy manifest"):
+            inspect_ios_app(self.root / "Rogichat.app", "Rogichat")
+        path = self.package("wrong.ipa", {"Payload/Rogichat.app/Rogichat": b"real code",
+                                          "Payload/Rogichat.app/PrivacyInfo.xcprivacy": plistlib.dumps({})})
+        with zipfile.ZipFile(path) as package, self.assertRaisesRegex(ValueError, "privacy manifest"):
+            inspect_ios_package(package, "Payload/Rogichat.app/", "Rogichat")
+
+    def test_malformed_privacy_manifest_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "invalid iOS privacy manifest"):
+            inspect_ios_privacy(b"not a property list", "fixture")
 
     def test_ios_ipa_requires_executable_not_just_plist(self):
         path = self.package("empty.ipa", {"Payload/Rogichat.app/Info.plist": b"plist"})

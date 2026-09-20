@@ -40,7 +40,7 @@ struct NotificationSettingsScreen: View {
                     }.frame(minHeight: 32)
                 }.disabled(opening)
             } footer: {
-                Text("알림 소리, 배너, 잠금 화면 표시는 iPhone 설정에서 변경할 수 있어요.")
+                Text("이 기기에서 제공하는 로기챗 알림 설정을 확인할 수 있어요.")
             }
             if let failure { Section { Text(failure).font(.footnote).foregroundStyle(.red) } }
         }

@@ -52,9 +52,7 @@ def archive(cfg, number, version):
     inspect_product_sources(platforms=("ios",))
     unlock_signing(cfg)
     asc = AppStoreConnect(cfg)
-    registered = asc.request("bundleIds", {"filter[identifier]": APP_ID})["data"]
-    if len(registered) != 1:
-        raise ValueError("Register the Rogichat QA bundle identifier first")
+    asc.bundle()
     directory = new_output(cfg, "ios", number)
     path = directory / "Rogichat-QA.xcarchive"
     run(["xcodebuild", "-project", str(ROOT / "apps/ios/Rogichat.xcodeproj"),

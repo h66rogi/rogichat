@@ -8,9 +8,35 @@ import unittest
 from unittest.mock import patch
 import zipfile
 
-from release_common import APP_ID, API_URL, ROOT, external, manifest, private_write, sha256, tree_sha256, version_number
+from release_common import APP_ID, API_URL, ROOT, AppStoreConnect, external, manifest, private_write, sha256, tree_sha256, version_number
 from release_ios import export_options, inspect_ipa
 import release_android
+from product_guards import EXPECTED_IOS_PRIVACY
+
+
+class AppStoreTargetGuards(unittest.TestCase):
+    def test_prefix_only_missing_and_duplicate_targets_are_rejected(self):
+        # Filtering is pure; no credentials or Apple request is made by these tests.
+        api = object.__new__(AppStoreConnect)
+        for method, attribute in ((api.app, "bundleId"), (api.bundle, "identifier")):
+            exact = {"id": "exact", "attributes": {attribute: APP_ID}}
+            for records in ([], [{"id": "prefix", "attributes": {attribute: APP_ID + ".other"}}],
+                            [{"id": "prod", "attributes": {attribute: "chat.rogi.rogichat"}}],
+                            [{"id": "missing", "attributes": {}}], [exact, exact]):
+                with self.subTest(method=method.__name__, records=records):
+                    with patch.object(api, "request", return_value={"data": records}):
+                        with self.assertRaises(ValueError):
+                            method()
+
+    def test_exact_qa_match_is_selected_among_prefix_matches(self):
+        api = object.__new__(AppStoreConnect)
+        for method, resource, attribute in ((api.app, "apps", "bundleId"), (api.bundle, "bundleIds", "identifier")):
+            records = [{"id": "prefix", "attributes": {attribute: APP_ID + ".other"}},
+                       {"id": "qa", "attributes": {attribute: APP_ID}}]
+            with self.subTest(method=method.__name__):
+                with patch.object(api, "request", return_value={"data": records}) as request:
+                    self.assertEqual(method(), "qa")
+                    request.assert_called_once_with(resource, {f"filter[{attribute}]": APP_ID})
 
 
 class ReleaseGuards(unittest.TestCase):
@@ -94,6 +120,7 @@ class ReleaseGuards(unittest.TestCase):
         with zipfile.ZipFile(ipa, "w") as archive:
             archive.writestr("Payload/App.app/Info.plist", plistlib.dumps(info))
             archive.writestr("Payload/App.app/App", b"real app code")
+            archive.writestr("Payload/App.app/PrivacyInfo.xcprivacy", plistlib.dumps(EXPECTED_IOS_PRIVACY))
         inspect_ipa(ipa, 7, "0.1.0")
         with self.assertRaisesRegex(ValueError, "CFBundleVersion"):
             inspect_ipa(ipa, 8, "0.1.0")
@@ -106,6 +133,7 @@ class ReleaseGuards(unittest.TestCase):
         with zipfile.ZipFile(ipa, "w") as archive:
             archive.writestr("Payload/App.app/Info.plist", plistlib.dumps(info))
             archive.writestr("Payload/App.app/App", b"WireframeHost")
+            archive.writestr("Payload/App.app/PrivacyInfo.xcprivacy", plistlib.dumps(EXPECTED_IOS_PRIVACY))
         with self.assertRaisesRegex(ValueError, "retired demo content"):
             inspect_ipa(ipa, 7, "0.1.0")
 
