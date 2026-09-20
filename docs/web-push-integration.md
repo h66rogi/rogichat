@@ -169,9 +169,14 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 - **Lost response.** Only a network failure on an initial registration is retried, once, with the
   byte-identical generation-free body, which the server answers with the existing id and
   generation without mutating it. An HTTP failure is never retried this way.
-- **Rotation and rebinding.** A browser subscription created with a different application server
-  key is replaced. A subscription this account owns from another session is re-registered with
-  its current generation.
+- **Reuse evidence.** An existing browser subscription is registered as-is only when it is
+  known to belong to the server's current application server key: the browser names that key,
+  or the record written at its registration fingerprints exactly this subscription under it.
+  Anything else is withdrawn and replaced by a fresh subscription created with the current key,
+  so a subscription of unknown origin is never labelled with a key it may not have.
+- **Rebinding.** A record's generation belongs to the endpoint it was written for, so it is
+  sent only when that exact endpoint is being rebound to a new session of the same account. A
+  newly created endpoint registers without a generation.
 - **Cross-account endpoints.** 404 or a 409 for an endpoint whose generation this browser does
   not hold leads to an unsubscribe and one fresh endpoint. If the push service hands back the
   same endpoint, enrollment stays unavailable and says so; it never pretends to succeed.
@@ -227,7 +232,7 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 Node 24.21.0, TypeScript 5.9.3 (the repository pin), from `apps/web`:
 
 - `node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts`
-  — 85 tests, 85 pass, 0 fail.
+  — 89 tests, 89 pass, 0 fail.
 - `tsc --noEmit` over `src/features/push/**` with the repository's strict options
   (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`) — clean.
 - ESLint 10.11.0 with the repository's type-aware rule set over the module's 18 files — 0 errors,

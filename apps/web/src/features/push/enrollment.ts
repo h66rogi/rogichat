@@ -258,24 +258,35 @@ export class PushEnrollment {
   /**
    * Obtains an endpoint and registers it, returning null when the state was already handled.
    *
-   * A browser subscription created for a different application server key is rotated. An
-   * endpoint the server refuses for this account (404) or that needs a generation we do not
-   * hold (409) is withdrawn and replaced once by a fresh endpoint; if the push service hands
-   * back the same endpoint, registration stays unavailable rather than pretending to succeed.
+   * An existing browser subscription is reused only when it is known to belong to the server's
+   * current application server key: either the browser names that key, or the record written
+   * at its registration fingerprints exactly this subscription under it. Anything else —
+   * another key, or a subscription nothing can place under a key — is withdrawn and replaced
+   * by a fresh one created with the current key, because registering it would otherwise record
+   * a key the subscription may never have been created with. An endpoint the server refuses
+   * for this account (404) or that needs a generation this browser does not hold (409) is also
+   * replaced once; if the push service hands back the same endpoint, registration stays
+   * unavailable rather than pretending to succeed.
    */
   private async registerSubscription(capabilities: PushCapabilitiesAvailable): Promise<PushSubscriptionIdentity | null> {
     await this.releaseForeignBinding();
+    const key = capabilities.applicationServerKey;
+    const owned = readAccountBinding(this.storage, this.scope.identity);
     let current = await this.scope.run(() => this.browser.current());
-    if (current !== null && current.applicationServerKey !== null && current.applicationServerKey !== capabilities.applicationServerKey) {
+    if (current !== null && !(await this.usesCurrentKey(current, owned, key))) {
       await this.scope.run(() => this.browser.unsubscribe());
       current = null;
     }
+    const reused = current !== null;
+    if (current === null) current = await this.scope.run(() => this.browser.subscribe(key));
 
-    const owned = readAccountBinding(this.storage, this.scope.identity);
-    if (current === null) current = await this.scope.run(() => this.browser.subscribe(capabilities.applicationServerKey));
+    // The generation belongs to the endpoint the record was written for. A subscription created
+    // just now is a new endpoint, and a new endpoint registers without one.
+    const rebinding = reused && owned !== null && owned.session !== this.scope.identity.session &&
+      await this.isRecordedSubscription(current, owned, key);
 
     try {
-      return this.remember(await this.registerEndpoint(current, owned), current, capabilities.applicationServerKey);
+      return await this.remember(await this.registerEndpoint(current, rebinding ? owned : null), current, key);
     } catch (error) {
       if (!(error instanceof PushError) || !['not-found', 'conflict'].includes(error.kind)) throw error;
       // The endpoint belongs to another account or to a binding whose generation we do not
@@ -283,22 +294,24 @@ export class PushEnrollment {
       const previous = current.endpoint;
       forgetBinding(this.storage);
       await this.scope.run(() => this.browser.unsubscribe());
-      const fresh = await this.scope.run(() => this.browser.subscribe(capabilities.applicationServerKey));
+      const fresh = await this.scope.run(() => this.browser.subscribe(key));
       if (fresh.endpoint === previous) {
         this.set({ subscriptionId: null, ownsBinding: false, notice: '브라우저가 이전과 같은 알림 주소를 다시 발급해 지금은 알림을 켤 수 없습니다. 브라우저의 사이트 알림 권한을 해제한 뒤 다시 시도해 주세요.' });
         return null;
       }
-      return this.remember(await this.registerEndpoint(fresh, null), fresh, capabilities.applicationServerKey);
+      return this.remember(await this.registerEndpoint(fresh, null), fresh, key);
     }
   }
 
   /**
-   * One registration attempt. A same-account session rebinding sends the current generation;
-   * a new endpoint omits it. Only a lost response is retried, with the byte-identical initial
-   * body, which the server answers with the existing id and generation without mutating it.
+   * One registration attempt. `owned` is present only for a same-account session rebinding of
+   * the very endpoint that record was written for, which sends its current generation; every
+   * other registration is a new endpoint and omits it. Only a lost response is retried, with
+   * the byte-identical initial body, which the server answers with the existing id and
+   * generation without mutating it.
    */
   private async registerEndpoint(subscription: BrowserSubscription, owned: StoredBinding | null): Promise<PushSubscriptionIdentity> {
-    const rebinding = owned !== null && owned.session !== this.scope.identity.session;
+    const rebinding = owned !== null;
     const input = rebinding && owned !== null
       ? { endpoint: subscription.endpoint, keys: subscription.keys, generation: owned.generation }
       : { endpoint: subscription.endpoint, keys: subscription.keys };
@@ -374,7 +387,7 @@ export class PushEnrollment {
       return;
     }
     const current = await this.scope.run(() => this.browser.current());
-    this.set({ subscriptionId: current !== null && await this.isRegisteredSubscription(current, owned) ? owned.id : null });
+    this.set({ subscriptionId: current !== null && await this.isRecordedSubscription(current, owned, this.state.applicationServerKey) ? owned.id : null });
   }
 
   /**
@@ -387,13 +400,25 @@ export class PushEnrollment {
    * endpoint this browser no longer has, and presenting that as enrolled would claim a
    * delivery path that does not exist.
    */
-  private async isRegisteredSubscription(subscription: BrowserSubscription, owned: StoredBinding): Promise<boolean> {
-    const live = this.state.applicationServerKey;
-    if (live === null || owned.fingerprint === null) return false;
+  private async isRecordedSubscription(subscription: BrowserSubscription, owned: StoredBinding | null, live: string | null): Promise<boolean> {
+    if (live === null || owned === null || owned.fingerprint === null) return false;
     // A browser that names its subscription's key must name the server's current one.
     if (subscription.applicationServerKey !== null && subscription.applicationServerKey !== live) return false;
     const fingerprint = await this.scope.run(() => subscriptionFingerprint(subscription.endpoint, subscription.keys, live));
     return fingerprint === owned.fingerprint;
+  }
+
+  /**
+   * Whether this subscription can be registered as-is under the current key.
+   *
+   * A browser that names its subscription's key settles it. Otherwise the only evidence is the
+   * record written when this exact subscription was registered; with neither, the key it was
+   * created under is unknown, and registering it would bind the server to an endpoint that may
+   * answer to a different key while the record claimed the current one.
+   */
+  private async usesCurrentKey(subscription: BrowserSubscription, owned: StoredBinding | null, live: string): Promise<boolean> {
+    if (subscription.applicationServerKey !== null) return subscription.applicationServerKey === live;
+    return this.isRecordedSubscription(subscription, owned, live);
   }
 
   private async handlePreferenceFailure(error: unknown): Promise<void> {

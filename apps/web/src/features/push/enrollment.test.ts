@@ -424,12 +424,13 @@ void test('a server that lost its Web Push capability is not reported as enrolle
   assert.deepEqual(context.enrollment.model().toggle, { enabled: true });
 });
 
-void test('a session rebinding on the same account sends the current generation', async () => {
+void test('a session rebinding of the recorded endpoint sends its current generation', async () => {
   const context = await primed(
     [available(), preference(false, '3'), registered(ID, '5'), preference(true, '4')],
-    { stored: await record('https://push.example/a', '4', 'session-zero') },
+    { stored: await record('https://push.example/a', '4', 'session-zero'), subscription: subscription('https://push.example/a') },
   );
   await context.enrollment.enable();
+  assert.equal(context.browser.subscribes, 0, 'the endpoint the record was written for is kept');
   assert.deepEqual(context.sent[2]?.body, { endpoint: 'https://push.example/a', keys: KEYS, generation: '4' });
 });
 
@@ -529,4 +530,51 @@ void test('the toggle enrols when there is nothing stored and does nothing while
   await unread.enrollment.toggle();
   assert.deepEqual(unread.routes(), []);
   assert.equal(unread.browser.prompts, 0);
+});
+
+void test('an existing subscription of unknown key is replaced instead of labelled current', async () => {
+  const context = await primed(
+    [available(), preference(false, '2'), registered(ID, '1'), preference(true, '3')],
+    { endpoints: ['https://push.example/fresh'], subscription: subscription('https://push.example/unknown', null) },
+  );
+  await context.enrollment.enable();
+  assert.equal(context.browser.subscribes, 1, 'a subscription nothing can place under a key is not registered as-is');
+  assert.equal(context.browser.unsubscribes, 1);
+  assert.equal((context.sent[2]?.body as { endpoint: string }).endpoint, 'https://push.example/fresh');
+  assert.equal(context.values[PUSH_BINDING_KEY], await record('https://push.example/fresh', '1'));
+  assert.equal(context.enrollment.model().enabled, true);
+});
+
+void test('an existing subscription this browser registered under the current key is reused', async () => {
+  const context = await primed(
+    [available(), preference(false, '2'), registered(ID, '1'), preference(true, '3')],
+    { stored: await record('https://push.example/known'), subscription: subscription('https://push.example/known', null) },
+  );
+  await context.enrollment.enable();
+  assert.equal(context.browser.subscribes, 0, 'its own record places it under the current key');
+  assert.equal(context.browser.unsubscribes, 0);
+  assert.equal((context.sent[2]?.body as { endpoint: string }).endpoint, 'https://push.example/known');
+  assert.equal(context.enrollment.model().enabled, true);
+});
+
+void test('a subscription replaced after enrolling stops reporting as enrolled', async () => {
+  const context = await primed([available(), preference(false, '2'), registered(ID, '1'), preference(true, '3'), available(), preference(true, '3')]);
+  await context.enrollment.enable();
+  assert.equal(context.enrollment.model().enabled, true);
+
+  // The push service hands the browser a different endpoint under the same key.
+  context.browser.live = subscription('https://push.example/replaced');
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.model().enabled, false, 'the server knows the endpoint this browser no longer has');
+  assert.equal(context.enrollment.intent(), 'disable');
+});
+
+void test('a rebinding sends its generation only for the endpoint the record was written for', async () => {
+  const context = await primed(
+    [available(), preference(false, '3'), registered(ID, '5'), preference(true, '4')],
+    { stored: await record('https://push.example/other', '4', 'session-zero'), endpoints: ['https://push.example/fresh'], subscription: subscription('https://push.example/unknown', null) },
+  );
+  await context.enrollment.enable();
+  assert.equal(context.browser.subscribes, 1, 'the unknown subscription is replaced');
+  assert.deepEqual(context.sent[2]?.body, { endpoint: 'https://push.example/fresh', keys: KEYS }, 'a new endpoint is not a rebinding and carries no generation');
 });
