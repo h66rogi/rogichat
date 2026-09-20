@@ -1,6 +1,89 @@
-# MESSAGE deletion and push integration checkpoint
+# Backend source integration checkpoint
 
-This source integration is not a QA release or a completed M10 purge.
+This source integration is not a QA release or proof of physical deletion.
+
+## Whole-batch follow-up (2026-09-20)
+
+The follow-up preserves accepted `4216aaaa53cc657a2d15e11cd12e53ce159e3b3b`
+and normally merges these complete source histories:
+
+- M10 account content/media `a25fb66f3e7345b136bdd810481d2f8f863be053`,
+  including late-write reopening, cleanup fencing and durable cursor regressions;
+  Apple also carries final sticker-proof correction
+  `ae65a689b206dc57e1f2bcd898ef5bb5487e2413` without rewriting that commit.
+- Moderation `d0461ccd778966dff6bbfd165e29fb8492650a7e`, including bounded
+  report retention, reversible actor blocks and privacy-scoped recovery names.
+- Native push `7774ce0634e686a0a66338e4a2619d1ab712eaaa`, including explicit
+  enrollment, encrypted provider tokens, provider-aware enqueue/delivery and
+  generated migration 23.
+- Apple lifecycle `357f1fb80b9cdf5586a0ca6627466f74e974fe4f`, including
+  SOOP-gated onboarding, bounded revocation and restored-credential quarantine.
+- Current QA `c5c75d433e1da9a46d8a2fa4b66c405ab6e4a0c5`, including reviewed
+  public-history scanner improvements.
+
+Migrations 20–23 are retained without rewriting their bytes. Shared Nest module,
+account-cleanup and worker conflicts preserve both moderation retention and Apple
+lifecycle services. The merged cleanup tests retain both continuation contracts:
+pending moderation cannot falsely complete, and provider waits cannot starve
+independent content/media cleanup. The separate M12 restore-epoch/schema-24 work
+is not part of this source checkpoint.
+
+Integration-owned changes add [bounded overload admission](backend-overload-admission.md),
+temporary socket transport retry, narrow native NOWAIT contention handling, and
+real-MySQL regressions for acquisition exhaustion, lock contention and populated
+WEB subscription preservation across migration 23. Existing tests are retained;
+crossed native rebinding now rejects arbitrary errors as a passing outcome.
+
+Small local checks cover compilation, the focused runtime regressions, architecture,
+syntax/lint and security. Full tests and disposable-MySQL upgrade checks belong
+to exact-head credential-free hosted CI; prior or leaf passes are not combined
+acceptance. The supplementary 1,000-client diagnostic has not passed on this
+runtime. Local hints remain the reviewed single-API behavior, and HTTP 503 alone
+does not establish successful recovery or capacity.
+
+QA/main merge, live host/database/provider configuration, immutable-image
+activation and user-route verification remain with the infrastructure executor.
+No synthetic account or conversation is added to serving runtime.
+
+## Prior accepted source baseline (2026-09-20)
+
+The sections below record earlier integration stages. Their statements about
+18 migrations, an unregistered PURGE handler and a deferred C06 source cutover
+are historical, superseded by accepted integration
+`f3668aba120b4732e13ee024d13cebb3eb937bf3`. That baseline includes reconciled QA
+`129f378`, the full C04–C06 contracts, native/web product composition and the
+[bounded PURGE runtime](backend-purge-runtime.md), with **19 migrations**.
+It still does not establish complete physical account/media purge or restore
+release safety. No schema-20-or-later runtime is included in this checkpoint.
+
+The [genuine-owner bootstrap](backend-genuine-owner-bootstrap.md) adds an
+operator-only command and shared owned-room domain composition, normally merged
+from reviewed PR68 commit `9f0bcd38a59bdc1d0a49a47a72210eeaf317acb0`.
+Its exact-head hosted checks passed, including actual durable-COMMIT/driver-ACK
+loss and exact-request replay. It changes no schema, HTTP authorization gate or
+public login flow; genuine authentication and separate operator execution remain
+necessary. The integration preserves the baseline's membership and deletion
+contracts, worker composition, migrations and native/web source.
+
+The [M12 isolated quality suite](backend-m12-quality-evidence.md) is normally
+merged from PR69 commit `11cb2fa9485aa259c28e8dd204395bf295bd94f7`, whose required
+checks and [33-test quality run](https://github.com/h66rogi/rogichat/actions/runs/35506640207)
+passed. Its additions are test scaffolding, a credential-free hosted workflow
+and measured evidence; none enter serving runtime. The drill exercises 1,000
+sockets, API death/recovery, exact command replay and logical restore/session
+invalidation. It does not establish cross-node hint delivery, production restore
+release, per-client foreground latency or the entire M12 gate. Historical scalar
+measurements in its runbook remain attributed to their original tested merge SHA.
+
+Both inputs merged without conflict. Local bootstrap helper tests (three cases),
+shell/JavaScript syntax and M12 scalar/target-refusal checks cover this small
+integration step. Final combined hosted checks must pass on PR52; leaf results
+alone do not validate the composed tree. No dependency installation, local full
+mobile/container build or local database drill is part of this checkpoint.
+
+QA/main merge, immutable-image activation, provisioning and actual user-route
+verification remain with the designated infrastructure executor. Source evidence
+does not claim those operations happened.
 
 ## Reviewed inputs
 

@@ -53,7 +53,7 @@ export async function createConfiguredApi(module: DynamicModule, logger: SafeLog
   });
   // Documentation routes never change product authentication or controller validation.
   configureOpenApi(app, environment, auth);
-  app.useGlobalFilters(new SafeExceptionFilter());
+  app.useGlobalFilters(new SafeExceptionFilter(logger));
   const http: Server = app.getHttpServer();
   http.requestTimeout = media ? 310000 : 15000;
   http.headersTimeout = 10000;

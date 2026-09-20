@@ -17,6 +17,11 @@ export class AccessService {
     return (await this.blockedActors(tx, roomId, actorId, bilateral)).includes(targetId);
   }
 
+  async privateInteractionBlocked(tx: Transaction, roomId: string, actorId: string, streamId: string) {
+    const counterpart = await this.blocks.privateCounterpart(tx, roomId, actorId, streamId);
+    return counterpart !== null && await this.actorBlocked(tx, roomId, actorId, counterpart, true);
+  }
+
   lockRoomSendOwner(tx: Transaction, roomId: string) {
     return this.memberships.lockRoomSendOwner(tx, uuid(roomId));
   }

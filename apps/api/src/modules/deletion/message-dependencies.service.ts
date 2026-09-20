@@ -1,3 +1,4 @@
+import { ModerationRetentionService } from '../moderation/moderation-retention.service.js';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { NotificationsCoreService } from '../notifications/notifications-core.service.js';
@@ -7,8 +8,11 @@ import { MessagePurgeRepository } from './message-purge.repository.js';
 @Injectable()
 export class MessageDependenciesService {
   constructor(@Inject(MessagePurgeRepository) private readonly repository: MessagePurgeRepository,
-    @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService) {}
+    @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService,
+    @Inject(ModerationRetentionService) private readonly moderation: ModerationRetentionService) {}
   async page(tx: Transaction, roomId: string, messageId: string, limit: number): Promise<{ changed: number; done: boolean }> {
+    const moderation = await this.moderation.clearForMessage(tx, roomId, messageId, Math.min(limit, 100));
+    if (moderation.changed || !moderation.done) return { changed: moderation.changed, done: false };
     const notifications = await this.notifications.purgeMessage(tx, roomId, messageId, limit);
     if (!notifications.done) return { changed: notifications.deleted, done: false };
     for (const operation of [this.repository.scrubReceipts, this.repository.clearQuotes, this.repository.publications,

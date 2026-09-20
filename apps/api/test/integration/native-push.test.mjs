@@ -251,9 +251,39 @@ test('crossed A→B and B→A rebinding finishes without inverse account lock cy
   ]);
   // NOWAIT can refuse contention but cannot leave a partial replacement.
   for (let i = 0; i < results.length; i++) {
+    if (results[i].status === 'rejected') {
+      assert.equal(results[i].reason.code, 'CONFLICT');
+      assert.equal(results[i].reason.getStatus(), 409);
+    }
     const value = i === 0 ? av : bv, person = i === 0 ? f.b : f.a;
     const row = (await f.service.resolve(person, proof(value))).binding;
     assert.equal(row.generation, results[i].status === 'fulfilled' ? '2' : '1');
     assert.equal(row.revoked, false);
   }
+});
+
+test('actual MySQL NOWAIT 3572 becomes a controlled rebind conflict and preserves the old binding', { timeout: 15000 }, async t => {
+  const f = await fixture(t), value = input();
+  const first = await f.service.register(f.a, value);
+  let locked, release;
+  const ready = new Promise(resolve => { locked = resolve; });
+  const hold = new Promise(resolve => { release = resolve; });
+  const blocker = f.db.transactions.write(async tx => {
+    await tx.rows('SELECT id FROM users WHERE id=? FOR UPDATE', [f.a.id]);
+    locked(); await hold;
+  });
+  try {
+    await ready;
+    // Assert the pinned driver's real error shape; no raw diagnostic is logged.
+    await assert.rejects(f.db.transactions.write(tx => tx.rows('SELECT id FROM users WHERE id=? FOR UPDATE NOWAIT', [f.a.id])), error => {
+      const cause = error.meta?.driverAdapterError?.cause;
+      assert.equal(cause?.kind, 'mysql');
+      assert.equal(cause?.code, 3572);
+      assert.equal(cause?.originalCode, '3572');
+      return true;
+    });
+    await assert.rejects(f.service.register(f.b, { ...value, generation: first.generation }), error => error.code === 'CONFLICT' && error.getStatus() === 409);
+  } finally { release(); await blocker; }
+  assert.equal((await f.service.resolve(f.a, proof(value))).binding.generation, '1');
+  assert.equal((await f.service.register(f.b, { ...value, generation: first.generation })).generation, '2');
 });

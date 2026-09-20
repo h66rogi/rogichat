@@ -15,6 +15,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { io } from 'socket.io-client';
 import { RealtimeGateway, socketCredentials } from '../../dist/modules/realtime/realtime.gateway.js';
+import { DatabaseUnavailableError } from '../../dist/infrastructure/database/database-unavailable.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function fixture(t, options = {}) {
@@ -175,4 +176,31 @@ test('Nest owns realtime attachment after HTTP initialization and closes the tra
   const disconnected = new Promise(resolve => client.once('disconnect', resolve));
   await app.close();
   assert.equal(await disconnected, 'transport close');
+});
+
+test('temporary admission failure keeps automatic reconnect active without accepting unauthenticated sockets', { timeout: 10000 }, async t => {
+  const f = await fixture(t);
+  const admit = f.gateway.service.admit.bind(f.gateway.service);
+  let attempts = 0;
+  f.gateway.service.admit = credentials => {
+    if (++attempts === 1) throw new DatabaseUnavailableError('database_admission');
+    return admit(credentials);
+  };
+  const person = f.user();
+  const client = io(`http://127.0.0.1:${f.gateway.io.httpServer.address().port}`, {
+    path: '/v1/realtime', transports: ['websocket'], reconnection: true,
+    reconnectionDelay: 30, reconnectionDelayMax: 50, randomizationFactor: 0,
+    extraHeaders: { Origin: f.auth.config.origin, Cookie: `rogi_session=${person.token}` },
+    auth: { schemaVersion: 1, csrfToken: person.csrf },
+  });
+  t.after(() => client.disconnect());
+  const errors = [];
+  let reconnects = 0;
+  client.io.on('reconnect_attempt', () => { reconnects++; assert.equal(f.gateway.stats().connections, 0); });
+  client.on('connect_error', error => errors.push(error.message));
+  await new Promise(resolve => client.once('connect', resolve));
+  assert.equal(attempts, 2);
+  assert.equal(reconnects, 1);
+  assert.ok(errors.every(message => message !== 'UNAUTHENTICATED'));
+  assert.equal(f.gateway.stats().connections, 1);
 });

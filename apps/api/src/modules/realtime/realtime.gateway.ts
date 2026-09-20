@@ -9,6 +9,7 @@ import type { RealtimeService } from '../../modules/realtime/realtime.service.js
 import type { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
 import type { Jobs } from '../jobs/jobs.service.js';
 import type { JobLease } from '../../modules/jobs/jobs.policy.js';
+import { DatabaseUnavailableError } from '../../infrastructure/database/database-unavailable.js';
 
 export interface RealtimeOptions { maxConnections?: number; maxPerAccount?: number; dispatchIntervalMs?: number; chunkSize?: number }
 interface Connection { socket: Socket; userId: string; sessionId: string }
@@ -90,7 +91,12 @@ export class RealtimeGateway {
     });
     if (typeof http !== 'function') this.attach(http);
     this.io.use((socket, next) => {
-      void this.authenticate(socket).then(() => next(), () => next(new Error('UNAUTHENTICATED')));
+      void this.authenticate(socket).then(() => next(), error => {
+        // Namespace auth rejection disables automatic Socket.IO reconnect.
+        // Temporary dependency overload must instead use transport retry.
+        if (error instanceof DatabaseUnavailableError) { socket.conn.close(); return; }
+        next(new Error('UNAUTHENTICATED'));
+      });
     });
     this.io.on('connection', socket => {
       if (this.stopped || lifecycle.draining) { socket.conn.close(); return; }

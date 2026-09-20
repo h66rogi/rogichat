@@ -347,13 +347,23 @@ last job fence. `DeletionRepository.messageExists` is a current root-existence
 lock for replay after physical deletion; a failed author check is not absence. All discovery/CRUD uses Prisma after those parent locks in a fresh
 transaction. The job clock is sampled after lock acquisition. See
 [the bounded purge contract](backend-message-row-purge.md) for deferred media,
-retained dedupe metadata and cursor invalidation; no runtime handler is installed.
+retained dedupe metadata and cursor invalidation. The configured
+[bounded deletion runtime](backend-purge-runtime.md) now schedules this subset
+with same-transaction lease-fenced continuation; it does not assert full deletion.
 
 C06 exception: `membership-scope/membership-scope.repository.ts` uses one bound
 ACL-before-DISTINCT/LIMIT query for revoked sticker IDs across the selected room
 set. This preserves the exact viewer ACL vector with aggregate 10,001-row bounds
 and no per-room fanout; ordinary reads remain generated Prisma operations. The
 captured DB time is passed to all temporal predicates for response consistency.
+
+### Initial owner operator command
+
+`modules/owner-bootstrap/owner-bootstrap.repository.ts` uses generated Prisma CRUD
+for grants, receipts and projections. Its only raw statements lock the global
+bootstrap receipt and exact identity/account/capability/room targets; shared
+targets use `FOR UPDATE NOWAIT` to avoid inverse-order waits with API commands.
+See `backend-genuine-owner-bootstrap.md` for the transaction and custody review.
 
 ### Native push current-lock exceptions
 
@@ -363,6 +373,8 @@ to avoid inverse A→B/B→A cycles. Hint lookup, uniqueness, count and conditio
 writes use generated Prisma. Existing push enqueue locking predicates now match
 provider/client/session for WEB, APNS and FCM; they do not introduce a second pool
 or external network I/O under a database lock. See [native push](backend-native-push.md).
+
+### Account content and media cleanup
 
 ACCOUNT content/media cleanup (migration 20) uses generated Prisma for checkpoints,
 reference provenance, bounded discovery and mutations. Current-row SQL exceptions

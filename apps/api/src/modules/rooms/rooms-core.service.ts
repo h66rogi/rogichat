@@ -34,13 +34,9 @@ export class RoomsCoreService {
     const { name, ownerUserId: ownerId, historyPolicy: policy } = input;
     const [owner] = await this.repository.eligibleOwner(tx, ownerId);
     if (!owner) throw new ApiError('INVALID_REQUEST', 400);
-    const roomId = await this.state.createRoom(tx, name, input.mode);
-    await this.repository.initialPolicy(tx, policy, roomId);
-    const actorId = await this.state.joinRoom(tx, roomId, ownerId);
-    await this.repository.promoteOwner(tx, actorId);
-    await this.repository.assignOwner(tx, actorId, roomId);
-    await this.audit(tx, userId, roomId, 'ROOM_CREATED');
-    return { roomId, ownerActorId: actorId };
+    const result = await this.state.createOwnedRoom(tx, name, input.mode, policy, ownerId);
+    await this.audit(tx, userId, result.roomId, 'ROOM_CREATED');
+    return result;
   }
   async listRooms(tx: Transaction, userId: string, after?: string) {
     const rows = await this.repository.visibleRooms(tx, userId, after ? identifier(after) : '');

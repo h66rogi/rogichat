@@ -23,6 +23,13 @@ export class RoomStateRepository {
   insertSharedStream(tx: Transaction, id: string, roomId: string, kind: string) {
     return tx.prisma.message_streams.create({ data: { id, room_id: roomId, kind: kind as 'ROOM_SHARED' | 'RESTRICTED' }, select: { id: true } });
   }
+  initialPolicy(tx: Transaction, roomId: string, policy: 'ALL_AVAILABLE' | 'SINCE_JOIN') {
+    return tx.prisma.rooms.update({ where: { id: roomId }, data: { history_policy: policy }, select: { id: true } });
+  }
+  async assignOwner(tx: Transaction, roomId: string, actorId: string) {
+    await tx.prisma.room_members.update({ where: { id: actorId }, data: { role: 'STREAMER' }, select: { id: true } });
+    await tx.prisma.rooms.update({ where: { id: roomId }, data: { owner_member_id: actorId }, select: { id: true } });
+  }
   lockRoom(tx: Transaction, roomId: string) {
     return tx.rows<RoomRow>('SELECT id,name,mode,status,history_policy,join_policy,policy_version,owner_member_id FROM rooms WHERE id=? FOR UPDATE', [roomId]);
   }

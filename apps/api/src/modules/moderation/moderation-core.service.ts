@@ -47,7 +47,7 @@ export class ModerationCoreService {
   }
   async blocks(tx: Transaction, userId: string, roomId: string, after: string) {
     const rows = await this.repository.ownBlocks(tx, roomId, userId, after);
-    return { blocks: rows.slice(0, 50).map(row => ({ actorId: row.target_actor_id, blockedAt: row.created_at.toISOString() })), next: rows.length > 50 ? rows[49]!.target_actor_id : null };
+    return { blocks: rows.slice(0, 50).map(row => ({ actorId: row.target_actor_id, blockedAt: row.created_at.toISOString(), displayName: row.displayName })), next: rows.length > 50 ? rows[49]!.target_actor_id : null };
   }
   async block(tx: Transaction, userId: string, roomId: string, actorId: string, blocked: boolean) {
     await this.lockRoom(tx, roomId);
@@ -58,7 +58,7 @@ export class ModerationCoreService {
       const target = await this.repository.target(tx, roomId, actorId);
       // Same legitimate actor visibility as profiles. In FAN rooms this never
       // turns an anonymous publication into a source fan discovery oracle.
-      if (!target || target.status !== 'ACTIVE' || !target.active_period_id || target.account_status !== 'ACTIVE' || target.soop_status !== 'VERIFIED' ||
+      if (!target || target.status !== 'ACTIVE' || !target.active_period_id || !target.valid_period_id || target.period_left_at !== null || target.account_status !== 'ACTIVE' || target.soop_status !== 'VERIFIED' ||
         (viewer.mode === 'FAN' && viewer.role !== 'STREAMER' && target.role !== 'STREAMER')) throw new ApiError('NOT_FOUND', 404);
     }
     if (await this.repository.setBlock(tx, roomId, member.id, actorId, blocked)) {

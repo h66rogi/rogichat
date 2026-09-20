@@ -25,6 +25,9 @@ test('product schema upgrade rejects previous/partial/drifted ledgers and accept
   assert.match(adminUrl.pathname, /^\/rogichat_test_[a-f0-9]{16}$/);
   assert.ok(migrationManifest.length > 13);
   const previousCount = migrationManifest.length - 1;
+  const nativeIndex = migrationManifest.findIndex(entry => entry.name.endsWith('_native_push_providers'));
+  assert.ok(nativeIndex > 0, 'native push migration must be present');
+  const initialCount = Math.min(previousCount, nativeIndex);
   const name = `rogichat_test_${randomBytes(8).toString('hex')}`;
   const runtimeUrl = new URL(process.env.DATABASE_URL);
   assert.equal(runtimeUrl.hostname, adminUrl.hostname);
@@ -43,7 +46,7 @@ test('product schema upgrade rejects previous/partial/drifted ledgers and accept
   adminUrl.pathname = `/${name}`; runtimeUrl.pathname = `/${name}`;
   const migrations = join(directory, 'migrations'); await mkdir(migrations);
   await copyFile('prisma/migrations/migration_lock.toml', join(migrations, 'migration_lock.toml'));
-  for (const entry of migrationManifest.slice(0, previousCount)) {
+  for (const entry of migrationManifest.slice(0, initialCount)) {
     await mkdir(join(migrations, entry.name));
     await copyFile(`prisma/migrations/${entry.name}/migration.sql`, join(migrations, entry.name, 'migration.sql'));
   }
@@ -67,11 +70,38 @@ test('product schema upgrade rejects previous/partial/drifted ledgers and accept
     } finally { await stopChild(api); await stopChild(worker); }
   };
   await migrate();
+  // Use the actual pre-native schema: generated current Prisma models already
+  // reference provider columns that do not exist here. Bound SQL is fixture-only.
+  const legacy = { user: randomUUID(), session: randomUUID(), subscription: randomUUID(),
+    audience: 'schema-upgrade-fixture', endpoint: 'https://push.example.invalid/legacy-fixture',
+    endpointDigest: randomBytes(32), p256dh: randomBytes(65).toString('base64url'), auth: randomBytes(16).toString('base64url') };
+  await admin.execute('INSERT INTO users (id) VALUES (?)', [legacy.user]);
+  await admin.execute('INSERT INTO auth_sessions (id,user_id,token_digest,csrf_digest,audience,expires_at) VALUES (?,?,?,?,?,TIMESTAMPADD(HOUR,1,UTC_TIMESTAMP(3)))',
+    [legacy.session, legacy.user, randomBytes(32), randomBytes(32), legacy.audience]);
+  await admin.execute('INSERT INTO notification_preferences (user_id,push_enabled,generation) VALUES (?,1,7)', [legacy.user]);
+  await admin.execute('INSERT INTO push_subscriptions (id,user_id,session_id,audience,endpoint,endpoint_digest,p256dh,auth_secret,generation,account_generation) VALUES (?,?,?,?,?,?,?,?,11,7)',
+    [legacy.subscription, legacy.user, legacy.session, legacy.audience, legacy.endpoint, legacy.endpointDigest, legacy.p256dh, legacy.auth]);
+  const [legacyBefore] = await admin.execute('SELECT * FROM push_subscriptions WHERE id=?', [legacy.subscription]);
+  // Keep the existing previous/partial/current readiness checks valid when a
+  // later migration is appended; the populated 22→23 upgrade still runs first.
+  for (const entry of migrationManifest.slice(initialCount, previousCount)) {
+    await mkdir(join(migrations, entry.name));
+    await copyFile(`prisma/migrations/${entry.name}/migration.sql`, join(migrations, entry.name, 'migration.sql'));
+  }
+  if (initialCount < previousCount) await migrate();
   const [twelve] = await admin.query('SELECT COUNT(*) AS n FROM _prisma_migrations'); assert.equal(twelve[0].n, previousCount);
   await probe(false);
   const last = migrationManifest[previousCount]; await mkdir(join(migrations, last.name));
   await copyFile(`prisma/migrations/${last.name}/migration.sql`, join(migrations, last.name, 'migration.sql'));
   await migrate(); await probe(true);
+  const [legacyAfter] = await admin.execute('SELECT * FROM push_subscriptions WHERE id=?', [legacy.subscription]);
+  assert.equal(legacyAfter.length, 1);
+  const { provider, binding_digest, installation_id, native_client_id, native_token, ...preserved } = legacyAfter[0];
+  assert.equal(provider, 'WEB');
+  assert.deepEqual([binding_digest, installation_id, native_client_id, native_token], [null, null, null, null]);
+  assert.deepEqual(preserved, legacyBefore[0], 'all legacy endpoint/key/ownership/generation/timestamp values survive the real migration');
+  const [preferences] = await admin.execute('SELECT push_enabled,generation FROM notification_preferences WHERE user_id=?', [legacy.user]);
+  assert.equal(preferences[0].push_enabled, 1); assert.equal(String(preferences[0].generation), '7');
   const physical = async () => {
     const schema = {}; for (const [key, sql] of Object.entries(queries)) [schema[key]] = await admin.query(sql);
     return fingerprint(schema);
