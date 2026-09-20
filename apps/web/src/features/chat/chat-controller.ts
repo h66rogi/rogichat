@@ -1,12 +1,14 @@
+import { reactionSummary, type ReactionState } from './reactions';
 import { actor, cursor, envelope, list, membership, mergeMessages, message, projectMessages, record, string } from './contract';
 import type { ChatRequest, RoomMembership, ServerMessage } from './contract';
 import type { ChatActorRef, ChatComposerSubmission, ChatSubmitResult, ChatTimelineItem } from './types';
 
 export interface ChatState {
+  reactions: Record<string, ReactionState>; reactionRevision: number;
   phase: 'loading' | 'ready' | 'error'; notice: string | null; epoch: number; room: RoomMembership | null;
   profiles: ChatActorRef[]; recipients: ChatActorRef[]; items: ChatTimelineItem[]; hasOlder: boolean; loadingOlder: boolean; error: string | null;
 }
-const initial = (): ChatState => ({ phase: 'loading', notice: null, epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, loadingOlder: false, error: null });
+const initial = (): ChatState => ({ reactions: {}, reactionRevision: 0, phase: 'loading', notice: null, epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, loadingOlder: false, error: null });
 const inaccessible = (error: unknown) => [401, 403, 404].includes(Number(recordError(error).status));
 function recordError(error: unknown): { status?: unknown } { return error !== null && typeof error === 'object' ? error : {}; }
 class ResetRequired extends Error {}
@@ -29,6 +31,8 @@ export class ChatController {
   private attempts = new Map<string, string>();
   private sending = false;
   private deleting = false;
+  private reactionFlights = new Set<string>();
+  private reactionCooldown = 0;
   private readonly roomId: string;
   private readonly request: ChatRequest;
   private readonly onInvalidate: (() => void) | undefined;
@@ -41,10 +45,12 @@ export class ChatController {
   private publish(patch: Partial<ChatState>) {
     if (this.dead) return;
     this.state = { ...this.state, ...patch };
+    if (patch.items) this.state.reactions = Object.fromEntries(Object.entries(this.state.reactions).filter(([id, value]) => this.messages.some(message => message.id === id && message.version === value.version)));
     for (const listener of this.listeners) listener();
   }
   private clear(forgetAttempts = false) {
     this.abort.abort(); this.abort = new AbortController(); this.cacheId = crypto.randomUUID();
+    this.reactionFlights = new Set(); this.reactionCooldown = 0;
     this.messages = []; this.eventCursor = null; this.historyCursor = null;
     this.manifestGeneration = null; this.profileGeneration = null; this.recipientBinding = null; if (forgetAttempts) this.attempts.clear();
     this.publish({ ...initial(), epoch: this.state.epoch + 1 });
@@ -200,6 +206,50 @@ export class ChatController {
     await this.flight;
     if (!this.dead) await this.refresh();
   }
+  /** Explicit reads only: no per-row mount fanout or automatic mutation retries. */
+  react = async (messageId: string, emoji?: string | null): Promise<void> => {
+    const item = this.messages.find(message => message.id === messageId);
+    if (this.dead || this.state.phase !== 'ready' || !item || this.deleting || this.reactionFlights.has(messageId)) return;
+    const version = item.version; const signal = this.abort.signal;
+    const flights = this.reactionFlights;
+    const current = () => !this.dead && !signal.aborted && this.messages.some(message => message.id === messageId && message.version === version);
+    const publish = (value: ReactionState) => { if (current()) this.publish({ reactions: { ...this.state.reactions, [messageId]: value } }); };
+    if (Date.now() < this.reactionCooldown || flights.size >= 4) {
+      publish({ version, phase: 'error', error: '요청이 많습니다. 잠시 후 반응을 다시 확인해 주세요.' }); return;
+    }
+    flights.add(messageId);
+    publish({ version, phase: 'loading' });
+    try {
+      const path = this.path(`messages/${encodeURIComponent(messageId)}/reactions`);
+      const summary = reactionSummary(await this.request(path + (emoji === undefined ? '' : '/me'), {
+        ...(emoji === undefined ? {} : emoji === null ? { method: 'DELETE' as const } : { method: 'PUT' as const, body: { emoji } }),
+        signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]),
+      }));
+      if (!current()) return;
+      await this.verifySession();
+      publish({ version, phase: 'ready', summary });
+    } catch (error) {
+      if (!current()) return;
+      const status = Number(recordError(error).status);
+      if (inaccessible(error)) {
+        this.clear(status === 401);
+        this.publish({ phase: 'error', error: '메시지와 채팅 접근 권한을 다시 확인해 주세요.' });
+        if (status === 401) this.onInvalidate?.();
+        else void this.revalidate();
+        return;
+      }
+      // Transport exposes status only; a conservative local cooldown avoids a retry storm.
+      if (status === 429) this.reactionCooldown = Date.now() + 30000;
+      publish({ version, phase: 'error', error: status === 429 ? '요청이 많습니다. 30초 후 반응을 다시 확인해 주세요.' : '반응 결과를 확인하지 못했습니다. 다시 조회한 뒤 선택해 주세요.' });
+    } finally {
+      flights.delete(messageId);
+      // Wake only subscribed open controls after an old-version request settles.
+      // This carries no private response data and never retries a mutation.
+      if (!this.dead && !signal.aborted && this.messages.some(message => message.id === messageId && message.version !== version)) {
+        this.publish({ reactionRevision: this.state.reactionRevision + 1 });
+      }
+    }
+  };
   remove = async (messageId: string): Promise<ChatSubmitResult> => {
     if (this.dead || this.deleting || this.sending || this.state.phase !== 'ready') return { accepted: false, reason: '다른 요청을 확인한 뒤 다시 시도해 주세요.' };
     const owned = this.messages.find(item => item.id === messageId);
