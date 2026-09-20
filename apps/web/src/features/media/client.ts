@@ -26,6 +26,26 @@ export class MediaClient {
   private readonly verifySession: MediaClientOptions['verifySession'];
   private readonly onUnauthorized: MediaClientOptions['onUnauthorized'];
   private readonly budget: MediaByteBudget | undefined;
+  private providerTransfers = 0;
+  private readonly providerWaiters = new Set<() => void>();
+  private admitProvider(signal: AbortSignal): Promise<() => void> {
+    return new Promise((resolve, reject) => {
+      const cancel = () => { this.providerWaiters.delete(admit); signal.removeEventListener('abort', cancel); reject(signal.reason); };
+      const admit = () => {
+        if (signal.aborted) { cancel(); return; }
+        if (this.providerTransfers >= 2) { this.providerWaiters.add(admit); return; }
+        this.providerWaiters.delete(admit); signal.removeEventListener('abort', cancel);
+        this.providerTransfers++;
+        let released = false;
+        resolve(() => {
+          if (released) return; released = true;
+          this.providerTransfers--;
+          this.providerWaiters.values().next().value?.();
+        });
+      };
+      signal.addEventListener('abort', cancel, { once: true }); admit();
+    });
+  }
   constructor(options: MediaClientOptions) {
     if (!['https://api.qa.rogi.chat', 'https://api.rogi.chat'].includes(options.apiOrigin)) throw new MediaError('INVALID_ORIGIN');
     this.origin = options.apiOrigin;
@@ -137,6 +157,31 @@ export class MediaClient {
     let url: URL;
     try { url = new URL(access.url); } catch { throw new MediaError('INVALID_RESPONSE'); }
     if (url.protocol !== 'https:' || url.username || url.password || url.hash || !this.origins.has(url.origin)) throw new MediaError('INVALID_RESPONSE');
+    return this.fetchImage(url, expiresAt, signal);
+  }
+  async providerAvatar(roomId: string, actorId: string, signal: AbortSignal): Promise<ImageLease> {
+    const finish = await this.admitProvider(AbortSignal.any([signal, this.lifetime.signal, AbortSignal.timeout(15_000)]));
+    try { return await this.providerAvatarBytes(roomId, actorId, signal); }
+    finally { finish(); }
+  }
+  private async providerAvatarBytes(roomId: string, actorId: string, signal: AbortSignal): Promise<ImageLease> {
+    let reservation = this.budget?.reserve(2 * 1024 * 1024);
+    const owned = AbortSignal.any([signal, this.lifetime.signal]);
+    const release = () => { owned.removeEventListener('abort', release); reservation?.(); };
+    owned.addEventListener('abort', release, { once: true });
+    try {
+      owned.throwIfAborted();
+      const expiresAt = Date.now() + 60_000;
+      const access = record(await this.request(`/v1/rooms/${uuid(roomId)}/actors/${uuid(actorId)}/provider-avatar/access`, 200, signal, {}), ['url', 'expiresIn']);
+      if (typeof access.url !== 'string' || access.expiresIn !== 60) throw new MediaError('INVALID_RESPONSE');
+      const url = new URL(access.url);
+      if (url.origin !== this.origin || url.username || url.password || url.hash || url.pathname !== '/v1/profile-images' || !/^\?ticket=[A-Za-z0-9_-]{64,1024}$/.test(url.search)) throw new MediaError('INVALID_RESPONSE');
+      const result = await this.fetchImage(url, expiresAt, signal, 2 * 1024 * 1024, ['image/jpeg', 'image/webp']);
+      owned.throwIfAborted(); reservation?.(); reservation = this.budget?.reserve(result.blob.size);
+      return { ...result, release };
+    } catch (error) { release(); throw error; }
+  }
+  private async fetchImage(url: URL, expiresAt: number, signal: AbortSignal, maxBytes = 10 * 1024 * 1024, types = ['image/jpeg', 'image/png', 'image/webp']): Promise<ImageLease> {
     current(this.lifetime); signal.throwIfAborted();
     const remaining = expiresAt - Date.now();
     if (remaining <= 0) throw new MediaError('EXPIRED');
@@ -147,7 +192,7 @@ export class MediaClient {
     current(this.lifetime); transferSignal.throwIfAborted();
     if (response.status !== 200 || !response.body) throw new MediaError('MEDIA_UNAVAILABLE', response.status);
     const type = response.headers.get('content-type')?.split(';')[0]?.trim();
-    if (!type || !['image/jpeg', 'image/png', 'image/webp'].includes(type)) { await response.body.cancel(); throw new MediaError('INVALID_RESPONSE'); }
+    if (!type || !types.includes(type)) { await response.body.cancel(); throw new MediaError('INVALID_RESPONSE'); }
     const reader = response.body.getReader();
     const chunks: Uint8Array<ArrayBuffer>[] = [];
     let size = 0;
@@ -158,7 +203,7 @@ export class MediaClient {
         if (Date.now() >= expiresAt) throw new MediaError('EXPIRED');
         if (part.done) break;
         size += part.value.byteLength;
-        if (size > 10 * 1024 * 1024) throw new MediaError('INVALID_RESPONSE');
+        if (size > maxBytes) throw new MediaError('INVALID_RESPONSE');
         chunks.push(new Uint8Array(part.value));
       }
       if (!size) throw new MediaError('INVALID_RESPONSE');

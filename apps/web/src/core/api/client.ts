@@ -10,8 +10,8 @@ export class ApiError extends Error {
     this.status = status; this.code = code;
   }
 }
-export interface Profile { id: string; nickname: string; avatar: { assetId: string } | null; birthday: { month: number; day: number } | null; birthdayVisibleToStreamers: boolean }
-export interface Room { roomId: string; name: string; mode: string; joined: boolean; actorId?: string }
+export interface Profile { providerAvatarUrl?: string | null; soop?: { displayId: string } | null; id: string; nickname: string; avatar: { assetId: string } | null; birthday: { month: number; day: number } | null; birthdayVisibleToStreamers: boolean }
+export interface Room { isDefault?: boolean; availability?: 'OWNER_PENDING' | 'READY'; roomId: string; name: string; mode: string; joined: boolean; actorId?: string }
 export type Message = ServerMessage;
 export class ApiClient {
   readonly origin: string;
@@ -67,5 +67,14 @@ export class ApiClient {
 
 export function validateProfile(value: Profile): Profile {
   if (!value || typeof value.id !== 'string' || !value.id || typeof value.nickname !== 'string' || typeof value.birthdayVisibleToStreamers !== 'boolean' || (value.avatar !== null && (!value.avatar || typeof value.avatar.assetId !== 'string')) || (value.birthday !== null && (!value.birthday || !Number.isInteger(value.birthday.month) || value.birthday.month < 1 || value.birthday.month > 12 || !Number.isInteger(value.birthday.day) || value.birthday.day < 1 || value.birthday.day > 31))) throw new ApiError(502, 'INVALID_PROFILE');
+  if (value.soop !== undefined && value.soop !== null && (typeof value.soop !== 'object' || Array.isArray(value.soop) || Object.keys(value.soop).some(key => key !== 'displayId') || typeof value.soop.displayId !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(value.soop.displayId))) throw new ApiError(502, 'INVALID_PROFILE');
+  if (value.providerAvatarUrl !== undefined && value.providerAvatarUrl !== null && !isProviderAvatarUrl(value.providerAvatarUrl)) throw new ApiError(502, 'INVALID_PROFILE');
   return value;
+}
+
+/** Defense in depth for rendering only. Identity verification belongs to the API. */
+export function isProviderAvatarUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  const match = /^https:\/\/(?:stimg|profile\.img)\.sooplive\.(?:com|co\.kr)\/LOGO\/([A-Za-z0-9_-]{1,2})\/([A-Za-z0-9_-]{1,128})\/(m\/)?([A-Za-z0-9_-]{1,128})\.(jpg|webp)(?:\?t=[0-9]{1,16})?$/.exec(value);
+  return !!match && match[0] === value && match[1] === match[2]?.slice(0, 2) && match[2] === match[4] && (!match[3] || match[5] === 'webp');
 }

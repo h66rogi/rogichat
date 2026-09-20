@@ -40,3 +40,20 @@ void test('empty signer configuration cannot attempt private image admission', a
   await assert.rejects(scope.client.image(assetId, { variant: 'image' }, new AbortController().signal));
   assert.equal(requests, 0); scope.dispose();
 });
+
+void test('provider avatar deduplicates repeated actors without storage configuration and revokes on room loss', async t => {
+  const parent = new AbortController(); let admissions = 0;
+  const api = new ApiClient(origin, async () => Response.json({ authenticated: true, soopLinkStatus: 'VERIFIED', accountPartition: 'C'.repeat(42) + 'A', csrfToken: csrf }));
+  t.mock.method(globalThis, 'fetch', async (input: unknown) => {
+    if (String(input).includes('/access')) { admissions++; return Response.json({ url: origin + '/v1/profile-images?ticket=' + 'A'.repeat(64), expiresIn: 60 }); }
+    return new Response('test-bytes', { headers: { 'Content-Type': 'image/webp' } });
+  });
+  const scope = new MediaSessionScope(api, csrf, [], () => {}, { signal: parent.signal, isCurrent: () => !parent.signal.aborted });
+  const a = scope.acquireProviderAvatar(assetId, assetId), b = scope.acquireProviderAvatar(assetId, assetId);
+  assert.equal(a.resource, b.resource);
+  await new Promise<void>(resolve => { if (a.resource.getSnapshot().phase === 'ready') resolve(); else { const off = a.resource.subscribe(() => { if (a.resource.getSnapshot().phase === 'ready') { off(); resolve(); } }); } });
+  assert.equal(admissions, 1); assert.ok(a.resource.getSnapshot().objectUrl);
+  a.release(); assert.ok(b.resource.getSnapshot().objectUrl);
+  parent.abort(); assert.equal(b.resource.getSnapshot().objectUrl, undefined);
+  b.release(); scope.dispose();
+});
