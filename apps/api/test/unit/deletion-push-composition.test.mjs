@@ -40,7 +40,7 @@ test('worker preserves independent deletion replay alongside push handlers', () 
   const deletion = child(module, DeletionModule);
   assert.equal(provider(deletion, DeletionLedger).useValue, ledger);
   assert.ok(deletion.imports.includes(IdentityGuardModule));
-  assert.deepEqual(provider(deletion, DeletionReconciler).inject.map(token => token.name), ['DeletionLedger', 'DeletionApplyService']);
+  assert.deepEqual(provider(deletion, DeletionReconciler).inject.map(token => token.name), ['DeletionLedger', 'DeletionApplyService', 'Transactions', 'DeletionReplayRepository']);
   const transport = child(child(module, PushModule), PushTransportModule);
   assert.equal(provider(transport, PushTransport).useFactory({}).config, push);
 });

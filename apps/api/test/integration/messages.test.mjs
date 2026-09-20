@@ -6,6 +6,7 @@ import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { MessagesCoreService } from '../../dist/modules/messages/messages-core.service.js';
 import { DeletionApplyService } from '../../dist/modules/deletion/deletion-apply.service.js';
 import { DeletionRepository } from '../../dist/modules/deletion/deletion.repository.js';
+import { DeletionReplayRepository } from '../../dist/modules/deletion/deletion-replay.repository.js';
 import { DeletionReconciler } from '../../dist/modules/deletion/deletion-reconciler.js';
 import { messageDeletionId, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
 import { deletionFixture } from '../support/deletion-fixture.mjs';
@@ -325,7 +326,7 @@ test('two devices converge on deterministic UUIDv5 and first ledger UTC after lo
   const [request] = await f.db.transactions.read(tx => tx.rows('SELECT requested_at FROM deletion_requests WHERE id=?', [id]));
   const [checkpoint] = await f.db.transactions.read(tx => tx.rows('SELECT requested_at,blocked_at FROM deletion_intents WHERE request_id=?', [id]));
   assert.equal(request.requested_at.toISOString(), intent.requestedAt); assert.equal(checkpoint.requested_at.toISOString(), intent.requestedAt);
-  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
+  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService), f.db.transactions, new DeletionReplayRepository()).tick();
   const [again] = await f.db.transactions.read(tx => tx.rows('SELECT requested_at,blocked_at FROM deletion_intents WHERE request_id=?', [id]));
   assert.deepEqual(again, checkpoint);
 });
@@ -370,7 +371,7 @@ test('durable PUT then actual DB rollback is recovered solely by independent inv
   const deadline = Date.now() + 5000;
   while ((await f.get(f.fan2, sent.body.messageId)).status !== 404 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal((await f.get(f.fan2, sent.body.messageId)).status, 404);
-  const replay = new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService));
+  const replay = new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService), f.db.transactions, new DeletionReplayRepository());
   assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_requests.count({ where: { message_id: sent.body.messageId } })), 1);
   assert.equal(await f.db.transactions.read(tx => tx.prisma.jobs.count({ where: { room_id: f.room, purpose: 'PURGE' } })), 1);
   await replay.tick();
@@ -390,7 +391,7 @@ test('missing restored actor/room/message persists opaque obligation without syn
   const intent = { schemaVersion: 1, environment: 'qa', actorUserId: actor, targetId: target, roomId: room, scope: 'MESSAGE',
     requestId: messageDeletionId('qa', actor, room, target), requestedAt: '2020-01-02T03:04:05.006Z' };
   await f.deletion.ledger.ensureIntent(intent);
-  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
+  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService), f.db.transactions, new DeletionReplayRepository()).tick();
   const state = await f.db.transactions.read(async tx => ({
     checkpoint: await tx.prisma.deletion_intents.findUnique({ where: { request_id: intent.requestId } }),
     users: await tx.prisma.users.count({ where: { id: actor } }), messages: await tx.prisma.messages.count({ where: { id: target } }),
@@ -399,8 +400,11 @@ test('missing restored actor/room/message persists opaque obligation without syn
   assert.equal(state.checkpoint.blocked_at, null); assert.equal(state.checkpoint.requested_at.toISOString(), intent.requestedAt);
   for (const key of ['users', 'messages', 'rooms', 'requests']) assert.equal(state[key], 0);
   const originalBlock = new Date('2020-01-02T03:04:06.007Z');
-  await f.db.transactions.write(tx => tx.prisma.deletion_intents.update({ where: { request_id: intent.requestId }, data: { blocked_at: originalBlock } }));
-  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.deletion_intents.update({ where: { request_id: intent.requestId }, data: { blocked_at: originalBlock } });
+    await tx.prisma.deletion_replay_entries.updateMany({ where: { source_id: f.deletion.ledger.sourceId }, data: { next_attempt_at: new Date(0) } });
+  });
+  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService), f.db.transactions, new DeletionReplayRepository()).tick();
   const replayed = await f.db.transactions.read(async tx => ({
     checkpoint: await tx.prisma.deletion_intents.findUnique({ where: { request_id: intent.requestId } }),
     proofCount: await tx.prisma.message_purge_checkpoints.count({ where: { request_id: intent.requestId } }),
@@ -415,7 +419,8 @@ test('malformed inventory key/body fails closed before any corresponding apply',
   const f = await fixture(t);
   for (const key of ['qa/invalid/intent.json', deletionIntentKey('qa', randomUUID())]) {
     f.deletion.store.rows.clear(); f.deletion.store.rows.set(key, Buffer.from('malformed'));
-    await assert.rejects(new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick());
+    await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService), f.db.transactions, new DeletionReplayRepository()).tick();
+    assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_replay_entries.count({ where: { source_id: f.deletion.ledger.sourceId, state: 'INVALID' } })), key.includes('/invalid/') ? 1 : 2);
   }
 });
 
@@ -424,17 +429,18 @@ test('repeated full inventory discovers a receipt inserted behind the previous p
   const make = requestId => ({ schemaVersion: 1, environment: 'qa', requestId, actorUserId: actor, scope: 'MESSAGE',
     roomId: room, targetId: randomUUID(), requestedAt: '2020-01-02T03:04:05.006Z' });
   for (let i = 0; i < 51; i++) await f.deletion.ledger.ensureIntent(make(randomUUID()));
-  const replay = new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService));
-  assert.deepEqual(await replay.tick(), { scanned: 50, passFinished: false });
+  const replay = new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService), f.db.transactions, new DeletionReplayRepository());
+  const first = await replay.tick(); assert.equal(first.discovered, 50); assert.equal(first.inventoryPassEnded, false);
   const behind = make('00000000-0000-5000-8000-000000000001');
   await f.deletion.ledger.ensureIntent(behind);
-  assert.deepEqual(await replay.tick(), { scanned: 1, passFinished: true });
+  const second = await replay.tick(); assert.equal(second.discovered, 1); assert.equal(second.inventoryPassEnded, true);
   assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_intents.count({ where: { request_id: behind.requestId } })), 0);
-  assert.deepEqual(await replay.tick(), { scanned: 50, passFinished: false });
-  assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_intents.count({ where: { request_id: behind.requestId } })), 1);
+  const third = await replay.tick(); assert.equal(third.discovered, 50); assert.equal(third.inventoryPassEnded, false);
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_replay_entries.count({ where: { source_id: f.deletion.ledger.sourceId, object_key: deletionIntentKey('qa', behind.requestId) } })), 1);
+  // Durable discovery is independent of the four-attempt execution budget and is not resolution.
 });
 
-test('lost actual deletion COMMIT ACK does not replay the command callback or return success', { timeout: 20000 }, async t => {
+test('synthetic adapter acknowledgment loss after deletion commit does not replay the callback or return success', { timeout: 20000 }, async t => {
   let armed = false, lost = 0;
   const original = PrismaMariaDb.prototype.connect;
   t.mock.method(PrismaMariaDb.prototype, 'connect', async function () {
@@ -456,7 +462,7 @@ test('lost actual deletion COMMIT ACK does not replay the command callback or re
   assert.deepEqual(await f.remove(f.fan1, sent.body.messageId), { status: 500, body: { error: { code: 'INTERNAL_ERROR' } } });
   assert.equal(lost, 1); assert.equal(applications, 1);
   assert.equal((await f.get(f.fan2, sent.body.messageId)).status, 404);
-  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
+  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService), f.db.transactions, new DeletionReplayRepository()).tick();
   assert.equal(applications, 2);
   assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_requests.count({ where: { message_id: sent.body.messageId } })), 1);
 });

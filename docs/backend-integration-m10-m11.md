@@ -40,6 +40,18 @@ This source integration is not a QA release or a completed M10 purge.
   all 282 MySQL cases, including all 15 new purge cases, and both image checks;
   the old missing-root replay assertion was corrected without manufacturing
   synthetic requests or purge proof. Actual process-death tests are a separate task.
+- Process-death regressions `f2abcea` (PR 61): actual child SIGKILL before the final
+  transaction commits and after a successful commit loses its caller result.
+  Both cases passed the first hosted run; the follow-up isolates an exact-owned
+  synthetic publication job which had interfered with the shared test queue.
+  This does not simulate network loss of the database COMMIT acknowledgement.
+- Durable fair replay `ec53244` (PR 63): source-bound page/continuation journal,
+  immutable invalid evidence, persisted NEW/RETRY scheduling, lease/fresh-time
+  fences and bounded ACCOUNT scrub continuation. Independent review found and
+  the author fixed a restored-account SCRUB liveness gap: precondition loss now
+  commits a return to APPLY, and a separately claimed transaction re-establishes
+  the account deny using the existing lock order. Exact final hosted validation
+  and this composed tree's validation remain required.
 
 These input results do not substitute for final composed-tree validation.
 
@@ -62,7 +74,12 @@ Both independently generated migrations are retained byte-for-byte, ordered
 `1e3d298e965c15500e83d96f4ebae5e2ce3336c154ce67d369a207058bff85fb`).
 The generated `20260920084358_m10_message_row_purge` follows (SHA-256
 `9f55555af7708656e7a4db09b1196b819b58e859d3aad95c23c96c2d52a2dc7a`).
-Its predecessor files are unchanged. This candidate has **17** migrations;
+Its predecessor files are unchanged. Generated migration
+`20260920090224_m10_durable_deletion_replay` then adds the two private replay
+journal tables (SHA-256
+`341773fcf5ab14ead777b85c68c8e8c04bf4eb4f9334019c3ce7053782c59e6f`).
+All 18 were replayed in a second fresh isolated local database without drift;
+the prior 17 SQL files were unchanged. This candidate has **18** migrations;
 the earlier reviewed native-login QA candidate has **13**, and the observed live
 QA runtime has **12**. Approval for one is not approval for another. No SQL was
 hand-edited, no shared database was changed, and no production promotion occurred.
@@ -102,12 +119,13 @@ ACCOUNT admission additionally needs a dedicated file-only identity guard key;
 missing configuration returns unavailable rather than acknowledging deletion.
 No key has been generated or installed by this source integration.
 
-An independent replay review also confirmed a liveness gap: a persistently
-invalid/unavailable ledger record or failed apply/scrub pins the current page and
-can starve later independent intents. Inventory-envelope validation can block
-discovery before an individual item is reached. A separate durable failure
-journal/fair-discovery implementation is being designed; merely skipping errors
-or retaining an unbounded memory retry queue is not accepted. The existing
-`passFinished` result denotes inventory exhaustion only, not complete resolution;
-no runtime restore-release consumer of that flag exists in this source. Complete
-restore/purge authority remains a separate gate.
+The original replay review found that persistent invalid/unavailable ledger
+records and apply/scrub failures could pin a page and starve later intents. The
+candidate now persists discovery and failed-item evidence separately from fair
+execution: validated bounded page registration and cursor advancement are atomic,
+and previously registered work has a separate execution budget even when discovery
+fails. Invalid envelopes still stop discovery safely; they do not disappear into
+an unbounded memory retry queue or become executable after metadata overwrite.
+The replacement `inventoryPassEnded` result means inventory exhaustion only,
+never complete resolution. No restore-release authority follows from it. Complete
+physical purge, external orphan closure and restore release remain separate gates.

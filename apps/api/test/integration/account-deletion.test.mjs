@@ -21,6 +21,7 @@ import { AccountDeletionRepository } from '../../dist/modules/deletion/account-d
 import { AccountDeletionService } from '../../dist/modules/deletion/account-deletion.service.js';
 import { DeletionApplyService } from '../../dist/modules/deletion/deletion-apply.service.js';
 import { DeletionRepository } from '../../dist/modules/deletion/deletion.repository.js';
+import { DeletionReplayRepository } from '../../dist/modules/deletion/deletion-replay.repository.js';
 import { DeletionReconciler } from '../../dist/modules/deletion/deletion-reconciler.js';
 import { accountDeletionId } from '../../dist/modules/deletion/deletion-ledger.js';
 import { secret, digest } from '../../dist/modules/auth/auth-primitives.js';
@@ -60,7 +61,8 @@ async function fixture(t, linked = true) {
     await db.close();
   });
   return { db, config, guards, accounts, checkpoints, identities, ledger, store, apply, auth, remove, sessions, session,
-    userId, identityId, subject, requestId, intent, replay: new DeletionReconciler(ledger, apply),
+    userId, identityId, subject, requestId, intent, replay: new DeletionReconciler(ledger, apply, db.transactions, new DeletionReplayRepository()),
+    dueReplay: () => db.transactions.write(tx => tx.prisma.deletion_replay_entries.updateMany({ where: { source_id: ledger.sourceId }, data: { next_attempt_at: new Date(0) } })),
     identity: () => ({ schemaVersion: 1, provider: 'soop', subject, clientId: config.broker.clientId, transactionId: randomUUID(), authenticatedAt: new Date().toISOString() }) };
 }
 
@@ -83,7 +85,7 @@ test('durable ACCOUNT intent survives DB boundary failure and independently repl
   await assert.rejects(f.remove.remove(f.session), /synthetic_checkpoint_crash/);
   assert.equal(f.store.rows.size, 1);
   f.apply.apply = apply;
-  const page = await f.replay.tick(); assert.equal(page.scanned, 1);
+  const page = await f.replay.tick(); assert.equal(page.attempted, 1);
   const receipt = await f.ledger.readByKey([...f.store.rows.keys()][0]);
   assert.equal(receipt.intent.requestId, f.requestId);
   assert.deepEqual(await f.apply.apply(receipt), { requestId: f.requestId, status: 'blocked' });
@@ -155,9 +157,10 @@ test('bounded replay scrubs bound web/native secrets without consuming the physi
   await f.remove.remove(f.session);
   const count = () => f.db.transactions.read(tx => tx.prisma.login_transactions.count({ where: { user_id: f.userId, status: 'PROCESSING' } }));
   assert.equal(await count(), 205);
-  await f.replay.tick(); assert.equal(await count(), 105);
-  await f.replay.tick(); assert.equal(await count(), 5);
-  await f.replay.tick(); assert.equal(await count(), 0);
+  await f.replay.tick(); assert.equal(await count(), 205); // Apply and scrub are separately fenced transactions.
+  await f.dueReplay(); await f.replay.tick(); assert.equal(await count(), 105);
+  await f.dueReplay(); await f.replay.tick(); assert.equal(await count(), 5);
+  await f.dueReplay(); await f.replay.tick(); assert.equal(await count(), 0);
   const rows = await f.db.transactions.read(tx => tx.prisma.login_transactions.findMany({ where: { user_id: f.userId } }));
   for (const row of rows) { assert.equal(row.verifier.length, 0); assert.equal(row.launch_payload, null); assert.equal(row.identity_payload, null); }
   assert.equal((await f.db.transactions.read(tx => tx.prisma.account_deletion_obligations.findUnique({ where: { user_id: f.userId } }))).state, 'BLOCKED');
@@ -257,4 +260,73 @@ test('legacy missing account independently replays without synthetic parents and
     const identities = new IdentityService(new IdentityRepository(), config, f.guards);
     await assert.rejects(f.db.transactions.write(tx => identities.resolve(tx, f.identity())), error => error.code === 'AUTH_UNAVAILABLE');
   }
+});
+
+test('persistent ACCOUNT scrub failure retains its phase while a later independent ACCOUNT blocks', async t => {
+  const f = await fixture(t, false);
+  await f.ledger.ensureIntent(await f.intent()); await f.replay.tick(); await f.dueReplay();
+  const scrub = f.accounts.scrubBindings.bind(f.accounts);
+  f.accounts.scrubBindings = (tx, userId) => {
+    if (userId === f.userId) throw new Error('synthetic_persistent_scrub_failure');
+    return scrub(tx, userId);
+  };
+  const later = randomUUID();
+  await f.db.transactions.write(tx => tx.prisma.users.create({ data: { id: later, terms_version: '2026-09-20' } }));
+  await f.ledger.ensureIntent({ schemaVersion: 2, environment: 'qa', requestId: accountDeletionId('qa', later),
+    actorUserId: later, targetId: later, scope: 'ACCOUNT', roomId: null, subjectGuard: null, requestedAt: '2026-09-20T00:00:00.000Z' });
+  const result = await f.replay.tick(); assert.equal(result.failed, 1);
+  const state = await f.db.transactions.read(async tx => ({
+    account: await tx.prisma.users.findUnique({ where: { id: later }, select: { status: true } }),
+    entries: await tx.prisma.deletion_replay_entries.findMany({ where: { source_id: f.ledger.sourceId } }),
+  }));
+  assert.equal(state.account.status, 'DELETING');
+  const failed = state.entries.find(row => row.last_failure_code === 'SCRUB_FAILED');
+  assert.equal(failed.phase, 'SCRUB'); assert.equal(failed.state, 'RETRY'); assert.ok(failed.first_failure_at);
+  assert.equal(result.inventoryPassEnded, true); // Still not a global resolution claim.
+});
+
+for (const restored of ['ACTIVE', 'missing']) test(`SCRUB returns to APPLY after ${restored} account restoration and resumes bounded cleanup`, async t => {
+  const f = await fixture(t, false), replayRepository = new DeletionReplayRepository();
+  const restart = () => new DeletionReconciler(f.ledger, f.apply, f.db.transactions, replayRepository);
+  await f.ledger.ensureIntent(await f.intent()); await restart().tick();
+  const entry = () => f.db.transactions.read(tx => tx.prisma.deletion_replay_entries.findFirst({ where: {
+    source_id: f.ledger.sourceId, object_key: `qa/${f.requestId}/intent.json`,
+  } }));
+  const initial = await entry(); assert.equal(initial.phase, 'SCRUB'); assert.ok(initial.receipt_sha256);
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.login_transactions.createMany({ data: Array.from({ length: 205 }, () => ({
+      id: randomUUID(), user_id: f.userId, state_digest: digest(secret()), browser_digest: digest(secret()), verifier: Buffer.from('synthetic-restored'),
+      intent: 'link', audience: f.config.audience, status: 'PROCESSING', expires_at: new Date(Date.now() + 600000),
+    })) });
+    if (restored === 'ACTIVE') await tx.prisma.users.update({ where: { id: f.userId }, data: { status: 'ACTIVE' } });
+    else {
+      await tx.prisma.auth_sessions.deleteMany({ where: { user_id: f.userId } });
+      await tx.prisma.user_profiles.deleteMany({ where: { user_id: f.userId } });
+      await tx.prisma.users.delete({ where: { id: f.userId } });
+    }
+  });
+  const count = () => f.db.transactions.read(tx => tx.prisma.login_transactions.count({ where: { user_id: f.userId, status: 'PROCESSING' } }));
+  await f.dueReplay(); await restart().tick();
+  assert.equal((await entry()).phase, 'APPLY'); assert.equal(await count(), 205);
+  // The SCRUB transaction yields without acquiring guard/account locks or mutating that account.
+  const afterYield = await f.db.transactions.read(tx => tx.prisma.users.findUnique({ where: { id: f.userId }, select: { status: true } }));
+  assert.equal(afterYield?.status ?? 'missing', restored);
+  if (restored === 'missing') {
+    const independent = randomUUID();
+    await f.db.transactions.write(tx => tx.prisma.users.create({ data: { id: independent, terms_version: '2026-09-20' } }));
+    await f.ledger.ensureIntent({ schemaVersion: 2, environment: 'qa', requestId: accountDeletionId('qa', independent), actorUserId: independent,
+      targetId: independent, scope: 'ACCOUNT', roomId: null, subjectGuard: null, requestedAt: '2026-09-20T00:00:00.000Z' });
+    await f.dueReplay(); await restart().tick();
+    assert.equal((await entry()).phase, 'APPLY'); assert.equal((await entry()).state, 'RETRY');
+    assert.equal((await f.db.transactions.read(tx => tx.prisma.users.findUnique({ where: { id: independent } }))).status, 'DELETING');
+    await f.db.transactions.write(tx => tx.prisma.users.create({ data: { id: f.userId, terms_version: '2026-09-20' } }));
+  }
+  await f.dueReplay(); await restart().tick();
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.users.findUnique({ where: { id: f.userId } }))).status, 'DELETING');
+  assert.equal((await entry()).phase, 'SCRUB'); assert.equal((await entry()).receipt_sha256, initial.receipt_sha256);
+  for (const remaining of [105, 5, 0]) {
+    await f.dueReplay(); await restart().tick(); assert.equal(await count(), remaining);
+  }
+  assert.equal((await entry()).state, 'OBSERVED');
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.account_deletion_obligations.findUnique({ where: { user_id: f.userId } }))).state, 'BLOCKED');
 });
