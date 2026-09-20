@@ -18,6 +18,13 @@ import { RealtimeGateway, socketCredentials } from '../../dist/modules/realtime/
 import { DatabaseUnavailableError } from '../../dist/infrastructure/database/database-unavailable.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+test('realtime policy keeps its fixed ceiling despite ordinary HTTP headroom', () => {
+  const server = createServer();
+  for (const maxConnections of [1001, Infinity, 0, 1.5]) {
+    assert.throws(() => new RealtimeGateway(server, {}, {}, {}, {}, { maxConnections }), /invalid_realtime_policy/);
+  }
+});
+
 async function fixture(t, options = {}) {
   const tokens = new Map(); const allowed = new Set(); const completed = []; const retried = []; const queries = [];
   const config = { audience: 'realtime-unit', origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };

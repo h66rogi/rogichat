@@ -40,7 +40,7 @@ async function run(command, args, env, timeoutMs = 60000) {
 }
 
 try {
-  if (['--quality', '--soak', '--restore'].some(flag => process.argv.includes(flag)) && (!process.env.TEST_MYSQL_PORT || process.env.ROGICHAT_TEST_MYSQL !== 'disposable')) {
+  if (['--quality', '--soak', '--restore', '--expansion'].some(flag => process.argv.includes(flag)) && (!process.env.TEST_MYSQL_PORT || process.env.ROGICHAT_TEST_MYSQL !== 'disposable')) {
     throw new Error('specialized suite requires an explicitly disposable MySQL service; local datadir fallback forbidden');
   }
   let port;
@@ -98,7 +98,7 @@ try {
   } else {
   stage = 'tests';
   // Discover committed test names so newly added regressions cannot silently miss CI.
-  const suite = process.argv.includes('--restore') ? 'restore' : process.argv.includes('--soak') ? 'soak' : process.argv.includes('--quality') ? 'quality' : 'integration';
+  const suite = process.argv.includes('--expansion') ? 'expansion' : process.argv.includes('--restore') ? 'restore' : process.argv.includes('--soak') ? 'soak' : process.argv.includes('--quality') ? 'quality' : 'integration';
   let integrationFiles = (await readdir(new URL(`./${suite}/`, import.meta.url)))
     .filter(name => name.endsWith('.test.mjs')).sort().map(name => join('test', suite, name));
   const requested = process.argv.filter(arg => arg.startsWith('--test-file=')).map(arg => arg.slice('--test-file='.length));

@@ -53,9 +53,26 @@ not apply Terraform, bind real principals or enable ledger-copy access.
 | Approved WEB leaf | `a92ebfc85398d368032195b901f42211b2983f62`; [hosted browser run](https://github.com/h66rogi/rogichat/actions/runs/35510393707), 235 first-pass + 1 retry-pass, 2 opposite-device skips |
 | Combined WEB/backend checkpoint | `609c08f3cef1755c48d244a5a9095293fed92318`; [WEB](https://github.com/h66rogi/rogichat/actions/runs/35510801843) passed, [backend](https://github.com/h66rogi/rogichat/actions/runs/35510801787) passed; [quality](https://github.com/h66rogi/rogichat/actions/runs/35510801733) stopped at the setup deadline |
 | Restore/schema-24 source | `7b559b645ef2b71fc5492d79895142745d0d6ead`; includes physical/logical target binding and accepted media source, final aggregate hosted acceptance pending |
-| Source-23 soak | [Run 35510608984](https://github.com/h66rogi/rogichat/actions/runs/35510608984) passed at `db2a27a151732dcb2b778db93926ca446d5624c7`; executor metrics pending, not final schema-24 performance acceptance |
+| Source-23 soak | [Run 35510608984](https://github.com/h66rogi/rogichat/actions/runs/35510608984) passed at `db2a27a151732dcb2b778db93926ca446d5624c7`; 1,800,763 ms, 10 clients, 1,800 commands, 18,000 projections; [receipt](evidence/m12/2026-09-20-run-35510608984.json), not final schema-24 performance acceptance |
 | Supplementary 1,000-client diagnostic | [Run 35511656540](https://github.com/h66rogi/rogichat/actions/runs/35511656540) at source `81f2603773506596459aa1ab20a1beab14442365` / tested merge `d8f5b01e96736808aa136accc275a00005cdefd0`: 33 quality tests passed, storm failed; 946 projections, 54 recovery HTTP 503s, 54 clients missed 20 seconds; no capacity claim |
 | External providers, restored service, QA routes | Not established by these credential-free tests; infrastructure/provider execution remains separate |
+
+The source-23 soak receipt records ACK p95 94.52 ms, reference-cache p95 439.35 ms,
+maximum client restart recovery 2,710.58 ms, seven completed videos, 13 expected
+restart interruptions and zero unexpected errors. Its JSON SHA-256 was verified
+as `4720f065edc43441048fcf2b7a57aea9d5023493f607ad68def354ca5c364cc2`.
+The killed asset completed at generation 2 after 330,162.042 ms from its original
+start; the receipt's 313,254.079 ms summary refers to a different first completed
+asset. This is neither rendered UI/R2 evidence nor commit-ACK-drop, deletion/restore
+or 1,000-client acceptance.
+
+The documented MVP does not require 1,000 clients or multiple serving APIs.
+Its 33 quality cases retain their assertions; the storm moves to an explicitly
+failing expansion workflow/profile with unchanged thresholds and retained failed
+evidence. A shared finite HTTP budget adds 64 connections above the unchanged
+1,000 realtime ceiling. A separate hosted transport regression must verify fresh
+health access at that ceiling and rejection at the total bound; no database pool,
+admission budget or retry policy is inflated to satisfy the expansion benchmark.
 
 The follow-up preserves accepted `4216aaaa53cc657a2d15e11cd12e53ce159e3b3b`
 and normally merges these complete source histories:

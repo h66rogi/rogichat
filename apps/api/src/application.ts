@@ -6,6 +6,7 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import type { DynamicModule } from '@nestjs/common';
 import { SafeExceptionFilter } from './common/http/safe-exception.filter.js';
+import { HTTP_CONNECTION_LIMIT } from './common/http/connection-budget.js';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import express from 'express';
@@ -59,7 +60,7 @@ export async function createConfiguredApi(module: DynamicModule, logger: SafeLog
   http.headersTimeout = 10000;
   http.keepAliveTimeout = 5000;
   http.maxRequestsPerSocket = 1000;
-  http.maxConnections = 1000;
+  http.maxConnections = HTTP_CONNECTION_LIMIT;
   return app;
 }
 

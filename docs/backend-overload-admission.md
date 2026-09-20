@@ -42,6 +42,31 @@ admission and safe diagnostics make future measurements classifiable. Returning
 503 instead of 500 does not satisfy a successful-projection assertion or prove
 capacity. Diagnostic thresholds must remain unchanged.
 
+Run [35511656540](https://github.com/h66rogi/rogichat/actions/runs/35511656540)
+on source `81f2603773506596459aa1ab20a1beab14442365` reached all 1,000 connected
+sockets but recovered only 946 projections: 54 immediate REST requests returned
+503 and missed the unchanged 20-second target. The local hint reached 500 sockets;
+40 immediate reads succeeded and 460 returned 503. A single API at 1,000 upgraded
+connections rejected a fresh readiness transport. The [failed receipt](evidence/m12/2026-09-20-run-35511656540.json)
+preserves these outcomes; changing error classification did not make the load pass.
+
+The shared Node transport now permits 1,064 connections, comprising the unchanged
+1,000 realtime ceiling and 64 connections of HTTP headroom. Upgraded sockets count
+toward Node's HTTP limit. This finite headroom prevents the realtime ceiling alone
+exhausting ordinary requests; it does not reserve an invulnerable health channel
+against arbitrary HTTP exhaustion. Pool sizes and database admission are unchanged.
+The configured-API regression holds actual upgraded TCP connections, checks fresh
+health responses and verifies rejection at the finite total. It is a transport
+regression, not a 1,000-user authenticated product-capacity test.
+
+The documented single-user MVP keeps its 33 release quality cases. The unchanged
+1,000-client storm assertions live in `test/expansion/realtime-storm.test.mjs` and
+run via `node test/run-mysql.mjs --expansion` on explicit disposable MySQL.
+`Backend expansion benchmark (1000 clients)` runs on the `m12-expansion-benchmark`
+PR label or manual dispatch. Its failing assertions fail that job, and artifacts
+are retained even on failure; no `continue-on-error`, test-only retry or raised
+workload threshold is used. Expansion capacity remains unvalidated.
+
 Focused regressions cover bounded admission, late checkout settlement, no replay,
 safe HTTP errors and real Socket.IO automatic retry after a temporary rejection.
 Full credential-free hosted CI must validate the combined source head. This

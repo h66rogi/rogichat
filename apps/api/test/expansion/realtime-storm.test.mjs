@@ -14,7 +14,8 @@ import { SessionRepository } from '../../dist/modules/auth/session.repository.js
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { child, unusedPort, waitFor, stopChild } from '../helpers.mjs';
-import { isolated, batches, distribution, evidence } from './evidence.mjs';
+import { isolated, batches, distribution, evidence } from '../quality/evidence.mjs';
+import { HTTP_CONNECTION_LIMIT, REALTIME_CONNECTION_LIMIT } from '../../dist/common/http/connection-budget.js';
 
 test('single-event fanout characterization and 1000-client automatic reconnect storm with per-client REST recovery', { timeout: 240000 }, async t => {
   isolated();
@@ -136,7 +137,7 @@ test('single-event fanout characterization and 1000-client automatic reconnect s
   const singleApiSockets = people.filter(person => person.socket.connected).length;
   await evidence('single-api-capacity', { outcome: singleApiSockets === 1000 && readinessStatus === 200 ? 'passed' : 'failed',
     connectedSockets: singleApiSockets, readinessStatus, transportRejected,
-    configuredHttpMaxConnections: 1000, configuredRealtimeMaxConnections: 1000,
+    configuredHttpMaxConnections: HTTP_CONNECTION_LIMIT, configuredRealtimeMaxConnections: REALTIME_CONNECTION_LIMIT,
     limitation: 'same-host synthetic connection-bound probe, not production capacity certification' });
   assert.equal(recoveryTimes.size, 1000, 'every automatically reconnected client must recover the committed projection');
   assert.equal(missedDeadline, 0, 'each foreground recovery must meet the unchanged 20-second gate');
