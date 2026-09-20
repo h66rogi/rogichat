@@ -18,6 +18,25 @@ export class ModerationRepository {
     const [row] = await tx.rows<{ id: string; user_id: string; role: string; status: string; active_period_id: string | null; account_status: string; soop_status: string | null; valid_period_id: string | null; period_left_at: Date | null }>(`SELECT m.id,m.user_id,m.role,m.status,m.active_period_id,u.status AS account_status,s.status AS soop_status,p.id AS valid_period_id,p.left_at AS period_left_at FROM room_members m LEFT JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id JOIN users u ON u.id=m.user_id LEFT JOIN platform_soop s ON s.user_id=u.id WHERE m.room_id=? AND m.id=? FOR UPDATE`, [roomId, actorId]);
     return row;
   }
+  async blockRooms(tx: Transaction, userId: string, after: string, linked: boolean) {
+    // Bounded scan avoids unbounded actor-ID lists or a new raw-SQL projection.
+    // Only a matching durable owned block authorizes returning a room reference.
+    const members = await tx.prisma.room_members.findMany({ where: { user_id: userId, room_id: { gt: after } },
+      orderBy: { room_id: 'asc' }, take: 51, select: { id: true, room_id: true, status: true,
+        active_period: { select: { left_at: true } } } });
+    const page = members.slice(0, 50);
+    const groups = page.length ? await tx.prisma.actor_blocks.groupBy({ by: ['room_id', 'blocker_actor_id'],
+      where: { OR: page.map(member => ({ room_id: member.room_id, blocker_actor_id: member.id })) } }) : [];
+    const pairs = new Set(groups.map(row => `${row.room_id}:${row.blocker_actor_id}`));
+    const owned = page.filter(member => pairs.has(`${member.room_id}:${member.id}`));
+    const visible = owned.filter(member => member.status !== 'BANNED');
+    const labels = linked && visible.length ? await tx.prisma.rooms.findMany({ where: { status: 'ACTIVE', OR: visible
+      .map(member => ({ id: member.room_id, ...(member.status === 'ACTIVE' && member.active_period?.left_at === null ? {} : { join_policy: 'OPEN_AUTHENTICATED' as const }) })) },
+    select: { id: true, name: true } }) : [];
+    const names = new Map(labels.map(room => [room.id, room.name]));
+    return { rooms: owned.map(member => ({ roomId: member.room_id, displayName: names.get(member.room_id) ?? null })),
+      nextRoomId: members.length > 50 ? members[49]!.room_id : null };
+  }
   async ownBlocks(tx: Transaction, roomId: string, userId: string, after: string) {
     const member = await tx.prisma.room_members.findFirst({ where: { room_id: roomId, user_id: userId },
       select: { id: true, role: true, status: true, room: { select: { mode: true, status: true } }, user: { select: { status: true, soop: { select: { status: true } } } } } });

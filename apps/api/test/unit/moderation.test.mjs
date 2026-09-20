@@ -123,3 +123,33 @@ test('recovery names are scoped to existing owned blocks and keep FAN/afterleave
   member.status = 'BANNED'; assert.ok((await repo.ownBlocks(tx, 'room', 'caller', '')).every(row => row.displayName === null)); assert.equal(calls.length, 1);
   tx.prisma.room_members.findFirst = async () => null; assert.deepEqual(await repo.ownBlocks(tx, 'room', 'outsider', ''), []); assert.equal(calls.length, 1);
 });
+
+
+test('blocked-room discovery is bounded and empty pages keep an internal continuation without exposing unrelated rooms', async () => {
+  const members = Array.from({ length: 51 }, (_, i) => ({ id: `actor${i}`, room_id: `room${i}`, status: 'LEFT', active_period: null }));
+  let probes = 0; let labels = 0; let match = false;
+  const tx = { prisma: { room_members: { findMany: async query => { assert.equal(query.take, 51); assert.equal(query.where.user_id, 'caller'); return members; } },
+    actor_blocks: { groupBy: async query => { probes++; assert.deepEqual(query.by, ['room_id', 'blocker_actor_id']); assert.equal(query.where.OR.length, 50); assert.deepEqual(query.where.OR[1], { room_id: 'room1', blocker_actor_id: 'actor1' }); return match ? [{ room_id: 'room1', blocker_actor_id: 'actor1' }] : []; } },
+    rooms: { findMany: async query => { labels++; assert.deepEqual(query.where, { status: 'ACTIVE', OR: [{ id: 'room1', join_policy: 'OPEN_AUTHENTICATED' }] }); return [{ id: 'room1', name: 'current room' }]; } } } };
+  const repo = new ModerationRepository();
+  assert.deepEqual(await repo.blockRooms(tx, 'caller', '', true), { rooms: [], nextRoomId: 'room49' });
+  assert.equal(probes, 1); assert.equal(labels, 0);
+  match = true; const page = await repo.blockRooms(tx, 'caller', '', true);
+  assert.deepEqual(page.rooms, [{ roomId: 'room1', displayName: 'current room' }]); assert.equal(labels, 1);
+  members[1].status = 'BANNED'; assert.deepEqual((await repo.blockRooms(tx, 'caller', '', true)).rooms, [{ roomId: 'room1', displayName: null }]); assert.equal(labels, 1);
+});
+
+test('blocked-room cursor hides scan positions and rejects tampering, other accounts, sessions, audience and expiry', async () => {
+  const { BlockRoomsCursor } = await import('../../dist/modules/moderation/block-rooms-cursor.js');
+  const key = randomBytes(32), codec = new BlockRoomsCursor(key, 'fixture'); const now = new Date();
+  const actor = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true }, room = randomUUID();
+  const token = codec.next(room, actor, now); assert.equal(codec.after(token, actor, now), room);
+  assert.equal(Buffer.from(token, 'base64url').includes(Buffer.from(room)), false);
+  assert.notEqual(codec.next(room, actor, now), token);
+  for (const principal of [{ ...actor, userId: randomUUID() }, { ...actor, sessionId: randomUUID() }]) assert.throws(() => codec.after(token, principal, now), { code: 'INVALID_CURSOR' });
+  assert.throws(() => new BlockRoomsCursor(key, 'other').after(token, actor, now), { code: 'INVALID_CURSOR' });
+  assert.throws(() => codec.after(token, actor, new Date(now.getTime() + 900000)), { code: 'INVALID_CURSOR' });
+  const bytes = Buffer.from(token, 'base64url'); bytes[42] ^= 1;
+  assert.throws(() => codec.after(bytes.toString('base64url'), actor, now), { code: 'INVALID_CURSOR' });
+  assert.equal(codec.after(undefined, actor, now), ''); assert.equal(codec.next(null, actor, now), null);
+});

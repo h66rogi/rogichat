@@ -16,6 +16,7 @@ is the existing room membership identifier, never a global account/provider ID.
 | POST `rooms/:roomId/messages/:messageId/reports` | `idempotencyKey`, `reason`, optional `detail` | `reportId,status,createdAt` |
 | GET `report-receipts/:idempotencyKey` | None | Own receipt |
 | GET `reports/:reportId` | None | Own receipt |
+| GET `blocked-rooms?cursor=:opaque` | None | `rooms:[{roomId,displayName}],nextCursor` |
 | GET `rooms/:roomId/blocks?after=:actorId` | None | `blocks:[{actorId,blockedAt,displayName}],next` |
 | PUT `rooms/:roomId/blocks/:actorId` | `{}` | `actorId,blocked:true,resetRequired:true` |
 | DELETE `rooms/:roomId/blocks/:actorId` | No body | `actorId,blocked:false,resetRequired:true` |
@@ -63,6 +64,22 @@ Only the current nickname is projected; no historical name, avatar, birthday, pr
 user ID or anonymous source lookup is retained or exposed. Unblock does not require
 renewed target visibility. Clients distinguish unavailable labels with the existing
 actor reference and date rather than stale profile caches.
+Account-wide `GET /v1/blocked-rooms` rediscovers rooms containing the caller's
+existing blocks after logout, device replacement or room leave. Each request
+scans at most 50 owned memberships (plus one lookahead), then groups only their
+exact owned block pairs with Prisma (at most 50 groups); no unbounded ID list or new SQL projection is used.
+Only matching room references are returned. Current room names require verified
+linkage and existing visibility: active room, non-banned caller membership, and
+either a valid active period or OPEN_AUTHENTICATED room policy. Other labels are
+null; this grants no admission, message history, profiles or membership listing.
+The cursor uses the configured server key through authenticated encryption in a
+separate recovery domain (not a room ACL/cache token), binds
+the account and session, hides unrelated scan positions and expires after 15
+minutes. `400 INVALID_CURSOR` means restart without a cursor. Empty pages may
+have a continuation: clients must follow `nextCursor` until null and must not
+interpret an empty intermediate page as an empty account. New login/device
+recovery begins at the first page; it never relies on saved private room labels.
+
 Personal blocks never evict other fans or delete content. Blocking the only
 streamer can leave a fan with no usable conversation; leave, unblock and account
 management remain available.
@@ -117,5 +134,12 @@ reset, create-only migration or live database changes are part of this batch.
 - Both fixture databases and owned mysqld/datadir teardown confirmed at `2026-09-20T11:12:16.683Z`.
 - Targeted fresh-MySQL suite: 63 tests, 55 passed; all 8 moderation HTTP tests, both final push-block directions, account report-detail cleanup and message purge/crash tests passed. The 8 media tests failed because a predecessor test fixture set the shared budget below a single photo reservation; upstream fix `a7bd230` is merged, rerun pending hosted CI.
 - After the predecessor hardening merge: TypeScript and 47 focused unit tests passed.
-- Additive recovery-label projection: TypeScript, 12 focused unit/OpenAPI tests and targeted lint passed; real MySQL afterleave/IDOR/deletion regression and hosted CI pending.
+- Additive recovery-label projection: TypeScript, 12 focused unit/OpenAPI tests and targeted lint passed; real MySQL afterleave/current-rename/IDOR/hidden-role/deletion regression passed in hosted CI.
+- [PR #75](https://github.com/h66rogi/rogichat/pull/75), hosted run `35508595597`: full MySQL 355/356 passed, with the sole failure an inherited stale sticker cleanup expectation. Correction `ae65a68` and current QA scanner improvements are normal-merged for rerun; all image/security/web/infrastructure gates passed on the prior head.
 - Deployment and QA/main merge: not performed by this worker.
+
+
+The approved account-wide recovery addition uses no schema change. TypeScript,
+19 focused cursor/moderation/OpenAPI tests and targeted lint passed. Its fresh-session,
+LEFT/ban/private-label, pagination and cross-account/session MySQL regressions are
+tracked through PR #75; the existing per-room block DTO is unchanged.

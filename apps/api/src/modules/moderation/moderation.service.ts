@@ -1,3 +1,4 @@
+import { BlockRoomsCursor } from './block-rooms-cursor.js';
 import { roomCommandRate } from '../../infrastructure/rate-limit/room-command-rate.js';
 import { ApiError } from '../auth/auth-primitives.js';
 import { Inject, Injectable } from '@nestjs/common';
@@ -12,10 +13,11 @@ import { ModerationCoreService } from './moderation-core.service.js';
 import { reportInput, resolutionInput } from './moderation.dto.js';
 @Injectable()
 export class ModerationService {
+  private readonly recoveryCursor: BlockRoomsCursor;
   constructor(@Inject(Transactions) private readonly transactions: Transactions,
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
-    @Inject(ModerationCoreService) private readonly core: ModerationCoreService) {}
+    @Inject(ModerationCoreService) private readonly core: ModerationCoreService) { this.recoveryCursor = new BlockRoomsCursor(config.key, config.audience); }
   private write<T>(credentials: CommandCredentials, operation: (tx: Transaction, userId: string) => Promise<T>, linked = false) {
     requireCommandProof(credentials);
     return this.transactions.write(async tx => operation(tx, (await this.auth.require(tx, credentials, linked)).userId));
@@ -32,6 +34,14 @@ export class ModerationService {
   }
   receipt(credentials: SessionCredentials, id: string, byKey = false) {
     return this.transactions.read(async tx => this.core.receipt(tx, (await this.auth.require(tx, credentials)).userId, id, byKey));
+  }
+  blockRooms(credentials: SessionCredentials, cursor: unknown) {
+    return this.transactions.read(async tx => {
+      const principal = await this.auth.require(tx, credentials);
+      const now = await tx.now();
+      const result = await this.core.blockRooms(tx, principal.userId, this.recoveryCursor.after(cursor, principal, now), principal.soopLinked);
+      return { rooms: result.rooms, nextCursor: this.recoveryCursor.next(result.nextRoomId, principal, now) };
+    });
   }
   blocks(credentials: SessionCredentials, roomId: string, after: string) {
     return this.transactions.read(async tx => this.core.blocks(tx, (await this.auth.require(tx, credentials)).userId, roomId, after));

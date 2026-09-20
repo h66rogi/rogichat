@@ -45,6 +45,9 @@ export class ModerationCoreService {
     if (!row) throw new ApiError('NOT_FOUND', 404);
     return reportReceipt(row);
   }
+  blockRooms(tx: Transaction, userId: string, after: string, linked: boolean) {
+    return this.repository.blockRooms(tx, userId, after, linked);
+  }
   async blocks(tx: Transaction, userId: string, roomId: string, after: string) {
     const rows = await this.repository.ownBlocks(tx, roomId, userId, after);
     return { blocks: rows.slice(0, 50).map(row => ({ actorId: row.target_actor_id, blockedAt: row.created_at.toISOString(), displayName: row.displayName })), next: rows.length > 50 ? rows[49]!.target_actor_id : null };

@@ -13,10 +13,15 @@ test('moderation OpenAPI exposes exact actor-scoped methods, durable receipt rec
     ['post', '/v1/rooms/{roomId}/messages/{messageId}/reports'], ['get', '/v1/reports/{reportId}'],
     ['get', '/v1/report-receipts/{idempotencyKey}'], ['get', '/v1/rooms/{roomId}/blocks'],
     ['put', '/v1/rooms/{roomId}/blocks/{actorId}'], ['delete', '/v1/rooms/{roomId}/blocks/{actorId}'],
-    ['get', '/v1/rooms/{roomId}/bans'], ['post', '/v1/rooms/{roomId}/bans/{actorId}'], ['delete', '/v1/rooms/{roomId}/bans/{actorId}'],
+    ['get', '/v1/blocked-rooms'], ['get', '/v1/rooms/{roomId}/bans'], ['post', '/v1/rooms/{roomId}/bans/{actorId}'], ['delete', '/v1/rooms/{roomId}/bans/{actorId}'],
     ['get', '/v1/admin/reports'], ['post', '/v1/admin/reports/{reportId}/resolve'],
   ];
   for (const [method, path] of routes) assert.ok(doc.paths[path]?.[method], `${method} ${path}`);
+  const discovery = ajv.compile(doc.paths['/v1/blocked-rooms'].get.responses['200'].content['application/json'].schema);
+  const room = { roomId: randomUUID(), displayName: null };
+  assert.equal(discovery({ rooms: [room], nextCursor: null }), true);
+  for (const field of ['actorId', 'userId', 'membership', 'ownerActorId']) assert.equal(discovery({ rooms: [{ ...room, [field]: randomUUID() }], nextCursor: null }), false);
+  assert.equal(discovery({ rooms: [], nextCursor: 'opaque-continuation' }), true);
   const blockList = ajv.compile(doc.paths['/v1/rooms/{roomId}/blocks'].get.responses['200'].content['application/json'].schema);
   for (const displayName of [null, 'current nickname']) {
     const block = { actorId: randomUUID(), blockedAt: new Date().toISOString(), displayName };
