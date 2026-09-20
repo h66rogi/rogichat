@@ -35,6 +35,51 @@ def ready_container(role='api'):
 
 
 class RequestTests(unittest.TestCase):
+    def test_owned_stopped_desired_containers_created_before_unit_start(self):
+        events = []
+        def run(args, **_):
+            events.append(args)
+            return b'inactive\n' if '--property=ActiveState' in args else b''
+        def container(role, _):
+            item = ready_container(role)
+            item['State'] = {'Status': 'exited', 'Running': False}
+            item['Config']['Labels'] = {'com.docker.compose.project': 'rogichat-qa-app', 'com.docker.compose.service': role}
+            return item
+        with patch.object(release, 'protected', return_value=b'bootstrap'), patch.object(release, 'run', side_effect=run), \
+                patch.object(release, 'inspect_starting_container', side_effect=container), \
+                patch.object(release, 'docker', side_effect=lambda *args, **_: events.append(list(args))):
+            release.start_units(b'bootstrap')
+        create = next(i for i, args in enumerate(events) if 'create' in args)
+        enable = [i for i, args in enumerate(events) if 'enable' in args]
+        self.assertEqual(len(enable), 2)
+        self.assertTrue(all(create < index for index in enable))
+        reset = [i for i, args in enumerate(events) if 'reset-failed' in args]
+        self.assertEqual([events[i][-1] for i in reset], ['rogichat-app@api', 'rogichat-app@worker'])
+        for reset_index, enable_index in zip(reset, enable):
+            self.assertTrue(create < reset_index < enable_index)
+            self.assertEqual(events[reset_index][-1], events[enable_index][-1])
+        self.assertEqual(events[create][-7:], ['create', '--force-recreate', '--no-build', '--pull', 'never', 'api', 'worker'])
+        self.assertNotIn('--remove-orphans', events[create])
+        self.assertNotIn('--renew-anon-volumes', events[create])
+
+    def test_prepare_rejects_live_foreign_or_undrained_containers(self):
+        for mutate in ('running', 'project', 'role', 'unit', 'caddy'):
+            item = ready_container()
+            item['State'] = {'Status': 'exited', 'Running': False}
+            item['Config']['Labels'] = {'com.docker.compose.project': 'rogichat-qa-app', 'com.docker.compose.service': 'api'}
+            if mutate == 'running':
+                item['State'] = {'Status': 'running', 'Running': True}
+            elif mutate == 'project':
+                item['Config']['Labels']['com.docker.compose.project'] = 'rogichat-qa'
+            elif mutate == 'role':
+                item['Config']['Labels']['com.docker.compose.service'] = 'caddy'
+            with self.subTest(mutate=mutate), patch.object(release, 'protected', return_value=b'other' if mutate == 'caddy' else b'bootstrap'), \
+                    patch.object(release, 'run', return_value=b'active' if mutate == 'unit' else b'failed'), \
+                    patch.object(release, 'inspect_starting_container', return_value=item), \
+                    patch.object(release, 'docker') as docker, self.assertRaises(ValueError):
+                release.prepare_containers(b'bootstrap')
+            docker.assert_not_called()
+
     def test_only_exact_missing_owned_container_is_transient(self):
         result = SimpleNamespace(returncode=1, stdout=b'[]',
                                  stderr=b'Error response from daemon: No such container: rogichat-qa-api\n')

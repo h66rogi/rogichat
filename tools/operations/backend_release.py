@@ -354,6 +354,36 @@ def wait_health(request):
     raise Rejected('health gate failed')
 
 
+def prepare_containers(bootstrap):
+    # Never recreate a live/foreign service. Drain/stop precedes this call; no
+    # down, prune, remove-orphans, volume deletion or Caddy project operation.
+    require(protected(CADDY) == bootstrap)
+    for role in ('api', 'worker'):
+        state = run(['/usr/bin/systemctl', 'show', 'rogichat-app@' + role,
+                     '--property=ActiveState', '--value']).strip()
+        require(state in (b'inactive', b'failed'))
+        item = inspect_starting_container(role, 10)
+        if item is not None:
+            labels = item['Config'].get('Labels', {})
+            require(item['Name'] == '/rogichat-qa-' + role
+                    and labels.get('com.docker.compose.project') == 'rogichat-qa-app'
+                    and labels.get('com.docker.compose.service') == role
+                    and not item['State']['Running'] and not item['State'].get('Restarting')
+                    and not item['State'].get('Paused') and item['State']['Status'] in ('created', 'exited'))
+    docker('compose', '--env-file', str(IMAGES), '-f', str(APP / 'compose.app.yaml'),
+           'create', '--force-recreate', '--no-build', '--pull', 'never', 'api', 'worker', timeout=90)
+
+
+def start_units(bootstrap):
+    run(['/usr/bin/systemctl', 'daemon-reload'])
+    # Synchronously create desired stopped containers before asynchronous unit
+    # start, so health never observes a previous release's exited/image state.
+    prepare_containers(bootstrap)
+    for role in ('api', 'worker'):
+        run(['/usr/bin/systemctl', 'reset-failed', 'rogichat-app@' + role])
+        run(['/usr/bin/systemctl', 'enable', '--now', 'rogichat-app@' + role], timeout=90)
+
+
 def fail_closed(container, bootstrap):
     failed = False
     try:
@@ -419,9 +449,7 @@ def deploy(request, files, container):
                         f"ROGICHAT_WORKER_IMAGE={execution_image(request, 'runtime')}\n"
                         f"ROGICHAT_EDGE_NETWORK={request['edge_network']}\n").encode(), 0o600)
         atomic(UNIT, files['unit'])
-        run(['/usr/bin/systemctl', 'daemon-reload'])
-        for role in ('api', 'worker'):
-            run(['/usr/bin/systemctl', 'enable', '--now', 'rogichat-app@' + role], timeout=90)
+        start_units(files['bootstrap'])
         print('QA app units requested; waiting for bounded container startup and health.', flush=True)
         wait_health(request)
         require(get_caddy(request['edge_network']) == container)
