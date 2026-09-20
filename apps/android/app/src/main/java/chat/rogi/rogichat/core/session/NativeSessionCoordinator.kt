@@ -8,6 +8,7 @@ import chat.rogi.rogichat.core.network.*
 import chat.rogi.rogichat.feature.settings.*
 import java.time.Clock
 import java.time.Instant
+import chat.rogi.rogichat.core.deletion.*
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -34,8 +35,20 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                                private val clock: Clock = Clock.systemUTC(),
                                private val auth: SoopAuthSupport? = null,
                                private val roomsStore: RoomsStore? = null,
-                               private val roomCommandScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) : SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, RoomsRepository {
+                               private val deletionStore: AccountDeletionStore? = null,
+                               private val roomCommandScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) : SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, RoomsRepository, AccountDeletionActions {
     private val lock = Mutex()
+    private var deletionLoaded = false
+    private var deletionRecords = emptyList<DeletionRecord>()
+    private class DeletionTicket(val intent: DeletionIntent, val original: NativeCredential, val epoch: Long, val partition: AccountPartition?) {
+        var allowRestore = true
+        var dispatching = true
+        var observedReceipt: DeletionReceipt? = null
+        var recentAuthRejected = false
+    }
+    private var activeDeletion: DeletionTicket? = null
+    private val mutableDeletion = MutableStateFlow(DeletionState())
+    override val deletionState = mutableDeletion.asStateFlow()
     private val mutable = MutableStateFlow(SessionSnapshot(access = ShellAccess.RESTORING))
     val session = mutable.asStateFlow()
     private var epoch = 0L
@@ -72,9 +85,8 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     override val canSignOut = true
     override suspend fun signIn(provider: SignInProvider) = unavailable()
     override suspend fun linkSoop() = beginAuthentication(AuthIntent.LINK)
-    override suspend fun closeAccount() = unavailable()
     private fun unavailable(): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
-    fun services() = ProductServices(session, this, this, auth = this.takeIf { auth != null }, notificationPreferences = this, rooms = this.takeIf { roomsStore != null })
+    fun services() = ProductServices(session, this, this, auth = this.takeIf { auth != null }, notificationPreferences = this, rooms = this.takeIf { roomsStore != null }, deletion = this.takeIf { deletionStore != null })
 
     private class Ticket(val epoch: Long, val credential: NativeCredential, val accountId: String?, val profileRevision: Long)
     private fun current(ticket: Ticket) = epoch == ticket.epoch && credential?.token == ticket.credential.token
@@ -111,6 +123,8 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     private suspend fun refresh(retainAuthorized: Boolean, expectedEpoch: Long? = null, expectedToken: String? = null): Result<Unit> = outcome {
         var requestId = 0L
         val ticket = lock.withLock {
+            deletionStartupLocked()
+            if (activeDeletion != null) return@outcome
             if (expectedEpoch != null && (epoch != expectedEpoch || credential?.token != expectedToken)) return@outcome
             if (activeRefresh != null) return@outcome
             if (removalPending) { clearLocked(); return@outcome }
@@ -181,9 +195,11 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 !expiresAt.isAfter(clock.instant())) clearLocked()
         }
     }
-    override suspend fun signOut(): Result<Unit> = outcome {
+    override suspend fun signOut(expected: SessionIdentity?): Result<Unit> = outcome {
         var localFailure: Exception? = null
         val previous = lock.withLock {
+            if (expected != null && !expected.matches(mutable.value)) throw CancellationException("stale_session_intent")
+            activeDeletion?.allowRestore = false
             val old = credential
             try { clearLocked() } catch (failure: Exception) { localFailure = failure }
             old
@@ -284,8 +300,9 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
             throw failure
         }
     }
-    override suspend fun resetLocalSession(): Result<Unit> = outcome {
+    override suspend fun resetLocalSession(expected: SessionIdentity?): Result<Unit> = outcome {
         lock.withLock {
+            if (expected != null && !expected.matches(mutable.value)) throw CancellationException("stale_session_intent")
             if (mutable.value.account != null || !mutable.value.storageFailure) return@withLock
             clearLocked()
         }
@@ -498,6 +515,231 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         }
     }
 
+    private suspend fun saveDeletionLocked(record: DeletionRecord) {
+        val records = if (deletionRecords.any { it.operationId == record.operationId })
+            deletionRecords.map { if (it.operationId == record.operationId) record else it }
+        else deletionRecords + record
+        if (records.size > 16) throw DeletionCapacityExceeded()
+        withContext(NonCancellable) { requireNotNull(deletionStore).write(records) }
+        deletionRecords = records
+    }
+    private fun deletionRecord(ticket: DeletionTicket): DeletionRecord = deletionRecords.find { it.operationId == ticket.intent.operationId }
+        ?: DeletionRecord(ticket.intent.operationId, ticket.intent.accountId, fingerprint(ticket.original.token), null, accountPartition = ticket.partition?.value)
+    /** Caller owns the lifecycle lock. Never call global purge against a different current token. */
+    private suspend fun eraseDeletionOriginalLocked(record: DeletionRecord): String? = withContext(NonCancellable) {
+        val saved = store.read()
+        if (saved != null && fingerprint(saved.token) != record.fingerprint || credential != null && fingerprint(requireNotNull(credential).token) != record.fingerprint)
+            throw DeletionStorageException()
+        credential = null; loaded = true; serverGeneration = null; accountPartition = null; removalPending = true
+        var failure: Exception? = null
+        try {
+            // During live admission no new proof can be installed. Cold recovery must not
+            // consume a different account's unbound login merely because no token remains.
+            val liveOwner = activeDeletion?.intent?.operationId == record.operationId
+            val proof = if (saved == null && !liveOwner) auth?.pendingStore?.read() else null
+            if (saved != null || liveOwner || proof?.credentialFingerprint == record.fingerprint || proof?.accountId == record.accountId)
+                invalidateAuthLocked()
+        } catch (error: Exception) { failure = error }
+        // Retire UI/commands first; scoped disk cleanup refuses any foreign partition.
+        roomRevision++; roomIdentity = null; roomDirectory = null
+        activeRoomCommand = null; mutableRoomCommands.value = RoomCommandState()
+        try { roomsStore?.clearForDeletion(record.accountPartition?.let(::AccountPartition)) } catch (error: Exception) { failure = error }
+        // A missing token with a different stamp is not permission to clear any newer token.
+        // read() already retries a prior credential tombstone; no extra clear is necessary then.
+        try { if (saved != null) store.clear() } catch (error: Exception) { failure = error }
+        failure?.let { throw it }
+        removalPending = false
+        store.clearStamp()
+    }
+    /** Runs before every credential/pending-auth restore. It never issues a DELETE or receipt GET. */
+    private suspend fun deletionStartupLocked() {
+        if (deletionStore == null || activeDeletion != null) return
+        try {
+            if (!deletionLoaded) {
+                deletionRecords = deletionStore.read(); deletionLoaded = true
+                mutableDeletion.value = DeletionState(deletionRecords.lastOrNull())
+            }
+            deletionRecords.singleOrNull { it.cleanupPending }?.let { record ->
+                epoch++; publish(ShellAccess.RESTORING)
+                // PREPARING includes clear() -> stamp write crashes. REAUTH_RESTORING includes
+                // credential.write() -> journal completion crashes, with an absent clear marker.
+                // Only the exact original fingerprint may be erased, never a newer token on mismatch.
+                val stamp = eraseDeletionOriginalLocked(record)
+                val phase = when (record.phase) {
+                    DeletionPhase.PREPARING, DeletionPhase.CLEARED -> DeletionPhase.ABORTED
+                    DeletionPhase.REAUTH_RESTORING -> DeletionPhase.REAUTH_DONE
+                    DeletionPhase.SENDING -> DeletionPhase.UNKNOWN
+                    else -> record.phase
+                }
+                val finished = record.copy(phase = phase, afterStamp = stamp, cleanupPending = false)
+                saveDeletionLocked(finished); mutableDeletion.value = DeletionState(finished)
+            }
+        } catch (failure: Exception) {
+            mutableDeletion.value = mutableDeletion.value.copy(busy = false, storageFailure = true)
+            publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = true)
+            throw failure
+        }
+    }
+    override suspend fun requestDeletion(intent: DeletionIntent): Result<Unit> = outcome {
+        currentCoroutineContext().ensureActive()
+        lock.withLock {
+            // Check the original rendered scope BEFORE closing any UI or reading/changing storage.
+            if (intent.epoch != epoch || intent.accountId != mutable.value.account?.id ||
+                mutable.value.access !in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED)) throw CancellationException("account_scope_changed")
+            requireNotNull(deletionStore)
+            if (activeDeletion != null || mutableDeletion.value.blocksSession) throw DeletionInProgress()
+            require(deletionLoaded)
+            if (deletionRecords.size >= 16) {
+                mutableDeletion.value = mutableDeletion.value.copy(capacityReached = true)
+                throw DeletionCapacityExceeded()
+            }
+            if (deletionRecords.any { it.operationId == intent.operationId }) throw DeletionInProgress()
+            val saved = credential ?: throw CancellationException("account_scope_changed")
+            if (!saved.expiresAt.isAfter(clock.instant())) { clearLocked(); throw CancellationException("session_expired") }
+            epoch++; activeRefresh = null; profileRevision++
+            val ticket = DeletionTicket(intent, saved, epoch, accountPartition)
+            activeDeletion = ticket
+            publish(ShellAccess.RESTORING)
+            mutableDeletion.value = DeletionState(deletionRecord(ticket), busy = true)
+            roomCommandScope.launch { executeDeletion(ticket) }
+            Unit
+        }
+    }
+    private fun deletionCurrent(ticket: DeletionTicket) = activeDeletion === ticket && epoch == ticket.epoch
+    private suspend fun executeDeletion(ticket: DeletionTicket) {
+        var sent = false
+        try {
+            lock.withLock {
+                if (!deletionCurrent(ticket)) throw CancellationException("deletion_scope_changed")
+                var record = deletionRecord(ticket).copy(beforeStamp = store.clearStamp())
+                saveDeletionLocked(record)
+                val stamp = eraseDeletionOriginalLocked(record)
+                record = record.copy(phase = DeletionPhase.CLEARED, afterStamp = stamp)
+                saveDeletionLocked(record)
+                if (!deletionCurrent(ticket) || !ticket.original.expiresAt.isAfter(clock.instant())) throw CancellationException("deletion_scope_changed")
+                record = record.copy(phase = DeletionPhase.SENDING)
+                saveDeletionLocked(record)
+                mutableDeletion.value = DeletionState(record, busy = true)
+            }
+            lock.withLock {
+                // Every required disk suspension has finished. This is the dispatch permit,
+                // so expiry/logout during the SENDING write still sends zero DELETE requests.
+                if (!deletionCurrent(ticket) || !ticket.allowRestore || !ticket.original.expiresAt.isAfter(clock.instant()))
+                    throw CancellationException("deletion_dispatch_rejected")
+                currentCoroutineContext().ensureActive()
+                sent = true
+            }
+            val receipt = AccountDeletionDto.receipt(api.deleteAccount(ticket.original.token))
+            ticket.observedReceipt = receipt
+            lock.withLock { finishDeletionLocked(ticket, DeletionPhase.BLOCKED, receipt) }
+        } catch (failure: Exception) {
+            try {
+                if (sent && failure is ApiException && failure.statusCode == 403 && failure.code == "RECENT_AUTH_REQUIRED") {
+                    ticket.recentAuthRejected = true
+                    restoreDeletionRejection(ticket)
+                } else withContext(NonCancellable) { lock.withLock {
+                    finishDeletionLocked(ticket, if (ticket.observedReceipt != null) DeletionPhase.BLOCKED else if (sent) DeletionPhase.UNKNOWN else DeletionPhase.ABORTED,
+                        ticket.observedReceipt)
+                } }
+            } catch (_: Exception) {
+                withContext(NonCancellable) { lock.withLock {
+                    if (activeDeletion === ticket) {
+                        val record = deletionRecord(ticket).let { r -> ticket.observedReceipt?.let { r.copy(phase = DeletionPhase.BLOCKED, receipt = it) } ?: if (ticket.recentAuthRejected) r.copy(phase = DeletionPhase.REAUTH_RESTORING) else r }
+                        mutableDeletion.value = DeletionState(record, storageFailure = true)
+                        publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = true)
+                    }
+                } }
+            }
+        } finally {
+            withContext(NonCancellable) { lock.withLock {
+                ticket.dispatching = false
+                if (activeDeletion === ticket) {
+                    mutableDeletion.value = mutableDeletion.value.copy(busy = false)
+                    if (!mutableDeletion.value.storageFailure && mutableDeletion.value.record?.cleanupPending == false) activeDeletion = null
+                }
+            } }
+        }
+    }
+    private suspend fun finishDeletionLocked(ticket: DeletionTicket, phase: DeletionPhase, receipt: DeletionReceipt? = null) {
+        val existing = deletionRecords.find { it.operationId == ticket.intent.operationId }
+        if (activeDeletion !== ticket) {
+            // Late A may upgrade only its own unknown record; never clean current B or downgrade ACK.
+            if (receipt != null && existing?.phase == DeletionPhase.UNKNOWN) saveDeletionLocked(existing.copy(phase = DeletionPhase.BLOCKED, receipt = receipt))
+            return
+        }
+        val record = deletionRecord(ticket).copy(phase = phase, receipt = receipt)
+        saveDeletionLocked(record)
+        val stamp = eraseDeletionOriginalLocked(record)
+        val finished = record.copy(afterStamp = stamp, cleanupPending = false)
+        saveDeletionLocked(finished)
+        credential = null; loaded = true
+        mutableDeletion.value = DeletionState(finished, busy = ticket.dispatching)
+        // Installation is still fenced by activeDeletion until dispatch finally has exited.
+        publish(ShellAccess.SIGNED_OUT)
+    }
+    private suspend fun restoreDeletionRejection(ticket: DeletionTicket) {
+        val permitted = lock.withLock {
+            if (activeDeletion !== ticket) return@withLock false
+            val record = deletionRecord(ticket).copy(phase = DeletionPhase.REAUTH_RESTORING)
+            saveDeletionLocked(record) // durable phase BEFORE credential.write removes the clear marker.
+            if (!deletionCurrent(ticket) || !ticket.allowRestore || !ticket.original.expiresAt.isAfter(clock.instant()) ||
+                credential != null || store.clearStamp() != record.afterStamp) return@withLock false
+            withContext(NonCancellable) { store.write(ticket.original) }
+            credential = ticket.original; loaded = true
+            true
+        }
+        if (!permitted) { lock.withLock { finishDeletionLocked(ticket, DeletionPhase.REAUTH_DONE) }; return }
+        try {
+            // Session validation proves access only; it is NOT a lookup of deletion admission.
+            val session = NativeDtos.session(api.get(ApiRoute.SESSION, ticket.original.token))
+            lock.withLock {
+                if (!deletionCurrent(ticket) || !ticket.allowRestore || credential?.token != ticket.original.token ||
+                    !ticket.original.expiresAt.isAfter(clock.instant())) { finishDeletionLocked(ticket, DeletionPhase.REAUTH_DONE); return@withLock }
+                require(session.account.id == ticket.intent.accountId && session.expiresAt.toEpochMilli() == ticket.original.expiresAt.toEpochMilli())
+                val record = deletionRecord(ticket).copy(phase = DeletionPhase.REAUTH_DONE, cleanupPending = false)
+                saveDeletionLocked(record)
+                serverGeneration = session.serverGeneration; accountPartition = session.accountPartition
+                mutableDeletion.value = DeletionState(record, busy = ticket.dispatching)
+                publish(session.access, session.account)
+            }
+        } catch (_: Exception) { withContext(NonCancellable) { lock.withLock { finishDeletionLocked(ticket, DeletionPhase.REAUTH_DONE) } } }
+    }
+    override suspend fun retryDeletionCleanup(): Result<Unit> = outcome {
+        lock.withLock {
+            val ticket = activeDeletion
+            if (ticket?.dispatching == true) throw DeletionInProgress()
+            if (ticket != null) {
+                val current = deletionRecord(ticket)
+                val phase = when {
+                    ticket.observedReceipt != null -> DeletionPhase.BLOCKED
+                    ticket.recentAuthRejected -> DeletionPhase.REAUTH_DONE
+                    current.phase == DeletionPhase.SENDING -> DeletionPhase.UNKNOWN
+                    current.phase in setOf(DeletionPhase.PREPARING, DeletionPhase.CLEARED) -> DeletionPhase.ABORTED
+                    current.phase == DeletionPhase.REAUTH_RESTORING -> DeletionPhase.REAUTH_DONE
+                    else -> current.phase
+                }
+                finishDeletionLocked(ticket, phase, ticket.observedReceipt ?: current.receipt)
+                activeDeletion = null
+            } else { deletionStartupLocked(); if (credential == null) publish(ShellAccess.SIGNED_OUT) }
+        }
+    }
+    override suspend fun resetDeletionData(intent: DeletionResetIntent): Result<Unit> = outcome {
+        lock.withLock {
+            if (!intent.matches(mutable.value, mutableDeletion.value)) throw CancellationException("stale_deletion_reset")
+            if (activeDeletion?.dispatching == true) throw DeletionInProgress()
+            try {
+                activeDeletion?.allowRestore = false
+                clearLocked()
+                withContext(NonCancellable) { deletionStore?.erase() }
+                activeDeletion = null; deletionRecords = emptyList(); deletionLoaded = true; mutableDeletion.value = DeletionState()
+            } catch (failure: Exception) {
+                mutableDeletion.value = mutableDeletion.value.copy(busy = false, storageFailure = true)
+                publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = true)
+                throw failure
+            }
+        }
+    }
+
     private suspend fun invalidateAuthLocked(problem: AuthProblem? = null) {
         authRevision++
         attempt = null; pending = null; pendingLoaded = true; mutableLaunch.value = null
@@ -522,6 +764,8 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     private suspend fun beginAuthentication(intent: AuthIntent): Result<Unit> = outcome {
         val support = auth ?: throw IllegalStateException("operation_unavailable")
         val ticket = lock.withLock {
+            deletionStartupLocked()
+            if (activeDeletion != null) throw DeletionInProgress()
             require(loaded && !removalPending)
             if (intent == AuthIntent.LOGIN) require(mutable.value.access == ShellAccess.SIGNED_OUT && credential == null)
             else {
@@ -581,6 +825,8 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         val support = auth ?: return@outcome
         readyForPending()
         lock.withLock {
+            deletionStartupLocked()
+            if (activeDeletion != null) throw DeletionInProgress()
             if (pendingLoaded || mutable.value.access == ShellAccess.RETRYABLE_FAILURE) return@withLock
             val record = try { support.pendingStore.read() }
                 catch (failure: Exception) { mutableAuth.value = AuthUiState(error = AuthProblem.STORAGE); throw failure }

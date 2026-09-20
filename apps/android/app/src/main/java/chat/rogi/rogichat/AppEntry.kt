@@ -22,6 +22,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import chat.rogi.rogichat.core.auth.*
+import chat.rogi.rogichat.core.deletion.*
 import chat.rogi.rogichat.core.design.*
 import chat.rogi.rogichat.core.navigation.*
 import chat.rogi.rogichat.core.session.*
@@ -90,14 +91,23 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                               operation: SessionOperationState, appearance: Appearance, onAppearance: (Appearance) -> Unit,
                               roomContent: (@Composable (String, () -> Unit) -> Unit)?) {
     val authState = services.auth?.authState?.collectAsStateWithLifecycle()?.value ?: AuthUiState()
-    var confirmReset by remember { mutableStateOf(false) }
-    var confirmReauthentication by remember { mutableStateOf(false) }
-    if (confirmReset) ConfirmationPrompt("이 기기의 로그인 정보를 지울까요?",
+    val deletionState = services.deletion?.deletionState?.collectAsStateWithLifecycle()?.value ?: DeletionState()
+    val dismissedDeletion by sessionModel.dismissedDeletionKey.collectAsStateWithLifecycle()
+    val presentedDeletion = deletionState.presentedFor(session.account?.id, dismissedDeletion)
+    val renderedIdentity = SessionIdentity.from(session)
+    val renderedDeletionReset = DeletionResetIntent.from(session, deletionState)
+    var confirmDeletionReset by remember { mutableStateOf<DeletionResetIntent?>(null) }
+    confirmDeletionReset?.let { original -> ConfirmationPrompt("이 기기의 계정 정보를 초기화할까요?",
+        "로그인 정보와 기기에 보관된 탈퇴 요청 기록이 지워져요. 이미 보낸 서버 요청을 취소하거나 접수 여부를 확인하는 작업이 아니에요.", "기기 정보 초기화",
+        onDismiss = { confirmDeletionReset = null }, onConfirm = { confirmDeletionReset = null; sessionModel.resetDeletionData(original) }, enabled = !deletionState.busy) }
+    var confirmReset by remember { mutableStateOf<SessionIdentity?>(null) }
+    var confirmReauthentication by remember { mutableStateOf<SessionIdentity?>(null) }
+    confirmReset?.let { original -> ConfirmationPrompt("이 기기의 로그인 정보를 지울까요?",
         "저장된 로그인 정보를 지우고 다시 로그인해야 해요. 서버의 계정이나 대화는 삭제되지 않아요.", "로그인 정보 지우기",
-        onDismiss = { confirmReset = false }, onConfirm = { confirmReset = false; sessionModel.resetLocalSession() }, enabled = !operation.busy)
-    if (confirmReauthentication) ConfirmationPrompt("로그아웃 후 다시 로그인할까요?",
+        onDismiss = { confirmReset = null }, onConfirm = { confirmReset = null; sessionModel.resetLocalSession(original) }, enabled = !operation.busy) }
+    confirmReauthentication?.let { original -> ConfirmationPrompt("로그아웃 후 다시 로그인할까요?",
         "현재 기기에서 로그아웃해요. 로그인 화면에서 이용 안내를 확인한 뒤 SOOP 계정을 직접 선택해 주세요.", "로그아웃",
-        onDismiss = { confirmReauthentication = false }, onConfirm = { confirmReauthentication = false; sessionModel.signOut() }, enabled = !operation.busy)
+        onDismiss = { confirmReauthentication = null }, onConfirm = { confirmReauthentication = null; sessionModel.signOut(original) }, enabled = !operation.busy) }
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
@@ -105,16 +115,18 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     LaunchedEffect(operation.error) { operation.error?.let { snackbar.showSnackbar(it); sessionModel.dismissError() } }
     val topLevel = route in setOf(null, "talks", "settings")
     val privateAccount = session.account.takeIf { session.access in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) }
-    val showsSessionStatus = authState.active || authState.error != null ||
+    val showsSessionStatus = presentedDeletion.visible || authState.active || authState.error != null ||
         (session.validationNeedsRetry && privateAccount != null)
     fun open(value: String) { nav.navigate(value) { launchSingleTop = true } }
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
         if (showsSessionStatus) Column(Modifier.windowInsetsPadding(
             WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
         )) {
+        AccountDeletionStatus(presentedDeletion, sessionModel::retryDeletionCleanup, { confirmDeletionReset = renderedDeletionReset }, sessionModel::acknowledgeDeletion,
+            if (privateAccount != null) ({ confirmReauthentication = renderedIdentity }) else null)
         if (authState.active || authState.error != null) AuthStatusBanner(authState, sessionModel::cancelAuthentication,
             onReauthenticate = if (privateAccount != null && authState.error in setOf(AuthProblem.TERMS, AuthProblem.RECENT_AUTH))
-                ({ confirmReauthentication = true }) else null)
+                ({ confirmReauthentication = renderedIdentity }) else null)
         if (session.validationNeedsRetry && privateAccount != null) Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -137,7 +149,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("talks") {
                 ProductPage(if (session.access == ShellAccess.SIGNED_OUT) "로기챗" else "대화", scroll = false) {
                     when (session.access) {
-                        ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy || authState.active, sessionModel::signIn, session.notice)
+                        ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy || authState.active || deletionState.blocksSession, sessionModel::signIn, session.notice)
                         ShellAccess.LINK_REQUIRED -> LinkAccountScreen(operation.busy || authState.active, if (services.actions?.canLinkSoop == true) sessionModel::linkSoop else null)
                         ShellAccess.READY -> if (services.rooms != null && session.accountPartition != null) {
                             val roomsModel: RoomsViewModel = viewModel { RoomsViewModel(services.rooms, RoomsAccountScope(requireNotNull(privateAccount).id, session.generation, requireNotNull(session.accountPartition))) }
@@ -148,7 +160,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                         ShellAccess.RETRYABLE_FAILURE -> {
                             ScreenStatus("계정을 확인하지 못했어요", if (session.storageFailure) "기기에 저장된 로그인 정보를 읽거나 지우지 못했어요." else "연결 상태를 확인하고 다시 시도해 주세요.",
                                 onRetry = if (services.actions?.canRestore == true && !operation.busy) sessionModel::restore else null)
-                            if (session.storageFailure) TextButton(onClick = { confirmReset = true }, enabled = !operation.busy,
+                            if (session.storageFailure) TextButton(onClick = { if (services.deletion != null && deletionState.storageFailure) confirmDeletionReset = renderedDeletionReset else confirmReset = renderedIdentity }, enabled = !operation.busy,
                                 modifier = Modifier.fillMaxWidth()) { Text("기기의 로그인 정보 지우기") }
                         }
                         ShellAccess.BLOCKED -> ScreenStatus("계정 이용이 제한되었어요", "현재 이 계정으로 대화를 이용할 수 없어요.")
@@ -182,9 +194,10 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("account") {
                 if (privateAccount != null) ProductPage("계정 관리", { nav.popBackStack() }) {
                     AccountScreen(privateAccount, operation.busy,
-                        if (services.actions?.canSignOut == true) sessionModel::signOut else null,
-                        if (services.actions?.canCloseAccount == true) sessionModel::closeAccount else null,
-                        if (!privateAccount.soopConnected && !operation.busy && services.actions?.canLinkSoop == true) sessionModel::linkSoop else null)
+                        if (services.actions?.canSignOut == true) ({ sessionModel.signOut(renderedIdentity) }) else null,
+                        if (services.deletion != null && !deletionState.blocksSession) sessionModel::deleteAccount else null,
+                        if (!privateAccount.soopConnected && !operation.busy && services.actions?.canLinkSoop == true) sessionModel::linkSoop else null,
+                        session.generation)
                 } else LaunchedEffect(Unit) { nav.popBackStack() }
             }
             composable("room/{roomId}") { backStack ->

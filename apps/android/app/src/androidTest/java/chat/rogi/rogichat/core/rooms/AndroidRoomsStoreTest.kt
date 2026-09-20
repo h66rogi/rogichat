@@ -154,6 +154,22 @@ class AndroidRoomsStoreTest {
         obstruction.deleteRecursively()
         store.begin(scope) {}; assertTrue(db.rooms().memberships().isEmpty())
     }
+    @Test fun deletionCleanupRejectsDifferentPartitionOnLiveAndColdStoreWithoutDeletingRows() = runBlocking {
+        val cycle = store.begin(scope) {}
+        store.manifest(scope, cycle, null, success(listOf(member()))) {}
+        val foreign = AccountPartition("D".repeat(42) + "A")
+        for (expected in listOf(foreign, null)) {
+            assertTrue(runCatching { store.clearForDeletion(expected) }.exceptionOrNull() is RoomsStorageException)
+            assertEquals(first.value, db.rooms().memberships().single().roomId)
+            assertFalse(File(directory, "cleanup").exists())
+        }
+        db.close(); store = newStore()
+        assertTrue(runCatching { store.clearForDeletion(foreign) }.exceptionOrNull() is RoomsStorageException)
+        assertTrue(File(directory, "${partition.value}.db").exists())
+        store.clearForDeletion(partition)
+        assertFalse(File(directory, "${partition.value}.db").exists())
+        assertTrue(File(directory, "device").exists())
+    }
     @Test fun reverseDiscoveryContinuationAndDuplicatePageCannotOverwriteCurrentDirectory() = runBlocking {
         val cycle = store.begin(scope) {}
         store.manifest(scope, cycle, null, success(listOf(member()))) {}

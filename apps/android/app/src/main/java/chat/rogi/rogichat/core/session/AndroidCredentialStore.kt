@@ -24,6 +24,11 @@ internal fun androidPendingAuthStore(context: Context, environment: String): Pen
         environment, { create -> androidCredentialKey(alias, create) })
 }
 
+internal fun androidAccountDeletionStore(context: Context, environment: String): chat.rogi.rogichat.core.deletion.AccountDeletionStore =
+    chat.rogi.rogichat.core.deletion.ProtectedAccountDeletionStore(
+        AndroidCredentialDisk(File(context.noBackupFilesDir, "native-$environment-account-deletion"), 16384, false), environment,
+        { create -> androidCredentialKey("chat.rogi.rogichat.native.$environment.account-deletion.v1", create) })
+
 internal fun androidCredentialKey(alias: String, create: Boolean): SecretKey {
     val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
     val existing = store.getKey(alias, null) as? SecretKey

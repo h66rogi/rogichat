@@ -39,6 +39,11 @@ data class SessionSnapshot(
         require(access !in setOf(ShellAccess.SIGNED_OUT, ShellAccess.RESTORING, ShellAccess.RETRYABLE_FAILURE) || account == null)
     }
 }
+/** Immutable UI admission identity; never recapture it after a confirmation or coroutine hop. */
+data class SessionIdentity(val epoch: Long, val accountId: String?) {
+    fun matches(snapshot: SessionSnapshot) = epoch == snapshot.generation && accountId == snapshot.account?.id
+    companion object { fun from(snapshot: SessionSnapshot) = SessionIdentity(snapshot.generation, snapshot.account?.id) }
+}
 enum class SignInProvider(val title: String) { APPLE("Apple로 계속하기"), SOOP("SOOP으로 계속하기") }
 
 /** Domain boundary only. Implemented operations are exposed by the native session adapter.
@@ -51,13 +56,11 @@ interface SessionActions {
     val providers: Set<SignInProvider>
     val canLinkSoop: Boolean get() = false
     val canSignOut: Boolean get() = false
-    val canCloseAccount: Boolean get() = false
     val canRestore: Boolean get() = false
     suspend fun signIn(provider: SignInProvider): Result<Unit>
     suspend fun linkSoop(): Result<Unit>
-    suspend fun signOut(): Result<Unit>
-    suspend fun closeAccount(): Result<Unit>
-    suspend fun resetLocalSession(): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
+    suspend fun signOut(expected: SessionIdentity? = null): Result<Unit>
+    suspend fun resetLocalSession(expected: SessionIdentity? = null): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
     suspend fun restore(): Result<Unit>
     suspend fun revalidate(): Result<Unit> = Result.success(Unit)
     suspend fun expireSession(generation: Long, expiresAt: Instant): Result<Unit> = Result.success(Unit)
@@ -70,6 +73,7 @@ class ProductServices(
     val rooms: RoomsRepository? = null,
     val auth: NativeAuthActions? = null,
     val notificationPreferences: NotificationPreferencesRepository? = null,
+    val deletion: chat.rogi.rogichat.core.deletion.AccountDeletionActions? = null,
 ) {
     private val callbackScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     fun receiveAuthCallback(url: String) {
@@ -83,6 +87,7 @@ class ProductServices(
             installedServices ?: NativeSessionCoordinator(
                 androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 ApiClient(BuildConfig.API_BASE_URL),
+                deletionStore = androidAccountDeletionStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 roomsStore = AndroidRoomsStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 auth = SoopAuthSupport(SoopAuthContract(BuildConfig.ENVIRONMENT), androidPendingAuthStore(context.applicationContext, BuildConfig.ENVIRONMENT)),
             ).services().also { installedServices = it }
