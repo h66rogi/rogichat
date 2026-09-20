@@ -29,6 +29,13 @@ x-runtime: &runtime
       read_only: true
       bind:
         create_host_path: false
+    - &push-vapid-secret
+      type: bind
+      source: /etc/rogichat/prod/push-vapid.json
+      target: /run/secrets/push-vapid.json
+      read_only: true
+      bind:
+        create_host_path: false
   logging:
     driver: json-file
     options:
@@ -41,6 +48,7 @@ x-environment: &environment
   DATABASE_SECRET_FILE: /run/secrets/database.json
   DB_CA_FILE: /run/secrets/rds-ca.pem
   DB_TLS_MODE: required
+  PUSH_VAPID_SECRET_FILE: /run/secrets/push-vapid.json
 
 services:
   api:
@@ -62,6 +70,7 @@ services:
     volumes:
       - *database-secret
       - *database-ca
+      - *push-vapid-secret
       - type: bind
         source: /etc/rogichat/prod/auth.json
         target: /run/secrets/auth.json

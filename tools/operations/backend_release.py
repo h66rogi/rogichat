@@ -241,6 +241,71 @@ def verify_auth_secret(compose, image):
                        stderr=subprocess.DEVNULL, timeout=30)
 
 
+def compose_requires_vapid(compose):
+    if b'PUSH_VAPID' not in compose:
+        return False
+    require(compose.count(b'PUSH_VAPID_SECRET_FILE') == 1
+            and re.search(rb'^  PUSH_VAPID_SECRET_FILE: /run/secrets/push-vapid\.json$', compose, re.MULTILINE))
+    return True
+
+
+def validate_vapid_metadata(metadata):
+    require(stat.S_ISREG(metadata.st_mode) and stat.S_IMODE(metadata.st_mode) in (0o400, 0o600)
+            and metadata.st_uid == 10001 and metadata.st_gid == 10001 and metadata.st_nlink == 1
+            and 0 < metadata.st_size <= 4096)
+
+
+def verify_vapid_secret(compose, image, environment='qa'):
+    require(environment in ('qa', 'production'))
+    if not compose_requires_vapid(compose):
+        return
+    path = Path('/etc/rogichat' if environment == 'qa' else '/etc/rogichat/prod') / 'push-vapid.json'
+    for parent in path.parents:
+        metadata = parent.lstat()
+        require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0 and not metadata.st_mode & 0o022)
+    validate_vapid_metadata(path.lstat())
+    name = 'rogichat-' + environment + '-vapid-preflight-' + str(uuid.uuid4())
+    code = ("try{const{readPushConfig}=await import('./dist/modules/notifications/push-config.js');"
+            "const c=readPushConfig({APP_ENV:" + json.dumps(environment) + ","
+            "PUSH_VAPID_SECRET_FILE:'/run/secrets/push-vapid.json'});"
+            "process.exit(c.vapid?0:1)}catch{process.exit(1)}")
+    try:
+        docker('run', '--rm', '--pull', 'never', '--name', name, '--network', 'none', '--read-only',
+               '--user', '10001:10001', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+               '--memory', '128m', '--pids-limit', '64', '--log-driver', 'none',
+               '--mount', f'type=bind,src={path},dst=/run/secrets/push-vapid.json,readonly',
+               image, '--input-type=module', '-e', code, timeout=20)
+    finally:
+        subprocess.run(['/usr/bin/docker', 'rm', '-f', name], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=30)
+
+
+def verify_live_vapid(environment):
+    require(environment in ('qa', 'production'))
+    label = 'qa' if environment == 'qa' else 'prod'
+    source = '/etc/rogichat' + ('' if environment == 'qa' else '/prod') + '/push-vapid.json'
+    fingerprints = []
+    code = ("try{const{readPushConfig}=await import('./dist/modules/notifications/push-config.js');"
+            "const{createHash}=await import('node:crypto');const c=readPushConfig();"
+            "if(!c.vapid)process.exit(1);process.stdout.write(createHash('sha256').update(c.vapid.publicKey).digest('hex'));"
+            "}catch{process.exit(1)}")
+    for role in ('api', 'worker'):
+        name = 'rogichat-' + label + '-' + role
+        item = json.loads(docker('inspect', name))[0]
+        env = dict(v.split('=', 1) for v in item['Config']['Env'])
+        require(item['Config']['User'] == '10001:10001' and env.get('APP_ENV') == environment
+                and {k: v for k, v in env.items() if 'VAPID' in k} == {'PUSH_VAPID_SECRET_FILE': '/run/secrets/push-vapid.json'})
+        mounts = {m['Destination']: m for m in item['Mounts']}
+        mount = mounts.get('/run/secrets/push-vapid.json', {})
+        require(mount.get('Type') == 'bind' and mount.get('Source') == source and mount.get('RW') is False)
+        if role == 'worker':
+            require('AUTH_SECRET_FILE' not in env and '/run/secrets/auth.json' not in mounts)
+        fingerprint = docker('exec', name, 'node', '--input-type=module', '-e', code, timeout=20).decode()
+        require(HASH.fullmatch(fingerprint))
+        fingerprints.append(fingerprint)
+    require(len(set(fingerprints)) == 1)
+
+
 def get_caddy(network):
     ids = docker('ps', '--filter', 'label=com.docker.compose.project=rogichat-qa',
                  '--filter', 'label=com.docker.compose.service=caddy', '--format', '{{.ID}}').decode().split()
@@ -474,6 +539,8 @@ def deploy(request, files, container):
         start_units(files['bootstrap'])
         print('QA app units requested; waiting for bounded container startup and health.', flush=True)
         wait_health(request)
+        if compose_requires_vapid(files['compose']):
+            verify_live_vapid('qa')
         require(get_caddy(request['edge_network']) == container)
         caddy_config(container, files['caddy'])
         for route in ('/live', '/ready', '/_infra/health'):
@@ -509,6 +576,7 @@ def main():
     # Pull registry digests or load validated archives separately; no credentials.
     verify_release_images(request)
     verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
+    verify_vapid_secret(files['compose'], execution_image(request, 'runtime'))
     container = get_caddy(request['edge_network'])
     require(not (RELEASES / ('backup-' + request['request_id'])).exists())
     if not args.apply:
@@ -523,6 +591,7 @@ def main():
         require(time.time() < request['expires_at'])
         require(digest(protected(CADDY)) == request['previous_caddy_sha256'])
         verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
+        verify_vapid_secret(files['compose'], execution_image(request, 'runtime'))
         def interrupt(*_):
             raise Rejected('interrupted')
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
