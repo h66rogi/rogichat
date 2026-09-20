@@ -1,3 +1,4 @@
+import { ModerationRetentionModule } from './modules/moderation/moderation-retention.module.js';
 import { DeletionModule } from './modules/deletion/deletion.module.js';
 import { Module } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
@@ -31,7 +32,7 @@ export class WorkerModule {
     const infrastructure = DatabaseModule.register({ config: settings.config });
     const push = settings.push ?? { audience: `rogi-${settings.config.environment}`, vapid: null };
     const transport = PushTransportModule.register(push);
-    return { module: WorkerModule, imports: [infrastructure, JobsModule.register(infrastructure, 'worker'), PublicationsCoreModule, DeletionModule.register(infrastructure, settings.deletion, true),
+    return { module: WorkerModule, imports: [infrastructure, ModerationRetentionModule, JobsModule.register(infrastructure, 'worker'), PublicationsCoreModule, DeletionModule.register(infrastructure, settings.deletion, true),
       PushModule.register(infrastructure, NotificationsModule, transport), NotificationFanoutModule.register(infrastructure, push.audience),
       ...(settings.media ? [MediaWorkerModule.register(infrastructure, settings.media)] : [])], providers: [
       { provide: SafeLogger, useFactory: () => new SafeLogger('worker') }, WorkerRuntimeService,

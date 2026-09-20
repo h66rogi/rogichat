@@ -792,3 +792,49 @@ model deletion_replay_entries {
   @@id([source_id, key_sha256])
   @@index([source_id, state, next_attempt_at, key_sha256], map: "deletion_replay_due")
 }
+
+// Personal room policy is reversible and independent of membership/grant revocation.
+model actor_blocks {
+  room_id String @db.Char(36)
+  blocker_actor_id String @db.Char(36)
+  target_actor_id String @db.Char(36)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  @@id([room_id, blocker_actor_id, target_actor_id])
+  @@index([room_id, target_actor_id, blocker_actor_id])
+}
+
+// No FK to message: the body-free receipt survives physical content erasure.
+// Internal identities never enter report DTOs; detail is separately expiring user content.
+model moderation_reports {
+  id String @id @db.Char(36)
+  reporter_user_id String @db.Char(36)
+  idempotency_key String @db.Char(36)
+  payload_digest Bytes @db.Binary(32)
+  room_id String @db.Char(36)
+  message_id String @db.Char(36)
+  root_message_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  reason String @db.VarChar(16)
+  detail String? @db.VarChar(1000)
+  detail_expires_at DateTime @db.DateTime(3)
+  status String @default("received") @db.VarChar(16)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  resolved_at DateTime? @db.DateTime(3)
+  @@unique([reporter_user_id, idempotency_key])
+  @@index([status, id])
+  @@index([detail_expires_at, id])
+  @@index([room_id, root_message_id])
+  @@index([content_owner_user_id])
+}
+
+model moderation_audit {
+  id String @id @db.Char(36)
+  operator_user_id String @db.Char(36)
+  report_id String? @db.Char(36)
+  room_id String? @db.Char(36)
+  target_actor_id String? @db.Char(36)
+  action String @db.VarChar(32)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  @@index([report_id, created_at])
+  @@index([room_id, created_at])
+}

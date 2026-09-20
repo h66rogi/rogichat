@@ -16,7 +16,7 @@ export class ReactionsCoreService {
   private async projection(tx: Transaction, roomId: string, messageId: string, memberId: string) {
     // Binary grouping is essential: the database's human-text collation may equate
     // distinct supplementary emoji or presentation/modifier sequences.
-    const rows = await this.repository.counts(tx, roomId, messageId);
+    const rows = await this.repository.counts(tx, roomId, messageId, await this.access.blockedActors(tx, roomId, memberId));
     const [mine] = await this.repository.mine(tx, roomId, messageId, memberId);
     return { counts: rows.map(row => ({ emoji: String(row.emoji), count: Number(row.total) })), mine: mine ? String(mine.emoji) : null };
   }

@@ -17,6 +17,8 @@ export class MessageEligibilityService {
   async project(tx: Transaction, viewer: ActiveMember, ids: string[], now?: Date): Promise<Map<string, MessageEligibility>> {
     const result = new Map(ids.map(id => [id, noMessageActions()]));
     if (!ids.length) return result;
+    const blocks = await this.repository.blocks(tx, viewer.room_id, viewer.id);
+    const blocked = new Set(blocks.map(row => row.blocker_actor_id === viewer.id ? row.target_actor_id : row.blocker_actor_id));
     const messages = await this.repository.messages(tx, viewer.room_id, ids);
     const targetIds = new Set<string>();
     for (const message of messages) {
@@ -34,7 +36,7 @@ export class MessageEligibilityService {
     const pairs = current ? await this.repository.pairs(tx, viewer.room_id, viewer.id, [...targetIds]) : [];
     const grants = pairs.length ? await this.repository.grants(tx, viewer.room_id, pairs.map(pair => pair.stream_id), [viewer.id, ...targetIds], now) : [];
     const eligibleTarget = (targetId: string, requiredStream?: string): boolean => {
-      if (!current || targetId === viewer.id || !actorUuid.test(targetId)) return false;
+      if (blocked.has(targetId) || !current || targetId === viewer.id || !actorUuid.test(targetId)) return false;
       const target = members.find(member => member.id === targetId && member.active_period_id && member.active_period?.member_id === targetId);
       if (!target) return false;
       if (current.room.mode === 'FAN' && !((current.role === 'FAN' && target.role === 'STREAMER') ||

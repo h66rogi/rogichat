@@ -17,6 +17,7 @@ export class RealtimeRepository {
       JOIN messages msg ON msg.room_id=e.room_id AND msg.stream_id=e.stream_id AND msg.id=e.message_id
       JOIN message_streams stream ON stream.room_id=e.room_id AND stream.id=e.stream_id
       WHERE m.user_id=s.user_id AND m.status='ACTIVE' AND msg.created_order>=p.visible_from_order
+      AND NOT EXISTS (SELECT 1 FROM actor_blocks b WHERE b.room_id=m.room_id AND ((b.blocker_actor_id=m.id AND b.target_actor_id=msg.sender_member_id) OR (b.target_actor_id=m.id AND b.blocker_actor_id=msg.sender_member_id)))
       AND (${refs.map(() => '(e.id=? AND e.room_id=?)').join(' OR ')})
       AND (stream.kind='ROOM_SHARED' OR EXISTS (SELECT 1 FROM stream_grants g
         WHERE g.room_id=m.room_id AND g.stream_id=stream.id AND g.member_id=m.id AND g.can_read=1
@@ -29,7 +30,7 @@ export class RealtimeRepository {
       JOIN membership_periods tp ON tp.id=target.active_period_id AND tp.room_id=target.room_id AND tp.member_id=target.id AND tp.left_at IS NULL
       JOIN room_members viewer ON viewer.room_id=r.id AND viewer.user_id=s.user_id AND viewer.status='ACTIVE'
       JOIN membership_periods vp ON vp.id=viewer.active_period_id AND vp.room_id=viewer.room_id AND vp.member_id=viewer.id AND vp.left_at IS NULL
-      WHERE pc.id IN (${profiles.map(() => '?').join(',')}) AND
+      WHERE NOT EXISTS (SELECT 1 FROM actor_blocks b WHERE b.room_id=r.id AND b.blocker_actor_id=viewer.id AND b.target_actor_id=target.id) AND pc.id IN (${profiles.map(() => '?').join(',')}) AND
       ((pc.public_changed=1 AND (r.mode='GROUP' OR target.role='STREAMER' OR target.user_id=viewer.user_id OR viewer.role='STREAMER'))
       OR (pc.streamer_changed=1 AND viewer.role='STREAMER')))` : '';
     const predicates = [messageAudience, profileAudience].filter(Boolean);

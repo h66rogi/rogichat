@@ -4,11 +4,12 @@ import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 @Injectable()
 export class ReactionsRepository {
-  counts(tx: Transaction, roomId: string, messageId: string) {
+  counts(tx: Transaction, roomId: string, messageId: string, blockedActors: string[] = []) {
     return tx.rows<RowDataPacket>(`SELECT MIN(r.emoji) AS emoji,COUNT(*) AS total
     FROM message_reactions r JOIN room_members m ON m.id=r.member_id AND m.room_id=r.room_id
     JOIN users u ON u.id=m.user_id AND u.status NOT IN ('DELETING','DELETED')
-    WHERE r.room_id=? AND r.message_id=? GROUP BY BINARY r.emoji ORDER BY BINARY r.emoji`, [roomId, messageId]);
+    WHERE r.room_id=? AND r.message_id=? ${blockedActors.length ? `AND r.member_id NOT IN (${blockedActors.map(() => '?').join(',')})` : ''}
+    GROUP BY BINARY r.emoji ORDER BY BINARY r.emoji`, [roomId, messageId, ...blockedActors]);
   }
   mine(tx: Transaction, roomId: string, messageId: string, memberId: string) {
     return tx.prisma.message_reactions.findMany({ where: { room_id: roomId, message_id: messageId, member_id: memberId, member: { user: { status: { notIn: ['DELETING', 'DELETED'] } } } }, select: { emoji: true } });

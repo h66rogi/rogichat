@@ -36,7 +36,7 @@ export class PushDeliveryService {
       if (!await this.repository.lockRoom(tx, intent.room_id)) return null;
       const viewer = await this.access.requireActiveMember(tx, intent.room_id, sub.userId);
       const message = await this.messages.load(tx, intent.room_id, intent.message_id);
-      if (!message || !await this.messages.readable(tx, viewer, message)) return null;
+      if (!message || !await this.messages.readable(tx, viewer, message) || await this.access.actorBlocked(tx, message.room_id, viewer.id, message.sender_member_id, true)) return null;
     } catch (error) {
       if (error instanceof ApiError && error.code === 'NOT_FOUND') return null;
       throw error;

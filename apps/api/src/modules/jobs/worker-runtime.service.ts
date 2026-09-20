@@ -1,3 +1,4 @@
+import { ModerationRetentionService } from '../moderation/moderation-retention.service.js';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
 import { DATABASE } from '../../infrastructure/database/database.tokens.js';
@@ -20,7 +21,8 @@ export class WorkerRuntimeService implements OnApplicationBootstrap, OnModuleDes
     @Inject(SafeLogger) private readonly logger: SafeLogger,
     @Inject(WorkerLoop) private readonly jobs: WorkerLoop,
     @Inject(PublicationsCoreService) private readonly publications: PublicationsCoreService,
-    @Optional() @Inject(MediaWorkerService) private readonly media?: MediaWorkerService) {}
+    @Optional() @Inject(MediaWorkerService) private readonly media?: MediaWorkerService,
+    @Optional() @Inject(ModerationRetentionService) private readonly moderation?: ModerationRetentionService) {}
   onApplicationBootstrap(): void { this.tick(); this.jobs.start(); }
   private tick = (): void => { this.pending = this.probe(); };
   private async probe(): Promise<void> {
@@ -28,6 +30,7 @@ export class WorkerRuntimeService implements OnApplicationBootstrap, OnModuleDes
     if (result.reason !== this.previous) { this.logger.event('readiness_changed', { reason: result.reason }); this.previous = result.reason; }
     if (result.ready) await this.transactions.write(collectExpiredRates).catch(() => {});
     if (result.ready) await this.transactions.write(tx => this.publications.recoverPhotos(tx)).catch(() => {});
+    if (result.ready && this.moderation) await this.transactions.write(tx => this.moderation!.expire(tx)).catch(() => {});
     if (result.ready && this.media) await this.transactions.write(tx => this.media!.recoverMedia(tx)).catch(() => {});
     if (!this.lifecycle.draining) this.timer = setTimeout(this.tick, 5000);
   }

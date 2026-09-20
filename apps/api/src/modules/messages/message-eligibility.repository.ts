@@ -5,6 +5,9 @@ import type { Transaction } from '../../infrastructure/database/transactions.js'
 // locks, provider I/O or cached authority; all facts use the caller's snapshot.
 @Injectable()
 export class MessageEligibilityRepository {
+  blocks(tx: Transaction, roomId: string, actorId: string) {
+    return tx.prisma.actor_blocks.findMany({ where: { room_id: roomId, OR: [{ blocker_actor_id: actorId }, { target_actor_id: actorId }] }, select: { blocker_actor_id: true, target_actor_id: true } });
+  }
   messages(tx: Transaction, roomId: string, ids: string[]) {
     return tx.prisma.messages.findMany({ where: { room_id: roomId, id: { in: ids } }, select: {
       id: true, room_id: true, sender_member_id: true, deletion_root_id: true, content_kind: true, text_content: true,
