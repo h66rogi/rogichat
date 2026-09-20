@@ -51,7 +51,7 @@ export class RestoreGateService {
     return held;
   }
   private binding(held: Awaited<ReturnType<RestoreIsolationClient['assertHeld']>>) {
-    return { ...this.authorization, storageScopeSha256: held.storageScopeSha256, storageFenceId: held.storageFenceId };
+    return { ...this.authorization, storageScopeSha256: held.storageScopeSha256, storageFenceId: held.storageFenceId, mysqlServerUuid: held.mysqlServerUuid };
   }
   private sameCustody(before: Awaited<ReturnType<RestoreIsolationClient['assertHeld']>>, after: Awaited<ReturnType<RestoreIsolationClient['assertHeld']>>) {
     if (canonical(this.binding(before)) !== canonical(this.binding(after)) || before.mysqlLeaseName !== after.mysqlLeaseName ||

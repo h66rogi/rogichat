@@ -10,12 +10,15 @@ export interface RestoreAuthorizationBinding {
   authorizationKeySha256: string;
   storageScopeSha256: string;
   storageFenceId: string;
+  mysqlServerUuid: string;
 }
+const targetIdentity = (databaseName: string, mysqlServerUuid: string) =>
+  sha256('rogichat:restore-target:v1:' + canonical({ version: 1, databaseName, mysqlServerUuid }));
 @Injectable()
 export class RestoreGateRepository {
   async begin(tx: Transaction, scope: RestoreScope, boundary: VerifiedProof<BoundaryPayload>, authorization: RestoreAuthorizationBinding) {
     await tx.prisma.restore_gate_checkpoints.createMany({ data: [{
-      run_id: scope.restoreRunId, target_id: scope.targetId, context_sha256: sha256(canonical({ scope, ...authorization })),
+      run_id: scope.restoreRunId, target_id: targetIdentity(scope.targetId, authorization.mysqlServerUuid), context_sha256: sha256(canonical({ scope, ...authorization })),
       boundary_sha256: boundary.sha256, boundary_issuer: boundary.issuer, epoch: authorization.authorizationEpoch,
     }], skipDuplicates: true });
     return this.lock(tx, scope, boundary, authorization);
@@ -33,7 +36,7 @@ export class RestoreGateRepository {
       run_id: true, target_id: true, context_sha256: true, boundary_sha256: true, boundary_issuer: true,
       epoch: true, phase: true, provider_phase: true, provider_after_id: true, observation_sha256: true, release_nonce: true, release_sha256: true,
     } });
-    if (!row || row.target_id !== scope.targetId || row.context_sha256 !== sha256(canonical({ scope, ...authorization })) ||
+    if (!row || row.target_id !== targetIdentity(scope.targetId, authorization.mysqlServerUuid) || row.context_sha256 !== sha256(canonical({ scope, ...authorization })) ||
         row.boundary_sha256 !== boundary.sha256 || row.boundary_issuer !== boundary.issuer) return restoreRejected();
     return row;
   }

@@ -35,16 +35,18 @@ generated migration 24, protected authorization epoch configuration and operator
 restore gates, including accepted media reconciliation
 `ba06a93d97deda4d4e4bdb676d836ba7c9a7d2bc`. Integration binds blocked-room cursors
 to the authorization key while retaining stable report/rate and provider-sealing
-keys. Compilation and 17 focused moderation/epoch tests passed. The mandatory
-physical-target identity correction and approved MOBILE source are still pending;
-this checkpoint is preparation, not final restore or release acceptance.
+keys. Compilation and 17 focused moderation/epoch tests passed. Final restore
+source `7b559b645ef2b71fc5492d79895142745d0d6ead` adds checkpoint binding to both
+the logical database and currently verified MySQL server UUID, preserving nonce
+history and migration bytes. Approved MOBILE source and final hosted acceptance
+are still pending; real joined restore execution remains a separate operator gate.
 
 | Evidence boundary | Immutable source / result |
 |---|---|
 | Accepted backend, migrations 1–23 | `7d1bd35df63d7f3aa707934a4473608e7dd6b59d`; backend run above, all required PR checks passed |
 | Approved WEB leaf | `a92ebfc85398d368032195b901f42211b2983f62`; [hosted browser run](https://github.com/h66rogi/rogichat/actions/runs/35510393707), 235 first-pass + 1 retry-pass, 2 opposite-device skips |
 | Combined WEB/backend checkpoint | `609c08f3cef1755c48d244a5a9095293fed92318`; [WEB](https://github.com/h66rogi/rogichat/actions/runs/35510801843) passed, [backend](https://github.com/h66rogi/rogichat/actions/runs/35510801787) passed; [quality](https://github.com/h66rogi/rogichat/actions/runs/35510801733) stopped at the setup deadline |
-| Restore/schema-24 preparation | `bd624d573dc53d2db49dd0f18d62f8d01c626a57`; local integration compile and 17 focused checks passed, final physical-target correction and hosted acceptance pending |
+| Restore/schema-24 source | `7b559b645ef2b71fc5492d79895142745d0d6ead`; includes physical/logical target binding and accepted media source, final aggregate hosted acceptance pending |
 | Soak and supplementary scale | No accepted 30-minute result recorded here; no 1,000-client capacity claim |
 | External providers, restored service, QA routes | Not established by these credential-free tests; infrastructure/provider execution remains separate |
 
