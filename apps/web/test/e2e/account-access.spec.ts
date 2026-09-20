@@ -41,6 +41,26 @@ test('ordinary account cannot display administrator controls even at direct rout
   await expect(page.getByRole('button', { name: '내 계정에 임시 권한 발급' })).toHaveCount(0);
 });
 
+test('cookie installed before a failed confirmation recovers without another password login', async ({ page }) => {
+  const state = await installApi(page);
+  let posts = 0;
+  await page.route('**/v1/auth/password/login', async route => {
+    posts++; state.authenticated = true; state.sessionStatus = 503;
+    await json(route, { authenticated: true, accountPartition: TEST_PARTITION, csrfToken: state.sessionToken, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true } });
+  });
+  await page.goto('/login');
+  await page.getByText('아이디·비밀번호로 로그인', { exact: true }).click();
+  await page.getByLabel('아이디', { exact: true }).fill('synthetic-reviewer');
+  await page.getByLabel('비밀번호', { exact: true }).fill('isolated-test-password');
+  await page.locator('input[name="terms"]').check();
+  await page.getByRole('button', { name: '아이디로 로그인' }).click();
+  await expect(page.getByRole('button', { name: '로그인 상태 다시 확인' })).toBeVisible();
+  state.sessionStatus = 200;
+  await page.getByRole('button', { name: '로그인 상태 다시 확인' }).click();
+  await expect(page.getByRole('heading', { name: '로그인되어 있어요' })).toBeVisible();
+  expect(posts).toBe(1);
+});
+
 test('administrator must explicitly join the actual room before requesting a grant', async ({ page }) => {
   await installApi(page, true);
   await page.route('**/v1/me/capabilities', route => json(route, { chat: true, admin: { enabled: true, manageTestAccess: true, manageReviewers: false }, password: { enabled: false } }));
@@ -50,6 +70,21 @@ test('administrator must explicitly join the actual room before requesting a gra
   await expect(page.getByRole('heading', { name: '채팅방에 먼저 참여해 주세요' })).toBeVisible();
   await expect(page.getByRole('link', { name: '채팅방 참여하기' })).toHaveAttribute('href', '/chat');
   expect(grants).toBe(0);
+});
+
+test('a session appearing before password submit is recovered without replacing it', async ({ page }) => {
+  const state = await installApi(page);
+  let posts = 0;
+  await page.route('**/v1/auth/password/login', route => { posts++; return json(route, {}, 403); });
+  await page.goto('/login');
+  await page.getByText('아이디·비밀번호로 로그인', { exact: true }).click();
+  await page.getByLabel('아이디', { exact: true }).fill('synthetic-reviewer');
+  await page.getByLabel('비밀번호', { exact: true }).fill('isolated-test-password');
+  await page.locator('input[name="terms"]').check();
+  state.authenticated = true;
+  await page.getByRole('button', { name: '아이디로 로그인' }).click();
+  await expect(page.getByRole('heading', { name: '로그인되어 있어요' })).toBeVisible();
+  expect(posts).toBe(0);
 });
 
 test('admin grant uses server state, original requestId on ambiguity, revoke and page restoration authorization', async ({ page }) => {
