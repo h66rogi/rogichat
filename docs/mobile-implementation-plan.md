@@ -397,7 +397,9 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 | MB02c — OS 알림·링크·lifecycle | permission/read/settings-open port, 알림 설정 3축 UI, 안전한 parser와 pending intent/consume, foreground coordinator. synthetic provider 및 OS adapter 분리 | MB02b; OS 호출에는 실제 platform 의미 검증. cold/warm/중복/TTL/다른 환경/잘못된 URL/계정 변경 fixture, prompt 자동 실행 없음. 실제 등록/푸시 성공은 MB07까지 보류 | 서버 선호 설정 대신 명시적 미연동 상태, 알림함/badge는 별도 결정 전 제외 |
 | MB02d — 서비스 adapter·영속 기반 | C01/07/08 기반 APIClient/오류·SessionManager, 계정별 저장소와 test clock, Room/GRDB migration; 필요 부분만 참조 wrapper 수정 재사용 | 확정된 MB01 계약만 연결. 원본 refresh/WebView token/민감 logging 금지. 실제 SQLite·secure store 오류·취소·generation 시험 | 미확정 adapter는 port/fixture만, 다른 UI 작업 진행 |
 
-현재 MB00 및 MB02의 preview 일부만 구현됐다. **다음 구현은 MB02a → MB02b → MB02c**다.
+MB00 preview 이후 MB02a 공통 UI 추출, MB02b shell/설정, MB02c OS 조회·순수 route queue를
+구현했다. [공통 기반 진행 기록](mobile-common-foundation-progress.md)의 완료/미연동/기기 미확인
+구분을 따른다. 단계 전체 완료는 아니며 실제 서비스 adapter와 기기 검증 gate는 남아 있다.
 MB01 ADR/fixture 정리는 병행하고 준비된 계약에 한해 MB02d를 진행한다. MB03 및 이후 실제
 기능 완료 gate는 낮추지 않는다. 채팅 상세 UX는 공통 기반 이후 로기챗 자체 설계로 이어간다.
 표의 gate는 **단계 최종 완료 기준**이다. MB02a의 코드·컴파일·상태/격리 검사를 통과한

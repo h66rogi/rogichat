@@ -7,17 +7,25 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		03D04D9C2C5CDEE0796E2B13 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88C17EC349A4A2535F1F1D1 /* SettingsScreen.swift */; };
 		22B85D32463CF2F76206EACC /* WireframeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A462307BAC54680873CB91C0 /* WireframeHost.swift */; };
 		47DDF7E513248F66940481D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B7272D32F058E07C761C49E /* Assets.xcassets */; };
 		497ED33FB8248DC0C32F6C30 /* WireframeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E985F5AAD7C918209557CE92 /* WireframeState.swift */; };
 		5812F00287FFD61AF9390DC5 /* WireCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18B84CADE2EC6157159230B5 /* WireCard.swift */; };
 		64E494F8967483759225BC5A /* WelcomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01960400CFB8F1C6AC56D424 /* WelcomeScreen.swift */; };
 		6D895E6102DB309B6ED5BD80 /* WireframeScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29EDC33DB2C44A2D83EF30A0 /* WireframeScreens.swift */; };
+		71D49C154F8764B552CDB34A /* ScreenStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA67D817DC8E6189F700503D /* ScreenStatus.swift */; };
+		79A54134073E98C5A8533EF3 /* PendingRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 004889F46B4C32D6EB4C79A6 /* PendingRoute.swift */; };
 		927A5853882407D4289CAE3A /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A7351D1500FED5B7264B1D /* AppEnvironment.swift */; };
+		C5513AD7B75D03674C3553EE /* NotificationSettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874EDD2BCE272206F34E74F9 /* NotificationSettingsScreen.swift */; };
+		C8F535F42DC3AB50F3E5F593 /* SettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07C181AE009F6BC8E2216CD /* SettingsComponents.swift */; };
+		CDC611DCE9B61BF23E49521D /* AppShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53969ED5B74A20CAAA027AD /* AppShell.swift */; };
 		E581B9252402C6917B5E638C /* RogichatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543B6ADBAB63583E7D86FC10 /* RogichatApp.swift */; };
+		FB3A4D896E520BC9A27C9B37 /* ShellNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		004889F46B4C32D6EB4C79A6 /* PendingRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingRoute.swift; sourceTree = "<group>"; };
 		01960400CFB8F1C6AC56D424 /* WelcomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeScreen.swift; sourceTree = "<group>"; };
 		18B84CADE2EC6157159230B5 /* WireCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireCard.swift; sourceTree = "<group>"; };
 		29EDC33DB2C44A2D83EF30A0 /* WireframeScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireframeScreens.swift; sourceTree = "<group>"; };
@@ -27,8 +35,14 @@
 		7D32CB7D0E3ACF724C8BB735 /* QA.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = QA.xcconfig; sourceTree = "<group>"; };
 		7E79E8D8D9A6F152EC2ECBAD /* Prod.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Prod.xcconfig; sourceTree = "<group>"; };
 		7FA1D2A391B1711EA8A51058 /* Rogichat.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Rogichat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		874EDD2BCE272206F34E74F9 /* NotificationSettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsScreen.swift; sourceTree = "<group>"; };
 		A462307BAC54680873CB91C0 /* WireframeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireframeHost.swift; sourceTree = "<group>"; };
+		B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellNavigation.swift; sourceTree = "<group>"; };
+		B88C17EC349A4A2535F1F1D1 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
+		D53969ED5B74A20CAAA027AD /* AppShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShell.swift; sourceTree = "<group>"; };
+		DA67D817DC8E6189F700503D /* ScreenStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenStatus.swift; sourceTree = "<group>"; };
 		E985F5AAD7C918209557CE92 /* WireframeState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireframeState.swift; sourceTree = "<group>"; };
+		F07C181AE009F6BC8E2216CD /* SettingsComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComponents.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -51,6 +65,15 @@
 				E8BAF5169BC43B2F3CCA7EBC /* QA */,
 			);
 			path = Sources;
+			sourceTree = "<group>";
+		};
+		0859A5556FE1CEFFBB88EEA3 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				874EDD2BCE272206F34E74F9 /* NotificationSettingsScreen.swift */,
+				B88C17EC349A4A2535F1F1D1 /* SettingsScreen.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		14FFA2406505567DEE2EDB07 /* Auth */ = {
@@ -91,6 +114,7 @@
 			isa = PBXGroup;
 			children = (
 				A8E006FAAAFC604DC42A876A /* Design */,
+				B9D1715F11BCB2434479B337 /* Navigation */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -98,9 +122,21 @@
 		A8E006FAAAFC604DC42A876A /* Design */ = {
 			isa = PBXGroup;
 			children = (
+				D53969ED5B74A20CAAA027AD /* AppShell.swift */,
+				DA67D817DC8E6189F700503D /* ScreenStatus.swift */,
+				F07C181AE009F6BC8E2216CD /* SettingsComponents.swift */,
 				18B84CADE2EC6157159230B5 /* WireCard.swift */,
 			);
 			path = Design;
+			sourceTree = "<group>";
+		};
+		B9D1715F11BCB2434479B337 /* Navigation */ = {
+			isa = PBXGroup;
+			children = (
+				004889F46B4C32D6EB4C79A6 /* PendingRoute.swift */,
+				B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */,
+			);
+			path = Navigation;
 			sourceTree = "<group>";
 		};
 		E8BAF5169BC43B2F3CCA7EBC /* QA */ = {
@@ -117,6 +153,7 @@
 			isa = PBXGroup;
 			children = (
 				14FFA2406505567DEE2EDB07 /* Auth */,
+				0859A5556FE1CEFFBB88EEA3 /* Settings */,
 			);
 			path = Features;
 			sourceTree = "<group>";
@@ -192,7 +229,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				927A5853882407D4289CAE3A /* AppEnvironment.swift in Sources */,
+				CDC611DCE9B61BF23E49521D /* AppShell.swift in Sources */,
+				C5513AD7B75D03674C3553EE /* NotificationSettingsScreen.swift in Sources */,
+				79A54134073E98C5A8533EF3 /* PendingRoute.swift in Sources */,
 				E581B9252402C6917B5E638C /* RogichatApp.swift in Sources */,
+				71D49C154F8764B552CDB34A /* ScreenStatus.swift in Sources */,
+				C8F535F42DC3AB50F3E5F593 /* SettingsComponents.swift in Sources */,
+				03D04D9C2C5CDEE0796E2B13 /* SettingsScreen.swift in Sources */,
+				FB3A4D896E520BC9A27C9B37 /* ShellNavigation.swift in Sources */,
 				64E494F8967483759225BC5A /* WelcomeScreen.swift in Sources */,
 				5812F00287FFD61AF9390DC5 /* WireCard.swift in Sources */,
 				22B85D32463CF2F76206EACC /* WireframeHost.swift in Sources */,
