@@ -2,8 +2,10 @@
 
 This is a source-only fallback candidate, not a deployment or a feature-QA
 promotion. Application capability reference: `f6958c5b344e0a50aa519c02be433c6c90477ec2`.
-Schema/security reference: `397d2f0b59868c1a0579c92ef74a1852c5ce66e6`.
-The branch starts from `597a745`, retaining the subsequent web network helper fix.
+Schema/application-security reference: `397d2f0b59868c1a0579c92ef74a1852c5ce66e6`.
+The branch starts from `597a745`, retaining the subsequent web network helper fix,
+and incorporates reviewed security revision `049a197` unchanged, including
+variable-length installation-token scanning. Operational helpers remain unchanged.
 Do not merge this capability rollback into the active feature QA branch.
 
 ## Capability and client contract
@@ -63,8 +65,8 @@ uses product registration and omits native issuance.
 
 `schema.prisma`, all thirteen generated migration SQL files and the manifest are
 byte-identical to the schema reference. Generated Prisma Client remains build
-output only. Security tooling, CI, Dockerfiles and operational helpers are
-unchanged. Runtime readiness still compares exact ledger names/checksums and
+output only. Security tooling matches reviewed revision `049a197`; CI,
+Dockerfiles and operational helpers are unchanged. Runtime readiness still compares exact ledger names/checksums and
 completion state; it does not detect physical-schema drift. The separate reviewed
 physical-fingerprint deployment gate remains required.
 
