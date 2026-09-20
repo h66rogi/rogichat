@@ -4,6 +4,7 @@ import chat.rogi.rogichat.core.navigation.ShellAccess
 import chat.rogi.rogichat.core.session.AccountSummary
 import chat.rogi.rogichat.feature.settings.*
 import java.time.Instant
+import java.util.Base64
 import kotlinx.serialization.json.*
 
 data class NativeSessionProjection(val account: AccountSummary, val access: ShellAccess,
@@ -15,6 +16,12 @@ object NativeDtos {
     fun session(text: String): NativeSessionProjection = decode {
         val root = json.parseToJsonElement(text).jsonObject
         require(root.bool("authenticated"))
+        if ("accountPartition" in root) {
+            val partition = root.string("accountPartition")
+            require(partition.matches(Regex("[A-Za-z0-9_-]{43}")))
+            val bytes = Base64.getUrlDecoder().decode(partition)
+            require(bytes.size == 32 && Base64.getUrlEncoder().withoutPadding().encodeToString(bytes) == partition)
+        }
         val own = root.getValue("account").jsonObject
         val linked = when (root.string("soopLinkStatus")) { "VERIFIED" -> true; "REQUIRED" -> false; else -> error("invalid") }
         require(root.string("onboardingState") == if (linked) "READY" else "SOOP_LINK_REQUIRED")
