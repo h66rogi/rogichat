@@ -67,6 +67,14 @@ Google documents app creation through
 No registration failure here establishes that the developer account lacks a role;
 the browser authentication boundary prevents verifying its permissions.
 
+The normal CLI authentication paths were also checked: installed Fastlane 2.232.2
+reported no usable session through its noninteractive session check. No configured
+Play Publisher credential, application-default credential, or available Google
+Cloud/Play CLI session was found. These are authentication-availability findings,
+not evidence that the account lacks a developer role. No password or raw browser
+cookie was extracted, and no additional sign-in or verification-code request was
+sent during this check.
+
 ## Remaining release gates
 
 - Verify the exact store records and operator permissions; do not infer them from
