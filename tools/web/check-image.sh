@@ -41,7 +41,13 @@ for environment in qa production; do
   before_restart=$(key_digest)
   [[ "$before_restart" =~ ^[a-f0-9]{64}$ ]]
   docker restart --time 15 "$id" >/dev/null
-  node tools/web/check-runtime.mjs "http://127.0.0.1:$port" "$environment"
+  # Docker may allocate a new ephemeral host port when restarting the container.
+  port=$(docker port "$id" 3000/tcp | cut -d: -f2)
+  if ! node tools/web/check-runtime.mjs "http://127.0.0.1:$port" "$environment"; then
+    docker inspect --format '{{.State.Status}} {{.State.ExitCode}} {{.State.OOMKilled}}' "$id"
+    docker logs --tail 20 "$id"
+    exit 1
+  fi
   after_restart=$(key_digest)
   [[ "$after_restart" =~ ^[a-f0-9]{64}$ ]]
   test "$before_restart" != "$after_restart"
