@@ -79,10 +79,14 @@ durable request time fixes the 24-hour live and 30-day backup deadlines through
 retries and outages. A failed item prevents LIVE_PURGED.
 
 A repeatable-read source-owner snapshot is not sufficient to fence publication
-against concurrent account deletion. A separate focused implementation review
-must verify a current authoritative gate and consistent account/domain/job lock
-order for copy allocation and finalization. No unverified race finding is treated
-as an implemented fix.
+against concurrent account deletion. The focused PR #38 review and four real
+two-connection MySQL tests verified that the existing writable message loader
+already obtains the current content-owner status through a joined locking read.
+Request, TEXT publication, PHOTO allocation and PHOTO finalization all reject or
+revoke after the source owner's deletion commits despite an older RR snapshot.
+See [the evidence](backend-publication-owner-fence.md). No runtime race fix was
+needed. Future ACCOUNT purge must still verify consistent account/domain/job
+lock ordering and contention; these tests do not prove global deadlock freedom.
 
 PR 37 adds bounded direct-storage absence read-back, but this is point-in-time.
 Age checks, process termination and SDK abort alone do not prove a provider-side
