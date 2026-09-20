@@ -42,8 +42,8 @@ export interface ChatMessageItemProps {
 }
 
 export function ChatMessageItem({ item, viewerRole, onReplyPrivate, onDelete }: ChatMessageItemProps) {
-  if (item.kind === 'publication') return <PublicationRow item={item} />;
-  if (item.kind === 'unsupported') return <UnsupportedRow item={item} />;
+  if (item.kind === 'publication') return <PublicationRow item={item} onDelete={onDelete} />;
+  if (item.kind === 'unsupported') return <UnsupportedRow item={item} onDelete={onDelete} />;
   if (item.status === 'deleted') return <TombstoneRow item={item} />;
   return <MessageRow item={item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} />;
 }
@@ -61,7 +61,7 @@ function MessageRow({
 }) {
   const isOwn = item.isOwn;
   const isPrivate = item.scope === 'PRIVATE';
-  const canReply = !isOwn && onReplyPrivate !== undefined;
+  const canReply = item.allowedActions?.reply === true && onReplyPrivate !== undefined;
   const timeLabel = timeLabelFor(item.createdAt);
 
   return (
@@ -104,7 +104,7 @@ function MessageRow({
             <time dateTime={item.createdAt}>{timeLabel}</time>
           </div>
 
-          {isOwn && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
+          {item.allowedActions?.delete && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
 
           {canReply && (
             <button
@@ -208,7 +208,7 @@ function QuoteBlock({ quote, align }: { quote: ChatQuotePreview; align: 'start' 
   );
 }
 
-function PublicationRow({ item }: { item: ChatPublicationItemModel }) {
+function PublicationRow({ item, onDelete }: { item: ChatPublicationItemModel; onDelete?: ((id: string) => Promise<ChatSubmitResult>) | undefined }) {
   return (
     <div className="flex justify-center px-4 py-2" data-scope="PUBLICATION">
       <div className="flex w-full max-w-[36rem] flex-col gap-1.5 rounded-md border border-line bg-canvas px-4 py-3">
@@ -221,6 +221,7 @@ function PublicationRow({ item }: { item: ChatPublicationItemModel }) {
         </div>
         <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>
         <ReactionControl messageId={item.id} />
+        {item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
       </div>
     </div>
   );
@@ -239,12 +240,13 @@ function TombstoneRow({ item }: { item: ChatMessageItemModel }) {
   );
 }
 
-function UnsupportedRow({ item }: { item: ChatUnsupportedItemModel }) {
+function UnsupportedRow({ item, onDelete }: { item: ChatUnsupportedItemModel; onDelete?: ((id: string) => Promise<ChatSubmitResult>) | undefined }) {
   return (
     <div className="flex justify-center px-4 py-1.5" data-status="unsupported">
       <div className="inline-flex items-center gap-2 rounded-lg bg-surface-soft px-3 py-2 text-[14px] text-muted">
         <CircleAlert className="size-4" aria-hidden="true" />
         <span>이 화면에서 표시할 수 없는 내용입니다.</span>
+        {item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
         <time dateTime={item.createdAt} className="text-[12px]">
           {timeLabelFor(item.createdAt)}
         </time>
@@ -260,5 +262,5 @@ function timeLabelFor(iso: string): string {
 
 function replyLabelFor(item: ChatMessageItemModel, viewerRole: ChatViewerRole): string {
   if (viewerRole === 'FAN') return '이 메시지를 인용해 답장';
-  return `${item.author.displayName}님에게 개인 답장`;
+  return `${item.recipient?.displayName ?? item.author.displayName}님에게 개인 답장`;
 }

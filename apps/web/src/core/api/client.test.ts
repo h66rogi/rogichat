@@ -4,7 +4,7 @@ import { ApiClient, ApiError } from './client';
 const origin = 'https://api.qa.rogi.chat';
 void test('reads use API host cookies without CSRF and never HTTP cache', async () => {
   let options: RequestInit | undefined;
-  const client = new ApiClient(origin, async (url, init) => { assert.equal(url, origin + '/v1/auth/session'); options = init; return Response.json({ authenticated: true, csrfToken: 'synthetic-test-only', soopLinkStatus: 'VERIFIED' }); });
+  const client = new ApiClient(origin, async (url, init) => { assert.equal(url, origin + '/v1/auth/session'); options = init; return Response.json({ authenticated: true, accountPartition: 'A'.repeat(43), csrfToken: 'synthetic-test-only', soopLinkStatus: 'VERIFIED' }); });
   await client.session();
   assert.equal(options?.credentials, 'include'); assert.equal(options?.cache, 'no-store'); assert.equal(options?.redirect, 'error');
   assert.equal(new Headers(options?.headers).get('X-CSRF-Token'), null);
@@ -45,7 +45,7 @@ void test('aborts preserve cancellation and never synthesize authenticated data'
   await assert.rejects(client.session(controller.signal), { name: 'AbortError' });
 });
 void test('malformed successful session responses never unlock private UI', async () => {
-  for (const value of [null, {}, { authenticated: false }, { authenticated: true, csrfToken: 'short', soopLinkStatus: 'VERIFIED' }, { authenticated: true, csrfToken: 'synthetic-long-enough', soopLinkStatus: 'UNKNOWN' }]) {
+  for (const value of [null, {}, { authenticated: false }, { authenticated: true, accountPartition: 'A'.repeat(43), csrfToken: 'short', soopLinkStatus: 'VERIFIED' }, { authenticated: true, accountPartition: 'A'.repeat(43), csrfToken: 'synthetic-long-enough', soopLinkStatus: 'UNKNOWN' }]) {
     const client = new ApiClient(origin, async () => Response.json(value));
     await assert.rejects(client.session(), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_SESSION');
   }
@@ -53,7 +53,21 @@ void test('malformed successful session responses never unlock private UI', asyn
 void test('native transport is called without an ApiClient receiver', async () => {
   const client = new ApiClient(origin, function (this: unknown) {
     assert.equal(this, undefined);
-    return Promise.resolve(Response.json({ authenticated: true, csrfToken: 'synthetic-csrf-session-A', soopLinkStatus: 'VERIFIED' }));
+    return Promise.resolve(Response.json({ authenticated: true, accountPartition: 'A'.repeat(43), csrfToken: 'synthetic-csrf-session-A', soopLinkStatus: 'VERIFIED' }));
   });
   await client.session();
+});
+
+void test('only exact status-bound safe codes survive; raw fields, expected scope and unknown codes never escape', async () => {
+  for (const [status, body, expected] of [
+    [409, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH' } }, 'MEMBERSHIP_SCOPE_MISMATCH'],
+    [404, { error: { code: 'NOT_FOUND' } }, 'NOT_FOUND'],
+    [400, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH' } }, 'REQUEST_FAILED'],
+    [409, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH', expectedScope: 'private' } }, 'REQUEST_FAILED'],
+    [409, { error: { code: 'private arbitrary text' } }, 'REQUEST_FAILED'],
+    [409, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH' }, message: 'private' }, 'REQUEST_FAILED'],
+  ] as const) {
+    const client = new ApiClient(origin, async () => Response.json(body, { status }));
+    await assert.rejects(client.request('/v1/example'), (error: unknown) => error instanceof ApiError && error.status === status && error.code === expected && !JSON.stringify(error).includes('private'));
+  }
 });

@@ -63,7 +63,7 @@ export function usePrivateSession() {
         // Identity is never fabricated.
         const profile = await api.profile(controller.signal);
         const confirmed = await api.session(controller.signal);
-        if (confirmed.csrfToken !== session.csrfToken || confirmed.soopLinkStatus !== session.soopLinkStatus) throw new ApiError(403, 'SESSION_CHANGED');
+        if (confirmed.csrfToken !== session.csrfToken || confirmed.accountPartition !== session.accountPartition || confirmed.soopLinkStatus !== session.soopLinkStatus) throw new ApiError(403, 'SESSION_CHANGED');
         if (current === generation.current && mounted.current) setState({ kind: 'ready', session, profile, generation: current });
       } catch (error) {
         if (current !== generation.current || !mounted.current) return;

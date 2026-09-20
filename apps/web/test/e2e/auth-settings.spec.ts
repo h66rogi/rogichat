@@ -79,7 +79,7 @@ test('page restoration discards old private content before fresh authorization',
 });
 test('SOOP-link required state never fabricates a profile', async ({ page }) => {
   await installApi(page, true);
-  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, csrfToken: 'synthetic-csrf-session-A', soopLinkStatus: 'REQUIRED' }));
+  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, accountPartition: 'C'.repeat(42) + 'A', csrfToken: 'synthetic-csrf-session-A', soopLinkStatus: 'REQUIRED' }));
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: 'SOOP 계정 연결이 필요해요' })).toBeVisible();
   await expect(page.getByTestId('settings-view')).toHaveCount(0);
@@ -119,7 +119,7 @@ test('a cookie changing between session and profile reads stays private until a 
   let unstable = true;
   await page.route('**/v1/auth/session', route => {
     reads++;
-    return json(route, { authenticated: true, csrfToken: unstable ? `synthetic-csrf-session-${reads}` : 'synthetic-csrf-stable', soopLinkStatus: 'VERIFIED' });
+    return json(route, { authenticated: true, accountPartition: 'C'.repeat(42) + 'A', csrfToken: unstable ? `synthetic-csrf-session-${reads}` : 'synthetic-csrf-stable', soopLinkStatus: 'VERIFIED' });
   });
   await page.goto('/settings');
   await expect.poll(() => reads).toBeGreaterThanOrEqual(4);
