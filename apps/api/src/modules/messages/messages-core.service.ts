@@ -1,0 +1,138 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
+import type { Transaction } from '../../transactions.js';
+import { ApiError, digest } from '../auth/auth-primitives.js';
+import { AccessService } from '../access/access.service.js';
+import type { ActiveMember } from '../access/membership.repository.js';
+import { identifier } from '../../common/validation/identifier.js';
+import { nextOrder } from '../../repositories.js';
+import { canReadMessage } from '../../access.js';
+import { enqueueJob } from '../../jobs.js';
+import { MessagesRepository } from './messages.repository.js';
+import type { MessageRow } from './message.types.js';
+import type { SendInput } from './dto/send-message.dto.js';
+import { projectMessageDto } from './message-projection.js';
+
+// Transaction-scoped domain operations. Does not own a pool, session, request, or transaction.
+// HTTP admission belongs to MessagesService; workers use explicit trusted transaction ports.
+@Injectable()
+export class MessagesCoreService {
+  constructor(@Inject(MessagesRepository) private readonly repository: MessagesRepository,
+    @Inject(AccessService) private readonly access: AccessService) {}
+
+  load(tx: Transaction, roomId: string, messageId: string) { return this.repository.load(tx, roomId, messageId); }
+
+  async readable(tx: Transaction, viewer: ActiveMember, row: MessageRow): Promise<boolean> {
+    const grant = row.stream_kind === 'RESTRICTED' ? await this.repository.grant(tx, row.room_id, row.stream_id, viewer.id) : undefined;
+    return canReadMessage({ accountActive: true, soopLinked: true, roomId: viewer.room_id, memberRoomId: viewer.room_id,
+      roomActive: true, memberId: viewer.id, memberActive: true, periodActive: true,
+      visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: null }, {
+      roomId: row.room_id, streamId: row.stream_id, streamRoomId: row.room_id, streamKind: row.stream_kind,
+      order: BigInt(row.created_order), deleted: row.deleted_at !== null, moderated: Number(row.moderated) === 1,
+      deletionRootBlocked: Number(row.root_blocked) === 1 || ['DELETING', 'DELETED'].includes(row.content_owner_status),
+      grant: grant ? { roomId: String(grant.room_id), streamId: String(grant.stream_id), memberId: String(grant.member_id), canRead: Number(grant.can_read) === 1, active: true } : null,
+    });
+  }
+
+  async project(tx: Transaction, viewer: ActiveMember, row: MessageRow) {
+    if (!await this.readable(tx, viewer, row)) throw new ApiError('NOT_FOUND', 404);
+    let quote: { id: string; content: { type: 'TEXT'; text: string } } | null = null;
+    if (row.quote_id && !row.deletion_root_id) {
+      const source = await this.load(tx, row.room_id, row.quote_id);
+      if (source && (source.stream_kind === 'ROOM_SHARED' || source.stream_id === row.stream_id) && await this.readable(tx, viewer, source) && source.content_kind === 'TEXT' && source.text_content !== null) {
+        quote = { id: source.id, content: { type: 'TEXT', text: source.text_content } };
+      }
+    }
+    let content: { type: 'TEXT'; text: string | null } | { type: 'PHOTO' | 'VIDEO' | 'STICKER'; attachments: { assetId: string; width: number; height: number; variant: string }[] };
+    if (row.content_kind === 'TEXT') content = { type: 'TEXT', text: row.text_content };
+    else if (row.content_kind === 'PHOTO' || row.content_kind === 'VIDEO' || row.content_kind === 'STICKER') {
+      const attachments = await this.repository.attachments(tx, row.room_id, row.id);
+      content = { type: row.content_kind, attachments: attachments.map(a => ({ assetId: String(a.id), width: Number(a.width), height: Number(a.height), variant: String(a.variant) })) };
+    } else throw new ApiError('NOT_FOUND', 404);
+    return projectMessageDto({ id: row.id, version: String(row.version), createdAt: row.created_at,
+      audience: row.stream_kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
+      author: row.deletion_root_id ? { kind: 'anonymous' } : { kind: 'member', actorId: row.sender_member_id, nickname: row.nickname ?? '사용자', avatar: row.avatar_id ? { assetId: row.avatar_id } : null }, content, quote });
+  }
+
+  async get(tx: Transaction, roomId: string, userId: string, messageId: string) {
+    const viewer = await this.access.requireActiveMember(tx, identifier(roomId), userId);
+    const row = await this.load(tx, roomId, identifier(messageId));
+    if (!row) throw new ApiError('NOT_FOUND', 404);
+    return this.project(tx, viewer, row);
+  }
+
+  private async sendStream(tx: Transaction, viewer: ActiveMember, input: SendInput): Promise<string> {
+    if (input.intent === 'SHARED') {
+      if (viewer.mode === 'FAN' && viewer.role !== 'STREAMER') throw new ApiError('FORBIDDEN', 403);
+      const rows = await this.repository.sharedStreams(tx, viewer.room_id);
+      if (rows.length !== 1) throw new ApiError('CONFLICT', 409);
+      return String(rows[0]!.id);
+    }
+    if (viewer.id === input.recipientActorId) throw new ApiError('INVALID_REQUEST', 400);
+    const target = await this.repository.target(tx, viewer.room_id, input.recipientActorId!);
+    if (!target) throw new ApiError('NOT_FOUND', 404);
+    if (viewer.mode === 'FAN' && !((viewer.role === 'FAN' && target.role === 'STREAMER') || (viewer.role === 'STREAMER' && target.role === 'FAN'))) throw new ApiError('FORBIDDEN', 403);
+    const members = [viewer.id, input.recipientActorId!].sort() as [string, string];
+    const pair = await this.repository.pair(tx, viewer.room_id, members);
+    const streamId = pair ? String(pair.stream_id) : randomUUID();
+    if (!pair) await this.repository.createPair(tx, viewer.room_id, streamId, members);
+    // Existing pairs never repair revoked grants, including after a participant rejoins.
+    const grants = await this.repository.sendGrants(tx, viewer.room_id, streamId, members);
+    if (grants.length !== 2 || grants.some(g => Number(g.can_read) !== 1) || !grants.some(g => g.member_id === viewer.id && Number(g.can_send) === 1)) throw new ApiError('FORBIDDEN', 403);
+    return streamId;
+  }
+
+  async recordEvent(tx: Transaction, row: { id: string; room_id: string; stream_id: string }, version: string, order: bigint, kind: 'MESSAGE_CREATED' | 'MESSAGE_DELETED' | 'MESSAGE_UPDATED') {
+    const id = await this.repository.event(tx, row, version, order, kind);
+    await enqueueJob(tx, { purpose: 'REALTIME_HINT', roomId: row.room_id, resourceId: id, dedupeKey: digest(`hint:${id}`) });
+  }
+
+  // Caller revalidates the current session/account/SOOP on this SAME transaction handle.
+  async send(tx: Transaction, roomId: string, userId: string, input: SendInput, key: Buffer) {
+    const room = await this.repository.room(tx, identifier(roomId));
+    if (!room) throw new ApiError('NOT_FOUND', 404);
+    const member = await this.repository.member(tx, roomId, userId);
+    if (!member) throw new ApiError('NOT_FOUND', 404);
+    const hash = createHmac('sha256', key).update('message-command:v1:').update(JSON.stringify(input)).digest();
+    const receipt = await this.repository.receipt(tx, roomId, String(member.id), input.clientMessageId);
+    if (receipt && Number(receipt.deleted) === 1) return { clientMessageId: input.clientMessageId, messageId: String(receipt.message_id), status: 'deleted' as const };
+    if (room.status !== 'ACTIVE') throw new ApiError('NOT_FOUND', 404);
+    const viewer = await this.access.requireActiveMember(tx, roomId, userId);
+    if (receipt) {
+      if (Number(receipt.digest_version) !== 1 || !Buffer.isBuffer(receipt.payload_digest) || receipt.payload_digest.length !== 32 || !timingSafeEqual(hash, receipt.payload_digest)) throw new ApiError('CONFLICT', 409);
+      const previous = await this.load(tx, roomId, String(receipt.message_id));
+      if (!previous || !await this.readable(tx, viewer, previous)) throw new ApiError('NOT_FOUND', 404);
+      return { clientMessageId: input.clientMessageId, messageId: previous.id, status: 'committed' as const, version: String(previous.version) };
+    }
+    const streamId = await this.sendStream(tx, viewer, input);
+    if (input.quoteId) {
+      const quote = await this.load(tx, roomId, input.quoteId);
+      if (!quote || !await this.readable(tx, viewer, quote) || (quote.stream_kind !== 'ROOM_SHARED' && quote.stream_id !== streamId)) throw new ApiError('NOT_FOUND', 404);
+    }
+    const id = randomUUID(); const order = await nextOrder(tx, roomId);
+    if (input.content.type !== 'TEXT') {
+      for (const assetId of [...input.content.assetIds].sort()) {
+        if (!await this.repository.requireAsset(tx, roomId, userId, input.content.type, assetId)) throw new ApiError('NOT_FOUND', 404);
+      }
+    }
+    await this.repository.insertMessage(tx, { id, roomId, streamId, actorId: viewer.id, userId, quoteId: input.quoteId, content: input.content, order });
+    await this.repository.insertReceipt(tx, { roomId, actorId: viewer.id, clientMessageId: input.clientMessageId, messageId: id, payloadDigest: hash });
+    await this.recordEvent(tx, { id, room_id: roomId, stream_id: streamId }, '1', order, 'MESSAGE_CREATED');
+    return { clientMessageId: input.clientMessageId, messageId: id, status: 'committed' as const, version: '1' };
+  }
+
+  async remove(tx: Transaction, roomId: string, userId: string, messageId: string) {
+    // Ownership-only deletion intentionally does not require an ACTIVE room/member or SOOP link.
+    if (!await this.repository.room(tx, identifier(roomId))) throw new ApiError('NOT_FOUND', 404);
+    const row = await this.repository.ownedMessage(tx, roomId, identifier(messageId), userId);
+    if (!row) throw new ApiError('NOT_FOUND', 404);
+    const prior = await this.repository.deletionRequest(tx, userId, messageId);
+    if (prior) return { requestId: String(prior.id), status: 'blocked' as const };
+    const requestId = randomUUID();
+    await this.repository.blockMessageAndCopies(tx, roomId, messageId, userId, requestId);
+    const order = await this.repository.nextDeletionOrder(tx, roomId);
+    await this.recordEvent(tx, { id: messageId, room_id: roomId, stream_id: String(row.stream_id) }, (BigInt(row.version as string) + 1n).toString(), order, 'MESSAGE_DELETED');
+    await enqueueJob(tx, { purpose: 'PURGE', roomId, resourceId: requestId, dedupeKey: digest(`purge:${requestId}`) });
+    return { requestId, status: 'blocked' as const };
+  }
+}

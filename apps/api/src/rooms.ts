@@ -2,12 +2,10 @@ import { randomUUID } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from './transactions.js';
 import { ApiError, object } from './auth-core.js';
-import { createRoom, joinRoom, leaveRoom, lockRoom, uuid } from './repositories.js';
+import { createRoom, joinRoom, leaveRoom, lockRoom } from './repositories.js';
 
-export function identifier(value: unknown): string {
-  try { if (typeof value !== 'string') throw new Error(); return uuid(value); }
-  catch { throw new ApiError('INVALID_REQUEST', 400); }
-}
+import { identifier } from './common/validation/identifier.js';
+export { identifier } from './common/validation/identifier.js';
 async function manager(tx: Transaction, userId: string): Promise<boolean> {
   const [row] = await tx.rows<RowDataPacket>(`SELECT manage_rooms FROM admin_capabilities WHERE user_id=?${tx.writable ? ' FOR UPDATE' : ''}`, [userId]);
   return Number(row?.manage_rooms) === 1;

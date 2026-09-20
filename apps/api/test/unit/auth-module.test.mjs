@@ -9,6 +9,7 @@ import { AuthService } from '../../dist/modules/auth/auth.service.js';
 import { AuthController } from '../../dist/modules/auth/auth.controller.js';
 import { AUTH_CONFIG } from '../../dist/modules/auth/auth.tokens.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { cookie, cookieName, oauthCookieName, csrf, readSessionCredentials, readCommandCredentials } from '../../dist/modules/auth/auth-context.js';
 import { Sessions, ApiError, digest } from '../../dist/auth-core.js';
 import { AuthFlow } from '../../dist/auth-flow.js';
@@ -56,7 +57,7 @@ test('AuthModule exports a narrow service/config boundary, with private session/
   assert.deepEqual(f.module.exports, [AuthService, AUTH_CONFIG]);
   assert.deepEqual(f.module.controllers, [AuthController]); assert.equal(CompatibilityController, AuthController);
   for (const name of ['sessions', 'transactions', 'flow']) assert.equal(name in f.service, false);
-  for (const dependency of [Sessions, AuthFlow, Transactions, SessionRepository]) {
+  for (const dependency of [Sessions, AuthFlow, Transactions, SessionRepository, SessionService]) {
     class InvalidConsumer { constructor(value) { this.value = value; } }
     Inject(dependency)(InvalidConsumer, undefined, 0);
     class ConsumerModule {}
@@ -111,8 +112,12 @@ test('Nest default factories build real Sessions/AuthFlow/HttpBroker and retain 
   const registered = AuthModule.register(infrastructure(transactions), { config: settings });
   const app = await NestFactory.createApplicationContext(registered, { logger: false, abortOnError: false });
   t.after(() => app.close()); const service = app.get(AuthService);
+  const repository = app.get(SessionRepository); const calls = [];
+  const findCurrent = repository.findCurrent.bind(repository);
+  t.mock.method(repository, 'findCurrent', (...args) => { calls.push(args); return findCurrent(...args); });
   const expected = createHmac('sha256', settings.key).update(`csrf:${settings.audience}:${token}`).digest('base64url');
   assert.equal(service.csrf(token), expected); assert.equal((await service.session({ token })).csrfToken, expected);
+  assert.equal(calls.length, 1); assert.equal(calls[0][0], tx);
   assert.equal(sql[0][1][1], settings.audience);
   await assert.rejects(service.start('login', 'c'.repeat(43)), { code: 'AUTH_UNAVAILABLE' });
   assert.equal(sql.filter(([query]) => query.startsWith('INSERT INTO login_transactions')).length, 1);

@@ -119,3 +119,33 @@ Remaining gates include all R2–R5 work, legacy Sessions/AuthFlow SQL extractio
 AuthRuntime from other domains, production provider lifecycle ownership, canonical query wiring,
 and full structural review. The API/worker still receive externally constructed dependencies.
 Feature development and QA host deployment remain held; this checkpoint is not release acceptance.
+
+## R2 checkpoint — 2026-09-20
+
+MessagesModule now owns the actual message HTTP routes. MessagesService owns admission and
+transaction boundaries; MessagesCoreService owns receipt/audience/deletion orchestration; the
+private MessagesRepository owns SQL using the caller's transaction. The worker-facing CoreModule
+is a separate entrypoint with no HTTP controllers, auth configuration or UnitOfWork provider.
+AccessModule owns current membership facts instead of making Messages depend on Users/Profile.
+SessionService and SessionRepository now split session policy from SQL; shared primitives avoid
+a dependency cycle with the legacy Sessions adapter.
+
+The published checkpoint preserves the M07 TEXT input contract and seven-migration schema.
+Unfinished M08 media input, avatar joins, attachment deletion wiring and generated schema changes
+are preserved in the development tree, not activated by this structural checkpoint. Message/media
+repository methods prepared for M08 are not a claim that uploads or media delivery are available.
+No migration was added or applied to QA for this checkpoint.
+
+The exact staged backend source was extracted without a Git worktree, installed from the frozen
+lockfile and tested against a fresh disposable MySQL database. Results: 103 unit + 56 MySQL +
+14 HTTP/process + 2 contract tests = 175 passing tests; build, ESLint and public-repository scan pass.
+The full development tree separately passed 137 unit and 62 MySQL tests, preserving M08 WIP.
+Independent review found no P1/P2 regression in receipt ordering, same-TX authorization, deletion
+rights, lock ordering or route ownership. Structural tests verify module exports, repository
+encapsulation, SQL-free controllers/services and independent rate commit followed by reauthorization.
+
+R2 is not the end of the migration: `messages.ts`, `access-compat.ts` and `Sessions` still provide
+explicit legacy composition adapters for R3 consumers and R4 bootstrap. They contain no second
+message/session implementation, but must be removed with the remaining consumer conversions.
+Shared counter/job repository functions, other feature modules, canonical Sync query boundaries,
+AuthFlow/identity repositories, DI-owned startup/shutdown and the full R5 gate remain required.

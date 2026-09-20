@@ -1,3 +1,7 @@
+import { activeMember } from './modules/access/access-compat.js';
+import type { ActiveMember } from './modules/access/membership.repository.js';
+export { activeMember } from './modules/access/access-compat.js';
+export type { ActiveMember } from './modules/access/membership.repository.js';
 import { createHmac, randomUUID } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from './transactions.js';
@@ -9,15 +13,6 @@ import { enqueueJob } from './jobs.js';
 interface ProfileRow extends RowDataPacket {
   user_id: string; nickname: string; birthday_month: number | null; birthday_day: number | null;
   birthday_visible_to_streamers: number; revision: string;
-}
-export interface ActiveMember extends RowDataPacket {
-  id: string; room_id: string; user_id: string; role: 'FAN' | 'MEMBER' | 'STREAMER';
-  mode: 'FAN' | 'GROUP'; active_period_id: string; visible_from_order: string;
-}
-export async function activeMember(tx: Transaction, roomId: string, userId: string): Promise<ActiveMember> {
-  const [member] = await tx.rows<ActiveMember>(`SELECT m.id,m.room_id,m.user_id,m.role,m.active_period_id,r.mode,p.visible_from_order FROM room_members m JOIN rooms r ON r.id=m.room_id JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id WHERE m.room_id=? AND m.user_id=? AND m.status='ACTIVE' AND r.status='ACTIVE' AND p.left_at IS NULL${tx.writable ? ' FOR UPDATE' : ''}`, [uuid(roomId), userId]);
-  if (!member) throw new ApiError('NOT_FOUND', 404);
-  return member;
 }
 export async function selfProfile(tx: Transaction, userId: string) {
   const [profile] = await tx.rows<ProfileRow>('SELECT user_id,nickname,birthday_month,birthday_day,birthday_visible_to_streamers,revision FROM user_profiles WHERE user_id=?', [userId]);

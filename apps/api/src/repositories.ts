@@ -2,10 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from './transactions.js';
 
-export function uuid(value: string): string {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)) throw new Error('invalid_uuid');
-  return value;
-}
+import { uuid } from './common/validation/identifier.js';
+export { uuid } from './common/validation/identifier.js';
 
 export interface RoomRow extends RowDataPacket {
   id: string; name: string; mode: 'FAN' | 'GROUP'; status: 'ACTIVE' | 'CLOSED';

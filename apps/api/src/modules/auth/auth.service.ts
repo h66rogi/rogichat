@@ -10,7 +10,7 @@ import type { SessionCredentials } from './auth-context.js';
 import { SessionRepository } from './session.repository.js';
 import { AUTH_CONFIG } from './auth.tokens.js';
 
-/** R1 application boundary. Legacy Sessions/AuthFlow repository extraction remains R2 work.
+/** Application boundary. Sessions is a compatibility adapter; AuthFlow repository extraction remains pending.
  * No dependency bag, public transaction accessor, request storage, or guard-result cache.
  */
 @Injectable()

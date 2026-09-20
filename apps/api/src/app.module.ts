@@ -8,7 +8,7 @@ import { AUTH } from './auth-http.js';
 import type { AuthRuntime } from './auth-http.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { CommunityController } from './community-http.js';
-import { MessagesController } from './messages-http.js';
+import { MessagesModule } from './modules/messages/messages.module.js';
 import { SyncController } from './sync-http.js';
 import { InteractionsController } from './interactions-http.js';
 
@@ -19,10 +19,11 @@ export class AppModule {
   static register(database: Database, lifecycle: LifecycleState, auth?: AuthRuntime): DynamicModule {
     const infrastructure = DatabaseModule.register({ database, lifecycle, externallyOwned: true,
       ...(auth ? { transactions: auth.sessions.transactions } : {}) });
+    const authentication = auth ? AuthModule.register(infrastructure, auth) : undefined;
     return {
       module: AppModule,
-      imports: [infrastructure, HealthModule.register(infrastructure), ...(auth ? [AuthModule.register(infrastructure, auth)] : [])],
-      controllers: auth ? [CommunityController, MessagesController, SyncController, InteractionsController] : [],
+      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, MessagesModule.register(infrastructure, authentication)] : [])],
+      controllers: auth ? [CommunityController, SyncController, InteractionsController] : [],
       providers: [...(auth ? [{ provide: AUTH, useValue: auth }] : [])],
     };
   }
