@@ -21,6 +21,39 @@ function backend(override?: ChatRequest): ChatRequest {
     throw new Error('Unexpected request');
   };
 }
+void test('committed send starts a fresh read after an older in-flight sync settles', async () => {
+  let release!: (value: unknown) => void;
+  let reached!: () => void;
+  const reading = new Promise<void>(resolve => { reached = resolve; });
+  let eventReads = 0;
+  let committed = false;
+  const saved = { ...source('saved-test'), author: { kind: 'member' as const, actorId: room.actorId, nickname: '테스트 팬' }, content: { type: 'TEXT', text: submission.body } };
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (path.endsWith('/messages')) {
+      committed = true;
+      const body = options?.body as { clientMessageId: string };
+      return { clientMessageId: body.clientMessageId, messageId: saved.id, status: 'committed', version: '1' };
+    }
+    if (path.includes('/events?')) {
+      if (++eventReads === 1) { reached(); return new Promise(resolve => { release = resolve; }); }
+      return { schemaVersion: 1, resetRequired: false, events: [{ type: 'message.upsert', message: saved }], nextCursor: 'after-send', hasMore: false };
+    }
+    if (path.includes('/snapshot?') && committed) return { schemaVersion: 1, resetRequired: false, messages: [source(), saved], nextCursor: 'after-send', historyCursor: null };
+    return undefined;
+  }));
+  await controller.refresh();
+  const oldRead = controller.refresh();
+  await reading;
+  assert.equal((await controller.send(submission)).accepted, true);
+  assert.equal(controller.getSnapshot().items.some(item => item.id === saved.id), false);
+  release({ schemaVersion: 1, resetRequired: false, events: [], nextCursor: 'before-send', hasMore: false });
+  await oldRead;
+  // No timer, socket hint or manual refresh may be needed to see the saved send.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(eventReads, 2);
+  assert.equal(controller.getSnapshot().items.some(item => item.id === saved.id), true);
+  controller.dispose();
+});
 void test('actual DTO mapping does not guess private recipient, quote author, avatar or read status', () => {
   const dto = message({ ...source(), quote: { id: 'quote-test', content: { type: 'TEXT', text: '인용' } } });
   const item = projectMessages([dto], 'fan-test', [])[0]!;
@@ -258,4 +291,67 @@ void test('remote deletion purges the complete draft epoch before recovery witho
   assert.deepEqual(controller.getSnapshot().items, []);
   await controller.send(submission);
   assert.equal(ids.length, 2); assert.equal(ids[0], ids[1]); controller.dispose();
+});
+
+void test('reactions read/set/change/remove use authoritative contracts without optimistic counts', async () => {
+  const calls: { method: string | undefined; body: unknown }[] = [];
+  let mine: string | null = null;
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (!path.includes('/reactions')) return undefined;
+    calls.push({ method: options?.method, body: options?.body });
+    if (options?.method === 'PUT') mine = (options.body as { emoji: string }).emoji;
+    if (options?.method === 'DELETE') mine = null;
+    return { counts: mine ? [{ emoji: mine, count: 3 }] : [], mine };
+  }));
+  await controller.refresh(); assert.deepEqual(controller.getSnapshot().reactions, {});
+  await controller.react('unsaved'); assert.equal(calls.length, 0);
+  await controller.react('message-test');
+  assert.deepEqual(controller.getSnapshot().reactions['message-test']?.summary, { counts: [], mine: null });
+  await controller.react('message-test', '👍');
+  assert.equal(controller.getSnapshot().reactions['message-test']?.summary?.counts[0]?.count, 3);
+  await controller.react('message-test', '❤️'); await controller.react('message-test', null);
+  assert.deepEqual(calls.map(call => call.method), [undefined, 'PUT', 'PUT', 'DELETE']);
+  assert.deepEqual(calls[2]?.body, { emoji: '❤️' });
+  assert.equal(controller.getSnapshot().reactions['message-test']?.summary?.mine, null); controller.dispose();
+});
+
+for (const transition of ['dispose', 'deletion', 'version', 'profile'] as const) void test(`late reaction cannot survive ${transition}`, async () => {
+  let release!: (value: unknown) => void; let changed = false;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.includes('/reactions')) return new Promise(resolve => { release = resolve; });
+    if (changed && path.includes('/events?')) return { schemaVersion: 1, resetRequired: false, events: transition === 'deletion' ? [{ type: 'message.deleted', messageId: 'message-test' }] : [{ type: 'message.upsert', message: { ...source(), version: '2' } }], nextCursor: 'new', hasMore: false };
+    if (changed && path.includes('/snapshot?')) return { schemaVersion: 1, resetRequired: false, messages: [], nextCursor: 'new', historyCursor: null };
+    if (changed && transition === 'profile' && path.includes('/profile-sync?')) return { schemaVersion: 1, resetRequired: false, profiles, generation: 'new', nextCursor: null, complete: true };
+    return undefined;
+  }));
+  await controller.refresh(); const work = controller.react('message-test');
+  changed = true; if (transition === 'dispose') controller.dispose(); else await controller.refresh();
+  release({ counts: [{ emoji: '👍', count: 99 }], mine: '👍' }); await work;
+  assert.deepEqual(controller.getSnapshot().reactions, {});
+  assert.equal(controller.getSnapshot().reactionRevision, transition === 'version' ? 1 : 0); controller.dispose();
+});
+
+for (const status of [401, 403, 404, 429, 503]) void test(`reaction ${status} exposes no invented count and never retries a write`, async () => {
+  let calls = 0; let invalidations = 0;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (!path.includes('/reactions')) return undefined;
+    calls++; throw Object.assign(new Error('private raw body'), { status });
+  }), () => { invalidations++; });
+  await controller.refresh(); await controller.react('message-test', '👍');
+  assert.equal(calls, 1); assert.equal(invalidations, status === 401 ? 1 : 0);
+  assert.equal(controller.getSnapshot().reactions['message-test']?.summary, undefined);
+  if (status === 429) { await controller.react('message-test'); assert.equal(calls, 1); }
+  assert.ok(!JSON.stringify(controller.getSnapshot()).includes('private raw body')); controller.dispose();
+});
+
+void test('reaction fanout is capped at four and deduplicated per message', async () => {
+  const releases: ((value: unknown) => void)[] = [];
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.includes('/snapshot?')) return { schemaVersion: 1, resetRequired: false, messages: Array.from({ length: 8 }, (_, i) => source(`m${i}`)), nextCursor: 'events', historyCursor: null };
+    if (path.includes('/reactions')) return new Promise(resolve => { releases.push(resolve); });
+    return undefined;
+  }));
+  await controller.refresh(); const pending = Array.from({ length: 8 }, (_, i) => controller.react(`m${i}`));
+  await controller.react('m0', '👍'); assert.equal(releases.length, 4);
+  releases.forEach(resolve => resolve({ counts: [], mine: null })); await Promise.all(pending); controller.dispose();
 });

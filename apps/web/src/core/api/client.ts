@@ -17,7 +17,7 @@ export class ApiClient {
     this.origin = origin; this.transport = (input, init) => transport(input, init);
     if (!['https://api.qa.rogi.chat', 'https://api.rogi.chat'].includes(origin)) throw new Error('Unapproved API origin');
   }
-  async request<T>(path: string, options: { signal?: AbortSignal; method?: 'POST' | 'PATCH'; body?: unknown; csrf?: string } = {}): Promise<T> {
+  async request<T>(path: string, options: { signal?: AbortSignal; method?: 'POST' | 'PATCH' | 'PUT' | 'DELETE'; body?: unknown; csrf?: string } = {}): Promise<T> {
     if (!path.startsWith('/v1/') || path.includes('..') || path.includes('\\')) throw new Error('Invalid API path');
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (options.method) {

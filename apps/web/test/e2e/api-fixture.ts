@@ -5,7 +5,7 @@ export const TEST_ACTOR_ID = '22222222-2222-4222-8222-222222222222';
 export const TEST_PROFILE = { id: '33333333-3333-4333-8333-333333333333', nickname: '테스트 팬', avatar: null, birthday: null, birthdayVisibleToStreamers: false };
 export async function json(route: Route, body: unknown, status = 200) {
   const origin = route.request().headers().origin ?? 'http://127.0.0.1:3101';
-  await route.fulfill({ status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', 'Access-Control-Allow-Headers': 'content-type,x-csrf-token', 'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS' }, ...(status === 204 ? {} : { body: JSON.stringify(body) }) });
+  await route.fulfill({ status, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Credentials': 'true', 'Access-Control-Allow-Headers': 'content-type,x-csrf-token', 'Access-Control-Allow-Methods': 'GET,POST,PATCH,PUT,DELETE,OPTIONS' }, ...(status === 204 ? {} : { body: JSON.stringify(body) }) });
 }
 export async function installApi(page: Page, authenticated = false) {
   const state = { authenticated, sessionStatus: 200, sessionToken: 'synthetic-csrf-session-A', profile: { ...TEST_PROFILE }, profileStatus: 200, logoutStatus: 204, joined: false, rooms: true, logoutCount: 0 };

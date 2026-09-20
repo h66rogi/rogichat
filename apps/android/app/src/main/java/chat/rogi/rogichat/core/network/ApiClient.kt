@@ -24,10 +24,14 @@ import okhttp3.CookieJar
  * Native session credentials have no refresh operation or cookie transport.
  * Routes are a closed set; authentication never follows a redirect or arbitrary URL.
  */
-enum class ApiRoute(val path: String) { SESSION("auth/session"), LOGOUT("auth/logout"), PROFILE("me/profile") }
+enum class ApiRoute(val path: String) { SESSION("auth/session"), LOGOUT("auth/logout"), PROFILE("me/profile"), NOTIFICATION_PREFERENCES("me/notification-preferences"), SOOP_START("auth/native/soop/transactions"), SOOP_EXCHANGE("auth/native/completions/exchange") }
 class ApiException(val statusCode: Int, val code: String?) : Exception("api_request_failed")
 class InvalidResponse : Exception("invalid_response")
 interface NativeApi {
+    suspend fun put(route: ApiRoute, token: String, body: String): String = throw IllegalStateException("operation_unavailable")
+    suspend fun getReadState(room: ReadStateId, token: String): String = throw IllegalStateException("operation_unavailable")
+    suspend fun putReadState(room: ReadStateId, token: String, body: String): String = throw IllegalStateException("operation_unavailable")
+    suspend fun postAuth(route: ApiRoute, token: String?, body: String): String = throw IllegalStateException("operation_unavailable")
     suspend fun get(route: ApiRoute, token: String): String
     suspend fun patch(route: ApiRoute, token: String, body: String): String
     suspend fun postWithoutResponse(route: ApiRoute, token: String, body: String)
@@ -42,21 +46,31 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         followRedirects = false
         install(HttpTimeout) { requestTimeoutMillis = 20_000; connectTimeoutMillis = 10_000; socketTimeoutMillis = 20_000 }
     }
-    override suspend fun get(route: ApiRoute, token: String): String = call(HttpMethod.Get, route, token)
-    override suspend fun patch(route: ApiRoute, token: String, body: String): String = call(HttpMethod.Patch, route, token, body)
-    override suspend fun postWithoutResponse(route: ApiRoute, token: String, body: String) {
-        call(HttpMethod.Post, route, token, body, empty = true)
+    override suspend fun get(route: ApiRoute, token: String): String = call(HttpMethod.Get, route.path, token)
+    override suspend fun patch(route: ApiRoute, token: String, body: String): String = call(HttpMethod.Patch, route.path, token, body)
+    override suspend fun put(route: ApiRoute, token: String, body: String): String {
+        require(route == ApiRoute.NOTIFICATION_PREFERENCES)
+        return call(HttpMethod.Put, route.path, token, body)
     }
-    private suspend fun call(method: HttpMethod, route: ApiRoute, token: String, body: String? = null, empty: Boolean = false): String {
-        require(token.matches(Regex("[A-Za-z0-9_-]{43}")))
-        return client.prepareRequest(baseUrl + route.path) {
+    override suspend fun getReadState(room: ReadStateId, token: String): String = call(HttpMethod.Get, "rooms/${room.value}/read-state", token)
+    override suspend fun putReadState(room: ReadStateId, token: String, body: String): String = call(HttpMethod.Put, "rooms/${room.value}/read-state", token, body)
+    override suspend fun postWithoutResponse(route: ApiRoute, token: String, body: String) {
+        call(HttpMethod.Post, route.path, token, body, empty = true)
+    }
+    override suspend fun postAuth(route: ApiRoute, token: String?, body: String): String {
+        require(route in setOf(ApiRoute.SOOP_START, ApiRoute.SOOP_EXCHANGE))
+        return call(HttpMethod.Post, route.path, token, body, authEndpoint = true)
+    }
+    private suspend fun call(method: HttpMethod, path: String, token: String?, body: String? = null, empty: Boolean = false, authEndpoint: Boolean = false): String {
+        require(token == null && authEndpoint || token != null && token.matches(Regex("[A-Za-z0-9_-]{43}")))
+        return client.prepareRequest(baseUrl + path) {
             this.method = method
-            headers.append(HttpHeaders.Authorization, "Bearer $token")
+            if (token != null) headers.append(HttpHeaders.Authorization, "Bearer $token")
             headers.append("X-Rogi-Client", "android")
             headers.append(HttpHeaders.Accept, "application/json")
             if (body != null) { contentType(ContentType.Application.Json); setBody(body) }
         }.execute { response ->
-            if (response.status.value == 401) throw ApiException(401, "UNAUTHENTICATED")
+            if (response.status.value == 401 && !authEndpoint) throw ApiException(401, "UNAUTHENTICATED")
             val bytes = response.bodyAsChannel().readBuffer(1_048_577L).readByteArray()
             if (bytes.size > 1_048_576) throw InvalidResponse()
             val text = try { Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)

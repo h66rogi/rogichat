@@ -21,7 +21,25 @@ struct NativeSessionDTO: Decodable, Sendable {
     let onboardingState: String
     let expiresAt: String
     let accountGeneration: String
+    let accountPartition: String?
     let capabilities: Capabilities
+    enum CodingKeys: String, CodingKey { case authenticated, account, soopLinkStatus, onboardingState, expiresAt, accountGeneration, accountPartition, capabilities }
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        authenticated = try c.decode(Bool.self, forKey: .authenticated)
+        account = try c.decode(Account.self, forKey: .account)
+        soopLinkStatus = try c.decode(String.self, forKey: .soopLinkStatus)
+        onboardingState = try c.decode(String.self, forKey: .onboardingState)
+        expiresAt = try c.decode(String.self, forKey: .expiresAt)
+        accountGeneration = try c.decode(String.self, forKey: .accountGeneration)
+        capabilities = try c.decode(Capabilities.self, forKey: .capabilities)
+        accountPartition = try c.decodeIfPresent(String.self, forKey: .accountPartition)
+        guard !c.contains(.accountPartition) || accountPartition != nil else { throw ProductError.invalidResponse }
+    }
+    static func validPartition(_ value: String) -> Bool {
+        guard NativeCredential.isOpaque(value), let data = Data(base64Encoded: value.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/") + "="), data.count == 32 else { return false }
+        return data.base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") == value
+    }
     func snapshot(credential: NativeCredential, now: Date) throws -> SessionSnapshot {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -29,7 +47,7 @@ struct NativeSessionDTO: Decodable, Sendable {
         if expiry == nil { formatter.formatOptions = [.withInternetDateTime]; expiry = formatter.date(from: expiresAt) }
         guard authenticated, UUID(uuidString: account.userId) != nil,
               account.avatarAssetId == nil || UUID(uuidString: account.avatarAssetId!) != nil,
-              NativeCredential.isOpaque(accountGeneration), let expiry,
+              NativeCredential.isOpaque(accountGeneration), accountPartition.map(Self.validPartition) ?? true, let expiry,
               abs(expiry.timeIntervalSince(credential.expiresAt)) < 0.001 else { throw ProductError.invalidResponse }
         guard expiry > now else { throw ProductError.unauthenticated }
         let ready = soopLinkStatus == "VERIFIED" && onboardingState == "READY" && capabilities.chat
