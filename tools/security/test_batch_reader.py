@@ -96,8 +96,12 @@ class ObjectReaderTests(unittest.TestCase):
     def test_sha256_identity_and_large_payload(self):
         oid = "c" * 64
         payload = b"a\0\n" * 30000
-        response = (oid + " blob " + str(len(payload)) + "\n").encode() + payload + b"\n"
-        with self.child(self.response(response)), check.ObjectReader() as reader:
+        header = (oid + " blob " + str(len(payload)) + "\n").encode()
+        # Build large output inside the child: Linux bounds each argv string.
+        program = ("import sys\nsys.stdin.buffer.readline()\n"
+                   f"sys.stdout.buffer.write({header!r} + b'a\\0\\n' * 30000 + b'\\n')\n"
+                   "sys.stdout.buffer.flush()\nsys.stdin.buffer.read()\n")
+        with self.child(program), check.ObjectReader() as reader:
             self.assertEqual(reader.read(oid, "blob", len(payload)), payload)
 
     def test_startup_failure_is_sanitized(self):
