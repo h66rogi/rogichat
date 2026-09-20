@@ -123,10 +123,13 @@ def upload(cfg, manifest_path):
     inspect_archive(path, value["build_number"], value["version"])
     options = directory / "UploadOptions.plist"
     private_write(options, plistlib.dumps(export_options(cfg["ios"]["team_id"], "upload", cfg["ios"])).decode())
-    private_write(attempt, json.dumps({"build_number": value["build_number"], "state": "attempted"}) + "\n")
+    receipt = {"build_number": value["build_number"], "state": "attempted", "commit": value["commit"],
+               "archive_sha256": value["archive_sha256"], "ipa_sha256": value["artifacts"]["ipa"]["sha256"]}
+    private_write(attempt, json.dumps(receipt) + "\n")
     run(["xcodebuild", "-exportArchive", "-archivePath", str(path), "-exportOptionsPlist", str(options),
          "-exportPath", str(directory / "upload"), *asc.signing_args()], directory / "upload.log")
-    private_write(attempt, json.dumps({"build_number": value["build_number"], "state": "transport_completed"}) + "\n")
+    receipt["state"] = "transport_completed"
+    private_write(attempt, json.dumps(receipt) + "\n")
     print("Upload transport completed. Run ios-status until processingState is VALID; tester availability is separate.")
 
 

@@ -15,6 +15,17 @@ API_URL = "https://api.qa.rogi.chat/v1/"
 DEFAULT_CONFIG = Path.home() / ".config/rogichat/mobile-qa.json"
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, newurl):
+        raise RuntimeError("Authenticated API redirects are not permitted")
+
+
+def cli_environment():
+    """Keep the operator's login homes, but do not preload code or enable debug logs."""
+    return {key: value for key, value in os.environ.items()
+            if key not in ("NODE_OPTIONS", "NODE_PATH", "PYTHONPATH", "DEBUG", "FIREBASE_DEBUG")}
+
+
 def external(path):
     path = Path(path).expanduser().resolve()
     if path == ROOT or ROOT in path.parents or any((p / ".git").exists() for p in [path, *path.parents]):
@@ -152,30 +163,56 @@ class AppStoreConnect:
             raise RuntimeError("Could not obtain App Store Connect JWT from altool")
         self.token = tokens[0]
 
-    def request(self, resource, params=None, body=None):
+    def request(self, resource, params=None, body=None, *, method=None):
+        if resource.startswith("/") or ":" in resource.split("?")[0] or ".." in resource.split("/"):
+            raise ValueError("Invalid App Store Connect resource")
         url = "https://api.appstoreconnect.apple.com/v1/" + resource
         if params:
             url += "?" + urllib.parse.urlencode(params)
         request = urllib.request.Request(url, headers={"Authorization": "Bearer " + self.token,
                                                        "Content-Type": "application/json"},
-                                         data=json.dumps(body).encode() if body else None)
+                                         data=json.dumps(body).encode() if body is not None else None,
+                                         method=method)
         try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                return json.load(response)
+            with urllib.request.build_opener(NoRedirect()).open(request, timeout=60) as response:
+                data = response.read()
+                return json.loads(data) if data else {}
         except urllib.error.HTTPError as error:
             raise RuntimeError(f"App Store Connect {resource}: HTTP {error.code}; inspect account/app permissions") from None
+        except urllib.error.URLError:
+            raise RuntimeError("App Store Connect transport failed; inspect finalization state before retrying") from None
+
+    def collection(self, resource, params=None):
+        result, seen = [], set()
+        path = "/v1/" + resource.split("?")[0]
+        for _ in range(100):
+            page = self.request(resource, params)
+            if not isinstance(page.get("data"), list):
+                raise ValueError("Expected an App Store Connect collection")
+            result.extend(page["data"])
+            next_url = page.get("links", {}).get("next")
+            if not next_url:
+                return result
+            parsed = urllib.parse.urlsplit(next_url)
+            if (parsed.scheme != "https" or parsed.netloc != "api.appstoreconnect.apple.com"
+                    or parsed.path != path or parsed.fragment or next_url in seen):
+                raise ValueError("Unsafe or repeated App Store Connect pagination link")
+            seen.add(next_url)
+            resource = parsed.path.removeprefix("/v1/") + ("?" + parsed.query if parsed.query else "")
+            params = None
+        raise ValueError("App Store Connect pagination limit exceeded")
 
     def app(self):
         # Apple filters may include prefix matches; never infer the target from
         # result count alone, even though this command accepts QA only.
-        apps = [app for app in self.request("apps", {"filter[bundleId]": APP_ID})["data"]
+        apps = [app for app in self.collection("apps", {"filter[bundleId]": APP_ID})
                 if app.get("attributes", {}).get("bundleId") == APP_ID]
         if len(apps) != 1:
             raise ValueError("Create the Rogichat QA app record in App Store Connect first (bundle ID: " + APP_ID + ")")
         return apps[0]["id"]
 
     def bundle(self):
-        bundles = [bundle for bundle in self.request("bundleIds", {"filter[identifier]": APP_ID})["data"]
+        bundles = [bundle for bundle in self.collection("bundleIds", {"filter[identifier]": APP_ID})
                    if bundle.get("attributes", {}).get("identifier") == APP_ID]
         if len(bundles) != 1:
             raise ValueError("Register the Rogichat QA bundle identifier first")
@@ -185,7 +222,7 @@ class AppStoreConnect:
         params = {"filter[app]": self.app(), "sort": "-uploadedDate", "limit": "200"}
         if number is not None:
             params["filter[version]"] = str(number)
-        return self.request("builds", params)["data"]
+        return self.collection("builds", params)
 
     def signing_args(self):
         return ["-allowProvisioningUpdates", "-authenticationKeyPath", str(external(self.cfg["key_file"])),
