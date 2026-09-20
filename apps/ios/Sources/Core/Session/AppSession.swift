@@ -44,6 +44,7 @@ struct SessionSnapshot: Sendable {
     var clientScope: UUID? = nil
     var accountPartition: String? = nil
     var roomsScope: RoomsScope? = nil
+    var deletions: [AccountDeletionPresentation]? = nil
     static let signedOut = SessionSnapshot(access: .signedOut, account: nil)
 }
 enum SignInMethod: String, Sendable { case apple, soop }
@@ -57,9 +58,11 @@ struct SessionCapabilities: Sendable {
 }
 
 enum ProductError: Error, LocalizedError, Equatable {
-    case unavailable, sessionChanged, connection, unauthenticated, linkRequired, invalidResponse, secureStorage, remoteLogoutUnconfirmed
+    case unavailable, sessionChanged, connection, unauthenticated, linkRequired, invalidResponse, secureStorage, remoteLogoutUnconfirmed, accountDeletionPending, deletionHistoryFull
     var errorDescription: String? {
         switch self {
+        case .accountDeletionPending: "탈퇴 요청의 기기 정리를 먼저 완료해 주세요."
+        case .deletionHistoryFull: "기기에 저장된 탈퇴 요청 기록이 가득 찼어요. 새 요청은 보내지 않았어요."
         case .unavailable: "이 기능을 사용할 수 없어요."
         case .sessionChanged: "계정 상태가 변경되었어요. 다시 로그인해 주세요."
         case .connection: "연결을 확인하고 다시 시도해 주세요."
@@ -97,6 +100,7 @@ protocol SessionServing: Sendable {
     func beginLinkSOOP(attempt: SessionAttempt) async throws -> SessionSnapshot
     func cancelAuthentication() async throws -> SessionSnapshot?
     func resetLocalSession() async throws
+    func resetLocalSession(attempt: SessionAttempt) async throws
 }
 
 extension SessionServing {
@@ -106,6 +110,7 @@ extension SessionServing {
     func beginLinkSOOP(attempt: SessionAttempt) async throws -> SessionSnapshot { try attempt.check(); return try await linkSOOP() }
     func cancelAuthentication() async throws -> SessionSnapshot? { nil }
     func resetLocalSession() async throws { throw ProductError.unavailable }
+    func resetLocalSession(attempt: SessionAttempt) async throws { try attempt.check(); try await resetLocalSession() }
     func revalidate() async throws -> SessionSnapshot { try await restore() }
 }
 
@@ -138,6 +143,15 @@ final class AppSession {
     private var deferredAuthCallback: URL?
     private var authAttempt: SessionAttempt?
     @ObservationIgnored private var expirationTask: Task<Void, Never>?
+    private(set) var deletions: [AccountDeletionPresentation] = []
+    private(set) var deletionError: String?
+    var showDeletionHistory = false
+    private var currentDeletionID: UUID?
+    var visibleDeletions: [AccountDeletionPresentation] {
+        if let currentDeletionID { return deletions.filter { $0.id == currentDeletionID } }
+        return account == nil ? deletions : []
+    }
+    @ObservationIgnored private var deletionWork: Task<Void, Never>?
     private(set) var errorMessage: String?
     private(set) var generation: UInt64 = 0
     private let service: any SessionServing
@@ -253,6 +267,7 @@ final class AppSession {
         }
     }
     func acceptAuthCallback(_ url: URL) async {
+        guard deletionWork == nil else { return }
         if busy && access == .restoring { deferredAuthCallback = url; return }
         let ticket = generation
         do {
@@ -269,6 +284,7 @@ final class AppSession {
         }
     }
     func cancelAuthentication() async {
+        guard deletionWork == nil else { return }
         authAttempt?.cancel(); authAttempt = nil
         roomsScope?.invalidate(); roomsScope = nil
         generation &+= 1; busy = false; deferredAuthCallback = nil
@@ -283,16 +299,21 @@ final class AppSession {
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "취소를 확인하지 못했어요. 다시 시도해 주세요."
         }
     }
-    func resetLocalSession() async {
-        authAttempt?.cancel(); authAttempt = nil
-        generation &+= 1; account = nil; roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil; serverGeneration = nil; expiresAt = nil; busy = true; deferredAuthCallback = nil
+    func resetLocalSession(expectedGeneration: UInt64? = nil) async {
+        guard deletionWork == nil, expectedGeneration == nil || expectedGeneration == generation else { return }
+        authAttempt?.cancel()
+        let attempt = SessionAttempt(); authAttempt = attempt
+        generation &+= 1; account = nil; roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil; serverGeneration = nil; expiresAt = nil; access = .restoring; busy = true; deferredAuthCallback = nil
         let ticket = generation
         do {
-            try await service.resetLocalSession()
+            try await service.resetLocalSession(attempt: attempt)
             guard ticket == generation else { return }
-            reset(); errorMessage = "이 기기의 로그인 정보를 지웠어요. 서버의 로그인 종료는 확인하지 못했어요."
+            deferredAuthCallback = nil // Returns received during destructive reset do not resume old proof.
+            deletions = []; deletionError = nil; showDeletionHistory = false; currentDeletionID = nil
+            reset(); errorMessage = "이 기기의 로그인 정보와 접수 기록을 지웠어요. 서버 요청의 취소나 접수 확인은 하지 않았어요."
         } catch {
             guard ticket == generation else { return }
+            deferredAuthCallback = nil
             busy = false; access = .retryableFailure; errorMessage = ProductError.secureStorage.errorDescription
         }
     }
@@ -430,6 +451,8 @@ final class AppSession {
         errorMessage = nil
     }
     private func apply(_ snapshot: SessionSnapshot) {
+        if let records = snapshot.deletions { deletions = records }
+        if snapshot.account != nil { currentDeletionID = nil; showDeletionHistory = false; deletionError = nil }
         let hasAccount = snapshot.account != nil
         let needsAccount = snapshot.access == .ready || snapshot.access == .linkRequired
         guard !needsAccount || hasAccount,
@@ -457,4 +480,64 @@ final class AppSession {
         errorMessage = snapshot.notice
         busy = false
     }
+}
+
+
+extension AppSession {
+    func deletionIntent(expectedGeneration: UInt64) -> AccountDeletionIntent? {
+        guard expectedGeneration == generation, !busy, capabilities.canDeleteAccount,
+              let account, let clientScope, service is any AccountDeletionServing else { return nil }
+        return AccountDeletionIntent(id: UUID(), accountID: account.id, accountName: account.displayName, clientScope: clientScope, generation: generation)
+    }
+    func startDeletion(_ intent: AccountDeletionIntent) {
+        // An old alert must not even close the newer account's private UI.
+        guard intent.generation == generation, intent.clientScope == clientScope, intent.accountID == account?.id,
+              !busy, deletionWork == nil, let deleting = service as? any AccountDeletionServing else { return }
+        authAttempt?.cancel(); authAttempt = nil; deferredAuthCallback = nil
+        generation &+= 1; let ticket = generation
+        account = nil; roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil; serverGeneration = nil; expiresAt = nil
+        access = .accountClosing; busy = true; errorMessage = nil; deletionError = nil; showDeletionHistory = true; currentDeletionID = intent.id
+        putDeletion(AccountDeletionPresentation(id: intent.id, outcome: .preparing, requestID: nil, cleanupPending: true, working: true, accountID: intent.accountID))
+        deletionWork = Task {
+            defer { if self.generation == ticket { self.busy = false }; self.deletionWork = nil }
+            do {
+                let result = try await deleting.admitDeletion(intent)
+                guard self.generation == ticket else { return }
+                if let snapshot = result.snapshot { self.apply(snapshot) }
+                self.putDeletion(result.presentation)
+                self.currentDeletionID = intent.id; self.showDeletionHistory = true
+            } catch {
+                guard self.generation == ticket else { return }
+                let status = try? await deleting.deletionStatus(id: intent.id)
+                guard self.generation == ticket else { return }
+                let noAdmission = error as? ProductError == .deletionHistoryFull
+                self.putDeletion(status ?? AccountDeletionPresentation(id: intent.id, outcome: noAdmission ? .notSent : .unknown, requestID: nil, cleanupPending: !noAdmission, accountID: intent.accountID))
+                self.access = .retryableFailure; self.busy = false
+                self.deletionError = (error as? LocalizedError)?.errorDescription ?? ProductError.secureStorage.errorDescription
+                self.errorMessage = self.deletionError
+            }
+        }
+    }
+    func retryDeletionCleanup(id: UUID) async {
+        guard deletionWork == nil, !busy, let deleting = service as? any AccountDeletionServing else { return }
+        let ticket = generation; busy = true; deletionError = nil
+        defer { if generation == ticket { busy = false } }
+        do {
+            let result = try await deleting.retryDeletionCleanup(id: id)
+            guard generation == ticket else { return }
+            if let snapshot = result.snapshot { apply(snapshot) }
+            putDeletion(result.presentation)
+        } catch {
+            guard generation == ticket else { return }
+            deletionError = (error as? LocalizedError)?.errorDescription ?? ProductError.secureStorage.errorDescription
+        }
+    }
+    private func putDeletion(_ value: AccountDeletionPresentation) {
+        if let index = deletions.firstIndex(where: { $0.id == value.id }) { deletions[index] = value }
+        else { deletions.append(value) }
+    }
+}
+
+extension AppSession {
+    func dismissDeletionPresentation() { showDeletionHistory = false; currentDeletionID = nil; deletionError = nil }
 }

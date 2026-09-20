@@ -7,7 +7,9 @@ struct AccountScreen: View {
     let capabilities: SessionCapabilities
     let onLink: () -> Void
     let onSignOut: () async throws -> Void
-    let onDelete: () async throws -> Void
+    let prepareDeletion: () -> AccountDeletionIntent?
+    let onDelete: (AccountDeletionIntent) -> Void
+    @State private var deletionIntent: AccountDeletionIntent?
     @State private var notice: Notice?
     @State private var working = false
     @State private var errorMessage: String?
@@ -31,7 +33,9 @@ struct AccountScreen: View {
             if capabilities.canSignOut || capabilities.canDeleteAccount {
                 Section {
                     if capabilities.canSignOut { Button("로그아웃", role: .destructive) { notice = .logout } }
-                    if capabilities.canDeleteAccount { Button("회원 탈퇴", role: .destructive) { notice = .deletion } }
+                    if capabilities.canDeleteAccount { Button("회원 탈퇴", role: .destructive) {
+                        if let intent = prepareDeletion() { deletionIntent = intent; notice = .deletion }
+                    } }
                 }
             }
             if working { Section { ProgressView("처리하는 중").frame(maxWidth: .infinity) } }
@@ -41,13 +45,15 @@ struct AccountScreen: View {
         .confirmationDialog(notice == .deletion ? "로기챗에서 탈퇴할까요?" : "로그아웃할까요?",
                             isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } }), titleVisibility: .visible) {
             if notice == .deletion {
-                Button("회원 탈퇴", role: .destructive) { perform(onDelete) }
+                Button("회원 탈퇴 요청", role: .destructive) {
+                    if let intent = deletionIntent { notice = nil; deletionIntent = nil; onDelete(intent) }
+                }
             } else {
                 Button("로그아웃", role: .destructive) { perform(onSignOut) }
             }
-            Button("취소", role: .cancel) { notice = nil }
+            Button("취소", role: .cancel) { notice = nil; deletionIntent = nil }
         } message: {
-            Text(notice == .deletion ? "탈퇴하면 이 계정으로 로기챗을 이용할 수 없어요. 계속하려면 회원 탈퇴를 선택해 주세요." : "이 기기에서 로기챗 계정을 로그아웃해요.")
+            Text(notice == .deletion ? "\(deletionIntent?.accountName ?? account.displayName) 계정의 탈퇴를 요청할까요? 접수되면 계정을 이용할 수 없어요. 접수는 데이터 삭제 완료를 뜻하지 않아요." : "이 기기에서 로기챗 계정을 로그아웃해요.")
         }
     }
     private func perform(_ action: @escaping () async throws -> Void) {

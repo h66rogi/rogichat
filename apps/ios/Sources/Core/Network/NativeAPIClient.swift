@@ -55,7 +55,7 @@ final class NativeSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         } else { completionHandler(.cancelAuthenticationChallenge, nil) }
     }
 }
-actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsRequesting, RoomsCommandRequesting {
+actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsRequesting, RoomsCommandRequesting, AccountDeletionRequesting {
     private let environment: NativeEnvironment
     private let session: URLSession
     init(environment: NativeEnvironment) {
@@ -172,6 +172,18 @@ actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsReq
             if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
             throw RoomsError.connection
         }
+    }
+    func performAccountDeletion(credential: NativeCredential, permit: AccountDeletionPermit) async throws -> AccountDeletionResponse {
+        let request = try AccountDeletionEndpoint.request(environment: environment, credential: credential)
+        try permit.claim()
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            guard let response = response as? HTTPURLResponse, response.url == request.url,
+                  response.expectedContentLength <= Int64(AccountDeletionEndpoint.maximumBytes) else { return .unknown }
+            let data = try await Self.readBody(bytes, limit: AccountDeletionEndpoint.maximumBytes, cancel: { bytes.task.cancel() })
+            return AccountDeletionEndpoint.response(data, status: response.statusCode)
+        } catch { return .unknown } // Socket failure/cancellation never proves non-admission.
     }
     func revokeSOOPCredential(_ credential: NativeCredential) async { _ = try? await perform(.logout, credential: credential) }
     static let maximumBodyBytes = 1_048_576

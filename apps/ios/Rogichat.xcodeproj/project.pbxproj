@@ -10,9 +10,11 @@
 		03D04D9C2C5CDEE0796E2B13 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88C17EC349A4A2535F1F1D1 /* SettingsScreen.swift */; };
 		044DDEE328CB2E24DCEB6B60 /* RoomsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89C19FEB510AAF4B7A802534 /* RoomsScreen.swift */; };
 		0EA470E9EEC4AE9C6C1717CF /* NotificationSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79DC83B8F7CFFDB1307B62A7 /* NotificationSystem.swift */; };
+		0EC20263620031CB2831CC64 /* AccountDeletionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = F65E5A75894486FE607631CF /* AccountDeletionState.swift */; };
 		1DC833E26E3B502C64227515 /* ForegroundState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75FE2481A3D3E7C4D4986FC /* ForegroundState.swift */; };
 		30E54AA34C72EB48FA0F656E /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = FCA69E8AC81C6BAF717967D4 /* PrivacyInfo.xcprivacy */; };
 		35BC8E8DE42D4FCF5582B155 /* AccountNotificationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D90AC9EB360EAB78A38768D3 /* AccountNotificationModel.swift */; };
+		36FC67D4C6D2DA018A236154 /* AccountDeletionScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61381AC5AF83E2F51A44CDFA /* AccountDeletionScreen.swift */; };
 		46A1020AF00225CB1479EC9A /* M11Contract.swift in Sources */ = {isa = PBXBuildFile; fileRef = D334362D02642EF5856BEAEA /* M11Contract.swift */; };
 		47DDF7E513248F66940481D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B7272D32F058E07C761C49E /* Assets.xcassets */; };
 		48A98F0626DAD9C88B004786 /* NativeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63744BE3F2158FC94A6D9AE8 /* NativeAPIClient.swift */; };
@@ -49,6 +51,7 @@
 		E81D8CE12E83789DA84DF161 /* NativeRoomsRemote.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2459C08530C3FFA0600C8874 /* NativeRoomsRemote.swift */; };
 		FB3A4D896E520BC9A27C9B37 /* ShellNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */; };
 		FCD431F7A0F12B998DCDAE4A /* Loadable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FC321BF467B63F6920E97E /* Loadable.swift */; };
+		FD0C97C4AE86577F8F43A7DA /* AccountDeletionContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 32526300C1DC4676BC84C5A3 /* AccountDeletionContract.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -61,12 +64,14 @@
 		2EE892CDCF7BA8D77035A040 /* RoomsScreenModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsScreenModel.swift; sourceTree = "<group>"; };
 		306959893BFAB5D6566C792A /* NativeCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCredentialStore.swift; sourceTree = "<group>"; };
 		31446C8CC8137185674F1F1F /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
+		32526300C1DC4676BC84C5A3 /* AccountDeletionContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionContract.swift; sourceTree = "<group>"; };
 		34AE2801D9ACB8FBE29E3A09 /* ProfileScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileScreen.swift; sourceTree = "<group>"; };
 		3B7272D32F058E07C761C49E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		43501230026F1C91108FFC8A /* SOOPPending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPPending.swift; sourceTree = "<group>"; };
 		53DB7CFF4ADCEE99F65A29EA /* NativeSessionDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSessionDTO.swift; sourceTree = "<group>"; };
 		543B6ADBAB63583E7D86FC10 /* RogichatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RogichatApp.swift; sourceTree = "<group>"; };
 		6026A7294F18052158E3A9A7 /* AccountNotificationSection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountNotificationSection.swift; sourceTree = "<group>"; };
+		61381AC5AF83E2F51A44CDFA /* AccountDeletionScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionScreen.swift; sourceTree = "<group>"; };
 		63744BE3F2158FC94A6D9AE8 /* NativeAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAPIClient.swift; sourceTree = "<group>"; };
 		6A1A097B6AD7B7A917F7EA16 /* SOOPBrowserSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPBrowserSession.swift; sourceTree = "<group>"; };
 		6FE645979D5EC1572B69A3C5 /* AccountScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScreen.swift; sourceTree = "<group>"; };
@@ -96,6 +101,7 @@
 		DE7D45E9A0D7A79BE411F20E /* LoadableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadableView.swift; sourceTree = "<group>"; };
 		F07C181AE009F6BC8E2216CD /* SettingsComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComponents.swift; sourceTree = "<group>"; };
 		F31AFFF9647E8091CA636C95 /* ProfileDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileDraft.swift; sourceTree = "<group>"; };
+		F65E5A75894486FE607631CF /* AccountDeletionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionState.swift; sourceTree = "<group>"; };
 		FCA69E8AC81C6BAF717967D4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -135,6 +141,7 @@
 		0859A5556FE1CEFFBB88EEA3 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				61381AC5AF83E2F51A44CDFA /* AccountDeletionScreen.swift */,
 				D90AC9EB360EAB78A38768D3 /* AccountNotificationModel.swift */,
 				6026A7294F18052158E3A9A7 /* AccountNotificationSection.swift */,
 				6FE645979D5EC1572B69A3C5 /* AccountScreen.swift */,
@@ -237,6 +244,7 @@
 		62438DDD60747451F642E707 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				981577370F9022ED027501F0 /* AccountDeletion */,
 				3E28CC448F017676D33E9A16 /* Auth */,
 				A8E006FAAAFC604DC42A876A /* Design */,
 				B9D1715F11BCB2434479B337 /* Navigation */,
@@ -265,6 +273,15 @@
 				2EE892CDCF7BA8D77035A040 /* RoomsScreenModel.swift */,
 			);
 			path = Rooms;
+			sourceTree = "<group>";
+		};
+		981577370F9022ED027501F0 /* AccountDeletion */ = {
+			isa = PBXGroup;
+			children = (
+				32526300C1DC4676BC84C5A3 /* AccountDeletionContract.swift */,
+				F65E5A75894486FE607631CF /* AccountDeletionState.swift */,
+			);
+			path = AccountDeletion;
 			sourceTree = "<group>";
 		};
 		A8E006FAAAFC604DC42A876A /* Design */ = {
@@ -383,6 +400,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FD0C97C4AE86577F8F43A7DA /* AccountDeletionContract.swift in Sources */,
+				36FC67D4C6D2DA018A236154 /* AccountDeletionScreen.swift in Sources */,
+				0EC20263620031CB2831CC64 /* AccountDeletionState.swift in Sources */,
 				35BC8E8DE42D4FCF5582B155 /* AccountNotificationModel.swift in Sources */,
 				CF0214D5F1053B212D24455D /* AccountNotificationSection.swift in Sources */,
 				C49E87A86B213B60475A4C8E /* AccountScreen.swift in Sources */,
