@@ -1,6 +1,6 @@
 import type { ChatActorRef, ChatTimelineItem } from './types';
 
-export type ChatRequest = (path: string, options?: { method?: 'POST'; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
+export type ChatRequest = (path: string, options?: { method?: 'POST' | 'PUT' | 'DELETE'; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
 export interface RoomMembership { roomId: string; name: string; actorId: string; role: 'FAN' | 'STREAMER'; mode: 'FAN' }
 export interface ServerMessage {
   id: string; version: string; createdAt: string; audience: 'SHARED' | 'PRIVATE';

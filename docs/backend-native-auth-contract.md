@@ -9,8 +9,10 @@ is not configured. Never turn these gaps into fake login or a successful demo.
 
 1. Native session transport: separate DB purpose/client binding, REST session and
    logout, shared command authorization, and native socket admission. In progress.
-2. Native SOOP transaction, browser launch, callback handoff, completion exchange,
-   and real broker integration. Not implemented by slice 1.
+2. Native SOOP transaction, browser launch, callback handoff and completion exchange
+   are implemented separately in slice 2; see [implementation evidence and safe
+   errors](backend-native-soop.md). Broker activation/canonical-subject verification
+   and deployment remain release gates. Not implemented by slice 1 alone.
 3. Apple native verification and Android/web Apple authorization, provider-token
    revocation and account-change handling. Separate implementation and registration
    gates; an identity table is not evidence of Apple support.
@@ -64,7 +66,7 @@ input to that work, not a parallel Swagger implementation.
 ## Native SOOP transaction contract (slice 2)
 
 All JSON objects reject unknown fields. Auth responses are `Cache-Control: no-store`.
-The following routes are implementation targets, not currently available APIs.
+The following routes are implemented by slice 2, not a claim of deployed APIs.
 
 | Route | Request | Response |
 |---|---|---|
@@ -75,8 +77,12 @@ The following routes are implementation targets, not currently available APIs.
 
 The exchange response nests the exact `GET /v1/auth/session` native DTO under
 `session`; it does not flatten those fields or add a provider/sign-in-method
-inference. Its outer `expiresAt` must equal `session.expiresAt`. This is a planned
-slice-2 contract, not an already implemented issuance route.
+inference. Its outer `expiresAt` must equal `session.expiresAt`.
+
+Native start/exchange require a single `X-Rogi-Client` matching body `clientId`,
+JSON content type, no browser Origin/CSRF and no web session cookie. Login omits
+Authorization; link uses the same native Bearer at start and exchange. Reject
+unknown body fields and duplicate credential/client headers.
 
 `clientId` is `ios|android`. `intent` is `login|link`. Login requires current terms
 version `2026-09-20`. S256 challenge and returnState are 43-character base64url
@@ -113,6 +119,11 @@ session on successful replacement. Do not auto-merge identities or accounts.
 Only an explicit login terms consent may update the recorded terms version. A
 link transaction preserves existing consent; successful identity linking is not
 agreement to new terms and must not bypass any outstanding terms requirement.
+Slice 2 rejects stale/null consent at native link start, callback and exchange with
+`403 TERMS_REQUIRED`, without updating consent or revoking the current session.
+The app may offer an explicit login with current consent, but must not silently
+convert link into login or merge accounts. This does not add an onboarding enum
+value or implement a global future terms-policy migration gate.
 
 Claim the provider transaction before external I/O; broker exchange happens
 outside the DB transaction. Finalization repeats current authorization. Confirmed
