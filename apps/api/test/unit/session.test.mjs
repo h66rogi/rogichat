@@ -11,6 +11,19 @@ import * as primitives from '../../dist/modules/auth/auth-primitives.js';
 
 const token = 'a'.repeat(43); const proof = 'b'.repeat(43);
 const audience = 'session-test';
+test('account partitions are opaque, stable across sessions and isolated by account, audience and key', async () => {
+  const f = fixture(), id = f.session.user_id;
+  const partition = f.service.accountPartition(id);
+  assert.match(partition, /^[A-Za-z0-9_-]{43}$/);
+  assert.ok(!partition.includes(id));
+  await f.service.issue(f.tx, id);
+  f.session.id = randomUUID(); f.session.soop_status = 'REVOKED';
+  assert.equal(f.service.accountPartition(id), partition);
+  assert.equal(new SessionService({}, audience, f.key).accountPartition(id), partition);
+  assert.notEqual(f.service.accountPartition(randomUUID()), partition);
+  assert.notEqual(new SessionService({}, 'other-environment', f.key).accountPartition(id), partition);
+  assert.notEqual(new SessionService({}, audience, randomBytes(32)).accountPartition(id), partition);
+});
 function fixture() {
   const calls = []; const key = randomBytes(32); const tx = Object.freeze({ writable: true });
   let session = { id: randomUUID(), user_id: randomUUID(), csrf_digest: digest(proof), status: 'ACTIVE', soop_status: 'VERIFIED' };

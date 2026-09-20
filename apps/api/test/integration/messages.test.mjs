@@ -37,7 +37,7 @@ async function fixture(t, mode = 'FAN') {
   await restart();
   const call = async (who, method, path, body, headers = {}) => {
     const response = await fetch(`${base}/v1${path}`, { method, headers: {
-      Origin: config.origin, Cookie: `rogi_session=${who.token}`, 'X-CSRF-Token': who.csrf,
+      Origin: config.origin, ...(headers.Authorization ? {} : { Cookie: `rogi_session=${who.token}`, 'X-CSRF-Token': who.csrf }),
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers,
     }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     return { status: response.status, body: response.status === 204 ? undefined : await response.json() };
@@ -238,4 +238,60 @@ test('random missing room UUIDs consume a fixed account budget without creating 
   const [bucket] = await f.db.transactions.read(tx => tx.rows('SELECT used FROM rate_buckets WHERE key_digest=?', [key]));
   assert.equal(Number(bucket.used), 60);
   assert.equal((await f.send(f.fan1, f.command('독립 사용자의 private', 'PRIVATE', f.owner.actor))).status, 200);
+});
+
+test('own receipt reconciliation survives lost ACK/restart and isolates identical command IDs between senders', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'GROUP'); const body = f.command();
+  const lookup = (who, command = body.clientMessageId) => f.call(who, 'GET', `/rooms/${f.room}/message-commands/${command}`);
+  assert.equal((await lookup(f.owner)).status, 404);
+  const sent = await f.send(f.owner, body); assert.equal(sent.status, 200);
+  await f.restart(); // Sender lost the ACK; reconcile without posting another command.
+  assert.deepEqual((await lookup(f.owner)).body, sent.body);
+  assert.equal((await lookup(f.fan1)).status, 404);
+  const other = await f.send(f.fan1, body); assert.equal(other.status, 200);
+  assert.notEqual(other.body.messageId, sent.body.messageId);
+  assert.deepEqual((await lookup(f.fan1)).body, other.body);
+  const native = await f.db.transactions.write(tx => f.sessions.issueNative(tx, f.owner.id, 'ios'));
+  const nativeLookup = await f.call(f.owner, 'GET', `/rooms/${f.room}/message-commands/${body.clientMessageId}`, undefined, { Authorization: `Bearer ${native.token}`, 'X-Rogi-Client': 'ios' });
+  assert.deepEqual(nativeLookup.body, sent.body);
+  const deleted = await f.call(f.owner, 'POST', `/rooms/${f.room}/messages/${sent.body.messageId}/delete`, {}, {
+    Authorization: `Bearer ${native.token}`, 'X-Rogi-Client': 'ios',
+  });
+  assert.equal(deleted.status, 200);
+  await f.restart();
+  assert.deepEqual((await lookup(f.owner)).body, { clientMessageId: body.clientMessageId, status: 'deleted' });
+  assert.deepEqual((await lookup(f.fan1)).body, other.body);
+  assert.equal((await f.send(f.owner, body)).body.status, 'deleted');
+  assert.equal((await f.get(f.owner, sent.body.messageId)).status, 404);
+  assert.equal((await lookup(f.outsider)).status, 404);
+  assert.equal((await lookup(f.owner, 'invalid')).status, 400);
+  const [count] = await f.db.transactions.read(tx => tx.rows('SELECT COUNT(*) AS total FROM messages WHERE room_id=?', [f.room]));
+  assert.equal(Number(count.total), 2);
+});
+
+test('own receipt lookup enforces leave/rejoin, private grant, closed room and session/account revocation', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'GROUP'); const body = f.command();
+  const sent = await f.send(f.fan1, body); assert.equal(sent.status, 200);
+  const lookup = (who, command) => f.call(who, 'GET', `/rooms/${f.room}/message-commands/${command}`);
+  assert.equal((await lookup(f.fan1, body.clientMessageId)).status, 200);
+  assert.equal((await f.call(f.fan1, 'POST', `/rooms/${f.room}/leave`, {})).status, 200);
+  assert.equal((await lookup(f.fan1, body.clientMessageId)).status, 404);
+  assert.equal((await f.call(f.fan1, 'POST', `/rooms/${f.room}/join`, {})).status, 200);
+  assert.equal((await lookup(f.fan1, body.clientMessageId)).status, 404);
+  const privateBody = f.command('현재 비공개', 'PRIVATE', f.owner.actor);
+  const privateSent = await f.send(f.fan2, privateBody); assert.equal(privateSent.status, 200);
+  assert.equal((await lookup(f.fan2, privateBody.clientMessageId)).status, 200);
+  const [stored] = await f.db.transactions.read(tx => tx.rows('SELECT stream_id FROM messages WHERE id=?', [privateSent.body.messageId]));
+  await f.db.transactions.write(tx => tx.prisma.stream_grants.updateMany({ where: { stream_id: stored.stream_id, member_id: f.fan2.actor }, data: { revoked_at: new Date() } }));
+  assert.equal((await lookup(f.fan2, privateBody.clientMessageId)).status, 404);
+  const own = f.command(); assert.equal((await f.send(f.owner, own)).status, 200);
+  await f.db.transactions.write(tx => tx.prisma.platform_soop.updateMany({ where: { user_id: f.owner.id }, data: { status: 'REVOKED' } }));
+  assert.equal((await lookup(f.owner, own.clientMessageId)).status, 403);
+  await f.db.transactions.write(tx => tx.prisma.platform_soop.updateMany({ where: { user_id: f.owner.id }, data: { status: 'VERIFIED' } }));
+  await f.db.transactions.write(tx => tx.prisma.rooms.update({ where: { id: f.room }, data: { status: 'CLOSED' } }));
+  assert.equal((await lookup(f.owner, own.clientMessageId)).status, 404);
+  await f.db.transactions.write(tx => tx.prisma.users.update({ where: { id: f.owner.id }, data: { status: 'DELETING' } }));
+  assert.equal((await lookup(f.owner, own.clientMessageId)).status, 401);
+  await f.db.transactions.write(tx => f.sessions.revoke(tx, f.fan1.token, f.fan1.csrf));
+  assert.equal((await lookup(f.fan1, body.clientMessageId)).status, 401);
 });
