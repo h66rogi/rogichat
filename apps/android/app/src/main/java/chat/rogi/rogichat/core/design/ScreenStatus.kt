@@ -8,7 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
-// Loading/empty layout extraction (R04); retry action is a new addition, not an API retry.
+// Loading/empty presentation adapted from the reference app. Actions are supplied by the owning feature.
 @Composable
 fun ScreenStatus(title: String, message: String, loading: Boolean = false, onRetry: (() -> Unit)? = null) {
     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
@@ -16,6 +16,6 @@ fun ScreenStatus(title: String, message: String, loading: Boolean = false, onRet
         if (loading) CircularProgressIndicator(Modifier.size(32.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        if (onRetry != null) OutlinedButton(onClick = onRetry) { Text("다시 시도 화면 미리보기") }
+        if (onRetry != null) OutlinedButton(onClick = onRetry) { Text("다시 시도") }
     }
 }

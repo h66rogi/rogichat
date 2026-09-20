@@ -1,4 +1,3 @@
-#if ROGICHAT_QA
 @main
 struct WireframeStateChecks {
     static func rooms(_ role: PreviewRole = .fan) -> WireframeState {
@@ -132,4 +131,3 @@ struct WireframeStateChecks {
         precondition(queue.begin(now: 10 + PendingRouteQueue.ttl) == nil)
     }
 }
-#endif

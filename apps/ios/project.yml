@@ -39,6 +39,8 @@ targets:
     sources:
       - Sources
       - Resources/Assets.xcassets
+      - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
     configFiles:
       Debug-QA: Config/QA.xcconfig
       Release-QA: Config/QA.xcconfig
