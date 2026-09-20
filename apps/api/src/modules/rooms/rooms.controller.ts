@@ -22,6 +22,11 @@ export class RoomsController {
   @Post('admin/rooms') @HttpCode(201)
   @roomDocs.provision()
   provision(@Req() request: Request) { return this.rooms.provision(readCommandCredentials(request, this.config), request.body); }
+  @Get('rooms/:roomId/private-recipients')
+  privateRecipients(@Req() request: Request, @Param('roomId') roomId: string) {
+    const query = object(request.query, ['after']);
+    return this.rooms.privateRecipients(readSessionCredentials(request, this.config), identifier(roomId), query.after === undefined ? undefined : identifier(query.after));
+  }
   @Post('rooms/:roomId/join') @HttpCode(200)
   @roomDocs.join()
   join(@Req() request: Request, @Param('roomId') roomId: string) {

@@ -178,8 +178,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@prisma/adapter-mariadb>mariadb': 3.4.7
+
 patchedDependencies:
-  mariadb@3.4.5: b5a8f2a6c7e1a8f0e005f7f93bcd04eefd89a6de226198d8f79dbb94e069501d
+  mariadb@3.4.7: 1259c1a3a214627cdf18de7ea716fd03c3b46ff96d43db73d15070ebd2d3ffce
 
 importers:
 
@@ -221,8 +224,8 @@ importers:
         specifier: 8.3.0
         version: 8.3.0
       mariadb:
-        specifier: 3.4.5
-        version: 3.4.5(patch_hash=b5a8f2a6c7e1a8f0e005f7f93bcd04eefd89a6de226198d8f79dbb94e069501d)
+        specifier: 3.4.7
+        version: 3.4.7(patch_hash=1259c1a3a214627cdf18de7ea716fd03c3b46ff96d43db73d15070ebd2d3ffce)
       reflect-metadata:
         specifier: 0.2.2
         version: 0.2.2
@@ -2898,8 +2901,8 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  mariadb@3.4.5:
-    resolution: {integrity: sha512-gThTYkhIS5rRqkVr+Y0cIdzr+GRqJ9sA2Q34e0yzmyhMCwyApf3OKAC1jnF23aSlIOqJuyaUFUcj7O1qZslmmQ==}
+  mariadb@3.4.7:
+    resolution: {integrity: sha512-3Ols2iyVAXJjjugGo96dce2OYv1XYkQY0vBDMuWYQi08mGiRXQjhybZM2ZgAnX7N4kUgPOV0x5A/sof2DDPylQ==}
     engines: {node: '>= 14'}
 
   math-intrinsics@1.1.0:
@@ -4196,7 +4199,7 @@ snapshots:
   '@prisma/adapter-mariadb@7.10.0':
     dependencies:
       '@prisma/driver-adapter-utils': 7.10.0
-      mariadb: 3.4.5(patch_hash=b5a8f2a6c7e1a8f0e005f7f93bcd04eefd89a6de226198d8f79dbb94e069501d)
+      mariadb: 3.4.7(patch_hash=1259c1a3a214627cdf18de7ea716fd03c3b46ff96d43db73d15070ebd2d3ffce)
 
   '@prisma/client-runtime-utils@7.10.0': {}
 
@@ -6328,10 +6331,10 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  mariadb@3.4.5(patch_hash=b5a8f2a6c7e1a8f0e005f7f93bcd04eefd89a6de226198d8f79dbb94e069501d):
+  mariadb@3.4.7(patch_hash=1259c1a3a214627cdf18de7ea716fd03c3b46ff96d43db73d15070ebd2d3ffce):
     dependencies:
       '@types/geojson': 7946.0.16
-      '@types/node': 24.13.5
+      '@types/node': 24.13.6
       denque: 2.1.0
       iconv-lite: 0.6.3
       lru-cache: 10.4.3

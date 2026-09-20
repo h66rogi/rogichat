@@ -1,6 +1,19 @@
 {
+	# Error logs also contain requests; do not retain OAuth queries or headers.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers delete
+			}
+		}
+	}
 	admin localhost:2019
 }
+
+# Optional reviewed web site; absent until separately deployed.
+import /etc/caddy/sites/*.caddy
 
 api.qa.rogi.chat {
 	# No access log until a reviewed redaction policy is installed.

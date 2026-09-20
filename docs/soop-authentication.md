@@ -4,7 +4,11 @@
 기존 SOOP 직접 로그인/연결 중계는 유지한다. 계정 상태·미연결 인가·충돌 처리·심사 검토는
 [Apple 로그인과 SOOP 필수 연결](mobile-authentication.md)을 함께 따른다.
 
-상태: 사용자 요구 반영 설계. 신규 endpoint·broker 등록·DB·세션 구현은 아직 없다.
+상태(2026-09-20 갱신): 로기챗 웹 endpoint·DB transaction·세션 구현과 QA foundation
+가동은 완료했다. 실제 broker 등록/배포와 공급자 canonical subject 검증은 미완료이며
+현재 QA의 로그인 시작은 `503 AUTH_UNAVAILABLE`로 닫힌다. 아래 외부 중계·모바일
+계약에는 아직 구현/등록되지 않은 부분이 있다. 네이티브 상세 구현 순서는
+[native 인증 계약](backend-native-auth-contract.md)을 따른다.
 QA 웹 `https://qa.rogi.chat`, QA API `https://api.qa.rogi.chat`.
 운영 웹 `https://rogi.chat`, 운영 API `https://api.rogi.chat`은 대응되는 제안이다.
 
@@ -66,7 +70,9 @@ user와 platform_soop를 하나의 transaction에서 생성한다. 동시 가입
 
 ## 제안하는 왕복 흐름
 
-아래의 `/rogichat/*`와 로기챗 endpoint는 **신규 계약안**이며 현재 서버의 API가 아니다.
+로기챗 웹 시작 API는 `POST /v1/auth/soop/start`와 JSON 응답의 `authorizeUrl`을
+사용한다. 아래 외부 `/rogichat/*`는 전용 중계 계약이며 실제 운영 활성화는 별도
+검증 대상이다. 준비된 소스 코드만으로 외부 서버 배포를 주장하지 않는다.
 
 ```mermaid
 sequenceDiagram
@@ -74,11 +80,11 @@ sequenceDiagram
   participant R as api.qa.rogi.chat
   participant M as api.meloming.com
   participant S as SOOP
-  B->>R: GET /v1/auth/soop/start
+  B->>R: POST /v1/auth/soop/start (Origin + JSON intent/termsVersion)
   R->>R: transaction + browser binding + S256 challenge 저장
   R->>M: POST /v1/platform/oauth/rogichat/requests (서버 인증)
   M-->>R: 짧은 수명의 authorize_url
-  R-->>B: 302 api.meloming.com/.../authorize?request=opaque
+  R-->>B: 200 authorizeUrl + transaction별 browser cookie
   B->>M: 승인된 요청으로 인증 진입
   M-->>B: 302 SOOP /auth/code
   B->>S: SOOP 로그인·동의
@@ -177,4 +183,6 @@ SOOP 동의 화면의 앱 이름은 기존 OAuth 앱 등록에 따라 기존 브
    다른 user 연결, provider timeout, broker 재시작을 검증한다.
 5. 실제 QA 웹·Android·iOS 로그인과 기존 소비자 로그인이 성공한 후 출시한다.
 
-이번 변경은 설계와 read-only 조사다. 기존 인증 서버와 SOOP 앱 설정은 변경하지 않았다.
+최초 조사는 read-only였으며 이후 별도 승인으로 외부 broker 소스를 준비했다.
+실제 외부 배포·등록, 공급자 응답의 안정적 subject 및 전체 로그인 성공은 아직
+별도 증거가 필요하다. QA health 성공이나 합성 broker 시험으로 이를 대체하지 않는다.

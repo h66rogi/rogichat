@@ -81,3 +81,13 @@ diff --git a/lib/connection.js b/lib/connection.js
 +    );
 +    this.fatalError(err, true);
    }
+@@ -1344,6 +1290,8 @@
+ 
+     const baseConf = { socket: this.socket };
+-    if (info.isMariaDB()) {
++    // Rogichat: an untrusted greeting must not override explicit TLS policy.
++    // Product connections always supply verified SSL options, never boolean true.
++    if (info.isMariaDB() && this.opts.ssl === true) {
+       // for MariaDB servers, permit self-signed certificated
+       // this will be replaced by fingerprint validation with ending OK_PACKET
+       // codeql[js/disabling-certificate-validation]

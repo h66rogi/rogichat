@@ -2,7 +2,8 @@ import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import { Server } from 'socket.io';
 import type { Socket } from 'socket.io';
 import { object, opaque } from '../../modules/auth/auth-primitives.js';
-import { cookieName } from '../../modules/auth/auth-context.js';
+import { readSessionCredentials } from '../../modules/auth/auth-context.js';
+import type { CommandCredentials } from '../../modules/auth/auth-context.js';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import type { RealtimeService } from '../../modules/realtime/realtime.service.js';
 import type { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
@@ -17,16 +18,28 @@ function bounded(value: number, max: number, min = 1): number {
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error('invalid_realtime_policy');
   return value;
 }
-export function socketCredentials(request: IncomingMessage, input: unknown, config: AuthConfig): { token: string; csrf: string } {
-  if (request.headers.origin !== config.origin) throw new Error('realtime_denied');
+function upgradeCredentials(request: IncomingMessage, config: AuthConfig) {
+  if (request.url !== undefined) {
+    // Only Engine.IO protocol query parameters are supported. Credentials never
+    // enter URLs (including ignored query values that a proxy could log).
+    if (request.url.length > 2048) throw new Error('realtime_denied');
+    const url = new URL(request.url, 'http://socket.invalid');
+    if ([...url.searchParams.keys()].some(key => !['EIO', 'transport', 't', 'sid', 'b64'].includes(key))) throw new Error('realtime_denied');
+  }
+  const credentials = readSessionCredentials(request, config);
+  if (request.headers.origin !== config.origin && !(request.headers.origin === undefined && credentials.transport === 'NATIVE')) throw new Error('realtime_denied');
+  return credentials;
+}
+export function socketCredentials(request: IncomingMessage, input: unknown, config: AuthConfig): CommandCredentials {
+  const credentials = upgradeCredentials(request, config);
+  if (credentials.transport === 'NATIVE') {
+    const fields = object(input, ['schemaVersion', 'transport']);
+    if (fields.schemaVersion !== 1 || fields.transport !== 'native') throw new Error('realtime_denied');
+    return credentials;
+  }
   const fields = object(input, ['schemaVersion', 'csrfToken']);
   if (fields.schemaVersion !== 1) throw new Error('realtime_denied');
-  const cookie = request.headers.cookie ?? '';
-  if (cookie.length > 8192) throw new Error('realtime_denied');
-  const prefix = `${cookieName(config, 'session')}=`;
-  const cookies = cookie.split(';').map(part => part.trim()).filter(part => part.startsWith(prefix));
-  if (cookies.length !== 1) throw new Error('realtime_denied');
-  return { token: opaque(cookies[0]!.slice(prefix.length)), csrf: opaque(fields.csrfToken) };
+  return { token: opaque(credentials.token), csrf: opaque(fields.csrfToken) };
 }
 
 // Lossy wake-up transport only. No client-selected principal/room channels, message commands,
@@ -63,7 +76,9 @@ export class RealtimeGateway {
       allowRequest: (request, callback) => {
         const now = performance.now();
         if (now - this.admissionWindow >= 1000) { this.admissionWindow = now; this.admissions = 0; }
-        const allowed = !this.stopped && !lifecycle.draining && request.headers.origin === config.origin &&
+        let admittedTransport = false;
+        try { upgradeCredentials(request, config); admittedTransport = true; } catch { /* No credential detail leaves admission. */ }
+        const allowed = !this.stopped && !lifecycle.draining && admittedTransport &&
           this.io.engine.clientsCount + this.reservations.size < this.maxConnections && this.admissions < 100;
         if (allowed) {
           this.admissions++;
@@ -99,6 +114,11 @@ export class RealtimeGateway {
   private async authenticate(socket: Socket): Promise<void> {
     if (this.stopped || this.lifecycle.draining) throw new Error('realtime_denied');
     const credentials = socketCredentials(socket.request, socket.handshake.auth, this.config);
+    if (credentials.transport === 'NATIVE') {
+      delete socket.request.headers.authorization;
+      const raw = socket.request.rawHeaders;
+      for (let index = raw.length - 2; index >= 0; index -= 2) if (raw[index]?.toLowerCase() === 'authorization') raw.splice(index, 2);
+    }
     const principal = await this.service.admit(credentials);
     if (this.stopped || this.lifecycle.draining || socket.conn.readyState !== 'open' || this.connections.size >= this.maxConnections || (this.accounts.get(principal.userId) ?? 0) >= this.maxPerAccount) throw new Error('realtime_denied');
     this.connections.set(socket.id, { socket, userId: principal.userId, sessionId: principal.sessionId });

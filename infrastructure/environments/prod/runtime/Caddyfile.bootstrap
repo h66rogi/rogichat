@@ -1,8 +1,21 @@
 {
 	admin localhost:2019
+	# Runtime reverse-proxy errors may carry OAuth URI/header data even when
+	# access logs are disabled. Filter the default runtime logger as well.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers delete
+			}
+		}
+	}
 }
 
-rogi.chat, api.rogi.chat {
+import /etc/caddy/sites/*.caddy
+
+api.rogi.chat {
 	# Staged only. Start after a separately reviewed DNS cutover.
 	# No access logs or application/OAuth routes at this foundation stage.
 	@infra path /_infra/health
