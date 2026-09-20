@@ -33,7 +33,7 @@ import chat.rogi.rogichat.feature.settings.*
 fun AppEntry(services: ProductServices? = null,
              roomContent: (@Composable (String, () -> Unit) -> Unit)? = null) {
     val context = LocalContext.current
-    val product = services ?: remember { ProductServices.installed() }
+    val product = services ?: remember { ProductServices.installed(context.applicationContext) }
     val preferences = remember(context.applicationContext) { AppearancePreferences(context.applicationContext) }
     val appearance by preferences.mode.collectAsStateWithLifecycle()
     val dark = when (appearance) { Appearance.SYSTEM -> isSystemInDarkTheme(); Appearance.LIGHT -> false; Appearance.DARK -> true }
@@ -50,6 +50,8 @@ fun AppEntry(services: ProductServices? = null,
             val accountModel: SessionViewModel = viewModel { SessionViewModel(product) }
             val operation by accountModel.state.collectAsStateWithLifecycle()
             LaunchedEffect(accountModel) { accountModel.start() }
+            val foregroundEpoch = LocalForegroundEpoch.current
+            LaunchedEffect(accountModel, foregroundEpoch) { if (foregroundEpoch > 0) accountModel.foreground() }
             // Every account/access scope owns a fresh nav graph and feature ViewModels.
             // Restored private routes cannot cross a logout/relink/account boundary.
             val featureScope: SessionFeatureScope = viewModel { SessionFeatureScope() }
@@ -78,7 +80,15 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     val topLevel = route in setOf(null, "talks", "settings")
     val privateAccount = session.account.takeIf { session.access in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) }
     fun open(value: String) { nav.navigate(value) { launchSingleTop = true } }
-    Scaffold(snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
+    Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
+        if (session.validationNeedsRetry && privateAccount != null) Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text(session.notice.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = sessionModel::retryValidation, enabled = !operation.busy) { Text("다시 시도") }
+            }
+        }
+    }, bottomBar = {
         if (topLevel) AppNavigationBar(if (route == "settings") AppTab.SETTINGS else AppTab.TALKS) { tab ->
             nav.navigate(if (tab == AppTab.TALKS) "talks" else "settings") {
                 popUpTo(nav.graph.findStartDestination().id) { saveState = true }
@@ -91,7 +101,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("talks") {
                 ProductPage(if (session.access == ShellAccess.SIGNED_OUT) "로기챗" else "대화", scroll = false) {
                     when (session.access) {
-                        ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy, sessionModel::signIn)
+                        ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy, sessionModel::signIn, session.notice)
                         ShellAccess.LINK_REQUIRED -> LinkAccountScreen(operation.busy, if (services.actions?.canLinkSoop == true) sessionModel::linkSoop else null)
                         ShellAccess.READY -> if (services.rooms != null && roomContent != null) {
                             val roomsModel: RoomsViewModel = viewModel { RoomsViewModel(services.rooms, requireNotNull(privateAccount).id) }
@@ -108,7 +118,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("settings") {
                 ProductPage("설정") {
                     SettingsScreen(privateAccount, appearance, onSignIn = { open("talks") },
-                        onProfile = if (session.access == ShellAccess.READY && services.profiles != null) ({ open("profile") }) else null,
+                        onProfile = if (privateAccount != null && services.profiles != null) ({ open("profile") }) else null,
                         onAccount = if (privateAccount != null) ({ open("account") }) else null,
                         onAppearance = { open("appearance") }, onNotifications = { open("notifications") }, onAbout = { open("about") })
                 }
@@ -118,7 +128,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("about") { ProductPage("로기챗 정보", { nav.popBackStack() }) { AboutScreen { open("licenses") } } }
             composable("licenses") { ProductPage("오픈소스 라이선스", { nav.popBackStack() }) { LicensesScreen() } }
             composable("profile") {
-                if (session.access == ShellAccess.READY && privateAccount != null && services.profiles != null) {
+                if (privateAccount != null && services.profiles != null) {
                     val model: ProfileViewModel = viewModel { ProfileViewModel(services.profiles, privateAccount.id) }
                     ProfileScreen(model) { nav.popBackStack() }
                 } else LaunchedEffect(Unit) { nav.popBackStack() }

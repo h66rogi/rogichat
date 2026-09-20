@@ -41,6 +41,17 @@ def main():
             "Sources/Core/Session/AppSession.swift",
             "Tests/Product/ProductStateChecks.swift",
         ])
+        run_checks(sdk, Path(temporary), "native-transport-checks", [
+            "Sources/Core/Navigation/ShellNavigation.swift",
+            "Sources/Features/Settings/ProfileEditor.swift",
+            "Sources/Features/Settings/ProfileDraft.swift",
+            "Sources/Core/Session/AppSession.swift",
+            "Sources/Core/Network/NativeAPIClient.swift",
+            "Sources/Core/Session/NativeCredentialStore.swift",
+            "Sources/Core/Session/NativeSessionDTO.swift",
+            "Sources/Core/Session/NativeSessionService.swift",
+            "Tests/Product/NativeTransportChecks.swift",
+        ])
 
 
 if __name__ == "__main__":

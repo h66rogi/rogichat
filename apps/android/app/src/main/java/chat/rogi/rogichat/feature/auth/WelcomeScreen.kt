@@ -21,7 +21,7 @@ import chat.rogi.rogichat.core.session.SignInProvider
 // LoginContent's branding / scroll / spacing / async provider actions adapted from the reference.
 // Email/password, unrelated OAuth providers and legacy logo are not Rogichat account contracts.
 @Composable
-fun WelcomeScreen(providers: Set<SignInProvider>, busy: Boolean, onSignIn: (SignInProvider) -> Unit) {
+fun WelcomeScreen(providers: Set<SignInProvider>, busy: Boolean, onSignIn: (SignInProvider) -> Unit, notice: String? = null) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(64.dp))
@@ -36,6 +36,10 @@ fun WelcomeScreen(providers: Set<SignInProvider>, busy: Boolean, onSignIn: (Sign
         Text("SOOP 계정을 연결하고\n우리의 이야기를 이어가세요.", style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.height(48.dp))
+        notice?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 20.dp))
+        }
         if (providers.isEmpty()) {
             Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium,
                 modifier = Modifier.fillMaxWidth()) {

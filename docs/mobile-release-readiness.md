@@ -1,6 +1,7 @@
 # 모바일 배포·Production 준비 상태
 
-2026-09-20. [제품 구성 교체](mobile-product-progress.md)와 함께 확인한 실제 준비 상태다.
+2026-09-20. [제품 구성 교체](mobile-product-progress.md)와
+[네이티브 세션·프로필 연결](mobile-native-transport-progress.md)의 준비 상태다.
 QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 분리한다. 테스트 배포 완료,
 서버 기능 완료, Production 스토어 출시를 서로 대신하는 증거로 사용하지 않는다.
 
@@ -10,16 +11,20 @@ QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 �
   검사를 자동 실행한다. PR 작업에는 실제 배포 자격증명을 제공하지 않는다.
 - 승인된 로컬 Mac의 별도 서명 설정으로 APK/AAB와 iOS Archive/IPA 생성이 검증됐다.
   도구는 QA 식별자·API origin·버전·서명·소스 커밋·해시·제품 fixture 제외를 검사한다.
-- iOS는 앱 전용 화면 모드 저장에 사용하는 UserDefaults를 `PrivacyInfo.xcprivacy`의
-  `CA92.1`로 선언한다. 현재 구성은 추적 SDK나 원격 데이터 수집을 연결하지 않았다.
-  선언 파일이 실제 app/IPA에 들어 있는지도 검사한다. API/분석 SDK를 연결할 때 실제
-  데이터 흐름에 맞춰 이 선언과 스토어 개인정보 정보를 다시 검토한다.
+- iOS는 화면 모드 저장용 UserDefaults `CA92.1`과, 프로필 API의 닉네임·생일 월/일·공개
+  설정에 해당하는 User ID/Other Data Types를 선언한다. 계정에 연결된 앱 기능 목적이며
+  추적은 없다. 선언 파일과 정확한 내용이 실제 app/IPA에 들어 있는지도 검사한다.
+  이는 빌드 8의 로컬 설정만 있던 선언에서 변경된 부분이다. 스토어 제출 전 실제 기능
+  범위에 맞춰 App Store Connect 개인정보 입력도 확인한다.
 - Android 서명/R8 산출물을 API 36.1의 격리된 읽기 전용 에뮬레이터에서 실행했다.
   탭/뒤로가기·설정·앱 정보·라이선스·화면 모드 재실행 복원·실제 OS 알림 설정 이동과
   글자 200% 표시를 확인했다. 이는 물리 기기·TalkBack·모든 지원 OS의 검증을 대신하지 않는다.
 - Firebase 업로드 뒤 승인된 비공개 테스터 목록으로 분배하고 원격 APK 해시와 등록 상태를
   확인한다. TestFlight는 `VALID` 처리, 기존 내부 그룹의 빌드 접근, 한국어 테스트 내용을 확인한다.
   개인 식별자가 있는 manifest/영수증/스크린샷은 Git 밖에 둔다.
+
+빌드 8·9는 Android 승인 테스터 분배·원격 APK 해시 일치와 iOS `VALID`·기존 내부 그룹의
+`IN_BETA_TESTING`까지 확인했다. 테스터 설치·실제 로그인 성공을 의미하지 않는다.
 
 현재 로컬 도구의 실제 사용 절차는 [테스트 배포](mobile-test-distribution.md),
 서명 비밀 취급은 [키체인 보호](mobile-signing-security.md)를 따른다.
@@ -47,24 +52,42 @@ QA APK/AAB는 Production Play 앱에 업로드하지 않는다. QA iOS export는
 ## 반복 배포 자동화의 경계
 
 현재 public CI는 검증 전용이다. 점검 시 모바일 배포 trigger/환경과 전용 trusted Mac
-release worker가 등록돼 있지 않았다. 로컬 서명 성공을 무인 CI 배포 준비 완료로 간주하지 않는다.
-인프라 조정자에게 다음 구현·운영 경계를 전달했다.
+release worker가 등록돼 있지 않았다. 인프라 조정자는 우선 명시적 로컬 운영자 경로를
+유지하기로 했다. 로컬 서명 성공을 무인 CI 배포 준비 완료로 간주하지 않는다.
+
+PR #22의 `android-finalize`·`ios-finalize`는 PR #20과 함께 QA `90a73e1`에 병합됐다.
+기존 업로드 후 분배/해시 확인과
+TestFlight 처리/그룹/한국어 안내 확인을 자동화한다. 빌드별 배타 잠금과 fsync journal,
+불변 입력으로 중복 변경을 막고, 불확실한 업로드·분배는 맹목적으로 반복하지 않는다.
+실제 빌드 8의 완료 확인 뒤 재실행이 원격 읽기만 수행하는 것도 검증했다.
+Xcode가 업로드 중 메타데이터를 쓰는 아카이브는 독립 작업 복사본으로 분리했다.
+이는 상주 runner·빌드 번호 할당·QA merge trigger를 설치한 것이 아니다.
+
+산출물 재확인은 해당 제품 버전의 검토된 검사 정책으로 실행한다. 빌드 8은 로컬 설정만
+사용하는 개인정보 선언이므로 후처리 도구 `ea83a5b`로 확인한다. native 프로필 연결 이후의
+도구는 새 수집 선언을 요구하며 빌드 8을 의도적으로 거부한다. 과거 산출물을 재확인하려고
+새 빌드의 검사를 완화하거나 기존 manifest·아카이브를 수정하지 않는다.
+
+인프라 조정자에게 다음 후속 운영 경계를 전달했다.
 
 1. private workflow 또는 통제된 Mac 서비스가 필수 CI를 통과한 merged-QA의 불변 SHA만
    받아 재빌드한다. 공개 PR checkout/artifact에서 자격증명 보유 작업을 실행하지 않는다.
 2. Git 밖의 배타 lock과 SHA/build별 journal로 동일 소스 중복 업로드·빌드 번호 충돌을 막는다.
    Android/iOS 번호와 기존 원격/로컬 번호를 대조하고 완료 단계는 재실행하지 않는다.
-3. 현재 서명·검증 도구를 재사용하고 Firebase 분배/해시 확인, TestFlight processing/그룹/노트
-   확인을 후속 단계로 자동화한다. iOS의 이미 시도한 업로드를 맹목적으로 재전송하지 않는다.
+3. 현재 서명·검증 및 업로드 후 확인 도구를 통제된 실행 경로에서 호출한다.
+   iOS의 이미 시도한 업로드를 맹목적으로 재전송하지 않는다.
 4. Production은 별도 reviewed-main lane, 외부 설정, 정확한 앱 등록/서명, 별도 산출물 경로를
    사용한다. QA 보호 검사를 건너뛰는 옵션으로 구현하지 않는다.
 
 ## 실제 서비스 연결 블로커
 
-네이티브 인증·앱 복귀·세션 수명은 [계약 C01/C02/C03/C08](mobile-implementation-plan.md)에
-남아 있다. 현재 웹 cookie/Origin/CSRF와 SOOP 웹 redirect를 앱 credential로 취급하지 않는다.
-첫 native 버전은 폐기 가능한 opaque session과 만료 시 재인증으로 시작할 수 있으며,
-존재하지 않는 refresh API를 선행 조건으로 강제하거나 임의 호출하지 않는다.
+고정 7일 native credential, 세션 조회, 프로필 GET/PATCH, 현재 credential 로그아웃 계약은
+커밋 `ac69ca2`로 확정됐고 양 OS 실제 HTTP/보호 저장소 adapter를 연결했다.
+제공자 인증을 통한 credential 발급·SOOP 연결·앱 복귀·Apple 로그인·탈퇴는
+[계약 C01/C02/C03/C08](mobile-implementation-plan.md)의 후속 구현·운영 등록이 필요하다.
+웹 cookie/Origin/CSRF와 SOOP 웹 redirect를 앱 credential로 취급하지 않는다.
+만료 시 재인증하며 존재하지 않는 refresh API를 호출하지 않는다. 최초 설치에는
+credential이 없으므로 가짜 계정이나 QA 전용 로그인으로 이 선행 조건을 건너뛰지 않는다.
 
 API 가동 여부는 QA `api.qa.rogi.chat`과 Prod `api.rogi.chat`의 실제 경로로 검증하고
 인프라 조정자가 소유한다. HTTP health 성공만으로 native 인증 계약이나 채팅 왕복을 완료로
