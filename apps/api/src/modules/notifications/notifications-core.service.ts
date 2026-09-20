@@ -9,6 +9,7 @@ import { NotificationsRepository } from './notifications.repository.js';
 export interface AuthorizedPushSubscription {
   id: string; userId: string; sessionId: string; audience: string;
   endpoint: string; p256dh: string; auth: string;
+  provider?: 'WEB' | 'APNS' | 'FCM'; nativeToken?: Buffer;
   generation: bigint; accountGeneration: bigint; preferenceGeneration: bigint;
 }
 const MAX_GENERATION = 18446744073709551615n;
@@ -22,6 +23,16 @@ export class NotificationsCoreService {
   async preferences(tx: Transaction, userId: string): Promise<NotificationPreferencesDto> {
     const row = await this.repository.preferences(tx, userId);
     return { pushEnabled: row?.push_enabled ?? false, generation: String(row?.generation ?? 1n) };
+  }
+  async requireNativeEnrollment(tx: Transaction, actor: Principal, audience: string, client: 'ios' | 'android'): Promise<void> {
+    const binding = await this.repository.binding(tx, actor.userId, actor.sessionId, client);
+    if (!binding || binding.audience !== audience || binding.soop_status !== 'VERIFIED') throw new ApiError('UNAUTHENTICATED', 401);
+    await this.repository.lockPreferences(tx, actor.userId);
+    const hint = await this.repository.nativeEnrollment(tx, actor.userId, actor.sessionId, audience, client, BigInt(binding.membership_generation));
+    const row = hint ? await this.repository.lockSubscription(tx, hint.id) : undefined;
+    if (!row || row.user_id !== actor.userId || row.session_id !== actor.sessionId || row.audience !== audience ||
+      row.provider !== (client === 'ios' ? 'APNS' : 'FCM') || row.native_client_id !== client || row.revoked_at || !row.native_token ||
+      BigInt(row.account_generation) !== BigInt(binding.membership_generation)) throw new ApiError('CONFLICT', 409);
   }
   // The caller must hold fresh account/session authorization on this transaction.
   async setPreferences(tx: Transaction, userId: string, enabled: boolean, expectedGeneration?: string): Promise<NotificationPreferencesDto> {
@@ -43,7 +54,7 @@ export class NotificationsCoreService {
     const prior = hint ? await this.repository.lockSubscription(tx, hint.id) : undefined;
     if (prior) {
       // Never transfer another account's endpoint, even after logout/revocation.
-      if (prior.user_id !== actor.userId || prior.audience !== audience) throw new ApiError('NOT_FOUND', 404);
+      if (prior.user_id !== actor.userId || prior.audience !== audience || (prior.provider && prior.provider !== 'WEB')) throw new ApiError('NOT_FOUND', 404);
       // Lost-response retry only observes the exact active current binding. It
       // cannot rotate credentials, rebind sessions or revive a tombstone.
       if (!input.generation && prior.session_id === actor.sessionId && !prior.revoked_at &&
@@ -71,7 +82,7 @@ export class NotificationsCoreService {
   }
   async remove(tx: Transaction, actor: Principal, audience: string, id: string, generation: string): Promise<void> {
     const prior = await this.repository.lockSubscription(tx, id);
-    if (!prior || prior.user_id !== actor.userId || prior.session_id !== actor.sessionId || prior.audience !== audience) throw new ApiError('NOT_FOUND', 404);
+    if (!prior || prior.user_id !== actor.userId || prior.session_id !== actor.sessionId || prior.audience !== audience || (prior.provider && prior.provider !== 'WEB')) throw new ApiError('NOT_FOUND', 404);
     // The exact original removal may be retried after its 204 was lost.
     if (prior.revoked_at && BigInt(prior.generation) === BigInt(generation) + 1n) return;
     if (String(prior.generation) !== generation) throw new ApiError('CONFLICT', 409);
@@ -85,14 +96,20 @@ export class NotificationsCoreService {
     if (!tx.writable) throw new Error('notification_authorization_requires_write_transaction');
     const hint = await this.repository.byId(tx, id);
     if (!hint) return null;
-    const binding = await this.repository.binding(tx, hint.user_id, hint.session_id);
+    const provider = hint.provider ?? 'WEB';
+    const client = provider === 'APNS' ? 'ios' : provider === 'FCM' ? 'android' : undefined;
+    if (client && hint.native_client_id !== client) return null;
+    const binding = await this.repository.binding(tx, hint.user_id, hint.session_id, client);
     if (!binding || binding.soop_status !== 'VERIFIED') return null;
     const preference = await this.repository.lockPreferences(tx, hint.user_id);
     const row = await this.repository.lockSubscription(tx, id);
     if (!row || row.user_id !== hint.user_id || row.session_id !== hint.session_id || row.revoked_at ||
+        (row.provider ?? 'WEB') !== provider || (client && row.native_client_id !== client) ||
         row.audience !== binding.audience || !preference?.push_enabled || BigInt(row.account_generation) !== BigInt(binding.membership_generation)) return null;
+    if (provider === 'WEB' ? !row.endpoint || !row.p256dh || !row.auth_secret : !row.native_token) return null;
     return { id: row.id, userId: row.user_id, sessionId: row.session_id, audience: row.audience,
-      endpoint: row.endpoint, p256dh: row.p256dh, auth: row.auth_secret, generation: BigInt(row.generation),
+      endpoint: row.endpoint ?? '', p256dh: row.p256dh ?? '', auth: row.auth_secret ?? '', provider,
+      ...(row.native_token ? { nativeToken: row.native_token } : {}), generation: BigInt(row.generation),
       accountGeneration: BigInt(row.account_generation), preferenceGeneration: BigInt(preference.generation) };
   }
   revokeSession(tx: Transaction, sessionId: string): Promise<number> { return this.repository.revokeSession(tx, sessionId); }

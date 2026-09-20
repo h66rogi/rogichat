@@ -10,6 +10,7 @@ import { identifier } from '../../common/validation/identifier.js';
 import { parseNotificationPreferences, parsePushSubscription, parseSubscriptionGeneration } from './notification-contract.js';
 import { NotificationsCoreService } from './notifications-core.service.js';
 import { PushEndpointPolicy, PushTransport, validatePushKeys } from './push-transport.js';
+import { NativePushTransport } from './native-push-transport.js';
 
 @Injectable()
 export class NotificationsService {
@@ -18,7 +19,8 @@ export class NotificationsService {
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
     @Inject(NotificationsCoreService) private readonly core: NotificationsCoreService,
     @Inject(PushTransport) private readonly transport: PushTransport,
-    @Inject(PushEndpointPolicy) private readonly endpoints: PushEndpointPolicy) {}
+    @Inject(PushEndpointPolicy) private readonly endpoints: PushEndpointPolicy,
+    @Inject(NativePushTransport) private readonly native: NativePushTransport = new NativePushTransport(undefined)) {}
   capabilities(credentials: SessionCredentials): Promise<{ available: false } | { available: true; applicationServerKey: string }> {
     return this.transactions.read(async tx => {
       await this.auth.requireEnrollmentRead(tx, credentials);
@@ -39,8 +41,12 @@ export class NotificationsService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials);
       if (input.pushEnabled) {
-        if (credentials.transport === 'NATIVE') throw new ApiError('AUTH_UNAVAILABLE', 503);
-        this.transport.assertAvailable();
+        if (credentials.transport === 'NATIVE') {
+          if (!actor.soopLinked) throw new ApiError('SOOP_LINK_REQUIRED', 403);
+          this.native.assertAvailable(credentials.clientId === 'ios' ? 'APNS' : 'FCM');
+          await this.auth.requireEnrollment(tx, credentials);
+          await this.core.requireNativeEnrollment(tx, actor, this.config.audience, credentials.clientId);
+        } else this.transport.assertAvailable();
       }
       return this.core.setPreferences(tx, actor.userId, input.pushEnabled, input.expectedGeneration);
     });

@@ -646,17 +646,28 @@ model notification_preferences {
   user         users @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
 }
 
-// Private Web Push credentials. Never select these into an HTTP response or log.
+enum PushProvider {
+  WEB
+  APNS
+  FCM
+}
+
+// Private provider credentials. Never select these into an HTTP response or log.
 // Unique digest allows an atomic endpoint rebind without two account owners.
 model push_subscriptions {
   id                 String @id @db.Char(36)
   user_id            String @db.Char(36)
   session_id         String @db.Char(36)
   audience           String @db.VarChar(32)
-  endpoint           String @db.VarChar(2048)
+  provider           PushProvider @default(WEB)
+  native_client_id   String? @db.VarChar(16)
+  installation_id   String? @unique @db.Char(36)
+  binding_digest    Bytes? @db.Binary(32)
+  native_token      Bytes? @db.Blob
+  endpoint           String? @db.VarChar(2048)
   endpoint_digest    Bytes @unique @db.Binary(32)
-  p256dh             String @db.VarChar(128)
-  auth_secret        String @db.VarChar(64)
+  p256dh             String? @db.VarChar(128)
+  auth_secret        String? @db.VarChar(64)
   generation         BigInt @default(1) @db.UnsignedBigInt
   account_generation BigInt @db.UnsignedBigInt
   revoked_at         DateTime? @db.DateTime(3)

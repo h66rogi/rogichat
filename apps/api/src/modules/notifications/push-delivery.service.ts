@@ -10,6 +10,8 @@ import { JobFailure } from '../jobs/jobs.service.js';
 import { NotificationsCoreService } from './notifications-core.service.js';
 import { PushDeliveryRepository } from './push-delivery.repository.js';
 import { PushTransport } from './push-transport.js';
+import { NativePushTransport } from './native-push-transport.js';
+import { openNativeToken } from './native-push-contract.js';
 
 class StalePushLease extends Error {}
 @Injectable()
@@ -20,7 +22,8 @@ export class PushDeliveryService {
     @Inject(AccessService) private readonly access: AccessService,
     @Inject(MessagesCoreService) private readonly messages: MessagesCoreService,
     @Inject(JobsCoreService) private readonly jobs: JobsCoreService,
-    @Inject(PushTransport) private readonly transport: PushTransport) {}
+    @Inject(PushTransport) private readonly transport: PushTransport,
+    @Inject(NativePushTransport) private readonly native: NativePushTransport = new NativePushTransport(undefined)) {}
   private async finish(tx: Transaction, lease: JobLease) {
     // Domain writes (including gone-generation CAS) precede the job lock. A
     // stale fresh-clock fence throws so the entire transaction rolls back.
@@ -54,7 +57,13 @@ export class PushDeliveryService {
       });
       if (!initial) return 'completed';
       let prepared;
-      try { prepared = await this.transport.prepare({ endpoint: initial.endpoint, p256dh: initial.p256dh, auth_secret: initial.auth }); }
+      try {
+        if (initial.provider === 'APNS' || initial.provider === 'FCM') {
+          const config = this.native.config;
+          prepared = config?.audience === initial.audience && initial.nativeToken
+            ? await this.native.prepare(initial.provider, openNativeToken(initial.nativeToken, config.encryptionKey, `${initial.audience}:${initial.id}:${initial.generation}`)) : null;
+        } else prepared = await this.transport.prepare({ endpoint: initial.endpoint, p256dh: initial.p256dh, auth_secret: initial.auth });
+      }
       catch (error) {
         if (error instanceof Error && ['invalid_push_endpoint', 'invalid_push_subscription'].includes(error.message)) throw new JobFailure('INVALID_RESOURCE', true);
         throw new JobFailure('TEMPORARY_UNAVAILABLE');
@@ -62,7 +71,10 @@ export class PushDeliveryService {
       if (!prepared) throw new JobFailure('SOURCE_UNAVAILABLE');
       const admitted = await this.transactions.write(async tx => {
         const current = await this.authorize(tx, lease);
-        if (!current || current.id !== initial.id || current.generation !== initial.generation || current.endpoint !== initial.endpoint || current.p256dh !== initial.p256dh || current.auth !== initial.auth) { await this.finish(tx, lease); return false; }
+        if (!current || current.id !== initial.id || current.userId !== initial.userId || current.sessionId !== initial.sessionId ||
+          current.provider !== initial.provider || current.generation !== initial.generation || current.endpoint !== initial.endpoint ||
+          current.p256dh !== initial.p256dh || current.auth !== initial.auth ||
+          current.nativeToken?.toString('hex') !== initial.nativeToken?.toString('hex')) { await this.finish(tx, lease); return false; }
         if (!await this.repository.admitLease(tx, lease)) throw new StalePushLease();
         return true;
       });

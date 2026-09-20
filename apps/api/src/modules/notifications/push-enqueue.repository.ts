@@ -19,7 +19,10 @@ export class PushEnqueueRepository {
       LEFT JOIN users root_owner ON root_owner.id=root.content_owner_user_id
       WHERE s.id=? AND s.revoked_at IS NULL AND u.status='ACTIVE'
         AND soop.status='VERIFIED' AND s.account_generation=u.membership_generation
-        AND a.revoked_at IS NULL AND a.expires_at>UTC_TIMESTAMP(3) AND a.transport='WEB' AND a.client_id IS NULL AND a.audience=s.audience
+        AND a.revoked_at IS NULL AND a.expires_at>UTC_TIMESTAMP(3) AND a.audience=s.audience
+        AND ((s.provider='WEB' AND a.transport='WEB' AND a.client_id IS NULL)
+          OR (s.provider='APNS' AND s.native_client_id='ios' AND a.transport='NATIVE' AND a.client_id='ios')
+          OR (s.provider='FCM' AND s.native_client_id='android' AND a.transport='NATIVE' AND a.client_id='android'))
         AND p.push_enabled=1 AND s.updated_at<=m.created_at AND p.updated_at<=m.created_at
         AND m.deleted_at IS NULL AND m.moderated=0 AND owner.status NOT IN ('DELETING','DELETED') AND r.status='ACTIVE'
         AND (m.deletion_root_id IS NULL OR (root.id IS NOT NULL AND root.deleted_at IS NULL AND root.moderated=0 AND root_owner.status NOT IN ('DELETING','DELETED')))

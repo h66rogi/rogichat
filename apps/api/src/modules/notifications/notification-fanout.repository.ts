@@ -15,7 +15,12 @@ export class NotificationFanoutRepository {
     return tx.prisma.push_subscriptions.findMany({ where: {
       ...(after ? { id: { gt: after } } : {}), audience, revoked_at: null,
       updated_at: { lte: source.created_at }, user_id: { not: source.sender.user_id },
-      session: { revoked_at: null, expires_at: { gt: now }, transport: 'WEB', audience },
+      session: { revoked_at: null, expires_at: { gt: now }, audience },
+      OR: [
+        { provider: 'WEB', session: { transport: 'WEB', client_id: null } },
+        { provider: 'APNS', native_client_id: 'ios', session: { transport: 'NATIVE', client_id: 'ios' } },
+        { provider: 'FCM', native_client_id: 'android', session: { transport: 'NATIVE', client_id: 'android' } },
+      ],
       user: { status: 'ACTIVE', soop: { status: 'VERIFIED' },
         notification_preferences: { push_enabled: true, updated_at: { lte: source.created_at } },
         members: { some: { room_id: source.room_id, status: 'ACTIVE', active_period: { is: { left_at: null } } } } },
