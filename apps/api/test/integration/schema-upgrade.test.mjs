@@ -102,7 +102,7 @@ test('product schema upgrade rejects previous/partial/drifted ledgers and accept
   try { await initializeDefaultRoom(initialized); await initializeDefaultRoom(initialized); }
   finally { await initialized.close(); }
   const [catalog] = await admin.execute('SELECT r.id,r.status,r.owner_member_id,c.room_id,s.kind,b.owner_bound FROM rooms r JOIN room_counters c ON c.room_id=r.id JOIN message_streams s ON s.room_id=r.id AND s.kind=\'ROOM_SHARED\' JOIN default_room_bindings b ON b.room_id=r.id WHERE r.id=?', [DEFAULT_ROOM_ID]);
-  assert.equal(catalog.length, 1); assert.equal(catalog[0].status, 'CLOSED'); assert.equal(catalog[0].owner_member_id, null); assert.equal(Number(catalog[0].owner_bound), 0);
+  assert.equal(catalog.length, 1); assert.equal(catalog[0].status, 'ACTIVE'); assert.equal(catalog[0].owner_member_id, null); assert.equal(Number(catalog[0].owner_bound), 0);
   const [userCount] = await admin.query('SELECT COUNT(*) AS n FROM users'); assert.equal(Number(userCount[0].n), 1, 'initializer does not fabricate users');
   await probe(true);
   const [legacyAfter] = await admin.execute('SELECT * FROM push_subscriptions WHERE id=?', [legacy.subscription]);
