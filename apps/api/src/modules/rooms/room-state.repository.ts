@@ -61,6 +61,7 @@ export class RoomStateRepository {
     return affected(tx.prisma.membership_periods.updateMany({ where: { id: periodId ?? '', left_at: null }, data: { left_at: await tx.now() } }));
   }
   async leave(tx: Transaction, status: string, memberId: string) {
+    await tx.prisma.room_test_grants.updateMany({ where: { member_id: memberId, revoked_at: null }, data: { revoked_at: await tx.now() } });
     return affected(tx.prisma.room_members.updateMany({ where: { id: memberId }, data: { status: status as 'LEFT' | 'BANNED', active_period_id: null, acl_epoch: { increment: 1n } } }));
   }
   async advanceLeavingMembership(tx: Transaction, userId: string) {

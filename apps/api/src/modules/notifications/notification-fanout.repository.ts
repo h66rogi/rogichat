@@ -1,3 +1,4 @@
+import { chatUser } from '../auth/chat-entitlement.js';
 import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import type { JobLease } from '../jobs/jobs.policy.js';
@@ -21,7 +22,7 @@ export class NotificationFanoutRepository {
         { provider: 'APNS', native_client_id: 'ios', session: { transport: 'NATIVE', client_id: 'ios' } },
         { provider: 'FCM', native_client_id: 'android', session: { transport: 'NATIVE', client_id: 'android' } },
       ],
-      user: { status: 'ACTIVE', soop: { status: 'VERIFIED' },
+      user: { ...chatUser(await tx.now()),
         notification_preferences: { push_enabled: true, updated_at: { lte: source.created_at } },
         members: { some: { room_id: source.room_id, status: 'ACTIVE', active_period: { is: { left_at: null } } } } },
       deliveries: { none: { message_id: source.id } },

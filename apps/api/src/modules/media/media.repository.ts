@@ -2,6 +2,7 @@ import { affected } from '../../infrastructure/database/transactions.js';
 import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
+import { chatUser, chatAccountSql } from '../auth/chat-entitlement.js';
 interface Asset {
   id: string; owner_user_id: string; room_id: string | null; kind: string; content_type: string;
   declared_bytes: string; reserved_bytes: string; state: string; upload_token: string | null;
@@ -9,8 +10,8 @@ interface Asset {
 
 @Injectable()
 export class MediaRepository {
-  owner(tx: Transaction, userId: string) {
-    return tx.writable ? tx.rows("SELECT u.id FROM users u JOIN platform_soop s ON s.user_id=u.id AND s.status='VERIFIED' WHERE u.id=? AND u.status='ACTIVE' FOR UPDATE", [userId]) : tx.prisma.users.findMany({ where: { id: userId, status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } }, select: { id: true } });
+  async owner(tx: Transaction, userId: string) {
+    return tx.writable ? tx.rows(`SELECT u.id FROM users u LEFT JOIN platform_soop s ON s.user_id=u.id WHERE u.id=? AND u.status='ACTIVE' AND ${chatAccountSql('u', 's')} FOR UPDATE`, [userId]) : tx.prisma.users.findMany({ where: { id: userId, ...chatUser(await tx.now()) }, select: { id: true } });
   }
   ensureBudget(tx: Transaction) {
     return tx.prisma.media_budget.createMany({ data: [{ id: 'global' }], skipDuplicates: true });

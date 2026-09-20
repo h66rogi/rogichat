@@ -54,11 +54,11 @@ test('MEMBER and GROUP viewer cannot query candidates at all', async () => {
 
 test('Prisma candidate and grant queries use explicit bounded selects and exact time predicates', async () => {
   let candidates, pairs; const now = await tx.now();
-  const db = { prisma: { room_members: { findMany: async input => { candidates = input; return []; } }, stream_pairs: { findMany: async input => { pairs = input; return []; } } } };
+  const db = { now: async () => now, prisma: { room_test_grants: { findMany: async () => [] }, room_members: { findMany: async input => { candidates = input; return []; } }, stream_pairs: { findMany: async input => { pairs = input; return []; } } } };
   const repository = new PrivateRecipientsRepository();
   await repository.candidates(db, roomId, 'FAN', actorId(1)); await repository.pairs(db, roomId, viewerId, [actorId(2)], now);
   assert.equal(candidates.take, 100); assert.deepEqual(candidates.orderBy, { id: 'asc' });
-  assert.equal(candidates.where.user.soop.is.status, 'VERIFIED'); assert.deepEqual(candidates.where.active_period, { is: { left_at: null } });
+  assert.equal(candidates.where.user.OR[0].soop.is.status, 'VERIFIED'); assert.deepEqual(candidates.where.user.OR[1], { reviewer_expires_at: { gt: now } }); assert.equal(candidates.where.user.OR[2].identities.some.provider, 'apple'); assert.deepEqual(candidates.where.active_period, { is: { left_at: null } });
   assert.deepEqual(Object.keys(candidates.select.user.select.profile.select).sort(), ['avatar', 'nickname']);
   assert.deepEqual(pairs.select.stream.select.grants.where, { room_id: roomId, member_id: { in: [viewerId, actorId(2)] }, revoked_at: null, valid_from: { lte: now }, OR: [{ expires_at: null }, { expires_at: { gt: now } }] });
 });

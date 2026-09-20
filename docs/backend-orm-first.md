@@ -393,3 +393,16 @@ operations: `serialize` (also used by `lock`) takes the exact checkpoint row `FO
 on the current transaction connection. Prisma cannot express these server lock
 introspection/current-lock operations. All quarantine, observation, checkpoint
 progress and single-use release CAS writes use the generated Prisma client.
+
+## Password accounts and temporary delegation
+
+Migration26 ordinary account/capability/grant/audit operations use Prisma Client.
+Password verification/hashing happens outside transactions; current account and
+credential row locks plus a revision CAS fence concurrent reset/deletion. Operator
+bootstrap locks the exact existing account/identity and requested capability;
+public self-delegation shares the current room/member lock with send/leave/ban.
+The fixed `chatAccountSql` and `delegatedMemberSql` predicates are used only inside
+existing current-lock or ACL-before-LIMIT queries, with source-controlled aliases
+and bound values. Ordinary eligibility, recipient and profile queries use bounded
+Prisma relation filters and current-period batches. No separate pool or user-supplied
+identifier interpolation is introduced. See [the operational contract](backend-admin-reviewer-access.md).

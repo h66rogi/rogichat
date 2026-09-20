@@ -32,6 +32,8 @@ export class AccountCleanupRepository {
 
   async privateFields(tx: Transaction, userId: string) {
     let changed = (await tx.prisma.creator_accounts.deleteMany({ where: { user_id: userId } })).count;
+    changed += (await tx.prisma.password_accounts.deleteMany({ where: { user_id: userId } })).count;
+    changed += (await tx.prisma.users.updateMany({ where: { id: userId, reviewer_expires_at: { not: null } }, data: { reviewer_expires_at: null } })).count;
     changed += (await tx.prisma.platform_soop.updateMany({ where: { user_id: userId,
       OR: [{ profile_nickname: { not: null } }, { profile_image_url: { not: null } }] },
       data: { profile_nickname: null, profile_image_url: null } })).count;
@@ -50,7 +52,7 @@ export class AccountCleanupRepository {
     // account-scoped existence query, not a materialized scan of every room.
     const member = await tx.prisma.room_members.findFirst({ where: { user_id: userId, OR: [
       { status: { not: 'LEFT' } }, { active_period_id: { not: null } }, { reactions: { some: {} } },
-      { grants: { some: {} } }, { periods: { some: {} } },
+      { grants: { some: {} } }, { periods: { some: {} } }, { delegations: { some: {} } },
     ] }, orderBy: { id: 'asc' }, select: { id: true, room_id: true } });
     if (!member) return null;
     await tx.rows('SELECT id FROM rooms WHERE id=? FOR UPDATE', [member.room_id]);
@@ -66,6 +68,8 @@ export class AccountCleanupRepository {
     data: { status: 'LEFT', active_period_id: null, acl_epoch: { increment: 1n } } });
     // Do not reassign rooms.owner_member_id or delete member/user UUID anchors.
     if (departed.count) return changedPage('membership', departed.count);
+    const delegations = await tx.prisma.room_test_grants.findMany({ where: { member_id: member.id, room_id: member.room_id }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (delegations.length) return changedPage('grants', (await tx.prisma.room_test_grants.deleteMany({ where: { id: { in: delegations.map(g => g.id) } } })).count);
     const reactions = await tx.prisma.message_reactions.findMany({ where: { member_id: member.id, room_id: member.room_id },
       orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (reactions.length) return changedPage('reactions', (await tx.prisma.message_reactions.deleteMany({ where: {

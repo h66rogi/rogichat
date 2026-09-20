@@ -60,8 +60,10 @@ export class RestoreGateRepository {
     await tx.prisma.room_members.updateMany({ data: { role: 'FAN', status: 'BANNED', active_period_id: null, acl_epoch: { increment: 1n } } });
     await tx.prisma.membership_periods.updateMany({ where: { left_at: null }, data: { left_at: now } });
     await tx.prisma.stream_grants.updateMany({ data: { can_read: false, can_send: false, revoked_at: now } });
-    await tx.prisma.users.updateMany({ data: { membership_generation: { increment: 1n } } });
-    await tx.prisma.admin_capabilities.updateMany({ data: { manage_rooms: false, manage_users: false, manage_stickers: false } });
+    await tx.prisma.room_test_grants.updateMany({ data: { revoked_at: now } });
+    await tx.prisma.password_accounts.updateMany({ data: { disabled_at: now, revision: { increment: 1n } } });
+    await tx.prisma.users.updateMany({ data: { membership_generation: { increment: 1n }, reviewer_expires_at: null } });
+    await tx.prisma.admin_capabilities.updateMany({ data: { manage_rooms: false, manage_users: false, manage_stickers: false, manage_test_access: false } });
     await tx.prisma.creator_accounts.updateMany({ data: { enabled: false } });
     await tx.prisma.user_profiles.updateMany({ data: { birthday_visible_to_streamers: false, revision: { increment: 1n } } });
     await tx.prisma.restore_gate_checkpoints.update({ where: { run_id: runId }, data: { phase: 'QUARANTINED', quarantined_at: now }, select: { run_id: true } });
@@ -76,7 +78,10 @@ export class RestoreGateRepository {
       periods: await tx.prisma.membership_periods.count({ where: { left_at: null } }),
       owners: await tx.prisma.rooms.count({ where: { owner_member_id: { not: null } } }),
       grants: await tx.prisma.stream_grants.count({ where: { OR: [{ can_read: true }, { can_send: true }, { revoked_at: null }] } }),
-      admins: await tx.prisma.admin_capabilities.count({ where: { OR: [{ manage_rooms: true }, { manage_users: true }, { manage_stickers: true }] } }),
+      admins: await tx.prisma.admin_capabilities.count({ where: { OR: [{ manage_rooms: true }, { manage_users: true }, { manage_stickers: true }, { manage_test_access: true }] } }),
+      testGrants: await tx.prisma.room_test_grants.count({ where: { revoked_at: null } }),
+      passwords: await tx.prisma.password_accounts.count({ where: { disabled_at: null } }),
+      reviewers: await tx.prisma.users.count({ where: { reviewer_expires_at: { not: null } } }),
       creators: await tx.prisma.creator_accounts.count({ where: { enabled: true } }),
       birthdays: await tx.prisma.user_profiles.count({ where: { birthday_visible_to_streamers: true } }),
       unappliedDeletion: await tx.prisma.deletion_intents.count({ where: { blocked_at: null } }),
