@@ -7,6 +7,7 @@
 사용자의 최신 보정에 따라 QA에도 **실제 출시용 MVP와 같은 제품 구성**을 사용한다.
 이 원칙을 적용한 실제 코드·검증 범위는 [제품 구성 교체 기록](mobile-product-progress.md)에 있다.
 후속 세션·프로필 연결과 구체적 발급/기기 블로커는 [네이티브 연결 기록](mobile-native-transport-progress.md)에 분리한다.
+진행 중인 SOOP 클라이언트와 서명 준비는 [네이티브 인증 기록](mobile-native-auth-progress.md)에 기록한다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
@@ -25,11 +26,11 @@
 
 | 영역 | 조사 시점 증거 | 계획에서의 취급 |
 |---|---|---|
-| 네이티브 앱 | [제품 구성 교체](mobile-product-progress.md): 멜로밍 화면·탐색·상태 구현 재사용, QA/prod 공통 진입, 합성 UI 제거 | MB02a–c 코드/OS 작업 진행. 실제 native 인증·영속 저장·통신과 실기기 gate가 남아 MB02 전체 완료로 간주하지 않음 |
+| 네이티브 앱 | [제품 구성 교체](mobile-product-progress.md)와 [세션·프로필 adapter](mobile-native-transport-progress.md)가 QA에 통합되고 빌드 9로 배포됨 | 보호 credential 저장·REST·만료·로그아웃 경계가 구현됨. 제공자 발급·계정/방 DB·실기기 gate는 남아 MB02 전체 완료로 간주하지 않음 |
 | 빌드/배포 | QA/prod 분리, 서명 도구, Firebase/TestFlight 시험과 테스터 그룹 연결 | 기존 [배포 절차](mobile-test-distribution.md) 재사용 |
 | M03 인증 | 기존 웹 인증과 별도로 `ac69ca2`에서 native Bearer/session/logout/socket 계약 확정 | 실제 SOOP/Apple 발급·handoff·제공자 검증과 QA 왕복은 별도 gate |
 | M04–M07 | 방·프로필·텍스트·삭제·sync·힌트·공개·반응과 합성 fixture | HTTP 계약을 확인하며 활용; live 성공과 구별 |
-| 계약 패키지 | health JSON, JS sync/interaction 참조 구현 | OpenAPI·Kotlin/Swift 생성 DTO·실제 SQLite adapter는 아직 없음 |
+| 계약 패키지 | PR #17의 OpenAPI exporter와 응답 계약 시험이 QA에 통합됨. JS sync/interaction 참조 구현도 존재 | 현재 OpenAPI/실제 projector를 기준으로 Kotlin/Swift decode parity를 검증. 생성 DTO·versioned sync/socket·실제 SQLite adapter 완료로 확대 해석하지 않음 |
 | M08–M09 | QA `8ece99d`까지 아바타 조회·스티커 메시지 변경 병합 | 확정 projection을 대조하며 후속 미커밋 형태를 생성 DTO로 취급하지 않음 |
 | 백엔드 구조 | QA `0429d71`에 feature module/DTO/projector 보정 병합 | 이 기준의 인증·프로필 DTO를 읽어 앱 경계를 맞춤. 네이티브 인증 API 완료나 실제 운영 반영을 의미하지 않음 |
 
@@ -201,7 +202,7 @@ Distribution 사용을 runtime FCM 선택/설정 완료로 해석하지 않는�
 | C04 | receipt에만 clientMessageId 있고 sync message에는 없음 | **작성자 본인에게만** clientMessageId를 direct GET/sync에 동일하게 projection하는 안을 우선 검증. 타 기기·ACK 유실에서도 하나로 합치며 공개본/타 사용자에는 제외. 명령 결과 조회 방식으로 바꾸면 동등한 중복 방지 fixture 필수 | 서버 Messages/Sync + 앱 Outbox |
 | C05 | PRIVATE 응답에 답장 상대와 허용 동작이 충분하지 않음 | 현재 viewer에게 허용된 counterpart actor 및 reply/publish/delete 가능 여부를 명시. 본인이 보낸 개인답장의 상대 복원, 익명 공개본에서 원 작성자/원본 연결 미노출 시험 | 서버 projector + 앱 Composer |
 | C06 | 화면 정렬·오래된 미로딩 메시지 upsert 처리 미확정 | 표시 순서·동일 시각 tie·history 병합 계약을 ADR과 fixture로 고정. 후보는 `(createdAt,id)` 표시 정렬과 기존 opaque pagination의 분리. commit 순서와 같다고 주장하지 않으며 내부 order/숨은 gap을 노출하지 않음 | 서버 Sync + 양 OS DB |
-| C07 | DTO가 손으로 작성된 반환 객체, M08에서 변동 중 | canonical projector와 strict DTO에서 OpenAPI export. sync/socket versioned schema 및 JSON 공통 예제. nullable PATCH의 absent/null/value 구분과 unsigned bigint 문자열 비교 포함 | 서버 contracts + 양 OS API |
+| C07 | PR #17 OpenAPI exporter·응답 계약 시험이 QA에 통합됨. 양 OS의 세션/프로필 strict decode 구현 | 실제 exporter/projector를 기준으로 sync/socket versioned schema와 공통 JSON의 양 OS decode parity를 확정. nullable PATCH absent/null/value 및 unsigned bigint 문자열 비교 검증을 유지 | 서버 contracts + 양 OS API |
 | C08 | `ac69ca2`에서 고정 7일 opaque credential·만료 시 재인증 확정 | 앱 보호 저장·복원·명시적 폐기·expiry/401/응답 경쟁 검증. refresh API는 없으며, 향후 도입 시 rotation/replay/응답 유실을 별도 검증 | 서버 Auth + 앱 Session |
 
 C09는 이번 재사용 조사에서 구체화한 **후속 알림 계약**이다. MB01의 C01–C08 인증/텍스트

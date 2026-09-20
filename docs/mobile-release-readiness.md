@@ -2,6 +2,7 @@
 
 2026-09-20. [제품 구성 교체](mobile-product-progress.md)와
 [네이티브 세션·프로필 연결](mobile-native-transport-progress.md)의 준비 상태다.
+후속 [SOOP 인증 구현](mobile-native-auth-progress.md)의 서명·도메인 준비도 함께 추적한다.
 QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 분리한다. 테스트 배포 완료,
 서버 기능 완료, Production 스토어 출시를 서로 대신하는 증거로 사용하지 않는다.
 
@@ -37,8 +38,8 @@ UserDefaults 선언 근거는 [Apple required-reason API 문서](https://develop
 | Android | `chat.rogi.rogichat` prodRelease, Prod API origin, min29/target37, R8 및 패키지 검사 통과 | 의도적으로 unsigned. 전용 Prod/upload key, Play 앱·Play App Signing 및 업로드 권한, 별도 외부 Prod 설정의 검증 증거 없음 |
 | iOS 앱 구성 | `Rogichat-Prod` Release-Prod, `chat.rogi.rogichat`, iPhone 전용·Prod API origin 검사 통과 | 현재 인증 계정에서 정확히 일치하는 Prod Bundle ID/App Store Connect 앱 조회 결과 0개 |
 | iOS 서명 | 기존 배포 인증서와 대응 로컬 개인 키가 사용 가능하며 2027-09-19 UTC까지 유효 | Prod Bundle ID에 연결된 provisioning profile·외부 Prod 설정 없음. 새 인증서 발급 자체가 필수라고 판단하지 않음 |
-| Apple 권한 | 현재 API 인증으로 앱/Bundle ID/프로파일 조회 성공 | 등록 생성·변경 권한은 읽기만으로 확인되지 않음. Production 리소스를 쓰기 시험으로 생성하지 않음 |
-| native 기능 등록 | 환경별 app ID와 endpoint가 코드에 고정됨 | Apple 로그인, Services ID, native callback/association, APNs 및 관련 capability·entitlement는 계약/운영 등록 후 연결 |
+| Apple 권한 | QA Bundle ID의 Associated Domains capability 추가와 새 IOS_APP_STORE profile 생성·재조회까지 성공 | 이 권한을 모든 Production 리소스의 생성·변경 권한으로 확대 해석하지 않음. Production 리소스를 쓰기 시험으로 생성하지 않음 |
+| native 기능 등록 | QA Associated Domains와 기존 배포 인증서에 연결된 새 profile을 검증·설치함. 환경별 app ID와 endpoint가 코드에 고정됨 | 실제 새 signed app의 applinks/webcredentials·공개 association·기기 복귀는 후속 검증. Apple 로그인, Services ID, APNs 및 Prod capability/profile은 별도 준비 |
 
 Apple API의 `filter[identifier]` / `filter[bundleId]`는 접두사가 겹치는 QA 레코드를 반환할 수
 있었다. **응답 개수만으로 앱을 판정하지 않고 실제 identifier/bundleId의 정확한 일치**를
@@ -67,6 +68,9 @@ Xcode가 업로드 중 메타데이터를 쓰는 아카이브는 독립 작업 �
 사용하는 개인정보 선언이므로 후처리 도구 `ea83a5b`로 확인한다. native 프로필 연결 이후의
 도구는 새 수집 선언을 요구하며 빌드 8을 의도적으로 거부한다. 과거 산출물을 재확인하려고
 새 빌드의 검사를 완화하거나 기존 manifest·아카이브를 수정하지 않는다.
+SOOP 앱 복귀용 권한을 추가하기 전의 빌드 9는 도구 `1478765`로 재확인한다.
+MB03의 서명 검사는 실제 archive/IPA의 두 QA callback entitlement와 profile의 app/team,
+만료, IPA의 배포 종류를 추가로 요구한다. 과거 서명 산출물에 없는 권한을 있다고 취급하지 않는다.
 
 인프라 조정자에게 다음 후속 운영 경계를 전달했다.
 
