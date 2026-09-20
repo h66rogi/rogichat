@@ -238,7 +238,7 @@ cacheId를 구분한다. 한 방 snapshot/events/history는 같은 timeline cach
 - 모르는 필수 sync event/schema는 적용·cursor 전진을 중지하고 업데이트 필요 상태로 처리한다.
   모르는 메시지 콘텐츠는 안전한 placeholder로 표시하며 무한 reset/retry로 덮지 않는다.
 - Socket.IO 서버는 API host의 path `/v1/realtime`, transport는 `websocket` 전용, 기본 namespace다
-  (2026-09-20 FW01 리뷰에서 커밋된 `apps/api/src/realtime.ts` 기준으로 정정. `/socket.io` path 아님).
+  (2026-09-20 FW01 리뷰에서 커밋된 `apps/api/src/modules/realtime/realtime.gateway.ts` 기준으로 정정. `/socket.io` path 아님).
   socket의 `sync.required`는 재조회 힌트이며 메시지 본문/커서의 원본이 아니다.
 - foreground 진입·온라인 복귀·socket 재접속에 sync한다. M06의 foreground 15초+jitter와
   socket 실패 시 3–5초 fallback, 힌트 병합 규칙을 따른다. 숨긴 탭의 영구 연결에 의존하지 않는다.

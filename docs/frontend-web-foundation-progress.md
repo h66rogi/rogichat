@@ -29,14 +29,15 @@ Codex 작업자들이 수행했다. 이 후속 작업을 Fable 실행으로 기�
 
 ## 리뷰에서 정정한 사실
 
-- 커밋된 `apps/api/src/realtime.ts`의 Socket.IO 서버는 path `/v1/realtime`, transport `websocket` 전용, 기본 namespace다.
+- 커밋된 `apps/api/src/modules/realtime/realtime.gateway.ts`의 Socket.IO 서버는 path `/v1/realtime`, transport `websocket` 전용, 기본 namespace다.
   계획 문서의 "`/socket.io` transport, `/v1/realtime` namespace" 문장을 정정했다. FW01은 소켓을 연결하지 않는다.
 - 리뷰어 지적 반영: brand 틴트 위 글자는 `text-action-hover`(약 5.4:1), QA 빌드 `robots noindex` + `X-Robots-Tag`,
   홈의 내부용 placeholder 문단과 "준비 중" 메뉴 행 제거, inline style → Tailwind arbitrary value, 격리 검사 경로 통일.
-- 리뷰어가 측정한 API 이미지의 workspace graph 전체 설치 문제(웹 importer 추가 후 `--prod` 설치가 전체 lockfile을
-  materialize)는 백엔드 코디네이터가 이 작업에 이관해 `apps/api/Dockerfile`의 두 `pnpm install` 줄에
-  `--filter @rogichat/api...`를 추가하는 변경으로 이 PR에 포함했다. 웹 Dockerfile도 같은 `--filter` 패턴을 쓴다.
-  API/웹 컨테이너 이미지의 실제 빌드·실행은 이 작업에서 수행하지 않았다.
+- API 의존성 설치 범위를 명시하도록 백엔드 코디네이터가 위임한 `--filter @rogichat/api...`를
+  API Dockerfile 두 install 단계에 적용했다. 웹 Dockerfile도 웹 importer 필터를 사용한다.
+  전체 workspace가 설치된다는 초기 진단은 확정 근거로 사용하지 않는다.
+- QA 통합으로 추가된 mariadb patch 파일은 웹만 설치해도 pnpm이 읽으므로 웹 Dockerfile에 `COPY patches`를
+  추가했다. 파일이 없을 때의 실패와 포함했을 때의 frozen install 성공을 각각 재현했고, `patches/` 변경도 웹 CI를 실행한다.
 
 ## 검증 결과
 
@@ -64,7 +65,9 @@ Codex 작업자들이 수행했다. 이 후속 작업을 Fable 실행으로 기�
 
 ## 최종 리뷰 후속 검증 (2026-09-20)
 
-- QA `4e222de`에 재배치하고 기존 root API 스크립트와 workspace 정책을 유지했다.
+- 최초 후속 검증은 QA `4e222de` 기준이며, 이후 백엔드 PR #10 병합 QA `0429d71`로 통합했다.
+  combined lockfile은 QA API importer와 기존 package/snapshot 항목을 하나도 바꾸지 않고 웹 항목을 추가했다.
+  root API 스크립트와 mariadb patch·workspace 정책을 유지했다.
 - `ChatTimeline` 날짜·로딩·빈 상태 행의 `li` 의미를 복원해 axe `list` 위반을 수정했다.
   `ChatComposer`의 대상 변경 effect가 라디오에서 입력창으로 포커스를 빼앗지 않도록 제거했으며 전송 후 입력 포커스는 유지한다.
 - 회귀 검사에 팬/스트리머 axe, 연속 방향키 선택과 Tab 이동, 지연 SHARED 결과가 도착해도
@@ -75,7 +78,16 @@ Codex 작업자들이 수행했다. 이 후속 작업을 Fable 실행으로 기�
 - 새 standalone 서버에서 Playwright **70 통과, 실패 0, 폭 전용 제외 2**. 동시 작업자의 결과 폴더 충돌을 피하도록
   검사 출력 경로를 분리했다. Orca 내장 브라우저에서도 홈과 스트리머 채팅 화면을 직접 렌더링·확인했다.
   독립 Codex 리뷰도 데스크톱·모바일 16개 시나리오 그룹을 통과했고 최종 수정 범위에 미해결 P1/P2가 없다.
-- production build ID `axEXmIP03U0xdPeRmvLid`, QA build ID `_UYt8Itqlb4CTCayesPYl`.
+- production build ID `aL6jaNrGXa8aZiHIbDnpw`, QA build ID `9-aM-grYgNTLCjaNmnmx3`.
   이미지 배포 증거가 아니라 로컬 검증 산출물 식별자다.
-- 기존 PR head의 API migration image-safety 실패는 별도 백엔드 보안 진단 대상이다.
-  이 후속 수정은 scanner 정책·fixture 예외를 변경하지 않는다. PR의 최신 필수 CI 통과 전에는 병합하지 않는다.
+- 실제 Linux amd64 API migration 이미지를 격리된 로컬 VM에서 빌드하고 전체 18개 계층을 검사해
+  CI의 `content_findings`를 재현했다. 원인은 의존성 설치 계층에 남은 pnpm 레지스트리 메타데이터 두 파일이다.
+  독립 보안 리뷰가 원본 바이트·생성 계층을 확인한 뒤, 두 API install 단계의 같은 RUN에서 고정된
+  `/root/.cache/pnpm/v11/metadata` 디렉터리만 제거하도록 승인했다. node_modules·store·engine은 유지하며
+  scanner 규칙·리소스 제한·fixture 예외는 완화하지 않았다. 최신 필수 CI 통과 전에는 병합하지 않는다.
+- 최신 QA 통합과 이 수정을 포함한 Linux amd64 API runtime·migration 이미지를 각각 새로 빌드했다.
+  수정하지 않은 스캐너로 모든 계층을 검사해 runtime **11개 계층·30,715개 항목**, migration
+  **19개 계층·92,419개 항목** 모두 통과했다. 이미 검토된 exact fixture만 각각 53/83건 적용됐고
+  이번 원인 해결을 위한 새 예외는 추가하지 않았다. 앱의 실제 DB 연결·배포·서비스 실행 검증은 아니다.
+- 웹 컨테이너 이미지 자체의 실행·호스트 배포는 검증하지 않았다. 웹 검증은 두 standalone build shape와
+  실제 브라우저·HTTP 검사이며, API 이미지 검증과 구별한다.

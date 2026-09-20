@@ -6,6 +6,7 @@ WORKDIR /workspace
 RUN npm install --global pnpm@12.4.2 --ignore-scripts && npm cache clean --force
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json ./apps/web/package.json
+COPY patches ./patches
 
 FROM tooling AS build
 # Only the web importer and its dependency closure; the API graph never enters this image.

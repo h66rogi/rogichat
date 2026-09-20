@@ -9,12 +9,16 @@ COPY patches ./patches
 
 FROM tooling AS build
 # Compilation does not require Prisma engine installation scripts.
-RUN pnpm --filter @rogichat/api... install --frozen-lockfile --ignore-scripts
+# Registry version metadata is build cache, not a migration/runtime dependency. Remove it
+# in the creating layer so unused registry metadata is not retained in image history.
+RUN pnpm --filter @rogichat/api... install --frozen-lockfile --ignore-scripts \
+    && rm -rf /root/.cache/pnpm/v11/metadata
 COPY apps/api ./apps/api
 RUN pnpm --filter @rogichat/api build
 
 FROM tooling AS production-dependencies
-RUN pnpm --filter @rogichat/api... install --prod --frozen-lockfile --ignore-scripts
+RUN pnpm --filter @rogichat/api... install --prod --frozen-lockfile --ignore-scripts \
+    && rm -rf /root/.cache/pnpm/v11/metadata
 
 FROM build AS migration
 # Prisma CLI/engine are confined to this explicitly selected image target.
