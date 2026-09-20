@@ -14,7 +14,7 @@ export class LoginRepository {
     await tx.prisma.login_transactions.create({ data: { id: input.id, state_digest: new Uint8Array(input.stateDigest), browser_digest: new Uint8Array(input.browserDigest), verifier: new Uint8Array(input.verifier), intent: input.intent, terms_version: input.intent === 'login' ? '2026-09-20' : null, audience: input.audience, user_id: input.userId ?? null, session_id: input.sessionId ?? null, expires_at: new Date((await tx.now()).getTime() + 600000) }, select: { id: true } });
   }
   async pending(tx: Transaction, stateDigest: Buffer, audience: string): Promise<LoginRow | undefined> {
-    const [row] = await tx.rows<LoginRow>('SELECT id,browser_digest,verifier,intent,terms_version,user_id,session_id FROM login_transactions WHERE state_digest=? AND audience=? AND status=? AND expires_at>UTC_TIMESTAMP(3) FOR UPDATE', [stateDigest, audience, 'PENDING']);
+    const [row] = await tx.rows<LoginRow>('SELECT id,browser_digest,verifier,intent,terms_version,user_id,session_id FROM login_transactions WHERE state_digest=? AND audience=? AND status=? AND channel=? AND expires_at>UTC_TIMESTAMP(3) FOR UPDATE', [stateDigest, audience, 'PENDING', 'WEB']);
     return row;
   }
   async processing(tx: Transaction, id: string): Promise<boolean> {

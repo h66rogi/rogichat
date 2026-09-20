@@ -3,7 +3,9 @@ import { JobsCoreModule } from '../jobs/jobs-core.module.js';
 import { Module } from '@nestjs/common';
 import { AccessModule } from '../access/access.module.js';
 import { MessagesCoreModule } from '../messages/messages-core.module.js';
+import { PublicationPhotoRepository } from './publication-photo.repository.js';
 import { PublicationsRepository } from './publications.repository.js';
+import { RecoveryPublicationsCoreService } from './recovery-publications-core.service.js';
 import { PublicationsCoreService } from './publications-core.service.js';
-@Module({ imports: [RoomStateModule, JobsCoreModule, AccessModule, MessagesCoreModule], providers: [PublicationsRepository, PublicationsCoreService], exports: [PublicationsCoreService] })
+@Module({ imports: [RoomStateModule, JobsCoreModule, AccessModule, MessagesCoreModule], providers: [PublicationPhotoRepository, PublicationsRepository, { provide: PublicationsCoreService, useClass: RecoveryPublicationsCoreService }], exports: [PublicationsCoreService] })
 export class PublicationsCoreModule {}

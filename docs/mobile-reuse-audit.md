@@ -246,3 +246,22 @@ PKCE/state CSPRNG·동일 Bearer LINK·일회성 교환·새 발급 credential�
 Talk/TalkV2, 원본 provider 주소·앱 식별자·서명·운영 설정은 이식하지 않는다.
 Browser의 stable은 [AndroidX 공식 릴리스](https://developer.android.com/jetpack/androidx/releases/browser)와
 Google Maven에서 확인했고 기존 Apache 전문 고지에 실제 사용 라이브러리를 추가했다.
+
+## 실제 추출 기록 — M11 계정 알림 설정
+
+원본 SHA·읽기 전용 경로는 R29–R33과 같다. MB03과 별도 단계로 기존 설정 화면과
+native HTTP/session adapter를 확장한다. [동작·검증 경계](mobile-notification-preferences-progress.md)는
+실제 계정 선호와 OS 권한, native push 등록·발송, 채팅 읽음 처리를 구분한다.
+
+| ID | source 파일·심볼 | 대상 | 실제 수정 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R34 | Android `feature/more/.../NotificationSettingsScreen.kt`의 Screen·SettingActionRow·Divider·NotificationSettingsViewModel | `feature/settings/NotificationSettingsScreen.kt`, `NotificationSettingsViewModel.kt` | **수정 재사용**: 기존 scroll/top bar/section·OS 설정 action, StateFlow·초기 load·viewModelScope·repository 결과 흐름. default-true·양방향 switch·낙관적 rollback은 제외하고 실제 확인값·계정 전체 끄기 확인·revision/CAS를 추가 |
+| R35 | Android `core/network/.../api/NotificationApi.kt`의 get/updatePreferences, `core/domain/.../repository/NotificationRepository.kt`와 `core/data/.../repository/NotificationRepositoryImpl.kt`의 대응 메서드 | `core/network/M11Dtos.kt`, NotificationPreferencesRepository·기존 NativeSessionCoordinator | **수정 재사용**: typed API→Result repository 책임. 현재 고정 origin의 GET/PUT false+expectedGeneration으로 변경. 원본 PATCH/FCM/알림함 cache·광범위 runCatching/logging 제외 |
+| R36 | iOS `Meloming/Presentation/Notifications/NotificationSettingsView.swift`:3–43, 같은 파일 ViewModel:48–87 | `Features/Settings/NotificationSettingsScreen.swift`, `AccountNotificationSection.swift`, `AccountNotificationModel.swift` | **수정 재사용**: List/Section header/footer·OS action, MainActor loading/request/error 흐름. GET/rollback이 PUT를 일으킬 수 있는 Toggle.onChange 대신 명시적 사용자 command·확인 응답·single-write·GET 재조정 구현. 원본 알림함 repository를 선호 repository로 가져왔다고 주장하지 않음 |
+| R37 | iOS `Meloming/Core/Network/APIEndpoint.swift`:273–280, 529–530, 1105–1124 | `Core/Notifications/M11Endpoint.swift`, 기존 NativeAPIClient | **수정 재사용**: 닫힌 endpoint/body 책임을 기존 native client에서 유지. 정확한 GET/PUT와 M11 409/503 분리. 원본 byType/quiet-hours/FCM route·운영 ID 제외 |
+| R38 | 양 OS 원본 NotificationPreferences 모델·계정 저장 책임 대조 | 양 OS M11 DTO, NotificationAccountScope/clientScope, read-state typed client | **신규**: required boolean·uint64 decimal CAS·원래 계정의 전송 전 admission·변경 revision은 원본 계약에 없음. 원본 알림함 readAt/badge/markAllRead와 무관한 room readContext는 새 계약으로 검증하고 제품 화면에는 아직 연결하지 않음 |
+
+R34–R38은 새 외부 SDK나 의존성을 추가하지 않는다. 실제 비추출 보호 저장소·세션 만료,
+현재 credential 401 처리, 기존 공통 confirmation/설정 컴포넌트를 그대로 사용한다.
+계정 값은 기기 전역 설정에 캐시하지 않고 서버 응답으로만 확인한다. 실제 provider나
+방 lifecycle이 없는 부분을 UI 토글·가짜 완료·테스트 credential로 대신하지 않는다.

@@ -107,10 +107,16 @@ struct BlockReset: Equatable, Sendable { let scope: BlockScope }
         let permit = UnblockPermit(record); pending = permit; return permit
     }
     func finish(_ permit: UnblockPermit, outcome: UnblockOutcome) throws -> BlockReset? {
+        // Dispatch has ended even when its receipt cannot be persisted. Leave the
+        // durable UNKNOWN untouched, but permit a fresh GET instead of wedging the sheet.
+        defer {
+            permit.revoke()
+            if pending === permit { pending = nil }
+        }
         guard var original = try journal.records().first(where: { $0.id == permit.record.id }), original.outcome == .unknown else { return nil }
         original.outcome = outcome; try journal.put(original)
         guard pending === permit, scope == original.scope else { return nil }
-        pending = nil; lastOutcome = outcome
+        lastOutcome = outcome
         guard outcome == .acknowledged else { return nil }
         blocks.removeAll { $0.actorId == original.actorId }; return BlockReset(scope: original.scope)
     }

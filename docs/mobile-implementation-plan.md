@@ -220,6 +220,10 @@ MB03 인증 소스를 고정한 뒤 M11 소비자는 별도 변경으로 진행�
 [고정 계약](https://github.com/h66rogi/rogichat/blob/43d7bec2793d8c5f12719e3c3d9f5b4af68f9dd3/docs/backend-m11-contract.md)이며
 계약 소스의 존재와 QA 배포·native provider 활성화를 구분한다.
 
+양 OS의 후속 실제 구현과 재사용·검증은 [M11 진행 기록](mobile-notification-preferences-progress.md)에
+모은다. Android `577fb9e`·iOS `6513439`의 앱 소스를 통합했으며 새 credential 형식이나
+native push SDK를 추가하지 않았다. MB03 서명 단계와 별도 검증·배포한다.
+
 1. `GET /v1/me/notification-preferences`의 실제 확인값과 generation을 사용한다.
    LINK_REQUIRED도 서버가 허용한 계정 조회 범위다. unknown/loading/error를 false/true
    기본값으로 바꾸지 않는다. OS 허용 상태와 서버의 계정 전체 설정은 별도 섹션으로 둔다.
@@ -323,17 +327,24 @@ hosted QA의 mock login·고정 사용자 토큰·인증 우회도 금지한다.
 
 ## 6. 로컬 데이터·전송 상태·복구
 
-각 환경/계정별 DB를 열고 session generation을 메모리 작업 fence로 둔다. 설치 단위 deviceId,
+각 환경/서버 `accountPartition`별 DB를 열고 원래 승인된 session scope를 HTTP·DB commit·
+화면 게시까지 전달한다. partition이 없는 호환 세션은 인증을 유지하되 durable 채팅을 열지
+않고 userId로 DB key를 대체하지 않는다. partition 변경은 이전 DB/작업을 격리하며 자동
+이동·replay하지 않는다. 설치 단위 deviceId,
 계정 manifest의 cacheId, 방별 timeline cacheId, 방별 profile cacheId를 구분한다.
 한 방의 snapshot/events/history는 같은 timeline cacheId를 사용한다. 계정 전환은 모든 scope를
 교체한다. C03/C07에서 이 cacheId 사용이 서버 binding과 일치하는지 fixture로 확정한다.
 테이블 개념은
 `rooms`, `memberships`, `messages`, `profiles`, `reactions`, `sync_checkpoints`,
-`manifest_staging`, `outbox`, `drafts`, 이후 `media_transfers`다. membership period는 C03의
-opaque scope를 사용한다. 실제 DB schema와 migration은 MB02/04에서 검증해 확정한다.
+`manifest_staging`, `outbox`, `drafts`, 이후 `media_transfers`다. membership period는
+C06의 `membershipScope`(M)를 사용하며 `authorizationRevision`(A)과 구분한다.
+실제 DB schema와 migration은 MB02/04에서 검증해 확정한다.
 
 - `messages`: server ID, resource version(십진 문자열), audience, 허용된 author/content,
-  tombstone, generation. version은 문자열 사전순·부동소수점으로 비교하지 않는다.
+  tombstone, generation. uint64 version은 canonical TEXT로 저장하고 문자열 사전순·
+  signed SQL INTEGER·부동소수점으로 비교하지 않는다. 같은 account/room/cache generation과
+  M/A의 terminal tombstone은 더 큰 version을 포함한 모든 later live를 거부한다.
+  복구는 새 fenced generation과 authoritative snapshot으로 수행하며 ID 재사용은 없다.
 - `outbox`: UUID clientMessageId, 계정/방/참여 scope, 불변 정규화 payload, 상태, 시도 시각,
   serverMessageId/receipt. 전송 전에 payload와 낙관 표시 항목을 한 transaction에 저장한다.
 - 전송 상태: `queued → sending → committed`; 응답 유실은 `outcomeUnknown`, 명시적 거부는
@@ -342,10 +353,12 @@ opaque scope를 사용한다. 실제 DB schema와 migration은 MB02/04에서 검
   별도 새 명령을 만든다. 앱 재시작 후 sending은 새 ID 없이 결과 불명 상태로 복구한다.
 - outbox row/메시지/receipt mapping 반영은 원자적이다. ACK보다 sync가 먼저 와도 C04로
   합친다. 계정/방 철회 후 과거 outbox를 자동 재전송하지 않는다.
-- snapshot에 없다는 사실은 미전송 증거가 아니다. 현재 권한이 유효할 때 같은 ID와 payload로
-  POST를 replay해 receipt를 확인한다. `deleted`이면 낙관 표시·본문을 지우고 최소 종료 표식만
-  남긴다. 결과 확인 권한이 사라졌다면 미전송으로 단정하지 않고 송신 종료·해당 scope 정리를
-  적용한다. 같은 내용을 새 ID로 자동 생성하지 않는다.
+- snapshot에 없다는 사실은 미전송 증거가 아니다. 현재 권한·원래 M을 확인하고 C04 GET
+  receipt를 먼저 조회한다. 404는 `outcomeUnknown`을 유지하며 재전송·새 ID 허가가 아니다.
+  현재 권한과 동일 M이 계속 유효할 때만 원래 ID·payload·M으로 제한된 SEND 재시도를
+  별도 결정한다. `deleted`이면 낙관 표시·본문을 지우고 최소 종료 표식만 남긴다.
+  결과 확인 권한이 사라지면 미전송으로 단정하지 않고 송신 종료·해당 scope 정리를 적용한다.
+  재입장 후 새 M을 오래된 command에 끼워 넣거나 같은 내용을 새 ID로 자동 생성하지 않는다.
 - 명시적 400/409는 자동 반복하지 않는다. 429는 서버 재시도 정보가 있으면 따르고,
   없으면 bounded exponential backoff+jitter를 적용한다. 네트워크/5xx는 같은 명령으로
   제한된 재시도와 수동 재시도를 제공한다. 실패 메시지를 새 명령으로 몰래 다시 보내지 않는다.
@@ -378,7 +391,7 @@ outbox는 cache와 분리해 명령 ID·불변 payload·outcomeUnknown을 유지
 | reset 발생 지점 | 폐기·차단 범위 | 복구와 큐 처리 |
 |---|---|---|
 | 계정 membership manifest | staging/continuation과 account manifest cacheId 교체, 그 계정의 pending 송신 일시 중지 | 완전한 새 manifest와 열린 방 재인가 후 scope 대조; 사라진 방/변경된 참여는 정리 |
-| 방 snapshot/events/history | 해당 timeline generation·메시지/인용/반응·미디어 파생 cache·두 cursor 폐기, 방 송신 중지 | 새 timeline cacheId와 snapshot. outbox는 별도로 주차하고 현재 scope 확인 후 receipt replay; snapshot 부재로 재생성 금지 |
+| 방 snapshot/events/history | 해당 timeline generation·메시지/인용/반응·미디어 파생 cache·두 cursor 폐기, 방 송신 중지 | 새 timeline cacheId와 snapshot. outbox는 별도로 주차하고 현재 scope 확인 후 GET receipt 조회; SEND 재시도는 별도 결정하며 snapshot 부재로 재생성 금지 |
 | 방 profile manifest | profile staging/continuation/cacheId와 기존 민감 profile 표시 무효화 | 새 profile cycle을 완주해 replace. 메시지 cursor는 유지하되 현재 권한 확인 실패 시 방/계정 정리로 확대 |
 | 계정/방 인가 상실 확인 | 위 cache reset을 넘어 관련 outbox·초안·credential(계정 종료 시)까지 정리 | 새 인가/참여 이후에도 과거 명령 자동 부활 금지 |
 
@@ -426,6 +439,36 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 | MB06 — 미디어 | MB04/05, M08 계약·실배포 검증 | picker/전처리, upload 상태 머신, 처리 대기·재시도, authorized URL loader, 스티커/아바타 | 권한/URL 만료/취소/재시작/크기·형식 거부 및 계정 전환 시험 |
 | MB07 — 계정·알림·출시 UX | MB03/04, C09 계약 합의, 서버 lifecycle/push/moderation/delete 준비 | MB03 logout 확장, 서버 탈퇴, 신고/차단, 생일 공개 철회, MB02c adapter에 실제 push binding/선호 설정/재인가 연결 | 늦은 push/callback/응답의 계정 혼입 0, 데이터 삭제·정책 링크·접근성 |
 | MB08 — 내부 기능 검증 | MB03–05, 서버 실데이터 gate | QA 서명 빌드와 승인된 실제 QA 계정 시나리오, 지원 OS 실기기 결과; 합성 상태는 별도 테스트 | 설치 성공과 기능 성공 분리, 알려진 제한 기록, 출시 기능은 MB06/07 포함 후 별도 승인 |
+
+### MB04의 첫 구현 경계 — 교차 OS 리뷰 반영
+
+C06 `48c00bb`의 schemaVersion 2와 C05 `492f2f7`, C04 `4002329`를 읽고 양 OS 설계를
+독립 검토했다. C06 terminal tombstone은 같은 cache generation/M/A 안에서 모든 later
+live를 거부하도록 서버 담당자가 확정했으며 reference helper의 후속 수정 SHA는 timeline
+구현 전에 다시 고정한다. 현재 첫 단계의 계약 블로커는 없다.
+
+1. **MB04a**는 실제 discovery·complete membership manifest·계정별 on-disk DB와
+   partition/session commit fence까지만 양 OS 동일하게 구현한다. Android Room과 iOS
+   GRDB를 사용하며 원본 멜로밍에 대응 DB 구현이 없어 새 DB라고 기록한다. 기존 HTTP,
+   repository·constructor/dispatcher 주입, 목록 loading/error 구조는 실제 원본을 재사용한다.
+2. discovery는 페이지별 탐색 결과다. 여기에 담긴 joined/M/A가 늦게 도착해 더 최근의
+   authoritative membership을 덮어쓰면 안 된다. 완전하고 같은 generation인 manifest만
+   멤버십 교체·누락 방 정리의 근거다. empty complete, partial, reset, 오류를 구분한다.
+   M/A는 manifest envelope가 아니라 각 room에 있다.
+3. metadata/discovery/memberships/manifest staging/account checkpoint만 저장한다.
+   아직 사용하지 않는 messages/profiles/outbox/drafts 테이블·receipt client는 추가하지 않는다.
+   실제 SQLite rollback/reopen, 페이지 중 종료, 혼합 generation·중복·반복 cursor·schema 1
+   거부, scope 변경과 최종 COMMIT 사이 경쟁, cleanup 실패 후 cold reopen을 시험한다.
+4. 목록·참여 상태·새로고침·페이지/오류/재시도만 실제 결과로 보여준다. 미구현 대화 진입이나
+   join/leave 자리표시 버튼을 제공하지 않는다. **입장/퇴장은 후속 mutation 단계**에서
+   명시적 사용자 동작·서버 응답·완전 manifest 재확인을 함께 완성한다.
+5. **MB04b/c**에서 실제 메시지 cache, C05 전체 projection 교체, 원자적 cursor/effect 저장,
+   C04 GET receipt 복구와 원래 M이 불변인 durable outbox를 차례로 구현한다. 그 전에
+   timeline·composer·SEND worker·읽음 보고·socket을 활성화하지 않는다.
+
+MB03의 실제 provider/기기 gate는 유지하면서 위 코드·격리 검증은 독립 진행한다.
+schema 2의 QA 활성화는 web/Android/iOS 소비자와 backend의 정확한 통합 SHA 및 동시
+전환/rollback 계획을 조율한 뒤 수행한다. 코드 존재를 실제 계정·호스팅 왕복으로 대체하지 않는다.
 
 ### MB02 실행 분할과 현재 우선순위
 

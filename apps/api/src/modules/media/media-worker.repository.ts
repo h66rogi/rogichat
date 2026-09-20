@@ -21,7 +21,7 @@ export class MediaWorkerRepository {
     return tx.rows<RowDataPacket>("SELECT object_key FROM media_objects WHERE asset_id=? AND variant='input' AND state='STORED' FOR UPDATE", [assetId]);
   }
   attempts(tx: Transaction, assetId: unknown) {
-    return tx.rows("SELECT id FROM media_objects WHERE asset_id=? AND variant='image' FOR UPDATE", [assetId]);
+    return tx.rows("SELECT id FROM media_objects WHERE asset_id=? AND variant IN ('image','video','poster') FOR UPDATE", [assetId]);
   }
   reserveRetry(tx: Transaction, bytes: number, capBytes: number) {
     return tx.execute("UPDATE media_budget SET reserved_bytes=reserved_bytes+? WHERE id='global' AND reserved_bytes+?<=limit_bytes", [bytes, capBytes]);
@@ -29,14 +29,19 @@ export class MediaWorkerRepository {
   reserveAssetRetry(tx: Transaction, bytes: number, assetId: unknown) {
     return affected(tx.prisma.media_assets.updateMany({ where: { id: String(assetId) }, data: { reserved_bytes: { increment: BigInt(bytes) } } }));
   }
-  allocate(tx: Transaction, objectId: string, assetId: unknown, attempt: string, key: string) {
-    return tx.prisma.media_objects.create({ data: { id: objectId, asset_id: String(assetId), attempt_id: attempt, variant: 'image', object_key: key }, select: { id: true } });
+  allocate(tx: Transaction, objectId: string, assetId: unknown, attempt: string, key: string, variant: 'image' | 'video' | 'poster' = 'image') {
+    return tx.prisma.media_objects.create({ data: { id: objectId, asset_id: String(assetId), attempt_id: attempt, variant, object_key: key }, select: { id: true } });
   }
   fence(tx: Transaction, jobId: string, generation: string, owner: string, token: string) {
     return tx.rows("SELECT id FROM jobs WHERE id=? AND purpose='MEDIA' AND state='RUNNING' AND generation=? AND lease_owner=? AND lease_token=? AND lease_until>UTC_TIMESTAMP(3) FOR UPDATE", [jobId, generation, owner, token]);
   }
-  readyObject(tx: Transaction, bytes: number, sha256: string, width: number, height: number, objectId: string, assetId: unknown) {
-    return affected(tx.prisma.media_objects.updateMany({ where: { id: objectId, asset_id: String(assetId), state: 'ALLOCATED' }, data: { state: 'READY', byte_length: BigInt(bytes), sha256, width, height } }));
+  // DB-clock renewal must atomically reject an expired/reclaimed lease. Job-only
+  // transaction: never acquire domain locks after this update.
+  renew(tx: Transaction, jobId: string, generation: string, owner: string, token: string) {
+    return tx.execute("UPDATE jobs SET lease_until=TIMESTAMPADD(SECOND,300,UTC_TIMESTAMP(3)) WHERE id=? AND purpose='MEDIA' AND state='RUNNING' AND generation=? AND lease_owner=? AND lease_token=? AND lease_until>UTC_TIMESTAMP(3)", [jobId, generation, owner, token]);
+  }
+  readyObject(tx: Transaction, bytes: number, sha256: string, width: number, height: number, objectId: string, assetId: unknown, durationMs: number | null = null) {
+    return affected(tx.prisma.media_objects.updateMany({ where: { id: objectId, asset_id: String(assetId), state: 'ALLOCATED' }, data: { state: 'READY', byte_length: BigInt(bytes), sha256, width, height, duration_ms: durationMs } }));
   }
   readyAsset(tx: Transaction, assetId: unknown) {
     return affected(tx.prisma.media_assets.updateMany({ where: { id: String(assetId) }, data: { state: 'READY' } }));

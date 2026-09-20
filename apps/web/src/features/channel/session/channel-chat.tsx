@@ -18,12 +18,15 @@ function AuthorizedChat({ session, scope, refresh }: { session: Session; scope: 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
-  const request = useCallback((path: string, options?: { method?: 'POST'; body?: unknown; signal?: AbortSignal }) => api.request(path, { ...options, csrf: session.csrfToken }), [api, session.csrfToken]);
+  const request = useCallback((path: string, options?: { method?: 'POST' | 'PUT' | 'DELETE'; body?: unknown; signal?: AbortSignal }) => api.request(path, { ...options, csrf: session.csrfToken }), [api, session.csrfToken]);
   const join = async (roomId: string) => {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError('');
     try { await request(`/v1/rooms/${encodeURIComponent(roomId)}/join`, { method: 'POST' }); refresh(); }
-    catch (e) { setError(e instanceof ApiError ? e.message : '입장 결과를 확인하지 못했습니다. 다시 확인해 주세요.'); }
+    catch (e) {
+      if (e instanceof ApiError && e.status === 401) { refresh(); return; }
+      setError(e instanceof ApiError ? e.message : '입장 결과를 확인하지 못했습니다. 다시 확인해 주세요.');
+    }
     finally { pending.current = false; setBusy(false); }
   };
   if (state.kind === 'checking') return <StatePanel title="채팅방 참여 상태를 확인하고 있어요" />;

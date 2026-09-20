@@ -28,7 +28,7 @@ Existing server persistence is the source of truth after reload. Private query c
 - One final full desktop/mobile browser run: **90 passed, 2 platform-specific skips, 24.9 seconds**. This includes real-response auth/profile/room flows, logout/session races, notification unavailability, chat send/delete/multiple recipients, native callback privacy and QA association JSON. All tested axe serious/critical checks passed.
 - The same production artifact passed both QA and production runtime probes: health, exact API origin, untrusted Host isolation, no preview/API proxy, safe relative auth redirect, fixed callback no-store/no-referrer/CSP and non-reflection, QA-only association identities and empty production associations. The owned temporary runtime servers were stopped after verification.
 - The first production browser run exposed native fetch receiver binding; the lexical transport wrapper has a unit regression and real Chromium verification. The session-race regression observes DOM mutations throughout changing sessions, asserts private settings never mount, then requires stable-session recovery.
-- Checksum-verified scanner installation, configured hooks and `python3 tools/security/check.py all` passed. Source commit hooks also passed. PR #20's Linux application check passed at remote checkpoint `cf026efc`; its container all-layer content scan was still failing and belongs to the pipeline/root workstream. No scanner bypass or deployment-success claim is made here.
+- Checksum-verified scanner installation, configured hooks and `python3 tools/security/check.py all` passed. Source commit hooks also passed. PR #20's Linux application check passed at remote checkpoint `cf026efc`; the container all-layer content scan failed at that historical checkpoint. That publication blocker was subsequently resolved as recorded below; it is not a current unresolved failure.
 
 ## Side effects and remaining gates
 
@@ -45,3 +45,29 @@ The same workstream adds QA-only Apple/Android associations and a fixed private 
 Independent review found that an incoming `message.deleted` event removed the timeline item but left its author/excerpt in unsent per-target quotes. The coordinator transferred this bounded chat correction to the web worker after the original chat worker completed. Remote deletion now uses the existing full privacy epoch reset: cached messages, visible and hidden drafts, quotes and target selection are discarded before a fresh authorized snapshot. This deliberately clears unrelated unsent drafts too, matching local deletion, because derived anonymous copies cannot be reliably traced in the client. The same-session uncertain-command ID map remains intact; deleted-source quotes still fail normal source authorization rather than being silently submitted as a different command.
 
 The corrected production build `arvEOuqYfagopMu8Wp7Ty` passed compilation and TypeScript, web ESLint passed, and all **46 unit/contract tests** passed. A focused production-browser rerun passed **16/16 desktop/mobile chat cases in 7.6 seconds**, including incoming deletion with both visible and hidden quoted drafts, all-target draft removal, identical uncertain-command retry IDs, normal/error/empty/unauthorized chat, keyboard behavior and axe checks. The preceding full 90-pass browser run and QA/production runtime evidence above remain the broader baseline; this follow-up reran checks relevant to the changed chat controller. Independent re-review and remote CI remain coordinator-owned integration gates.
+
+## Final publication evidence — 2026-09-20
+
+[PR #20](https://github.com/h66rogi/rogichat/pull/20) merged to QA commit
+`90a73e1a490c4ae6b3056cbc07e67e253da7c75b`. All five post-merge checks completed
+successfully at attempt 1: [web 35491740175](https://github.com/h66rogi/rogichat/actions/runs/35491740175),
+[backend 35491740143](https://github.com/h66rogi/rogichat/actions/runs/35491740143),
+[security 35491740079](https://github.com/h66rogi/rogichat/actions/runs/35491740079),
+[infrastructure 35491740066](https://github.com/h66rogi/rogichat/actions/runs/35491740066),
+and [mobile 35491740065](https://github.com/h66rogi/rogichat/actions/runs/35491740065).
+[Web publisher 35491740135](https://github.com/h66rogi/rogichat/actions/runs/35491740135)
+and [manual export 35492296924](https://github.com/h66rogi/rogichat/actions/runs/35492296924)
+also completed successfully at attempt 1.
+
+The original publication proof artifact `10599164094`, verified against GitHub
+SHA-256 `ca69a9b2412e66ce77285d6e6039eecf73080fd6acca3271ee246bb19f7cf127`,
+binds those five exact CI attempts and source to
+`ghcr.io/h66rogi/rogichat-web@sha256:08d8affd8da7eb54b45d7179783c0d8a1a687d44cac5b4c68df62dfb88c1463a`.
+The earlier container scan failure was resolved with a keyless image,
+per-runtime ephemeral keys and a reviewed narrow scanner exception; scanner
+execution and all-layer checks remain required.
+
+This establishes publication and manual export, not host activation or automatic
+export completion. Actual QA web activation remains pending the infrastructure
+owner's running-artifact, health and route evidence. Production promotion remains
+a separate reviewed change.

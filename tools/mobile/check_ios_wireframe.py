@@ -38,6 +38,7 @@ def main():
             "Sources/Core/Navigation/ShellNavigation.swift",
             "Sources/Features/Settings/ProfileEditor.swift",
             "Sources/Features/Settings/ProfileDraft.swift",
+            "Sources/Core/Notifications/M11Contract.swift",
             "Sources/Core/Session/AppSession.swift",
             "Tests/Product/ProductStateChecks.swift",
         ])
@@ -45,6 +46,8 @@ def main():
             "Sources/Core/Navigation/ShellNavigation.swift",
             "Sources/Features/Settings/ProfileEditor.swift",
             "Sources/Features/Settings/ProfileDraft.swift",
+            "Sources/Core/Notifications/M11Contract.swift",
+            "Sources/Core/Notifications/M11Endpoint.swift",
             "Sources/Core/Session/AppSession.swift",
             "Sources/Core/Network/NativeAPIClient.swift",
             "Sources/Core/Session/NativeCredentialStore.swift",
@@ -59,6 +62,11 @@ def main():
         ])
         run_checks(sdk, Path(temporary), "native-auth-checks", [
             *native_sources, "Tests/Product/SOOPAuthChecks.swift",
+        ])
+        run_checks(sdk, Path(temporary), "notification-contract-checks", [
+            *native_sources,
+            "Sources/Features/Settings/AccountNotificationModel.swift",
+            "Tests/Product/M11Checks.swift",
         ])
 
 
