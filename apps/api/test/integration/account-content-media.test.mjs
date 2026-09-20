@@ -25,6 +25,8 @@ import { createUser, createRoom, joinRoom, assignRoomOwner } from '../support/do
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
   const db = new MysqlDatabase(readConfig('api')), { ledger } = deletionFixture();
+  // Only the disposable suite queue: prior lease-loss cases intentionally leave expired jobs.
+  await db.transactions.write(tx => tx.prisma.jobs.deleteMany({ where: { purpose: 'PURGE' } }));
   const infrastructure = DatabaseModule.register({ database: db, lifecycle: new LifecycleState(), externallyOwned: true });
   let context;
   const restart = async () => {
