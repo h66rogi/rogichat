@@ -32,11 +32,26 @@ HTTP wiring added in this checkpoint:
 | `GET /v1/rooms/:roomId/stickers?after=...` | Current active member and room sticker policy |
 | `POST /v1/admin/stickers` | Current command credentials/CSRF and `manage_stickers` |
 | `PATCH /v1/admin/stickers/:stickerId` | Same operator capability; explicit state transitions |
+| `POST /v1/media/assets/:assetId/access` with `{roomId, actorId, variant: 'image'}` | Current command credentials/CSRF, active room/profile visibility and exact current avatar reference |
 
 Sticker routes are included only with the media feature graph. Catalog command
 admission uses a separately committed per-account bucket (20/minute), followed by
 fresh transaction authorization. Denied commands cannot refund that budget.
 Signed media access has its own per-account 120/minute bucket and 60-second URL.
+
+Avatar access uses the existing access endpoint, not a second signer or a global
+user-ID lookup. The actor-context body is mutually exclusive with `messageId`;
+unknown fields, arbitrary keys and URLs are rejected. FAN viewers may access only
+their own or a STREAMER's avatar, STREAMER viewers may access visible fans, and
+GROUP viewers follow ordinary active-member profile visibility. A single fresh
+read transaction checks the session, SOOP link, current membership/period,
+account, current profile-to-asset reference, ownership, global AVATAR kind and
+READY image object. It loads no nickname, birthday or provider identifier.
+Replacement/removal and membership/account revocation deny subsequent issuance;
+installed references remain valid after the initial upload intent expires.
+Signing happens after that read transaction, returns only `{url, expiresIn: 60}`
+with `no-store`, and cannot revoke an already issued URL before its 60-second
+expiry. Real R2 access/expiry is still a separate release gate.
 
 ## ORM and module correction
 
@@ -96,11 +111,16 @@ References: [FFprobe output](https://ffmpeg.org/ffprobe.html),
   the relocated compiled modules. Nineteen pure deployment validation tests and
   two runtime-import contract tests passed locally. These tests do not execute a
   host deployment, read production secrets or apply migrations.
+- The avatar access slice passed all 110 disposable-MySQL cases (four new domain/
+  HTTP cases), 192 unit cases and 18 HTTP/process/contract cases, plus build,
+  typecheck, lint and independent boundary review. HTTP tests use a synthetic
+  signer, not R2: they verify minimal 60-second responses, `no-store`, strict input,
+  CSRF/session revocation and that denied requests never call the signer.
 
 Still required for M08/M09 completion:
 
 1. Actual sticker send/read/sync/URL integration, durable catalog-revocation
-   invalidation, avatar actor-context URL authorization, publication media copy
+   invalidation, publication media copy
    preparation/finalization and failed-copy cleanup.
 2. Video IPC/worker integration, all-variant READY atomicity, deletion races and
    recovery after process death. The current image-only decoder server must not

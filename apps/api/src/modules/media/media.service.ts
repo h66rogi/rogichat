@@ -83,10 +83,10 @@ export class MediaService {
     }
   }
   async access(credentials: CommandCredentials, assetId: string, input: unknown) {
-    const body = object(input, ['roomId', 'messageId', 'variant']);
+    const body = object(input, ['roomId', 'messageId', 'actorId', 'variant']);
     if (typeof body.variant !== 'string') throw new ApiError('INVALID_REQUEST', 400);
     identifier(assetId);
-    const context = { variant: body.variant, ...(body.roomId !== undefined ? { roomId: identifier(body.roomId) } : {}), ...(body.messageId !== undefined ? { messageId: identifier(body.messageId) } : {}) };
+    const context = { variant: body.variant, ...(body.roomId !== undefined ? { roomId: identifier(body.roomId) } : {}), ...(body.messageId !== undefined ? { messageId: identifier(body.messageId) } : {}), ...(body.actorId !== undefined ? { actorId: identifier(body.actorId) } : {}) };
     // Commit admission independently of ACL failures, using one bounded bucket per account.
     // An attacker cannot refund the bucket with inaccessible/random asset identifiers.
     const allowed = await this.transactions.write(async tx => {

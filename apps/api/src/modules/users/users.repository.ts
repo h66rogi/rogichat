@@ -52,6 +52,13 @@ export class UsersRepository {
     const rows = await tx.prisma.room_members.findMany({ where: { room_id: roomId, id: actorId, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } }, profile: { isNot: null } } }, select: { id: true, role: true, active_period_id: true, user: { select: { profile: { select: profileSelect } } } } });
     return rows.map(row => ({ ...projectProfile(row.user.profile!), actor_id: row.id, role: row.role as ActiveMember['role'], active_period_id: row.active_period_id! }));
   }
+  actorAvatar(tx: Transaction, roomId: string, actorId: string) {
+    // Access proof only: no nickname, birthday or provider identity is loaded.
+    return tx.prisma.room_members.findFirst({ where: { room_id: roomId, id: actorId, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } } }, select: {
+      id: true, role: true, user_id: true,
+      user: { select: { profile: { select: { avatar: { select: { id: true, owner_user_id: true, kind: true, room_id: true, state: true, deleted_at: true } } } } } },
+    } });
+  }
   manifestCandidates(tx: Transaction, roomId: string, after: string) {
     return tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { gt: after }, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } } }, orderBy: { id: 'asc' }, take: 51, select: { id: true } });
   }

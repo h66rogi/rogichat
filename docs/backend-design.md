@@ -384,6 +384,13 @@ decoder는 비신뢰 입력을 처리하므로 프로세스 격리·패치·자�
 | `POST /v1/rooms/:roomId/actors/:actorId/avatar/access` | 열람 가능한 프로필 60초 URL 발급 |
 | `POST/DELETE /v1/push/subscriptions` | 내 기기 구독 등록·해제 |
 
+M08 구현에서는 파일 URL 발급을 `POST /v1/media/assets/:assetId/access`로 통합한다.
+본문은 메시지 첨부의 `{roomId, messageId, variant}` 또는 아바타의
+`{roomId, actorId, variant: 'image'}`이며 두 문맥을 혼용하지 않는다.
+위 표의 중첩 attachment/avatar 경로는 초기 제안이며 별도 구현 endpoint가 아니다.
+UUID 소지만으로 열람할 수 없고 각각 현재 메시지/프로필 권한과 정확한 자산 연결을 검증한다.
+현재 구현·남은 실환경 gate는 [미디어 checkpoint](backend-m08-m09-checkpoint.md)를 따른다.
+
 REST sync의 domain event는 `message.created/updated/deleted`, `reaction.updated`, `publication.revoked`,
 `read.updated`, `membership.revoked`를 제안한다. schema version·이벤트 UUID·리소스 version을
 두고 현재 viewer별 DTO projection을 사용한다. 초기 소켓에는 이 payload를 직접 싣지 않는다.
