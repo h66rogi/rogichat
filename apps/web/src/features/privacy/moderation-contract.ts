@@ -4,7 +4,7 @@ export type ReportReason = typeof REPORT_REASONS[number];
 export interface ReportInput { idempotencyKey: string; reason: ReportReason; detail?: string }
 export interface ReportReceipt { reportId: string; status: 'received' | 'resolved' | 'dismissed'; createdAt: string }
 export interface BlockReceipt { actorId: string; blocked: boolean; resetRequired: true }
-export interface BlockPage { blocks: { actorId: string; blockedAt: string }[]; next: string | null }
+export interface BlockPage { blocks: { actorId: string; blockedAt: string; displayName: string | null }[]; next: string | null }
 function timestamp(value: unknown): string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) throw new Error('INVALID_RESPONSE');
   return value;
@@ -27,7 +27,11 @@ export function blockReceipt(value: unknown, actorId: string, blocked: boolean):
 export function blockPage(value: unknown): BlockPage {
   const data = exact(value, ['blocks', 'next']);
   if (!Array.isArray(data.blocks) || data.blocks.length > 50) throw new Error('INVALID_RESPONSE');
-  const blocks = data.blocks.map(value => { const row = exact(value, ['actorId', 'blockedAt']); return { actorId: uuid(row.actorId), blockedAt: timestamp(row.blockedAt) }; });
+  const blocks = data.blocks.map(value => {
+    const row = exact(value, ['actorId', 'blockedAt', 'displayName']);
+    if (row.displayName !== null && typeof row.displayName !== 'string') throw new Error('INVALID_RESPONSE');
+    return { actorId: uuid(row.actorId), blockedAt: timestamp(row.blockedAt), displayName: row.displayName };
+  });
   if (new Set(blocks.map(row => row.actorId)).size !== blocks.length) throw new Error('INVALID_RESPONSE');
   const next = data.next === null ? null : uuid(data.next);
   if (next && (!blocks.length || next !== blocks.at(-1)?.actorId)) throw new Error('INVALID_RESPONSE');

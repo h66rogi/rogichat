@@ -85,7 +85,7 @@ test('different-account reauthentication never deletes the replacement account',
 async function privacyChat(page: Page) {
   const account = await installApi(page, true); account.sessionToken = csrf; account.joined = true;
   const source: ServerMessage = { id: sourceId, version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE', author: { kind: 'member', actorId: fanId, nickname: '격리 테스트 팬', avatar: null }, content: { type: 'TEXT', text: '공개 전 개인 메시지' }, quote: null, counterpart: { actorId: fanId }, allowedActions: { reply: true, publish: true, delete: false } };
-  const state = { publication: 'preparing' as 'preparing' | 'published' | 'revoked', unknown: false, writes: 0, reads: 0, snapshots: 0, syncReads: 0, reports: 0, reportLost: false, reportKey: '', blocked: false, sessionStatus: 200, revision: TEST_SCOPES.authorizationRevision, messages: [source] };
+  const state = { publication: 'preparing' as 'preparing' | 'published' | 'revoked', unknown: false, writes: 0, reads: 0, snapshots: 0, syncReads: 0, reports: 0, reportLost: false, reportKey: '', blocked: false, blockDisplayName: '현재 차단 표시 이름' as string | null, blockReadStatus: 200, sessionStatus: 200, revision: TEST_SCOPES.authorizationRevision, messages: [source] };
   await page.routeWebSocket('**/v1/realtime/**', socket => {
     socket.send('0' + JSON.stringify({ sid: 'privacy-isolated-engine', upgrades: [], pingInterval: 25000, pingTimeout: 20000, maxPayload: 1024 }));
     socket.onMessage(packet => { if (typeof packet === 'string' && packet.startsWith('40')) socket.send('40' + JSON.stringify({ sid: 'privacy-isolated-socket' })); });
@@ -106,7 +106,8 @@ async function privacyChat(page: Page) {
     if (path.endsWith(`/messages/${sourceId}/reports`)) { state.reports++; state.reportKey = (route.request().postDataJSON() as { idempotencyKey: string }).idempotencyKey; if (state.reportLost) return route.abort('failed'); return json(route, { reportId: requestId, status: 'received', createdAt: '2026-09-20T00:00:00.000Z' }); }
     if (path === `/v1/report-receipts/${state.reportKey}`) return json(route, { reportId: requestId, status: 'received', createdAt: '2026-09-20T00:00:00.000Z' });
     if (path.endsWith(`/blocks/${fanId}`)) { state.blocked = method === 'PUT'; state.revision = (state.blocked ? 'D' : 'E').repeat(42) + 'A'; return json(route, { actorId: fanId, blocked: state.blocked, resetRequired: true }); }
-    if (path.endsWith('/blocks')) return json(route, { blocks: state.blocked ? [{ actorId: fanId, blockedAt: '2026-09-20T00:00:00.000Z' }] : [], next: null });
+    if (path.endsWith('/blocks') && state.blockReadStatus !== 200) return json(route, {}, state.blockReadStatus);
+    if (path.endsWith('/blocks')) return json(route, { blocks: state.blocked ? [{ actorId: fanId, blockedAt: '2026-09-20T00:00:00.000Z', displayName: state.blockDisplayName }] : [], next: null });
     return route.fallback();
   });
   return state;
@@ -149,6 +150,7 @@ test('visible actor block requires confirmation and settings can explicitly unbl
   await page.getByLabel('이 방에서 해당 사용자를 차단합니다.').check();
   await page.getByRole('button', { name: '사용자 차단', exact: true }).click(); await expect.poll(() => state.blocked).toBe(true);
   await page.goto('/settings'); await page.getByRole('button', { name: '차단 목록 확인' }).click();
+  await expect(page.getByText(/현재 차단 표시 이름 · 식별 정보/)).toBeVisible();
   await page.getByRole('button', { name: '차단 항목 1 해제', exact: true }).click();
   expect(state.blocked).toBe(true); await page.getByRole('button', { name: '차단 해제 확인', exact: true }).click();
   await expect.poll(() => state.blocked).toBe(false);
@@ -175,4 +177,30 @@ test('unlinked authenticated settings permits deletion without a fabricated prof
   await confirmDeletion(page);
   await expect(page.getByText('탈퇴 요청이 접수되어 계정 접근이 차단되었습니다. 데이터의 물리 삭제가 완료되었다는 뜻은 아닙니다.')).toBeVisible();
   expect(state.deletes).toBe(1); expect(profileReads).toBe(0);
+});
+
+
+test('left room keeps own block recovery and null label never falls back to profile cache', async ({ page }) => {
+  const state = await privacyChat(page); state.blocked = true; state.blockDisplayName = null;
+  await page.route('**/v1/rooms', route => json(route, { rooms: [{ roomId: TEST_ROOM_ID, name: '후로기', mode: 'FAN', joined: false }], next: null }));
+  await page.goto('/settings'); await page.getByRole('button', { name: '차단 목록 확인' }).click();
+  await expect(page.getByText(new RegExp(`표시 이름을 확인할 수 없음 · 식별 정보 ${fanId}`))).toBeVisible();
+  await expect(page.getByText('격리 테스트 팬', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '차단 항목 1 해제', exact: true }).click();
+  await page.getByRole('button', { name: '차단 해제 확인', exact: true }).click();
+  await expect.poll(() => state.blocked).toBe(false);
+  await expect(page.getByTestId('settings-room-membership')).toHaveText('나감');
+});
+
+
+for (const failure of ['authorization', 'list'] as const) test(`block reload clears current labels when ${failure} fails`, async ({ page }) => {
+  const state = await privacyChat(page); state.blocked = true;
+  await page.goto('/settings'); await page.getByRole('button', { name: '차단 목록 확인' }).click();
+  await expect(page.getByText(/현재 차단 표시 이름 · 식별 정보/)).toBeVisible();
+  if (failure === 'authorization') state.sessionStatus = 403;
+  else state.blockReadStatus = 503;
+  await page.getByRole('button', { name: '차단 목록 확인' }).click();
+  await expect(page.getByText('차단 목록을 확인하지 못했습니다. 다시 시도해 주세요.')).toBeVisible();
+  await expect(page.getByText(/현재 차단 표시 이름 · 식별 정보/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '차단 항목 1 해제', exact: true })).toHaveCount(0);
 });

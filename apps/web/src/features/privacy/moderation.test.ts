@@ -23,7 +23,7 @@ void test('moderation DTO rejects extra identity, false resets and invalid detai
   assert.equal(reportInput({ idempotencyKey: id, reason: 'spam', detail: '😀'.repeat(1000) }).detail, '😀'.repeat(1000));
   assert.throws(() => reportInput({ idempotencyKey: id, reason: 'spam', detail: '😀'.repeat(1001) }));
   assert.throws(() => blockReceipt({ actorId: actor, blocked: true, resetRequired: false }, actor, true));
-  assert.throws(() => blockPage({ blocks: [{ actorId: actor, blockedAt: receipt.createdAt }], next: id }));
+  assert.throws(() => blockPage({ blocks: [{ actorId: actor, blockedAt: receipt.createdAt, displayName: null }], next: id }));
 });
 
 void test('report ACK loss recovers own receipt after reload without detail or raw source storage', async () => {
@@ -92,7 +92,7 @@ void test('unblock sends no body; block list works without joining and is sessio
     if (path.endsWith('/session')) return response(session);
     requests++;
     if (init.method === 'DELETE') { assert.equal(init.body, undefined); return response({ actorId: actor, blocked: false, resetRequired: true }); }
-    assert.equal(path, `/v1/rooms/${id}/blocks`); return response({ blocks: [{ actorId: actor, blockedAt: receipt.createdAt }], next: null });
+    assert.equal(path, `/v1/rooms/${id}/blocks`); return response({ blocks: [{ actorId: actor, blockedAt: receipt.createdAt, displayName: null }], next: null });
   }), session, () => {}, () => {});
   assert.equal((await flow.list(id, null)).blocks.length, 1); await flow.change(id, actor, false); assert.equal(requests, 2);
 });
@@ -145,4 +145,14 @@ void test('predispatch report failure returns to explicit editable confirmation 
   const flow = new ReportFlow(client, storage, session, () => {}); await flow.submit(id, actor, 'spam', '');
   assert.equal(flow.state, 'storageError'); assert.equal(posts, 0); unavailable = false;
   await flow.recover(); assert.equal(flow.state, 'idle'); assert.equal(posts, 0); assert.equal(readReport(storage), null);
+});
+
+void test('own block labels require the current nullable server projection without profile fields', () => {
+  for (const displayName of ['현재 표시 이름', null]) {
+    const row = { actorId: actor, blockedAt: receipt.createdAt, displayName };
+    assert.deepEqual(blockPage({ blocks: [row], next: null }).blocks, [row]);
+    assert.throws(() => blockPage({ blocks: [{ ...row, avatar: null }], next: null }));
+  }
+  assert.throws(() => blockPage({ blocks: [{ actorId: actor, blockedAt: receipt.createdAt }], next: null }));
+  assert.throws(() => blockPage({ blocks: [{ actorId: actor, blockedAt: receipt.createdAt, displayName: 1 }], next: null }));
 });

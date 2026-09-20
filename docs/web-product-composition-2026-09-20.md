@@ -13,6 +13,7 @@ PR59 task branch is preserved. The coordinator owns paired rollout and acceptanc
 - Native durable outbox and erasure APIs: `7a28d4a` (includes original-signal adapter fences).
 - Full VIDEO range/codec/expiry resource: `446e34c`, mounted in `788a2a3`.
 - Deletion, publication, reporting and blocking: `9e6d723`, mounted with cleanup in `b4bf6d9`.
+- Own-block current nullable label contract: backend `e3f813c`; strict parser and left-room recovery UI.
 - Push enrollment, per-page wake binding and stale-cleanup rejection: `724a2dc`.
 
 The controller sends only after durable preparation. Cold recovery performs receipt
@@ -58,7 +59,7 @@ browser job installs ffmpeg; product containers receive no fixture or codec tool
 
 ## Verification and runtime boundary
 
-The assembled pre-push source passes 336 focused unit tests and TypeScript. Dedicated
+The assembled pre-push source passes 337 focused unit tests and TypeScript. Dedicated
 production-route browser cases cover media, cold outbox recovery and privacy;
 aggregate production build/browser/container/security results are still pending.
 Leaf-only native IndexedDB and codec tests are bounded evidence, not product rollout.
