@@ -33,6 +33,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 0
       - name: Public source guard before package authentication
         run: |
           python3 tools/security/install.py
