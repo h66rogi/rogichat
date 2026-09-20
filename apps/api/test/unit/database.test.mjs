@@ -15,6 +15,9 @@ test('driver explicitly verifies certificate chain and hostname, bounds pool and
   assert.equal(options.connectionLimit, 5);
   assert.equal(options.acquireTimeout, 1200);
   assert.equal(options.multipleStatements, false);
+  assert.equal(options.charset, 'utf8mb4');
+  assert.equal(options.permitRedirect, false);
+  assert.equal(options.allowPublicKeyRetrieval, false);
   assert.equal(options.timezone, '+00:00');
 });
 

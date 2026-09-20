@@ -1,0 +1,16 @@
+rogi.chat {
+	# Public web assets contain no credentials. API cookies remain host-only on
+	# the distinct API origin; no auth/API proxy or cookie rewriting is performed.
+	# Keep query strings, OAuth callbacks and credentials out of access logs.
+	@infra path /_infra/health
+	handle @infra {
+		respond "rogichat prod web edge ready" 200
+	}
+	handle {
+		reverse_proxy rogichat-prod-web:3000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up -CF-Connecting-IP
+			header_up -Forwarded
+		}
+	}
+}

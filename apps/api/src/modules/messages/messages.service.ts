@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
-import { ApiError, opaque } from '../auth/auth-primitives.js';
+import { ApiError } from '../auth/auth-primitives.js';
+import { requireCommandProof } from '../auth/auth-context.js';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { identifier } from '../../common/validation/identifier.js';
 import { roomCommandRate } from '../../infrastructure/rate-limit/room-command-rate.js';
@@ -19,7 +20,7 @@ export class MessagesService {
 
   async send(credentials: CommandCredentials, roomId: string, input: SendInput) {
     identifier(roomId);
-    opaque(credentials.csrf);
+    requireCommandProof(credentials);
     // A failed command must not refund its independently committed rate charge.
     const allowed = await this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
@@ -40,7 +41,7 @@ export class MessagesService {
   }
 
   remove(credentials: CommandCredentials, roomId: string, messageId: string) {
-    opaque(credentials.csrf);
+    requireCommandProof(credentials);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials);
       return this.messages.remove(tx, roomId, actor.userId, messageId);
