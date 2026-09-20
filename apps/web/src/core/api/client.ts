@@ -26,7 +26,7 @@ export class ApiClient {
     if (options.method) {
       headers['Content-Type'] = 'application/json';
       if (options.csrf) headers['X-CSRF-Token'] = options.csrf;
-      else if (path !== '/v1/auth/soop/start') throw new Error('Missing CSRF token');
+      else if (!['/v1/auth/soop/start', '/v1/auth/password/login'].includes(path)) throw new Error('Missing CSRF token');
     }
     const response = await this.transport(this.origin + path, {
       method: options.method ?? 'GET', credentials: 'include', cache: 'no-store', redirect: 'error', headers,

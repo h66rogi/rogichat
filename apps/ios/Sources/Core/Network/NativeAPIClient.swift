@@ -51,6 +51,7 @@ struct NativeRequestAdmission: Sendable {
     }
 }
 protocol NativeRequesting: Sendable {
+    func performAccess(_ input: AccountAccessRequest, credential: NativeCredential, admit: @escaping @Sendable () throws -> Void) async throws -> Data
     func perform(_ endpoint: NativeEndpoint, credential: NativeCredential) async throws -> Data
 }
 final class NativeSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
@@ -65,6 +66,9 @@ final class NativeSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
             completionHandler(.performDefaultHandling, nil)
         } else { completionHandler(.cancelAuthenticationChallenge, nil) }
     }
+}
+extension NativeRequesting {
+    func performAccess(_ input: AccountAccessRequest, credential: NativeCredential, admit: @escaping @Sendable () throws -> Void) async throws -> Data { throw ProductError.unavailable }
 }
 actor NativeAPIClient: AccountFeatureRequesting, AppleIdentityRequesting, NativePushRequesting, NativeRequesting, SOOPRequesting, M11Requesting, RoomsRequesting, RoomsCommandRequesting, AccountDeletionRequesting, ConversationRequesting {
     private let environment: NativeEnvironment
@@ -84,6 +88,22 @@ actor NativeAPIClient: AccountFeatureRequesting, AppleIdentityRequesting, Native
         config.httpShouldSetCookies = false
         config.urlCredentialStorage = nil
         return config
+    }
+    func performAccess(_ input: AccountAccessRequest, credential: NativeCredential, admit: @escaping @Sendable () throws -> Void) async throws -> Data {
+        guard credential.isValid, credential.environment == environment else { throw ProductError.secureStorage }
+        let (method,path,body,status,after) = try input.wire()
+        var url = URLComponents(url: environment.baseURL.appendingPathComponent(path),resolvingAgainstBaseURL:false)!
+        if let after { url.queryItems = [URLQueryItem(name:"after",value:after)] }
+        var request = URLRequest(url:url.url!); request.httpMethod = method; request.httpBody = body
+        request.httpShouldHandleCookies = false; request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("Bearer \(credential.token)",forHTTPHeaderField:"Authorization")
+        request.setValue("ios",forHTTPHeaderField:"X-Rogi-Client"); request.setValue("application/json",forHTTPHeaderField:"Accept")
+        if body != nil { request.setValue("application/json",forHTTPHeaderField:"Content-Type") }
+        try admit()
+        let (bytes,response) = try await session.bytes(for:request); defer { bytes.task.cancel() }
+        guard let response = response as? HTTPURLResponse, response.url == request.url, response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ProductError.invalidResponse }
+        let data = try await Self.readBody(bytes,cancel:{ bytes.task.cancel() }); try Task.checkCancellation()
+        return try Self.validated(data,status:response.statusCode,expected:status)
     }
     func perform(_ endpoint: NativeEndpoint, credential: NativeCredential) async throws -> Data {
         let request = try endpoint.request(environment: environment, credential: credential)
@@ -157,10 +177,19 @@ actor NativeAPIClient: AccountFeatureRequesting, AppleIdentityRequesting, Native
             guard let response = response as? HTTPURLResponse, response.url == request.url,
                   response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ProductError.invalidResponse }
             let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
+            if case .password = input, response.statusCode != 200 {
+                struct Failure: Decodable { struct Detail: Decodable { let code: String }; let error: Detail }
+                let code = (try? JSONDecoder().decode(Failure.self,from:data))?.error.code
+                if response.statusCode == 401 { if code == "UNAUTHENTICATED" { throw ProductError.unauthenticated }; throw PasswordFailure.credentials }
+                if response.statusCode == 429 { throw PasswordFailure.rateLimited }
+                if response.statusCode == 400 { throw PasswordFailure.invalidInput }
+                throw PasswordFailure.unavailable
+            }
             // Auth endpoints need their scoped code even for 401; they never clear a store.
             guard response.statusCode == 200 else { throw SOOPAuthError.response(data, status: response.statusCode) }
             return data
-        } catch let error as SOOPAuthError { throw error }
+        } catch let error as PasswordFailure { throw error }
+        catch let error as SOOPAuthError { throw error }
         catch let error as ProductError { throw error }
         catch {
             if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }

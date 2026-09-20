@@ -47,10 +47,10 @@ export class SessionService {
     if (!profile) throw new ApiError('AUTH_UNAVAILABLE', 503);
     const avatar = profile.avatar;
     const avatarAssetId = avatar && avatar.owner_user_id === principal.userId && avatar.kind === 'AVATAR' && avatar.room_id === null && avatar.state === 'READY' && avatar.deleted_at === null ? avatar.id : null;
-    const accountGeneration = createHmac('sha256', this.key).update('native-account:v1:').update(JSON.stringify([this.audience, principal.userId, String(account.user.membership_generation), principal.soopLinked])).digest('base64url');
+    const accountGeneration = createHmac('sha256', this.key).update('native-account:v1:').update(JSON.stringify([this.audience, principal.userId, String(account.user.membership_generation), principal.soopLinked, ...(!principal.soopLinked && principal.chatEnabled ? ['CHAT_ENTITLED'] : [])])).digest('base64url');
     return { authenticated: true, account: { userId: principal.userId, nickname: profile.nickname, avatarAssetId },
-      soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED', onboardingState: principal.soopLinked ? 'READY' : 'SOOP_LINK_REQUIRED',
-      expiresAt: account.expires_at.toISOString(), accountGeneration, accountPartition: this.accountPartition(principal.userId), capabilities: { chat: principal.soopLinked } };
+      soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED', onboardingState: principal.chatEnabled ? 'READY' : 'SOOP_LINK_REQUIRED',
+      expiresAt: account.expires_at.toISOString(), accountGeneration, accountPartition: this.accountPartition(principal.userId), capabilities: { chat: principal.chatEnabled } };
   }
 
   async issue(tx: Transaction, userId: string): Promise<{ token: string; csrf: string }> {
@@ -79,8 +79,9 @@ export class SessionService {
     if (!session || session.status !== 'ACTIVE') throw new ApiError('UNAUTHENTICATED', 401);
     if (csrf !== undefined && !equalDigest(csrf, session.csrf_digest)) throw new ApiError('FORBIDDEN', 403);
     const soopLinked = session.soop_status === 'VERIFIED';
-    if (chat && !soopLinked) throw new ApiError('SOOP_LINK_REQUIRED', 403);
-    return { userId: session.user_id, sessionId: session.id, soopLinked };
+    const permitted = soopLinked || session.apple_verified === true || Boolean(session.reviewer_expires_at && session.reviewer_expires_at > await tx.now());
+    if (chat && !permitted) throw new ApiError('SOOP_LINK_REQUIRED', 403);
+    return { userId: session.user_id, sessionId: session.id, soopLinked, chatEnabled: permitted };
   }
 
   async revoke(tx: Transaction, token: string | undefined, csrf: string): Promise<void> {

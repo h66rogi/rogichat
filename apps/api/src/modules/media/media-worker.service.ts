@@ -59,7 +59,7 @@ export class MediaWorkerService {
     // Deletion needs no membership grant. Do not acquire a room lock after
     // owner/asset locks: publication and message deletion lock room before assets.
     if (asset.state === 'DELETING') return 'cleanup';
-    let allowed = owner.status === 'ACTIVE' && owner.linked === 'VERIFIED';
+    let allowed = owner.status === 'ACTIVE' && Number(owner.chat_allowed) === 1;
     if (allowed && asset.room_id) {
       try { await this.access.requireActiveMember(tx, String(asset.room_id), String(asset.owner_user_id)); }
       catch (error) { if (!(error instanceof ApiError) || error.code !== 'NOT_FOUND') throw error; allowed = false; }
@@ -92,7 +92,7 @@ export class MediaWorkerService {
   }
   private async finalizeMedia(tx: Transaction, lease: JobLease, attempt: TransformAttempt, decoded: DecodedMedia | DecodedVideoMedia) {
     const { asset, owner } = await this.assetLock(tx, attempt.assetId);
-    if (asset.state !== 'PROCESSING' || asset.deleted_at || owner.status !== 'ACTIVE' || owner.linked !== 'VERIFIED') throw new JobFailure('SOURCE_UNAVAILABLE');
+    if (asset.state !== 'PROCESSING' || asset.deleted_at || owner.status !== 'ACTIVE' || Number(owner.chat_allowed) !== 1) throw new JobFailure('SOURCE_UNAVAILABLE');
     if (asset.room_id) await this.access.requireActiveMember(tx, String(asset.room_id), String(asset.owner_user_id));
     const output = decoded.kind === 'VIDEO' ? decoded.video : decoded;
     const changed = await this.repository.readyObject(tx, output.file.bytes, output.file.sha256, output.width, output.height, attempt.objectId, asset.id, decoded.kind === 'VIDEO' ? decoded.video.durationMs : null);

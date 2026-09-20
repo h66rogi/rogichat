@@ -111,7 +111,7 @@ struct ProductStateChecks {
         precondition(session.account == nil && session.access == .retryableFailure && session.generation > beforeInvalid && !session.busy)
         await service.configure(SessionSnapshot(access: .ready, account: restricted))
         await session.restore()
-        precondition(session.access == .retryableFailure && session.account == nil)
+        precondition(session.access == .ready && session.account?.soopConnected == false)
 
         await service.configure(SessionSnapshot(access: .linkRequired, account: restricted))
         await session.restore()
