@@ -63,7 +63,12 @@ export class AppleRepository {
       user_id: userId, status: 'EXCHANGE_PENDING', expires_at: expires }, select: { id: true } });
   }
   async saveCredential(tx: Transaction, input: { id: string; transactionId: string; audience: string; token: Uint8Array<ArrayBuffer>; expires: Date }) {
-    await tx.prisma.apple_provider_credentials.update({ where: { transaction_id: input.transactionId }, data: { token: input.token, status: 'PENDING' }, select: { id: true } });
+    const [row] = await tx.rows<{ id: string; status: string }>('SELECT id,status FROM apple_provider_credentials WHERE transaction_id=? FOR UPDATE', [input.transactionId]);
+    if (!row) throw new Error('apple_credential_missing');
+    // An exchange response arriving after restore quarantine/expiry must remain
+    // revocation-only. It cannot turn a quarantined family back into PENDING.
+    await tx.prisma.apple_provider_credentials.update({ where: { id: row.id }, data: { token: input.token,
+      status: row.status === 'EXCHANGE_PENDING' ? 'PENDING' : 'REVOKE_PENDING', lease_token: null }, select: { id: true } });
   }
   async activateCredential(tx: Transaction, transactionId: string, identityId: string, userId: string) {
     const result = await tx.prisma.apple_provider_credentials.updateMany({ where: { transaction_id: transactionId, status: 'PENDING' }, data: { status: 'ACTIVE', identity_id: identityId, user_id: userId } });

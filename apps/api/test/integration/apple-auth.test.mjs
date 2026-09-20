@@ -6,6 +6,8 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { AppleService } from '../../dist/modules/auth/apple/apple.service.js';
+import { AppleSeal } from '../../dist/modules/auth/apple/apple-seal.js';
+import { AppleRestoreRepository } from '../../dist/modules/auth/apple/apple-restore.repository.js';
 import { AppleRepository } from '../../dist/modules/auth/apple/apple.repository.js';
 import { AppleProvider } from '../../dist/modules/auth/apple/apple-provider.js';
 import { AppleLifecycleRepository } from '../../dist/modules/auth/apple/apple-lifecycle.repository.js';
@@ -34,15 +36,19 @@ const guardKey = randomBytes(32);
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
   const db = new MysqlDatabase(readConfig('api')); const providerFixture = appleFixture();
+  const existingTransactions = await db.transactions.read(tx => tx.prisma.apple_auth_transactions.findMany({ select: { id: true } }));
   const config = { audience: 'rogi-qa', origin: 'https://qa.rogi.chat', callback: 'https://api.qa.rogi.chat/v1/auth/soop/callback',
     secure: false, key: randomBytes(32), identityGuardKey: guardKey, apple: providerFixture.config, broker: undefined };
   const repository = new AppleRepository(); const sessionRepo = new SessionRepository(); const sessions = new SessionService(sessionRepo, config.audience, config.key);
   const guards = new IdentityGuardService(new IdentityGuardRepository()); const provider = new AppleProvider(config.apple, providerFixture.request);
   const service = new AppleService(config, db.transactions, repository, provider, sessions, new LoginRepository(), guards);
-  const lifecycle = new AppleLifecycleService(db.transactions, new AppleLifecycleRepository(), repository, provider, guards, config);
+  const lifecycle = new AppleLifecycleService(db.transactions, new AppleLifecycleRepository(), repository, provider, guards, new AppleRestoreRepository(), config);
   const soop = new IdentityService(new IdentityRepository(), config, guards); const auth = new AuthService(sessions, undefined, db.transactions, sessionRepo, config);
   t.after(async () => {
     await db.transactions.write(async tx => {
+      const owned = await tx.prisma.apple_auth_transactions.findMany({ where: { id: { notIn: existingTransactions.map(row => row.id) } }, select: { id: true } });
+      await tx.prisma.apple_provider_credentials.deleteMany({ where: { transaction_id: { in: owned.map(row => row.id) } } });
+      await tx.prisma.apple_auth_transactions.deleteMany({ where: { id: { in: owned.map(row => row.id) } } });
       await tx.prisma.identity_subject_guards.deleteMany({ where: { key_fingerprint: Buffer.from(guards.evidence(Buffer.alloc(0), randomUUID(), guardKey).keyFingerprint, 'hex') } });
       await tx.prisma.identity_guard_keys.deleteMany({ where: { version: 1 } });
     });
@@ -67,6 +73,7 @@ test('Apple native/Services ID share only explicitly scoped identity; restricted
   const f = await fixture(t); const first = await f.login();
   assert.equal(first.session.soopLinkStatus, 'REQUIRED'); assert.equal(first.session.capabilities.chat, false);
   const userId = first.session.account.userId;
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.apple_auth_transactions.findUniqueOrThrow({ where: { id: first.pending.transactionId } }))).user_id, userId);
   const second = await f.login('android', first.subject); assert.equal(second.session.account.userId, userId);
   const web = await f.login('web', first.subject); assert.equal((await f.db.transactions.read(tx => f.auth.require(tx, { token: web.token }))).userId, userId);
   await assert.rejects(f.db.transactions.read(tx => f.auth.require(tx, f.credentials(first), true)), denied('SOOP_LINK_REQUIRED'));
@@ -148,7 +155,7 @@ test('real Nest HTTP account/room/session gates work with Apple issued restricte
   t.after(() => app.close()); await app.listen(0, '127.0.0.1'); const origin = await app.getUrl();
   const headers = { authorization: `Bearer ${user.accessToken}`, 'x-rogi-client': 'ios' };
   const me = await fetch(`${origin}/v1/me/profile`, { headers }); assert.equal(me.status, 200); assert.equal((await me.json()).onboardingState, 'SOOP_LINK_REQUIRED');
-  for (const path of ['/v1/rooms', '/v1/sync']) {
+  for (const path of ['/v1/rooms', `/v1/sync?deviceId=${randomUUID()}&cacheId=${randomUUID()}`]) {
     const response = await fetch(`${origin}${path}`, { headers }); assert.equal(response.status, 403, path); assert.equal((await response.json()).error.code, 'SOOP_LINK_REQUIRED');
   }
   const disabled = await fetch(`${origin}/v1/auth/apple/start`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-rogi-client': 'ios' },
@@ -218,4 +225,44 @@ test('Android Services ID HTTP callback validates Apple form post and binds the 
   }) });
   assert.equal(response.status, 200); const issued = await response.json();
   assert.equal(issued.session.soopLinkStatus, 'REQUIRED'); assert.equal(issued.session.capabilities.chat, false);
+});
+
+test('restore quarantine is bounded, retryable and config-independent while retaining upstream obligations and blocking late responses', async t => {
+  const f = await fixture(t); const user = await f.login(); const userId = user.session.account.userId;
+  await f.db.transactions.write(tx => f.soop.resolve(tx, { schemaVersion: 1, provider: 'soop', subject: `restore-${randomUUID()}` }, userId));
+  const pending = await f.start(); const proof = f.providerFixture.code('ios', pending.nonce);
+  const completion = await f.service.nativeComplete({ transactionId: pending.transactionId, state: pending.state, authorizationCode: proof.code, identityToken: proof.identityToken, codeVerifier: pending.verifier });
+  const lost = await f.start(); const repository = new AppleRepository();
+  await f.db.transactions.write(tx => repository.prepareCredential(tx, lost.transactionId, f.config.apple.clients.ios.audience, new Date(Date.now() + 600000), null));
+  const port = () => new AppleLifecycleService(undefined, undefined, undefined, new AppleProvider(undefined, () => { throw new Error('unexpected_provider_io'); }), undefined, new AppleRestoreRepository());
+  const original = await f.db.transactions.read(tx => tx.prisma.apple_provider_credentials.findUniqueOrThrow({ where: { id: user.pending.transactionId } }));
+  await assert.rejects(f.db.transactions.write(async tx => {
+    await port().quarantineRestored(tx, { phase: 'identities', afterId: null, limit: 100 });
+    throw new Error('checkpoint_rollback');
+  }), /checkpoint_rollback/);
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.auth_identities.findUniqueOrThrow({ where: { id: original.identity_id } }))).status, 'VERIFIED');
+  assert.equal((await f.db.transactions.write(tx => port().restoredQuarantineReadiness(tx))).quarantined, false);
+  for (const phase of ['identities', 'transactions', 'credentials']) {
+    let afterId = null;
+    for (let pageNumber = 0; ; pageNumber++) {
+      assert.ok(pageNumber < 100);
+      const input = { phase, afterId, limit: 2 };
+      const page = await f.db.transactions.write(tx => port().quarantineRestored(tx, input));
+      assert.ok(page.processed <= 2); assert.equal(page.providerConfigured, false);
+      // A restart may retry a committed page whose response was lost.
+      assert.deepEqual(await f.db.transactions.write(tx => port().quarantineRestored(tx, input)), page);
+      if (!page.hasMore) break; afterId = page.lastId;
+    }
+  }
+  const quarantined = await f.db.transactions.read(tx => tx.prisma.apple_provider_credentials.findUniqueOrThrow({ where: { id: original.id } }));
+  assert.deepEqual(quarantined.token, original.token); assert.equal(quarantined.status, 'REVOKE_PENDING');
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.apple_provider_credentials.findUniqueOrThrow({ where: { id: lost.transactionId } }))).status, 'EXCHANGE_UNKNOWN');
+  await assert.rejects(f.service.exchange({ clientId: 'ios', transactionId: pending.transactionId, code: completion.code, codeVerifier: pending.verifier }), denied('AUTH_FAILED'));
+  const lateToken = new AppleSeal(f.config.key, f.config.audience).seal('test-only-late-refresh', lost.transactionId, 'refresh');
+  await f.db.transactions.write(tx => repository.saveCredential(tx, { id: lost.transactionId, transactionId: lost.transactionId, audience: f.config.apple.clients.ios.audience, token: lateToken, expires: new Date(Date.now() + 600000) }));
+  const late = await f.db.transactions.read(tx => tx.prisma.apple_provider_credentials.findUniqueOrThrow({ where: { id: lost.transactionId } }));
+  assert.equal(late.status, 'REVOKE_PENDING'); assert.deepEqual(Buffer.from(late.token), Buffer.from(lateToken));
+  assert.deepEqual(await f.db.transactions.write(tx => port().restoredQuarantineReadiness(tx)), { quarantined: true, identitiesPending: false, transactionsPending: false, credentialsPending: false, upstreamRevocationPending: true, providerConfigured: false });
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.users.findUniqueOrThrow({ where: { id: userId } }))).status, 'ACTIVE');
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.platform_soop.findUniqueOrThrow({ where: { user_id: userId } }))).status, 'VERIFIED');
 });

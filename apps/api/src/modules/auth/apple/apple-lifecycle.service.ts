@@ -1,3 +1,5 @@
+import type { AppleRestoreRepository } from './apple-restore.repository.js';
+import type { AppleRestoreInput, AppleRestorePage, AppleRestoreReadiness } from './apple-restore.js';
 import { ApiError } from '../auth-primitives.js';
 import type { Transactions, Transaction } from '../../../infrastructure/database/transactions.js';
 import type { AuthConfig } from '../../../infrastructure/config/auth-config.js';
@@ -13,7 +15,7 @@ export class AppleLifecycleService {
   private activeCursor: string | null = null;
   constructor(private readonly transactions: Transactions, private readonly repository: AppleLifecycleRepository,
     private readonly identities: AppleRepository, private readonly provider: AppleProvider,
-    private readonly guards: IdentityGuardService, private readonly config?: AuthConfig) {}
+    private readonly guards: IdentityGuardService, private readonly restore: AppleRestoreRepository, private readonly config?: AuthConfig) {}
   async notification(payload: string) {
     const event = await this.provider.notification(payload);
     await this.transactions.write(async tx => {
@@ -45,6 +47,18 @@ export class AppleLifecycleService {
     } catch { /* Durable exponential retry; never discard an unacknowledged token. */ }
     await this.transactions.write(tx => this.repository.finishRevoke(tx, claim.id, claim.lease, success, claim.attempts));
     return { processed: 1, unavailable: !success };
+  }
+  /** Caller owns admitted restore fence and commits its cursor/checkpoint in this transaction. */
+  async quarantineRestored(tx: Transaction, input: AppleRestoreInput): Promise<AppleRestorePage> {
+    if (!tx.writable || !input || !['identities', 'transactions', 'credentials'].includes(input.phase) ||
+      !Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100 ||
+      (input.afterId !== null && (typeof input.afterId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(input.afterId)))) throw new Error('invalid_apple_restore_page');
+    return { ...await this.restore.page(tx, input), providerConfigured: Boolean(this.config?.apple) };
+  }
+  /** Current-row proof under the caller's restore release fence; never a purge ACK. */
+  async restoredQuarantineReadiness(tx: Transaction): Promise<AppleRestoreReadiness> {
+    if (!tx.writable) throw new Error('apple_restore_requires_current_fence');
+    return { ...await this.restore.readiness(tx), providerConfigured: Boolean(this.config?.apple) };
   }
   purgeAccount(tx: Transaction, receipt: DeletionReceipt, limit = 100) {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('invalid_auth_purge_limit');

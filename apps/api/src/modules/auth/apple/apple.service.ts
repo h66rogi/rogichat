@@ -142,7 +142,7 @@ export class AppleService {
           await this.repository.activateCredential(tx, row.id, identityId, userId);
           if (row.intent === 'login') await this.logins.terms(tx, userId, '2026-09-20');
           if (row.session_id) await this.logins.revokeSession(tx, row.session_id);
-          await this.repository.update(tx, row.id, { status: 'SUCCEEDED', proof: null, completion_digest: null });
+          await this.repository.update(tx, row.id, { status: 'SUCCEEDED', user_id: userId, proof: null, completion_digest: null });
           if (input.clientId === 'web') return { transport: 'WEB' as const, ...await this.sessions.issue(tx, userId) };
           const issued = await this.sessions.issueNative(tx, userId, input.clientId);
           return { transport: 'NATIVE' as const, tokenType: 'Bearer' as const, accessToken: issued.token, expiresAt: issued.expiresAt, session: await this.sessions.nativeSession(tx, issued.token, input.clientId) };

@@ -33,8 +33,8 @@ export class LoginRepository {
   async revokeSession(tx: Transaction, id: string): Promise<void> {
     await tx.prisma.auth_sessions.updateMany({ where: { id }, data: { revoked_at: await tx.now() } });
   }
-  async finish(tx: Transaction, id: string, status: 'SUCCEEDED' | 'FAILED'): Promise<void> {
-    await tx.prisma.login_transactions.updateMany({ where: { id }, data: { status, verifier: Buffer.alloc(0) } });
+  async finish(tx: Transaction, id: string, status: 'SUCCEEDED' | 'FAILED', userId?: string): Promise<void> {
+    await tx.prisma.login_transactions.updateMany({ where: { id }, data: { status, verifier: Buffer.alloc(0), ...(userId ? { user_id: userId } : {}) } });
   }
   async fail(tx: Transaction, id: string): Promise<void> {
     await tx.prisma.login_transactions.updateMany({ where: { id, status: { in: ['PENDING', 'PROCESSING'] } }, data: { status: 'FAILED', verifier: Buffer.alloc(0) } });

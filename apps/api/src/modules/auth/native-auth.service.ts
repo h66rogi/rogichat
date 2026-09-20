@@ -169,7 +169,7 @@ export class NativeAuthService {
           const issued = await this.sessions.issueNative(tx, userId, input.clientId);
           if (row.session_id) await this.logins.revokeSession(tx, row.session_id);
           const session = await this.sessions.nativeSession(tx, issued.token, input.clientId);
-          await this.repository.update(tx, row.id, { status: 'SUCCEEDED', completion_digest: null, identity_payload: null });
+          await this.repository.update(tx, row.id, { status: 'SUCCEEDED', user_id: userId, completion_digest: null, identity_payload: null });
           return { tokenType: 'Bearer', accessToken: issued.token, expiresAt: session.expiresAt, session };
         });
       } catch (error) {

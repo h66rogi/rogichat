@@ -88,6 +88,43 @@ records and user/identity UUID anchors remain; M10 separately owns content/media
 closure. Raw SQL is limited to current-row locks/fences; ordinary persistence
 uses generated Prisma operations on the caller's transaction.
 
+## Restore quarantine port
+
+The operator-only restore composition imports `AppleLifecycleModule.register`
+with its infrastructure module and optional real `AuthConfig`, then injects only
+`AppleLifecycleService`. It never imports an Apple repository. There is no HTTP
+endpoint and no provider I/O, decryption or nested transaction in these ports.
+
+`quarantineRestored(tx, { phase, afterId, limit })` requires the caller's writable
+transaction under its admitted global restore/writer fence. Scan `identities`,
+then `transactions`, then `credentials`, beginning each phase with `afterId:null`
+and a limit from 1 to 100. Persist returned `lastId` and phase/checkpoint in that
+**same transaction**. `hasMore:false` ends the phase; an exactly full final page
+may need an empty follow-up. A committed page can be retried unchanged after a
+lost response. `pendingRevocations` counts obligations in that page, not globally.
+Types are in `apple-restore.ts`.
+
+The identity phase revokes Apple verification without deleting any account or
+SOOP identity. Transactions lose pending authentication/completion proofs.
+Credentials retain encrypted token bytes and become revocation-only; ambiguous
+issuance without a token remains `EXCHANGE_UNKNOWN`. Stale revoke leases are
+cleared. A late exchange response can preserve another revoke obligation but
+cannot make a quarantined family eligible for session issuance again. Successful
+Apple/SOOP login finalization records the verified account UUID for later
+account-scoped authentication metadata scrubbing; no historical account is
+inferred from email or profile fields.
+
+`restoredQuarantineReadiness(tx)` requires the same current writable release
+fence and reports `quarantined`, each domain's remaining unsafe-state boolean,
+`upstreamRevocationPending` and `providerConfigured`. It uses bounded current row
+locks, not a stale repeatable-read projection. `quarantined:true` proves local
+Apple admission denial, **not** Apple provider revocation or physical purge.
+Missing provider configuration does not prevent local quarantine: it reports
+`providerConfigured:false`, preserves obligations, and the configured worker must
+later perform real revocation. M12 separately invalidates every WEB/NATIVE session,
+SOOP pending proof, positive permission and cache epoch under its global fence;
+this domain port alone is not authorization to release a restored environment.
+
 ## Schema evidence
 
 Migration 21 is `20260920105633_apple_identity_lifecycle`, generated and applied

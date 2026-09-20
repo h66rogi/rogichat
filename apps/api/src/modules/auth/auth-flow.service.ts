@@ -73,7 +73,7 @@ export class AuthFlow {
             if (claim.terms_version) await this.repository.terms(tx, userId, claim.terms_version);
             const session = await this.sessions.issue(tx, userId);
             if (claim.session_id) await this.repository.revokeSession(tx, claim.session_id);
-            await this.repository.finish(tx, claim.id, 'SUCCEEDED');
+            await this.repository.finish(tx, claim.id, 'SUCCEEDED', userId);
             return session;
           });
         } catch (error) {

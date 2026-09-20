@@ -58,7 +58,7 @@ async function fixture(t, sticker = false) {
   });
   const messageIntent = await db.transactions.write(tx => contexts[0].get(MessagesCoreService).authorizeDeletion(tx, state.room, state.author, state.source, 'qa'));
   const accountIntent = { schemaVersion: 2, environment: 'qa', scope: 'ACCOUNT', roomId: null, actorUserId: state.account, targetId: state.account,
-    requestId: accountDeletionId('qa', state.account), requestedAt: (await db.transactions.read(tx => tx.now())).toISOString(), subjectGuard: null };
+    requestId: accountDeletionId('qa', state.account), requestedAt: new Date((await db.transactions.read(tx => tx.now())).getTime() - 1200000).toISOString(), subjectGuard: null };
   for (const intent of [messageIntent, accountIntent]) await contexts[0].get(DeletionApplyService).apply(await ledger.ensureIntent(intent));
   const queues = () => contexts.map(context => new Jobs(db.transactions, 'worker', new JobsRepository(), context.get(JobsCoreService)));
   const recover = () => contexts[0].get(PurgeWorkerService).recover();
