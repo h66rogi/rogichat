@@ -98,6 +98,36 @@
         }
       }
     },
+    "/v1/me/push-capabilities": {
+      "get": {
+        "operationId": "getPushCapabilities",
+        "description": "Current session/account, verified SOOP and current terms required. No-store; native or unconfigured Web Push returns available false. Enrollment capability is not enqueue or delivery success.",
+        "responses": {
+          "200": {
+            "description": "Persisted own state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushCapabilities"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST"
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          },
+          "403": {
+            "description": "FORBIDDEN"
+          },
+          "503": {
+            "description": "AUTH_UNAVAILABLE"
+          }
+        }
+      }
+    },
     "/v1/me/notification-preferences": {
       "get": {
         "operationId": "getNotificationPreferences",
@@ -353,6 +383,45 @@
             }
           }
         }
+      },
+      "PushCapabilities": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              }
+            },
+            "required": [
+              "available"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "applicationServerKey": {
+                "type": "string",
+                "pattern": "^B[A-P][A-Za-z0-9_-]{84}[AEIMQUYcgkosw048]$"
+              }
+            },
+            "required": [
+              "available",
+              "applicationServerKey"
+            ],
+            "additionalProperties": false
+          }
+        ]
       },
       "NotificationPreferences": {
         "type": "object",

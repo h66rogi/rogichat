@@ -12,6 +12,9 @@ import { notificationsDocs } from './dto/notifications-docs.openapi.js';
 export class NotificationsController {
   constructor(@Inject(NotificationsService) private readonly notifications: NotificationsService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig) {}
+  @Get('push-capabilities')
+  @notificationsDocs.capabilities()
+  capabilities(@Req() request: Request) { return this.notifications.capabilities(readSessionCredentials(request, this.config)); }
   @Get('notification-preferences')
   @notificationsDocs.preferences()
   preferences(@Req() request: Request) { return this.notifications.preferences(readSessionCredentials(request, this.config)); }

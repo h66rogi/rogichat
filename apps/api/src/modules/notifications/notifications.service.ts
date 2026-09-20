@@ -19,6 +19,15 @@ export class NotificationsService {
     @Inject(NotificationsCoreService) private readonly core: NotificationsCoreService,
     @Inject(PushTransport) private readonly transport: PushTransport,
     @Inject(PushEndpointPolicy) private readonly endpoints: PushEndpointPolicy) {}
+  capabilities(credentials: SessionCredentials): Promise<{ available: false } | { available: true; applicationServerKey: string }> {
+    return this.transactions.read(async tx => {
+      await this.auth.requireEnrollmentRead(tx, credentials);
+      const vapid = this.transport.config.vapid;
+      return credentials.transport !== 'NATIVE' && vapid
+        ? { available: true, applicationServerKey: vapid.publicKey }
+        : { available: false };
+    });
+  }
   preferences(credentials: SessionCredentials) {
     return this.transactions.read(async tx => {
       const actor = await this.auth.require(tx, credentials);

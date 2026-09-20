@@ -30,6 +30,7 @@ async function document(t) {
 test('registered M11 routes expose web/native proof alternatives and honest availability', async t => {
   const doc = await document(t);
   for (const [path, method, id] of [
+    ['/v1/me/push-capabilities', 'get', 'getPushCapabilities'],
     [prefs, 'get', 'getNotificationPreferences'], [prefs, 'put', 'putNotificationPreferences'],
     [subscriptions, 'post', 'registerWebPushSubscription'], [removal, 'delete', 'removeWebPushSubscription'],
     [read, 'get', 'getOwnReadState'], [read, 'put', 'putOwnReadState'],
@@ -118,4 +119,17 @@ test('M11 read-state schemas enforce canonical context, filtered bounded rows an
   check(snapshot, { readContext: input.readContext, items: rows });
   for (const invalid of [{ items: [] }, { readContext: input.readContext, items: [...rows, rows[0]] }, { readContext: input.readContext, items: [{ messageId: null }] }, { readContext: input.readContext, items: [{ messageId: input.messageId, streamId: randomUUID() }] }, { readContext: input.readContext, items: [], nextCursor: randomUUID() }]) check(snapshot, invalid, false);
   for (const field of ['last_read_order', 'stream_id', 'period_id', 'userId']) check(output, { messageId: input.messageId, [field]: 'hidden' }, false);
+});
+
+
+test('capability schema is identical in controller and standalone artifact and rejects excess fields', async t => {
+  const doc = await document(t);
+  const { m11OpenApi } = await import('../../../../packages/contracts/generate-m11-openapi.mjs');
+  const schema = responseSchema(doc.paths['/v1/me/push-capabilities'].get);
+  assert.deepEqual(schema, m11OpenApi.components.schemas.PushCapabilities);
+  const key = createECDH('prime256v1'); key.generateKeys();
+  const applicationServerKey = key.getPublicKey().toString('base64url');
+  check(schema, { available: false }); check(schema, { available: true, applicationServerKey });
+  for (const value of [{}, { available: true }, { available: false, applicationServerKey }, { available: true, applicationServerKey, subject: 'mailto:push@example.com' }, { available: true, applicationServerKey: 'invalid' }, { available: 'false' }]) check(schema, value, false);
+  assert.ok(doc.paths['/v1/me/push-capabilities'].get.responses['403']);
 });

@@ -84,3 +84,19 @@ test('preference HTTP input requires generation and core rejects stale preferenc
   await assert.rejects(core.setPreferences({}, 'owner', true, '2'), { code: 'CONFLICT' });
   assert.equal(saved, false);
 });
+
+test('capability projects only after same-snapshot proof and supports implicit WEB credentials', async () => {
+  const tx = { writable: false }; const events = [];
+  const publicKey = input().keys.p256dh;
+  const transport = { get config() { events.push('config'); return { vapid: { publicKey, privateKey: 'not-projected', subject: 'not-projected' } }; } };
+  const auth = { async requireEnrollmentRead(handle, credentials) { assert.equal(handle, tx); events.push('proof'); if (!credentials.token) throw new ApiError('UNAUTHENTICATED', 401); } };
+  const service = new NotificationsService({ read: fn => fn(tx) }, auth, {}, {}, transport, {});
+  for (const credentials of [web, { ...web, transport: 'WEB' }]) {
+    events.length = 0;
+    assert.deepEqual(await service.capabilities(credentials), { available: true, applicationServerKey: publicKey });
+    assert.deepEqual(events, ['proof', 'config']);
+  }
+  assert.deepEqual(await service.capabilities(native), { available: false });
+  events.length = 0;
+  await assert.rejects(service.capabilities({}), { code: 'UNAUTHENTICATED' }); assert.deepEqual(events, ['proof']);
+});
