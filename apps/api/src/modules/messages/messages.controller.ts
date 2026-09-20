@@ -1,3 +1,5 @@
+import { ApiTags } from '@nestjs/swagger';
+import { messageDocs } from './dto/message.openapi.js';
 import { Controller, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
@@ -8,20 +10,24 @@ import { readCommandCredentials, readSessionCredentials } from '../auth/auth-con
 import { sendInput } from './dto/send-message.dto.js';
 import { MessagesService } from './messages.service.js';
 
+@ApiTags('Messages')
 @Controller('v1/rooms/:roomId/messages')
 export class MessagesController {
   constructor(@Inject(MessagesService) private readonly messages: MessagesService, @Inject(AUTH_CONFIG) private readonly config: AuthConfig) {}
   @Post() @HttpCode(200)
+  @messageDocs.send()
   send(@Req() request: Request, @Param('roomId') roomId: string) {
     identifier(roomId);
     const input = sendInput(request.body);
     return this.messages.send(readCommandCredentials(request, this.config), roomId, input);
   }
   @Get(':messageId')
+  @messageDocs.get()
   get(@Req() request: Request, @Param('roomId') roomId: string, @Param('messageId') messageId: string) {
     return this.messages.get(readSessionCredentials(request, this.config), roomId, messageId);
   }
   @Post(':messageId/delete') @HttpCode(200)
+  @messageDocs.remove()
   remove(@Req() request: Request, @Param('roomId') roomId: string, @Param('messageId') messageId: string) {
     object(request.body, []);
     return this.messages.remove(readCommandCredentials(request, this.config), roomId, messageId);
