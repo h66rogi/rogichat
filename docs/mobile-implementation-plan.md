@@ -399,7 +399,7 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 
 MB00 preview 이후 MB02a 공통 UI 추출, MB02b shell/설정, MB02c OS 조회·순수 route queue를
 구현했다. [공통 기반 진행 기록](mobile-common-foundation-progress.md)의 완료/미연동/기기 미확인
-구분을 따른다. 단계 전체 완료는 아니며 실제 서비스 adapter와 기기 검증 gate는 남아 있다.
+구분을 따른다. 프로필·계정 공통 화면과 확인 대화상자도 이어서 구현했다. 단계 전체 완료는 아니며 실제 서비스 adapter와 기기 검증 gate는 남아 있다.
 MB01 ADR/fixture 정리는 병행하고 준비된 계약에 한해 MB02d를 진행한다. MB03 및 이후 실제
 기능 완료 gate는 낮추지 않는다. 채팅 상세 UX는 공통 기반 이후 로기챗 자체 설계로 이어간다.
 표의 gate는 **단계 최종 완료 기준**이다. MB02a의 코드·컴파일·상태/격리 검사를 통과한

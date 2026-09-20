@@ -4,9 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -19,7 +17,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import chat.rogi.rogichat.core.design.WireCard
 import chat.rogi.rogichat.core.design.ScreenStatus
@@ -96,34 +93,6 @@ fun ChatWireframe(state: WireframeState, onAudience: (PreviewAudience) -> Unit, 
         Text("첨부·반응·공개 전환은 추후 연결돼요. 실제 메시지가 전송되지 않아요.", style = MaterialTheme.typography.bodySmall)
     }
     TextButton(onClick = onReport) { Text("신고 및 차단 안내") }
-}
-
-@Composable
-fun ProfileWireframe() {
-    var name by remember { mutableStateOf("샘플 팬") }
-    var birthdayConsent by remember { mutableStateOf(false) }
-    WireCard("프로필 편집 미리보기") {
-        Text("[ 프로필 이미지 ]")
-        OutlinedTextField(value = name, onValueChange = { name = it.take(30) }, label = { Text("표시 이름") }, modifier = Modifier.fillMaxWidth())
-        Text("생일 정보는 선택 사항이에요. 실제 생일은 아직 입력받지 않아요.")
-        FlowRow(Modifier.fillMaxWidth().toggleable(value = birthdayConsent, role = Role.Checkbox,
-            onValueChange = { birthdayConsent = it })) {
-            Checkbox(checked = birthdayConsent, onCheckedChange = null)
-            Text("생일 정보 제공 동의 (선택)")
-        }
-        Button(onClick = {}, enabled = false) { Text("저장 · 준비 중") }
-        Text("변경은 이 화면에서만 보이며 서버에 저장되지 않아요.")
-    }
-}
-
-@Composable
-fun AccountWireframe(onExit: () -> Unit) {
-    WireCard("연결된 계정") { Text("Apple / SOOP 연결 상태가 표시될 자리예요."); Text("연결 해제 및 계정 변경 정책은 준비 중이에요.") }
-    OutlinedButton(onClick = onExit) { Text("미리보기 종료 · 입력 초기화") }
-    WireCard("회원 탈퇴") {
-        Text("탈퇴 시 데이터 처리와 재가입 안내가 표시될 자리예요.")
-        Button(onClick = {}, enabled = false) { Text("탈퇴 · 준비 중") }
-    }
 }
 
 @Composable

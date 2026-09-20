@@ -56,7 +56,27 @@ struct WireframeStateChecks {
         single.selectTab(.settings); single.selectTab(.talks); precondition(single.page == .rooms)
         single.openRoom("sample-room-b"); precondition(single.page == .rooms)
         checkRoutes()
+        checkProfile()
         print("iOS: preview draft isolation, access gates, independent tab stacks, scope reset, route parser and pending-intent race checks passed")
+    }
+    static func checkProfile() {
+        var editor = ProfileEditor(baseline: "original")
+        editor.edit(" \u{1100}\u{1161}\u{a0}"); precondition(editor.normalized == "가")
+        editor.edit(String(repeating: "😀", count: 40)); precondition(editor.error == nil)
+        editor.edit(String(repeating: "😀", count: 41)); precondition(editor.error != nil)
+        for value in ["  ", "a\u{200d}b", "a\nb", "\u{85}"] {
+            editor.edit(value); precondition(editor.error != nil)
+        }
+        editor.edit(String(repeating: "😀", count: 250)); precondition(editor.draft.unicodeScalars.count == 200)
+        editor.discard(); precondition(!editor.changed)
+        editor.edit("new"); editor.phase = .loading; editor.edit("late"); precondition(editor.draft == "new")
+        var state = rooms(); state.selectTab(.settings); state.open(.profile); state.editProfile("temporary")
+        state.pop(to: [], in: .settings); state.open(.profile); precondition(state.profile.draft == "temporary")
+        state.selectTab(.talks); state.selectTab(.settings); precondition(state.profile.draft == "temporary")
+        state.discardProfile(); precondition(state.profile.draft == state.profile.baseline)
+        state.editProfile("private"); state.switchAccess(.linkRequired); precondition(!state.profile.changed)
+        state.editProfile("forged"); precondition(!state.profile.changed)
+        print("Profile: Unicode validation, draft retention, loading guard, discard and account isolation passed")
     }
     static func checkRoutes() {
         let parser = ContentRouteParser(allowedHost: "qa.example.invalid", roomPathPrefix: "/rooms/")

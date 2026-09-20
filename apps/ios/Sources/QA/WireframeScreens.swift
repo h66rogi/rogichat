@@ -92,37 +92,6 @@ struct ChatWireframe: View {
     }
 }
 
-struct ProfileWireframe: View {
-    @State private var name = "샘플 팬"
-    @State private var birthdayConsent = false
-    var body: some View {
-        WireCard(title: "프로필 편집 미리보기") {
-            Text("[ 프로필 이미지 ]").frame(maxWidth: .infinity, minHeight: 64)
-            TextField("표시 이름", text: $name).textFieldStyle(.roundedBorder)
-                .onChange(of: name) { _, value in name = String(value.prefix(30)) }
-            Text("생일 정보는 선택 사항이에요. 실제 생일은 아직 입력받지 않아요.")
-            Toggle("생일 정보 제공 동의 (선택)", isOn: $birthdayConsent)
-            Button("저장 · 준비 중") {}.buttonStyle(.borderedProminent).disabled(true)
-            Text("변경은 이 화면에서만 보이며 서버에 저장되지 않아요.").font(.footnote)
-        }
-    }
-}
-
-struct AccountWireframe: View {
-    let onExit: () -> Void
-    var body: some View {
-        WireCard(title: "연결된 계정") {
-            Text("Apple / SOOP 연결 상태가 표시될 자리예요.")
-            Text("연결 해제 및 계정 변경 정책은 준비 중이에요.")
-        }
-        Button("미리보기 종료 · 입력 초기화", action: onExit).buttonStyle(.bordered)
-        WireCard(title: "회원 탈퇴") {
-            Text("탈퇴 시 데이터 처리와 재가입 안내가 표시될 자리예요.")
-            Button("탈퇴 · 준비 중") {}.buttonStyle(.bordered).disabled(true)
-        }
-    }
-}
-
 struct ReportWireframe: View {
     @State private var reason = "스팸 또는 광고"
     var body: some View {

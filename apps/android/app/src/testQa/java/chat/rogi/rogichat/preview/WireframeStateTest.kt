@@ -65,4 +65,14 @@ class WireframeStateTest {
         assertEquals(PreviewPage.SETTINGS, rooms().open(PreviewPage.SETTINGS).open(PreviewPage.ACCOUNT).back().page)
         assertEquals(2000, chat().editDraft("a".repeat(3000)).draft.length)
     }
+    @Test fun profileDraftSurvivesNavigationButNeverAccountSwitch() {
+        val initial = rooms().selectTab(AppTab.SETTINGS).open(AppPage.PROFILE)
+        val edited = initial.editProfile("temporary")
+        assertEquals("temporary", edited.back().open(AppPage.PROFILE).profile.draft)
+        assertEquals("temporary", edited.selectTab(AppTab.TALKS).selectTab(AppTab.SETTINGS).profile.draft)
+        assertEquals(initial.profile.baseline, edited.discardProfile().profile.draft)
+        assertEquals(initial.profile.baseline, edited.switchAccess(ShellAccess.LINK_REQUIRED).profile.draft)
+        assertEquals(initial.profile.baseline, edited.switchRole(PreviewRole.STREAMER).profile.draft)
+        assertEquals(initial.profile.baseline, rooms().editProfile("forged").profile.draft)
+    }
 }
