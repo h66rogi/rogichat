@@ -107,7 +107,7 @@ class AutomaticTests(unittest.TestCase):
             helper.wait_health.side_effect=ValueError('schema mismatch')
             files={key:key.encode() for key in auto.TEMPLATES}
             with self.assertRaises(ValueError):
-                auto.activate(request(),policy(),helper,files,'edge',{},('sha256:'+'e'*64,None,None),MagicMock(),Path(directory))
+                auto.activate(request(),policy(),helper,files,'edge',{},('sha256:'+'e'*64,None,None),MagicMock(),Path(directory),helper.snapshot_edge.return_value)
             self.assertTrue((Path(directory)/('request-'+request()['request_id'])).is_dir())
             self.assertEqual(helper.atomic.call_args_list[0].args[0].name,'consumed.json')
             helper.fail_closed.assert_called_once_with('edge',files['bootstrap'])
@@ -115,7 +115,7 @@ class AutomaticTests(unittest.TestCase):
             self.assertNotIn(files['caddy'],[call.args[1] for call in helper.caddy_config.call_args_list])
             # A consumed failed request cannot be activated again.
             with self.assertRaises(ValueError):
-                auto.activate(request(),policy(),helper,files,'edge',{},('sha256:'+'e'*64,None,None),MagicMock(),Path(directory))
+                auto.activate(request(),policy(),helper,files,'edge',{},('sha256:'+'e'*64,None,None),MagicMock(),Path(directory),helper.snapshot_edge.return_value)
 
     def test_failed_schema_prevents_start(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(auto,'STATE',Path(directory)), \
@@ -124,7 +124,7 @@ class AutomaticTests(unittest.TestCase):
              patch.object(auto,'schema_probe',side_effect=ValueError('drift')):
             helper=MagicMock(); files={key:key.encode() for key in auto.TEMPLATES}
             with self.assertRaises(ValueError):
-                auto.activate(request(),policy(),helper,files,'edge',{},('sha256:'+'e'*64,None,None),MagicMock(),Path(directory))
+                auto.activate(request(),policy(),helper,files,'edge',{},('sha256:'+'e'*64,None,None),MagicMock(),Path(directory),helper.snapshot_edge.return_value)
             helper.start_units.assert_not_called()
             helper.fail_closed.assert_called_once()
 
@@ -219,3 +219,137 @@ class AutomaticTests(unittest.TestCase):
         for raw in [b'x'*65537,b'export const migrationManifest = dynamic();',
                     self.manifest(policy()['migrations']).replace(b"name:",b"unknown:")]:
             with self.assertRaises(ValueError): auto.parse_candidate_manifest(raw)
+
+
+class AutomaticEdgeTests(unittest.TestCase):
+    def harness(self):
+        from contextlib import ExitStack
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        directory = Path(stack.enter_context(tempfile.TemporaryDirectory()))
+        stack.enter_context(patch.object(auto, 'STATE', directory))
+        stack.enter_context(patch.object(auto, 'protected', return_value=b'{}'))
+        for name in ('fresh', 'verify_current', 'schema_probe', 'sync_directory'):
+            stack.enter_context(patch.object(auto, name))
+        load = stack.enter_context(patch.object(auto, 'load_candidate'))
+        response = MagicMock(status=200)
+        response.__enter__.return_value = response
+        response.geturl.side_effect = ['https://api.qa.rogi.chat' + route for route in ('/live', '/ready', '/_infra/health')]
+        stack.enter_context(patch.object(auto.urllib.request, 'urlopen', return_value=response))
+        helper = MagicMock()
+        helper.APP = directory
+        helper.IMAGES = directory / 'images'
+        helper.UNIT = directory / 'unit'
+        helper.get_caddy.return_value = 'edge'
+        edge = {'web': {'Id': 'fixture-web'}, 'sites': {'web.caddy': 'fixture-hash'}}
+        helper.snapshot_edge.return_value = copy.deepcopy(edge)
+        files = {key: key.encode() for key in auto.TEMPLATES}
+        def activate():
+            auto.activate(request(), policy(), helper, files, 'edge', {},
+                          ('sha256:' + 'e'*64, None, None), MagicMock(), directory, edge)
+        return stack, directory, helper, edge, load, activate
+
+    def assert_not_completed(self, helper):
+        names = [call.args[0].name for call in helper.atomic.call_args_list]
+        self.assertNotIn('current.json', names)
+        self.assertNotIn('completed', names)
+
+    def test_preparation_to_activation_mutation_prevents_consumption(self):
+        _, directory, helper, _, load, activate = self.harness()
+        helper.snapshot_edge.return_value = {'web': None}
+        with self.assertRaises(ValueError):
+            activate()
+        self.assertEqual(list(directory.iterdir()), [])
+        helper.atomic.assert_not_called()
+        load.assert_not_called()
+
+    def test_missing_old_helper_capabilities_reject_before_consumption(self):
+        _, directory, helper, _, load, activate = self.harness()
+        for name in ('snapshot_edge', 'verify_web'):
+            with self.subTest(name=name), patch.object(helper, name, None), self.assertRaises(ValueError):
+                activate()
+        self.assertEqual(list(directory.iterdir()), [])
+        load.assert_not_called()
+
+    def test_real_helper_rejects_unexpected_network_and_rw_mount(self):
+        import backend_release as release
+        for change in ('network', 'rw'):
+            with self.subTest(change=change):
+                stack, directory, helper, _, load, activate = self.harness()
+                networks = {policy()['edge_network']: {'NetworkID': 'a'*64},
+                            release.WEB_NETWORK: {'NetworkID': 'b'*64}}
+                if change == 'network':
+                    networks['unexpected'] = {'NetworkID': 'c'*64}
+                caddy = {'Id': 'd'*64, 'Image': 'sha256:'+'e'*64, 'HostConfig': {},
+                         'State': {'Running': True}, 'NetworkSettings': {'Networks': networks},
+                         'Mounts': [{'Destination': '/etc/caddy/sites', 'Type': 'bind',
+                                     'Source': str(release.WEB_SITES), 'RW': change == 'rw'}]}
+                stack.enter_context(patch.object(release, 'get_caddy', return_value='edge'))
+                stack.enter_context(patch.object(release, 'docker', return_value=json.dumps([caddy]).encode()))
+                stack.enter_context(patch.object(release, 'protected', return_value=b'fixture'))
+                helper.snapshot_edge.side_effect = release.snapshot_edge
+                with self.assertRaises(release.Rejected):
+                    activate()
+                self.assertEqual(list(directory.iterdir()), [])
+                load.assert_not_called()
+
+    def test_health_and_final_gate_failures_never_complete(self):
+        for phase in ('health', 'final', 'during-web'):
+            with self.subTest(phase=phase):
+                _, _, helper, edge, _, activate = self.harness()
+                if phase == 'during-web':
+                    def web(_):
+                        helper.snapshot_edge.return_value = {'changed': True}
+                    helper.verify_web.side_effect = web
+                else:
+                    helper.verify_web.side_effect = [None, ValueError('route failed'), None] if phase == 'health' else [None, None, ValueError('route failed'), None]
+                with self.assertRaises(ValueError):
+                    activate()
+                self.assert_not_completed(helper)
+                if phase != 'during-web':
+                    helper.fail_closed.assert_called_once()
+
+    def test_real_fail_closed_stops_both_apps_despite_caddy_reload_failure(self):
+        import backend_release as release
+        def shutdown(*args):
+            with patch.object(release.Path, 'exists', return_value=True):
+                release.fail_closed(*args)
+        stack, _, helper, _, _, activate = self.harness()
+        helper.wait_health.side_effect = ValueError('unhealthy')
+        stack.enter_context(patch.object(release, 'caddy_config', side_effect=ValueError('reload failed')))
+        run = stack.enter_context(patch.object(release, 'run'))
+        helper.fail_closed.side_effect = shutdown
+        with self.assertRaises(release.Rejected):
+            activate()
+        self.assertEqual([call.args[0][-1] for call in run.call_args_list],
+                         ['rogichat-app@api', 'rogichat-app@worker'])
+        self.assertEqual(helper.verify_web.call_count, 2)
+        self.assert_not_completed(helper)
+
+    def test_normal_success_and_prepared_empty_do_not_fabricate_web_proof(self):
+        import backend_release as release
+        for commissioned in (True, False):
+            with self.subTest(commissioned=commissioned):
+                stack, _, helper, edge, load, activate = self.harness()
+                if not commissioned:
+                    edge['web'] = None
+                    helper.snapshot_edge.return_value = copy.deepcopy(edge)
+                helper.verify_web.side_effect = release.verify_web
+                route = stack.enter_context(patch.object(release, 'web_route', side_effect=lambda path:
+                    b'<script src="/_next/static/app.js"></script>' if path == '/' else b'ok'))
+                activate()
+                self.assertEqual(route.call_count, 9 if commissioned else 0)
+                self.assertEqual(helper.snapshot_edge.call_count, 6)
+                load.assert_called_once()
+                helper.fail_closed.assert_not_called()
+                self.assertEqual([call.args[0].name for call in helper.atomic.call_args_list][-2:], ['current.json', 'completed'])
+
+    def test_activation_topology_mutation_shuts_down_without_completion(self):
+        _, _, helper, _, _, activate = self.harness()
+        def mutate(_):
+            helper.snapshot_edge.return_value = {'networks': {'unexpected': 'fixture'}}
+        helper.wait_health.side_effect = mutate
+        with self.assertRaises(ValueError):
+            activate()
+        helper.fail_closed.assert_called_once()
+        self.assert_not_completed(helper)
