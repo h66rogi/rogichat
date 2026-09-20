@@ -51,10 +51,21 @@ fun AppEntry() {
             PreviewPage.CHAT -> ChatWireframe(state, { state = state.changeAudience(it) },
                 { state = state.selectTarget(it) }, { state = state.editDraft(it) }, { state = state.open(PreviewPage.REPORT) })
             PreviewPage.SETTINGS -> SettingsScreen(state.navigation.access) { state = state.open(it) }
-            PreviewPage.PROFILE -> ProfileWireframe()
-            PreviewPage.ACCOUNT -> AccountWireframe { state = WireframeState(role = state.role) }
+            PreviewPage.PROFILE -> {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ProfilePhase.entries.forEach { phase ->
+                        FilterChip(selected = state.profile.phase == phase, onClick = { state = state.profilePhase(phase) }, label = { Text(phase.label) })
+                    }
+                }
+                ProfileScreen(state.profile, { state = state.editProfile(it) }, { state = state.discardProfile() },
+                    { state = state.profilePhase(ProfilePhase.READY) })
+            }
+            PreviewPage.ACCOUNT -> AccountScreen(AccountPresentation("샘플 로그인 상태 · 실제 계정 미연동",
+                if (state.navigation.access == ShellAccess.LINK_REQUIRED) "연결이 필요한 상태 예시" else "연결 이후 상태 예시 · 실제 연결 안 됨")) {
+                    state = WireframeState(role = state.role)
+                }
             PreviewPage.REPORT -> ReportWireframe()
-            PreviewPage.NOTIFICATIONS -> NotificationSettingsScreen()
+            PreviewPage.NOTIFICATIONS -> NotificationPreview()
             PreviewPage.ABOUT -> AboutScreen()
             PreviewPage.STATUS -> ScreenStatus(state.navigation.access.label, "계정 이용 상태 안내 화면이에요. 설정에서 앱 정보와 지원을 확인할 수 있어요.")
         }

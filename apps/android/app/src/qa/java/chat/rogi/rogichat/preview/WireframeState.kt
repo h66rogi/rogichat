@@ -1,6 +1,7 @@
 package chat.rogi.rogichat.preview
 
 import chat.rogi.rogichat.core.navigation.*
+import chat.rogi.rogichat.feature.settings.*
 
 // UI-only state. This type must never become a session, repository, or API DTO.
 enum class PreviewRole(val label: String) { FAN("팬"), STREAMER("스트리머") }
@@ -26,6 +27,7 @@ data class WireframeState(
     val audience: PreviewAudience = PreviewAudience.PRIVATE,
     val target: String? = null,
     val draft: String = "",
+    val profile: ProfileEditor = ProfileEditor("샘플 프로필"),
 ) {
     val page: AppPage get() = navigation.page
     val linkPreviewPassed: Boolean get() = navigation.access == ShellAccess.READY
@@ -57,6 +59,9 @@ data class WireframeState(
     }
     val canCompose: Boolean get() = page == PreviewPage.CHAT && roomId != null &&
         (role == PreviewRole.FAN || audience == PreviewAudience.SHARED || target != null)
+    fun editProfile(value: String) = if (page == AppPage.PROFILE) copy(profile = profile.edit(value)) else this
+    fun discardProfile() = if (page == AppPage.PROFILE) copy(profile = profile.discard()) else this
+    fun profilePhase(value: ProfilePhase) = if (page == AppPage.PROFILE) copy(profile = profile.copy(phase = value)) else this
     fun editDraft(value: String) = if (canCompose) copy(draft = value.take(2000)) else this
     fun back(): WireframeState {
         val next = navigation.back()

@@ -8,15 +8,22 @@
 
 /* Begin PBXBuildFile section */
 		03D04D9C2C5CDEE0796E2B13 /* SettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B88C17EC349A4A2535F1F1D1 /* SettingsScreen.swift */; };
+		0CD4EDE651DC097A051F8395 /* NotificationPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A23C088A19E825445C534C0 /* NotificationPreview.swift */; };
+		0EA470E9EEC4AE9C6C1717CF /* NotificationSystem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79DC83B8F7CFFDB1307B62A7 /* NotificationSystem.swift */; };
+		1DC833E26E3B502C64227515 /* ForegroundState.swift in Sources */ = {isa = PBXBuildFile; fileRef = C75FE2481A3D3E7C4D4986FC /* ForegroundState.swift */; };
 		22B85D32463CF2F76206EACC /* WireframeHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A462307BAC54680873CB91C0 /* WireframeHost.swift */; };
 		47DDF7E513248F66940481D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B7272D32F058E07C761C49E /* Assets.xcassets */; };
 		497ED33FB8248DC0C32F6C30 /* WireframeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = E985F5AAD7C918209557CE92 /* WireframeState.swift */; };
 		5812F00287FFD61AF9390DC5 /* WireCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18B84CADE2EC6157159230B5 /* WireCard.swift */; };
 		64E494F8967483759225BC5A /* WelcomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01960400CFB8F1C6AC56D424 /* WelcomeScreen.swift */; };
+		6D367E3A76B90CF477201CAB /* ProfileScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34AE2801D9ACB8FBE29E3A09 /* ProfileScreen.swift */; };
 		6D895E6102DB309B6ED5BD80 /* WireframeScreens.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29EDC33DB2C44A2D83EF30A0 /* WireframeScreens.swift */; };
 		71D49C154F8764B552CDB34A /* ScreenStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA67D817DC8E6189F700503D /* ScreenStatus.swift */; };
+		7513B610E642B4CE33F01316 /* NotificationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 733302BD68AB190F0E8F7806 /* NotificationState.swift */; };
 		79A54134073E98C5A8533EF3 /* PendingRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 004889F46B4C32D6EB4C79A6 /* PendingRoute.swift */; };
 		927A5853882407D4289CAE3A /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A7351D1500FED5B7264B1D /* AppEnvironment.swift */; };
+		B4A7180F0792BD8637D73891 /* ProfileEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF74DA95F12F80B094834636 /* ProfileEditor.swift */; };
+		C49E87A86B213B60475A4C8E /* AccountScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FE645979D5EC1572B69A3C5 /* AccountScreen.swift */; };
 		C5513AD7B75D03674C3553EE /* NotificationSettingsScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 874EDD2BCE272206F34E74F9 /* NotificationSettingsScreen.swift */; };
 		C8F535F42DC3AB50F3E5F593 /* SettingsComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = F07C181AE009F6BC8E2216CD /* SettingsComponents.swift */; };
 		CDC611DCE9B61BF23E49521D /* AppShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53969ED5B74A20CAAA027AD /* AppShell.swift */; };
@@ -27,18 +34,25 @@
 /* Begin PBXFileReference section */
 		004889F46B4C32D6EB4C79A6 /* PendingRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingRoute.swift; sourceTree = "<group>"; };
 		01960400CFB8F1C6AC56D424 /* WelcomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeScreen.swift; sourceTree = "<group>"; };
+		0A23C088A19E825445C534C0 /* NotificationPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationPreview.swift; sourceTree = "<group>"; };
 		18B84CADE2EC6157159230B5 /* WireCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireCard.swift; sourceTree = "<group>"; };
 		29EDC33DB2C44A2D83EF30A0 /* WireframeScreens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireframeScreens.swift; sourceTree = "<group>"; };
+		34AE2801D9ACB8FBE29E3A09 /* ProfileScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileScreen.swift; sourceTree = "<group>"; };
 		3B7272D32F058E07C761C49E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		543B6ADBAB63583E7D86FC10 /* RogichatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RogichatApp.swift; sourceTree = "<group>"; };
+		6FE645979D5EC1572B69A3C5 /* AccountScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScreen.swift; sourceTree = "<group>"; };
+		733302BD68AB190F0E8F7806 /* NotificationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationState.swift; sourceTree = "<group>"; };
 		75A7351D1500FED5B7264B1D /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		79DC83B8F7CFFDB1307B62A7 /* NotificationSystem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSystem.swift; sourceTree = "<group>"; };
 		7D32CB7D0E3ACF724C8BB735 /* QA.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = QA.xcconfig; sourceTree = "<group>"; };
 		7E79E8D8D9A6F152EC2ECBAD /* Prod.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Prod.xcconfig; sourceTree = "<group>"; };
 		7FA1D2A391B1711EA8A51058 /* Rogichat.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Rogichat.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		874EDD2BCE272206F34E74F9 /* NotificationSettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsScreen.swift; sourceTree = "<group>"; };
 		A462307BAC54680873CB91C0 /* WireframeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireframeHost.swift; sourceTree = "<group>"; };
+		AF74DA95F12F80B094834636 /* ProfileEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileEditor.swift; sourceTree = "<group>"; };
 		B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellNavigation.swift; sourceTree = "<group>"; };
 		B88C17EC349A4A2535F1F1D1 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
+		C75FE2481A3D3E7C4D4986FC /* ForegroundState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForegroundState.swift; sourceTree = "<group>"; };
 		D53969ED5B74A20CAAA027AD /* AppShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShell.swift; sourceTree = "<group>"; };
 		DA67D817DC8E6189F700503D /* ScreenStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenStatus.swift; sourceTree = "<group>"; };
 		E985F5AAD7C918209557CE92 /* WireframeState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WireframeState.swift; sourceTree = "<group>"; };
@@ -70,7 +84,12 @@
 		0859A5556FE1CEFFBB88EEA3 /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				6FE645979D5EC1572B69A3C5 /* AccountScreen.swift */,
 				874EDD2BCE272206F34E74F9 /* NotificationSettingsScreen.swift */,
+				733302BD68AB190F0E8F7806 /* NotificationState.swift */,
+				79DC83B8F7CFFDB1307B62A7 /* NotificationSystem.swift */,
+				AF74DA95F12F80B094834636 /* ProfileEditor.swift */,
+				34AE2801D9ACB8FBE29E3A09 /* ProfileScreen.swift */,
 				B88C17EC349A4A2535F1F1D1 /* SettingsScreen.swift */,
 			);
 			path = Settings;
@@ -133,6 +152,7 @@
 		B9D1715F11BCB2434479B337 /* Navigation */ = {
 			isa = PBXGroup;
 			children = (
+				C75FE2481A3D3E7C4D4986FC /* ForegroundState.swift */,
 				004889F46B4C32D6EB4C79A6 /* PendingRoute.swift */,
 				B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */,
 			);
@@ -142,6 +162,7 @@
 		E8BAF5169BC43B2F3CCA7EBC /* QA */ = {
 			isa = PBXGroup;
 			children = (
+				0A23C088A19E825445C534C0 /* NotificationPreview.swift */,
 				A462307BAC54680873CB91C0 /* WireframeHost.swift */,
 				29EDC33DB2C44A2D83EF30A0 /* WireframeScreens.swift */,
 				E985F5AAD7C918209557CE92 /* WireframeState.swift */,
@@ -228,10 +249,17 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				C49E87A86B213B60475A4C8E /* AccountScreen.swift in Sources */,
 				927A5853882407D4289CAE3A /* AppEnvironment.swift in Sources */,
 				CDC611DCE9B61BF23E49521D /* AppShell.swift in Sources */,
+				1DC833E26E3B502C64227515 /* ForegroundState.swift in Sources */,
+				0CD4EDE651DC097A051F8395 /* NotificationPreview.swift in Sources */,
 				C5513AD7B75D03674C3553EE /* NotificationSettingsScreen.swift in Sources */,
+				7513B610E642B4CE33F01316 /* NotificationState.swift in Sources */,
+				0EA470E9EEC4AE9C6C1717CF /* NotificationSystem.swift in Sources */,
 				79A54134073E98C5A8533EF3 /* PendingRoute.swift in Sources */,
+				B4A7180F0792BD8637D73891 /* ProfileEditor.swift in Sources */,
+				6D367E3A76B90CF477201CAB /* ProfileScreen.swift in Sources */,
 				E581B9252402C6917B5E638C /* RogichatApp.swift in Sources */,
 				71D49C154F8764B552CDB34A /* ScreenStatus.swift in Sources */,
 				C8F535F42DC3AB50F3E5F593 /* SettingsComponents.swift in Sources */,

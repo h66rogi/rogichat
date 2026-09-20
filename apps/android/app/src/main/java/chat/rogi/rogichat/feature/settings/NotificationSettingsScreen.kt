@@ -1,51 +1,47 @@
 package chat.rogi.rogichat.feature.settings
 
-import android.app.NotificationManager
 import android.content.ActivityNotFoundException
-import android.content.Intent
-import android.provider.Settings
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import chat.rogi.rogichat.core.design.SettingsRow
-import chat.rogi.rogichat.core.design.SettingsSection
+import chat.rogi.rogichat.core.design.*
 
 @Composable
 fun NotificationSettingsScreen() {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var observing by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("아직 확인하지 않았어요") }
-    var failure by remember { mutableStateOf<String?>(null) }
+    val system = remember(context) { NotificationSystem(context) }
+    val epoch = LocalForegroundEpoch.current
+    var state by remember { mutableStateOf(NotificationReadState()) }
+    var openFailure by remember { mutableStateOf<String?>(null) }
     val refresh = {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        val channels = manager.notificationChannels
-        status = if (!manager.areNotificationsEnabled()) "이 기기에서 알림이 허용되지 않았어요"
-        else if (channels.isEmpty()) "기기 알림 허용 · 서비스 알림 채널은 아직 없어요"
-        else "기기 알림 허용 · 차단된 채널 ${channels.count { it.importance == NotificationManager.IMPORTANCE_NONE }}개"
+        state = state.begin()
+        val ticket = state.revision
+        try { state = state.finish(ticket, system.read()) }
+        catch (_: SecurityException) { state = state.fail(ticket) }
     }
-    DisposableEffect(lifecycleOwner, observing) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (observing && event == Lifecycle.Event.ON_RESUME) refresh()
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    LaunchedEffect(epoch) { if (state.observing) refresh() }
+    DisposableEffect(Unit) { onDispose { state = state.cancel() } }
+    NotificationSettingsContent(state, openFailure, onRead = refresh, onOpen = {
+        refresh()
+        try { system.openSettings(); openFailure = null }
+        catch (_: ActivityNotFoundException) { openFailure = "시스템 설정을 열지 못했어요. 기기 설정에서 로기챗을 찾아주세요." }
+        catch (_: SecurityException) { openFailure = "기기에서 설정 화면 접근을 허용하지 않았어요." }
+    })
+}
+
+@Composable
+fun NotificationSettingsContent(state: NotificationReadState, openFailure: String? = null,
+                                onRead: (() -> Unit)? = null, onOpen: (() -> Unit)? = null) {
+    val status = when {
+        state.reading -> "알림 상태를 확인하는 중이에요"
+        state.failed -> "기기 알림 상태를 확인하지 못했어요. 다시 확인해 주세요."
+        else -> state.snapshot?.description ?: "아직 확인하지 않았어요"
     }
     SettingsSection("이 기기의 OS 설정") {
-        SettingsRow("알림 권한 확인", status) { observing = true; refresh() }
-        SettingsRow("시스템 알림 설정 열기", "기기 설정을 직접 확인해요") {
-            observing = true
-            try {
-                context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
-                failure = null
-            } catch (_: ActivityNotFoundException) { failure = "시스템 설정을 열지 못했어요. 기기 설정에서 로기챗을 찾아주세요." }
-            catch (_: SecurityException) { failure = "기기에서 설정 화면 접근을 허용하지 않았어요." }
-        }
+        SettingsRow("알림 권한 확인", status, enabled = onRead != null && !state.reading, onClick = onRead)
+        SettingsRow("시스템 알림 설정 열기", "기기 설정을 직접 확인해요", enabled = onOpen != null, onClick = onOpen)
     }
-    if (failure != null) Text(failure!!)
+    if (openFailure != null) Text(openFailure)
     SettingsSection("서비스 연결") {
         SettingsRow("알림 선호 설정", "서버 미연동 · 저장되지 않아요", enabled = false)
         SettingsRow("기기 등록", "푸시 제공자 미연동 · 등록되지 않았어요", enabled = false)

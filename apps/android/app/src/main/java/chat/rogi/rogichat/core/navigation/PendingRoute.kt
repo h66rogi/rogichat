@@ -28,6 +28,11 @@ class PendingRouteQueue {
     private val consumed = linkedMapOf<String, Long>()
     val scopeToken: Long get() = scope
     fun resetScope() { scope++; revision++; pending = null; consumed.clear() }
+    fun cancel(ticket: RouteTicket): Boolean {
+        if (pending != ticket || ticket.scope != scope) return false
+        pending = null; revision++
+        return true
+    }
     fun offer(hint: RoomRouteHint, eventId: String, now: Long, expectedScope: Long): Boolean {
         if (expectedScope != scope) return false
         require(now >= 0 && now <= Long.MAX_VALUE - TTL)

@@ -34,6 +34,7 @@ struct WireframeState {
     private(set) var audience: PreviewAudience = .private
     private(set) var target: String?
     private(set) var draft = ""
+    private(set) var profile = ProfileEditor(baseline: "샘플 프로필")
 
     var page: AppPage { navigation.page }
     var canCompose: Bool {
@@ -81,6 +82,9 @@ struct WireframeState {
         target = value
         draft = ""
     }
+    mutating func editProfile(_ value: String) { if page == .profile { profile.edit(value) } }
+    mutating func discardProfile() { if page == .profile { profile.discard() } }
+    mutating func profilePhase(_ value: ProfilePhase) { if page == .profile { profile.phase = value } }
     mutating func editDraft(_ value: String) {
         guard canCompose else { return }
         draft = String(value.prefix(2000))
