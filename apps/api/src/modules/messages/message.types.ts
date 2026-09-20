@@ -19,7 +19,7 @@ export interface MessagePairRow { stream_id: string }
 export interface MessageSendGrantRow {
   member_id: string; can_read: number; can_send: number;
 }
-export interface MessageRoomRow { id: string; status: string }
+export interface MessageRoomRow { id: string; status: string; owner_member_id: string | null }
 export interface MessageReceiptRow {
   message_id: string; payload_digest: Buffer | null; digest_version: number; deleted: number;
 }

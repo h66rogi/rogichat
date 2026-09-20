@@ -10,7 +10,7 @@ import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { NotificationsCoreService } from '../../dist/modules/notifications/notifications-core.service.js';
 import { NotificationsRepository } from '../../dist/modules/notifications/notifications.repository.js';
-import { createUser, createRoom, joinRoom, sendMessage, sendInput } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, sendInput } from '../support/domain-fixture.mjs';
 import { responseContract } from '../support/openapi-response.mjs';
 
 test('real M11 HTTP composition preserves own-state DTOs, proof precedence, native availability and empty DELETE204', { timeout: 25000 }, async t => {
@@ -23,7 +23,7 @@ test('real M11 HTTP composition preserves own-state DTOs, proof precedence, nati
     const sender = await createUser(tx, 'HTTP 합성 작성자'), user = await createUser(tx, 'HTTP 합성 사용자');
     await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: user, provider_subject: randomBytes(24), verified_at: await tx.now() }, select: { id: true } });
     const room = await createRoom(tx, 'HTTP 합성 방', 'GROUP');
-    await joinRoom(tx, room, sender); await joinRoom(tx, room, user);
+    await assignRoomOwner(tx, room, await joinRoom(tx, room, sender)); await joinRoom(tx, room, user);
     const web = await sessions.issue(tx, user), native = await sessions.issueNative(tx, user, 'ios');
     const principal = await sessions.require(tx, web.token, web.csrf);
     const point = createECDH('prime256v1'); point.generateKeys();

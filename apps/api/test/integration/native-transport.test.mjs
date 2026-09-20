@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { io } from 'socket.io-client';
-import { createUser, createRoom, joinRoom, sendMessage, Jobs, publishText } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, Jobs, publishText } from '../support/domain-fixture.mjs';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { createApi } from '../../dist/application.js';
@@ -151,7 +151,7 @@ test('native session fails closed for an ACTIVE account with missing profile ins
 
 test('native shared message/reaction/delete commands use current same-transaction session authorization without CSRF', { timeout: 20000 }, async t => {
   const f = await fixture(t, true); await f.link();
-  const roomId = await f.db.transactions.write(async tx => { const id = await createRoom(tx, '네이티브 명령 합성방', 'GROUP'); await joinRoom(tx, id, f.userId); return id; });
+  const roomId = await f.db.transactions.write(async tx => { const id = await createRoom(tx, '네이티브 명령 합성방', 'GROUP'); await assignRoomOwner(tx, id, await joinRoom(tx, id, f.userId)); return id; });
   const path = `/v1/rooms/${roomId}/messages`;
   let response = await f.call('POST', path, { clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '네이티브 합성 메시지' } });
   assert.equal(response.status, 200); const sent = await response.json();
