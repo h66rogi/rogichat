@@ -32,6 +32,11 @@ struct PendingRouteQueue: Sendable {
     private var consumed: [(String, UInt64)] = []
     var scopeToken: UInt64 { scope }
     mutating func resetScope() { scope += 1; revision += 1; pending = nil; consumed.removeAll() }
+    @discardableResult mutating func cancel(_ ticket: RouteTicket) -> Bool {
+        guard pending == ticket, ticket.scope == scope else { return false }
+        pending = nil; revision += 1
+        return true
+    }
     @discardableResult mutating func offer(_ hint: RoomRouteHint, eventID: String, now: UInt64, expectedScope: UInt64) -> Bool {
         guard expectedScope == scope else { return false }
         precondition(now <= UInt64.max - Self.ttl)
