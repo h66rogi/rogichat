@@ -3,7 +3,7 @@ import SwiftUI
 // Adapted the complete profile-first MyPageView hub: hero, grouped actions,
 // session gating and independent settings navigation. Unrelated commerce is omitted.
 struct SettingsScreen: View {
-    let account: AccountProfile?
+    let account: AccountSummary?
     let capabilities: SessionCapabilities
     let onOpen: (AppPage) -> Void
     let onSignIn: () -> Void
@@ -15,7 +15,7 @@ struct SettingsScreen: View {
                 profileHero
                 if account != nil {
                     SettingsSection(title: "내 계정") {
-                        if capabilities.canEditProfile && account?.soopConnected == true {
+                        if capabilities.canEditProfile {
                             SettingsRow(icon: "person.crop.circle", title: "프로필 수정", subtitle: "표시 이름과 생일 공개 설정", tint: .mint) { onOpen(.profile) }
                             Divider().padding(.leading, 65)
                         }

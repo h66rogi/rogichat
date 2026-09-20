@@ -58,6 +58,12 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/operations -p 'test_backend_*.py'
           node --test tools/operations/test_migrate_entry.mjs
+      - name: Readonly schema probe on disposable MySQL
+        env:
+          ROGICHAT_TEST_MYSQL: disposable
+          TEST_MYSQL_PORT: ${{ job.services.mysql.ports[3306] }}
+          TEST_MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
+        run: node tools/operations/test_backend_schema_mysql.mjs
       - name: MySQL integration and process lifecycle
         env:
           ROGICHAT_TEST_MYSQL: disposable

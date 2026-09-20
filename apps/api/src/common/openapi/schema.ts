@@ -21,13 +21,14 @@ const errorDescriptions: Record<number, string> = {
 };
 interface Operation {
   id: string; summary: string; description?: string; auth?: 'read' | 'write' | 'none';
+  security?: Record<string, string[]>[];
   params?: string[]; query?: Omit<ParameterObject, 'in'>[]; body?: Schema; bodyRequired?: boolean;
   response?: Schema; status?: number; errors?: number[]; binary?: boolean;
 }
 /** Documentation only. Authorization and validation remain in the existing application services. */
 export function contract(options: Operation): MethodDecorator {
   const auth = options.auth ?? 'read';
-  const security = auth === 'none' ? [] : [...(auth === 'write' ? [{ browserSession: [], csrf: [] }] : [{ browserSession: [] }]), { nativeBearer: [], nativeClient: [] }];
+  const security = options.security ?? (auth === 'none' ? [] : [...(auth === 'write' ? [{ browserSession: [], csrf: [] }] : [{ browserSession: [] }]), { nativeBearer: [], nativeClient: [] }]);
   return applyDecorators(
     ApiOperation({ operationId: options.id, summary: options.summary, description: options.description ?? options.summary, security }),
     ...((options.params ?? []).map(name => ApiParam({ name, schema: uuid }))),

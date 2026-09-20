@@ -1,0 +1,69 @@
+import Foundation
+
+struct NativeSessionDTO: Decodable, Sendable {
+    struct Account: Decodable, Sendable {
+        let userId: String
+        let nickname: String
+        let avatarAssetId: String?
+        enum CodingKeys: String, CodingKey { case userId, nickname, avatarAssetId }
+        init(from decoder: any Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            guard c.contains(.avatarAssetId) else { throw ProductError.invalidResponse }
+            userId = try c.decode(String.self, forKey: .userId)
+            nickname = try c.decode(String.self, forKey: .nickname)
+            avatarAssetId = try c.decodeIfPresent(String.self, forKey: .avatarAssetId)
+        }
+    }
+    struct Capabilities: Decodable, Sendable { let chat: Bool }
+    let authenticated: Bool
+    let account: Account
+    let soopLinkStatus: String
+    let onboardingState: String
+    let expiresAt: String
+    let accountGeneration: String
+    let capabilities: Capabilities
+    func snapshot(credential: NativeCredential, now: Date) throws -> SessionSnapshot {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        var expiry = formatter.date(from: expiresAt)
+        if expiry == nil { formatter.formatOptions = [.withInternetDateTime]; expiry = formatter.date(from: expiresAt) }
+        guard authenticated, UUID(uuidString: account.userId) != nil,
+              account.avatarAssetId == nil || UUID(uuidString: account.avatarAssetId!) != nil,
+              NativeCredential.isOpaque(accountGeneration), let expiry,
+              abs(expiry.timeIntervalSince(credential.expiresAt)) < 0.001 else { throw ProductError.invalidResponse }
+        guard expiry > now else { throw ProductError.unauthenticated }
+        let ready = soopLinkStatus == "VERIFIED" && onboardingState == "READY" && capabilities.chat
+        let restricted = soopLinkStatus == "REQUIRED" && onboardingState == "SOOP_LINK_REQUIRED" && !capabilities.chat
+        guard ready || restricted else { throw ProductError.invalidResponse }
+        let summary = AccountSummary(id: account.userId, displayName: account.nickname, signInMethod: nil,
+                                     soopConnected: ready, avatarAssetID: account.avatarAssetId)
+        guard summary.isValid else { throw ProductError.invalidResponse }
+        return SessionSnapshot(access: ready ? .ready : .linkRequired, account: summary,
+                               serverGeneration: accountGeneration, expiresAt: expiry)
+    }
+}
+struct NativeProfileDTO: Decodable, Sendable {
+    struct Avatar: Decodable, Sendable { let assetId: String }
+    let id: String
+    let nickname: String
+    let avatar: Avatar?
+    let birthday: Birthday?
+    let birthdayVisibleToStreamers: Bool
+    enum CodingKeys: String, CodingKey { case id, nickname, avatar, birthday, birthdayVisibleToStreamers }
+    init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard c.contains(.avatar), c.contains(.birthday) else { throw ProductError.invalidResponse }
+        id = try c.decode(String.self, forKey: .id)
+        nickname = try c.decode(String.self, forKey: .nickname)
+        avatar = try c.decodeIfPresent(Avatar.self, forKey: .avatar)
+        birthday = try c.decodeIfPresent(Birthday.self, forKey: .birthday)
+        birthdayVisibleToStreamers = try c.decode(Bool.self, forKey: .birthdayVisibleToStreamers)
+    }
+    func profile(expectedID: String) throws -> AccountProfile {
+        let profile = AccountProfile(id: id, displayName: nickname, birthday: birthday,
+                                     birthdayVisibleToStreamers: birthdayVisibleToStreamers, avatarAssetID: avatar?.assetId)
+        guard id == expectedID, UUID(uuidString: id) != nil, profile.isValid,
+              avatar == nil || UUID(uuidString: avatar!.assetId) != nil else { throw ProductError.invalidResponse }
+        return profile
+    }
+}

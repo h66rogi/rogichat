@@ -1,4 +1,6 @@
 import { Controller, Get, Inject, Post, Req, Res } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import { nativeAuthDocs } from './dto/native-auth.openapi.js';
 import type { Request, Response } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { ApiError, object, opaque, secret } from './auth-primitives.js';
@@ -22,12 +24,14 @@ export function nativeAdmission(request: Request, config: AuthConfig, clientId: 
   return credentials;
 }
 
+@ApiTags('Authentication')
 @Controller('v1/auth/native')
 export class NativeAuthController {
   constructor(@Inject(NativeAuthService) private readonly native: NativeAuthService, @Inject(AuthService) private readonly auth: AuthService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig) {}
 
   @Post('soop/transactions')
+  @nativeAuthDocs.start()
   async start(@Req() request: Request, @Res() response: Response) {
     const body = object(request.body, ['clientId', 'intent', 'codeChallenge', 'codeChallengeMethod', 'returnState', 'termsVersion']);
     const clientId = nativeClientId(body.clientId);
@@ -40,6 +44,7 @@ export class NativeAuthController {
   }
 
   @Get('soop/launch')
+  @nativeAuthDocs.launch()
   async launch(@Req() request: Request, @Res() response: Response) {
     const query = object(request.query, ['request']); const ticket = opaque(query.request);
     const raw = request.headers.cookie ?? '';
@@ -52,6 +57,7 @@ export class NativeAuthController {
   }
 
   @Post('completions/exchange')
+  @nativeAuthDocs.exchange()
   async exchange(@Req() request: Request, @Res() response: Response) {
     const body = object(request.body, ['clientId', 'transactionId', 'code', 'codeVerifier']);
     const clientId = nativeClientId(body.clientId);

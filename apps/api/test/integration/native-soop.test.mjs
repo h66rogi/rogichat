@@ -19,6 +19,7 @@ import { AuthFlow } from '../../dist/modules/auth/auth-flow.service.js';
 import { secret, digest } from '../../dist/modules/auth/auth-primitives.js';
 import { oauthCookieName } from '../../dist/modules/auth/auth-context.js';
 import { createUser } from '../support/domain-fixture.mjs';
+import { responseContract } from '../support/openapi-response.mjs';
 
 const startPath = '/v1/auth/native/soop/transactions';
 const exchangePath = '/v1/auth/native/completions/exchange';
@@ -60,9 +61,15 @@ async function fixture(t, overrides = {}) {
   const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), identities);
   app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config, sessions, flow, nativeFlow });
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
-  const call = (path, body, headers = {}) => fetch(`${base}${path}`, { method: 'POST', redirect: 'manual',
+  const verify = responseContract(app, config);
+  const checked = async (method, path, options) => {
+    const response = await fetch(`${base}${path}`, options);
+    verify(method, path, response.status, response.headers.get('content-type')?.includes('application/json') ? await response.clone().json() : undefined);
+    return response;
+  };
+  const call = (path, body, headers = {}) => checked('POST', path, { method: 'POST', redirect: 'manual',
     headers: { 'Content-Type': 'application/json', 'X-Rogi-Client': 'ios', ...headers }, body: JSON.stringify(body) });
-  const get = (path, cookies) => fetch(`${base}${path}`, { redirect: 'manual', headers: cookies ? { Cookie: cookies } : {} });
+  const get = (path, cookies) => checked('GET', path, { redirect: 'manual', headers: cookies ? { Cookie: cookies } : {} });
   const begin = async (options = {}) => {
     const verifier = options.verifier ?? secret(); const state = secret();
     const clientId = options.clientId ?? 'ios';

@@ -46,7 +46,18 @@ def validate_config(config, source):
 core.validate_config = validate_config
 # Consumers can verify immutable manifest, config, archive and OCI identities offline.
 _validate_directory = core.validate_directory
-validate_descriptor = core.validate_descriptor
+_validate_descriptor = core.validate_descriptor
+PRODUCER_EVENTS = frozenset({'workflow_dispatch', 'workflow_run'})
+
+
+def validate_descriptor(value):
+    result = _validate_descriptor(value, producer_events=PRODUCER_EVENTS)
+    require(all(type(identity) is int and identity > 0 for identity in result['verification_runs'].values()))
+    require(len(set(result['verification_runs'].values())) == len(core.WORKFLOWS))
+    return result
+
+
+core.validate_descriptor = validate_descriptor
 verify_tar = core.verify_tar
 require = core.require
 
@@ -79,20 +90,24 @@ def validate_zip(path, expected_digest, directory):
     return core.validate_zip(path, expected_digest, directory)
 
 
-def verify_provenance(descriptor, approval, token=None, *, publication_proof=None):
+def verify_provenance(descriptor, approval, token=None, *, publication_proof=None, required_event=None):
     require(type(publication_proof) is bytes and len(publication_proof) <= PROOF_LIMIT)
+    validate_descriptor(descriptor)
+    for field in ('export_run', 'export_attempt', 'artifact_id'):
+        positive_id(approval[field])
     producer = descriptor['producer']
+    require(required_event is None or required_event in PRODUCER_EVENTS)
+    require(required_event is None or producer['event'] == required_event)
     require(producer['sha'] == approval['export_sha'] and producer['run_id'] == approval['export_run']
             and producer['run_attempt'] == approval['export_attempt'])
     run = core.api(f"actions/runs/{producer['run_id']}/attempts/{producer['run_attempt']}", token)
-    core.verify_run(run, producer['sha'], 'web-export.yml', 'workflow_dispatch')
-    require(run['run_attempt'] == producer['run_attempt'])
+    core.verify_run(run, producer['sha'], 'web-export.yml', producer['event'])
+    exact_identity(run, producer['run_id'], producer['run_attempt'])
     artifact = core.api(f"actions/artifacts/{approval['artifact_id']}", token)
     require(not artifact['expired'] and artifact['digest'] == approval['artifact_sha256']
-            and artifact['workflow_run']['id'] == producer['run_id']
+            and type(artifact['workflow_run']['id']) is int and artifact['workflow_run']['id'] == producer['run_id']
             and artifact['workflow_run']['head_sha'] == producer['sha']
             and artifact['name'] == f"web-{descriptor['source_sha']}-{producer['run_id']}-{producer['run_attempt']}")
-    core.verify_source(descriptor['source_sha'], descriptor['verification_runs'], token)
     verify_publication_proof(descriptor, token, publication_proof=publication_proof)
     compare = core.api(f"compare/{descriptor['source_sha']}...{producer['sha']}", token)
     require(compare['status'] in ('ahead', 'identical') and compare['merge_base_commit']['sha'] == descriptor['source_sha'])
@@ -173,63 +188,139 @@ def timestamp(value):
     return result
 
 
-def publication_artifact(descriptor, token=None):
+def positive_id(value):
+    require(type(value) is int and value > 0)
+    return value
+
+
+def exact_identity(run, identity, attempt):
+    positive_id(identity)
+    positive_id(attempt)
+    require(type(run['id']) is int and run['id'] == identity
+            and type(run['run_attempt']) is int and run['run_attempt'] == attempt)
+
+
+def exact_run(identity, attempt, source, workflow, token=None):
+    positive_id(identity)
+    positive_id(attempt)
+    run = core.api(f'actions/runs/{identity}/attempts/{attempt}', token)
+    exact_identity(run, identity, attempt)
+    core.verify_run(run, source, workflow)
+    return run
+
+
+def export_attempt(producer, token=None):
+    positive_id(producer['run_id'])
+    positive_id(producer['run_attempt'])
+    require(producer['event'] in PRODUCER_EVENTS)
+    export = core.api(f"actions/runs/{producer['run_id']}/attempts/{producer['run_attempt']}", token)
+    exact_identity(export, producer['run_id'], producer['run_attempt'])
+    # A producer verifies itself while still running; consumers separately require success.
+    require(export['head_sha'] == producer['sha'] and export['head_branch'] == 'qa'
+            and export['event'] == producer['event'] and export['path'] == '.github/workflows/web-export.yml'
+            and export['repository']['full_name'] == core.REPOSITORY
+            and export['head_repository']['full_name'] == core.REPOSITORY)
+    return export
+
+
+def publication_artifact(descriptor, token=None, *, attempt):
     source = descriptor['source_sha']
     publication_id = descriptor['verification_runs']['web-publish.yml']
-    run = core.api(f'actions/runs/{publication_id}', token)
-    core.verify_run(run, source, 'web-publish.yml')
-    attempt = run['run_attempt']
-    require(type(attempt) is int and attempt > 0)
-    producer = descriptor['producer']
-    export = core.api(f"actions/runs/{producer['run_id']}/attempts/{producer['run_attempt']}", token)
-    # The producer can still be running while it validates its own archive.
-    require(export['head_sha'] == producer['sha'] and export['head_branch'] == 'qa'
-            and export['event'] == 'workflow_dispatch' and export['path'] == '.github/workflows/web-export.yml'
-            and export['repository']['full_name'] == core.REPOSITORY
-            and export['head_repository']['full_name'] == core.REPOSITORY
-            and export['run_attempt'] == producer['run_attempt'])
+    run = exact_run(publication_id, attempt, source, 'web-publish.yml', token)
+    export = export_attempt(descriptor['producer'], token)
     cutoff = timestamp(export['run_started_at'])
     listing = core.api(f'actions/runs/{publication_id}/artifacts?per_page=100', token)
-    require(type(listing['artifacts']) is list and listing['total_count'] <= 100)
+    require(type(listing['artifacts']) is list and type(listing['total_count']) is int
+            and 0 <= listing['total_count'] <= 100 and len(listing['artifacts']) == listing['total_count'])
     name = f'web-publication-proof-{source}-{attempt}'
     candidates = [item for item in listing['artifacts'] if item['name'] == name]
     require(len(candidates) == 1)
     artifact = candidates[0]
-    require(not artifact['expired'] and artifact['workflow_run']['id'] == publication_id
+    positive_id(artifact['id'])
+    require(not artifact['expired'] and type(artifact['workflow_run']['id']) is int
+            and artifact['workflow_run']['id'] == publication_id
             and artifact['workflow_run']['head_sha'] == source)
-    # No schema extension: GitHub's immutable artifact creation time fences the
-    # proof to the approved export attempt. Later publisher attempts/replacement
-    # uploads cannot silently replace evidence after this export began.
+    # Exact historical attempts remain valid, but replacement proof uploads do not.
     require(timestamp(run['run_started_at']) <= cutoff and timestamp(artifact['created_at']) <= cutoff)
     return artifact, attempt
 
 
 def verify_publication_proof(descriptor, token=None, *, publication_proof=None):
     require(type(publication_proof) is bytes and len(publication_proof) <= PROOF_LIMIT)
-    artifact, attempt = publication_artifact(descriptor, token)
-    proof = proof_zip(publication_proof, artifact['digest'])
+    proof = parse_proof_zip(publication_proof)
+    attempt = positive_id(proof['publicationAttempt'])
+    artifact, _ = publication_artifact(descriptor, token, attempt=attempt)
+    proof_zip(publication_proof, artifact['digest'])
     source = descriptor['source_sha']
     publication_id = descriptor['verification_runs']['web-publish.yml']
     image = descriptor['images']['runtime']
-    require(proof['schemaVersion'] == 1 and proof['repository'] == core.REPOSITORY
+    require(type(proof['schemaVersion']) is int and proof['schemaVersion'] == 1
+            and proof['repository'] == core.REPOSITORY
             and proof['sourceSha'] == source and proof['image'] == image['image']
             and proof['checkedImageId'] == image['config_id'] and proof['platform'] == 'linux/amd64'
-            and proof['publicationAttempt'] == attempt
             and proof['publicationRun'] == f'https://github.com/{core.REPOSITORY}/actions/runs/{publication_id}'
             and proof['runtimeEnvironmentsVerified'] == ['qa', 'production'])
     verification = proof['verification']
     require(type(verification) is list and len(verification) == 5)
     expected = {name: identity for name, identity in descriptor['verification_runs'].items() if name != 'web-publish.yml'}
-    require({item['workflow']: item['id'] for item in verification} == expected
-            and all(item['sha'] == source for item in verification))
+    require(set(expected) == core.WORKFLOWS - {'web-publish.yml'}
+            and {item['workflow'] for item in verification} == set(expected)
+            and len({positive_id(item['id']) for item in verification}) == 5)
+    for item in verification:
+        require(item['id'] == expected[item['workflow']] and item['sha'] == source)
+        exact_run(item['id'], item['attempt'], source, item['workflow'], token)
+    return proof
+
+
+def resolve_publication(token):
+    event = os.environ['GITHUB_EVENT_NAME']
+    require(event in PRODUCER_EVENTS and os.environ['GITHUB_REPOSITORY'] == core.REPOSITORY
+            and os.environ['GITHUB_REF'] == 'refs/heads/qa')
+    producer = {'sha': os.environ['GITHUB_SHA'], 'run_id': int(os.environ['GITHUB_RUN_ID']),
+                'run_attempt': int(os.environ['GITHUB_RUN_ATTEMPT']), 'event': event, 'ref': 'refs/heads/qa'}
+    require(core.SHA.fullmatch(producer['sha']))
+    if event == 'workflow_run':
+        path = Path(os.environ['GITHUB_EVENT_PATH'])
+        require(path.stat().st_size <= 1024**2)
+        payload = json.loads(path.read_bytes())
+        require(payload['action'] == 'completed' and payload['repository']['full_name'] == core.REPOSITORY)
+        supplied = payload['workflow_run']
+        source = supplied['head_sha']
+        require(core.SHA.fullmatch(source))
+        core.verify_run(supplied, source, 'web-publish.yml')
+        identity, attempt = positive_id(supplied['id']), positive_id(supplied['run_attempt'])
+    else:
+        source = os.environ['EXPORT_SOURCE_SHA']
+        require(core.SHA.fullmatch(source) and core.HEX.fullmatch(os.environ['EXPORT_RUNTIME_DIGEST']))
+        candidates = core.api(f'actions/workflows/web-publish.yml/runs?branch=qa&event=push&head_sha={source}&per_page=20', token)['workflow_runs']
+        require(type(candidates) is list and 0 < len(candidates) <= 20)
+        selected = candidates[0]
+        core.verify_run(selected, source, 'web-publish.yml')
+        identity, attempt = positive_id(selected['id']), positive_id(selected['run_attempt'])
+    descriptor = {'version': 1, 'repository': core.REPOSITORY, 'source_sha': source,
+                  'producer': producer, 'verification_runs': {'web-publish.yml': identity}, 'images': {}}
+    artifact, _ = publication_artifact(descriptor, token, attempt=attempt)
+    data = download_proof(artifact, token)
+    proof = proof_zip(data, artifact['digest'])
+    require(type(proof['verification']) is list and len(proof['verification']) == 5)
+    descriptor['verification_runs'].update({item['workflow']: positive_id(item['id']) for item in proof['verification']})
+    descriptor['images']['runtime'] = {'image': proof['image'], 'config_id': proof['checkedImageId'], 'archive_sha256': '0' * 64}
+    validate_descriptor(descriptor)
+    require(proof['publicationAttempt'] == attempt)
+    verify_publication_proof(descriptor, token, publication_proof=data)
+    compare = core.api(f"compare/{source}...{producer['sha']}", token)
+    require(compare['status'] in ('ahead', 'identical') and compare['merge_base_commit']['sha'] == source)
+    if event == 'workflow_dispatch':
+        require(proof['image'].split('@sha256:')[1] == os.environ['EXPORT_RUNTIME_DIGEST'])
+    return descriptor, data
 
 
 def produce():
-    # The GitHub token stays in memory; core removes it from subprocess env and
-    # destroys its isolated registry config before saving the archive.
+    # Resolve and validate the original proof and all exact attempts BEFORE any pull.
     token = os.environ['GITHUB_TOKEN']
-    # A separate producer instance validates its image-only intermediate. The
-    # four-member consumer policy is never relaxed, even during production.
+    expected, publication_proof = resolve_publication(token)
+    os.environ['EXPORT_SOURCE_SHA'] = expected['source_sha']
+    os.environ['EXPORT_RUNTIME_DIGEST'] = expected['images']['runtime']['image'].split('@sha256:')[1]
     producer_spec = importlib.util.spec_from_file_location('rogichat_web_image_producer', spec.origin)
     producer_core = importlib.util.module_from_spec(producer_spec)
     producer_spec.loader.exec_module(producer_core)
@@ -237,15 +328,18 @@ def produce():
     producer_core.ROLES = core.ROLES.copy()
     producer_core.FILES = IMAGE_FILES.copy()
     producer_core.validate_config = validate_config
-    producer_core.produce()
+    producer_core.validate_descriptor = validate_descriptor
+    producer_core.produce(expected_event=expected['producer']['event'], verification_runs=expected['verification_runs'])
     directory = Path(os.environ['RUNNER_TEMP']) / 'rogichat-export'
     descriptor = validate_descriptor(json.loads((directory / 'descriptor.json').read_bytes()))
-    artifact, _ = publication_artifact(descriptor, token)
-    publication_proof = download_proof(artifact, token)
+    require(descriptor['source_sha'] == expected['source_sha'] and descriptor['producer'] == expected['producer']
+            and descriptor['verification_runs'] == expected['verification_runs'])
     verify_publication_proof(descriptor, token, publication_proof=publication_proof)
     with (directory / PROOF_FILE).open('xb') as output:
         output.write(publication_proof)
     validate_directory(directory)
+    with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+        output.write(f"source_sha={descriptor['source_sha']}\n")
     del token
     print('Archive digest and config match the exact pre-existing trusted publication proof.')
 

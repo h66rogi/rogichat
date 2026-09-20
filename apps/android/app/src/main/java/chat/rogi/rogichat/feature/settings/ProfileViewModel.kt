@@ -16,7 +16,8 @@ data class Birthday(val month: Int, val day: Int) {
         fun isValid(month: Int, day: Int) = month in 1..12 && day in 1..intArrayOf(31,29,31,30,31,30,31,31,30,31,30,31)[month - 1]
     }
 }
-data class UserProfile(val id: String, val nickname: String, val birthday: Birthday?, val birthdayVisibleToStreamers: Boolean) {
+data class UserProfile(val id: String, val nickname: String, val birthday: Birthday?, val birthdayVisibleToStreamers: Boolean,
+                       val avatarAssetId: String? = null) {
     init { require(id.isNotBlank()); require(ProfileEditor(nickname).error == null) }
 }
 sealed interface FieldChange<out T> {
