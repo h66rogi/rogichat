@@ -48,6 +48,12 @@ fun ProfileScreen(model: ProfileViewModel, avatar: chat.rogi.rogichat.feature.me
                 state.isLoading -> ScreenStatus("프로필을 불러오는 중", "잠시만 기다려 주세요.", loading = true)
                 state.original == null -> ScreenStatus("프로필을 불러오지 못했어요", "연결 상태를 확인하고 다시 시도해 주세요.", onRetry = model::load)
                 else -> {
+                    state.original?.soopDisplayId?.let { displayId ->
+                        Column(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
+                            Text("SOOP ID", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(displayId, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
                     if (avatar != null) chat.rogi.rogichat.feature.media.AvatarSettings(avatar, state.isSaving, model::avatarApplied)
                     ProfileField(label = "표시 이름", value = state.editor.draft,
                         onValueChange = model::editNickname, enabled = !state.isSaving,

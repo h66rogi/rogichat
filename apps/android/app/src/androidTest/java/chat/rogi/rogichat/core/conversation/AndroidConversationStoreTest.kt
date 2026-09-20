@@ -37,7 +37,7 @@ class AndroidConversationStoreTest {
     private fun message(version: String = "1", created: Instant = Instant.parse("2026-09-20T00:00:00Z")) = ConversationMessage(messageId, MessageVersion(version), created,
         "SHARED", MessageAuthor.Member(actor, "계측 사용자", null), MessageContent.Text("계측 메시지"), null, null, MessageActions(false, false, true))
     private fun newStore() = AndroidRoomsStore(context, "qa", directory, openDatabase = { file ->
-        Room.databaseBuilder(context, RoomsDatabase::class.java, file.absolutePath).addMigrations(RoomsDatabase.MIGRATION_1_2, RoomsDatabase.MIGRATION_2_3).build().also { databases += it }
+        Room.databaseBuilder(context, RoomsDatabase::class.java, file.absolutePath).addMigrations(RoomsDatabase.MIGRATION_1_2, RoomsDatabase.MIGRATION_2_3, RoomsDatabase.MIGRATION_3_4).build().also { databases += it }
     })
     private val db get() = databases.last()
     @Before fun setup() { context = ApplicationProvider.getApplicationContext(); directory = File(context.noBackupFilesDir, "conversation-instrumentation-${UUID.randomUUID()}") }
@@ -211,7 +211,7 @@ class AndroidConversationStoreTest {
         }
         val store = newStore()
         store.authorize(account, "binding", "generation") {}
-        assertEquals(3, db.openHelper.writableDatabase.version)
+        assertEquals(4, db.openHelper.writableDatabase.version)
         val scope = open(store, directory(store))
         store.enqueue(scope, TextCommand(commandId, m, "SHARED", null, null, "마이그레이션 뒤 작성"), 1) {}
         assertEquals(1, db.conversation().outboxCount())

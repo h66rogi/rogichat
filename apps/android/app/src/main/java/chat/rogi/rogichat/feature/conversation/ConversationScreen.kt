@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -121,7 +122,8 @@ fun ConversationScreen(model: ConversationViewModel) {
                 }
                 items(data.messages.asReversed(), key = { it.id.value }) { message ->
                     MessageBubble(message, (message.author as? MessageAuthor.Member)?.actorId == model.selection.membership.actorId, media?.client,
-                        onReply = { model.reply(message, data.scope) }, onActions = { model.showActions(message, data.scope) })
+                        onReply = { model.reply(message, data.scope) }, onActions = { model.showActions(message, data.scope) },
+                        profile = data.profiles.find { it.actorId == (message.author as? MessageAuthor.Member)?.actorId })
                 }
                 if (data.historyCursor != null) item { TextButton(onClick = model::history, modifier = Modifier.fillMaxWidth()) { Text("이전 메시지 보기") } }
                 if (data.messages.isEmpty() && pending.isEmpty()) item {
@@ -191,9 +193,15 @@ private fun ConversationMessage.textSummary() = when (val content = content) {
 }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MessageBubble(message: ConversationMessage, own: Boolean, media: MediaClient?, onReply: () -> Unit, onActions: () -> Unit) {
+private fun MessageBubble(message: ConversationMessage, own: Boolean, media: MediaClient?, onReply: () -> Unit, onActions: () -> Unit, profile: ConversationProfile?) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
         val author = when (val author = message.author) { MessageAuthor.Anonymous -> "익명"; is MessageAuthor.Member -> author.nickname }
+        if (media != null && profile != null && message.author is MessageAuthor.Member) {
+            val shape = Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
+            if (profile.avatar != null) chat.rogi.rogichat.feature.media.AuthorizedMedia(media, profile.avatar.value,
+                MediaAccess.Avatar(requireNotNull(media.scope.roomId), profile.actorId.value), shape, avatar = true)
+            else if (profile.providerAvatarAvailable) chat.rogi.rogichat.feature.media.AuthorizedProviderAvatar(media, modifier = shape, actorId = profile.actorId.value)
+        }
         Text(author + if (message.audience == "PRIVATE") " · 개인 대화" else "", style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(shape = RoundedCornerShape(16.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {

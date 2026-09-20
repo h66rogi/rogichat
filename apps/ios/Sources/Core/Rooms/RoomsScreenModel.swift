@@ -83,6 +83,7 @@ final class RoomsScreenModel {
     }
     func selection(roomID: String, roomName: String, displayedCycle: String?, action: RoomCommandAction, membership: String?) -> RoomCommandIntent? {
         guard canAct, let cycle = displayedCycle, actions.permits(cycle: cycle) else { return nil }
+        if action == .join, listing?.discovery.first(where: { $0.id == roomID })?.availability == .ownerPending { return nil }
         return try? RoomCommandIntent(scope: scope, roomID: roomID, roomName: roomName, action: action, cycle: cycle, membershipScope: membership)
     }
     // Synchronous reservation precedes Task creation. A presenting alert keeps

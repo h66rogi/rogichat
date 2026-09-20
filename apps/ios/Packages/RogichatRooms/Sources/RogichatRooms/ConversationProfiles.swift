@@ -13,19 +13,21 @@ public struct ConversationProfile: Codable, Equatable, Sendable, Identifiable {
     public let actorId: String
     public let nickname: String
     public let avatar: ConversationAvatar?
+    public let providerAvatarAvailable: Bool
     public let role: String
     public let birthday: ConversationBirthday?
     public var id: String { actorId }
-    enum CodingKeys: CodingKey { case actorId, nickname, avatar, role, birthday }
+    enum CodingKeys: CodingKey { case actorId, nickname, avatar, role, birthday, providerAvatarAvailable }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         actorId = try c.decode(String.self, forKey: .actorId); nickname = try c.decode(String.self, forKey: .nickname); avatar = try c.decodeIfPresent(ConversationAvatar.self, forKey: .avatar)
+        providerAvatarAvailable = c.contains(.providerAvatarAvailable) ? try c.decode(Bool.self, forKey: .providerAvatarAvailable) : false
         role = try c.decode(String.self, forKey: .role); birthday = try c.decodeIfPresent(ConversationBirthday.self, forKey: .birthday)
         guard RoomsWire.uuid(actorId), !nickname.isEmpty, c.contains(.avatar), ["FAN", "MEMBER", "STREAMER"].contains(role), !c.contains(.birthday) || birthday != nil else { throw ConversationError.invalidResponse }
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(actorId, forKey: .actorId); try c.encode(nickname, forKey: .nickname); try c.encode(avatar, forKey: .avatar); try c.encode(role, forKey: .role); try c.encodeIfPresent(birthday, forKey: .birthday)
+        try c.encode(actorId, forKey: .actorId); try c.encode(nickname, forKey: .nickname); try c.encode(avatar, forKey: .avatar); try c.encode(providerAvatarAvailable, forKey: .providerAvatarAvailable); try c.encode(role, forKey: .role); try c.encodeIfPresent(birthday, forKey: .birthday)
     }
 }
 public struct ConversationProfiles: Decodable, Sendable {

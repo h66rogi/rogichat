@@ -16,10 +16,10 @@ data class ConversationMessageRow(val roomId: String, val messageId: String, val
 }
 @Entity(tableName = "conversation_profiles", primaryKeys = ["roomId", "actorId"])
 data class ConversationProfileRow(val roomId: String, val actorId: String, val nickname: String, val avatar: String?,
-                                  val role: String, val month: Int?, val day: Int?) {
-    fun domain() = ConversationProfile(RoomId(actorId), nickname, avatar?.let(::RoomId), RoomRole.valueOf(role), month?.let { ActorBirthday(it, requireNotNull(day)) })
+                                  val role: String, val month: Int?, val day: Int?, @ColumnInfo(defaultValue = "0") val providerAvatarAvailable: Boolean = false) {
+    fun domain() = ConversationProfile(RoomId(actorId), nickname, avatar?.let(::RoomId), RoomRole.valueOf(role), month?.let { ActorBirthday(it, requireNotNull(day)) }, providerAvatarAvailable)
     companion object { fun from(room: String, value: ConversationProfile) = ConversationProfileRow(room, value.actorId.value, value.nickname,
-        value.avatar?.value, value.role.name, value.birthday?.month, value.birthday?.day) }
+        value.avatar?.value, value.role.name, value.birthday?.month, value.birthday?.day, value.providerAvatarAvailable) }
 }
 @Entity(tableName = "conversation_profile_staging", primaryKeys = ["roomId", "actorId"])
 data class ConversationProfileStage(@Embedded val profile: ConversationProfileRow)

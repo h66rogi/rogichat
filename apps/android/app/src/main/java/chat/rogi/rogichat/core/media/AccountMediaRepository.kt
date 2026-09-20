@@ -22,7 +22,7 @@ class AccountMediaRepository(private val gateway: AccountFeatureGateway, private
                 gateway.accountProfileRequest(permit, operation)
             else gateway.accountFeatureRequest(permit, operation)
             captured.check(); body
-        }, scope)
+        }, scope, chat.rogi.rogichat.BuildConfig.API_BASE_URL)
         val journal = object : MediaJournal {
             override suspend fun save(scope: MediaScope, pending: PendingMedia) {
                 require(scope === client.scope); scope.check()

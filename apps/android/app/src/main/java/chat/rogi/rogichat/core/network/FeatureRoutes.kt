@@ -14,10 +14,12 @@ internal object FeatureRoutes {
             request.path.matches(Regex("media/assets/$ID/access")) -> "POST" to 200
             request.path.matches(Regex("rooms/$ID/stickers(?:\\?after=$ID)?")) -> "GET" to 200
             request.path == "me/profile" -> "PATCH" to 200
+            request.path == "me/provider-avatar/access" || request.path.matches(Regex("rooms/$ID/actors/$ID/provider-avatar/access")) -> "POST" to 200
             else -> throw IllegalArgumentException("unsupported_media_route")
         }
         require(expected == (request.method to request.expectedStatus))
         require((request.upload != null) == request.path.endsWith("/content"))
+        if (request.path.endsWith("/provider-avatar/access")) require(request.jsonBody == null && request.upload == null)
     }
     fun action(request: ActionRequest) {
         if (request.path == "blocked-rooms") {
