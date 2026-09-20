@@ -18,7 +18,7 @@ function AuthorizedChat({ session, scope, refresh }: { session: Session; scope: 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
-  const request = useCallback((path: string, options?: { method?: 'POST'; body?: unknown; signal?: AbortSignal }) => api.request(path, { ...options, csrf: session.csrfToken }), [api, session.csrfToken]);
+  const request = useCallback((path: string, options?: { method?: 'POST' | 'PUT' | 'DELETE'; body?: unknown; signal?: AbortSignal }) => api.request(path, { ...options, csrf: session.csrfToken }), [api, session.csrfToken]);
   const join = async (roomId: string) => {
     if (pending.current) return;
     pending.current = true; setBusy(true); setError('');
