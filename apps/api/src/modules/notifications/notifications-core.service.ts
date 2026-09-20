@@ -26,7 +26,7 @@ export class NotificationsCoreService {
   }
   async requireNativeEnrollment(tx: Transaction, actor: Principal, audience: string, client: 'ios' | 'android'): Promise<void> {
     const binding = await this.repository.binding(tx, actor.userId, actor.sessionId, client);
-    if (!binding || binding.audience !== audience || binding.soop_status !== 'VERIFIED') throw new ApiError('UNAUTHENTICATED', 401);
+    if (!binding || binding.audience !== audience || Number(binding.chat_allowed) !== 1) throw new ApiError('UNAUTHENTICATED', 401);
     await this.repository.lockPreferences(tx, actor.userId);
     const hint = await this.repository.nativeEnrollment(tx, actor.userId, actor.sessionId, audience, client, BigInt(binding.membership_generation));
     const row = hint ? await this.repository.lockSubscription(tx, hint.id) : undefined;
@@ -100,7 +100,7 @@ export class NotificationsCoreService {
     const client = provider === 'APNS' ? 'ios' : provider === 'FCM' ? 'android' : undefined;
     if (client && hint.native_client_id !== client) return null;
     const binding = await this.repository.binding(tx, hint.user_id, hint.session_id, client);
-    if (!binding || binding.soop_status !== 'VERIFIED') return null;
+    if (!binding || Number(binding.chat_allowed) !== 1) return null;
     const preference = await this.repository.lockPreferences(tx, hint.user_id);
     const row = await this.repository.lockSubscription(tx, id);
     if (!row || row.user_id !== hint.user_id || row.session_id !== hint.session_id || row.revoked_at ||

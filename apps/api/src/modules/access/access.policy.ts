@@ -1,6 +1,6 @@
 export interface AccessFacts {
   accountActive: boolean;
-  soopLinked: boolean;
+  chatEnabled: boolean;
   roomId: string;
   roomActive: boolean;
   memberId: string;
@@ -10,6 +10,7 @@ export interface AccessFacts {
   visibleFrom: bigint;
   role: 'FAN' | 'MEMBER' | 'STREAMER';
   ownerMemberId: string | null;
+  delegated?: boolean;
 }
 export interface MessageFacts {
   roomId: string;
@@ -22,18 +23,18 @@ export interface MessageFacts {
   deletionRootBlocked: boolean;
   grant: { memberId: string; roomId: string; streamId: string; canRead: boolean; active: boolean } | null;
 }
-const present = (actor: AccessFacts): boolean => actor.accountActive && actor.soopLinked && actor.roomActive && actor.memberActive && actor.periodActive && actor.roomId === actor.memberRoomId;
+const present = (actor: AccessFacts): boolean => actor.accountActive && actor.chatEnabled && actor.roomActive && actor.memberActive && actor.periodActive && actor.roomId === actor.memberRoomId;
 const available = (actor: AccessFacts, message: MessageFacts): boolean => present(actor) && actor.roomId === message.roomId && message.roomId === message.streamRoomId && !message.deleted && !message.moderated && !message.deletionRootBlocked;
 
 // Facts must be loaded with content from the SAME fresh writer snapshot; do not authorize from cached facts.
 export function canReadMessage(actor: AccessFacts, message: MessageFacts): boolean {
   if (!available(actor, message) || message.order < actor.visibleFrom) return false;
-  return message.streamKind === 'ROOM_SHARED' || Boolean(message.grant && message.grant.active && message.grant.canRead && message.grant.memberId === actor.memberId && message.grant.roomId === actor.roomId && message.grant.streamId === message.streamId);
+  return message.streamKind === 'ROOM_SHARED' || actor.delegated === true || Boolean(message.grant && message.grant.active && message.grant.canRead && message.grant.memberId === actor.memberId && message.grant.roomId === actor.roomId && message.grant.streamId === message.streamId);
 }
 
 export function canPublishSource(actor: AccessFacts, message: MessageFacts): boolean {
   // Owner publication power is intentionally independent of normal read grant and historical read boundary.
-  return available(actor, message) && actor.role === 'STREAMER' && actor.ownerMemberId === actor.memberId && message.streamKind === 'RESTRICTED';
+  return available(actor, message) && actor.role === 'STREAMER' && (actor.ownerMemberId === actor.memberId || actor.delegated === true && message.order >= actor.visibleFrom) && message.streamKind === 'RESTRICTED';
 }
 
 export function validBirthday(month: unknown, day: unknown): { month: number; day: number } | null {

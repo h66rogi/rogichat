@@ -1,4 +1,8 @@
 import { AppleController } from './apple/apple.controller.js';
+import { PasswordController } from './password/password.controller.js';
+import { PasswordService } from './password/password.service.js';
+import { PasswordRepository } from './password/password.repository.js';
+import { PasswordHasher } from './password/password-hasher.js';
 import { AppleService } from './apple/apple.service.js';
 import { AppleRepository } from './apple/apple.repository.js';
 import { AppleProvider } from './apple/apple-provider.js';
@@ -40,8 +44,9 @@ export class AuthModule {
     return {
       module: AuthModule,
       imports: [JobsCoreModule, IdentityGuardModule, infrastructure, AppleLifecycleModule.register(infrastructure, options.config, options.appleProvider)],
-      controllers: [AuthController, NativeAuthController, AppleController],
+      controllers: [AuthController, NativeAuthController, AppleController, PasswordController],
       providers: [
+        PasswordService, PasswordRepository, PasswordHasher,
         AppleRepository,
         { provide: AppleService, inject: [AUTH_CONFIG, Transactions, AppleRepository, AppleProvider, SessionService, LoginRepository, IdentityGuardService],
           useFactory: (config: AuthConfig, transactions: Transactions, repository: AppleRepository, provider: AppleProvider, sessions: SessionService, logins: LoginRepository, guards: IdentityGuardService) => new AppleService(config, transactions, repository, provider, sessions, logins, guards) },

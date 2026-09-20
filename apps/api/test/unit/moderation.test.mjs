@@ -64,11 +64,12 @@ test('retention ports pass bounded transaction scopes and never delete report re
 });
 
 test('ban closes only target period and revokes grants while unban only returns LEFT', async () => {
-  const calls = []; const models = ['membership_periods', 'stream_grants', 'room_members', 'users'];
+  const calls = []; const models = ['room_test_grants', 'membership_periods', 'stream_grants', 'room_members', 'users'];
   const tx = { now: async () => new Date(0), prisma: Object.fromEntries(models.map(name => [name, { updateMany: async input => { calls.push([name, input]); return { count: 1 }; } }])) };
   const repo = new ModerationRepository();
   await repo.ban(tx, 'room', 'target', 'old-period', true);
-  assert.equal(calls[0][0], 'membership_periods'); assert.equal(calls[0][1].where.member_id, 'target');
+  assert.equal(calls[0][0], 'room_test_grants'); assert.equal(calls[0][1].where.member_id, 'target');
+  calls.shift(); assert.equal(calls[0][0], 'membership_periods'); assert.equal(calls[0][1].where.member_id, 'target');
   assert.deepEqual(calls[1][1].data, { revoked_at: new Date(0), can_read: false, can_send: false });
   assert.equal(calls[2][1].data.status, 'BANNED'); assert.equal(calls[2][1].data.active_period_id, null);
   calls.length = 0; await repo.ban(tx, 'room', 'target', null, false);
@@ -115,7 +116,7 @@ test('recovery names are scoped to existing owned blocks and keep FAN/afterleave
   const repo = new ModerationRepository(); const calls = [];
   const member = { id: 'mine', role: 'FAN', status: 'LEFT', room: { mode: 'FAN', status: 'ACTIVE' }, user: { status: 'ACTIVE', soop: { status: 'VERIFIED' } } };
   const rows = [{ target_actor_id: 'visible', created_at: new Date(0) }, { target_actor_id: 'unavailable', created_at: new Date(0) }];
-  const tx = { prisma: { room_members: { findFirst: async () => member, findMany: async query => {
+  const tx = { now: async () => new Date(), prisma: { users: { findFirst: async () => ({ id: 'caller' }) }, room_members: { findFirst: async () => member, findMany: async query => {
     calls.push(query); return [{ id: 'visible', active_period: { member_id: 'visible' }, user: { profile: { nickname: 'current name' } } }];
   } }, actor_blocks: { findMany: async query => { assert.equal(query.where.blocker_actor_id, 'mine'); return rows; } } } };
   assert.deepEqual((await repo.ownBlocks(tx, 'room', 'caller', '')).map(row => row.displayName), ['current name', null]);
@@ -143,7 +144,7 @@ test('blocked-room discovery is bounded and empty pages keep an internal continu
 test('blocked-room cursor hides scan positions and rejects tampering, other accounts, sessions, audience and expiry', async () => {
   const { BlockRoomsCursor } = await import('../../dist/modules/moderation/block-rooms-cursor.js');
   const key = randomBytes(32), codec = new BlockRoomsCursor(key, 'fixture'); const now = new Date();
-  const actor = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true }, room = randomUUID();
+  const actor = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true, chatEnabled: true }, room = randomUUID();
   const token = codec.next(room, actor, now); assert.equal(codec.after(token, actor, now), room);
   assert.equal(Buffer.from(token, 'base64url').includes(Buffer.from(room)), false);
   assert.notEqual(codec.next(room, actor, now), token);
@@ -157,7 +158,7 @@ test('blocked-room cursor hides scan positions and rejects tampering, other acco
 
 test('blocked-room service rejects pre-restore cursors before discovery and resumes only within the current authorization epoch', async () => {
   const key = randomBytes(32), stableKey = Buffer.from(key), base = { key, audience: 'fixture' };
-  const actor = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true };
+  const actor = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true, chatEnabled: true };
   const roomId = randomUUID(), now = new Date(), positions = [];
   const transactions = { read: work => work({ now: async () => now }) };
   const auth = { require: async () => actor };

@@ -67,6 +67,24 @@ class SessionViewModel(private val services: ProductServices, private val inject
         }
         perform("로그인을 완료하지 못했어요. 다시 시도해 주세요.") { actions.signIn(provider) }
     }
+    fun password(input: PasswordInput) {
+        val actions = services.access ?: return
+        if (mutable.value.busy) return
+        val expected = SessionIdentity.from(services.session.value); val capturedAccount = expected.accountId
+        val ticket = ++revision; mutable.value = SessionOperationState(busy = true)
+        (injectedScope ?: viewModelScope).launch {
+            try {
+                val result = actions.password(input, expected)
+                if (ticket == revision && services.session.value.account?.id == capturedAccount) mutable.value = SessionOperationState(error = result.exceptionOrNull()?.let {
+                    when ((it as? chat.rogi.rogichat.core.network.ApiException)?.statusCode) {
+                        401 -> "아이디 또는 비밀번호를 확인해 주세요."
+                        429 -> "요청이 많아요. 잠시 후 다시 시도해 주세요."
+                        else -> "로그인 정보를 확인하지 못했어요. 연결을 확인하고 다시 시도해 주세요."
+                    }
+                })
+            } finally { if (ticket == revision) mutable.value = mutable.value.copy(busy = false) }
+        }
+    }
     fun dismissConsent() { mutable.value = mutable.value.copy(consentNeeded = false) }
     fun confirmConsent() {
         if (!mutable.value.consentNeeded || services.session.value.access != ShellAccess.SIGNED_OUT) return

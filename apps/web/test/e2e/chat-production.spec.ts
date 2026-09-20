@@ -3,7 +3,7 @@ import { installMedia, MEDIA_ASSET, MEDIA_CSRF, TEST_IMAGE } from './media-fixtu
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 import type { ServerMessage } from '../../src/features/chat/contract';
 import AxeBuilder from '@axe-core/playwright';
-import { installApi, json, TEST_ACTOR_ID, TEST_ROOM_ID, TEST_SCOPES } from './api-fixture';
+import { installApi, json, TEST_ACTOR_ID, TEST_ROOM_ID, TEST_SCOPES, TEST_PARTITION } from './api-fixture';
 
 // All synthetic payloads live in test code, behind interception of the real API paths.
 const streamerId = '44444444-4444-4444-8444-444444444444';
@@ -58,6 +58,24 @@ async function chatApi(page: Page) {
   });
   return { account, state, hint: () => { for (const socket of state.sockets) socket.send('42["sync.required",{"schemaVersion":1}]'); } };
 }
+
+test('explicit reviewer entitlement permits real chat commands without inventing SOOP linkage and revokes on fresh session', async ({ page }) => {
+  const { account, state } = await chatApi(page);
+  let admitted = true;
+  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, csrfToken: account.sessionToken, accountPartition: TEST_PARTITION, soopLinkStatus: 'REQUIRED', onboardingState: admitted ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: admitted } }));
+  await page.goto('/chat');
+  const input = page.getByTestId('chat-composer-input');
+  await input.fill('심사 계정의 격리된 메시지'); await input.press('Enter');
+  await expect(input).toHaveValue('');
+  await expect(page.getByText('심사 계정의 격리된 메시지', { exact: true })).toBeVisible();
+  expect(state.posts).toHaveLength(1); expect(state.posts[0]?.intent).toBe('ROOM_OWNER');
+  await page.reload(); await expect(page.getByTestId('chat-room')).toBeVisible();
+  admitted = false;
+  await page.evaluate(() => { window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })); window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })); });
+  await expect(page.getByTestId('chat-room')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'SOOP 계정 연결이 필요해요' })).toBeVisible();
+  expect(state.posts).toHaveLength(1);
+});
 
 test('READY photo retries the same command, preserves text draft and clears bytes on deletion', async ({ page }) => {
   const { account, state, hint } = await chatApi(page); account.sessionToken = MEDIA_CSRF;

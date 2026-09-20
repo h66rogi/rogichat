@@ -1,4 +1,5 @@
 import { affected } from '../../infrastructure/database/transactions.js';
+import { chatAccountSql } from '../auth/chat-entitlement.js';
 import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
@@ -24,7 +25,7 @@ export class PublicationsRepository {
     return rows.map(row => ({ user_id: row.publisher.user_id }));
   }
   lockAccount(tx: Transaction, userId: unknown) {
-    return tx.rows<RowDataPacket>("SELECT u.id FROM users u JOIN platform_soop s ON s.user_id=u.id AND s.status='VERIFIED' WHERE u.id=? AND u.status='ACTIVE' FOR UPDATE", [userId]);
+    return tx.rows<RowDataPacket>(`SELECT u.id FROM users u LEFT JOIN platform_soop s ON s.user_id=u.id WHERE u.id=? AND u.status='ACTIVE' AND ${chatAccountSql('u', 's')} FOR UPDATE`, [userId]);
   }
   lockRoomForFinalize(tx: Transaction, roomId: string) {
     return tx.rows('SELECT id FROM rooms WHERE id=? FOR UPDATE', [roomId]);

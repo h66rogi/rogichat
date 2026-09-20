@@ -29,8 +29,13 @@ async function fixture(t) {
   for (const migration of migrationManifest) await admin.query(await readFile(new URL(`../../prisma/migrations/${migration.name}/migration.sql`, import.meta.url), 'utf8'));
   await admin.query(`CREATE TABLE _prisma_migrations LIKE \`${original}\`._prisma_migrations`);
   await admin.query(`INSERT INTO _prisma_migrations SELECT * FROM \`${original}\`._prisma_migrations`);
-  url.pathname = `/${schema}`;
-  const config = readConfig('worker', { ...process.env, DATABASE_URL: url.href, DB_POOL_SIZE: '2' });
+  // Exercise the runtime's credential validation even when the harness-owned
+  // local administrator intentionally has no password. Do not weaken it.
+  const runtime = new URL(process.env.DATABASE_URL);
+  assert.equal(runtime.pathname.slice(1), original);
+  await admin.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON \`${schema}\`.* TO ?@'%'`, [decodeURIComponent(runtime.username)]);
+  runtime.pathname = `/${schema}`;
+  const config = readConfig('worker', { ...process.env, DATABASE_URL: runtime.href, DB_POOL_SIZE: '2' });
   db = new PrismaDatabase(config); other = new PrismaDatabase(config);
   const key = randomBytes(32);
   app = await NestFactory.createApplicationContext(OwnerBootstrapModule.register(DatabaseModule.register({ database: db, externallyOwned: true }),

@@ -18,7 +18,7 @@ export function SoopConnectionSection({ model, onLink }: { model: SettingsSoopMo
     <SettingsSection
       id="soop"
       title="SOOP 연결"
-      description="채팅에 참여하려면 SOOP 계정 확인이 필요합니다. 연결 상태는 서버에서 확인한 결과만 표시합니다."
+      description="SOOP 계정 연결 상태입니다. 채팅 이용 권한은 서버에서 별도로 확인합니다."
       footer={
         !linked && (
           <>

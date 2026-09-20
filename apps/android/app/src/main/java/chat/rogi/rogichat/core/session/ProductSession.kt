@@ -37,7 +37,6 @@ data class SessionSnapshot(
 ) {
     init {
         require(access !in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) || account != null)
-        require(access != ShellAccess.READY || account?.soopConnected == true)
         require(access !in setOf(ShellAccess.SIGNED_OUT, ShellAccess.RESTORING, ShellAccess.RETRYABLE_FAILURE) || account == null)
     }
 }
@@ -75,6 +74,7 @@ class ProductServices(
     val profiles: ProfileRepository? = null,
     val rooms: RoomsRepository? = null,
     val auth: NativeAuthActions? = null,
+    val access: AccountAccessActions? = null,
     val notificationPreferences: NotificationPreferencesRepository? = null,
     val deletion: chat.rogi.rogichat.core.deletion.AccountDeletionActions? = null,
     val conversations: chat.rogi.rogichat.core.conversation.ConversationRepository? = null,
