@@ -1,5 +1,6 @@
 /** Public configuration only. Never infer trust from request headers. */
-export function runtimeConfig(env: Record<string, string | undefined> = process.env) {
+export interface RuntimeConfig { environment: 'qa' | 'production'; apiOrigin: string; defaultRoomId: string | null }
+export function runtimeConfig(env: Record<string, string | undefined> = process.env): RuntimeConfig {
   const environment = env.ROGICHAT_WEB_ENV;
   if (environment !== 'qa' && environment !== 'production') throw new Error('ROGICHAT_WEB_ENV must be qa or production');
   const apiOrigin = environment === 'qa' ? 'https://api.qa.rogi.chat' : 'https://api.rogi.chat';

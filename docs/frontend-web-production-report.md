@@ -17,7 +17,7 @@ This report supersedes the historical FW01 preview description. QA and productio
 
 The application reads committed Nest controllers/services/DTOs and never edits the backend. Session read returns `authenticated`, `soopLinkStatus`, and `csrfToken`; it does not provide a user ID. Self profile provides account identity after a verified SOOP session. Mutations require the server-issued CSRF token and browser Origin. The API keeps host-only HttpOnly cookies; no Next proxy, cookie-domain widening, broker secret or credential is introduced.
 
-`/v1/realtime` is the Engine.IO path, websocket only, default Socket.IO namespace. Explicit private-recipient discovery is a backend prerequisite; visible profiles or message authors are not grants. Backend default-room provisioning and runtime IDs remain private operational configuration, owned by the coordinator/infrastructure workstream.
+`/v1/realtime` is the Engine.IO path, websocket only, default Socket.IO namespace. Explicit private-recipient discovery is defined in backend commit `ac69ca2`; rollout remains a deployment prerequisite, and visible profiles or message authors are not grants. Backend default-room provisioning and runtime IDs remain private operational configuration, owned by the coordinator/infrastructure workstream.
 
 Existing server persistence is the source of truth after reload. Private query caches and drafts are memory-only. This change does not claim durable browser outbox recovery across process termination, full media support, web push subscription, account deletion or moderation completion. Those settings remain truthfully unavailable. Real provider login, real user chat and final deployment require separate operational evidence; isolated tests do not establish those outcomes.
 
@@ -34,3 +34,7 @@ Existing server persistence is the source of truth after reload. Private query c
 Runtime API/default-room configuration changes require the matching deployment configuration; the pipeline owner owns Docker/Next/CI/scripts. No backend schema, host/DNS/Caddy, reference repository, credential, or other-worker source was modified by this worker. Removed session-gate symbols were searched across neighboring worktrees: matches are historical copies of this repository, with no external package consumer found. Public origin names are intentional public configuration; real deployment room identifiers are excluded.
 
 Publishing uses a normal task-branch PR into latest QA, required checks, and reviewed merge. Production promotion to main remains separate. A local source/build result is not a claim of remote deployment.
+
+## Native callback follow-up
+
+The same workstream adds QA-only Apple/Android associations and a fixed private callback fallback, with production identities deliberately empty. See [the native association report](frontend-web-native-association.md) for verified identity provenance, official schema references, no-query-consumption behavior and remaining real-device/deployment gates.
