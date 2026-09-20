@@ -1,6 +1,11 @@
 package chat.rogi.rogichat.core.session
 
 import android.content.Context
+import chat.rogi.rogichat.core.auth.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.time.Instant
 import chat.rogi.rogichat.BuildConfig
 import chat.rogi.rogichat.core.network.ApiClient
@@ -22,6 +27,7 @@ data class SessionSnapshot(
     val notice: String? = null,
     val validationNeedsRetry: Boolean = false,
     val expiresAt: Instant? = null,
+    val storageFailure: Boolean = false,
 ) {
     init {
         require(access !in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) || account != null)
@@ -47,6 +53,7 @@ interface SessionActions {
     suspend fun linkSoop(): Result<Unit>
     suspend fun signOut(): Result<Unit>
     suspend fun closeAccount(): Result<Unit>
+    suspend fun resetLocalSession(): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
     suspend fun restore(): Result<Unit>
     suspend fun revalidate(): Result<Unit> = Result.success(Unit)
     suspend fun expireSession(generation: Long, expiresAt: Instant): Result<Unit> = Result.success(Unit)
@@ -57,7 +64,13 @@ class ProductServices(
     val actions: SessionActions? = null,
     val profiles: ProfileRepository? = null,
     val rooms: RoomsRepository? = null,
+    val auth: NativeAuthActions? = null,
 ) {
+    private val callbackScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+    fun receiveAuthCallback(url: String) {
+        // Application graph owns completion; activity recreation must not cancel a one-shot exchange.
+        auth?.let { actions -> callbackScope.launch { actions.handleCallback(url) } }
+    }
     companion object {
         @Volatile private var installedServices: ProductServices? = null
         // Application-scoped so activity recreation never pairs a retained ViewModel with a new gateway.
@@ -65,6 +78,7 @@ class ProductServices(
             installedServices ?: NativeSessionCoordinator(
                 androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 ApiClient(BuildConfig.API_BASE_URL),
+                auth = SoopAuthSupport(SoopAuthContract(BuildConfig.ENVIRONMENT), androidPendingAuthStore(context.applicationContext, BuildConfig.ENVIRONMENT)),
             ).services().also { installedServices = it }
         }
     }
