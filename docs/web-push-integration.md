@@ -35,7 +35,7 @@ rejected locally, so a bad value fails with a stated reason instead of a generic
 | `api.ts` | The five M11 calls with their exact statuses and response shapes. |
 | `errors.ts` | `PushError` and the status/code classification, including 403 `FORBIDDEN` vs 403 `SOOP_LINK_REQUIRED` and 503 `AUTH_UNAVAILABLE`. |
 | `scope.ts` | Account/session fence: aborts in-flight work and discards late completions. |
-| `binding.ts` | Which server subscription this browser owns: id, generation, the public application server key it was registered with, opaque account/session. No endpoint, no subscription keys. |
+| `binding.ts` | Which server subscription this browser owns: id, generation, a one-way fingerprint of the exact subscription registered, opaque account/session. No endpoint, no subscription keys. |
 | `browser.ts` | `PushBrowser` port and the production adapter over Service Worker, Push API and Notification permission. |
 | `enrollment.ts` | The lifecycle: `refresh`, `enable`, `disable`, and the settings presentation model. |
 | `wake.ts` | Wake payload validation, generation-fenced wake coalescing, the account binding registry and the generic visible notification for the service worker. |
@@ -95,12 +95,12 @@ const enrollment = new PushEnrollment({ api: new PushApi(http), browser: new Web
 - `NotificationSection` renders `enabled === null` as "알림을 제공하지 않습니다". The module
   reports `null` only while the account preference has not been read in this scope.
 - `model().enabled` is true only while every condition a notification depends on holds: the
-  preference the server keeps is on, this browser session owns a live subscription known to use
-  the server's current application server key, the browser still supports Web Push, the
-  permission is still granted and the server still reports the capability. A permission revoked
-  in browser settings, a rotated key, a key that cannot be established at all, a dropped browser
-  subscription, a record left by an earlier session or a server that lost its configuration all
-  report false.
+  preference the server keeps is on, this browser session still holds the exact subscription it
+  registered, the browser still supports Web Push, the permission is still granted and the
+  server still reports the capability. A permission revoked in browser settings, a rotated key,
+  an endpoint the push service replaced, a dropped browser subscription, a record left by an
+  earlier session or one that cannot prove which subscription it belongs to, and a server that
+  lost its configuration all report false.
 - Wire the click to `enrollment.toggle()`, never to `enable()` or `disable()` picked from
   `model().enabled`. When that value is false while the server still keeps a preference or this
   browser still keeps a record, the press means clean up rather than enrol, and choosing from
@@ -185,11 +185,13 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
   A → B → A account sequence never admits work from the first A, and `WakeCoalescer` fences each
   cycle so a late completion from an abandoned one cannot change a running sync.
 - **Truthful eligibility.** A local record proves only that there is state to clear. It counts
-  as an enrollment solely for the session that registered it, with a live browser subscription
-  known to use the server's current application server key. The browser's own
-  `applicationServerKey` decides that when it exposes one; otherwise the key recorded at
-  registration does. With neither, the key is unknown, and an unknown key is not a match:
-  absence of rotation evidence is not evidence that no rotation happened.
+  as an enrollment solely for the session that registered it, and only while the subscription
+  the browser holds now is the one that registration was made for. The record keeps a SHA-256
+  fingerprint over the endpoint, both subscription keys and the application server key
+  together, so an endpoint the push service replaced under the same key, a rotated key and a
+  record with no fingerprint all fail to match; a browser that names its subscription's key
+  must additionally name the server's current one. None of the covered values can be read back
+  out of the fingerprint, so no endpoint or subscription key is ever stored.
 - **Explicit action.** `intent()` and `toggle()` carry what the press does, so a browser that
   reports not enrolled while server state remains cleans up instead of trying to enrol.
 - **Gesture.** The permission prompt is the first thing `enable()` does, before any `await`,
@@ -225,7 +227,7 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 Node 24.21.0, TypeScript 5.9.3 (the repository pin), from `apps/web`:
 
 - `node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts`
-  — 82 tests, 82 pass, 0 fail.
+  — 85 tests, 85 pass, 0 fail.
 - `tsc --noEmit` over `src/features/push/**` with the repository's strict options
   (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`) — clean.
 - ESLint 10.11.0 with the repository's type-aware rule set over the module's 18 files — 0 errors,

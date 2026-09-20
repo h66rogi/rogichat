@@ -1,14 +1,16 @@
-import { isApplicationServerKey, isGeneration, isSubscriptionId } from './contract';
+import { isGeneration, isSubscriptionId, toBase64Url } from './contract';
+import type { PushSubscriptionKeys } from './contract';
 import type { PushScopeIdentity } from './scope';
 
 /**
  * Local record of which server subscription this browser currently owns.
  *
- * Only the subscription id, its CAS generation, the public application server key it was
- * registered with and the opaque account/session identities are kept. The endpoint and the
+ * It keeps the subscription id, its CAS generation, the opaque account/session identities and
+ * a one-way fingerprint of the exact subscription that was registered. The endpoint and the
  * p256dh/auth key material are credential data and are never written to browser storage, logs
- * or test artifacts. Without this record a reload could not unregister its own subscription,
- * so the record belongs to the product, not to diagnostics.
+ * or test artifacts; the fingerprint is a digest they cannot be recovered from. Without this
+ * record a reload could not unregister its own subscription, so it belongs to the product,
+ * not to diagnostics.
  */
 export const PUSH_BINDING_KEY = 'rogichat.push-binding';
 
@@ -23,44 +25,62 @@ export interface StoredBinding {
   session: string;
   id: string;
   generation: string;
-  /** The application server key this browser registered with; null for a record without it. */
-  applicationServerKey: string | null;
+  /**
+   * One-way fingerprint of the endpoint, subscription keys and application server key this
+   * registration was made with. Null for a record written before fingerprints existed, which
+   * therefore proves nothing about the subscription the browser holds now.
+   */
+  fingerprint: string | null;
 }
 
 const SAFE = /^[A-Za-z0-9_-]{1,128}$/;
+const FINGERPRINT = /^[A-Za-z0-9_-]{43}$/;
 
 /**
- * Records the registration, including the application server key it was made with.
+ * Binds one exact subscription to one registration.
  *
- * That key is the server's public VAPID key, not credential material, and it is the only
- * evidence a browser that hides `applicationServerKey` leaves behind. Without it a later read
- * cannot tell a current subscription from one made before a key rotation.
+ * A push service can replace an endpoint without changing the application server key, so the
+ * key alone cannot show that the subscription the browser holds now is the one the server
+ * knows under this id. The digest covers the endpoint, both subscription keys and the
+ * application server key together, so any of them changing produces a different value, while
+ * none of them can be read back out of it.
  */
-export function rememberBinding(storage: BindingStorage, identity: PushScopeIdentity, subscription: { id: string; generation: string; applicationServerKey: string }): void {
+export async function subscriptionFingerprint(endpoint: string, keys: PushSubscriptionKeys, applicationServerKey: string): Promise<string> {
+  const material = `rogichat.push-binding.v1\n${endpoint}\n${keys.p256dh}\n${keys.auth}\n${applicationServerKey}`;
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(material));
+  return toBase64Url(new Uint8Array(digest));
+}
+
+export function isFingerprint(value: unknown): value is string {
+  return typeof value === 'string' && FINGERPRINT.test(value);
+}
+
+export function rememberBinding(storage: BindingStorage, identity: PushScopeIdentity, subscription: { id: string; generation: string; fingerprint: string }): void {
   if (!SAFE.test(identity.account) || !SAFE.test(identity.session) || !isSubscriptionId(subscription.id) || !isGeneration(subscription.generation) ||
-    !isApplicationServerKey(subscription.applicationServerKey)) {
+    !isFingerprint(subscription.fingerprint)) {
     throw new TypeError('Invalid push binding');
   }
-  storage.setItem(PUSH_BINDING_KEY, `v2:${identity.account}:${identity.session}:${subscription.id}:${subscription.generation}:${subscription.applicationServerKey}`);
+  storage.setItem(PUSH_BINDING_KEY, `v3:${identity.account}:${identity.session}:${subscription.id}:${subscription.generation}:${subscription.fingerprint}`);
 }
 
 /**
  * Browser storage is untrusted input: an unreadable or malformed record is simply absent.
  *
- * A `v1` record predates the recorded key. It still identifies state to clear, so it is
- * returned with no key evidence rather than discarded; nothing may treat that absence as
- * agreement with the server's current key.
+ * A record from an earlier format carries no fingerprint. It still identifies state to clear,
+ * so it is returned rather than discarded, and nothing may read that absence as proof that the
+ * subscription the browser holds now is the registered one.
  */
 export function readBinding(storage: BindingStorage): StoredBinding | null {
   const raw = storage.getItem(PUSH_BINDING_KEY);
   if (raw === null) return null;
   const parts = raw.split(':');
-  const [version, account, session, id, generation, applicationServerKey] = parts;
+  const [version, account, session, id, generation, fingerprint] = parts;
   if (account === undefined || session === undefined || id === undefined || generation === undefined) return null;
-  if (!(version === 'v1' && parts.length === 5) && !(version === 'v2' && parts.length === 6)) return null;
+  const legacy = (version === 'v1' && parts.length === 5) || (version === 'v2' && parts.length === 6);
+  if (!legacy && !(version === 'v3' && parts.length === 6)) return null;
   if (!SAFE.test(account) || !SAFE.test(session) || !isSubscriptionId(id) || !isGeneration(generation)) return null;
-  if (version === 'v2' && !isApplicationServerKey(applicationServerKey)) return null;
-  return { account, session, id, generation, applicationServerKey: version === 'v2' && applicationServerKey !== undefined ? applicationServerKey : null };
+  if (version === 'v3' && !isFingerprint(fingerprint)) return null;
+  return { account, session, id, generation, fingerprint: version === 'v3' && fingerprint !== undefined ? fingerprint : null };
 }
 
 /**

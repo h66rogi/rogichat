@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { PushApi } from './api';
-import { PUSH_BINDING_KEY } from './binding';
+import { PUSH_BINDING_KEY, subscriptionFingerprint } from './binding';
 import type { BindingStorage } from './binding';
 import type { BrowserSubscription, PushBrowser, PushPermission, PushSupport } from './browser';
 import { toBase64Url } from './contract';
@@ -34,6 +34,11 @@ const failure = (status: number, code: string): PushHttpResponse => ({ status, j
 const NETWORK = Symbol('network failure');
 
 const subscription = (endpoint: string, applicationServerKey: string | null = KEY): BrowserSubscription => ({ endpoint, keys: KEYS, applicationServerKey });
+
+/** The record this browser would have written after registering `endpoint` under `key`. */
+async function record(endpoint: string, generation = '2', session = 'session-one', key = KEY, account = 'account-one'): Promise<string> {
+  return `v3:${account}:${session}:${ID}:${generation}:${await subscriptionFingerprint(endpoint, KEYS, key)}`;
+}
 
 class TestBrowser implements PushBrowser {
   supportValue: PushSupport = 'supported';
@@ -155,7 +160,7 @@ void test('enabling registers the endpoint before the preference is stored', asy
   assert.deepEqual(context.sent[2]?.body, { endpoint: 'https://push.example/a', keys: KEYS }, 'a new endpoint carries no generation');
   assert.deepEqual(context.sent[3]?.body, { pushEnabled: true, expectedGeneration: '2' });
   assert.equal(context.browser.prompts, 0, 'an already granted permission is not asked again');
-  assert.equal(context.values[PUSH_BINDING_KEY], `v2:account-one:session-one:${ID}:1:${KEY}`, 'the key it registered with is the later evidence');
+  assert.equal(context.values[PUSH_BINDING_KEY], await record('https://push.example/a', '1'), 'the record binds the exact subscription it registered');
   assert.deepEqual(context.enrollment.model(), { support: 'supported', permission: 'granted', enabled: true, toggle: { enabled: true } });
 });
 
@@ -263,7 +268,7 @@ void test('an endpoint the server refuses for this account is replaced by a fres
   assert.equal((posts[0]?.body as { endpoint: string }).endpoint, 'https://push.example/old');
   assert.equal((posts[1]?.body as { endpoint: string }).endpoint, 'https://push.example/new');
   assert.equal(context.browser.unsubscribes, 1, 'the refused endpoint is withdrawn from the push service');
-  assert.equal(context.values[PUSH_BINDING_KEY], `v2:account-one:session-one:${ID}:1:${KEY}`, 'the key it registered with is the later evidence');
+  assert.equal(context.values[PUSH_BINDING_KEY], await record('https://push.example/new', '1'), 'the record binds the endpoint that was accepted');
 });
 
 void test('a push service that re-issues the same endpoint leaves enrollment unavailable', async () => {
@@ -292,7 +297,7 @@ void test('a rotated application server key resubscribes before registering', as
 
 void test('a binding left by another account is released before this account enrolls', async () => {
   const context = harness([available(), preference(false, '1')], {
-    stored: `v2:account-two:session-nine:${OTHER_ID}:4:${KEY}`,
+    stored: `v3:account-two:session-nine:${OTHER_ID}:4:${'A'.repeat(43)}`,
     subscription: subscription('https://push.example/previous'),
   });
   await context.enrollment.refresh();
@@ -303,7 +308,7 @@ void test('a binding left by another account is released before this account enr
 });
 
 void test('a stored binding without a live browser subscription is not reported as enrolled', async () => {
-  const context = harness([available(), preference(true, '5')], { stored: `v2:account-one:session-one:${ID}:2:${KEY}` });
+  const context = harness([available(), preference(true, '5')], { stored: await record('https://push.example/a') });
   await context.enrollment.refresh();
   assert.equal(context.enrollment.getState().subscriptionId, null);
   assert.equal(context.enrollment.model().enabled, false, 'a server preference alone is not a working browser subscription');
@@ -312,7 +317,7 @@ void test('a stored binding without a live browser subscription is not reported 
 
 void test('a binding from an earlier session of this account is not this session enrollment', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v2:account-one:session-zero:${ID}:2:${KEY}`,
+    stored: await record('https://push.example/a', '2', 'session-zero'),
     subscription: subscription('https://push.example/a'),
   });
   await context.enrollment.refresh();
@@ -324,7 +329,7 @@ void test('a binding from an earlier session of this account is not this session
 
 void test('a subscription created with a key the server has rotated away from is not enrolled', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+    stored: await record('https://push.example/a'),
     subscription: subscription('https://push.example/a', ROTATED_KEY),
   });
   await context.enrollment.refresh();
@@ -333,13 +338,13 @@ void test('a subscription created with a key the server has rotated away from is
   assert.deepEqual(context.enrollment.model().toggle, { enabled: true });
 });
 
-void test('a hidden browser key is answered by the key the record kept', async () => {
+void test('a hidden browser key is answered by the subscription the record was written for', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+    stored: await record('https://push.example/a'),
     subscription: subscription('https://push.example/a', null),
   });
   await context.enrollment.refresh();
-  assert.equal(context.enrollment.getState().subscriptionId, ID, 'this session registered it with the key the server still uses');
+  assert.equal(context.enrollment.getState().subscriptionId, ID, 'this session registered this exact subscription under the key the server still uses');
   assert.equal(context.enrollment.model().enabled, true);
 });
 
@@ -355,28 +360,49 @@ void test('a hidden browser key with no recorded key is unknown, so not enrolled
   assert.equal(context.enrollment.intent(), 'disable', 'the press must clean up, not enrol');
 });
 
-void test('a hidden browser key whose recorded key the server rotated away from is not enrolled', async () => {
+void test('a hidden browser key recorded under a key the server rotated away from is not enrolled', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v2:account-one:session-one:${ID}:2:${ROTATED_KEY}`,
+    stored: await record('https://push.example/a', '2', 'session-one', ROTATED_KEY),
     subscription: subscription('https://push.example/a', null),
   });
   await context.enrollment.refresh();
-  assert.equal(context.enrollment.getState().subscriptionId, null, 'the recorded key is not the server current key');
+  assert.equal(context.enrollment.getState().subscriptionId, null, 'the registration was made under a key the server no longer uses');
   assert.equal(context.enrollment.model().enabled, false);
 });
 
-void test('the live browser key outranks the recorded one when they disagree', async () => {
+void test('a browser naming a key the server no longer uses is not enrolled', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+    stored: await record('https://push.example/a'),
     subscription: subscription('https://push.example/a', ROTATED_KEY),
   });
   await context.enrollment.refresh();
   assert.equal(context.enrollment.getState().subscriptionId, null, 'the subscription the browser holds is the ground truth');
 });
 
+void test('a replaced subscription under the same key is not the registered one', async () => {
+  const context = harness([available(), preference(true, '5')], {
+    stored: await record('https://push.example/registered'),
+    subscription: subscription('https://push.example/replaced'),
+  });
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.getState().subscriptionId, null, 'the push service replaced the endpoint the server knows');
+  assert.equal(context.enrollment.model().enabled, false);
+  assert.ok(context.enrollment.getState().ownsBinding);
+  assert.equal(context.enrollment.intent(), 'disable', 'the server still holds the old registration to clear');
+});
+
+void test('a hidden-key browser whose subscription was replaced is not enrolled either', async () => {
+  const context = harness([available(), preference(true, '5')], {
+    stored: await record('https://push.example/registered'),
+    subscription: subscription('https://push.example/replaced', null),
+  });
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.getState().subscriptionId, null, 'a hidden key cannot make a different endpoint the registered one');
+});
+
 void test('a permission withdrawn after enrollment reports off and still allows turning it off', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+    stored: await record('https://push.example/a'),
     subscription: subscription('https://push.example/a'),
     permission: 'denied',
   });
@@ -390,7 +416,7 @@ void test('a permission withdrawn after enrollment reports off and still allows 
 
 void test('a server that lost its Web Push capability is not reported as enrolled', async () => {
   const context = harness([unavailable(), preference(true, '5')], {
-    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+    stored: await record('https://push.example/a'),
     subscription: subscription('https://push.example/a'),
   });
   await context.enrollment.refresh();
@@ -401,7 +427,7 @@ void test('a server that lost its Web Push capability is not reported as enrolle
 void test('a session rebinding on the same account sends the current generation', async () => {
   const context = await primed(
     [available(), preference(false, '3'), registered(ID, '5'), preference(true, '4')],
-    { stored: `v2:account-one:session-zero:${ID}:4:${KEY}` },
+    { stored: await record('https://push.example/a', '4', 'session-zero') },
   );
   await context.enrollment.enable();
   assert.deepEqual(context.sent[2]?.body, { endpoint: 'https://push.example/a', keys: KEYS, generation: '4' });
@@ -410,7 +436,7 @@ void test('a session rebinding on the same account sends the current generation'
 void test('disabling stops the preference, withdraws the subscription and unsubscribes', async () => {
   const context = harness(
     [available(), preference(true, '6'), preference(false, '7'), { status: 204, json: null }],
-    { stored: `v2:account-one:session-one:${ID}:2:${KEY}`, subscription: subscription('https://push.example/a') },
+    { stored: await record('https://push.example/a'), subscription: subscription('https://push.example/a') },
   );
   await context.enrollment.refresh();
   assert.equal(context.enrollment.model().enabled, true);
@@ -427,7 +453,7 @@ void test('disabling stops the preference, withdraws the subscription and unsubs
 void test('a subscription owned by another session is not removed by this one', async () => {
   const context = harness(
     [preference(true, '6'), preference(false, '7')],
-    { stored: `v2:account-one:session-zero:${ID}:2:${KEY}`, subscription: subscription('https://push.example/a') },
+    { stored: await record('https://push.example/a', '2', 'session-zero'), subscription: subscription('https://push.example/a') },
   );
   await context.enrollment.disable();
   assert.deepEqual(context.routes(), ['GET /v1/me/notification-preferences', 'PUT /v1/me/notification-preferences'], 'only the owning session may withdraw it');
@@ -439,7 +465,7 @@ void test('a subscription owned by another session is not removed by this one', 
 void test('a server record that already moved on is reported, not presented as a clean removal', async () => {
   const context = harness(
     [preference(true, '6'), preference(false, '7'), failure(409, 'CONFLICT')],
-    { stored: `v2:account-one:session-one:${ID}:2:${KEY}`, subscription: subscription('https://push.example/a') },
+    { stored: await record('https://push.example/a'), subscription: subscription('https://push.example/a') },
   );
   await context.enrollment.disable();
   assert.match(context.enrollment.getState().notice, /이미 변경되어/);
@@ -457,7 +483,7 @@ void test('a second action is refused while one is running', async () => {
 
 void test('refresh reports real state without prompting or writing', async () => {
   const context = harness([available(), preference(true, '4')], {
-    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+    stored: await record('https://push.example/a'),
     subscription: subscription('https://push.example/a'),
   });
   await context.enrollment.refresh();
@@ -471,7 +497,7 @@ void test('the toggle action is explicit, so a cleanup press never tries to enro
   const context = harness(
     [available(), preference(true, '6'), preference(false, '7'), { status: 204, json: null }],
     {
-      stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+      stored: await record('https://push.example/a'),
       subscription: subscription('https://push.example/a'),
       permission: 'denied',
     },

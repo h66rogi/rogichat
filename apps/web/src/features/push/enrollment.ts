@@ -1,5 +1,5 @@
 import type { PushApi } from './api';
-import { forgetBinding, readAccountBinding, readBinding, rememberBinding } from './binding';
+import { forgetBinding, readAccountBinding, readBinding, rememberBinding, subscriptionFingerprint } from './binding';
 import type { BindingStorage, StoredBinding } from './binding';
 import type { BrowserSubscription, PushBrowser, PushPermission, PushSupport } from './browser';
 import type { PushCapabilitiesAvailable, PushSubscriptionIdentity } from './contract';
@@ -11,8 +11,8 @@ import type { PushScope } from './scope';
  *
  * The state is what the browser and the server actually reported. There is no optimistic
  * "on": the toggle reads enabled only while the account preference is on and this browser
- * session holds a live subscription for the server's current application server key, with the
- * permission still granted and the capability still available. Every failure keeps the real
+ * session still holds the exact subscription it registered, with the permission still granted
+ * and the capability still available. Every failure keeps the real
  * state and carries a reason, and turning notifications off stays possible whenever there is
  * state left to clear.
  *
@@ -32,9 +32,10 @@ export interface PushEnrollmentState {
   preferenceGeneration: string | null;
   /**
    * The subscription this browser session is actually enrolled with: registered by this very
-   * session, still live in the browser, and created with the server's current application
-   * server key. A record from another session, a missing browser subscription or a key that
-   * has rotated is not an enrollment and leaves this null.
+   * session, and matching the exact subscription that registration was made for, endpoint,
+   * subscription keys and application server key together. A record from another session, a
+   * missing or replaced browser subscription, a rotated key or a record that cannot prove
+   * which subscription it belongs to is not an enrollment and leaves this null.
    */
   subscriptionId: string | null;
   /** A local record exists for this account, so there is stored state left to clear. */
@@ -274,7 +275,7 @@ export class PushEnrollment {
     if (current === null) current = await this.scope.run(() => this.browser.subscribe(capabilities.applicationServerKey));
 
     try {
-      return this.remember(await this.registerEndpoint(current, owned), capabilities.applicationServerKey);
+      return this.remember(await this.registerEndpoint(current, owned), current, capabilities.applicationServerKey);
     } catch (error) {
       if (!(error instanceof PushError) || !['not-found', 'conflict'].includes(error.kind)) throw error;
       // The endpoint belongs to another account or to a binding whose generation we do not
@@ -287,7 +288,7 @@ export class PushEnrollment {
         this.set({ subscriptionId: null, ownsBinding: false, notice: '브라우저가 이전과 같은 알림 주소를 다시 발급해 지금은 알림을 켤 수 없습니다. 브라우저의 사이트 알림 권한을 해제한 뒤 다시 시도해 주세요.' });
         return null;
       }
-      return this.remember(await this.registerEndpoint(fresh, null), capabilities.applicationServerKey);
+      return this.remember(await this.registerEndpoint(fresh, null), fresh, capabilities.applicationServerKey);
     }
   }
 
@@ -309,9 +310,10 @@ export class PushEnrollment {
     }
   }
 
-  /** Records the registration together with the key it was made with, as later key evidence. */
-  private remember(identity: PushSubscriptionIdentity, applicationServerKey: string): PushSubscriptionIdentity {
-    rememberBinding(this.storage, this.scope.identity, { ...identity, applicationServerKey });
+  /** Records the registration bound to the exact subscription it was made for. */
+  private async remember(identity: PushSubscriptionIdentity, subscription: BrowserSubscription, applicationServerKey: string): Promise<PushSubscriptionIdentity> {
+    const fingerprint = await this.scope.run(() => subscriptionFingerprint(subscription.endpoint, subscription.keys, applicationServerKey));
+    rememberBinding(this.storage, this.scope.identity, { ...identity, fingerprint });
     return identity;
   }
 
@@ -372,22 +374,26 @@ export class PushEnrollment {
       return;
     }
     const current = await this.scope.run(() => this.browser.current());
-    this.set({ subscriptionId: current !== null && this.usesCurrentKey(current, owned) ? owned.id : null });
+    this.set({ subscriptionId: current !== null && await this.isRegisteredSubscription(current, owned) ? owned.id : null });
   }
 
   /**
-   * Whether this subscription is known to use the server's current application server key.
+   * Whether the subscription the browser holds now is the one this record was written for.
    *
-   * The browser's own `applicationServerKey` is the ground truth when it exposes one. When it
-   * hides it, the key recorded at registration is the remaining evidence. With neither, the
-   * key is simply unknown, and an unknown key is not a match: absence of rotation evidence is
-   * not evidence that no rotation happened, and claiming enrollment on it would present a
-   * subscription that may no longer receive anything as working.
+   * The fingerprint covers the endpoint, the subscription keys and the application server key
+   * together, so a replaced endpoint under the same key, a rotated key and a subscription made
+   * before either all fail to match. A record without a fingerprint proves nothing about the
+   * current subscription, so it is not a match either: the server binding may belong to an
+   * endpoint this browser no longer has, and presenting that as enrolled would claim a
+   * delivery path that does not exist.
    */
-  private usesCurrentKey(subscription: BrowserSubscription, owned: StoredBinding): boolean {
+  private async isRegisteredSubscription(subscription: BrowserSubscription, owned: StoredBinding): Promise<boolean> {
     const live = this.state.applicationServerKey;
-    const observed = subscription.applicationServerKey ?? owned.applicationServerKey;
-    return live !== null && observed !== null && observed === live;
+    if (live === null || owned.fingerprint === null) return false;
+    // A browser that names its subscription's key must name the server's current one.
+    if (subscription.applicationServerKey !== null && subscription.applicationServerKey !== live) return false;
+    const fingerprint = await this.scope.run(() => subscriptionFingerprint(subscription.endpoint, subscription.keys, live));
+    return fingerprint === owned.fingerprint;
   }
 
   private async handlePreferenceFailure(error: unknown): Promise<void> {
