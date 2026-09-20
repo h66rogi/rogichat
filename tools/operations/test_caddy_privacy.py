@@ -16,10 +16,13 @@ CADDY = os.environ.get('CADDY_BINARY', str(ROOT / '.tools/caddy'))
 
 class CaddyPrivacyTests(unittest.TestCase):
     def test_callback_query_and_headers_absent_from_upstream_error_log(self):
-        for name in ('Caddyfile.app', 'Caddyfile.bootstrap'):
-            with self.subTest(template=name), tempfile.TemporaryDirectory() as directory:
+        templates = [f'{folder}/{name}'
+                     for folder in ('infrastructure/runtime', 'infrastructure/environments/prod/runtime')
+                     for name in ('Caddyfile.app', 'Caddyfile.bootstrap')]
+        for template in templates:
+            with self.subTest(template=template), tempfile.TemporaryDirectory() as directory:
                 adapted = json.loads(subprocess.check_output([
-                    CADDY, 'adapt', '--config', str(ROOT / 'infrastructure/runtime' / name),
+                    CADDY, 'adapt', '--config', str(ROOT / template),
                     '--adapter', 'caddyfile'], stderr=subprocess.DEVNULL))
                 # Keep a bound, non-listening socket so no other service can take
                 # the upstream port; the test reliably exercises a proxy failure.
