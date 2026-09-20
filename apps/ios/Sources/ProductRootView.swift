@@ -4,17 +4,43 @@ struct ProductRootView: View {
     @State private var session: AppSession
     @State private var navigation = ShellNavigation()
     private let rooms: any RoomsServing
-    private let environment = AppEnvironment()
+    @Environment(\.scenePhase) private var scenePhase
 
-    init(service: any SessionServing = UnavailableNativeSession(), rooms: any RoomsServing = UnavailableRoomsService()) {
-        _session = State(initialValue: AppSession(service: service))
+    init(service: (any SessionServing)? = nil, rooms: any RoomsServing = UnavailableRoomsService()) {
+        let environment = NativeEnvironment(rawValue: AppEnvironment().name.rawValue)!
+        let native = service ?? NativeSessionService(environment: environment, api: NativeAPIClient(environment: environment),
+                                                     store: NativeCredentialStore(environment: environment))
+        _session = State(initialValue: AppSession(service: native))
         self.rooms = rooms
     }
     var body: some View {
         AppShell(navigation: navigation, onTab: { navigation.selectTab($0) }, onPop: { navigation.pop(to: $0, in: $1) }) { page in
             destination(page)
         }
+        .safeAreaInset(edge: .top) {
+            if session.account != nil, let error = session.errorMessage {
+                HStack(spacing: 12) {
+                    Text(error).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
+                    Button { Task { await session.revalidate() } } label: {
+                        if session.revalidating { ProgressView().accessibilityLabel("계정을 확인하는 중") }
+                        else { Text("다시 시도").font(.footnote.bold()) }
+                    }.disabled(session.revalidating)
+                }
+                .padding().background(.regularMaterial)
+            }
+        }
         .task { await session.restore() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await session.revalidate() } }
+        }
+        .task(id: session.expiresAt) {
+            guard let expiry = session.expiresAt else { return }
+            do {
+                try await Task.sleep(for: .seconds(max(0, expiry.timeIntervalSinceNow)))
+                guard !Task.isCancelled else { return }
+                await session.restore()
+            } catch { /* View cancellation does not change credentials. */ }
+        }
         .onChange(of: session.generation) { _, _ in navigation.setAccess(session.access) }
         .onChange(of: session.access, initial: true) { _, access in navigation.setAccess(access) }
     }
@@ -30,8 +56,9 @@ struct ProductRootView: View {
         case .notifications: NotificationSettingsScreen()
         case .about: AboutScreen()
         case .profile:
-            if let account = session.account, session.access == .ready, session.capabilities.canEditProfile {
-                ProfileScreen(profile: account) { try await session.saveProfile($0) }.id(session.generation)
+            if session.account != nil, session.capabilities.canEditProfile {
+                ProfileLoader(onLoad: { try await session.loadProfile() }, onSave: { try await session.saveProfile($0) })
+                    .id(session.generation)
             }
         case .account:
             if let account = session.account {

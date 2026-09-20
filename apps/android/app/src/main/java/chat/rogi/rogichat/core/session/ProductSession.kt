@@ -1,20 +1,27 @@
 package chat.rogi.rogichat.core.session
 
+import android.content.Context
+import java.time.Instant
+import chat.rogi.rogichat.BuildConfig
+import chat.rogi.rogichat.core.network.ApiClient
+
 import chat.rogi.rogichat.core.navigation.ShellAccess
 import chat.rogi.rogichat.feature.settings.ProfileRepository
 import chat.rogi.rogichat.feature.settings.ProfileEditor
 import chat.rogi.rogichat.feature.rooms.RoomsRepository
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 
-data class AccountSummary(val id: String, val nickname: String, val signInMethod: String, val soopConnected: Boolean) {
+data class AccountSummary(val id: String, val nickname: String, val signInMethod: String?, val soopConnected: Boolean,
+                          val avatarAssetId: String? = null) {
     init { require(id.isNotBlank()); require(ProfileEditor(nickname).error == null) }
 }
 data class SessionSnapshot(
     val access: ShellAccess = ShellAccess.SIGNED_OUT,
     val account: AccountSummary? = null,
     val generation: Long = 0,
+    val notice: String? = null,
+    val validationNeedsRetry: Boolean = false,
+    val expiresAt: Instant? = null,
 ) {
     init {
         require(access !in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) || account != null)
@@ -41,6 +48,8 @@ interface SessionActions {
     suspend fun signOut(): Result<Unit>
     suspend fun closeAccount(): Result<Unit>
     suspend fun restore(): Result<Unit>
+    suspend fun revalidate(): Result<Unit> = Result.success(Unit)
+    suspend fun expireSession(generation: Long, expiresAt: Instant): Result<Unit> = Result.success(Unit)
 }
 
 class ProductServices(
@@ -50,7 +59,13 @@ class ProductServices(
     val rooms: RoomsRepository? = null,
 ) {
     companion object {
-        // There is no native credential issuer/storage yet (C01/C02). No account is invented.
-        fun installed() = ProductServices(MutableStateFlow(SessionSnapshot()).asStateFlow())
+        @Volatile private var installedServices: ProductServices? = null
+        // Application-scoped so activity recreation never pairs a retained ViewModel with a new gateway.
+        fun installed(context: Context): ProductServices = installedServices ?: synchronized(this) {
+            installedServices ?: NativeSessionCoordinator(
+                androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT),
+                ApiClient(BuildConfig.API_BASE_URL),
+            ).services().also { installedServices = it }
+        }
     }
 }

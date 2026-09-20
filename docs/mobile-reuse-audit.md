@@ -188,6 +188,7 @@ iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b`로 고정한다. 원본은 읽기
 
 ### 검증과 미완료 경계
 
+아래 문단은 제품 구성 교체 단계(빌드 8)의 경계다. 이후 native adapter 반영은 다음 기록을 따른다.
 소스·빌드 산출물 fixture 제외, OS별 빌드/상태 시험과 독립 리뷰 결과는
 [제품 구성 교체 기록](mobile-product-progress.md)에 모은다. Android 실제 NavHost와 iOS
 native tab 구성은 컴파일되지만 실기기 화면/스크린리더 결과를 대신하지 않는다.
@@ -198,3 +199,28 @@ iOS `Resources/PrivacyInfo.xcprivacy`는 원본에 대응 파일이 없어 **신
 메타데이터다. 실제 `@AppStorage`의 앱 전용 화면 모드 설정에 해당하는 UserDefaults
 `CA92.1`만 선언했다. 필요하지 않은 원본 SDK/추적 선언은 가져오지 않는다.
 선언 파일·정확한 앱 식별·서명 승격 경계는 [배포 준비 점검](mobile-release-readiness.md)을 따른다.
+
+## 실제 추출 기록 — 네이티브 세션·프로필 연결
+
+2026-09-20. 원본 고정 SHA와 읽기 전용 원칙은 R09–R22와 같다. 서버 계약은
+`ac69ca2`의 native transport와 현재 프로필 DTO를 사용한다. 제공자 인증·채팅 UX는
+이 단계의 재사용 범위가 아니다.
+
+| ID | source 파일·심볼 | 대상 | 방식·보존한 동작과 변경 이유 | 직접 의존 / 검증·잔여 |
+|---|---|---|---|---|
+| R23 | iOS `Meloming/Core/Network/APIClient.swift`의 actor-owned URLSession·request/response 경계 | `Sources/Core/Network/NativeAPIClient.swift` | **수정 재사용**: actor 소유, 30/60초 timeout, cache 제외, 비동기 요청과 HTTP/Decodable 경계. refresh/replay·singleton·환경 관리자·로깅·404→nil 해석은 제외. native 고정 origin/route/status·리다이렉트 거부·client binding·중첩 오류 코드는 보강 | Foundation/URLSession, 외부 SDK 없음. 1 MiB 응답 읽기 제한·취소·DTO 시험. 실제 발급 credential 왕복은 미검증 |
+| R24 | iOS `Meloming/Core/Auth/KeychainService.swift`의 read/write/clear 책임 대조 | `Sources/Core/Session/NativeCredentialStore.swift` | **신규**: 원본 third-party wrapper·오류 무시·분리된 access/refresh 슬롯은 미이식. Security.framework의 환경별 ThisDeviceOnly 단일 레코드, 동기 잠금과 compare-and-replace, 백업 제외 설치/삭제 intent를 구현. 실패한 삭제는 재실행에서 먼저 마침 | Security/Foundation. 실제 파일 fsync·재설치·오류 시험은 주입한 raw Keychain driver로 수행. 서명된 iOS 실기기 Keychain 검증 남음 |
+| R25 | R18·R21의 ProfileSettingsView·LoadableView | `Features/Settings/{ProfileScreen,ProfileDraft}.swift`, `Core/Session/AppSession.swift` | **기존 추출 구현 재사용**: 편집 전 전체 프로필 조회, 비동기 저장/오류/취소/미저장 draft 흐름 유지. session summary에 없는 생일·provider를 만들지 않음. foreground 동기화가 같은 계정의 탭·draft·저장을 폐기하지 않도록 분리 | SwiftUI, 주입 service. 늦은 세션 응답 대 프로필 저장·scope 변경·만료 경쟁 시험 |
+| R26 | 양 OS 원본의 auth DTO/refresh 계약 대조 | 양 OS native session/profile DTO·coordinator/service | **신규**: 로기챗 opaque credential·서버 generation·고정 만료와 원본 계약이 다름. local epoch/서버 generation 분리, current-token 401 clear, 403 연결 제한, 오류/재시도, 로컬 종료와 원격 폐기 확인을 구분 | 합성 credential·서버 대역은 tests만. 제공자 발급·탈퇴·채팅 capability 미활성 |
+| R27 | Android `core/network/src/main/java/com/meloming/android/core/network/api/ApiClient.kt`의 client·get·patch·postWithoutResponse·handleResponse·ApiException | `core/network/ApiClient.kt` | **수정 재사용**: 실제 Ktor/OkHttp 요청과 HTTP verb wrapper·오류 경계. 원본 Auth plugin/refresh·절대 URL override·로깅·이메일/비밀번호 오류 가정 제거. 고정 origin/route·native header·engine까지 redirect/replay 차단·응답 한도·중첩 error.code 보강 | Ktor 3.6.0, serialization 1.11.0, strict lock. 취소·상태 코드·정확한 요청·한도 시험 |
+| R28 | Android `core/network/src/main/java/com/meloming/android/core/network/auth/TokenStorage.kt`의 protected get/save/clear 책임 대조 | `core/session/{CredentialStore,AndroidCredentialStore}.kt` | **신규**: deprecated EncryptedSharedPreferences/MasterKey와 원본 access/refresh/MFA/FCM 슬롯·비동기 apply는 미이식. AndroidKeyStore AES-GCM, 환경 AAD·고정 만료, noBackup AtomicFile·지속 삭제 marker 적용 | Android 플랫폼 crypto/storage. JVM 암호 envelope·실패 복구 시험과 별도 계측 테스트. 테스트 키/파일은 독립 namespace로 제한 |
+
+Android 신규 runtime의 OkHttp·Okio·Kotlinx IO·serialization·Ktor·SLF4J 고지와 정확한 tag
+출처를 `assets/licenses/network.txt` 및 실제 앱 고지 목록에 포함했다. 안정 버전 artifact와
+strict lock을 사용하며 pre-release는 선택하지 않았다. 플랫폼 저장소로 바꾼 근거는
+[AndroidX Security Crypto deprecation](https://developer.android.com/jetpack/androidx/releases/security),
+Ktor 버전 근거는 [Ktor 3.6.0](https://ktor.io/docs/whats-new-360.html)이다.
+
+앱 기능 목적의 User ID/Other Data Types 개인정보 선언은 프로필 데이터 흐름에 맞춘
+로기챗 **신규 메타데이터**다. 원본 SDK·서비스 주소·운영 ID·서명 자료는 이식하지 않았다.
+세부 검증과 남은 경계는 [native 연결 기록](mobile-native-transport-progress.md)을 따른다.

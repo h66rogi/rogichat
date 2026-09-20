@@ -35,6 +35,10 @@ actor ControlledSession: SessionServing {
     func configure(_ snapshot: SessionSnapshot, fail: Bool = false) { self.snapshot = snapshot; failRestore = fail }
     func signIn(_ method: SignInMethod) async throws -> SessionSnapshot { snapshot }
     func linkSOOP() async throws -> SessionSnapshot { snapshot }
+    func loadProfile() async throws -> AccountProfile {
+        guard let account = snapshot.account else { throw ProductError.unauthenticated }
+        return AccountProfile(id: account.id, displayName: account.displayName)
+    }
     func updateProfile(_ update: ProfileUpdate) async throws -> AccountProfile {
         try await withCheckedThrowingContinuation { continuation in
             pendingSave = continuation
@@ -54,19 +58,32 @@ actor ControlledSession: SessionServing {
 struct ProductStateChecks {
     @MainActor static func main() async throws {
         try checkProfilePatch()
-        let profile = AccountProfile(id: "account-a", displayName: "Initial", signInMethod: "Apple", soopConnected: true)
-        let service = ControlledSession(SessionSnapshot(access: .ready, account: profile))
+        let profile = AccountProfile(id: "account-a", displayName: "Initial")
+        let summary = AccountSummary(id: "account-a", displayName: "Initial", signInMethod: "Apple", soopConnected: true)
+        let service = ControlledSession(SessionSnapshot(access: .ready, account: summary))
         let session = AppSession(service: service)
         await session.restore()
         precondition(session.access == .ready && session.account?.id == "account-a" && !session.busy)
 
+        var foregroundNavigation = ShellNavigation()
+        foregroundNavigation.setAccess(session.access)
+        foregroundNavigation.selectTab(.settings)
+        foregroundNavigation.open(.profile)
+        let foregroundEpoch = session.generation
+        await session.revalidate()
+        if foregroundEpoch != session.generation { foregroundNavigation.setAccess(session.access) }
+        precondition(session.generation == foregroundEpoch && foregroundNavigation.page == .profile && foregroundNavigation.tab == .settings)
+
         let firstSave = Task { try await session.saveProfile(ProfileUpdate(nickname: "First")) }
         await service.waitForSave()
+        await session.revalidate()
+        precondition(session.generation == foregroundEpoch)
         do {
             try await session.saveProfile(ProfileUpdate(nickname: "Second"))
             preconditionFailure("concurrent writes must not pass")
         } catch ProductError.unavailable {}
-        let forged = AccountProfile(id: "account-a", displayName: "Saved", signInMethod: "FORGED", soopConnected: false)
+        let forged = AccountProfile(id: "account-a", displayName: "Saved")
+        let restricted = AccountSummary(id: "account-a", displayName: "Saved", signInMethod: nil, soopConnected: false)
         await service.finishSave(forged)
         try await firstSave.value
         precondition(session.account?.displayName == "Saved")
@@ -92,16 +109,16 @@ struct ProductStateChecks {
         let beforeInvalid = session.generation
         await session.restore()
         precondition(session.account == nil && session.access == .retryableFailure && session.generation > beforeInvalid && !session.busy)
-        await service.configure(SessionSnapshot(access: .ready, account: forged))
+        await service.configure(SessionSnapshot(access: .ready, account: restricted))
         await session.restore()
         precondition(session.access == .retryableFailure && session.account == nil)
 
-        await service.configure(SessionSnapshot(access: .linkRequired, account: forged))
+        await service.configure(SessionSnapshot(access: .linkRequired, account: restricted))
         await session.restore()
         precondition(session.access == .linkRequired && session.account?.id == "account-a")
-        do { try await session.saveProfile(ProfileUpdate(nickname: "Denied")); preconditionFailure("unlinked profile editing must be gated") }
-        catch ProductError.unavailable {}
-        await service.configure(SessionSnapshot(access: .ready, account: profile))
+        let unlinkedProfile = try await session.loadProfile()
+        precondition(unlinkedProfile.id == "account-a")
+        await service.configure(SessionSnapshot(access: .ready, account: summary))
         await session.linkSOOP()
         precondition(session.access == .ready)
         try await session.deleteAccount()
@@ -140,16 +157,11 @@ struct ProductStateChecks {
             await service.waitForSave()
             await service.finishSave(malformed)
             do { try await badSave.value; preconditionFailure("malformed birthday must not enter current profile") }
-            catch ProductError.connection {}
-            precondition(session.account?.birthday == nil && session.account?.displayName == profile.displayName)
-            await service.configure(SessionSnapshot(access: .ready, account: malformed))
-            await session.restore()
-            precondition(session.account == nil && session.access == .retryableFailure)
-            await service.configure(SessionSnapshot(access: .ready, account: profile))
-            await session.restore()
+            catch ProductError.invalidResponse {}
+            precondition(session.account?.displayName == profile.displayName)
         }
-        let emptyID = AccountProfile(id: "", displayName: "Name", signInMethod: "Apple", soopConnected: true)
-        let invalidName = AccountProfile(id: "x", displayName: "invalid\u{200d}", signInMethod: "Apple", soopConnected: true)
+        let emptyID = AccountSummary(id: "", displayName: "Name", signInMethod: "Apple", soopConnected: true)
+        let invalidName = AccountSummary(id: "x", displayName: "invalid\u{200d}", signInMethod: "Apple", soopConnected: true)
         for malformed in [emptyID, invalidName] {
             await service.configure(SessionSnapshot(access: .ready, account: malformed))
             await session.restore()
@@ -175,7 +187,7 @@ struct ProductStateChecks {
         precondition(assigned["birthdayVisibleToStreamers"] as? Bool == false)
         precondition(Birthday(month: 2, day: 29).isValid && !Birthday(month: 2, day: 30).isValid)
         precondition(!Birthday(month: 0, day: 1).isValid && !Birthday(month: 13, day: 1).isValid)
-        var draft = ProfileDraft(profile: AccountProfile(id: "profile", displayName: "가", signInMethod: "Apple", soopConnected: true))
+        var draft = ProfileDraft(profile: AccountProfile(id: "profile", displayName: "가"))
         draft.name.edit(" \u{1100}\u{1161} ")
         precondition(draft.changed && !draft.canSave && draft.update.isEmpty)
         draft.birthday = Birthday(month: 1, day: 31)

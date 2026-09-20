@@ -19,7 +19,7 @@ fun AccountScreen(account: AccountSummary, busy: Boolean, onSignOut: (() -> Unit
                   onCloseAccount: (() -> Unit)?, onLink: (() -> Unit)?) {
     var confirmation by remember { mutableStateOf<AccountAction?>(null) }
     SettingsSection("계정 연결") {
-        SettingsRow("로그인 방식", account.signInMethod)
+        account.signInMethod?.let { SettingsRow("로그인 방식", it) }
         SettingsRow("SOOP 계정", if (account.soopConnected) "연결됨" else "연결 필요", onClick = onLink)
     }
     if (onSignOut != null || onCloseAccount != null) SettingsSection("계정 관리") {

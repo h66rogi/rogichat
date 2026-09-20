@@ -24,6 +24,7 @@ android {
         targetSdk = 37
         versionCode = releaseBuildNumber
         versionName = releaseVersion
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     if (qaSigning.all { it != null }) {
         signingConfigs.create("qaRelease") {
@@ -95,5 +96,13 @@ dependencies {
     implementation(libs.lifecycle.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.phosphor)
+    implementation(libs.ktor.core)
+    implementation(libs.ktor.okhttp)
+    implementation(libs.serialization.json)
     testImplementation(libs.junit)
+    testImplementation(libs.ktor.mock)
+    testImplementation(libs.coroutines.test)
+    androidTestImplementation(libs.android.test.runner)
+    androidTestImplementation(libs.android.test.core)
+    androidTestImplementation(libs.android.test.junit)
 }

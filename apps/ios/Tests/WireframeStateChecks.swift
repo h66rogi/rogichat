@@ -40,7 +40,8 @@ struct WireframeStateChecks {
         fan.editDraft(String(repeating: "a", count: 3000)); precondition(fan.draft.count == 2000)
         fan.switchAccess(.linkRequired)
         precondition(fan.page == .link && fan.roomID == nil && fan.draft.isEmpty && !fan.linkPreviewPassed)
-        fan.selectTab(.settings); fan.open(.profile); precondition(fan.page == .settings)
+        fan.selectTab(.settings); fan.open(.profile); precondition(fan.page == .profile)
+        fan.pop(to: [], in: .settings)
         fan.open(.account); precondition(fan.page == .account)
         fan.switchRole(.streamer); precondition(fan.page == .welcome)
 
