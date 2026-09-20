@@ -28,6 +28,53 @@ function backend(override?: ChatRequest): ChatRequest {
     throw new Error('Unexpected request');
   };
 }
+for (const recovery of ['send', 'retry', 'reconcile'] as const) void test(`committed ${recovery} starts a fresh schema-2 read after an older in-flight sync settles`, async () => {
+  let release!: (value: unknown) => void;
+  let reached!: () => void;
+  const reading = new Promise<void>(resolve => { reached = resolve; });
+  let eventReads = 0; let posts = 0; let lookups = 0; let committed = false;
+  const saved: ServerMessage = { ...source('00000000-0000-4000-8000-000000000008'), author: { kind: 'member', actorId: room.actorId, nickname: '테스트 팬', avatar: null }, content: { type: 'TEXT', text: submission.body } };
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (path.endsWith('/messages')) {
+      posts++;
+      if (recovery !== 'send') throw new TypeError('ACK lost');
+      committed = true;
+      const body = options?.body as { clientMessageId: string; membershipScope: string };
+      assert.equal(body.membershipScope, scopes.membershipScope);
+      return { clientMessageId: body.clientMessageId, messageId: saved.id, status: 'committed', version: '1' };
+    }
+    if (path.includes('/message-commands/')) {
+      lookups++; committed = true;
+      return { clientMessageId: path.split('/').at(-1), messageId: saved.id, status: 'committed', version: '1' };
+    }
+    if (path.includes('/events?')) {
+      if (++eventReads === 1) { reached(); return new Promise(resolve => { release = resolve; }); }
+      assert.equal(committed, true);
+      return { ...sync, events: [{ type: 'message.upsert', message: saved }], nextCursor: 'after-send', hasMore: false };
+    }
+    return undefined;
+  }));
+  await controller.refresh();
+  let retryCommandId: string | undefined;
+  if (recovery !== 'send') {
+    const unknown = await controller.send(submission);
+    assert.equal(unknown.accepted, false); assert.ok(unknown.retryCommandId);
+    retryCommandId = unknown.retryCommandId;
+  }
+  const oldRead = controller.refresh(); await reading;
+  const action = recovery === 'reconcile' ? controller.reconcile(retryCommandId!) : controller.send({ ...submission, ...(retryCommandId ? { retryCommandId } : {}) });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(committed, false); // The schema-2 authority fence waits for the old read.
+  assert.equal(controller.getSnapshot().items.some(item => item.id === saved.id), false);
+  release({ ...sync, events: [], nextCursor: 'before-send', hasMore: false });
+  await oldRead;
+  const result = await action; if (result) assert.equal(result.accepted, true);
+  // No timer, socket hint or manual refresh may be needed to see the saved send.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(eventReads, 2); assert.equal(posts, 1); assert.equal(lookups, recovery === 'send' ? 0 : 1);
+  assert.equal(controller.getSnapshot().items.some(item => item.id === saved.id), true);
+  controller.dispose();
+});
 void test('actual DTO mapping does not guess private recipient, quote author, avatar or read status', () => {
   const dto = message({ ...source(), quote: { id: '00000000-0000-4000-8000-000000000005', content: { type: 'TEXT', text: '인용' } } });
   const item = projectMessages([dto], '00000000-0000-4000-8000-000000000002', [])[0]!;

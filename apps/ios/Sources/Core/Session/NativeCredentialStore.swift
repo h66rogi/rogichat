@@ -57,11 +57,19 @@ private struct KeychainCredentialBytes: CredentialBytesStoring {
 // Adapted KeychainService's access-token read/write/clear boundary. The original
 // refresh/FCM keys and swallowed errors do not satisfy this native contract.
 // Synchronous operations under one lock make compare-and-replace nonreentrant.
-final class NativeCredentialStore: NativeCredentialStoring, @unchecked Sendable {
+final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
     private struct Marker: Codable {
         var schema = 1
         var installation = UUID()
         var logoutPending: Bool
+        var cancelledAuth: UUID? = nil
+    }
+    private struct Envelope: Codable {
+        var schema = 2
+        var credential: NativeCredential?
+        var pending: SOOPPending?
+        var authEpoch = UUID()
+        var installedByAuth: UUID? = nil
     }
     private let lock = NSLock()
     private let environment: NativeEnvironment
@@ -90,21 +98,173 @@ final class NativeCredentialStore: NativeCredentialStoring, @unchecked Sendable 
         }
     }
     func read() throws -> NativeCredential? { try lock.withLock { _ = try marker(); return try readLocked() } }
-    private func readLocked() throws -> NativeCredential? {
-        guard let data = try bytes.read() else { return nil }
-        guard let value = try? JSONDecoder().decode(NativeCredential.self, from: data),
-              value.isValid, value.environment == environment else { throw ProductError.secureStorage }
-        return value
+    private func envelope() throws -> Envelope {
+        guard let data = try bytes.read() else { return Envelope() }
+        if let value = try? JSONDecoder().decode(Envelope.self, from: data), value.schema == 2 {
+            guard value.credential.map({ $0.isValid && $0.environment == environment }) ?? true else { throw ProductError.secureStorage }
+            if let pending = value.pending {
+                guard pending.id == value.authEpoch, pending.environment == environment, pending.proof.valid,
+                      (pending.intent == .login ? pending.originalCredential == nil && pending.accountID == nil && pending.serverGeneration == nil : pending.originalCredential?.isValid == true && pending.originalCredential?.environment == environment && UUID(uuidString: pending.accountID ?? "") != nil && NativeCredential.isOpaque(pending.serverGeneration ?? "")),
+                      pending.createdAt.timeIntervalSince1970.isFinite else { throw ProductError.secureStorage }
+                if pending.phase == .starting {
+                    guard pending.transactionID == nil, pending.authorizeURL == nil else { throw ProductError.secureStorage }
+                } else {
+                    guard let transaction = pending.transactionID, let url = pending.authorizeURL else { throw ProductError.secureStorage }
+                    do { try SOOPStartResponse(transactionId: transaction, authorizeUrl: url, expiresIn: 600).validate(environment: environment) }
+                    catch { throw ProductError.secureStorage }
+                }
+            }
+            guard value.installedByAuth == nil || (value.credential != nil && value.pending == nil) else { throw ProductError.secureStorage }
+            return try finishCancellation(value)
+        }
+        // Upgrade the previous token-only record on the next atomic write.
+        guard let old = try? JSONDecoder().decode(NativeCredential.self, from: data), old.isValid, old.environment == environment else { throw ProductError.secureStorage }
+        return Envelope(credential: old)
     }
+    private func finishCancellation(_ input: Envelope) throws -> Envelope {
+        var marker = try marker()
+        guard let cancelled = marker.cancelledAuth else { return input }
+        var state = input
+        if state.pending?.id == cancelled || state.installedByAuth == cancelled {
+            if state.installedByAuth == cancelled { state.credential = nil; state.installedByAuth = nil }
+            state.pending = nil; state.authEpoch = UUID()
+            try bytes.write(JSONEncoder().encode(state))
+        }
+        marker.cancelledAuth = nil; try saveMarker(marker)
+        return state
+    }
+    private func saveEnvelope(_ value: Envelope) throws { try bytes.write(JSONEncoder().encode(value)) }
+    private func readLocked() throws -> NativeCredential? { try envelope().credential }
     @discardableResult func replace(expected: NativeCredential?, with value: NativeCredential?) throws -> Bool {
         try lock.withLock {
             let marker = try marker()
             guard try readLocked() == expected else { return false }
             if let value {
                 guard !marker.logoutPending, value.isValid, value.environment == environment else { throw ProductError.secureStorage }
-                try bytes.write(JSONEncoder().encode(value))
+                try saveEnvelope(Envelope(credential: value))
             } else { try bytes.remove() }
             return true
+        }
+    }
+    func beginAuth(intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending {
+        try lock.withLock {
+            let marker = try marker()
+            var state = try envelope()
+            guard !marker.logoutPending, state.installedByAuth == nil, state.credential == expected, proof.valid,
+                  intent == .login ? expected == nil && accountID == nil && serverGeneration == nil : expected != nil && accountID != nil && serverGeneration != nil else { throw SOOPAuthError.sessionChanged }
+            let id = UUID()
+            let pending = SOOPPending(id: id, installation: marker.installation, environment: environment, intent: intent,
+                                      proof: proof, createdAt: now, originalCredential: expected, accountID: accountID, serverGeneration: serverGeneration)
+            state.pending = pending; state.authEpoch = id
+            try saveEnvelope(state)
+            return pending
+        }
+    }
+    private func currentPending(_ state: Envelope, now: Date) throws -> SOOPPending {
+        let marker = try marker()
+        guard !marker.logoutPending, let pending = state.pending, pending.id == state.authEpoch,
+              pending.installation == marker.installation, pending.originalCredential == state.credential else { throw SOOPAuthError.sessionChanged }
+        guard pending.isCurrent(at: now) else { throw SOOPAuthError.expired }
+        return pending
+    }
+    func pendingAuth(now: Date) throws -> SOOPPending? {
+        try lock.withLock {
+            _ = try marker(); let state = try envelope()
+            guard state.pending != nil else { return nil }
+            return try currentPending(state, now: now)
+        }
+    }
+    func finishAuthStart(id: UUID, response: SOOPStartResponse, now: Date) throws -> SOOPPending {
+        try lock.withLock {
+            var state = try envelope(); var pending = try currentPending(state, now: now)
+            guard pending.id == id, pending.phase == .starting, now.timeIntervalSince(pending.createdAt) < 60 else { throw SOOPAuthError.expired }
+            try response.validate(environment: environment)
+            pending.transactionID = response.transactionId; pending.authorizeURL = response.authorizeUrl; pending.phase = .browser
+            state.pending = pending; try saveEnvelope(state); return pending
+        }
+    }
+    func claimAuthExchange(id: UUID, now: Date) throws -> SOOPPending {
+        try lock.withLock {
+            var state = try envelope(); var pending = try currentPending(state, now: now)
+            guard pending.id == id, pending.phase == .browser, pending.transactionID != nil else { throw SOOPAuthError.failed }
+            pending.phase = .exchanging; state.pending = pending
+            try saveEnvelope(state) // Persist before network: never replay after a crash.
+            return pending
+        }
+    }
+    func installAuth(id: UUID, credential: NativeCredential, now: Date) throws {
+        try lock.withLock {
+            var state = try envelope(); let pending = try currentPending(state, now: now)
+            guard pending.id == id, pending.phase == .exchanging, credential.isValid, credential.environment == environment,
+                  credential.expiresAt > now else { throw SOOPAuthError.sessionChanged }
+            state.credential = credential; state.pending = nil; state.authEpoch = UUID(); state.installedByAuth = id
+            try saveEnvelope(state) // Credential + consumed proof/epoch commit in one Keychain update.
+        }
+    }
+    func acknowledgeAuth(id: UUID, credential: NativeCredential) throws {
+        try lock.withLock {
+            let marker = try marker(); var state = try envelope()
+            guard !marker.logoutPending, state.installedByAuth == id, state.credential == credential else { throw SOOPAuthError.sessionChanged }
+            state.installedByAuth = nil; try saveEnvelope(state)
+        }
+    }
+    func discardAuth(id: UUID, credential: NativeCredential) throws {
+        try lock.withLock {
+            var state = try envelope()
+            guard state.installedByAuth == id, state.credential == credential else { return }
+            var marker = try marker(); marker.cancelledAuth = id; try saveMarker(marker)
+            state.credential = nil; state.installedByAuth = nil; state.pending = nil; state.authEpoch = UUID()
+            try saveEnvelope(state)
+            marker.cancelledAuth = nil; try saveMarker(marker)
+        }
+    }
+    func cancelAuth(id: UUID? = nil) throws {
+        try lock.withLock {
+            var marker = try marker(); var state = try envelope()
+            let current = state.pending?.id ?? state.installedByAuth
+            if let id, current != id { return }
+            guard let current else { return }
+            // Durable nonsecret intent fences restoration even if Keychain update fails.
+            marker.cancelledAuth = current; try saveMarker(marker)
+            if state.installedByAuth != nil { state.credential = nil; state.installedByAuth = nil }
+            state.pending = nil; state.authEpoch = UUID(); try saveEnvelope(state)
+            marker.cancelledAuth = nil; try saveMarker(marker)
+        }
+    }
+    func reconcileAuth(accountID: String?, serverGeneration: String?) throws {
+        try lock.withLock {
+            _ = try marker(); var state = try envelope()
+            guard let pending = state.pending, pending.intent == .link else { return }
+            if pending.accountID != accountID || pending.serverGeneration != serverGeneration {
+                state.pending = nil; state.authEpoch = UUID(); try saveEnvelope(state)
+            }
+        }
+    }
+    func recoverAuth(now: Date) throws -> String? {
+        try lock.withLock {
+            _ = try marker(); var state = try envelope()
+            if state.installedByAuth != nil {
+                // A crash before UI acknowledgement never restores an unpublished login.
+                var marker = try marker(); marker.cancelledAuth = state.installedByAuth; try saveMarker(marker)
+                state = try finishCancellation(state)
+                return SOOPAuthError.exchangeUncertain.errorDescription
+            }
+            guard let pending = state.pending else { return nil }
+            if !pending.isCurrent(at: now) || pending.phase != .browser {
+                state.pending = nil; state.authEpoch = UUID(); try saveEnvelope(state)
+                return (pending.isCurrent(at: now) ? SOOPAuthError.exchangeUncertain : .expired).errorDescription
+            }
+            return nil
+        }
+    }
+    func resetConfirmed() throws {
+        try lock.withLock {
+            // Explicit user recovery also handles corrupt records without decoding them.
+            var marker = Marker(logoutPending: true)
+            try saveMarker(marker)
+            try bytes.remove()
+            marker.logoutPending = false
+            try saveMarker(marker)
         }
     }
     private func marker() throws -> Marker {

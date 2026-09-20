@@ -198,3 +198,36 @@ event/history projection changes regenerate quoted excerpts, preserve draft text
 and explicit retry IDs, and advance the composer generation to reject stale UI
 writers. Unit and browser regressions cover the held-SEND reaction denial and
 live redaction paths as well as the multiple-quote evidence case.
+
+
+### Current-QA integration (2026-09-20)
+
+Normal merge parents are reviewed PR59 `db6c488c94b34dce3f1fb98bf1103c052fe7dce4`
+and fetched QA `040652817ef357c4389da25e2bb0e001408dd810`. No reviewed commit
+is rewritten. QA's accepted PR66 `83061701fa94f39fb4555e381218c3f8e8f0fc6b`
+join-401 login gate and browser regression are preserved. The controller conflict
+is resolved narrowly: terminal receipts schedule post-flight revalidation centrally,
+covering direct schema-2 SEND, explicit retry lookup, and read-only reconciliation.
+The existing sending fence releases before this fresh read; no local message is
+invented, no command is replayed by reconciliation, and no schema-1 fallback exists.
+
+Three schema-2 regressions hold an old sync, begin each command path, release the
+old read, and require the committed server message to appear through exactly one
+fresh read without a timer, socket hint, or manual refresh. Each fails when the
+post-receipt revalidation is removed. Node 24.21.0: all 126 web unit tests, TypeScript
+(no incremental cache), and ESLint passed. Browser and production/container checks
+remain hosted-only; their authoritative result belongs to the exact pushed head.
+
+Product diff versus reviewed PR59 retains strict schema-2 envelopes, opaque M/A,
+account/session/room and lease fences, ABA protection, tombstones, private drafts,
+quote scrubbing, and unknown-command quarantine. Wire parsing and command payload
+construction are unchanged against frozen backend
+`f9197a31d61b7c34256e92f0bcb73ee255275d40`: authorizationRevision includes
+content_epoch server-side and remains opaque to this client; GET deleted receipts
+omit messageId while legacy SEND deleted acknowledgements retain it.
+
+PR59 remains draft for centrally paired backend/native activation. This integration
+does not merge QA/main or deploy. QA has zero real users/rooms and real-account login
+is unavailable, so it provides no runtime OAuth/chat success evidence. Existing QA
+media/native changes arrive only through the normal QA parent; future media/push
+composition remains separately owned.

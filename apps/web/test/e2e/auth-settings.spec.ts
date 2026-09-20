@@ -41,6 +41,19 @@ test('empty room directory is an honest unavailable state', async ({ page }) => 
   await expect(page.getByRole('heading', { name: /지금은 채팅방에 접근할 수 없어요|아직 채팅방이 열리지 않았어요/ })).toBeVisible();
   await expect(page.getByTestId('chat-room')).toHaveCount(0);
 });
+test('session expiry during room entry returns to the login gate', async ({ page }) => {
+  const state = await installApi(page, true);
+  await page.goto('/chat');
+  await expect(page.getByRole('button', { name: '채팅방 입장', exact: true })).toBeVisible();
+  await page.route('**/v1/rooms/*/join', route => {
+    state.authenticated = false;
+    return json(route, { error: { code: 'UNAUTHENTICATED' } }, 401);
+  });
+  await page.getByRole('button', { name: '채팅방 입장', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '채팅방 입장', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('chat-room')).toHaveCount(0);
+});
 test('logout locks immediately, survives reload, and retries only the same session', async ({ page }) => {
   const state = await installApi(page, true); state.logoutStatus = 503;
   await page.goto('/settings');

@@ -6,7 +6,10 @@ struct WelcomeScreen: View {
     let methods: [SignInMethod]
     let busy: Bool
     let errorMessage: String?
-    let onSignIn: (SignInMethod) -> Void
+    let rulesURL: URL
+    let onCancel: () -> Void
+    let onSignIn: (SignInMethod, Bool) -> Void
+    @State private var consent = false
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -34,8 +37,17 @@ struct WelcomeScreen: View {
                 .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
 
                 VStack(spacing: 12) {
+                    if methods.contains(.soop) {
+                        Toggle(isOn: $consent) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Link("이용 안내", destination: rulesURL).underline()
+                                Text("이용 안내를 확인했으며, 개인 메시지가 방장에 의해 전체 공개될 수 있음을 이해합니다. (2026-09-20)")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                        }.toggleStyle(.switch).disabled(busy)
+                    }
                     ForEach(methods, id: \.self) { method in
-                        Button { onSignIn(method) } label: {
+                        Button { onSignIn(method, consent) } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: method == .apple ? "apple.logo" : "person.crop.circle")
                                 Text(method == .apple ? "Apple로 계속하기" : "SOOP으로 계속하기")
@@ -45,17 +57,22 @@ struct WelcomeScreen: View {
                             .foregroundStyle(method == .apple ? (colorScheme == .dark ? Color.black : .white) : .white)
                             .background(method == .apple ? (colorScheme == .dark ? Color.white : .black) : AppTheme.brand,
                                         in: RoundedRectangle(cornerRadius: 14))
-                        }.disabled(busy)
+                        }.disabled(busy || (method == .soop && !consent))
                     }
-                    if busy { ProgressView("로그인하는 중").padding(.vertical, 8) }
+                    if busy {
+                        ProgressView("로그인하는 중").padding(.vertical, 8)
+                        Button("로그인 취소", action: onCancel)
+                    }
                     if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red).multilineTextAlignment(.center) }
                     if methods.isEmpty {
                         Label("현재 버전에서는 앱 로그인을 지원하지 않아요.", systemImage: "info.circle")
                             .font(.subheadline).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
-                    Text("Apple로 로그인한 경우에도 SOOP 계정 연결이 필요해요.")
-                        .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    if methods.contains(.apple) {
+                        Text("Apple로 로그인한 경우에도 SOOP 계정 연결이 필요해요.")
+                            .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }
                 }
                 .padding(.bottom, 24)
             }
@@ -83,18 +100,20 @@ struct SOOPLinkScreen: View {
     let errorMessage: String?
     let onLink: () -> Void
     let onAccount: () -> Void
+    let onCancel: () -> Void
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 Image(systemName: "link.circle.fill").font(.system(size: 64)).foregroundStyle(AppTheme.accent).accessibilityHidden(true)
                 Text("SOOP 계정을 연결해 주세요").font(.largeTitle.bold())
-                Text("대화에 참여하려면 SOOP 계정 연결이 필요해요. Apple로 만든 로기챗 계정에 SOOP 계정을 연결할 수 있어요.")
+                Text("대화에 참여하려면 SOOP 계정 연결이 필요해요. 현재 로기챗 계정에 사용할 SOOP 계정을 연결해 주세요.")
                     .foregroundStyle(.secondary)
                 if canLink {
                     Button(action: onLink) {
                         HStack { if busy { ProgressView() }; Text("SOOP 계정 연결") }.frame(maxWidth: .infinity, minHeight: 44)
                     }.buttonStyle(.borderedProminent).disabled(busy)
                 }
+                if busy { Button("계정 연결 취소", action: onCancel) }
                 if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
                 Button("계정 관리", action: onAccount).buttonStyle(.bordered)
             }.padding(24)

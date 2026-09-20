@@ -497,6 +497,9 @@ export class ChatController {
   private commandResult(result: Receipt): ChatSubmitResult {
     if (result.status === 'committed' && this.tombstones.has(result.messageId)) throw new Error('STALE_RECEIPT');
     this.commands.settle(result);
+    // A recovered receipt and a direct ACK both require a read after any older flight.
+    // revalidate yields until the command releases its sending fence in finally.
+    void this.revalidate();
     const terminal = this.commands.get(result.clientMessageId);
     return { accepted: true, ...(terminal?.status === 'deleted' ? { note: '이 메시지는 이미 삭제되었습니다.' } : {}) };
   }
@@ -537,7 +540,7 @@ export class ChatController {
           const result = receipt(await this.request(this.path(`message-commands/${clientMessageId}`), { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }), clientMessageId, 'lookup');
           if (!current()) throw new Error('STALE_REQUEST');
           await this.verifySession(); if (!current()) throw new Error('STALE_REQUEST');
-          const accepted = this.commandResult(result); void this.refresh(); return accepted;
+          return this.commandResult(result);
         } catch (error) { if (Number(recordError(error).status) !== 404 || !current()) throw error; }
         // Reauthorize after the ambiguous receipt, never derive noncommit from it.
         const auth = await this.authorization();
@@ -548,7 +551,7 @@ export class ChatController {
       const result = receipt(await this.request(this.path('messages'), { method: 'POST', body: command.payload, signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }), clientMessageId, 'send');
       if (!current()) throw new Error('STALE_REQUEST');
       await this.verifySession(); if (!current()) throw new Error('STALE_REQUEST');
-      const accepted = this.commandResult(result); void this.refresh(); return accepted;
+      return this.commandResult(result);
     } catch (error) {
       if (current()) {
         const status = Number(recordError(error).status);
@@ -560,6 +563,6 @@ export class ChatController {
         }
       }
       return { accepted: false, retryCommandId: clientMessageId, reason: '전송 결과가 확인되지 않았습니다. 다시 보내기는 같은 전송 기록을 조회하고 현재 권한으로 재확인합니다.' };
-    } finally { this.sending = false; if (!this.dead) this.publish({}); const settled = this.commands.get(clientMessageId); if ((settled && settled.status !== 'unknown') || this.getSnapshot().phase === 'loading') void this.refresh(); }
+    } finally { this.sending = false; if (!this.dead) this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); }
   };
 }
