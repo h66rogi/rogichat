@@ -1,12 +1,13 @@
 import { createUser, createRoom, joinRoom, reserveMedia, beginUpload, finishUpload, failUpload, prepareMedia, processMedia, recoverMedia, enqueueJob } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MediaWorkerRepository } from '../../dist/modules/media/media-worker.repository.js';
 import { JobsCoreService } from '../../dist/modules/jobs/jobs-core.service.js';
 import { JobsRepository } from '../../dist/modules/jobs/jobs.repository.js';
+import { R2MediaStore } from '../../dist/modules/media/adapters/media-store.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 
 const MiB = 1024 * 1024;
@@ -440,4 +441,73 @@ test('VIDEO poster failure before storage leaves video discoverable and cleanup 
   const after = await f.inspect(input.assetId);
   assert.equal(after.asset.state, 'DELETED'); assert.equal(f.objects.size, 0);
   assert.equal(f.calls.remove.length, 3); assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes));
+});
+
+
+// Real cleanup service + real disposable MySQL + actual R2 adapter. Only the
+// SDK HTTP transport is isolated; this does not claim a live cloud deletion.
+for (const uncertainty of ['object-exists', 'object-denied', 'object-throttled', 'object-5xx', 'bucket-absent', 'bucket-denied', 'network', 'abort', 'delete-denied']) {
+  test(`R2 absence proof ${uncertainty} retains cleanup obligations until fresh verified retry`, { timeout: 20000 }, async t => {
+    const f = await fixture(t); const attempt = await f.uploading();
+    await f.txs.write(tx => failUpload(tx, attempt)); await f.age(attempt.assetId);
+    const first = await f.lease(attempt.assetId); const before = await f.inspect(attempt.assetId);
+    const store = new R2MediaStore({ accountId: randomBytes(16).toString('hex'), bucket: 'fixture-private', accessKeyId: randomBytes(16).toString('hex'), secretAccessKey: randomBytes(32).toString('hex'), prefix: 'test' });
+    t.after(() => store.close());
+    let verified = false; const requests = [];
+    store.client.config.requestHandler = { async handle(request) {
+      requests.push(request.method);
+      const bucketHead = request.path === '/fixture-private/';
+      assert.equal(request.path, bucketHead ? '/fixture-private/' : `/fixture-private/${attempt.key}`);
+      let statusCode = 204;
+      if (request.method === 'DELETE') {
+        if (!verified && uncertainty === 'delete-denied') statusCode = 403;
+        else { f.objects.delete(attempt.key); if (verified) throw new Error('lost DELETE ACK'); }
+      } else if (bucketHead) {
+        statusCode = !verified && uncertainty === 'bucket-absent' ? 404 : !verified && uncertainty === 'bucket-denied' ? 403 : 200;
+      } else {
+        if (!verified && uncertainty === 'network') throw new Error('synthetic private network failure');
+        statusCode = verified ? 404 : ({ 'object-exists': 200, 'object-denied': 403, 'object-throttled': 429, 'object-5xx': 503 }[uncertainty] ?? 404);
+      }
+      return { response: { statusCode, headers: {}, body: new Uint8Array() } };
+    }, destroy() {} };
+    f.store.remove = (key, signal) => store.remove(key, !verified && uncertainty === 'abort' ? AbortSignal.abort() : signal);
+    await assert.rejects(f.process(first), { message: 'media_absence_unverified' });
+    const uncertain = await f.inspect(attempt.assetId);
+    assert.equal(uncertain.asset.state, 'DELETING'); assert.equal(uncertain.asset.reserved_bytes, before.asset.reserved_bytes);
+    assert.deepEqual(uncertain.objects, before.objects); assert.equal(uncertain.reserved, before.reserved);
+    assert.equal(uncertain.jobs.length, 1); assert.equal(uncertain.jobs[0].state, 'RUNNING');
+    verified = true;
+    const next = await f.lease(attempt.assetId, first.id);
+    assert.equal(await f.process(next), 'completed');
+    const after = await f.inspect(attempt.assetId);
+    assert.equal(after.asset.state, 'DELETED'); assert.ok(after.objects.every(row => row.state === 'DELETED'));
+    assert.equal(after.jobs[0].state, 'COMPLETED'); assert.equal(f.objects.size, 0);
+    assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes));
+    const count = requests.length;
+    assert.equal(await f.process(first), 'lease_lost'); assert.equal(await f.process(next), 'lease_lost');
+    assert.equal((await f.inspect(attempt.assetId)).reserved, after.reserved); assert.equal(requests.length, count);
+  });
+}
+
+test('verified R2 absence still cannot release quota under an expired completion lease', { timeout: 20000 }, async t => {
+  const f = await fixture(t); const attempt = await f.uploading();
+  await f.txs.write(tx => failUpload(tx, attempt)); await f.age(attempt.assetId);
+  const first = await f.lease(attempt.assetId); const before = await f.inspect(attempt.assetId);
+  const store = new R2MediaStore({ accountId: randomBytes(16).toString('hex'), bucket: 'fixture-private', accessKeyId: randomBytes(16).toString('hex'), secretAccessKey: randomBytes(32).toString('hex'), prefix: 'test' });
+  t.after(() => store.close()); let expire = true;
+  store.client.config.requestHandler = { async handle(request) {
+    const bucketHead = request.path === '/fixture-private/';
+    assert.equal(request.path, bucketHead ? '/fixture-private/' : `/fixture-private/${attempt.key}`);
+    if (bucketHead && expire) await f.expire(first);
+    if (request.method === 'DELETE') f.objects.delete(attempt.key);
+    return { response: { statusCode: request.method === 'DELETE' ? 204 : bucketHead ? 200 : 404, headers: {}, body: new Uint8Array() } };
+  }, destroy() {} };
+  f.store.remove = store.remove.bind(store);
+  assert.equal(await f.process(first), 'lease_lost');
+  const fenced = await f.inspect(attempt.assetId);
+  assert.equal(fenced.asset.state, 'DELETING'); assert.deepEqual(fenced.objects, before.objects); assert.equal(fenced.reserved, before.reserved);
+  expire = false; const next = await f.lease(attempt.assetId, first.id);
+  assert.equal(await f.process(next), 'completed');
+  const after = await f.inspect(attempt.assetId);
+  assert.equal(after.asset.state, 'DELETED'); assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes));
 });
