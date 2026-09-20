@@ -19,7 +19,9 @@ import { PublicationsCoreService } from '../../dist/modules/publications/publica
 import { MediaCopyService } from '../../dist/modules/media/media-copy.service.js';
 import { MediaStorageModule } from '../../dist/modules/media/media-storage.module.js';
 import { MediaSpooler } from '../../dist/common/media/media-spool.js';
-import { createApi } from '../../dist/application.js';
+import { createApi, createConfiguredApi } from '../../dist/application.js';
+import { AppModule } from '../../dist/app.module.js';
+import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
 
 const bytes = Buffer.from('isolated synthetic image bytes; no R2 or decoder evidence');
 const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -37,7 +39,7 @@ async function fixture(t) {
   };
   const media = { store, prefix: 'test', spool: new MediaSpooler({ directory }) };
   class FixtureModule {}
-  Module({ imports: [PublicationsCoreModule, MediaStorageModule.register(media, true)], providers: [MediaCopyService, { provide: Transactions, useValue: txs }] })(FixtureModule);
+  Module({ imports: [{ module: PublicationsCoreModule, providers: [PublicationsCoreService] }, MediaStorageModule.register(media, true)], providers: [MediaCopyService, { provide: Transactions, useValue: txs }] })(FixtureModule);
   const context = await NestFactory.createApplicationContext(FixtureModule, { logger: false, abortOnError: false });
   const core = context.get(PublicationsCoreService), worker = context.get(MediaCopyService);
   const config = { audience: randomBytes(8).toString('hex'), key: randomBytes(32), origin: 'http://localhost:3001', secure: false };
@@ -84,8 +86,18 @@ async function fixture(t) {
     copies: await tx.prisma.publication_media.findMany({ where: { publication_id: publicationId }, select: { destination_asset_id: true, destination: { select: { state: true, reserved_bytes: true, objects: { select: { object_key: true, state: true } } } } } }),
     budget: (await tx.prisma.media_budget.findUnique({ where: { id: 'global' }, select: { reserved_bytes: true } }))?.reserved_bytes ?? 0n,
   }));
-  const http = async () => {
-    app = await createApi(db, { event() {} }, undefined, { sessions, config }, media); await app.listen(0, '127.0.0.1');
+  const http = async (recovery = false) => {
+    if (recovery) app = await createApi(db, { event() {} }, undefined, { sessions, config }, media);
+    else {
+      // Full-feature security regressions register the preserved implementation only here.
+      const lifecycle = new LifecycleState();
+      const module = AppModule.register(db, lifecycle, { sessions, config }, media);
+      const publications = module.imports.find(entry => entry.module?.name === 'PublicationsModule');
+      publications.imports = publications.imports.map(entry => entry === PublicationsCoreModule
+        ? { module: PublicationsCoreModule, providers: [PublicationsCoreService] } : entry);
+      app = await createConfiguredApi(module, { event() {} }, lifecycle, config, true);
+    }
+    await app.listen(0, '127.0.0.1');
     const base = await app.getUrl();
     return async (user, method, path, body) => {
       const result = await fetch(base + '/v1' + path, { method, headers: { cookie: `rogi_session=${user.token}`, origin: config.origin, 'x-csrf-token': user.csrf, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -96,7 +108,7 @@ async function fixture(t) {
   const remove = id => txs.write(tx => deleteMessage(tx, room, fan.id, id));
   const cleanup = async assetId => { const lease = await claim(assetId, 'MEDIA'); return processMedia(txs, store, {}, 'test', lease); };
   const age = id => txs.write(async tx => { await tx.prisma.media_objects.updateMany({ where: { asset_id: id }, data: { created_at: new Date(0) } }); });
-  return { db, txs, core, worker, source, request, status, claim, expire, inspect, http, get, remove, owner, fan, other, room, objects, hooks, puts, removes, signs, cleanup, age };
+  return { recoveryCore: () => app.get(PublicationsCoreService), db, txs, core, worker, source, request, status, claim, expire, inspect, http, get, remove, owner, fan, other, room, objects, hooks, puts, removes, signs, cleanup, age };
 }
 
 test('PHOTO publication HTTP and anonymous DTO use independent keys, and every destination stays inaccessible before atomic READY', async t => {
@@ -292,4 +304,23 @@ test('two publication copies competing for the final quota slot reserve exactly 
   } finally {
     await f.txs.write(tx => tx.prisma.media_budget.update({ where: { id: 'global' }, data: { limit_bytes: budget.limit_bytes }, select: { id: true } }));
   }
+});
+
+
+test('recovery product rejects new PHOTO publication and cleans existing PREPARING copies', async t => {
+  const f = await fixture(t), source = await f.source(), call = await f.http(true);
+  const rejected = await call(f.owner, 'POST', `/rooms/${f.room}/messages/${source.messageId}/publications`, {});
+  assert.equal(rejected.status, 400); assert.equal(rejected.body.error.code, 'INVALID_REQUEST');
+  // Model a previously admitted job using the preserved feature implementation.
+  const publication = await f.request(source.messageId), lease = await f.claim(publication.publicationId);
+  await f.txs.write(tx => f.core.preparePhoto(tx, lease, 'test'));
+  assert.equal((await f.inspect(publication.publicationId)).copies.length, 1);
+  const result = await f.txs.write(tx => f.recoveryCore().preparePhoto(tx, lease, 'test'));
+  assert.equal(result, 'completed'); assert.equal((await f.status(publication.publicationId)).status, 'revoked');
+  for (const copy of (await f.inspect(publication.publicationId)).copies) {
+    assert.equal(copy.destination.state, 'DELETING');
+    await f.age(copy.destination_asset_id); await f.cleanup(copy.destination_asset_id);
+  }
+  for (const copy of (await f.inspect(publication.publicationId)).copies) assert.equal(copy.destination.state, 'DELETED');
+  assert.equal(f.puts.length, 0);
 });
