@@ -32,11 +32,59 @@ HTTP wiring added in this checkpoint:
 | `GET /v1/rooms/:roomId/stickers?after=...` | Current active member and room sticker policy |
 | `POST /v1/admin/stickers` | Current command credentials/CSRF and `manage_stickers` |
 | `PATCH /v1/admin/stickers/:stickerId` | Same operator capability; explicit state transitions |
+| `POST /v1/media/assets/:assetId/access` with `{roomId, actorId, variant: 'image'}` | Current command credentials/CSRF, active room/profile visibility and exact current avatar reference |
+| `POST /v1/rooms/:roomId/messages` with `content: {type: 'STICKER', stickerId}` | Existing message command/receipt, current audience and room policy, approved ACTIVE catalog |
+| `POST /v1/media/assets/:assetId/access` with `{roomId, stickerId, variant: 'image', messageId?}` | Exact catalog/asset and current room membership; picker requires ACTIVE/policy, historical message requires its ACL and ACTIVE/RETIRED |
 
 Sticker routes are included only with the media feature graph. Catalog command
 admission uses a separately committed per-account bucket (20/minute), followed by
 fresh transaction authorization. Denied commands cannot refund that budget.
 Signed media access has its own per-account 120/minute bucket and 60-second URL.
+
+Avatar access uses the existing access endpoint, not a second signer or a global
+user-ID lookup. The actor-context body is mutually exclusive with `messageId`;
+unknown fields, arbitrary keys and URLs are rejected. FAN viewers may access only
+their own or a STREAMER's avatar, STREAMER viewers may access visible fans, and
+GROUP viewers follow ordinary active-member profile visibility. A single fresh
+read transaction checks the session, SOOP link, current membership/period,
+account, current profile-to-asset reference, ownership, global AVATAR kind and
+READY image object. It loads no nickname, birthday or provider identifier.
+Replacement/removal and membership/account revocation deny subsequent issuance;
+installed references remain valid after the initial upload intent expires.
+Signing happens after that read transaction, returns only `{url, expiresIn: 60}`
+with `no-store`, and cannot revoke an already issued URL before its 60-second
+expiry. Real R2 access/expiry is still a separate release gate.
+
+### Reusable sticker messages and revocation
+
+Sticker commands accept a catalog UUID, not `assetIds`, text or storage keys.
+Their explicit content DTO is `{type: 'STICKER', stickerId, assetId, width, height}`.
+Direct reads and sync project this same contract. The association, message,
+idempotent receipt, event and hint job commit on one transaction. Existing receipts
+are checked before new-send policy: retirement or a room send switch does not
+turn a committed retry into a new send. A revoked message is no longer readable.
+
+The catalog asset may be reused across rooms and authors. Deleting one message
+does not delete that asset or another reference. Approved assets survive registrar
+deletion and intent expiry. Initial approval instead locks registrar before asset
+and catalog, checks current eligibility, and serializes with account deletion.
+Eligibility queries do not fetch storage keys or join the registrar after the
+asset lock. Approved reactivation does not reintroduce registrar eligibility.
+
+REVOKED is terminal and immediately blocks direct reads, history, picker and URL
+issuance. A per-viewer reachable-revocation set participates in cursor binding,
+forcing replacement before the asynchronous fan-out. It is scoped by room,
+membership history start and current stream grants; a different fan's hidden
+private sticker does not reset an unrelated viewer. This set remains stable when
+workers append invalidations. There is no global catalog epoch in fan cursors.
+
+The MEDIA worker first invalidates at most 50 current messages in one room, before
+asset-owner locks or an already-DELETED early return. Room-first locking, version
+increments, deletion events/hints, a deduplicated continuation and current lease
+completion share one transaction. An expired lease rolls all of them back. Closed
+rooms are still invalidated; repeated workers cannot increment a message twice.
+Physical cleanup follows durable fan-out. External storage I/O remains outside
+transactions. Catalog assets cannot use the ordinary uploader preview path.
 
 ## ORM and module correction
 
@@ -96,12 +144,24 @@ References: [FFprobe output](https://ffmpeg.org/ffprobe.html),
   the relocated compiled modules. Nineteen pure deployment validation tests and
   two runtime-import contract tests passed locally. These tests do not execute a
   host deployment, read production secrets or apply migrations.
+- The avatar access slice passed all 110 disposable-MySQL cases (four new domain/
+  HTTP cases), 192 unit cases and 18 HTTP/process/contract cases, plus build,
+  typecheck, lint and independent boundary review. HTTP tests use a synthetic
+  signer, not R2: they verify minimal 60-second responses, `no-store`, strict input,
+  CSRF/session revocation and that denied requests never call the signer.
+- The sticker message slice passed all 119 disposable-MySQL cases, 194 unit and
+  18 HTTP/process/contract cases, plus build and lint. Nine new integration cases
+  cover canonical HTTP/sync/history projections, strict URL context and CSRF,
+  retirement/receipt replay, cross-room reuse/deletion, deleted registrar/GC,
+  viewer-specific immediate revocation, 53-message bounded closed-room fan-out,
+  expired/duplicate/concurrent worker fences, send/revoke races and initial
+  approval/deletion lock ordering. The initial-approval case asserts a single
+  callback attempt so deadlock retries cannot hide a lock-order regression.
+  Independent reviews identified that lock inversion and re-reviewed its fix.
 
 Still required for M08/M09 completion:
 
-1. Actual sticker send/read/sync/URL integration, durable catalog-revocation
-   invalidation, avatar actor-context URL authorization, publication media copy
-   preparation/finalization and failed-copy cleanup.
+1. Publication media copy preparation/finalization and failed-copy cleanup.
 2. Video IPC/worker integration, all-variant READY atomicity, deletion races and
    recovery after process death. The current image-only decoder server must not
    be advertised as video-ready.

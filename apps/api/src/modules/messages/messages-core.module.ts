@@ -1,4 +1,5 @@
 import { RoomMediaCoreModule } from '../media/room-media-core.module.js';
+import { StickersCoreModule } from '../stickers/stickers-core.module.js';
 import { RoomStateModule } from '../rooms/room-state.module.js';
 import { JobsCoreModule } from '../jobs/jobs-core.module.js';
 import { MessagesQueryRepository } from './messages-query.repository.js';
@@ -9,5 +10,5 @@ import { MessagesRepository } from './messages.repository.js';
 import { AccessModule } from '../access/access.module.js';
 
 // Separate entrypoint: worker imports do not load HTTP controllers or authentication providers.
-@Module({ imports: [RoomMediaCoreModule, RoomStateModule, JobsCoreModule, AccessModule], providers: [MessagesRepository, MessagesCoreService, MessagesQueryRepository, MessagesQueryService], exports: [MessagesCoreService, MessagesQueryService] })
+@Module({ imports: [StickersCoreModule, RoomMediaCoreModule, RoomStateModule, JobsCoreModule, AccessModule], providers: [MessagesRepository, MessagesCoreService, MessagesQueryRepository, MessagesQueryService], exports: [MessagesCoreService, MessagesQueryService] })
 export class MessagesCoreModule {}

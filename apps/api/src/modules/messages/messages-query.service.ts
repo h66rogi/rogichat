@@ -36,12 +36,18 @@ export class MessagesQueryService {
   async affected(tx: Transaction, viewer: ActiveMember, from: string, high: string): Promise<boolean> {
     return (await this.repository.affected(tx, viewer.room_id, viewer.id, viewer.visible_from_order, from, high)).length > 0;
   }
+  async stickerRevocations(tx: Transaction, viewer: ActiveMember) {
+    const rows = await this.repository.stickerRevocations(tx, viewer.room_id, viewer.id, viewer.visible_from_order);
+    if (rows.length > 10000) throw new ServiceUnavailableException();
+    return rows.map(row => row.id);
+  }
 }
 
 function project(row: RowDataPacket): MessageDto {
   const kind = row.content_kind as string;
   if (!['TEXT', 'PHOTO', 'VIDEO', 'STICKER'].includes(kind)) throw new ServiceUnavailableException();
+  if (kind === 'STICKER' && !row.sticker) throw new ServiceUnavailableException();
   return projectMessageDto({ id: row.id, version: String(row.version), createdAt: row.created_at as Date, audience: row.kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
     author: row.deletion_root_id ? { kind: 'anonymous' } : { kind: 'member', actorId: row.sender_member_id, nickname: row.nickname ?? '사용자', avatar: row.avatar_id ? { assetId: row.avatar_id } : null },
-    content: kind === 'TEXT' ? { type: 'TEXT', text: row.text_content } : { type: kind as 'PHOTO' | 'VIDEO' | 'STICKER', attachments: row.attachments }, quote: !row.deletion_root_id && row.quote_id ? { id: row.quote_id, content: { type: 'TEXT', text: row.quote_text } } : null });
+    content: kind === 'TEXT' ? { type: 'TEXT', text: row.text_content } : kind === 'STICKER' ? { type: 'STICKER', stickerId: row.sticker.stickerId, assetId: row.sticker.assetId, width: row.sticker.width, height: row.sticker.height } : { type: kind as 'PHOTO' | 'VIDEO', attachments: row.attachments }, quote: !row.deletion_root_id && row.quote_id ? { id: row.quote_id, content: { type: 'TEXT', text: row.quote_text } } : null });
 }
