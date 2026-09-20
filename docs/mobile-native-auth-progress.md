@@ -71,23 +71,43 @@ CMS 내부 app/team/certificate, associated-domain permission, 배포 종류와 
 `webcredentials:qa.rogi.chat` 두 값만 허용한다. 프로젝트 텍스트만으로 완료 판정하지 않는다.
 archive의 development profile과 TestFlight IPA의 distribution profile을 구분하며,
 IPA는 정확한 QA app ID, 디버깅 불가, 기기 제한 없는 배포 profile이어야 한다.
-새 제품 산출물로 실제 서명 검사를 통과하는 것은 앱 코드 통합 후의 별도 검증이다.
+빌드 10의 실제 archive와 exported IPA에서 이 검사를 통과했다. Apple의 업로드 전
+검증도 통과했으며 제공자 로그인·실제 iPhone 복귀 검증과는 구분한다.
 
 Android는 실제 APK의 compiled manifest를 읽어 같은 환경의 HTTPS host와 정확한
 `/mobile/auth/complete`, 단일 `autoVerify` filter, 활성화된 exported MainActivity를
 검사한다. 다른 meta-data에 같은 문자열이 있는 것으로 통과하지 않는다. 비활성화나
 추가 permission으로 브라우저 진입이 막힌 app/activity도 거부한다. 최종 QA debug APK에
-검사를 적용했다. 이는 호스팅된 assetlinks나 서명된 실기기 복귀의 증거를 대신하지 않는다.
+검사를 적용했다. 빌드 10의 실제 signed QA release APK에도 같은 검사를 통과했다.
 
 배포 도구의 순수 검증과 격리 Keychain 검증은 83개를 통과했다(skip 0).
+
+## 빌드 10의 외부 검증
+
+제품 소스는 `80940d4d4924d34fef3c054de59c92c2193b30d6`이며 양 OS의 manifest가
+같은 커밋과 `source_dirty:false`를 기록한다. PR #41의 해당 소스에 대한 Mobile required checks를 포함한
+필수 CI가 모두 통과했다. Android APK/AAB와 iOS archive/IPA 서명·환경·제품 guard를
+검증했다. iOS는 1회 업로드 후 `VALID`와 승인된 기존 내부 그룹의 `IN_BETA_TESTING`,
+한국어 안내를 재조회했다. 정본 archive는 업로드용 복사본과 분리해 해시를 보존했다.
+
+QA 공개 AASA/assetlinks를 HTTPS `200`, redirect 없음, `application/json`, `no-store`로
+독립 확인했다. AASA의 QA app ID·webcredentials·정확한 callback 경로, assetlinks의 QA
+package와 빌드 10 실제 APK 서명 지문도 일치한다. 설치된 Android의 domain verification은
+`qa.rogi.chat: verified`였다. 물리 iPhone·SOOP provider 왕복까지 검증한 것은 아니다.
+
+Android 빌드 10의 실제 오류 화면에서 상태 표시줄과 인증 안내가 겹치는 문제를 발견해
+Firebase 업로드를 보류했다. 배너가 있을 때만 custom top bar에 safeDrawing의 상단·좌우
+inset을 적용하고, NavHost가 이미 적용한 Scaffold inset을 소비해 중첩 화면의 중복 여백도
+방지한다. [Android 공식 inset 안내](https://developer.android.com/develop/ui/compose/system/material-insets)를
+따르며 수정 후 새 Android 빌드 11에서 실화면을 재검증한다. 과거 산출물을 덮어쓰지 않는다.
 
 ## 계속 남는 실제 gate
 
 - SOOP broker는 canonical immutable subject 계약·운영 등록·실제 사용자 증거가 없으면
   `SUBJECT_CONTRACT_UNVERIFIED`를 반환하며 앱 경계에서는 `AUTH_UNAVAILABLE`다.
   실제 provider 검증 없이 설정으로 우회하거나 성공 응답으로 대체하지 않는다.
-- QA 공개 AASA/assetlinks, 정확한 Android 서명 지문, iOS associated app ID와 실제 기기
-  복귀를 검증해야 한다. API health 200과 profile 생성만으로 OAuth 성공을 주장하지 않는다.
+- QA 공개 association과 서명 일치는 확인했다. 실제 기기/provider 복귀는 후속 검증이며
+  API health 200과 profile 생성만으로 OAuth 성공을 주장하지 않는다.
 - Apple 로그인·계정 삭제·native push의 미확정 계약은 별도로 추적한다.
 - Prod app 등록/서명/Play 및 App Store 권한은 [배포 준비 상태](mobile-release-readiness.md)의
   별도 경로다. QA 내부 배포 artifact를 Prod artifact로 승격하지 않는다.

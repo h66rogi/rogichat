@@ -39,7 +39,7 @@ UserDefaults 선언 근거는 [Apple required-reason API 문서](https://develop
 | iOS 앱 구성 | `Rogichat-Prod` Release-Prod, `chat.rogi.rogichat`, iPhone 전용·Prod API origin 검사 통과 | 현재 인증 계정에서 정확히 일치하는 Prod Bundle ID/App Store Connect 앱 조회 결과 0개 |
 | iOS 서명 | 기존 배포 인증서와 대응 로컬 개인 키가 사용 가능하며 2027-09-19 UTC까지 유효 | Prod Bundle ID에 연결된 provisioning profile·외부 Prod 설정 없음. 새 인증서 발급 자체가 필수라고 판단하지 않음 |
 | Apple 권한 | QA Bundle ID의 Associated Domains capability 추가와 새 IOS_APP_STORE profile 생성·재조회까지 성공 | 이 권한을 모든 Production 리소스의 생성·변경 권한으로 확대 해석하지 않음. Production 리소스를 쓰기 시험으로 생성하지 않음 |
-| native 기능 등록 | QA Associated Domains와 기존 배포 인증서에 연결된 새 profile을 검증·설치함. 환경별 app ID와 endpoint가 코드에 고정됨 | 실제 새 signed app의 applinks/webcredentials·공개 association·기기 복귀는 후속 검증. Apple 로그인, Services ID, APNs 및 Prod capability/profile은 별도 준비 |
+| native 기능 등록 | QA Associated Domains와 새 profile 설치, 빌드 10 실제 archive/IPA의 두 callback entitlement, 공개 AASA/assetlinks와 실제 QA 서명 식별 일치 검증 | 실제 기기/provider 복귀는 후속 검증. Apple 로그인, Services ID, APNs 및 Prod capability/profile은 별도 준비 |
 
 Apple API의 `filter[identifier]` / `filter[bundleId]`는 접두사가 겹치는 QA 레코드를 반환할 수
 있었다. **응답 개수만으로 앱을 판정하지 않고 실제 identifier/bundleId의 정확한 일치**를
