@@ -63,7 +63,7 @@ test('tombstones are terminal for every live version while newer tombstones and 
   const cache = new ReferenceRoomCache('terminal');
   cache.snapshot('terminal', { ...envelope, messages: [message('a', '1')], nextCursor: 'one' });
   cache.delta('terminal', 'one', { ...envelope, events: [{ type: 'message.deleted', messageId: 'a', version: '2' }], nextCursor: 'two' });
-  const tombstone = structuredClone(cache.state.messages.get('a'));
+  const tombstone = globalThis.structuredClone(cache.state.messages.get('a'));
   for (const version of ['1', '2', '3', '9007199254740993', '18446744073709551615']) {
     assert.equal(cache.history('terminal', { ...envelope, messages: [message('a', version)] }), true);
     assert.equal(cache.delta('terminal', cache.state.cursor, { ...envelope, events: [{ type: 'message.upsert', message: message('a', version) }], nextCursor: `ignored-${version}` }), true);
@@ -74,7 +74,7 @@ test('tombstones are terminal for every live version while newer tombstones and 
   assert.deepEqual(cache.state.messages.get('a'), { ...tombstone, version: '9007199254740993' });
   cache.delta('terminal', 'newer-deletion', { ...envelope, events: [{ type: 'message.deleted', messageId: 'a', version: '2' }], nextCursor: 'older-deletion' });
   assert.equal(cache.state.messages.get('a').version, '9007199254740993');
-  const state = structuredClone(cache.state);
+  const state = globalThis.structuredClone(cache.state);
   assert.throws(() => cache.delta('terminal', 'older-deletion', { ...envelope, events: [{ type: 'message.upsert', message: { ...message('a', '18446744073709551615'), createdAt: '2026-09-20T00:00:00.001Z' } }], nextCursor: 'invalid-key' }), /immutable_display_key/);
   assert.deepEqual(cache.state, state);
 });
@@ -83,7 +83,7 @@ test('only a fresh fenced cache generation can replace tombstones with an author
   const cache = new ReferenceRoomCache('generation-before');
   cache.snapshot('generation-before', { ...envelope, messages: [message('a', '1')], nextCursor: 'one' });
   cache.delta('generation-before', 'one', { ...envelope, events: [{ type: 'message.deleted', messageId: 'a', version: '2' }], nextCursor: 'two' });
-  const state = structuredClone(cache.state);
+  const state = globalThis.structuredClone(cache.state);
   assert.throws(() => cache.reset('generation-before'), /new_cache_generation_required/);
   assert.deepEqual(cache.state, state);
   assert.equal(cache.snapshot('generation-before', { ...envelope, messages: [message('a', '3')], nextCursor: 'same-generation' }), false);
