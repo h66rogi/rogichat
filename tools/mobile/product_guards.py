@@ -1,0 +1,103 @@
+"""Keep the distributed app composition free of the retired synthetic product.
+
+These checks deliberately name Rogichat's retired fixtures and entry points;
+platform Preview APIs and third-party symbols are not evidence of a demo app.
+Run source checks before building and artifact checks again before uploading.
+"""
+from pathlib import Path
+import re
+import zipfile
+
+ROOT = Path(__file__).resolve().parents[2]
+
+RETIRED_MARKERS = (
+    "WireframeHost", "WireframeFixtures", "WireframeState", "WireframeScreens",
+    "LinkWireframe", "RoomsWireframe", "ChatWireframe", "ReportWireframe",
+    "PreviewRole", "PreviewAudience", "NotificationPreview", "onEndPreview",
+    "sample-room-a", "sample-room-b", "QA · 화면 미리보기", "미리보기 역할",
+    "연결 이후 화면 미리보기", "방 1개 계정 화면 미리보기", "미리보기 종료",
+    "샘플 스트리머 A", "샘플 스트리머 B", "샘플 팬 A", "샘플 팬 B",
+    "샘플 로그인 상태", "다시 시도 화면 미리보기", "저장 준비 중", "탈퇴 준비 중",
+    "저장 · 준비 중", "로그아웃 · 준비 중", "탈퇴 · 준비 중", "계정 연결 기능 준비 중",
+    "프로필 연결 준비 중", "사진 설정 준비 중", "선택 정보 설정 준비 중",
+    "로그아웃 기능은 준비 중이에요", "탈퇴 기능과 데이터 처리 안내를 준비하고 있어요",
+)
+
+
+def inspect_product_data(data: bytes, label: str):
+    for marker in RETIRED_MARKERS:
+        # Android/Swift normally use UTF-8. Also cover compiled string resources.
+        if any(marker.encode(encoding) in data for encoding in ("utf-8", "utf-16le", "utf-16be")):
+            raise ValueError(f"{label}: retired demo content is not allowed in a distributed app ({marker})")
+
+
+def inspect_android_package(path: Path):
+    """APK and AAB are both zip files; inspect code and resources in all modules."""
+    with zipfile.ZipFile(path) as package:
+        names = [name for name in package.namelist() if not name.endswith("/")]
+        if not any(name.endswith(".dex") for name in names):
+            raise ValueError(f"{path.name}: Android package has no executable code")
+        for name in names:
+            inspect_product_data(package.read(name), f"{path.name}/{name}")
+
+
+def inspect_ios_app(app: Path, executable_name: str):
+    if not executable_name or Path(executable_name).name != executable_name:
+        raise ValueError("iOS bundle has an invalid executable name")
+    if not (app / executable_name).is_file():
+        raise ValueError("iOS bundle has no executable code")
+    for path in app.rglob("*"):
+        if path.is_file():
+            inspect_product_data(path.read_bytes(), f"{app.name}/{path.relative_to(app)}")
+
+
+def inspect_ios_package(package: zipfile.ZipFile, app_prefix: str, executable_name: str):
+    if not executable_name or Path(executable_name).name != executable_name:
+        raise ValueError("iOS bundle has an invalid executable name")
+    if app_prefix + executable_name not in package.namelist():
+        raise ValueError("IPA has no executable code")
+    for name in package.namelist():
+        if name.startswith(app_prefix) and not name.endswith("/"):
+            inspect_product_data(package.read(name), name)
+
+
+def _inspect_android_sources(root: Path):
+    android = root / "apps/android/app/src"
+    shared_entry = android / "main/java/chat/rogi/rogichat/AppEntry.kt"
+    if not shared_entry.is_file():
+        raise ValueError("Android QA and prod must use the shared main AppEntry.kt")
+    for source_set in android.iterdir():
+        if not source_set.is_dir() or source_set.name.startswith(("test", "androidTest")):
+            continue
+        for path in source_set.rglob("*"):
+            if not path.is_file():
+                continue
+            if path.name == "AppEntry.kt" and path != shared_entry:
+                raise ValueError("Android variants must not replace the shared product AppEntry.kt")
+            inspect_product_data(path.read_bytes(), str(path.relative_to(root)))
+
+
+def _inspect_ios_sources(root: Path):
+    ios = root / "apps/ios"
+    entry = ios / "Sources/RogichatApp.swift"
+    if not entry.is_file():
+        raise ValueError("iOS must have one shared RogichatApp entry point")
+    if re.search(r"^\s*#(?:if|elseif)\b[^\n]*\bROGICHAT_QA\b", entry.read_text(), re.MULTILINE):
+        raise ValueError("iOS QA and prod must use the same product composition")
+    for directory in (ios / "Sources", ios / "Resources"):
+        for path in directory.rglob("*"):
+            if path.is_file():
+                inspect_product_data(path.read_bytes(), str(path.relative_to(root)))
+
+
+def inspect_product_sources(root: Path = ROOT, *, platforms=("android", "ios")):
+    checks = {"android": _inspect_android_sources, "ios": _inspect_ios_sources}
+    if not platforms or any(platform not in checks for platform in platforms):
+        raise ValueError("Unknown or empty product source platform selection")
+    for platform in platforms:
+        checks[platform](root)
+
+
+if __name__ == "__main__":
+    inspect_product_sources()
+    print("Shared product entry points and test-only fixture isolation verified")

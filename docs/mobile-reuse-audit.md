@@ -146,3 +146,50 @@ R01–R08은 기존 작업의 실제 추출 증거이며 **충분한 재사용�
 `app/src/main/java/chat/rogi/rogichat`이다. 알림 OS 조회, 3축 설정 상태, route parser와
 pending queue는 **신규 작성**이며 멜로밍의 provider/auth 의미를 이식하지 않았다.
 Swift/Compose 기본 API 호출이라는 이유만으로 원본 코드 재사용 건수를 늘리지 않는다.
+
+## 실제 추출 기록 — 제품 구성 교체
+
+2026-09-20. R01–R08만 추출했던 범위를 다시 대조해 적용 가능한 화면·탐색·상태 구현으로
+확장했다. 아래 원본 SHA는 Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`,
+iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b`로 고정한다. 원본은 읽기 전용이다.
+`DS`, `APP`, `MORE` 약어는 앞 표와 같고 Android 대상은
+`apps/android/app/src/main/java/chat/rogi/rogichat/`, iOS 대상은 `apps/ios/Sources/` 기준이다.
+
+| ID | source 파일·심볼 | 대상 | 방식·보존한 동작과 변경 이유 | 직접 의존 / 검증·잔여 |
+|---|---|---|---|---|
+| R09 | Android `DS/theme/{Theme,Color,Typography}.kt`의 MelomingTheme·Shapes·전체 typography scale | `core/design/{RogichatTheme,AppTypography}.kt` | **수정 재사용**: 양 색상 scheme·shape·theme 조립, 전체 글자 크기/굵기/행간/tracking 유지. 브랜드는 로기챗 색, 본문 대비 보강. 원본 폰트 파일은 가져오지 않고 system font 사용 | 기존 Material3; 4개 variant 빌드·lint. 실제 글자 확대/기기 대비 확인 남음 |
+| R10 | Android `DS/component/{MelomingNavigationBar,MelomingTopBar}.kt`, `APP/navigation/MelomingNavHost.kt` | `core/design/AppNavigation.kt`, `AppEntry.kt/ProductNavigation` | **수정 재사용**, R01/02/07 보정: animated tint·선택 icon·Surface/Row·top bar, 실제 Scaffold/NavHost와 `popUpTo(saveState)`·`launchSingleTop`·`restoreState` 유지. 대화/설정으로 줄이고 visible label·Tab semantics·가변 높이 보강 | Navigation Compose 2.10.1, Lifecycle 2.11.0, Phosphor 1.0.0. session별 VMStore 소유는 신규; 회전 보존·A→B→A 폐기 검사 |
+| R11 | Android `MORE/MoreScreen.kt`의 ProfileSection·SectionTitle·MenuItem·Divider·계정 확인 dialog | `feature/settings/{SettingsScreen,AccountScreen}.kt`, `core/design/SettingsComponents.kt` | **수정 재사용**: 프로필 먼저 배치한 설정 허브·그룹 메뉴·파괴적 작업 확인 흐름. 상점/캐시/채널/Pro/개발 메뉴는 제외. 실제 계정·SOOP 상태·작업별 capability로 연결 | 기존 Compose, 주입 SessionActions. 실제 logout/delete transport는 C01/C08 대기 |
+| R12 | Android `MORE/ProfileSettingsScreen.kt`의 ProfileSettingsScreen·FieldRow·ProfileSettingsViewModel/UiState | `feature/settings/{ProfileScreen,ProfileViewModel}.kt` | **수정 재사용 + 도메인 보강**: top bar save·BasicTextField·IME·조회/편집/저장/서버 오류 흐름. 원본 이메일/본인인증 대신 실제 프로필 DTO, 실패 시 draft 보존·미저장 취소·응답 계정 확인. 생일/PATCH 모델은 신규 | Lifecycle/ViewModel; 중복·취소·늦은 저장·불량 응답 검사. API 왕복은 native auth 대기 |
+| R13 | Android `MORE/NotificationSettingsScreen.kt`의 OS 설정 action·row/divider·오류 표시 | `feature/settings/NotificationSettingsScreen.kt` | **부분 수정 재사용**: OS 부분과 화면 구성. 기존 서버 토글의 기본값/rollback race는 제외, 실제 OS 조회·설정 이동·foreground 재조회 연결 | 기존 NotificationSystem; 실제 FCM/binding/서버 선호는 C09 대기 |
+| R14 | Android `core/data/.../preferences/DeveloperPreferences.kt`의 load·MutableStateFlow/asStateFlow·apply/publish, `MORE/OpenSourceLicensesScreen.kt`의 LicenseItem/list | `core/design/AppearancePreferences.kt`, `feature/settings/LicensesScreen.kt` | **수정 재사용**: 환경/개발 설정을 제거하고 실제 화면 모드 저장에 preference 구현 적용. 라이선스 목록 구성을 실제 의존성·전체 고지로 교체. appearance 선택 UI는 원본에 없어 신규 | SharedPreferences/StateFlow, assets/licenses. 원본 환경 값·운영 ID 미이식 |
+| R15 | Android `feature/auth/.../LoginScreen.kt`의 LoginContent | `feature/auth/WelcomeScreen.kt` | **부분 표현 재사용**: scroll·브랜드/제목/설명·provider 배치. 이메일/MFA/기존 인증 URL은 계약 불일치로 제외. 로기챗 SOOP 연결 안내는 신규 | Compose; 실제 인증 flow/AuthRepository 이식으로 집계하지 않음 |
+| R16 | iOS `Meloming/Presentation/Navigation/MainTabView.swift` | `Core/Design/AppShell.swift` | **부분 수정 재사용**, R07 보정: modern Tab/legacy tabItem 분기·selected binding·native 탭·tint. 탭별 NavigationStack과 로기챗 목적지 적용 | SwiftUI; `ShellNavigation`은 로기챗 신규 상태 모델이며 원본 AppRouter 추출이 아님 |
+| R17 | iOS `Meloming/Presentation/More/MyPageView.swift`의 profileHub·MyProfileHero·MyPageSection·MyActionRow | `Features/Settings/SettingsScreen.swift`, `Core/Design/SettingsComponents.swift` | **수정 재사용**: 프로필 허브·LazyVStack 간격28/padding20·이름/상태 위계·그룹/색상 icon tile·inset divider/background. wallet/order/channel은 제외. guarded profile/account route 연결 | SwiftUI/SF Symbols; 큰 글자 줄바꿈 유지, VoiceOver 실기기 검증 남음 |
+| R18 | iOS `Meloming/Presentation/More/MoreView.swift`의 ProfileSettingsView | `Features/Settings/ProfileScreen.swift` | **부분 화면 흐름 수정 재사용**: Form/Section·binding·비동기 saving/progress/error·저장 중 비활성·성공 dismiss. 닉네임 규칙·생일/공개 범위·명시적 취소는 로기챗 DTO에 맞게 보강 | SwiftUI; 실제 session이 주입한 account만 편집. 프로필 API 연결 대기 |
+| R19 | iOS `Meloming/Presentation/Notifications/NotificationSettingsView.swift` | `Features/Settings/NotificationSettingsScreen.swift` | **부분 수정 재사용**: native List/Section·외부 설정 action·설명 footer. 기존 서버 토글/default true/rollback은 제외하고 실제 OS adapter와 foreground 재조회 연결 | UserNotifications/UIKit; 실제 push 등록/전달 완료를 표시하지 않음 |
+| R20 | iOS `Meloming/Presentation/Auth/LoginView.swift` | `Features/Auth/WelcomeScreen.swift` | **부분 표현 재사용**: centered brand/title/subtitle·scroll·social button group·busy/error 배치. 로고/기존 provider와 signup URL 제외. benefit card·SOOP 안내는 신규 | SwiftUI; AuthManager/실제 로그인 기능 이식으로 집계하지 않음 |
+| R21 | iOS `Meloming/Core/State/{Loadable,LoadableView}.swift` | `Core/State/{Loadable,LoadableView}.swift` | **구현 수정 재사용**: loading/value/failure 분기·표시 구현 유지. 비반사적인 Error Equatable 구현은 제거 | SwiftUI; 전체 구성 컴파일 및 각 분기 호출부 확인 |
+| R22 | 대응 원본과 계약 대조: Android auth repository, iOS AuthManager/APIClient, 양 OS Talk/TalkV2 | 양 OS `Core/Session`, product root, `Features/Rooms`, profile DTO; iOS AppTheme/Appearance·About | **신규**: 원본 bearer/refresh/MFA는 웹 cookie뿐인 로기챗 native 계약과 불일치. session scope/capability·응답 fence를 명시적 주입으로 구현. 채팅 UX는 사용자 제외 범위. 생일·PATCH·화면 모드 선택은 원본에 같은 기능 없음 | 원본 network/secure store를 복사했다고 주장하지 않음. 실제 native adapter·DB·chat은 MB01/02d/03 이후 |
+
+### 출처·고지와 제외 근거
+
+- 자체 코드 재사용은 사용자 명시 지시 범위다. 원본 root LICENSE 부재를 공개 라이선스로
+  간주하지 않으며, 이번 직접 추출 소스에서 추가 third-party 소스 헤더/자산은 발견하지 않았다.
+- Android Phosphor는 실제 사용 library로 유지하고 Adamglin(2024)·Phosphor Icons(2023)
+  MIT 고지, Kotlin·Apache 라이선스 전문을 앱 `assets/licenses`와 고지 화면에 포함했다.
+  iOS 외부 dependency는 추가하지 않았다. 원본 폰트/이미지/아이콘 자산 묶음은 복사하지 않았다.
+- 원본 history·환경 파일·서명/운영 자료·analytics·기존 app/provider ID·WebView cookie
+  주입을 이식하지 않았다. 채팅 버블/입력/답장/scroll·Talk/TalkV2는 이식하지 않았다.
+- Navigation/Lifecycle은 [AndroidX Navigation](https://developer.android.com/jetpack/androidx/releases/navigation),
+  [Lifecycle](https://developer.android.com/jetpack/androidx/releases/lifecycle)에서 stable을 확인하고
+  strict dependency lock을 갱신했다. Phosphor 출처는
+  [compose-phosphor-icon](https://github.com/adamglin0/compose-phosphor-icon)이다.
+
+### 검증과 미완료 경계
+
+소스·빌드 산출물 fixture 제외, OS별 빌드/상태 시험과 독립 리뷰 결과는
+[제품 구성 교체 기록](mobile-product-progress.md)에 모은다. Android 실제 NavHost와 iOS
+native tab 구성은 컴파일되지만 실기기 화면/스크린리더 결과를 대신하지 않는다.
+네이티브 인증·원격 프로필 저장·logout/delete·방 입장·채팅·푸시는 구현 완료로 집계하지 않는다.
+제품 앱은 실제 native adapter가 없으면 로그인 버튼이나 합성 계정을 제공하지 않는다.

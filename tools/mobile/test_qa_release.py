@@ -89,12 +89,33 @@ class ReleaseGuards(unittest.TestCase):
     def test_ipa_identity_and_version_are_checked(self):
         ipa = self.root / "App.ipa"
         info = {"CFBundleIdentifier": APP_ID, "CFBundleVersion": "7", "CFBundleShortVersionString": "0.1.0",
-                "RogichatEnvironment": "qa", "RogichatAPIBaseURL": API_URL, "UIDeviceFamily": [1]}
+                "RogichatEnvironment": "qa", "RogichatAPIBaseURL": API_URL, "UIDeviceFamily": [1],
+                "CFBundleExecutable": "App"}
         with zipfile.ZipFile(ipa, "w") as archive:
             archive.writestr("Payload/App.app/Info.plist", plistlib.dumps(info))
+            archive.writestr("Payload/App.app/App", b"real app code")
         inspect_ipa(ipa, 7, "0.1.0")
         with self.assertRaisesRegex(ValueError, "CFBundleVersion"):
             inspect_ipa(ipa, 8, "0.1.0")
+
+    def test_reintroduced_demo_ipa_is_rejected_before_upload(self):
+        ipa = self.root / "App.ipa"
+        info = {"CFBundleIdentifier": APP_ID, "CFBundleVersion": "7", "CFBundleShortVersionString": "0.1.0",
+                "RogichatEnvironment": "qa", "RogichatAPIBaseURL": API_URL, "UIDeviceFamily": [1],
+                "CFBundleExecutable": "App"}
+        with zipfile.ZipFile(ipa, "w") as archive:
+            archive.writestr("Payload/App.app/Info.plist", plistlib.dumps(info))
+            archive.writestr("Payload/App.app/App", b"WireframeHost")
+        with self.assertRaisesRegex(ValueError, "retired demo content"):
+            inspect_ipa(ipa, 7, "0.1.0")
+
+    def test_reintroduced_demo_apk_is_rejected_before_signing_checks(self):
+        with zipfile.ZipFile(self.artifact, "w") as archive:
+            archive.writestr("classes.dex", b"PreviewRole")
+        with patch.object(release_android, "capture") as tool:
+            with self.assertRaisesRegex(ValueError, "retired demo content"):
+                release_android.verify_apk(self.artifact, 7, "0.1.0")
+            tool.assert_not_called()
 
     def test_testflight_keeps_build_number_and_internal_scope(self):
         options = export_options("fixture", "upload")

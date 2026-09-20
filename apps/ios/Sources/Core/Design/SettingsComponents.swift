@@ -17,14 +17,15 @@ struct SettingsRow: View {
     let icon: String
     let title: String
     let subtitle: String
+    var tint: Color = .accentColor
     var enabled = true
     var action: (() -> Void)? = nil
 
     private var label: some View {
         HStack(spacing: 13) {
-            Image(systemName: icon).font(.body.weight(.semibold)).foregroundStyle(.secondary)
+            Image(systemName: icon).font(.body.weight(.semibold)).foregroundStyle(tint)
                 .frame(width: 38, height: 38)
-                .background(Color.secondary.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)

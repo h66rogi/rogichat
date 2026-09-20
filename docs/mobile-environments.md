@@ -14,14 +14,17 @@ QA와 운영 앱은 별도 설치·데이터 영역을 사용한다. 환경은 �
 | iOS Keychain service | `chat.rogi.rogichat.qa.session` | `chat.rogi.rogichat.session` |
 
 식별자는 소스에 확정한 값이며 Apple/Google 포털 등록 완료를 뜻하지 않는다.
-운영 API 주소는 설정만 했고 DNS·서버 배포·연결 성공은 별도다. 현재 화면은 앱 기동용
-기본 화면이며 API 호출·로그인·계정 저장을 아직 구현하지 않았다.
+운영 API 주소는 설정만 했고 DNS·서버 배포·연결 성공은 별도다. QA/prod는 동일한 제품
+조립부를 사용한다. 합성 계정·방·역할 선택은 테스트 소스에만 두며, 두 환경의 배포 앱에서
+모두 제외한다. 네이티브 인증/서비스 통신은 C01/C02 계약 이후 연결한다.
 
 ## Android
 
 Android 10/API 29 이상. compile/target API 37, Build Tools 37.0.0,
 AGP 9.4.1, Gradle 9.7.1, JDK 17, Kotlin/Compose compiler 2.4.20,
-Compose BOM 2026.09.00, activity-compose 1.13.0을 사용한다.
+Compose BOM 2026.09.00, activity-compose 1.13.0을 사용한다. 탐색·화면 수명은
+navigation-compose 2.10.1과 Lifecycle 2.11.0으로 구현하며, 멜로밍과 같은 Phosphor
+아이콘 라이브러리 1.0.0의 고지를 앱에 포함한다. 실제 의존 버전은 catalog와 lock을 따른다.
 AGP 내장 Kotlin을 유지하며 별도 kotlin-android 플러그인을 적용하지 않는다.
 컴파일러 2.4.20 선택은 생성된 dependency lock에서도 확인한다.
 
@@ -52,7 +55,7 @@ SDK Manager에서 `platforms;android-37.0`, `build-tools;37.0.0`을 설치한다
 iOS 18.0 이상, iPhone 우선. Xcode 26.6(build 17F113), Swift 6 language mode.
 SwiftUI 기본 앱이며 외부 SPM 의존성은 아직 없어 `Package.resolved`도 없다.
 
-- `apps/ios/Rogichat.xcodeproj`를 열고 QA/prod scheme을 선택한다.
+- CLI에서 `Rogichat-QA`/`Rogichat-Prod` scheme 또는 해당 configuration을 지정한다.
 - `project.yml`은 생성 원본, `Config/QA.xcconfig`·`Prod.xcconfig`는 공개 환경 설정이다.
   생성된 프로젝트와 공유 scheme도 Git에 보관한다. `xcuserdata`는 제외한다.
 - iOS plist의 URL은 xcconfig의 `//` 주석 처리 때문에 `https:/$()/...`로 표현한다.
@@ -72,6 +75,8 @@ python3 tools/mobile/build_ios.py --derived-data /path/to/external/DerivedData/r
 XcodeGen은 공식 2.44.1 배포본·SHA-256으로 고정한다. 생성 후 Xcode 프로젝트 diff도 함께
 검토한다. `build_ios.py`는 QA/prod × Debug/Release를 unsigned 빌드하고 실제 번들의
 식별자·표시 이름·URL·최소 OS·iPhone target과 Mach-O 플랫폼을 검사한다.
+`product_guards.py`는 공통 제품 entry point와 테스트 데이터의 소스 경계를 검사하고,
+실제 APK/AAB/앱 번들/IPA 검사도 QA/prod 양쪽의 기존 합성 host·방·선택기 포함을 거부한다.
 서명·시뮬레이터 선택이 필요 없는 `xcodebuild -target Rogichat -sdk iphoneos` 경로를
 사용하고, scheme의 Run/Test/Archive configuration 연결은 별도로 검사한다.
 generic destination 문제가 발생하면 runtime 매핑·마운트와 IB Support 경로를

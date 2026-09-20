@@ -1,0 +1,52 @@
+package chat.rogi.rogichat.core.session
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import chat.rogi.rogichat.core.navigation.ShellAccess
+import chat.rogi.rogichat.core.common.request
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+
+data class SessionOperationState(val busy: Boolean = false, val error: String? = null)
+class SessionViewModel(private val services: ProductServices, private val injectedScope: CoroutineScope? = null) : ViewModel() {
+    private val mutable = MutableStateFlow(SessionOperationState())
+    private var revision = 0L
+    private var startupRequested = false
+    val state = mutable.asStateFlow()
+    fun start() {
+        if (startupRequested) return
+        startupRequested = true
+        if (services.session.value.access == ShellAccess.RESTORING) restore()
+    }
+    fun signIn(provider: SignInProvider) {
+        val actions = services.actions ?: return
+        if (services.session.value.access != ShellAccess.SIGNED_OUT) return
+        if (provider !in actions.providers) return
+        perform("로그인을 완료하지 못했어요. 다시 시도해 주세요.") { actions.signIn(provider) }
+    }
+    fun linkSoop() { if (services.session.value.access != ShellAccess.LINK_REQUIRED) return; services.actions?.takeIf { it.canLinkSoop }?.let { perform("SOOP 계정을 연결하지 못했어요.") { it.linkSoop() } } }
+    fun signOut() { if (services.session.value.account == null) return; services.actions?.takeIf { it.canSignOut }?.let { perform("로그아웃하지 못했어요. 다시 시도해 주세요.") { it.signOut() } } }
+    fun closeAccount() { if (services.session.value.account == null) return; services.actions?.takeIf { it.canCloseAccount }?.let { perform("탈퇴를 완료하지 못했어요. 다시 시도해 주세요.") { it.closeAccount() } } }
+    fun restore() { if (services.session.value.access !in setOf(ShellAccess.RESTORING, ShellAccess.RETRYABLE_FAILURE)) return; services.actions?.takeIf { it.canRestore }?.let { perform("계정을 확인하지 못했어요. 다시 시도해 주세요.") { it.restore() } } }
+    private fun perform(message: String, operation: suspend () -> Result<Unit>) {
+        if (mutable.value.busy) return
+        val captured = services.session.value
+        val ticket = ++revision
+        mutable.value = SessionOperationState(busy = true)
+        (injectedScope ?: viewModelScope).launch {
+            try {
+                val result = request(operation)
+                val current = services.session.value
+                if (ticket == revision) mutable.value = SessionOperationState(error = message.takeIf {
+                    result.isFailure && current.generation == captured.generation && current.access == captured.access &&
+                        current.account?.id == captured.account?.id
+                })
+            } finally {
+                if (ticket == revision) mutable.value = mutable.value.copy(busy = false)
+            }
+        }
+    }
+    fun dismissError() { mutable.value = mutable.value.copy(error = null) }
+}

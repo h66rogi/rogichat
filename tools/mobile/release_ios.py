@@ -4,6 +4,7 @@ from pathlib import Path
 import plistlib
 import zipfile
 from keychain_unlock import unlock
+from product_guards import inspect_ios_app, inspect_ios_package, inspect_product_sources
 
 from release_common import APP_ID, API_URL, ROOT, AppStoreConnect, capture, external, manifest, new_output, private_write, run, save_manifest, sha256, tree_sha256
 
@@ -29,6 +30,7 @@ def inspect_archive(path, number, version):
     with (app / "Info.plist").open("rb") as stream:
         info = plistlib.load(stream)
     inspect_info(info, number, version)
+    inspect_ios_app(app, info.get("CFBundleExecutable", ""))
     capture(["codesign", "--verify", "--deep", "--strict", str(app)])
     if not (app / "embedded.mobileprovision").is_file():
         raise ValueError("Archive has no provisioning profile")
@@ -41,10 +43,13 @@ def inspect_ipa(path, number, version):
                  and name.count("/") == 2 and name.endswith(".app/Info.plist")]
         if len(names) != 1:
             raise ValueError("Expected exactly one application in IPA")
-        inspect_info(plistlib.loads(ipa.read(names[0])), number, version)
+        info = plistlib.loads(ipa.read(names[0]))
+        inspect_info(info, number, version)
+        inspect_ios_package(ipa, names[0].removesuffix("Info.plist"), info.get("CFBundleExecutable", ""))
 
 
 def archive(cfg, number, version):
+    inspect_product_sources(platforms=("ios",))
     unlock_signing(cfg)
     asc = AppStoreConnect(cfg)
     registered = asc.request("bundleIds", {"filter[identifier]": APP_ID})["data"]
