@@ -7,6 +7,15 @@ together with QA `90a73e1` and its Swagger and real web product changes.
 No production promotion, host activation, R2 provisioning or external broker
 activation follows from this source integration.
 
+The next combined source batch incorporates QA `d98ff28`, VIDEO worker PR 32
+(`9aa1891`), QA-only automatic backend helper PR 29 (`9c368cf`), and the web
+owner-approved frozen automatic export PR 31 (`5bc0ca8`). Normal merges preserve
+the reviewed ancestry. The web archive shared-core changes retain the default
+manual backend producer contract; automatic exports require explicit event and
+independently verified workflow provenance. Neither helper is installed or
+commissioned merely by merging source. Schema-changing backend releases remain
+on the separately approved migration path, not the no-migration automatic lane.
+
 ## Controller contract alignment
 
 The three native issuance routes are documented on their actual Nest controller:
@@ -28,7 +37,9 @@ session cookie or a recoverable credential after an exchange ACK is lost.
 
 PHOTO publication keeps its existing receipt/status shape. Its description now
 matches the reviewed PHOTO copy implementation; VIDEO/STICKER publication remains
-unsupported. Decoder IPC alone is not VIDEO worker activation.
+unsupported. The VIDEO worker now persists independent video/poster objects and
+finalizes them atomically after fresh owner/lease checks. Source integration does
+not establish actual R2 processing or isolated decoder deployment.
 
 ## Verification boundaries
 
@@ -44,6 +55,20 @@ Independent review found no blocker in the native metadata change and identified
 an inherited bearer-scheme description saying issuance did not exist; it is
 corrected here. Runtime authentication, session projection and controller input
 validation are unchanged by the documentation edits.
+
+Before the next source batch, the combined native/media/ledger graph passed 259
+unit/contract/HTTP-process cases and 159 disposable real-MySQL cases, including
+actual native HTTP response validation; offline OpenAPI export and lint passed.
+The added VIDEO worker and release/export seams receive combined verification
+again rather than inheriting independent branch CI as integration evidence.
+
+The combined batch passed 270 API unit/contract/HTTP-process cases, 175 disposable
+MySQL cases, 110 operations cases, 22 web archive cases, and 11 migration/schema
+probe cases. The independent disposable-MySQL read-only schema probe also passed.
+Build, lint and offline OpenAPI export passed. One initial operations failure was
+a missing local Compose executable; rerunning with the official checksum-verified
+standalone executable passed the unchanged render/isolation assertion. No test
+was skipped to make that environment failure green.
 
 The ledger module is still an unregistered foundation, not external-first deletion
 admission, account deletion or proof of physical purge. M10 admission/replay,

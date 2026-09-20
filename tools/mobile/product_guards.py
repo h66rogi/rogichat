@@ -11,13 +11,21 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 
-# Current iOS runtime stores only app-private appearance preferences through
-# AppStorage/UserDefaults. Adding collection, tracking or another required-reason
-# API requires updating both the truthful declaration and this release policy.
+# Native profile writes transmit a screen name and optional birthday/preferences
+# to the account's server record. Appearance remains app-private UserDefaults.
+# New data flows or required-reason APIs must update declaration and policy together.
 EXPECTED_IOS_PRIVACY = {
     "NSPrivacyTracking": False,
     "NSPrivacyTrackingDomains": [],
-    "NSPrivacyCollectedDataTypes": [],
+    "NSPrivacyCollectedDataTypes": [
+        {
+            "NSPrivacyCollectedDataType": category,
+            "NSPrivacyCollectedDataTypeLinked": True,
+            "NSPrivacyCollectedDataTypeTracking": False,
+            "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"],
+        }
+        for category in ("NSPrivacyCollectedDataTypeUserID", "NSPrivacyCollectedDataTypeOtherDataTypes")
+    ],
     "NSPrivacyAccessedAPITypes": [{
         "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
         "NSPrivacyAccessedAPITypeReasons": ["CA92.1"],
@@ -62,8 +70,11 @@ def inspect_ios_privacy(data: bytes, label: str):
         raise ValueError(f"{label}: invalid iOS privacy manifest") from error
     if (not isinstance(declaration, dict)
             or type(declaration.get("NSPrivacyTracking")) is not bool
-            or declaration != EXPECTED_IOS_PRIVACY):
-        raise ValueError(f"{label}: iOS privacy manifest must match current nontracking, app-private UserDefaults use")
+            or declaration != EXPECTED_IOS_PRIVACY
+            or any(type(item[key]) is not bool
+                   for item in declaration["NSPrivacyCollectedDataTypes"]
+                   for key in ("NSPrivacyCollectedDataTypeLinked", "NSPrivacyCollectedDataTypeTracking"))):
+        raise ValueError(f"{label}: iOS privacy manifest must match current profile collection and app-private UserDefaults use")
 
 
 def inspect_ios_app(app: Path, executable_name: str):

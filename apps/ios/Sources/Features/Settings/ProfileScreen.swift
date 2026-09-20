@@ -86,7 +86,37 @@ struct ProfileScreen: View {
                 dismiss()
             } catch {
                 guard !Task.isCancelled else { return }
-                errorMessage = "프로필을 저장하지 못했어요. 입력한 내용을 확인하고 다시 시도해 주세요."
+                errorMessage = (error as? ProductError)?.errorDescription ?? "프로필을 저장하지 못했어요. 다시 시도해 주세요."
+            }
+        }
+    }
+}
+
+// Full profile fields are loaded explicitly; session-summary omissions never become defaults.
+struct ProfileLoader: View {
+    let onLoad: () async throws -> AccountProfile
+    let onSave: (ProfileUpdate) async throws -> Void
+    @State private var state: Loadable<AccountProfile> = .idle
+    @State private var attempt = 0
+    var body: some View {
+        LoadableView(state: state) {
+            ScreenStatus(title: "프로필을 불러오는 중", message: "", loading: true)
+        } loaded: { profile in
+            ProfileScreen(profile: profile, onSave: onSave)
+        } failed: { error in
+            ScreenStatus(title: "프로필을 불러오지 못했어요",
+                         message: (error as? ProductError)?.errorDescription ?? "연결을 확인하고 다시 시도해 주세요.",
+                         retry: { attempt += 1 })
+        }
+        .task(id: attempt) {
+            state = .loading()
+            do {
+                let profile = try await onLoad()
+                guard !Task.isCancelled else { return }
+                state = .loaded(profile)
+            } catch {
+                guard !Task.isCancelled else { return }
+                state = .failed(error)
             }
         }
     }

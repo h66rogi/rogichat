@@ -185,14 +185,14 @@ def verify_tar(path, config_id, source):
     return config
 
 
-def validate_descriptor(value):
+def validate_descriptor(value, *, producer_events=frozenset({'workflow_dispatch'})):
     require(type(value) is dict and set(value) == {'version', 'repository', 'source_sha', 'producer', 'verification_runs', 'images'})
     require(value['version'] == 1 and value['repository'] == REPOSITORY and SHA.fullmatch(value['source_sha']))
     producer = value['producer']
     require(set(producer) == {'sha', 'run_id', 'run_attempt', 'event', 'ref'})
     require(SHA.fullmatch(producer['sha']) and type(producer['run_id']) is int and producer['run_id'] > 0
             and type(producer['run_attempt']) is int and producer['run_attempt'] > 0
-            and producer['event'] == 'workflow_dispatch' and producer['ref'] == 'refs/heads/qa')
+            and producer['event'] in producer_events and producer['ref'] == 'refs/heads/qa')
     require(set(value['verification_runs']) == WORKFLOWS and set(value['images']) == set(ROLES))
     for role, repo in ROLES.items():
         item = value['images'][role]
@@ -265,18 +265,25 @@ def command(args, *, data=None, env=None, timeout=300):
     return result.stdout
 
 
-def produce():
+def produce(*, expected_event='workflow_dispatch', verification_runs=None):
     source = os.environ['EXPORT_SOURCE_SHA']
     sha = os.environ['GITHUB_SHA']
     require(SHA.fullmatch(source) and SHA.fullmatch(sha) and os.environ['GITHUB_REPOSITORY'] == REPOSITORY
-            and os.environ['GITHUB_REF'] == 'refs/heads/qa' and os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch')
+            and expected_event in ('workflow_dispatch', 'workflow_run')
+            and os.environ['GITHUB_REF'] == 'refs/heads/qa' and os.environ['GITHUB_EVENT_NAME'] == expected_event)
     token = os.environ.pop('GITHUB_TOKEN')
     runs = {}
-    for workflow in sorted(WORKFLOWS):
-        candidates = api(f'actions/workflows/{workflow}/runs?branch=qa&event=push&head_sha={source}&per_page=20', token)['workflow_runs']
-        require(candidates)
-        verify_run(candidates[0], source, workflow)
-        runs[workflow] = candidates[0]['id']
+    if verification_runs is None:
+        for workflow in sorted(WORKFLOWS):
+            candidates = api(f'actions/workflows/{workflow}/runs?branch=qa&event=push&head_sha={source}&per_page=20', token)['workflow_runs']
+            require(candidates)
+            verify_run(candidates[0], source, workflow)
+            runs[workflow] = candidates[0]['id']
+    else:
+        require(type(verification_runs) is dict)
+        runs = dict(verification_runs)
+        # Supplied identities never bypass independent exact-source verification.
+        verify_source(source, runs, token)
     compare = api(f'compare/{source}...{sha}', token)
     require(compare['status'] in ('ahead', 'identical') and compare['merge_base_commit']['sha'] == source)
     print('Exact source CI and reviewed QA ancestry verified.', flush=True)
@@ -285,7 +292,7 @@ def produce():
     descriptor = {'version': 1, 'repository': REPOSITORY, 'source_sha': source,
                   'producer': {'sha': sha, 'run_id': int(os.environ['GITHUB_RUN_ID']),
                                'run_attempt': int(os.environ['GITHUB_RUN_ATTEMPT']),
-                               'event': 'workflow_dispatch', 'ref': 'refs/heads/qa'},
+                               'event': expected_event, 'ref': 'refs/heads/qa'},
                   'verification_runs': runs, 'images': {}}
     with tempfile.TemporaryDirectory(prefix='rogichat-registry-', dir=os.environ['RUNNER_TEMP']) as config:
         env = {**os.environ, 'DOCKER_CONFIG': config}

@@ -4,6 +4,10 @@
 멜로밍의 적용 가능한 실제 화면·기능 구현을 수정 재사용한다. 이전 QA 미리보기 앱의
 확장이나 로그인·채팅 통합 완료로 취급하지 않는다.
 
+이 문서는 **빌드 8의 교체 범위**를 기록한다. 후속 실제 세션·프로필 adapter 작업은
+[네이티브 연결 기록](mobile-native-transport-progress.md)을 따른다. 아래 블로커의 기준은
+교체 시점이며, 후속 계약 확정만으로 실제 로그인 성공을 집계하지 않는다.
+
 ## 바뀐 제품 구성
 
 - Android는 `src/main/AppEntry`, iOS는 `RogichatApp → ProductRootView` 한 경로를
@@ -97,3 +101,14 @@ iOS는 실제 화면 모드 저장에 필요한 UserDefaults 사용 사유 `CA92
 커밋 이후 서명 산출물의 source SHA·해시·버전·양 플랫폼 원격 처리 상태와 테스터 접근은
 Git 밖의 release manifest/배포 영수증으로 검증한다. unsigned 빌드 통과만으로
 TestFlight/App Distribution 배포 완료를 판정하지 않는다.
+
+빌드 8은 제품 소스 `ae3f34d`로 서명했고 QA 병합 `70ff52b`의 모바일 tree와 일치한다.
+해당 QA 커밋의 전체 CI와 이미지 발행이 통과했다. Android는 원격 APK SHA 일치,
+승인된 단일 테스터 분배 요청 승인과 프로젝트 등록을 확인했다. iOS는 `VALID`와
+`IN_BETA_TESTING`, 기존 내부 그룹의 테스터 2명·빌드 연결·한국어 안내를 확인했다.
+메일 수신·기기 설치나 실제 계정 로그인 성공을 확인한 것으로 확대하지 않는다.
+
+Xcode 업로드가 원본 archive Info.plist에 `Distributions`를 추가하는 현상을 발견했다.
+해당 메타데이터를 포함한 archive를 보존한 뒤, 추가 항목만 제거해 이전 Info의 정확한
+SHA와 전체 archive SHA가 기존 manifest와 일치함을 검증했다. manifest 변경이나
+재업로드는 하지 않았다. 이후 업로드 도구는 검증된 작업용 archive 복사본을 사용한다.

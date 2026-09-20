@@ -272,6 +272,10 @@ def snapshot_edge(request):
     require(len(ids) == 1, 'exactly one existing Caddy required')
     caddy = decode(docker('inspect', ids[0]))[0]
     require(caddy['State']['Running'])
+    destinations = [m['Destination'] for m in caddy['Mounts']]
+    require(len(destinations) == len(set(destinations)), 'duplicate Caddy mount destination')
+    # Docker inspect may reorder mounts between reads; retain every mount value.
+    caddy['Mounts'] = sorted(caddy['Mounts'], key=lambda m: m['Destination'])
     nets = set(caddy['NetworkSettings']['Networks'])
     require(network in nets and len(nets) == 2, 'prepared Caddy requires web and existing API network')
     require(any(m['Type'] == 'bind' and m['Source'] == str(SITE.parent) and m['Destination'] == '/etc/caddy/sites' and not m['RW'] for m in caddy['Mounts']))

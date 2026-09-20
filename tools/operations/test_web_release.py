@@ -163,6 +163,74 @@ class ValidationTests(unittest.TestCase):
             w.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://elsewhere.invalid')
 
 
+class EdgeSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        self.r = request()
+        self.caddyfile = b'import /etc/caddy/sites/*.caddy'
+        self.r.update(caddy_sha256=w.digest(self.caddyfile), bootstrap_sha256=w.digest(b'bootstrap'))
+        self.caddy = {
+            'Id': 'existing-caddy', 'Image': 'existing-image', 'Name': '/caddy',
+            'State': {'Running': True}, 'HostConfig': {'ReadonlyRootfs': True},
+            'NetworkSettings': {'Networks': {'rogichat-qa-web': {}, 'api-network': {}}},
+            'Mounts': [
+                {'Type': 'bind', 'Source': str(w.SITE.parent), 'Destination': '/etc/caddy/sites', 'RW': False},
+                {'Type': 'bind', 'Source': str(w.CADDY), 'Destination': '/etc/caddy/Caddyfile', 'RW': False},
+                {'Type': 'volume', 'Source': '/volumes/data', 'Destination': '/data', 'RW': True,
+                 'Name': 'caddy-data', 'Driver': 'local', 'Mode': 'z', 'Propagation': ''},
+                {'Type': 'volume', 'Source': '/volumes/config', 'Destination': '/config', 'RW': True}],
+        }
+        self.network = {'Driver': 'bridge', 'Internal': False, 'Containers': {'caddy': {'Name': 'caddy'}}}
+
+    def snapshot(self, caddy):
+        def read(path):
+            return self.caddyfile if path == w.CADDY else b'bootstrap'
+        with patch.object(w, 'protected', side_effect=read), patch.object(w, 'docker', side_effect=[
+                b'caddy', json.dumps([caddy]).encode(), json.dumps([self.network]).encode()]):
+            return w.snapshot_edge(self.r)
+
+    def test_mount_order_only_is_accepted_without_dropping_values(self):
+        baseline = self.snapshot(self.caddy)
+        reordered = copy.deepcopy(self.caddy)
+        reordered['Mounts'].reverse()
+        w.require(self.snapshot(reordered) == baseline, 'edge changed')
+        self.assertEqual(baseline[0]['Mounts'], sorted(self.caddy['Mounts'], key=lambda m: m['Destination']))
+
+    def test_actual_mount_changes_are_rejected(self):
+        baseline = self.snapshot(self.caddy)
+        for index in (0, 2):
+            for key, value in [('Source', '/changed'), ('Type', 'tmpfs'), ('RW', index == 0),
+                               ('Destination', '/changed'), ('Mode', 'changed'), ('Driver', 'changed'),
+                               ('Propagation', 'changed'), ('Name', 'changed')]:
+                changed = copy.deepcopy(self.caddy)
+                changed['Mounts'][index][key] = value
+                with self.subTest(index=index, key=key), self.assertRaises(w.Rejected):
+                    w.require(self.snapshot(changed) == baseline, 'edge changed')
+
+    def test_duplicate_mount_destinations_are_rejected(self):
+        for conflicting in (False, True):
+            changed = copy.deepcopy(self.caddy)
+            duplicate = dict(changed['Mounts'][0])
+            if conflicting:
+                duplicate.update(Source='/changed', RW=True)
+            changed['Mounts'].append(duplicate)
+            with self.subTest(conflicting=conflicting), self.assertRaisesRegex(w.Rejected, 'duplicate Caddy mount'):
+                self.snapshot(changed)
+
+    def test_identity_host_config_and_network_changes_are_rejected(self):
+        baseline = self.snapshot(self.caddy)
+        for key, value in [('Id', 'replacement'), ('Image', 'replacement'), ('HostConfig', {}),
+                           ('State', {'Running': False}),
+                           ('NetworkSettings', {'Networks': {'rogichat-qa-web': {}, 'changed-network': {}}})]:
+            changed = dict(self.caddy, **{key: value})
+            with self.subTest(key=key), self.assertRaises(w.Rejected):
+                w.require(self.snapshot(changed) == baseline, 'edge changed')
+
+    def test_unowned_network_member_is_rejected(self):
+        self.network['Containers']['foreign'] = {'Name': 'foreign'}
+        with self.assertRaises(w.Rejected):
+            self.snapshot(self.caddy)
+
+
 class ArchiveTests(unittest.TestCase):
     def approval(self):
         return {'artifact_id': 1, 'artifact_sha256': 'sha256:' + 'a' * 64, 'export_sha': 'a' * 40,
@@ -171,6 +239,12 @@ class ArchiveTests(unittest.TestCase):
                 'execution_id': 'sha256:' + 'e' * 64, 'validator_sha256': 'f' * 64, 'web_validator_sha256': 'd' * 64}
 
     def test_complete_archive_crypto_chain_and_tamper(self):
+        self.check_archive_crypto_chain('workflow_dispatch')
+
+    def test_automatic_archive_crypto_chain_and_tamper(self):
+        self.check_archive_crypto_chain('workflow_run')
+
+    def check_archive_crypto_chain(self, event):
         # Isolated instance of the real reused archive core, configured like the
         # publisher. Only HTTP metadata is stubbed; the full verifier chain is real.
         spec = importlib.util.spec_from_file_location('test_web_archive_core', Path(w.__file__).parent.parent / 'web/archive.py')
@@ -206,7 +280,7 @@ class ArchiveTests(unittest.TestCase):
             (folder / 'runtime.manifest.json').write_bytes(raw_manifest)
             descriptor = {'version': 1, 'repository': 'h66rogi/rogichat', 'source_sha': r['source_sha'],
                           'producer': {'sha': a['export_sha'], 'run_id': a['export_run'], 'run_attempt': a['export_attempt'],
-                                       'event': 'workflow_dispatch', 'ref': 'refs/heads/qa'},
+                                       'event': event, 'ref': 'refs/heads/qa'},
                           'verification_runs': r['verification_runs'], 'images': {'runtime': {
                               'image': r['image'], 'config_id': a['config_id'],
                               'archive_sha256': validator.core.file_hash(folder / 'runtime.tar')}}}
@@ -218,7 +292,7 @@ class ArchiveTests(unittest.TestCase):
                            'platform': 'linux/amd64', 'publicationAttempt': 1,
                            'publicationRun': f'https://github.com/{validator.core.REPOSITORY}/actions/runs/{publication_id}',
                            'runtimeEnvironmentsVerified': ['qa', 'production'],
-                           'verification': [{'workflow': name, 'id': identity, 'sha': r['source_sha']}
+                           'verification': [{'workflow': name, 'id': identity, 'attempt': 1, 'sha': r['source_sha']}
                                             for name, identity in r['verification_runs'].items() if name != 'web-publish.yml']}
             with zipfile.ZipFile(folder / 'publication-proof.zip', 'w') as proof:
                 proof.writestr('web-publication-proof.json', json.dumps(proof_value))
@@ -235,10 +309,10 @@ class ArchiveTests(unittest.TestCase):
                    'run_started_at': '2026-09-20T01:00:00Z',
                    'repository': {'full_name': validator.core.REPOSITORY},
                    'head_repository': {'full_name': validator.core.REPOSITORY}}
-            metadata = {f'actions/runs/{identity}': {**run, 'path': '.github/workflows/' + name}
+            metadata = {f'actions/runs/{identity}/attempts/1': {**run, 'id': identity, 'path': '.github/workflows/' + name}
                         for name, identity in r['verification_runs'].items()}
             metadata[f"actions/runs/{a['export_run']}/attempts/{a['export_attempt']}"] = {
-                **run, 'head_sha': a['export_sha'], 'event': 'workflow_dispatch',
+                **run, 'id': a['export_run'], 'head_sha': a['export_sha'], 'event': event,
                 'path': '.github/workflows/web-export.yml', 'run_started_at': '2026-09-20T02:00:00Z'}
             metadata[f"actions/artifacts/{a['artifact_id']}"] = {
                 'expired': False, 'digest': a['artifact_sha256'],
@@ -259,7 +333,7 @@ class ArchiveTests(unittest.TestCase):
                 return io.BytesIO(json.dumps(metadata[key]).encode())
             with patch.object(w, 'RELEASES', root), patch.object(w, 'protected', side_effect=read), patch.object(w, 'load_archive_validator', return_value=validator), patch.object(validator.core.urllib.request, 'urlopen', side_effect=public_metadata) as http, patch.object(validator, 'download_proof', side_effect=AssertionError('host ZIP download forbidden')), patch.object(validator.core, 'command', side_effect=AssertionError('host credential command forbidden')):
                 w.verify_archive(r, d)
-                self.assertEqual(http.call_count, 12)
+                self.assertEqual(http.call_count, 11)
                 (folder / 'export.zip').write_bytes(b'tampered')
                 with self.assertRaises(ValueError):
                     w.verify_archive(r, d)
