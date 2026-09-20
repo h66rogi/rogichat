@@ -11,8 +11,10 @@ or live account verification. No real SOOP login was attempted.
 
 `apps/web/src/features/privacy/index.ts` exports:
 
-- `AccountDeletionControl({origin, session, generation, onBlocked})` for settings.
-- `AccountDeletionRecovery({origin, onResume, onBlocked})` ahead of private gates.
+- `AccountDeletionControl({origin, session, generation, cleanupBinding,
+  onPrepare, onBlocked})` for settings.
+- `AccountDeletionRecovery({origin, onResume, cleanupBinding, onPrepare,
+  onBlocked})` ahead of private gates.
 - `ACCOUNT_DELETION_PENDING`, `PRIVACY_CHANGED`, and synchronous
   `isAccountDeletionPending(storage)`. Read failures fail closed. Marker existence
   gates every private-session consumer before profile/room restoration.
@@ -29,18 +31,31 @@ or live account verification. No real SOOP login was attempted.
   by its idempotency key after reload. Mount it in settings.
 
 The media integrator exclusively owns shared settings/chat/auth-gate mounting.
-`onBlocked` must synchronously invalidate private lifecycle resources (outbox,
+Required `cleanupBinding(session): Promise<string>` supplies the real environment
+domain-separated outbox session digest (64 lowercase hex), validated and persisted
+as marker `outbox` before any cleanup or DELETE. Required
+`onPrepare(session): Promise<void>` fences active stores and completes session-bound
+closed-store erasure before DELETE. It must not emit session invalidation that
+unmounts its own performing control. Preparation failure prevents DELETE; exact
+session/account equality is rechecked after preparation before mutation.
+`onBlocked(session)` receives that captured session and must synchronously invalidate private lifecycle resources (outbox,
 drafts, caches, push binding); the leaf additionally forgets chat memory and
 emits session/privacy invalidation. Recovery owns marker reconciliation/clearing.
 `onResume` only means the user closed the notice, never cancellation of an
 accepted deletion. It must refresh authorization before private content returns.
 `onPublished` requests authoritative fresh sync, with no local SHARED projection.
+`readDeletion` and `browserPrivacyStore` are exported for the shared pending gate.
+On reload, the owner uses only the recorded session digest plus the storage
+primitive's captured authority epoch to erase the original store; a successor
+session mismatch is a no-op. Legacy markers without a digest remain an honest
+cleanup/recovery gate, never permission to infer and erase a new session.
 
 The marker is written **before** DELETE as `unknown`, containing only a random
 operation ID, a hash of API origin plus opaque account partition, and phase.
 An optional one-way session equality hash distinguishes the session that received
 RECENT_AUTH_REQUIRED from a subsequently rotated same-account login. The hash is
 not an authentication credential and never authorizes a request.
+The optional `outbox` digest exists solely for session-targeted local erasure.
 No token, CSRF, raw account UUID, message content, or deletion request UUID is
 stored. Receipt status `blocked` means account access blocked, never physical
 purge complete. 401, 503, malformed JSON and lost ACK remain uncertain. Recovery
@@ -79,7 +94,7 @@ The direct Node 24 tests cover strict receipts, transport bounds, lost ACK/401/5
 reauth account switching, storage failure, stale operation fencing, publication
 permissions, version/generation keys and unknown-to-published status recovery.
 TypeScript and leaf ESLint run without a local build or dependency install.
-Eight dedicated `privacy-production.spec.ts` cases exercise actual settings/chat mounts with
+Nine dedicated `privacy-production.spec.ts` cases exercise actual settings/chat mounts with
 isolated interception, including confirmation, same/different account reauth,
 lost ACK reload, publication preparation/revocation and report recovery plus axe.
 Shared UI mounting, browser/a11y execution and CI build remain the integrator's

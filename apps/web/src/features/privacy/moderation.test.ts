@@ -134,3 +134,15 @@ void test('recovering a successor report marker discards the predecessor retry b
   await flow.recover(); assert.equal(flow.state, 'missing'); assert.equal(flow.canRetry, false);
   await flow.retry(id, actor); assert.equal(posts, 1); assert.equal(readReport(storage)?.key, id);
 });
+
+void test('predispatch report failure returns to explicit editable confirmation through read-only recovery', async () => {
+  const storage = store(); let unavailable = true; let posts = 0;
+  const client = api((path, init) => {
+    if (path.endsWith('/session')) return response(unavailable ? {} : session, unavailable ? 503 : 200);
+    if (init.method === 'POST') posts++;
+    return response(receipt);
+  });
+  const flow = new ReportFlow(client, storage, session, () => {}); await flow.submit(id, actor, 'spam', '');
+  assert.equal(flow.state, 'storageError'); assert.equal(posts, 0); unavailable = false;
+  await flow.recover(); assert.equal(flow.state, 'idle'); assert.equal(posts, 0); assert.equal(readReport(storage), null);
+});
