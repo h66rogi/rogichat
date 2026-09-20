@@ -56,12 +56,14 @@ isolation check pass. All 58 web unit tests pass, including reaction contract
 validation, request bounds, set/change/remove, 401/403/404/429/503, stale version,
 profile reset, deletion and disposal; existing send/deletion tests remain green.
 
-All 26 focused production-artifact Playwright cases cover desktop and mobile Chromium:
+All 30 focused production-artifact Playwright cases cover desktop and mobile Chromium:
 real method/CSRF requests, authoritative counts, empty/loading/error states,
 keyboard focus, axe accessibility, 401/403/404 recovery, 429 cooldown, 503 read
 recovery, delayed replies after deletion/session change, version-hint refresh
 anonymous publication identity, and delayed GET/PUT version-advance races with
-open-control reread and closed-control suppression. Synthetic data exists only in isolated test
+open-control reread and closed-control suppression. Deferred keyboard refresh
+preserves focus through loading; aggregate-chip activation moves focus to the
+stable refresh control before counts disappear, including emoji outside the palette. Synthetic data exists only in isolated test
 interception and is excluded from production bundles.
 
 Side-effect inspection found no backend/mobile consumer of the changed web-only

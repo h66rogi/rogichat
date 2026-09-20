@@ -1,5 +1,5 @@
 'use client';
-import { createContext, useContext, useEffect, useId, useState } from 'react';
+import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
 import { Button } from '@/shared/ui/button';
 import type { ChatController, ChatState } from './chat-controller';
 
@@ -11,6 +11,7 @@ export function ReactionControl({ messageId }: { messageId: string }) {
   const context = useContext(ReactionContext);
   const [open, setOpen] = useState(false);
   const id = useId();
+  const refreshButton = useRef<HTMLButtonElement>(null);
   const state = context?.reactions[messageId];
   const controller = context?.controller;
   const revision = context?.reactionRevision;
@@ -30,13 +31,13 @@ export function ReactionControl({ messageId }: { messageId: string }) {
       {state?.phase === 'error' && <p role="alert" className="w-full text-danger">{state.error}</p>}
       {ready && state.summary && <>
         <p className="w-full text-muted" role="status">{state.summary.counts.length === 0 ? '아직 반응이 없습니다.' : '현재 반응 집계'}</p>
-        {state.summary.counts.map(({ emoji, count }) => <Button key={emoji} variant="outline" size="sm" className="min-h-11" aria-label={`${emoji} 반응 ${count}개${state.summary?.mine === emoji ? ', 내 반응 해제' : ', 선택'}`} aria-pressed={state.summary?.mine === emoji} onClick={() => void controller.react(messageId, state.summary?.mine === emoji ? null : emoji)}>{emoji} {count}</Button>)}
+        {state.summary.counts.map(({ emoji, count }) => <Button key={emoji} variant="outline" size="sm" className="min-h-11" aria-label={`${emoji} 반응 ${count}개${state.summary?.mine === emoji ? ', 내 반응 해제' : ', 선택'}`} aria-pressed={state.summary?.mine === emoji} onClick={() => { refreshButton.current?.focus(); void controller.react(messageId, state.summary?.mine === emoji ? null : emoji); }}>{emoji} {count}</Button>)}
       </>}
         <div className="flex w-full flex-wrap gap-1" role="group" aria-label="내 반응 선택">
           {choices.map(([emoji, label]) => <Button key={emoji} variant="ghost" size="sm" className="min-h-11 min-w-11" aria-label={`${label} 반응`} aria-disabled={!ready} aria-pressed={ready ? state?.summary?.mine === emoji : undefined} onClick={() => { if (ready) void controller.react(messageId, state?.summary?.mine === emoji ? null : emoji); }}>{emoji}</Button>)}
           <Button variant="ghost" size="sm" className="min-h-11" aria-disabled={!ready || !state?.summary?.mine} onClick={() => { if (ready && state?.summary?.mine) void controller.react(messageId, null); }}>내 반응 해제</Button>
         </div>
-      <Button variant="outline" size="sm" className="min-h-11" disabled={busy} onClick={() => void controller.react(messageId)}>{ready ? '반응 새로고침' : '반응 다시 조회'}</Button>
+      <Button variant="outline" size="sm" className="min-h-11" ref={refreshButton} aria-disabled={busy} onClick={() => { if (!busy) void controller.react(messageId); }}>{ready ? '반응 새로고침' : '반응 다시 조회'}</Button>
     </div>}
   </div>;
 }

@@ -299,3 +299,23 @@ for (const action of ['GET', 'PUT', 'closed'] as const) test(`pending reaction $
   }
   await expect(page.getByRole('button', { name: /반응 99개/ })).toHaveCount(0);
 });
+
+for (const action of ['refresh', 'aggregate'] as const) test(`reaction keyboard ${action} retains logical focus through a deferred response`, async ({ page }) => {
+  const { reactions } = await reactionApi(page); reactions.mine = '🦊';
+  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  const group = page.getByRole('group', { name: '메시지 반응', exact: true });
+  const refresh = group.getByRole('button', { name: '반응 새로고침', exact: true });
+  await expect(page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' })).toBeVisible();
+  let release!: () => void; reactions.hold = new Promise(resolve => { release = resolve; });
+  const target = action === 'refresh' ? refresh : page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' });
+  await target.focus(); await target.press('Enter');
+  const pendingRefresh = group.getByRole('button', { name: '반응 다시 조회', exact: true });
+  await expect(pendingRefresh).toBeFocused(); await expect(pendingRefresh).toBeDisabled();
+  await expect(page.getByRole('button', { name: /반응 2개/ })).toHaveCount(0);
+  await pendingRefresh.press('Enter'); expect(reactions.calls).toHaveLength(2);
+  release(); reactions.hold = null;
+  await expect(refresh).toBeFocused(); await expect(refresh).toBeEnabled();
+  if (action === 'refresh') await expect(page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' })).toBeVisible();
+  else await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  expect(reactions.calls).toEqual(['GET', action === 'refresh' ? 'GET' : 'DELETE']);
+});
