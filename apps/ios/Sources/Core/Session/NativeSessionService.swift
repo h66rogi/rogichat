@@ -1,7 +1,7 @@
 import Foundation
 
 // Real native transport and one-shot provider completion; no bootstrap credentials.
-actor NativeSessionService: SessionServing {
+actor NativeSessionService: SessionServing, AccountNotificationsServing {
     nonisolated let capabilities: SessionCapabilities
     private let auth: (any SOOPAuthenticating)?
     private var authenticating = false
@@ -9,12 +9,15 @@ actor NativeSessionService: SessionServing {
     private let api: any NativeRequesting
     private let store: any NativeCredentialStoring
     private let now: @Sendable () -> Date
-    private var epoch: UInt64 = 0
+    private var clientScope = UUID()
+    private var epoch: UInt64 = 0 { didSet { clientScope = UUID() } }
     private var validated: SessionSnapshot?
     private var activeCredential: NativeCredential?
     private var writingProfile = false
     private var profileRevision: UInt64 = 0
     private var logoutRequested = false
+    private var preferenceRevision: UInt64 = 0
+    private var preferenceWrite: (epoch: UInt64, id: UUID)?
     init(environment: NativeEnvironment, api: any NativeRequesting, store: any NativeCredentialStoring,
          now: @escaping @Sendable () -> Date = { Date() }, auth: (any SOOPAuthenticating)? = nil) {
         self.environment = environment; self.api = api; self.store = store; self.now = now; self.auth = auth
@@ -46,6 +49,7 @@ actor NativeSessionService: SessionServing {
             var snapshot = try dto.snapshot(credential: credential, now: now())
             try (store as? any SOOPAuthStoring)?.reconcileAuth(accountID: snapshot.account?.id, serverGeneration: snapshot.serverGeneration)
             snapshot.notice = recoveryNotice
+            snapshot.clientScope = clientScope
             validated = snapshot; activeCredential = credential
             return snapshot
         } catch {
@@ -74,6 +78,7 @@ actor NativeSessionService: SessionServing {
                 epoch &+= 1
             }
             else if revision != profileRevision { snapshot.account = validated?.account }
+            snapshot.clientScope = clientScope
             validated = snapshot; activeCredential = credential
             return snapshot
         } catch {
@@ -112,6 +117,63 @@ actor NativeSessionService: SessionServing {
             guard ticket == epoch else { throw ProductError.sessionChanged }
             try Task.checkCancellation()
             if error as? ProductError == .unauthenticated { try clear(credential) }
+            if error as? ProductError == .linkRequired { validated = nil }
+            throw error
+        }
+    }
+    func loadNotificationPreferences(scope: UUID) async throws -> AccountNotificationPreferences {
+        guard scope == clientScope else { throw ProductError.sessionChanged }
+        guard preferenceWrite?.epoch != epoch else { throw M11Error.superseded }
+        let revision = preferenceRevision
+        let value = try await preferences(.notificationPreferences, scope: scope)
+        guard scope == clientScope else { throw ProductError.sessionChanged }
+        guard revision == preferenceRevision else { throw M11Error.superseded }
+        return value
+    }
+    func disableAccountNotifications(expected: PreferenceGeneration, scope: UUID) async throws -> AccountNotificationPreferences {
+        guard scope == clientScope else { throw ProductError.sessionChanged }
+        guard preferenceWrite?.epoch != epoch else { throw M11Error.superseded }
+        let id = UUID()
+        preferenceWrite = (epoch, id); preferenceRevision &+= 1
+        defer { if preferenceWrite?.id == id { preferenceWrite = nil } }
+        return try await preferences(.disableNotifications(DisableAccountNotifications(expectedGeneration: expected)), scope: scope)
+    }
+    private func preferences(_ endpoint: M11Endpoint, scope: UUID) async throws -> AccountNotificationPreferences {
+        let data = try await accountM11(endpoint, scope: scope)
+        guard scope == clientScope else { throw ProductError.sessionChanged }
+        let value = try decode(AccountNotificationPreferences.self, data)
+        if case .disableNotifications = endpoint, value.pushEnabled { throw ProductError.invalidResponse }
+        return value
+    }
+    // Typed transport only. There are no product callers until C05/C06 supplies
+    // actual display events and room/context lifetime; no queue/order is inferred.
+    func loadOwnReadStates(room: ReadStateID, scope: UUID) async throws -> OwnReadStates {
+        guard validated?.access == .ready else { throw ProductError.linkRequired }
+        return try decode(OwnReadStates.self, await accountM11(.readState(room: room), scope: scope))
+    }
+    func reportOwnReadState(room: ReadStateID, input: ReportOwnReadState, scope: UUID) async throws -> OwnReadState {
+        guard validated?.access == .ready else { throw ProductError.linkRequired }
+        return try decode(OwnReadState.self, await accountM11(.reportReadState(room: room, input: input), scope: scope))
+    }
+    private func accountM11(_ endpoint: M11Endpoint, scope: UUID) async throws -> Data {
+        guard scope == clientScope else { throw ProductError.sessionChanged }
+        guard validated?.account != nil, let credential = activeCredential else { throw ProductError.unauthenticated }
+        guard let api = api as? any M11Requesting else { throw ProductError.unavailable }
+        let ticket = epoch
+        try requireCurrent(ticket, credential)
+        do {
+            let data = try await api.performM11(endpoint, credential: credential)
+            try requireCurrent(ticket, credential)
+            return data
+        } catch {
+            guard ticket == epoch else { throw ProductError.sessionChanged }
+            try Task.checkCancellation()
+            if error as? ProductError == .unauthenticated {
+                // requireCurrent may already have removed this expired credential.
+                try clear(credential)
+                throw ProductError.unauthenticated
+            }
+            try requireCurrent(ticket, credential)
             if error as? ProductError == .linkRequired { validated = nil }
             throw error
         }
@@ -183,6 +245,7 @@ actor NativeSessionService: SessionServing {
     }
     private func publication(_ result: SOOPAuthResult, auth: any SOOPAuthenticating, store: any SOOPAuthStoring, attempt: SessionAttempt = SessionAttempt()) -> SessionSnapshot {
         var snapshot = result.snapshot
+        snapshot.clientScope = clientScope
         let clock = now
         snapshot.publication = SessionPublication(acknowledge: {
             try attempt.check()
