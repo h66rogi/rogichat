@@ -259,18 +259,25 @@ class RequestTests(unittest.TestCase):
                 root = Path(directory)
                 kwargs = {'side_effect': failure} if isinstance(failure, Exception) else {'return_value': failure}
                 migration = b'' if stage == 'success' else release.Rejected('fixture migration rejected')
-                with patch.object(release, 'RELEASES', root), patch.object(release, 'APP', root / 'app'), \
-                        patch.object(release, 'IMAGES', root / 'images'), patch.object(release, 'UNIT', root / 'unit'), \
-                        patch.object(release, 'CADDY', root / 'caddy'), patch.object(release, 'atomic') as atomic, \
-                        patch.object(release, 'caddy_config'), patch.object(release, 'docker', side_effect=[b'', migration]), \
-                        unchanged_edge(), \
-                        patch.object(release, 'start_units') as start, patch.object(release, 'wait_health') as health, \
-                        patch.object(release, 'fail_closed', side_effect=release.Rejected() if stage == 'rollback-failed' else None) as fail_closed, \
-                        patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))), \
-                        patch.object(release.tempfile, 'mkstemp', side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)), \
-                        patch.object(release.os, 'fchown'), patch.object(release.subprocess, 'run', **kwargs) as cleanup, \
-                        redirect_stdout(io.StringIO()) as output, self.assertRaises(release.Rejected):
-                    release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy', {})
+                with ExitStack() as stack:
+                    for name in ('RELEASES', 'APP', 'IMAGES', 'UNIT', 'CADDY'):
+                        stack.enter_context(patch.object(release, name, root if name == 'RELEASES' else root / name.lower()))
+                    atomic = stack.enter_context(patch.object(release, 'atomic'))
+                    stack.enter_context(patch.object(release, 'caddy_config'))
+                    stack.enter_context(patch.object(release, 'docker', side_effect=[b'', migration]))
+                    stack.enter_context(unchanged_edge())
+                    start = stack.enter_context(patch.object(release, 'start_units'))
+                    health = stack.enter_context(patch.object(release, 'wait_health'))
+                    fail_closed = stack.enter_context(patch.object(release, 'fail_closed',
+                        side_effect=release.Rejected() if stage == 'rollback-failed' else None))
+                    stack.enter_context(patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))))
+                    stack.enter_context(patch.object(release.tempfile, 'mkstemp',
+                        side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)))
+                    stack.enter_context(patch.object(release.os, 'fchown'))
+                    cleanup = stack.enter_context(patch.object(release.subprocess, 'run', **kwargs))
+                    output = stack.enter_context(redirect_stdout(io.StringIO()))
+                    with self.assertRaises(release.Rejected):
+                        release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy', {})
                 self.assertEqual(list(root.glob('migration-*')), [])
                 self.assertEqual(cleanup.call_count, {'success': 3, 'migration-failed': 2, 'rollback-failed': 1}[stage])
                 fail_closed.assert_called_once_with('fixture-caddy', b'fixture')
@@ -290,19 +297,25 @@ class RequestTests(unittest.TestCase):
             return real_cleanup(name, secret)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with patch.object(release, 'RELEASES', root), patch.object(release, 'APP', root / 'app'), \
-                    patch.object(release, 'IMAGES', root / 'images'), patch.object(release, 'UNIT', root / 'unit'), \
-                    patch.object(release, 'CADDY', root / 'caddy'), patch.object(release, 'atomic') as atomic, \
-                    patch.object(release, 'caddy_config'), patch.object(release, 'docker', return_value=b''), \
-                    unchanged_edge(), \
-                    patch.object(release, 'start_units') as start, patch.object(release, 'wait_health') as health, \
-                    patch.object(release, 'fail_closed') as fail_closed, \
-                    patch.object(release, 'cleanup_migration', side_effect=interrupted), \
-                    patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))), \
-                    patch.object(release.tempfile, 'mkstemp', side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)), \
-                    patch.object(release.os, 'fchown'), patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stderr=b'')), \
-                    redirect_stdout(io.StringIO()), self.assertRaises(release.Rejected):
-                release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy', {})
+            with ExitStack() as stack:
+                for name in ('RELEASES', 'APP', 'IMAGES', 'UNIT', 'CADDY'):
+                    stack.enter_context(patch.object(release, name, root if name == 'RELEASES' else root / name.lower()))
+                atomic = stack.enter_context(patch.object(release, 'atomic'))
+                stack.enter_context(patch.object(release, 'caddy_config'))
+                stack.enter_context(patch.object(release, 'docker', return_value=b''))
+                stack.enter_context(unchanged_edge())
+                start = stack.enter_context(patch.object(release, 'start_units'))
+                health = stack.enter_context(patch.object(release, 'wait_health'))
+                fail_closed = stack.enter_context(patch.object(release, 'fail_closed'))
+                stack.enter_context(patch.object(release, 'cleanup_migration', side_effect=interrupted))
+                stack.enter_context(patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))))
+                stack.enter_context(patch.object(release.tempfile, 'mkstemp',
+                    side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)))
+                stack.enter_context(patch.object(release.os, 'fchown'))
+                stack.enter_context(patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stderr=b'')))
+                stack.enter_context(redirect_stdout(io.StringIO()))
+                with self.assertRaises(release.Rejected):
+                    release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy', {})
             self.assertEqual(len(attempts), 2)
             self.assertEqual(list(root.glob('migration-*')), [])
             fail_closed.assert_called_once()
