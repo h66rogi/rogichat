@@ -2,14 +2,19 @@ import SwiftUI
 
 struct ProductRootView: View {
     @State private var session: AppSession
+    @State private var confirmLocalReset = false
+    private let nativeEnvironment: NativeEnvironment
     @State private var navigation = ShellNavigation()
     private let rooms: any RoomsServing
     @Environment(\.scenePhase) private var scenePhase
 
     init(service: (any SessionServing)? = nil, rooms: any RoomsServing = UnavailableRoomsService()) {
         let environment = NativeEnvironment(rawValue: AppEnvironment().name.rawValue)!
-        let native = service ?? NativeSessionService(environment: environment, api: NativeAPIClient(environment: environment),
-                                                     store: NativeCredentialStore(environment: environment))
+        nativeEnvironment = environment
+        let api = NativeAPIClient(environment: environment)
+        let store = NativeCredentialStore(environment: environment)
+        let auth = SOOPAuthCoordinator(environment: environment, store: store, api: api, browser: SOOPBrowserSession())
+        let native = service ?? NativeSessionService(environment: environment, api: api, store: store, auth: auth)
         _session = State(initialValue: AppSession(service: native))
         self.rooms = rooms
     }
@@ -29,6 +34,16 @@ struct ProductRootView: View {
                 .padding().background(.regularMaterial)
             }
         }
+        .onOpenURL { url in Task { await session.acceptAuthCallback(url) } }
+        .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+            if let url = activity.webpageURL { Task { await session.acceptAuthCallback(url) } }
+        }
+        .confirmationDialog("이 기기의 로그인 정보를 지울까요?", isPresented: $confirmLocalReset, titleVisibility: .visible) {
+            Button("로그인 정보 지우기", role: .destructive) { Task { await session.resetLocalSession() } }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("저장된 로그인 정보를 기기에서 삭제해 다시 로그인할 수 있게 합니다. 서버의 로그인 종료는 확인할 수 없어요.")
+        }
         .task { await session.restore() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await session.revalidate() } }
@@ -38,7 +53,7 @@ struct ProductRootView: View {
             do {
                 try await Task.sleep(for: .seconds(max(0, expiry.timeIntervalSinceNow)))
                 guard !Task.isCancelled else { return }
-                await session.restore()
+                await session.expire(expected: expiry)
             } catch { /* View cancellation does not change credentials. */ }
         }
         .onChange(of: session.generation) { _, _ in navigation.setAccess(session.access) }
@@ -47,8 +62,9 @@ struct ProductRootView: View {
     @ViewBuilder private func destination(_ page: AppPage) -> some View {
         switch page {
         case .welcome:
-            WelcomeScreen(methods: session.capabilities.signInMethods, busy: session.busy, errorMessage: session.errorMessage) { method in
-                Task { await session.signIn(method) }
+            WelcomeScreen(methods: session.capabilities.signInMethods, busy: session.busy, errorMessage: session.errorMessage,
+                          rulesURL: nativeEnvironment.rulesURL, onCancel: { Task { await session.cancelAuthentication() } }) { method, consent in
+                Task { await session.signIn(method, consent: consent) }
             }
         case .settings:
             SettingsScreen(account: session.account, capabilities: session.capabilities, onOpen: { navigation.open($0) }, onSignIn: { navigation.selectTab(.talks) })
@@ -68,7 +84,8 @@ struct ProductRootView: View {
             }
         case .link:
             SOOPLinkScreen(busy: session.busy, canLink: session.capabilities.canLinkSOOP, errorMessage: session.errorMessage,
-                           onLink: { Task { await session.linkSOOP() } }, onAccount: { navigation.selectTab(.settings); navigation.open(.account) })
+                           onLink: { Task { await session.linkSOOP() } }, onAccount: { navigation.selectTab(.settings); navigation.open(.account) },
+                           onCancel: { Task { await session.cancelAuthentication() } })
         case .rooms:
             // Room entry is intentionally not exposed until a real chat coordinator is installed.
             // This screen is reachable only from an authenticated, SOOP-linked session service.
@@ -79,7 +96,12 @@ struct ProductRootView: View {
             if session.access == .restoring {
                 ScreenStatus(title: "로기챗", message: "계정 정보를 확인하고 있어요.", loading: true).frame(maxHeight: .infinity)
             } else if session.access == .retryableFailure {
-                ScreenStatus(title: "계정을 확인하지 못했어요", message: session.errorMessage ?? "연결을 확인하고 다시 시도해 주세요.", retry: { Task { await session.restore() } }).frame(maxHeight: .infinity)
+                VStack(spacing: 16) {
+                    ScreenStatus(title: "계정을 확인하지 못했어요", message: session.errorMessage ?? "연결을 확인하고 다시 시도해 주세요.", retry: { Task { await session.restore() } })
+                    if session.account == nil, session.capabilities.canResetLocalSession {
+                        Button("이 기기의 로그인 정보 지우기", role: .destructive) { confirmLocalReset = true }
+                    }
+                }.frame(maxHeight: .infinity)
             } else {
                 ContentUnavailableView(session.access == .accountClosing ? "계정 탈퇴를 처리하고 있어요" : "계정을 이용할 수 없어요", systemImage: "person.crop.circle.badge.exclamationmark")
             }

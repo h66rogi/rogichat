@@ -14,7 +14,9 @@
 		30E54AA34C72EB48FA0F656E /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = FCA69E8AC81C6BAF717967D4 /* PrivacyInfo.xcprivacy */; };
 		47DDF7E513248F66940481D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B7272D32F058E07C761C49E /* Assets.xcassets */; };
 		48A98F0626DAD9C88B004786 /* NativeAPIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63744BE3F2158FC94A6D9AE8 /* NativeAPIClient.swift */; };
+		4C3A0ADDD16BC7BBFC0E27E6 /* SOOPBrowserSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A1A097B6AD7B7A917F7EA16 /* SOOPBrowserSession.swift */; };
 		5DEB64B1E4755C792ABA95F2 /* ProductRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1CCED899D64C717F52CA323F /* ProductRootView.swift */; };
+		5E306130DC45C411D699231E /* SOOPAuthContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB09101DB5027396EF821E94 /* SOOPAuthContract.swift */; };
 		64E494F8967483759225BC5A /* WelcomeScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01960400CFB8F1C6AC56D424 /* WelcomeScreen.swift */; };
 		6D367E3A76B90CF477201CAB /* ProfileScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34AE2801D9ACB8FBE29E3A09 /* ProfileScreen.swift */; };
 		71D49C154F8764B552CDB34A /* ScreenStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA67D817DC8E6189F700503D /* ScreenStatus.swift */; };
@@ -22,6 +24,7 @@
 		79A54134073E98C5A8533EF3 /* PendingRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 004889F46B4C32D6EB4C79A6 /* PendingRoute.swift */; };
 		927A5853882407D4289CAE3A /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A7351D1500FED5B7264B1D /* AppEnvironment.swift */; };
 		9D9D67C23A4A07D3CFB24A21 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31446C8CC8137185674F1F1F /* AppSession.swift */; };
+		A48686A0D8747A1F32D8AD42 /* SOOPPending.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43501230026F1C91108FFC8A /* SOOPPending.swift */; };
 		AB57731A2394F15BB8474DB4 /* ProfileDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31AFFF9647E8091CA636C95 /* ProfileDraft.swift */; };
 		B277D96D24A0C492F272B3E2 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D4A284950FD4E58D8E1D13 /* AppTheme.swift */; };
 		B4A7180F0792BD8637D73891 /* ProfileEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF74DA95F12F80B094834636 /* ProfileEditor.swift */; };
@@ -32,6 +35,7 @@
 		CDC611DCE9B61BF23E49521D /* AppShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53969ED5B74A20CAAA027AD /* AppShell.swift */; };
 		D26476500D8EA7CB70F68BBC /* NativeCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306959893BFAB5D6566C792A /* NativeCredentialStore.swift */; };
 		D79B741C389D15DEE9F1CCC4 /* LoadableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE7D45E9A0D7A79BE411F20E /* LoadableView.swift */; };
+		DF33458F2C845BE8D7D740B2 /* SOOPAuthCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24B71449C6C287CB6CE1368A /* SOOPAuthCoordinator.swift */; };
 		E28C74E0B758E613C61A5CC8 /* NativeSessionDTO.swift in Sources */ = {isa = PBXBuildFile; fileRef = 53DB7CFF4ADCEE99F65A29EA /* NativeSessionDTO.swift */; };
 		E581B9252402C6917B5E638C /* RogichatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 543B6ADBAB63583E7D86FC10 /* RogichatApp.swift */; };
 		FB3A4D896E520BC9A27C9B37 /* ShellNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */; };
@@ -42,13 +46,16 @@
 		004889F46B4C32D6EB4C79A6 /* PendingRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingRoute.swift; sourceTree = "<group>"; };
 		01960400CFB8F1C6AC56D424 /* WelcomeScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WelcomeScreen.swift; sourceTree = "<group>"; };
 		1CCED899D64C717F52CA323F /* ProductRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductRootView.swift; sourceTree = "<group>"; };
+		24B71449C6C287CB6CE1368A /* SOOPAuthCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPAuthCoordinator.swift; sourceTree = "<group>"; };
 		306959893BFAB5D6566C792A /* NativeCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCredentialStore.swift; sourceTree = "<group>"; };
 		31446C8CC8137185674F1F1F /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
 		34AE2801D9ACB8FBE29E3A09 /* ProfileScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileScreen.swift; sourceTree = "<group>"; };
 		3B7272D32F058E07C761C49E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		43501230026F1C91108FFC8A /* SOOPPending.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPPending.swift; sourceTree = "<group>"; };
 		53DB7CFF4ADCEE99F65A29EA /* NativeSessionDTO.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSessionDTO.swift; sourceTree = "<group>"; };
 		543B6ADBAB63583E7D86FC10 /* RogichatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RogichatApp.swift; sourceTree = "<group>"; };
 		63744BE3F2158FC94A6D9AE8 /* NativeAPIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeAPIClient.swift; sourceTree = "<group>"; };
+		6A1A097B6AD7B7A917F7EA16 /* SOOPBrowserSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPBrowserSession.swift; sourceTree = "<group>"; };
 		6FE645979D5EC1572B69A3C5 /* AccountScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScreen.swift; sourceTree = "<group>"; };
 		733302BD68AB190F0E8F7806 /* NotificationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationState.swift; sourceTree = "<group>"; };
 		75A7351D1500FED5B7264B1D /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
@@ -67,6 +74,7 @@
 		C75FE2481A3D3E7C4D4986FC /* ForegroundState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForegroundState.swift; sourceTree = "<group>"; };
 		D53969ED5B74A20CAAA027AD /* AppShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppShell.swift; sourceTree = "<group>"; };
 		DA67D817DC8E6189F700503D /* ScreenStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenStatus.swift; sourceTree = "<group>"; };
+		DB09101DB5027396EF821E94 /* SOOPAuthContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPAuthContract.swift; sourceTree = "<group>"; };
 		DE7D45E9A0D7A79BE411F20E /* LoadableView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadableView.swift; sourceTree = "<group>"; };
 		F07C181AE009F6BC8E2216CD /* SettingsComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsComponents.swift; sourceTree = "<group>"; };
 		F31AFFF9647E8091CA636C95 /* ProfileDraft.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileDraft.swift; sourceTree = "<group>"; };
@@ -155,6 +163,17 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
+		3E28CC448F017676D33E9A16 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				DB09101DB5027396EF821E94 /* SOOPAuthContract.swift */,
+				24B71449C6C287CB6CE1368A /* SOOPAuthCoordinator.swift */,
+				6A1A097B6AD7B7A917F7EA16 /* SOOPBrowserSession.swift */,
+				43501230026F1C91108FFC8A /* SOOPPending.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
 		3FF2B2E38B7F03BBFB62D740 /* Rooms */ = {
 			isa = PBXGroup;
 			children = (
@@ -176,6 +195,7 @@
 		62438DDD60747451F642E707 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				3E28CC448F017676D33E9A16 /* Auth */,
 				A8E006FAAAFC604DC42A876A /* Design */,
 				B9D1715F11BCB2434479B337 /* Navigation */,
 				F18F8E4AFB279A3AEE258F98 /* Network */,
@@ -317,6 +337,10 @@
 				6D367E3A76B90CF477201CAB /* ProfileScreen.swift in Sources */,
 				E581B9252402C6917B5E638C /* RogichatApp.swift in Sources */,
 				044DDEE328CB2E24DCEB6B60 /* RoomsScreen.swift in Sources */,
+				5E306130DC45C411D699231E /* SOOPAuthContract.swift in Sources */,
+				DF33458F2C845BE8D7D740B2 /* SOOPAuthCoordinator.swift in Sources */,
+				4C3A0ADDD16BC7BBFC0E27E6 /* SOOPBrowserSession.swift in Sources */,
+				A48686A0D8747A1F32D8AD42 /* SOOPPending.swift in Sources */,
 				71D49C154F8764B552CDB34A /* ScreenStatus.swift in Sources */,
 				C8F535F42DC3AB50F3E5F593 /* SettingsComponents.swift in Sources */,
 				03D04D9C2C5CDEE0796E2B13 /* SettingsScreen.swift in Sources */,

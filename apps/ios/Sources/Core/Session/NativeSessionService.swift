@@ -1,9 +1,10 @@
 import Foundation
 
-// Real credential transport only. No product path issues or imports a credential
-// until provider completion is implemented against its committed server contract.
+// Real native transport and one-shot provider completion; no bootstrap credentials.
 actor NativeSessionService: SessionServing {
-    nonisolated let capabilities = SessionCapabilities(canEditProfile: true, canSignOut: true)
+    nonisolated let capabilities: SessionCapabilities
+    private let auth: (any SOOPAuthenticating)?
+    private var authenticating = false
     private let environment: NativeEnvironment
     private let api: any NativeRequesting
     private let store: any NativeCredentialStoring
@@ -15,13 +16,19 @@ actor NativeSessionService: SessionServing {
     private var profileRevision: UInt64 = 0
     private var logoutRequested = false
     init(environment: NativeEnvironment, api: any NativeRequesting, store: any NativeCredentialStoring,
-         now: @escaping @Sendable () -> Date = { Date() }) {
-        self.environment = environment; self.api = api; self.store = store; self.now = now
+         now: @escaping @Sendable () -> Date = { Date() }, auth: (any SOOPAuthenticating)? = nil) {
+        self.environment = environment; self.api = api; self.store = store; self.now = now; self.auth = auth
+        self.capabilities = SessionCapabilities(signInMethods: auth == nil ? [] : [.soop], canLinkSOOP: auth != nil,
+                                               canEditProfile: true, canSignOut: true, canResetLocalSession: store is any SOOPAuthStoring)
     }
     func restore() async throws -> SessionSnapshot {
+        let wasAuthenticating = authenticating
+        authenticating = false
         epoch &+= 1
         let ticket = epoch
         validated = nil; activeCredential = nil
+        if wasAuthenticating { try (store as? any SOOPAuthStoring)?.cancelAuth(id: nil) }
+        if wasAuthenticating { await auth?.closeBrowser(); guard ticket == epoch else { throw ProductError.sessionChanged } }
         try Task.checkCancellation()
         if try logoutRequested || store.logoutPending() {
             try store.setLogoutPending(true)
@@ -30,12 +37,15 @@ actor NativeSessionService: SessionServing {
             return SessionSnapshot(access: .signedOut, account: nil,
                                    notice: ProductError.remoteLogoutUnconfirmed.errorDescription)
         }
-        guard let credential = try currentCredential() else { return .signedOut }
+        let recoveryNotice = try (store as? any SOOPAuthStoring)?.recoverAuth(now: now())
+        guard let credential = try currentCredential() else { return SessionSnapshot(access: .signedOut, account: nil, notice: recoveryNotice) }
         do {
             let data = try await api.perform(.session, credential: credential)
             try requireCurrent(ticket, credential)
             let dto = try decode(NativeSessionDTO.self, data)
-            let snapshot = try dto.snapshot(credential: credential, now: now())
+            var snapshot = try dto.snapshot(credential: credential, now: now())
+            try (store as? any SOOPAuthStoring)?.reconcileAuth(accountID: snapshot.account?.id, serverGeneration: snapshot.serverGeneration)
+            snapshot.notice = recoveryNotice
             validated = snapshot; activeCredential = credential
             return snapshot
         } catch {
@@ -59,7 +69,10 @@ actor NativeSessionService: SessionServing {
             var snapshot = try decode(NativeSessionDTO.self, data).snapshot(credential: credential, now: now())
             let sameScope = snapshot.account?.id == previous.account?.id && snapshot.access == previous.access
                 && snapshot.serverGeneration == previous.serverGeneration
-            if !sameScope { epoch &+= 1 }
+            if !sameScope {
+                try (store as? any SOOPAuthStoring)?.cancelAuth(id: nil)
+                epoch &+= 1
+            }
             else if revision != profileRevision { snapshot.account = validated?.account }
             validated = snapshot; activeCredential = credential
             return snapshot
@@ -104,7 +117,7 @@ actor NativeSessionService: SessionServing {
         }
     }
     func signOut() async throws {
-        epoch &+= 1
+        epoch &+= 1; authenticating = false
         validated = nil; activeCredential = nil
         // Persist intent first: if Keychain deletion fails, restoration must finish
         // that deletion instead of bringing the account back on retry or relaunch.
@@ -114,13 +127,113 @@ actor NativeSessionService: SessionServing {
         guard try store.replace(expected: credential, with: nil) else { throw ProductError.sessionChanged }
         try store.setLogoutPending(false)
         logoutRequested = false
+        await auth?.closeBrowser()
         guard let credential else { return }
         do { _ = try await api.perform(.logout, credential: credential) }
         catch ProductError.unauthenticated { return }
         catch { throw ProductError.remoteLogoutUnconfirmed }
     }
-    func signIn(_ method: SignInMethod) async throws -> SessionSnapshot { throw ProductError.unavailable }
-    func linkSOOP() async throws -> SessionSnapshot { throw ProductError.unavailable }
+    func signIn(_ method: SignInMethod) async throws -> SessionSnapshot { throw SOOPAuthError.consentRequired }
+    func signInSOOP(consentVersion: String) async throws -> SessionSnapshot {
+        try await authenticate(intent: .login, consentVersion: consentVersion)
+    }
+    func linkSOOP() async throws -> SessionSnapshot { try await authenticate(intent: .link, consentVersion: nil) }
+    func beginSOOP(consentVersion: String, attempt: SessionAttempt) async throws -> SessionSnapshot { try await authenticate(intent: .login, consentVersion: consentVersion, attempt: attempt) }
+    func beginLinkSOOP(attempt: SessionAttempt) async throws -> SessionSnapshot { try await authenticate(intent: .link, consentVersion: nil, attempt: attempt) }
+    private func authenticate(intent: SOOPIntent, consentVersion: String?, attempt: SessionAttempt = SessionAttempt()) async throws -> SessionSnapshot {
+        try attempt.check()
+        guard let auth, !authenticating else { throw ProductError.unavailable }
+        let original = try store.read()
+        if intent == .login { guard original == nil else { throw SOOPAuthError.sessionChanged } }
+        else { guard original == activeCredential, let account = validated?.account, account.id.isEmpty == false,
+                     validated?.serverGeneration != nil else { throw SOOPAuthError.sessionChanged }
+            try requireCurrent(epoch, original!)
+        }
+        guard let authStore = store as? any SOOPAuthStoring else { throw ProductError.secureStorage }
+        guard intent == .login ? consentVersion == "2026-09-20" : consentVersion == nil else { throw SOOPAuthError.consentRequired }
+        // All cancellation/logout methods share this actor, so reservation and local
+        // epoch advance finish without suspension before the coordinator is entered.
+        let pending = try authStore.beginAuth(intent: intent, proof: SOOPProof.generate(), expected: original,
+                                              accountID: intent == .link ? validated?.account?.id : nil,
+                                              serverGeneration: intent == .link ? validated?.serverGeneration : nil, now: now())
+        authenticating = true
+        epoch &+= 1; let ticket = epoch
+        defer { if ticket == epoch { authenticating = false } }
+        do {
+            let result = try await auth.authenticate(pending: pending, consentVersion: consentVersion, attempt: attempt)
+            guard ticket == epoch, try store.read() == result.credential, !Task.isCancelled else {
+                await auth.discard(result); throw ProductError.sessionChanged
+            }
+            activeCredential = result.credential; validated = result.snapshot
+            return publication(result, auth: auth, store: authStore, attempt: attempt)
+        } catch {
+            guard ticket == epoch else { throw ProductError.sessionChanged }
+            if intent == .link, let original, error as? SOOPAuthError == .unauthenticated {
+                try clear(original); epoch &+= 1; authenticating = false
+                throw ProductError.unauthenticated
+            }
+            if intent == .link, error as? SOOPAuthError == .sessionChanged {
+                authenticating = false
+                var snapshot = try await revalidate()
+                snapshot.notice = SOOPAuthError.sessionChanged.errorDescription
+                return snapshot
+            }
+            throw error
+        }
+    }
+    private func publication(_ result: SOOPAuthResult, auth: any SOOPAuthenticating, store: any SOOPAuthStoring, attempt: SessionAttempt = SessionAttempt()) -> SessionSnapshot {
+        var snapshot = result.snapshot
+        let clock = now
+        snapshot.publication = SessionPublication(acknowledge: {
+            try attempt.check()
+            guard result.credential.expiresAt > clock() else { throw ProductError.unauthenticated }
+            try store.acknowledgeAuth(id: result.id, credential: result.credential)
+        }, discard: { await auth.discard(result) })
+        return snapshot
+    }
+    func acceptAuthCallback(_ url: URL) async throws -> SessionSnapshot? {
+        guard let auth, let authStore = store as? any SOOPAuthStoring else { throw ProductError.unavailable }
+        let ticket = epoch
+        let pending = try authStore.pendingAuth(now: now())
+        do {
+            guard let result = try await auth.accept(url) else { return nil }
+            guard ticket == epoch, try store.read() == result.credential, !Task.isCancelled else {
+                await auth.discard(result); throw ProductError.sessionChanged
+            }
+            epoch &+= 1; activeCredential = result.credential; validated = result.snapshot
+            return publication(result, auth: auth, store: authStore)
+        } catch {
+            guard ticket == epoch else { throw ProductError.sessionChanged }
+            if pending?.intent == .link, let original = pending?.originalCredential,
+               error as? SOOPAuthError == .unauthenticated {
+                try clear(original); epoch &+= 1
+                throw ProductError.unauthenticated
+            }
+            if pending?.intent == .link, error as? SOOPAuthError == .sessionChanged {
+                var snapshot = try await revalidate()
+                snapshot.notice = SOOPAuthError.sessionChanged.errorDescription
+                return snapshot
+            }
+            throw error
+        }
+    }
+    func cancelAuthentication() async throws -> SessionSnapshot? {
+        epoch &+= 1; authenticating = false
+        let ticket = epoch
+        try (store as? any SOOPAuthStoring)?.cancelAuth(id: nil)
+        let signedOut = try store.read() == nil
+        if signedOut { validated = nil; activeCredential = nil }
+        await auth?.closeBrowser()
+        guard ticket == epoch else { throw ProductError.sessionChanged }
+        return signedOut ? .signedOut : nil
+    }
+    func resetLocalSession() async throws {
+        epoch &+= 1; authenticating = false; validated = nil; activeCredential = nil; logoutRequested = true
+        guard let authStore = store as? any SOOPAuthStoring else { throw ProductError.unavailable }
+        try authStore.resetConfirmed()
+        logoutRequested = false
+        await auth?.closeBrowser()
+    }
     func deleteAccount() async throws { throw ProductError.unavailable }
     private func currentCredential() throws -> NativeCredential? {
         guard let value = try store.read() else { return nil }

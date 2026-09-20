@@ -52,7 +52,7 @@ final class NativeSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         } else { completionHandler(.cancelAuthenticationChallenge, nil) }
     }
 }
-actor NativeAPIClient: NativeRequesting {
+actor NativeAPIClient: NativeRequesting, SOOPRequesting {
     private let environment: NativeEnvironment
     private let session: URLSession
     init(environment: NativeEnvironment) {
@@ -90,6 +90,25 @@ actor NativeAPIClient: NativeRequesting {
             throw ProductError.connection
         }
     }
+    func performSOOP(_ input: SOOPRequest, credential: NativeCredential?) async throws -> Data {
+        let request = try input.request(environment: environment, credential: credential)
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            guard let response = response as? HTTPURLResponse, response.url == request.url,
+                  response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ProductError.invalidResponse }
+            let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
+            // Auth endpoints need their scoped code even for 401; they never clear a store.
+            guard response.statusCode == 200 else { throw SOOPAuthError.response(data, status: response.statusCode) }
+            return data
+        } catch let error as SOOPAuthError { throw error }
+        catch let error as ProductError { throw error }
+        catch {
+            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw ProductError.connection
+        }
+    }
+    func revokeSOOPCredential(_ credential: NativeCredential) async { _ = try? await perform(.logout, credential: credential) }
     static let maximumBodyBytes = 1_048_576
     static func readBody<S: AsyncSequence & Sendable>(_ bytes: S, limit: Int = maximumBodyBytes,
                                                      cancel: @Sendable () -> Void) async throws -> Data where S.Element == UInt8 {
