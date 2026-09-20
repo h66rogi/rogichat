@@ -21,6 +21,7 @@ export interface SettingsViewProps {
   onProfileChange?: ((patch: SettingsProfilePatch) => void | Promise<void>) | undefined;
   onLinkSoop?: (() => void | Promise<void>) | undefined;
   onToggleNotifications?: ((next: boolean) => void | Promise<void>) | undefined;
+  onRetryNotifications?: (() => void) | undefined;
   onLeaveRoom?: (() => void | Promise<void>) | undefined;
   onLogout?: (() => void | Promise<void>) | undefined;
   onDeleteAccount?: (() => void | Promise<void>) | undefined;
@@ -35,6 +36,7 @@ export function SettingsView({
   onProfileChange,
   onLinkSoop,
   onToggleNotifications,
+  onRetryNotifications,
   onLeaveRoom,
   onLogout,
   onDeleteAccount,
@@ -51,7 +53,7 @@ export function SettingsView({
       {/* Keyed on the saved values so the local form resyncs after the harness applies a change. */}
       <ProfileSection key={profileKey(model)} model={model.profile} onChange={onProfileChange} avatarEditor={avatarEditor} />
       <SoopConnectionSection model={model.soop} onLink={onLinkSoop} />
-      <NotificationSection model={model.notifications} onToggle={onToggleNotifications} />
+      <NotificationSection model={model.notifications} onToggle={onToggleNotifications} onRetry={onRetryNotifications} />
       <RoomLeaveSection model={model.room} onLeave={onLeaveRoom} />
       <SessionSection model={model.session} onLogout={onLogout} />
       {accountControls ?? <AccountDeletionSection model={model.account} onDelete={onDeleteAccount} />}

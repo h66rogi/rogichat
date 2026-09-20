@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { Session } from '@/core/api/client';
+import { sessionBinding } from '@/core/api/session-binding';
+import { WakeBindingRegistry } from '@/features/push/wake';
+import { startWakeBridge } from '@/features/push/wake-bridge';
 import { ChatPrivacyContext } from './ChatPrivacyActions';
 import { SessionMediaProvider } from '@/features/media/session-ui';
 import { io } from 'socket.io-client';
@@ -12,7 +15,11 @@ import { sessionChatMemory } from './chat-memory';
 import { ChatController } from './chat-controller';
 import type { ChatRequest } from './contract';
 
+// Shared across mounts so delayed cleanup cannot match a newer page binding.
+const wakeBindings = new WakeBindingRegistry();
+
 export interface RealChatRoomProps {
+  accountId: string;
   session: Session;
   roomId: string;
   sessionScopeKey: string;
@@ -27,12 +34,23 @@ export function RealChatRoom(props: RealChatRoomProps) {
   return <ScopedRealChatRoom key={`${props.accountPartition}:${props.sessionScopeKey}:${props.roomId}`} {...props} />;
 }
 
-function ScopedRealChatRoom({ session, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate }: RealChatRoomProps) {
+function ScopedRealChatRoom({ session, accountId, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate }: RealChatRoomProps) {
   const [controller, setController] = useState<ChatController | null>(null);
   const [connected, setConnected] = useState(false);
   useEffect(() => {
     const current = new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition, sessionChatMemory(accountPartition, csrfToken, roomId), apiOrigin === 'https://api.qa.rogi.chat' ? 'qa' : 'production');
     let active = true;
+    let stopWake: (() => void) | undefined;
+    void Promise.all([sessionBinding(accountId), sessionBinding(csrfToken)]).then(([account, sessionId]) => {
+      if (!active) return;
+      const binding = wakeBindings.bind(account, sessionId);
+      const stop = startWakeBridge({ binding,
+        sync: async () => { if (active && wakeBindings.isCurrent(binding)) await current.refreshHints(); },
+        worker: 'serviceWorker' in navigator ? navigator.serviceWorker : null,
+        resume: window, visible: () => document.visibilityState === 'visible',
+      });
+      stopWake = () => { stop(); if (wakeBindings.isCurrent(binding)) wakeBindings.clear(); };
+    }).catch(() => { /* Existing authenticated polling remains available when the browser cannot bind wake hints. */ });
     void current.refresh().then(() => { if (active) setController(current); });
     // The namespace is '/', with Engine.IO on this path. This is a lossy wake-up
     // channel only: no rooms, sends, presence or synthetic messages travel here.
@@ -54,11 +72,11 @@ function ScopedRealChatRoom({ session, roomId, apiOrigin, csrfToken, accountPart
     window.addEventListener('online', foreground);
     document.addEventListener('visibilitychange', foreground);
     return () => {
-      active = false; current.dispose(); socket.removeAllListeners(); socket.disconnect();
+      active = false; stopWake?.(); current.dispose(); socket.removeAllListeners(); socket.disconnect();
       window.clearInterval(timer); window.removeEventListener('online', foreground);
       document.removeEventListener('visibilitychange', foreground);
     };
-  }, [roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate]);
+  }, [roomId, apiOrigin, csrfToken, accountPartition, accountId, request, onInvalidate]);
   if (!controller) return <p className="p-6 text-muted" role="status">채팅을 불러오는 중입니다.</p>;
   return <LiveRoom controller={controller} connected={connected} csrf={csrfToken} roomId={roomId} session={session} origin={apiOrigin} />;
 }

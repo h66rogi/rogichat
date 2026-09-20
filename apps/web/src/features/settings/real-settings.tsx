@@ -7,6 +7,7 @@ import { PrivateGate } from '@/features/auth/auth-panel';
 import { clearLogoutPending, invalidateSession, setLogoutPending, usePrivateSession } from '@/features/auth/private-session';
 import { useRoom } from '@/features/channel/session/use-room';
 import { SettingsView } from './SettingsView';
+import { usePushSettings } from '@/features/push/use-push-settings';
 import { AvatarEditor } from '@/features/media/AvatarEditor';
 import { cleanupBinding, eraseSessionOutbox } from '@/features/auth/outbox-cleanup';
 import { forgetChatMemory } from '@/features/chat/chat-memory';
@@ -22,6 +23,7 @@ export function RealSettings() {
 function AccountSettings({ session, profile: initial, generation, refresh }: { session: Session; profile: Profile; generation: number; refresh: () => void }) {
   const api = useApi();
   const room = useRoom();
+  const push = usePushSettings(session, initial.id);
   const [profile, setProfile] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
@@ -87,12 +89,12 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
   const model: SettingsViewModel = {
     profile: { ...profile, avatarUrl: null, edit: busy ? unavailable('프로필을 저장하고 있습니다.') : { enabled: true } },
     soop: { status: 'linked', link: unavailable('SOOP 계정이 연결되어 있습니다.') },
-    notifications: { support: 'unknown', permission: 'unknown', enabled: null, toggle: unavailable('알림 구독 기능을 아직 제공하지 않습니다.') },
+    notifications: push.model,
     room: { roomName: '후로기', membership: room.kind === 'ready' ? room.room.joined ? 'joined' : 'left' : room.kind === 'checking' ? 'unknown' : 'unavailable', isOwner: false, leave: room.kind === 'ready' && room.room.joined && !busy ? { enabled: true } : unavailable(room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '채팅방 참여 정보를 확인한 뒤 나갈 수 있습니다.') },
     session: { logout: { enabled: true } },
     account: { deletion: unavailable('계정 탈퇴 기능을 아직 제공하지 않습니다.') },
   };
-  return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLeaveRoom={leave}
+  return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLeaveRoom={leave} onToggleNotifications={push.toggle} onRetryNotifications={push.refresh}
     accountControls={<AccountDeletionControl origin={api.origin} session={session} generation={generation} cleanupBinding={current => cleanupBinding(api.origin, current)} onPrepare={current => eraseSessionOutbox(api.origin, current)} onBlocked={current => { revokeChatOutboxes(current.accountPartition, current.csrfToken); forgetChatMemory(); invalidateSession(); }} />}
     privacyControls={<><ReportRecovery origin={api.origin} session={session} generation={generation} />{room.kind === 'ready' && <BlockedActorsControl origin={api.origin} session={session} generation={generation} roomId={room.room.roomId} onReset={refresh} />}</>}
     avatarEditor={<AvatarEditor assetId={profile.avatar?.assetId ?? null} busy={busy} save={assetId => save({ avatarAssetId: assetId })} />} /></SessionMediaProvider>;

@@ -12,7 +12,8 @@ PR59 task branch is preserved. The coordinator owns paired rollout and acceptanc
 - Catalog STICKER and shared resource reservations: `694a7f6`.
 - Native durable outbox and erasure APIs: `7a28d4a` (includes original-signal adapter fences).
 - Full VIDEO range/codec/expiry resource: `446e34c`, mounted in `788a2a3`.
-- Deletion, publication, reporting and blocking: `9e6d723`.
+- Deletion, publication, reporting and blocking: `9e6d723`, mounted with cleanup in `b4bf6d9`.
+- Push enrollment, per-page wake binding and stale-cleanup rejection: `724a2dc`.
 
 The controller sends only after durable preparation. Cold recovery performs receipt
 GETs, never SEND. Explicit retry preserves the ID and wire payload, verifies current
@@ -34,6 +35,12 @@ revision context. Anonymous publication has no original identity linkage. Block
 changes force manifest/snapshot reconciliation, preserving uncertain command IDs;
 there is no local-only block or fabricated publication success.
 
+Settings mounts real push capability/preferences and explicit enrollment/release.
+Opening the page never asks permission or installs a worker. Existing-worker wake
+hints carry digest-only account/session/generation bindings; they trigger fresh
+authenticated controller reads and never become rendered content. Delayed cleanup
+cannot unbind a successor lifecycle.
+
 ## Resource and transport boundaries
 
 PHOTO/STICKER reference images and VIDEO previews/playback share a 64 MiB tracked
@@ -51,7 +58,7 @@ browser job installs ffmpeg; product containers receive no fixture or codec tool
 
 ## Verification and runtime boundary
 
-The assembled pre-push source passes 210 focused unit tests and TypeScript. Dedicated
+The assembled pre-push source passes 336 focused unit tests and TypeScript. Dedicated
 production-route browser cases cover media, cold outbox recovery and privacy;
 aggregate production build/browser/container/security results are still pending.
 Leaf-only native IndexedDB and codec tests are bounded evidence, not product rollout.
