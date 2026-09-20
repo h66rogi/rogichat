@@ -132,6 +132,9 @@ model user_profiles {
   birthday_day                  Int?    @db.UnsignedTinyInt
   birthday_visible_to_streamers Boolean @default(false)
   revision                      BigInt  @default(1) @db.UnsignedBigInt
+  nickname_customized           Boolean @default(false)
+  avatar_customized             Boolean @default(false)
+  provider_profile_initialized  Boolean @default(false)
   avatar_asset_id               String? @unique @db.Char(36)
   avatar                        media_assets? @relation(fields: [avatar_asset_id], references: [id], onDelete: Restrict)
   user                          users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
@@ -143,6 +146,8 @@ model platform_soop {
   provider_subject Bytes      @unique @db.VarBinary(191)
   status           LinkStatus @default(VERIFIED)
   verified_at      DateTime   @db.DateTime(3)
+  profile_nickname String?    @db.VarChar(40)
+  profile_image_url String?   @db.VarChar(2048)
   user             users      @relation(fields: [user_id], references: [id], onDelete: Restrict)
 }
 
@@ -210,6 +215,14 @@ model creator_accounts {
   user_id String  @id @db.Char(36)
   enabled Boolean @default(false)
   user    users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
+}
+
+// Product bootstrap registry, not an authorization shortcut or a synthetic user.
+model default_room_bindings {
+  key                  String  @id @db.VarChar(32)
+  room_id              String  @unique @db.Char(36)
+  owner_subject_digest Bytes?  @db.Binary(32)
+  owner_bound          Boolean @default(false)
 }
 
 model admin_capabilities {

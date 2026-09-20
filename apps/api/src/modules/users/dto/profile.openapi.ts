@@ -1,9 +1,11 @@
 import { afterQuery, array, boolean, contract, enumeration, integer, nullable, object, text, uuid } from '../../../common/openapi/schema.js';
 import { avatar } from '../../messages/dto/message.openapi.js';
 export const birthday = object({ month: { ...integer, minimum: 1, maximum: 12 }, day: { ...integer, minimum: 1, maximum: 31 } });
-export const actorProfile = object({ actorId: uuid, nickname: text, avatar, role: enumeration('FAN', 'MEMBER', 'STREAMER'), birthday }, ['actorId', 'nickname', 'avatar', 'role']);
+export const actorProfile = object({ actorId: uuid, nickname: text, avatar, role: enumeration('FAN', 'MEMBER', 'STREAMER'), birthday, providerAvatarAvailable: boolean }, ['actorId', 'nickname', 'avatar', 'role']);
 export const revisedProfile = object({ ...actorProfile.properties!, revision: text }, [...actorProfile.required!, 'revision']);
-const self = object({ id: uuid, nickname: text, avatar, birthday: nullable(birthday), birthdayVisibleToStreamers: boolean });
+const self = object({ id: uuid, nickname: text, avatar, birthday: nullable(birthday), birthdayVisibleToStreamers: boolean,
+  soop: nullable(object({ displayId: { ...text, description: '본인에게만 제공하는 SOOP 표시 ID. 로기챗 UUID와 별개입니다.' } })),
+  providerAvatarUrl: nullable({ ...text, description: '검증된 SOOP 기본 사진의 HTTPS 주소. 자체 아바타 또는 명시적 삭제가 우선하며, 본인 프로필에만 제공됩니다.' }) });
 export const updateProfileRequest = { ...object({ nickname: { type: 'string' as const, minLength: 1, maxLength: 40, description: 'NFC 정규화·trim 후 길이 검사. 제어/포맷 문자 금지.' }, birthday: nullable(birthday), birthdayVisibleToStreamers: boolean, avatarAssetId: nullable(uuid) }, []), minProperties: 1 };
 export const profileDocs = {
   me: () => contract({ id: 'getSelfProfile', summary: '내 프로필 조회', response: object({ ...self.properties!, soopLinkStatus: enumeration('VERIFIED', 'REQUIRED'), onboardingState: enumeration('READY', 'SOOP_LINK_REQUIRED'), capabilities: object({ chat: boolean }) }) }),
