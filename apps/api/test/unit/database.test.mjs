@@ -23,7 +23,8 @@ test('driver explicitly verifies certificate chain and hostname, bounds pool and
 
 test('unresponsive DB handshake is bounded and simultaneous probes are coalesced', { timeout: 5000 }, async (t) => {
   const sockets = new Set();
-  const server = createServer((socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  let connections = 0;
+  const server = createServer((socket) => { connections++; sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const database = new MysqlDatabase(readConfig('api', { ...sampleEnv, DATABASE_URL: `mysql://fixture:fixture-only@127.0.0.1:${server.address().port}/rogichat_test` }, []));
@@ -38,7 +39,12 @@ test('unresponsive DB handshake is bounded and simultaneous probes are coalesced
   assert.deepEqual(await first, { ready: false, reason: 'database_unavailable' });
   assert.ok(performance.now() - started < 2500);
   await database.close();
-  await new Promise(resolve => setTimeout(resolve, 20));
+  // Socket close is a remote event; scheduling and driver teardown can exceed 20 ms.
+  await waitFor(() => sockets.size === 0, 1500);
+  const closedConnections = connections;
+  assert.deepEqual(await database.check(), { ready: false, reason: 'database_unavailable' });
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(connections, closedConnections, 'closed readiness pool must not reopen connections');
   assert.equal(sockets.size, 0, 'closed readiness pool must release pending handshake sockets');
 });
 

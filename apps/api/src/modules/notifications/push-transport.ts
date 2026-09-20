@@ -1,7 +1,7 @@
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 import { request } from 'node:https';
-import { createECDH, ECDH } from 'node:crypto';
+import { ECDH } from 'node:crypto';
 import webpush from 'web-push';
 import { ApiError } from '../auth/auth-primitives.js';
 import { WAKE_ONLY_PUSH } from './notification-contract.js';
@@ -17,24 +17,9 @@ export function validatePushKeys(p256dh: string, auth: string): void {
 
 export interface PushCredentials { endpoint: string; p256dh: string; auth_secret: string }
 export type PushTransportResult = { kind: 'accepted' | 'gone' | 'retry' | 'rejected' | 'unavailable' };
-export interface PushConfig { audience: string; vapid: { subject: string; publicKey: string; privateKey: string } | null }
-export function readPushConfig(env: NodeJS.ProcessEnv = process.env): PushConfig {
-  const environment = env.APP_ENV;
-  if (!['local', 'test', 'qa', 'production'].includes(environment ?? '')) throw new Error('invalid_push_environment');
-  const prefix = `PUSH_${environment!.toUpperCase()}_`;
-  const values = ['VAPID_SUBJECT', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'].map(key => env[prefix + key]);
-  const audience = `rogi-${environment}`;
-  if (values.every(value => value === undefined)) return { audience, vapid: null };
-  const [subject, publicKey, privateKey] = values;
-  try {
-    if (!subject || !publicKey || !privateKey || !/^[A-Za-z0-9_-]{87}$/.test(publicKey) || !/^[A-Za-z0-9_-]{43}$/.test(privateKey)) throw new Error();
-    const url = new URL(subject);
-    if (!['mailto:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash || (url.protocol === 'mailto:' && !/^[^\s@]+@[^\s@]+$/.test(url.pathname))) throw new Error();
-    const key = createECDH('prime256v1'); key.setPrivateKey(Buffer.from(privateKey, 'base64url'));
-    if (key.getPublicKey().toString('base64url') !== publicKey) throw new Error();
-    return { audience, vapid: { subject, publicKey, privateKey } };
-  } catch { throw new Error('invalid_push_vapid'); }
-}
+export { readPushConfig } from './push-config.js';
+import type { PushConfig } from './push-config.js';
+export type { PushConfig } from './push-config.js';
 
 // Conservative global-unicast allow policy. IPv4-mapped IPv6, translation,
 // tunnels, documentation, multicast, link-local and reserved blocks fail closed.

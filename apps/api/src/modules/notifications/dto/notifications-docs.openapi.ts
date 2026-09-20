@@ -24,7 +24,14 @@ export const pushSubscriptionInput = object({
 }, ['endpoint', 'keys']);
 export const subscriptionGenerationInput = object({ generation: positiveUint64 });
 
+export const pushCapabilities: Schema = { oneOf: [
+  object({ available: { type: 'boolean', enum: [false] } }),
+  object({ available: { type: 'boolean', enum: [true] }, applicationServerKey: { type: 'string', pattern: '^B[A-P][A-Za-z0-9_-]{84}[AEIMQUYcgkosw048]$' } }),
+] };
+
 export const notificationsDocs = {
+  capabilities: () => contract({ id: 'getPushCapabilities', summary: 'Read own push enrollment capability', response: pushCapabilities,
+    description: 'Authenticated current session/account, verified SOOP and current terms required. WEB with configured Web Push returns only available true and canonical public applicationServerKey; otherwise available false (including native). No-store. Capability is not enqueue, delivery or notification receipt success.', errors: [400, 401, 403] }),
   preferences: () => contract({ id: 'getNotificationPreferences', summary: 'Read own notification preferences', response: notificationPreferences,
     description: 'Own persisted account preference; absent state is pushEnabled false, generation 1. Web and native sessions may read.', errors: [400, 401] }),
   setPreferences: () => contract({ id: 'putNotificationPreferences', summary: 'Change own notification preferences', auth: 'write', body: notificationPreferencesInput, response: notificationPreferences,

@@ -33,6 +33,13 @@ export class AuthService {
     return this.sessionStore.require(tx, credentials.token, credentials.csrf, requireSoop);
   }
 
+  async requireEnrollmentRead(tx: Transaction, credentials: SessionCredentials): Promise<void> {
+    if (tx.writable) throw new Error('enrollment_requires_read_snapshot');
+    const actor = await this.require(tx, credentials, true);
+    const account = await this.sessionRepository.currentTerms(tx, actor.userId);
+    if (account?.terms_version !== '2026-09-20') throw new ApiError('TERMS_REQUIRED', 403);
+  }
+
   session(credentials: SessionCredentials) {
     return this.unitOfWork.read(async tx => {
       const principal = await this.require(tx, credentials);
