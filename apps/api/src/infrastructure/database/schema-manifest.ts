@@ -1,0 +1,14 @@
+// SHA-256 of the unmodified Prisma-generated migrations; contract test rejects drift.
+export const migrationManifest: readonly { name: string; checksum: string }[] = [
+  { name: '20260919171609_m02_foundation', checksum: 'f7f8aff208bd63ebf45574b297f08d4bd283126a7ab9ea8b386c18e394283ac9' },
+  { name: '20260919172921_m03_auth_terms', checksum: 'fcbb7aee346509f8b190ed4adf88495c897cd386e59b59d919490e5a729cc925' },
+  { name: '20260919175133_m04_audit', checksum: '8d1952fbaa5fa940a648b3a24a60b6d35c93b53bc62d01ee41025e42127e552d' },
+  { name: '20260919181326_m05_messages_jobs', checksum: '91de076c6d5e66b6e47111b2e4105a3b389847416f8e14a08d3d6b6929b54508' },
+  { name: '20260919182633_m06_sync_acl', checksum: '3b4df9c11032c21df051bb3a817e89423f56f4ef471f83364357b01f2275fbef' },
+  { name: '20260919184101_m07_publications_reactions', checksum: '65d5720932675d6465f79c0b510e1ce486fddd563cb6eecd8591330473f24d95' },
+  { name: '20260919184258_m07_content_revision', checksum: '72c66c76ff3fb80cb44c5c5a567b553568891d6dd51c8f2790fb7fdd8a28656a' },
+  { name: '20260919185821_m08_media_reservations', checksum: '029f6bd70464c30baaf5edf0712a91652b594ed845c77272873c43d93a4f7ac5' },
+  { name: '20260920000246_m08_media_policy_avatar', checksum: 'b3392dd2d016799d1acbaf2d8ff405297eb3daab873d1f191eb6be4af69a1bcc' },
+  { name: '20260920005953_m08_stickers_publication_media', checksum: '95517a068895e4b1322dafe3ae89c9f44e399bb37fe89a4da5e3697a1d100d33' },
+  { name: '20260920010031_m08_sticker_audit', checksum: '2952d64e7bdc08b5f82b02bcd56d23cb06d2158ddf67059e175a60bbb4aeda39' },
+];

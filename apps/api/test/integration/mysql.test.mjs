@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { createConnection } from 'mysql2/promise';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { child, unusedPort, waitFor, stopChild } from '../helpers.mjs';
 
 test('real MySQL readiness, schema mismatch, least privilege, both entrypoints and shutdown', { timeout: 30000 }, async (t) => {

@@ -1,15 +1,33 @@
+import 'reflect-metadata';
+import { Module } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { RealtimeModule } from '../../dist/modules/realtime/realtime.module.js';
+import { Transactions } from '../../dist/infrastructure/database/transactions.js';
+import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
+import { AuthService } from '../../dist/modules/auth/auth.service.js';
+import { AUTH_CONFIG } from '../../dist/modules/auth/auth.tokens.js';
+import { Jobs } from '../support/domain-fixture.mjs';
+import { RealtimeService } from '../../dist/modules/realtime/realtime.service.js';
+import { RealtimeRepository } from '../../dist/modules/realtime/realtime.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { io } from 'socket.io-client';
-import { RealtimeGateway, socketCredentials } from '../../dist/realtime.js';
+import { RealtimeGateway, socketCredentials } from '../../dist/modules/realtime/realtime.gateway.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function fixture(t, options = {}) {
   const tokens = new Map(); const allowed = new Set(); const completed = []; const retried = []; const queries = [];
   const config = { audience: 'realtime-unit', origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
   const tx = {
+    now: async () => new Date('2026-09-20T00:00:00Z'),
+    prisma: {
+      rate_buckets: { createMany: async () => ({ count: 1 }), updateMany: async () => ({ count: 1 }) },
+      auth_sessions: { findMany: async () => [...allowed].map(id => ({ id })) },
+      room_events: { findMany: async input => { queries.push({ sql: 'room_events.findMany', params: input.where.OR }); return input.where.OR; } },
+      profile_changes: { findMany: async () => [] },
+    },
     async rows(sql, params) {
       queries.push({ sql, params });
       if (sql.includes('FROM rate_buckets')) return [{ used: 0, expired: 0 }];
@@ -26,7 +44,7 @@ async function fixture(t, options = {}) {
       return found;
     } } };
   const server = createServer((_request, response) => response.end());
-  const lifecycle = { draining: false }; const gateway = new RealtimeGateway(server, auth, lifecycle, options);
+  const lifecycle = { draining: false }; const gateway = new RealtimeGateway(server, new RealtimeService(auth.sessions.transactions, { require: (tx, credentials, chat) => auth.sessions.require(tx, credentials.token, credentials.csrf, chat) }, config, new RealtimeRepository()), config, lifecycle, new Jobs(auth.sessions.transactions, 'api'), options);
   let leases = []; let claims = 0; let hold;
   gateway.jobs = {
     async claim(input) { assert.deepEqual(input, { purposes: ['REALTIME_HINT'], limit: 20 }); claims++; if (hold) await hold; return leases.splice(0, 20); },
@@ -58,13 +76,13 @@ test('socket credentials require exact Origin, version, CSRF and one HttpOnly-co
   const token = randomBytes(32).toString('base64url'), csrf = randomBytes(32).toString('base64url');
   const auth = { config: { origin: 'https://chat.example', secure: true } };
   const request = { headers: { origin: auth.config.origin, cookie: `__Host-rogi_session=${token}` } };
-  assert.deepEqual(socketCredentials(request, { schemaVersion: 1, csrfToken: csrf }, auth), { token, csrf });
+  assert.deepEqual(socketCredentials(request, { schemaVersion: 1, csrfToken: csrf }, auth.config), { token, csrf });
   for (const input of [{ schemaVersion: 2, csrfToken: csrf }, { schemaVersion: 1 }, { schemaVersion: 1, csrfToken: csrf, roomId: randomUUID() }, null]) {
-    assert.throws(() => socketCredentials(request, input, auth));
+    assert.throws(() => socketCredentials(request, input, auth.config));
   }
   for (const headers of [{ ...request.headers, origin: undefined }, { ...request.headers, origin: 'https://attacker.example' },
     { ...request.headers, cookie: `${request.headers.cookie}; ${request.headers.cookie}` }, { ...request.headers, cookie: 'x'.repeat(8193) }]) {
-    assert.throws(() => socketCredentials({ headers }, { schemaVersion: 1, csrfToken: csrf }, auth));
+    assert.throws(() => socketCredentials({ headers }, { schemaVersion: 1, csrfToken: csrf }, auth.config));
   }
 });
 
@@ -125,4 +143,36 @@ test('automatic dispatcher uses a five-second idle interval and short active int
     finally { mocked.mock.restore(); }
     await f.gateway.stop();
   }
+});
+
+
+test('Nest owns realtime attachment after HTTP initialization and closes the transport', async t => {
+  const config = { audience: 'realtime-nest-unit', origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
+  const tx = {
+    now: async () => new Date('2026-09-20T00:00:00Z'),
+    rows: async () => [{ used: 0, expired: 0 }],
+    execute: async () => ({ affectedRows: 1 }),
+    prisma: { rate_buckets: { createMany: async () => ({ count: 1 }), updateMany: async () => ({ count: 1 }) } },
+  };
+  class InfrastructureFixture {} class AuthFixture {}
+  Module({})(InfrastructureFixture); Module({})(AuthFixture);
+  const infrastructure = { module: InfrastructureFixture, providers: [
+    { provide: Transactions, useValue: { read: run => run(tx), write: run => run(tx) } },
+    { provide: LifecycleState, useValue: new LifecycleState() },
+  ], exports: [Transactions, LifecycleState] };
+  const authentication = { module: AuthFixture, providers: [
+    { provide: AUTH_CONFIG, useValue: config },
+    { provide: AuthService, useValue: { require: async handle => { assert.equal(handle, tx); return { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true }; } } },
+  ], exports: [AUTH_CONFIG, AuthService] };
+  const app = await NestFactory.create(RealtimeModule.register(infrastructure, authentication, true), { logger: false, abortOnError: false });
+  t.after(() => app.close());
+  await app.listen(0, '127.0.0.1');
+  const client = io(await app.getUrl(), { path: '/v1/realtime', transports: ['websocket'], reconnection: false,
+    extraHeaders: { Origin: config.origin, Cookie: `rogi_session=${'a'.repeat(43)}` }, auth: { schemaVersion: 1, csrfToken: 'b'.repeat(43) } });
+  t.after(() => client.disconnect());
+  await new Promise((resolve, reject) => { client.once('connect', resolve); client.once('connect_error', reject); });
+  assert.equal(app.get(RealtimeGateway).stats().connections, 1);
+  const disconnected = new Promise(resolve => client.once('disconnect', resolve));
+  await app.close();
+  assert.equal(await disconnected, 'transport close');
 });

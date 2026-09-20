@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createHmac, randomUUID } from 'node:crypto';
 import { ApiError, digest, equalDigest, secret } from './auth-primitives.js';
 import type { Principal } from './auth-primitives.js';
-import type { Transaction } from '../../transactions.js';
+import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { SessionRepository } from './session.repository.js';
 
 // Session policy only: no driver access, implicit transaction, or cached principal.

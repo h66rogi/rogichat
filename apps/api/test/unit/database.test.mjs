@@ -3,18 +3,18 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
 import { performance } from 'node:perf_hooks';
-import { MysqlDatabase, poolOptions } from '../../dist/database.js';
-import { readConfig } from '../../dist/config.js';
+import { MysqlDatabase, poolOptions } from '../../dist/infrastructure/database/database.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { sampleEnv } from '../helpers.mjs';
 
 test('driver explicitly verifies certificate chain and hostname, bounds pool and disallows multiple statements', () => {
   const options = poolOptions(readConfig('api', { ...sampleEnv, DB_TLS_MODE: 'required' }, []));
   assert.equal(options.ssl.rejectUnauthorized, true);
-  assert.equal(options.ssl.verifyIdentity, true);
+  assert.equal(typeof options.ssl.checkServerIdentity, 'function');
   assert.equal(options.connectionLimit, 5);
-  assert.equal(options.waitForConnections, false);
+  assert.equal(options.acquireTimeout, 1200);
   assert.equal(options.multipleStatements, false);
-  assert.equal(options.timezone, 'Z');
+  assert.equal(options.timezone, '+00:00');
 });
 
 test('unresponsive DB handshake is bounded and simultaneous probes are coalesced', { timeout: 5000 }, async (t) => {

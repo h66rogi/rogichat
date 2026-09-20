@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readConfig } from '../../dist/config.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { sampleEnv } from '../helpers.mjs';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

@@ -226,7 +226,7 @@ def verify_auth_secret(compose, image):
     validate_auth_metadata(AUTH_SECRET.lstat())
     protected(AUTH_SECRET, mode=0o440)
     name = 'rogichat-qa-auth-preflight-' + str(uuid.uuid4())
-    code = ("try{const{readAuthConfig}=await import('./dist/auth-config.js');"
+    code = ("try{const{readAuthConfig}=await import('./dist/infrastructure/config/auth-config.js');"
             "readAuthConfig({environment:'qa'});process.exit(0)}catch{process.exit(1)}")
     try:
         docker('run', '--rm', '--pull', 'never', '--name', name, '--network', 'none', '--read-only',

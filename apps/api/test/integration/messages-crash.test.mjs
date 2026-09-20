@@ -1,3 +1,5 @@
+import { createUser, createRoom, joinRoom } from '../support/domain-fixture.mjs';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -6,10 +8,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
-import { MysqlDatabase } from '../../dist/database.js';
-import { readConfig } from '../../dist/config.js';
-import { Sessions } from '../../dist/auth-core.js';
-import { createUser, createRoom, joinRoom } from '../../dist/repositories.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { child, unusedPort, waitFor, stopChild } from '../helpers.mjs';
 
 test('lost client ACK plus actual API SIGKILL is recovered by the same command in a new API process', { timeout: 30000 }, async t => {
@@ -21,7 +22,7 @@ test('lost client ACK plus actual API SIGKILL is recovered by the same command i
   const key = randomBytes(32);
   const authFile = join(directory, 'fixture-auth.json');
   await writeFile(authFile, JSON.stringify({ key: key.toString('hex') }), { mode: 0o600 });
-  const sessions = new Sessions(database.transactions, 'rogi-test', key);
+  const sessions = new SessionService(new SessionRepository(), 'rogi-test', key);
   const fixture = await database.transactions.write(async tx => {
     const user = await createUser(tx, 'crash 합성');
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), user, Buffer.from(`fixture-crash-${randomUUID()}`)]);

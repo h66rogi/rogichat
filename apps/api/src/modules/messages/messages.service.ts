@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { Transactions } from '../../transactions.js';
+import { Transactions } from '../../infrastructure/database/transactions.js';
 import { ApiError, opaque } from '../auth/auth-primitives.js';
-import type { AuthConfig } from '../../auth-config.js';
+import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { identifier } from '../../common/validation/identifier.js';
-import { roomCommandRate } from '../../rates.js';
+import { roomCommandRate } from '../../infrastructure/rate-limit/room-command-rate.js';
 import { AuthService } from '../auth/auth.service.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
 import type { SessionCredentials, CommandCredentials } from '../auth/auth-context.js';

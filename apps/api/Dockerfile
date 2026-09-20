@@ -5,6 +5,7 @@ WORKDIR /workspace
 RUN npm install --global pnpm@12.4.2 --ignore-scripts && npm cache clean --force
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/package.json
+COPY patches ./patches
 
 FROM tooling AS build
 # Compilation does not require Prisma engine installation scripts.

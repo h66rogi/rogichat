@@ -149,3 +149,108 @@ explicit legacy composition adapters for R3 consumers and R4 bootstrap. They con
 message/session implementation, but must be removed with the remaining consumer conversions.
 Shared counter/job repository functions, other feature modules, canonical Sync query boundaries,
 AuthFlow/identity repositories, DI-owned startup/shutdown and the full R5 gate remain required.
+
+## R3–R5 structural correction — local verification 2026-09-20
+
+The API composition now imports separate Users, Rooms, Messages, Reactions, Publications,
+Sync, Realtime and optional Media modules. Controllers only adapt transport and validation;
+application services own authenticated UnitOfWork boundaries. Transaction-scoped core services
+coordinate policy and repositories without opening implicit transactions. OAuth login and identity
+SQL, membership transitions/counters, profiles, reactions, publications, sync state, hint audience
+queries, jobs and media persistence now have named private repositories.
+
+`main.ts` and `worker.ts` are two-line bootstrap entrypoints. `AppModule.production` and
+`WorkerModule.production` configure the same domain providers exercised by test composition.
+Database and R2 providers close through Nest shutdown hooks; realtime starts/stops through Nest
+bootstrap/destroy hooks; worker polling, readiness probes and pending work belong to a lifecycle
+provider. The existing safe signal/fault handler calls Nest application close and retains its bounded
+shutdown deadline. A killed long media operation still relies on lease/fence/replay recovery; this
+change does not claim graceful completion of a four-minute transform within the ten-second deadline.
+
+The root `Sessions` fallback, `AuthRuntime`, combined community/interaction/sync controllers,
+`messages.ts`, `access-compat.ts` and all other root compatibility adapters have been removed.
+Tests that need transaction-scoped operations obtain the actual core services from a Nest module
+graph in `test/support/domain-fixture.mjs`; there is no second production implementation.
+The remaining root source files are intentional composition or executable boundaries:
+
+| File | Reason to remain at source root |
+|---|---|
+| `main.ts`, `worker.ts` | Stable process entrypoints, bootstrap invocation only |
+| `media-decoder-main.ts` | Stable executable boundary for the isolated decoder process |
+| `app.module.ts`, `worker.module.ts` | Explicit top-level API and worker module composition |
+| `application.ts` | Shared HTTP application setup and test provider overrides, no domain policy |
+
+The worker graph imports transaction-scoped publication/message/job providers and an optional
+MediaWorkerModule, not HTTP controllers or authentication configuration. RoomMediaCoreModule
+is a separate policy boundary: messages and stickers may consume current room media policy without
+creating a MediaCoreModule → MessagesCoreModule → MediaCoreModule cycle. JobsCoreModule exports
+only enqueue/finalization operations on the caller's transaction, while consumer-specific JobsModule
+owns claim/retry transactions and the API-versus-worker purpose allowlist.
+
+Message snapshot/history/event queries now belong to MessagesQueryRepository behind a finite
+window API in MessagesQueryService. SQL ACL conditions remain before LIMIT, and attachments are
+batched only for authorized page IDs. Sync consumes the canonical message projection; profile sync
+consumes a UsersCoreService query/projection port rather than maintaining profile SQL in Sync.
+Profile cursor generation hashes the authorized DTO array. Pre-transition profile cursors may
+therefore safely require a reset; endpoint shapes, visible fields and birthday consent are unchanged.
+No guard result substitutes for fresh same-transaction authorization, rate failures do not refund
+committed charges, and external broker/storage/decoder I/O stays outside database transactions.
+
+Decoder implementation files live under `isolated/media-decoder`; bounded protocol, spool and media
+validation primitives live under `common/media`. The API/worker import only the decoder IPC client,
+never the decoder implementation. The decoder's child process still receives its explicit scrubbed
+environment and no database, API or R2 provider dependencies.
+
+Architecture regression tests enforce the root allowlist, acyclic runtime imports, isolated-decoder
+boundaries, private repositories, standalone core-module DI and strict room/profile DTOs. They also
+reject Unsafe Prisma SQL members and runtime mysql2 imports/reexports/loads while allowing type-only
+imports. Fourteen application-service tests verify the exact transaction handle and fresh session/SOOP
+admission for profile, room and sync operations. The canonical message query tests cover anonymous
+identity/quote stripping, lookahead exclusion and body-free tombstones. The page envelope exposes
+only canonical DTOs, decimal position/version strings, deletion state and a lookahead boolean.
+
+Realtime attaches its transport in `onApplicationBootstrap`, after Nest creates the HTTP server.
+The real Nest socket-connect/shutdown test protects this ordering. An independent structural review
+and follow-up review found no new P1/P2 in the module graph, query/profile ports or realtime lifecycle.
+The separate ORM worker owns the database runtime/repositories and the physical-connection abort
+correction identified by its own review. Its final runtime re-review also reported no P1/P2,
+and the shared disposable-MySQL suite passed after those corrections.
+
+The operational owner updated all three consumers of removed compiled paths: the worker healthcheck
+in `infrastructure/runtime/compose.app.yaml`, the authentication preflight in
+`tools/operations/backend_release.py`, and the manifest loader in `tools/operations/migrate_entry.mjs`.
+Contract tests actually import the current exports. The expanded repository scan includes hidden
+workflows and documentation and found no remaining executable flat-path references; the only old
+string is a negative regression assertion. A read-only sibling-repository scan found no external
+API-internal-path consumers.
+
+The previous ignored build output was moved to a named local scratch directory. The clean artifact
+tree contains exactly the six intended root JavaScript entrypoints and no deleted adapters. Current
+shared-snapshot evidence, including preserved coordinator feature work and the ORM conversion:
+
+| Gate | Current result |
+|---|---|
+| Clean build and typecheck | PASS |
+| Unit, including architecture/privacy/UoW boundaries | 188 PASS |
+| HTTP/process, including outage, kill and shutdown | 14 PASS |
+| API/schema/runtime-consumer contracts | 4 PASS |
+| Explicit native decoder regression | 5 PASS |
+| Disposable MySQL, including transaction/replay/privacy | 106 PASS |
+| ESLint | PASS |
+| Public-repository scanner | Worktree checkpoint PASS; exact staged hook gate required for publication |
+
+These local suites total 317 passing tests. Publication additionally requires the exact staged
+security scan and the task PR checks against current QA; the PR carries those publication results.
+
+A handshake deadline assertion initially missed its unchanged threshold under simultaneous native
+video/typecheck load; the full unit suite passed after those CPU-heavy checks exited. No test timeout
+or production deadline was relaxed. The native decoder test is an explicit local dependency gate;
+these results do not establish production R2/decoder operation.
+
+The user assigned the separate ORM-first conversion during this correction. Its worker owns database
+runtime and repository data access; the structure worker owns architecture tests/documentation, while
+the coordinator resumed M08+ services/tests after the path handoff. Publishing follows the repository's
+updated task-branch/checked-PR rule, without direct QA push or a shared-checkout branch switch. The
+security-policy/index mismatch was reconciled by its owner without bypassing scanners or hooks.
+This section does not assert feature acceptance, QA deployment, external R2/login evidence or
+completion of the M01–M12 goal.

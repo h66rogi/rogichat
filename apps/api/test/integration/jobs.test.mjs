@@ -1,10 +1,9 @@
+import { createRoom, enqueueJob, Jobs, completeJob, runClaimedJob, JobFailure } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { createRoom } from '../../dist/repositories.js';
-import { enqueueJob, Jobs, completeJob, runClaimedJob, JobFailure } from '../../dist/jobs.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 
 const barrier = () => { let resolve; return { wait: new Promise(ready => { resolve = ready; }), release: () => resolve() }; };
 

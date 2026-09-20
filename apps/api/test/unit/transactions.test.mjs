@@ -1,147 +1,112 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Transactions } from '../../dist/transactions.js';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { Transactions } from '../../dist/infrastructure/database/transactions.js';
 
 function harness(overrides = {}) {
-  const counts = { acquired: 0, queries: 0, committed: 0, rolledBack: 0, destroyed: 0, released: 0 };
-  const pool = {
-    getConnection(callback) {
+  const context = new AsyncLocalStorage();
+  const counts = { acquired: 0, queries: 0, committed: 0, rolledBack: 0 };
+  const client = {
+    async $transaction(callback) {
       counts.acquired++;
-      const connection = {
-        promise: () => ({
-          query: async (...args) => { counts.queries++; return overrides.query ? overrides.query(...args) : [[]]; },
-          commit: async () => { counts.committed++; await overrides.commit?.(); },
-          rollback: async () => { counts.rolledBack++; await overrides.rollback?.(); },
-        }),
-        destroy: () => { counts.destroyed++; },
-        release: () => { counts.released++; },
-      };
-      callback(null, connection);
+      const state = context.getStore();
+      try {
+        const result = await callback({
+          $queryRaw: async (...args) => { counts.queries++; return overrides.query?.(...args) ?? []; },
+          $executeRaw: async (...args) => { counts.queries++; return overrides.execute?.(...args) ?? 1; },
+        });
+        state.commitStarted = true;
+        counts.committed++;
+        await overrides.commit?.();
+        return result;
+      } catch (error) {
+        if (!state.commitStarted) {
+          counts.rolledBack++;
+          try { await overrides.rollback?.(); state.rollbackConfirmed = true; }
+          catch (rollbackError) { if (!overrides.preserveOriginal) throw rollbackError; }
+        }
+        throw error;
+      }
     },
   };
-  return { transactions: new Transactions(pool), counts };
+  return { transactions: new Transactions(client, context), counts };
 }
-
 function shortDeadline(t) {
   const schedule = globalThis.setTimeout;
-  let scheduled = 0;
-  // Exercise the production timeout branch without adding eight seconds per case.
-  t.mock.method(globalThis, 'setTimeout', (callback, milliseconds, ...args) => {
-    if (milliseconds === 8000) scheduled++;
-    return schedule(callback, milliseconds === 8000 ? 30 : milliseconds, ...args);
-  });
-  return () => assert.ok(scheduled > 0, 'the bounded transaction deadline must be scheduled');
+  t.mock.method(globalThis, 'setTimeout', (callback, milliseconds, ...args) => schedule(callback, milliseconds === 8000 ? 25 : milliseconds, ...args));
 }
-
 const turn = () => new Promise(resolve => setTimeout(resolve, 0));
 
-test('callback timeout settles promptly, invalidates late queries and forbids a late commit', { timeout: 2000 }, async t => {
-  const verifyDeadline = shortDeadline(t);
+test('callback timeout invalidates the handle and prevents late commit or queries', { timeout: 2000 }, async t => {
+  shortDeadline(t);
   const { transactions, counts } = harness();
-  let handle;
-  let resume;
-  const pending = transactions.write(async tx => {
-    handle = tx;
-    await new Promise(resolve => { resume = resolve; });
-    return 'late-result';
-  });
+  let handle, resume;
+  const pending = transactions.write(async tx => { handle = tx; await new Promise(resolve => { resume = resolve; }); });
   await assert.rejects(pending, /transaction_timeout/);
-  assert.ok(handle);
-  const queriesAtTimeout = counts.queries;
   await assert.rejects(handle.rows('SELECT 1'), /transaction_finished/);
   await assert.rejects(handle.execute('UPDATE fixture SET value=1'), /transaction_not_writable/);
-  resume();
-  await turn();
-  assert.equal(counts.queries, queriesAtTimeout);
-  assert.equal(counts.committed, 0);
-  assert.equal(counts.acquired, 1);
-  assert.equal(counts.released, 0);
-  assert.ok(counts.destroyed > 0);
-  verifyDeadline();
+  assert.throws(() => handle.prisma, /transaction_finished/);
+  resume(); await turn();
+  assert.equal(counts.committed, 0); assert.equal(counts.acquired, 1); assert.equal(counts.queries, 0);
 });
 
-for (const setupStep of ['SET SESSION time_zone', 'START TRANSACTION']) {
-  test(`deadline bounds ${setupStep} and prevents a callback after late setup completion`, { timeout: 2000 }, async t => {
-    const verifyDeadline = shortDeadline(t);
-    let resume;
-    let operations = 0;
-    const { transactions, counts } = harness({ query: input => {
-      const sql = typeof input === 'string' ? input : input.sql;
-      if (sql.startsWith(setupStep)) return new Promise(resolve => { resume = resolve; });
-      return [[]];
-    } });
-    await assert.rejects(transactions.write(async () => { operations++; }), /transaction_timeout/);
-    resume([[]]);
-    await turn();
-    assert.equal(operations, 0);
-    assert.equal(counts.committed, 0);
-    assert.equal(counts.released, 0);
-    assert.ok(counts.destroyed > 0);
-    verifyDeadline();
-  });
-}
+test('read handles reject explicit mutation and all handles close after success', async () => {
+  const { transactions, counts } = harness(); let handle;
+  await transactions.read(async tx => { handle = tx; await assert.rejects(tx.execute('UPDATE fixture SET value=1'), /transaction_not_writable/); });
+  await assert.rejects(handle.rows('SELECT 1'), /transaction_finished/);
+  assert.equal(counts.queries, 0);
+});
 
-test('deadline during COMMIT settles with unknown outcome and never retries', { timeout: 2000 }, async t => {
-  const verifyDeadline = shortDeadline(t);
+test('deadline during commit has unknown outcome and never retries', { timeout: 2000 }, async t => {
+  shortDeadline(t);
   const { transactions, counts } = harness({ commit: () => new Promise(() => {}) });
-  let operations = 0;
-  await assert.rejects(transactions.write(async () => { operations++; }), /commit_outcome_unknown/);
-  assert.equal(operations, 1);
-  assert.equal(counts.acquired, 1);
-  assert.equal(counts.committed, 1);
-  assert.equal(counts.released, 0);
-  assert.ok(counts.destroyed > 0);
-  verifyDeadline();
+  await assert.rejects(transactions.write(async () => {}), /commit_outcome_unknown/);
+  assert.equal(counts.acquired, 1); assert.equal(counts.committed, 1);
 });
 
-test('COMMIT errors are never retried even when their driver code resembles a retryable lock failure', async () => {
-  const cause = Object.assign(new Error('commit-fixture'), { code: 'ER_LOCK_DEADLOCK' });
-  const { transactions, counts } = harness({ commit: async () => { throw cause; } });
-  let operations = 0;
-  await assert.rejects(transactions.write(async () => { operations++; }), error => {
-    assert.equal(error.message, 'commit_outcome_unknown');
-    assert.equal(error.cause, cause);
-    return true;
+const deadlock = () => Object.assign(new Error('deadlock'), { code: 'P2034' });
+const lockTimeout = () => Object.assign(new Error('lock timeout'), { code: 'P2039', meta: { driverAdapterError: { cause: { kind: 'mysql', code: 1205 } } } });
+for (const failure of [deadlock, lockTimeout]) {
+  test(`confirmed rollback retries ${failure.name} at most three attempts`, async () => {
+    const { transactions, counts } = harness(); const error = failure();
+    await assert.rejects(transactions.write(async () => { throw error; }), e => e === error);
+    assert.equal(counts.acquired, 3); assert.equal(counts.rolledBack, 3); assert.equal(counts.committed, 0);
   });
-  assert.equal(operations, 1);
-  assert.equal(counts.acquired, 1);
-  assert.equal(counts.committed, 1);
-  assert.equal(counts.released, 0);
-});
-
-for (const code of ['ER_LOCK_DEADLOCK', 'ER_LOCK_WAIT_TIMEOUT']) {
-  test(`${code} retries at most three complete transactions`, async () => {
-    const failure = Object.assign(new Error('lock-fixture'), { code });
-    const { transactions, counts } = harness();
-    const handles = new Set();
-    await assert.rejects(transactions.write(async tx => { handles.add(tx); throw failure; }), error => error === failure);
-    assert.equal(handles.size, 3);
-    assert.equal(counts.acquired, 3);
-    assert.equal(counts.rolledBack, 3);
-    assert.equal(counts.released, 3);
-    assert.equal(counts.committed, 0);
+  test(`commit ${failure.name} is never replayed`, async () => {
+    const cause = failure(); const { transactions, counts } = harness({ commit: async () => { throw cause; } });
+    await assert.rejects(transactions.write(async () => {}), e => e.message === 'commit_outcome_unknown' && e.cause === cause);
+    assert.equal(counts.acquired, 1);
+  });
+  test(`unconfirmed rollback cannot retry ${failure.name}`, async () => {
+    const { transactions, counts } = harness({ rollback: async () => { throw new Error('connection_lost'); } });
+    await assert.rejects(transactions.write(async () => { throw failure(); }), /connection_lost/);
+    assert.equal(counts.acquired, 1);
   });
 }
 
-test('non-lock callback failures are rolled back without retry', async () => {
-  const failure = new Error('validation-fixture');
-  const { transactions, counts } = harness();
-  await assert.rejects(transactions.write(async () => { throw failure; }), error => error === failure);
-  assert.equal(counts.acquired, 1);
-  assert.equal(counts.rolledBack, 1);
-  assert.equal(counts.released, 1);
-  assert.equal(counts.committed, 0);
+test('ordinary callback error and P2028 are not retryable', async () => {
+  for (const error of [new Error('validation'), Object.assign(new Error('closed'), { code: 'P2028' })]) {
+    const { transactions, counts } = harness();
+    await assert.rejects(transactions.write(async () => { throw error; }), e => e === error);
+    assert.equal(counts.acquired, 1); assert.equal(counts.rolledBack, 1);
+  }
 });
 
-test('rollback stalls remain bounded and destroy rather than release the connection', { timeout: 2000 }, async t => {
-  const verifyDeadline = shortDeadline(t);
-  const failure = new Error('validation-fixture');
-  const { transactions, counts } = harness({ rollback: () => new Promise(() => {}) });
-  await assert.rejects(transactions.write(async () => { throw failure; }), error => error === failure);
-  assert.equal(counts.acquired, 1);
-  assert.equal(counts.rolledBack, 1);
-  assert.equal(counts.released, 0);
-  assert.equal(counts.committed, 0);
-  assert.ok(counts.destroyed > 0);
-  verifyDeadline();
+test('raw exceptions preserve bound values and legacy byte/counter field contracts', async () => {
+  const { transactions } = harness({ query: async sql => {
+    assert.equal(sql.sql, 'SELECT ? AS value'); assert.deepEqual(sql.values, ["x' OR 1=1"]);
+    return [{ counter: 9007199254740993n, bytes: new Uint8Array([0, 128, 255]) }];
+  } });
+  const [row] = await transactions.read(tx => tx.rows('SELECT ? AS value', ["x' OR 1=1"]));
+  assert.equal(row.counter, '9007199254740993'); assert.deepEqual(row.bytes, Buffer.from([0, 128, 255]));
 });
+
+for (const rollbackFails of [false, true]) {
+  test(`unique violation rollback evidence is ${!rollbackFails} even when Prisma preserves callback error`, async () => {
+    const { transactions, counts } = harness({ preserveOriginal: true, rollback: async () => { if (rollbackFails) throw new Error('lost_rollback'); } });
+    const error = Object.assign(new Error('unique'), { code: 'P2002' });
+    await assert.rejects(transactions.write(async () => { throw error; }), e => e === error);
+    assert.equal(transactions.rollbackConfirmed(error), !rollbackFails);
+    assert.equal(counts.acquired, 1);
+  });
+}

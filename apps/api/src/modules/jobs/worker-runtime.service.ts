@@ -1,0 +1,37 @@
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import type { OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
+import { DATABASE } from '../../infrastructure/database/database.tokens.js';
+import type { Database } from '../../infrastructure/database/database.js';
+import { Transactions } from '../../infrastructure/database/transactions.js';
+import { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
+import { SafeLogger } from '../../infrastructure/observability/logging.js';
+import { collectExpiredRates } from '../../infrastructure/rate-limit/rate-limit.repository.js';
+import { MediaWorkerService } from '../media/media-worker.service.js';
+import { WorkerLoop } from './worker-loop.js';
+@Injectable()
+export class WorkerRuntimeService implements OnApplicationBootstrap, OnModuleDestroy {
+  private timer: NodeJS.Timeout | undefined;
+  private pending: Promise<void> | undefined;
+  private previous: string | undefined;
+  constructor(@Inject(DATABASE) private readonly database: Database,
+    @Inject(Transactions) private readonly transactions: Transactions,
+    @Inject(LifecycleState) private readonly lifecycle: LifecycleState,
+    @Inject(SafeLogger) private readonly logger: SafeLogger,
+    @Inject(WorkerLoop) private readonly jobs: WorkerLoop,
+    @Optional() @Inject(MediaWorkerService) private readonly media?: MediaWorkerService) {}
+  onApplicationBootstrap(): void { this.tick(); this.jobs.start(); }
+  private tick = (): void => { this.pending = this.probe(); };
+  private async probe(): Promise<void> {
+    const result = await this.database.check();
+    if (result.reason !== this.previous) { this.logger.event('readiness_changed', { reason: result.reason }); this.previous = result.reason; }
+    if (result.ready) await this.transactions.write(collectExpiredRates).catch(() => {});
+    if (result.ready && this.media) await this.transactions.write(tx => this.media!.recoverMedia(tx)).catch(() => {});
+    if (!this.lifecycle.draining) this.timer = setTimeout(this.tick, 5000);
+  }
+  async onModuleDestroy(): Promise<void> {
+    this.lifecycle.draining = true;
+    clearTimeout(this.timer);
+    await this.jobs.stop();
+    await this.pending;
+  }
+}

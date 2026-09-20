@@ -1,13 +1,13 @@
+import { createUser, createRoom, joinRoom, leaveRoom, nextOrder, consumeRate } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { createUser, createRoom, joinRoom, leaveRoom, nextOrder, consumeRate } from '../../dist/repositories.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 
 const barrier = () => { let release; return { promise: new Promise(resolve => { release = resolve; }), release: () => release() }; };
 // MySQL hides the detailed FK name from DML-only accounts (1216 vs 1452 with admin visibility).
-const fkRejected = error => ['ER_NO_REFERENCED_ROW', 'ER_NO_REFERENCED_ROW_2'].includes(error.code);
+const fkRejected = error => error.code === 'P2003' || error.meta?.driverAdapterError?.cause?.kind === 'ForeignKeyConstraintViolation' || [1216, 1452].includes(error.meta?.driverAdapterError?.cause?.code);
 
 test('MySQL transaction boundaries, scoped FKs, concurrent membership, counters, snapshots and limiter', { timeout: 30000 }, async t => {
   const db = new MysqlDatabase(readConfig('api'));
@@ -49,7 +49,7 @@ test('MySQL transaction boundaries, scoped FKs, concurrent membership, counters,
     const [same] = await tx.rows('SELECT nickname FROM user_profiles WHERE user_id=?', [fan]);
     assert.equal(same.nickname, before.nickname);
     await assert.rejects(tx.execute('UPDATE users SET status=? WHERE id=?', ['SUSPENDED', fan]), /not_writable/);
-    await assert.rejects(tx.rows('UPDATE users SET status=? WHERE id=?', ['SUSPENDED', fan]), { code: 'ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION' });
+    await assert.rejects(tx.rows('UPDATE users SET status=? WHERE id=?', ['SUSPENDED', fan]), error => error.meta?.driverAdapterError?.cause?.code === 1792);
   });
   assert.equal((await txs.read(tx => tx.rows('SELECT nickname FROM user_profiles WHERE user_id=?', [fan])))[0].nickname, '갱신됨');
   let escaped;

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { Transaction } from '../../transactions.js';
+import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { uuid } from '../../common/validation/identifier.js';
 import { ApiError } from '../auth/auth-primitives.js';
 import { MembershipRepository } from './membership.repository.js';

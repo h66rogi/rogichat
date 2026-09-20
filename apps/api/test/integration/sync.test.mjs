@@ -1,19 +1,20 @@
+import { createUser, createRoom, joinRoom, nextOrder } from '../support/domain-fixture.mjs';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { Sessions } from '../../dist/auth-core.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { createApi } from '../../dist/application.js';
-import { SafeLogger } from '../../dist/logging.js';
-import { createUser, createRoom, joinRoom, nextOrder } from '../../dist/repositories.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
   const db = new MysqlDatabase(readConfig('api')); let app;
   t.after(async () => { try { await app?.close(); } finally { await db.close(); } });
   const config = { audience: 'sync-fixture', origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
-  const sessions = new Sessions(db.transactions, config.audience, config.key);
+  const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const user = name => db.transactions.write(async tx => {
     const id = await createUser(tx, name);
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), id, Buffer.from(`fixture-${randomUUID()}`)]);
@@ -140,7 +141,7 @@ test('ACL epoch, room policy and role changes reset cursors; fresh session/subje
   await f.db.transactions.write(tx => tx.execute("UPDATE users SET status='SUSPENDED' WHERE id=?", [f.fan1.id]));
   assert.ok([401, 403].includes((await f.roomSync(f.fan1, 'events', { cursor: snapshot.nextCursor })).status));
   await f.db.transactions.write(tx => tx.execute("UPDATE users SET status='ACTIVE' WHERE id=?", [f.fan1.id]));
-  await f.sessions.logout(f.fan1.token, f.fan1.csrf);
+  await f.db.transactions.write(tx => f.sessions.revoke(tx, f.fan1.token, f.fan1.csrf));
   assert.equal((await f.roomSync(f.fan1, 'events', { cursor: snapshot.nextCursor })).status, 401);
   assert.equal((await f.roomSync(f.fan2, 'events')).status, 400);
   assert.equal((await f.roomSync(f.fan2, 'history')).status, 400);

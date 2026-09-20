@@ -1,12 +1,19 @@
+import { enqueueJob, Jobs, completeJob, retryDelayMs, runClaimedJob, JobFailure } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
-import { enqueueJob, Jobs, completeJob, retryDelayMs, runClaimedJob, JobFailure } from '../../dist/jobs.js';
 
 function harness(rows = [], affectedRows = 1) {
   const calls = [];
   let active = false;
+  const now = new Date("2026-09-20T00:00:00.000Z");
   const tx = {
+    now: async () => now,
+    prisma: { jobs: {
+      create: async input => { calls.push({ model: "jobs", operation: "create", input }); return { id: input.data.id }; },
+      createMany: async input => { calls.push({ model: "jobs", operation: "createMany", input }); return { count: affectedRows }; },
+      updateMany: async input => { calls.push({ model: "jobs", operation: "updateMany", input }); return { count: affectedRows }; },
+    } },
     execute: async (sql, values = []) => { calls.push({ sql, values }); return { affectedRows }; },
     rows: async (sql, values = []) => { calls.push({ sql, values }); return rows; },
   };
@@ -15,7 +22,7 @@ function harness(rows = [], affectedRows = 1) {
     active = true;
     try { return await operation(tx); } finally { active = false; }
   } };
-  return { tx, transactions, calls, active: () => active };
+  return { tx, transactions, calls, now, active: () => active };
 }
 function row(purpose = 'REALTIME_HINT', patch = {}) {
   return { id: randomUUID(), purpose, room_id: randomUUID(), resource_id: randomUUID(), generation: '9007199254740993', attempts: 0, max_attempts: 5, ...patch };
@@ -29,8 +36,8 @@ test('enqueue accepts scoped references only and schedules from DB UTC, never co
   const h = harness();
   const id = await enqueueJob(h.tx, { purpose: 'MEDIA', roomId: randomUUID(), resourceId: randomUUID(), delayMs: 2500 });
   assert.match(id, /^[0-9a-f-]{36}$/);
-  assert.match(h.calls[0].sql, /TIMESTAMPADD\(MICROSECOND,\?,UTC_TIMESTAMP\(3\)\)/);
-  assert.equal(h.calls[0].values.at(-1), 2_500_000);
+  assert.equal(h.calls[0].operation, 'create');
+  assert.equal(h.calls[0].input.data.available_at.getTime() - h.now.getTime(), 2500);
   for (const patch of [{ payload: { text: 'private-message' } }, { body: 'private-message' },
     { purpose: 'UNKNOWN' }, { roomId: 'not-uuid' }, { resourceId: 'not-uuid' },
     { maxAttempts: 0 }, { maxAttempts: 26 }, { delayMs: -1 }, { delayMs: 86_400_001 }, { dedupeKey: randomBytes(31) }]) {
@@ -44,9 +51,10 @@ test('dedupe returns existing id only for identical purpose/scope, without resch
   const existing = row('MEDIA');
   const h = harness([existing]);
   assert.equal(await enqueueJob(h.tx, { purpose: 'MEDIA', roomId: existing.room_id, resourceId: existing.resource_id, dedupeKey: randomBytes(32) }), existing.id);
-  assert.match(h.calls[0].sql, /ON DUPLICATE KEY UPDATE id=id$/);
+  assert.equal(h.calls[0].operation, 'createMany');
+  assert.equal(h.calls[0].input.skipDuplicates, true);
   assert.match(h.calls[1].sql, /purpose=\? AND dedupe_key=\? FOR UPDATE/);
-  assert.doesNotMatch(h.calls[0].sql, /UPDATE .*state/);
+  assert.equal('state' in h.calls[0].input.data[0], false);
   for (const patch of [{ roomId: randomUUID() }, { resourceId: randomUUID() }]) {
     await assert.rejects(enqueueJob(harness([existing]).tx, { purpose: 'MEDIA', roomId: existing.room_id, resourceId: existing.resource_id, dedupeKey: randomBytes(32), ...patch }), /job_dedupe_conflict/);
   }
@@ -80,16 +88,17 @@ test('claim uses short SKIP LOCKED transaction, DB expiry and exact bigint gener
   assert.equal(claimed.leaseOwner, queue.ownerId);
   assert.match(claimed.leaseToken, /^[0-9a-f-]{36}$/);
   assert.ok(Object.isFrozen(claimed));
-  assert.equal(h.calls[1].values[3], 2_000_000);
+  assert.equal(h.calls[1].input.data.lease_until.getTime() - h.now.getTime(), 2000);
+  assert.equal(h.calls[1].input.data.generation, claimed.generation);
 });
 
 test('exhausted expired jobs fail terminally instead of being reclaimed forever', async () => {
   const h = harness([row('PURGE', { attempts: 5 })]);
   const claimed = await new Jobs(h.transactions, 'worker').claim();
   assert.deepEqual(claimed, []);
-  assert.match(h.calls[1].sql, /state="FAILED"/);
-  assert.match(h.calls[1].sql, /ATTEMPTS_EXHAUSTED/);
-  assert.match(h.calls[1].sql, /lease_owner=NULL,lease_token=NULL,lease_until=NULL/);
+  assert.equal(h.calls[1].input.data.state, 'FAILED');
+  assert.equal(h.calls[1].input.data.last_error_code, 'ATTEMPTS_EXHAUSTED');
+  for (const key of ['lease_owner', 'lease_token', 'lease_until']) assert.equal(h.calls[1].input.data[key], null);
 });
 
 test('complete, renew and retry all require live owner/token/generation and allowlisted purpose', async () => {
@@ -129,8 +138,8 @@ test('transport effect executes outside any transaction, with sanitized retry an
   let externalCalls = 0;
   await assert.rejects(runClaimedJob(queue, { ...claimed, leaseOwner: randomUUID() }, async () => { externalCalls++; }), /job_consumer_forbidden/);
   assert.equal(externalCalls, 0);
-  assert.ok(h.calls.some(call => call.values.includes('TEMPORARY_UNAVAILABLE')));
-  assert.equal(JSON.stringify(h.calls).includes('private-endpoint/body'), false);
+  assert.ok(h.calls.some(call => call.values?.includes('TEMPORARY_UNAVAILABLE')));
+  assert.equal(JSON.stringify(h.calls, (_key, value) => typeof value === 'bigint' ? String(value) : value).includes('private-endpoint/body'), false);
   const original = new Error('commit_outcome_unknown');
   const failing = new Jobs({ write: async () => { throw original; } }, 'api', queue.ownerId);
   await assert.rejects(runClaimedJob(failing, claimed, async () => {}), error => error === original);

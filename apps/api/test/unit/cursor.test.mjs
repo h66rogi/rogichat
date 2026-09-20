@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCipheriv, createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { CursorCodec, CursorError } from '../../dist/cursor.js';
+import { CursorCodec, CursorError } from '../../dist/modules/sync/cursor.js';
 
 const key = randomBytes(32);
 const audience = 'rogichat-test';

@@ -1,15 +1,19 @@
+import { createUser, createRoom, joinRoom, leaveRoom, sendMessage, sendInput, deleteMessage, enqueueJob, Jobs } from '../support/domain-fixture.mjs';
+import { NestFactory } from '@nestjs/core';
+import { RealtimeModule } from '../../dist/modules/realtime/realtime.module.js';
+import { RealtimeService } from '../../dist/modules/realtime/realtime.service.js';
+import { DatabaseModule } from '../../dist/infrastructure/database/database.module.js';
+import { AuthModule } from '../../dist/modules/auth/auth.module.js';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { io } from 'socket.io-client';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { Sessions } from '../../dist/auth-core.js';
-import { createUser, createRoom, joinRoom, leaveRoom } from '../../dist/repositories.js';
-import { sendMessage, sendInput, deleteMessage } from '../../dist/messages.js';
-import { enqueueJob, Jobs } from '../../dist/jobs.js';
-import { RealtimeGateway } from '../../dist/realtime.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
+import { RealtimeGateway } from '../../dist/modules/realtime/realtime.gateway.js';
 
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function fixture(t) {
@@ -18,7 +22,7 @@ async function fixture(t) {
   let gateway; const clients = [];
   t.after(async () => { try { for (const client of clients) client.disconnect(); await gateway?.stop(); } finally { await db.close(); } });
   const config = { audience: `realtime-${randomBytes(8).toString('hex')}`, origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
-  const sessions = new Sessions(db.transactions, config.audience, config.key);
+  const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const user = name => db.transactions.write(async tx => {
     const id = await createUser(tx, name);
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), id, Buffer.from(`fixture-${randomUUID()}`)]);
@@ -33,7 +37,10 @@ async function fixture(t) {
     return id;
   });
   const server = createServer((_request, response) => response.end());
-  gateway = new RealtimeGateway(server, { sessions, config }, { draining: false }, { chunkSize: 2 });
+  const infrastructure = DatabaseModule.register({ database: db, externallyOwned: true });
+  const context = await NestFactory.createApplicationContext(RealtimeModule.register(infrastructure, AuthModule.register(infrastructure, { config, sessions })), { logger: false, abortOnError: false });
+  t.after(() => context.close());
+  gateway = new RealtimeGateway(server, context.get(RealtimeService), config, { draining: false }, new Jobs(db.transactions, 'api'), { chunkSize: 2 });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   for (const person of [owner, a, b, newcomer]) {
     const client = io(`http://127.0.0.1:${server.address().port}`, { path: '/v1/realtime', transports: ['websocket'],
@@ -82,7 +89,7 @@ test('real DB private/shared hint audience, deleted-message invalidation and cur
   f.clear();
   await f.send(f.owner, 'SHARED');
   await f.db.transactions.write(tx => leaveRoom(tx, f.room, f.b.id));
-  await f.sessions.logout(f.a.token, f.a.csrf);
+  await f.db.transactions.write(tx => f.sessions.revoke(tx, f.a.token, f.a.csrf));
   await f.drain(); assert.deepEqual(f.counts(), [1, 0, 0, 1]);
 });
 

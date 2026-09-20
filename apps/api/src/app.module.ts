@@ -1,30 +1,37 @@
+import type { RuntimeSettings, MediaSettings } from './infrastructure/config/runtime-settings.js';
+import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { Module } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
-import type { Database } from './database.js';
+import type { Database } from './infrastructure/database/database.js';
 import type { LifecycleState } from './common/lifecycle/lifecycle-state.js';
 import { DatabaseModule } from './infrastructure/database/database.module.js';
 import { HealthModule } from './modules/health/health.module.js';
-import { AUTH } from './auth-http.js';
-import type { AuthRuntime } from './auth-http.js';
+import type { AuthModuleOptions } from './modules/auth/auth.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
-import { CommunityController } from './community-http.js';
+import { UsersModule } from './modules/users/users.module.js';
+import { RoomsModule } from './modules/rooms/rooms.module.js';
 import { MessagesModule } from './modules/messages/messages.module.js';
-import { SyncController } from './sync-http.js';
-import { InteractionsController } from './interactions-http.js';
+import { SyncModule } from './modules/sync/sync.module.js';
+import { ReactionsModule } from './modules/reactions/reactions.module.js';
+import { PublicationsModule } from './modules/publications/publications.module.js';
+import { MediaModule } from './modules/media/media.module.js';
+import type { MediaOptions } from './modules/media/media.module.js';
 
-// Migration composition adapter. R2 converts the remaining controllers into feature modules;
-// R4 removes externally assembled runtime inputs from the production bootstrap.
+// Tests override providers through the same feature graph used by production.
 @Module({})
 export class AppModule {
-  static register(database: Database, lifecycle: LifecycleState, auth?: AuthRuntime): DynamicModule {
-    const infrastructure = DatabaseModule.register({ database, lifecycle, externallyOwned: true,
-      ...(auth ? { transactions: auth.sessions.transactions } : {}) });
+  static register(database: Database, lifecycle: LifecycleState, auth?: AuthModuleOptions, media?: MediaOptions): DynamicModule {
+    const infrastructure = DatabaseModule.register({ database, lifecycle, externallyOwned: true });
+    return this.compose(infrastructure, auth, media);
+  }
+  static production(settings: RuntimeSettings): DynamicModule {
+    return this.compose(DatabaseModule.register({ config: settings.config }), settings.auth ? { config: settings.auth } : undefined, settings.media);
+  }
+  private static compose(infrastructure: DynamicModule, auth?: AuthModuleOptions, media?: MediaOptions | MediaSettings): DynamicModule {
     const authentication = auth ? AuthModule.register(infrastructure, auth) : undefined;
     return {
       module: AppModule,
-      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, MessagesModule.register(infrastructure, authentication)] : [])],
-      controllers: auth ? [CommunityController, SyncController, InteractionsController] : [],
-      providers: [...(auth ? [{ provide: AUTH, useValue: auth }] : [])],
+      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, MessagesModule.register(infrastructure, authentication), UsersModule.register(infrastructure, authentication), RoomsModule.register(infrastructure, authentication), SyncModule.register(infrastructure, authentication), ReactionsModule.register(infrastructure, authentication), PublicationsModule.register(infrastructure, authentication), RealtimeModule.register(infrastructure, authentication, true), ...(media ? [MediaModule.register(infrastructure, authentication, media)] : [])] : [])],
     };
   }
 }

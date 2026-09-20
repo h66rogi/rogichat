@@ -178,6 +178,8 @@ class RequestTests(unittest.TestCase):
             self.assertIn('--read-only', args)
             self.assertEqual(args[args.index('--cap-drop') + 1], 'ALL')
             self.assertIn("readAuthConfig({environment:'qa'})", args[-1])
+            self.assertIn("import('./dist/infrastructure/config/auth-config.js')", args[-1])
+            self.assertNotIn("import('./dist/auth-config.js')", args[-1])
             self.assertNotIn('DATABASE_URL', ' '.join(args))
             self.assertEqual(cleanup.call_args.args[0][-1], args[args.index('--name') + 1])
 

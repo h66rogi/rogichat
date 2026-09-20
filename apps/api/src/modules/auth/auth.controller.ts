@@ -1,7 +1,7 @@
 import { Controller, Get, Inject, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response, CookieOptions } from 'express';
-import type { AuthConfig } from '../../auth-config.js';
-import { ApiError, object, opaque, secret } from '../../auth-core.js';
+import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
+import { ApiError, object, opaque, secret } from '../../modules/auth/auth-primitives.js';
 import { AuthService } from './auth.service.js';
 import { AUTH_CONFIG } from './auth.tokens.js';
 import { cookie, cookieName, oauthCookieName, sessionToken, csrf, readSessionCredentials, readCommandCredentials } from './auth-context.js';

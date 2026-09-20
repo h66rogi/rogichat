@@ -5,8 +5,8 @@ import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
-import { Sessions, digest } from '../../dist/auth-core.js';
-import * as compatibility from '../../dist/auth-core.js';
+import { digest } from '../../dist/modules/auth/auth-primitives.js';
+import * as compatibility from '../../dist/modules/auth/auth-primitives.js';
 import * as primitives from '../../dist/modules/auth/auth-primitives.js';
 
 const token = 'a'.repeat(43); const proof = 'b'.repeat(43);
@@ -66,37 +66,24 @@ test('SessionService revocation shares the authenticated command handle and does
   assert.deepEqual(f.calls.map(call => call[0]), ['find']);
 });
 
-test('SessionRepository preserves DB-time expiry, audience, joined locking and seven-day lifetime SQL', async () => {
-  const calls = []; const row = { id: randomUUID() }; const repository = new SessionRepository();
-  const tx = { writable: false, rows: async (...args) => { calls.push(args); return [row]; }, execute: async (...args) => { calls.push(args); } };
-  assert.equal(await repository.findCurrent(tx, digest(token), audience), row);
-  const [readSql, params] = calls[0];
-  assert.match(readSql, /JOIN users u ON u.id=s.user_id LEFT JOIN platform_soop p ON p.user_id=u.id/);
-  assert.match(readSql, /s.token_digest=\? AND s.audience=\? AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP\(3\)$/);
-  assert.deepEqual(params, [digest(token), audience]);
+test('SessionRepository uses same-handle ORM reads/writes, DB clock and command locking', async () => {
+  const calls = []; const repository = new SessionRepository(); const now = new Date('2026-09-20T00:00:00.123Z');
+  const row = { id: randomUUID(), user_id: randomUUID(), csrf_digest: new Uint8Array(digest(proof)), user: { status: 'ACTIVE', soop: { status: 'VERIFIED' } } };
+  const tx = { writable: false, now: async () => now, rows: async (...args) => { calls.push(['raw', ...args]); return [{ id: row.id }]; }, prisma: { auth_sessions: {
+    findFirst: async input => { calls.push(['find', input]); return row; },
+    create: async input => { calls.push(['create', input]); return { id: input.data.id }; },
+    updateMany: async input => { calls.push(['update', input]); return { count: 1 }; },
+  } } };
+  assert.deepEqual(await repository.findCurrent(tx, digest(token), audience), { id: row.id, user_id: row.user_id, csrf_digest: digest(proof), status: 'ACTIVE', soop_status: 'VERIFIED' });
+  assert.deepEqual(calls[0][1].where, { token_digest: new Uint8Array(digest(token)), audience, revoked_at: null, expires_at: { gt: now } });
   tx.writable = true; await repository.findCurrent(tx, digest(token), audience);
-  assert.equal(calls[1][0], `${readSql} FOR UPDATE`);
-  const input = { id: randomUUID(), userId: randomUUID(), tokenDigest: digest(token), csrfDigest: digest(proof), audience };
+  assert.match(calls[1][1], /FOR UPDATE$/); assert.deepEqual(calls[1][2], [digest(token), audience]);
+  const input = { id: randomUUID(), userId: row.user_id, tokenDigest: digest(token), csrfDigest: digest(proof), audience };
   await repository.insert(tx, input);
-  assert.match(calls[2][0], /TIMESTAMPADD\(DAY,7,UTC_TIMESTAMP\(3\)\)/);
-  assert.deepEqual(calls[2][1], [input.id, input.userId, input.tokenDigest, input.csrfDigest, audience]);
+  assert.equal(calls[2][1].data.expires_at.getTime() - now.getTime(), 7 * 86400000);
+  assert.deepEqual(calls[2][1].select, { id: true });
   await repository.revoke(tx, input.id);
-  assert.deepEqual(calls[3], ['UPDATE auth_sessions SET revoked_at=UTC_TIMESTAMP(3) WHERE id=?', [input.id]]);
-});
-
-test('legacy Sessions keeps constructor/caller handles and only logout opens a transaction', async () => {
-  const f = fixture(); const scopes = [];
-  const transactions = { write: async run => { scopes.push('write'); return run(f.tx); } };
-  const sessions = new Sessions(transactions, audience, f.key, f.service);
-  assert.equal(sessions.transactions, transactions); assert.equal(sessions.audience, audience);
-  await sessions.require(f.tx, token, proof, true); await sessions.issue(f.tx, f.session.user_id);
-  assert.deepEqual(scopes, []); assert.equal(sessions.csrf(token), f.service.csrf(token));
-  await sessions.logout(token, proof); assert.deepEqual(scopes, ['write']);
-  assert.deepEqual(f.calls.at(-1), ['revoke', f.tx, f.session.id]);
-  const fallbackCalls = []; const fallbackTx = { writable: true, execute: async (...args) => { fallbackCalls.push(args); } };
-  const legacy = new Sessions(transactions, audience, f.key);
-  await legacy.issue(fallbackTx, f.session.user_id);
-  assert.equal(fallbackCalls.length, 1); assert.match(fallbackCalls[0][0], /^INSERT INTO auth_sessions/);
+  assert.deepEqual(calls[3], ['update', { where: { id: input.id }, data: { revoked_at: now } }]);
 });
 
 test('session services have no legacy adapter dependency cycle and preserve primitive export identities', async () => {

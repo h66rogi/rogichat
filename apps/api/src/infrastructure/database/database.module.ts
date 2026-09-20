@@ -1,9 +1,9 @@
 import { Inject, Injectable, Module } from '@nestjs/common';
 import type { DynamicModule, OnApplicationShutdown, Provider } from '@nestjs/common';
-import { MysqlDatabase } from '../../database.js';
-import type { Database } from '../../database.js';
-import type { Config } from '../../config.js';
-import { Transactions } from '../../transactions.js';
+import { MysqlDatabase } from './database.js';
+import type { Database } from './database.js';
+import type { Config } from '../config/config.js';
+import { Transactions } from './transactions.js';
 import { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
 import { DATABASE } from './database.tokens.js';
 
@@ -18,7 +18,7 @@ interface DatabaseModuleOptions {
 }
 @Injectable()
 class DatabaseLifecycle implements OnApplicationShutdown {
-  constructor(@Inject(DATABASE) private readonly database: Database, private readonly lifecycle: LifecycleState) {}
+  constructor(@Inject(DATABASE) private readonly database: Database, @Inject(LifecycleState) private readonly lifecycle: LifecycleState) {}
   async onApplicationShutdown(): Promise<void> { this.lifecycle.draining = true; await this.database.close(); }
 }
 

@@ -1,14 +1,19 @@
+import { createUser } from '../support/domain-fixture.mjs';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
+import { IdentityService } from '../../dist/modules/auth/identity.service.js';
+import { IdentityRepository } from '../../dist/modules/auth/identity.repository.js';
+import { LoginRepository } from '../../dist/modules/auth/login.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { Sessions, digest, secret } from '../../dist/auth-core.js';
-import { AuthFlow } from '../../dist/auth-flow.js';
-import { oauthCookieName } from '../../dist/auth-http.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { digest, secret } from '../../dist/modules/auth/auth-primitives.js';
+import { AuthFlow } from '../../dist/modules/auth/auth-flow.service.js';
+import { oauthCookieName } from '../../dist/modules/auth/auth-context.js';
 import { createApi } from '../../dist/application.js';
-import { SafeLogger } from '../../dist/logging.js';
-import { createUser } from '../../dist/repositories.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 
 function deferred() {
   let resolve;
@@ -61,9 +66,9 @@ async function fixture(t, withHttp = false, secure = false) {
     secure, key: randomBytes(32),
     broker: { baseUrl: 'https://broker.example.invalid', clientId: 'fixture-client', clientSecret: randomBytes(32).toString('hex') },
   };
-  const sessions = new Sessions(db.transactions, config.audience, config.key);
+  const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const broker = new FixtureBroker(config.broker.clientId);
-  const flow = new AuthFlow(sessions, config, broker);
+  const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), new IdentityService(new IdentityRepository()));
   let logs = '';
   if (withHttp) {
     app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { sessions, flow, config });
@@ -176,8 +181,8 @@ test('state/browser/audience binding and one-time callback claims reject tamperi
   await assert.rejects(f.flow.callback(secret(), code, started.browser), errorCode('AUTH_FAILED', 400));
   await assert.rejects(f.flow.callback(started.request.state, code, secret()), errorCode('AUTH_FAILED', 400));
   const otherConfig = { ...f.config, audience: 'rogi-other-environment' };
-  const otherSessions = new Sessions(f.db.transactions, otherConfig.audience, otherConfig.key);
-  const otherFlow = new AuthFlow(otherSessions, otherConfig, f.broker);
+  const otherSessions = new SessionService(new SessionRepository(), otherConfig.audience, otherConfig.key);
+  const otherFlow = new AuthFlow(otherSessions, f.db.transactions, otherConfig, f.broker, new LoginRepository(), new IdentityService(new IdentityRepository()));
   await assert.rejects(otherFlow.callback(started.request.state, code, started.browser), errorCode('AUTH_FAILED', 400));
   assert.equal(f.broker.exchanges, 0);
   const results = await Promise.allSettled([
@@ -259,7 +264,7 @@ test('link requires CSRF/recent session, rotates successful sessions, rejects ac
   const callback = f.flow.callback(started.request.state, code, started.browser, revoking.token);
   const denied = assert.rejects(callback, errorCode('AUTH_FAILED', 400));
   await f.broker.entered.promise;
-  await f.sessions.logout(revoking.token, revoking.csrf);
+  await f.db.transactions.write(tx => f.sessions.revoke(tx, revoking.token, revoking.csrf));
   f.broker.release.resolve();
   await denied;
   const links = await f.db.transactions.read(tx => tx.rows('SELECT id FROM platform_soop WHERE user_id=?', [revoking.userId]));

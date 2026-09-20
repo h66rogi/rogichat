@@ -1,7 +1,7 @@
+import { syncInput, resetSync } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { syncInput, resetSync } from '../../dist/sync.js';
 
 test('sync query uses exact fields, UUID device/cache bindings and bounded decimal string limits', () => {
   const input = { deviceId: randomUUID(), cacheId: randomUUID() };

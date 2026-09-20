@@ -46,6 +46,7 @@ crash.*.log
 # Build and local tools
 .tools/
 node_modules/
+apps/api/src/generated/prisma/
 .next/
 .turbo/
 dist/

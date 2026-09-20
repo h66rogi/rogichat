@@ -1,16 +1,14 @@
+import { createUser, createRoom, joinRoom, sendInput, sendMessage, getMessage, deleteMessage, requestPublication, publishText, publicationStatus, setReaction, Jobs, enqueueJob } from '../support/domain-fixture.mjs';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { Sessions, ApiError } from '../../dist/auth-core.js';
-import { createUser, createRoom, joinRoom } from '../../dist/repositories.js';
-import { sendInput, sendMessage, getMessage, deleteMessage } from '../../dist/messages.js';
-import { requestPublication, publishText, publicationStatus } from '../../dist/publications.js';
-import { setReaction } from '../../dist/reactions.js';
-import { Jobs, enqueueJob } from '../../dist/jobs.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { ApiError } from '../../dist/modules/auth/auth-primitives.js';
 import { createApi } from '../../dist/application.js';
-import { SafeLogger } from '../../dist/logging.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 import { child, waitFor, stopChild } from '../helpers.mjs';
 
 async function fixture(t) {
@@ -18,7 +16,7 @@ async function fixture(t) {
   const db = new MysqlDatabase(readConfig('api')); let app; const children = [];
   t.after(async () => { try { for (const proc of children) await stopChild(proc); await app?.close(); } finally { await db.close(); } });
   const config = { audience: `pub-${randomBytes(8).toString('hex')}`, origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
-  const sessions = new Sessions(db.transactions, config.audience, config.key);
+  const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const person = name => db.transactions.write(async tx => {
     const id = await createUser(tx, name);
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), id, Buffer.from(`fixture-pub-${randomUUID()}`)]);

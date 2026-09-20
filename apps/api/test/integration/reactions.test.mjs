@@ -1,18 +1,17 @@
+import { createUser, createRoom, joinRoom, leaveRoom, nextOrder, sendMessage, sendInput, deleteMessage, readReactions, setReaction } from '../support/domain-fixture.mjs';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { Sessions } from '../../dist/auth-core.js';
-import { createUser, createRoom, joinRoom, leaveRoom, nextOrder } from '../../dist/repositories.js';
-import { sendMessage, sendInput, deleteMessage } from '../../dist/messages.js';
-import { readReactions, setReaction } from '../../dist/reactions.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
   const db = new MysqlDatabase(readConfig('api'));
   t.after(() => db.close());
-  const key = randomBytes(32); const sessions = new Sessions(db.transactions, 'reactions-fixture', key);
+  const key = randomBytes(32); const sessions = new SessionService(new SessionRepository(), 'reactions-fixture', key);
   const user = name => db.transactions.write(async tx => {
     const id = await createUser(tx, name);
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), id, Buffer.from(`fixture-${randomUUID()}`)]);
@@ -84,7 +83,7 @@ test('private/current grant, room scope, active membership and scoped foreign ke
   await denied(f.read(f.a, messageId, other.id)); await denied(f.set(f.a, messageId, '😀', other.id));
   // Isolate each scoped FK: valid message/wrong-room member, then valid member/wrong-room message.
   for (const [room, actor] of [[f.room, other.actor], [other.id, other.actor]]) {
-    await assert.rejects(f.db.transactions.write(tx => tx.execute('INSERT INTO message_reactions (id,room_id,message_id,member_id,emoji) VALUES (?,?,?,?,?)', [randomUUID(), room, messageId, actor, '😀'])), error => [1452, 1216].includes(error.errno));
+    await assert.rejects(f.db.transactions.write(tx => tx.execute('INSERT INTO message_reactions (id,room_id,message_id,member_id,emoji) VALUES (?,?,?,?,?)', [randomUUID(), room, messageId, actor, '😀'])), error => error.code === 'P2003' || error.meta?.driverAdapterError?.cause?.kind === 'ForeignKeyConstraintViolation' || [1452, 1216].includes(error.meta?.driverAdapterError?.cause?.code));
   }
   await f.db.transactions.write(tx => tx.execute('UPDATE stream_grants SET revoked_at=UTC_TIMESTAMP(3) WHERE member_id=?', [f.a.actor]));
   await denied(f.read(f.a, messageId)); await denied(f.set(f.a, messageId, null));
