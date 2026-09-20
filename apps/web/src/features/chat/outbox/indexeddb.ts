@@ -25,7 +25,7 @@ export class DurableOutbox {
     if (typeof window !== 'undefined') {
       const options = { signal: this.abort.signal };
       window.addEventListener('pagehide', () => this.suspend(), options);
-      window.addEventListener('pageshow', () => this.suspend(), options);
+      window.addEventListener('pageshow', event => { if (event.persisted) this.suspend(); }, options);
       document.addEventListener('freeze', () => this.suspend(), options);
       document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.suspend(); }, options);
     }
