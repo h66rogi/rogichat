@@ -12,6 +12,7 @@ import org.junit.Test
 
 internal class RoomTestApi : NativeApi {
     var sessionJson = partitionProjection()
+    var sessionCalls = 0
     var manifestCalls = 0; var discoveryCalls = 0
     var joins = 0; var leaves = 0
     var authResponse: suspend (ApiRoute) -> String = { error("unused") }
@@ -24,7 +25,7 @@ internal class RoomTestApi : NativeApi {
     override suspend fun leaveRoom(token: String, room: RoomId) { leaves++; leave(token, room) }
     var manifest: suspend (ManifestRequest) -> String = { manifestJson() }
     var discovery: suspend (RoomId?) -> String = { discoveryJson() }
-    override suspend fun get(route: ApiRoute, token: String) = sessionJson
+    override suspend fun get(route: ApiRoute, token: String): String { sessionCalls++; return sessionJson }
     override suspend fun getRooms(token: String, after: RoomId?): String { discoveryCalls++; return discovery(after) }
     override suspend fun getManifest(token: String, query: ManifestRequest): String { manifestCalls++; return manifest(query) }
     override suspend fun patch(route: ApiRoute, token: String, body: String) = error("unused")
