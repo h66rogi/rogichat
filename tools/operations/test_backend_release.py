@@ -95,12 +95,42 @@ class RequestTests(unittest.TestCase):
                         redirect_stdout(io.StringIO()) as output, self.assertRaises(release.Rejected):
                     release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy')
                 self.assertEqual(list(root.glob('migration-*')), [])
-                cleanup.assert_called_once()
+                self.assertEqual(cleanup.call_count, 2 if stage == 'success' else 1)
                 fail_closed.assert_called_once_with('fixture-caddy', b'fixture')
                 start.assert_not_called()
                 health.assert_not_called()
                 self.assertFalse(any(call.args[0].name == 'completed' for call in atomic.call_args_list))
                 self.assertNotIn('verified', output.getvalue())
+
+    def test_cancel_before_cleanup_entry_still_unlinks_and_prevents_activation(self):
+        real_mkstemp = tempfile.mkstemp
+        real_cleanup = release.cleanup_migration
+        attempts = []
+        def interrupted(name, secret):
+            attempts.append(name)
+            if len(attempts) == 1:
+                raise release.Rejected('interrupted before cleanup entry')
+            return real_cleanup(name, secret)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(release, 'RELEASES', root), patch.object(release, 'APP', root / 'app'), \
+                    patch.object(release, 'IMAGES', root / 'images'), patch.object(release, 'UNIT', root / 'unit'), \
+                    patch.object(release, 'CADDY', root / 'caddy'), patch.object(release, 'atomic') as atomic, \
+                    patch.object(release, 'caddy_config'), patch.object(release, 'docker', return_value=b''), \
+                    patch.object(release, 'start_units') as start, patch.object(release, 'wait_health') as health, \
+                    patch.object(release, 'fail_closed') as fail_closed, \
+                    patch.object(release, 'cleanup_migration', side_effect=interrupted), \
+                    patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))), \
+                    patch.object(release.tempfile, 'mkstemp', side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)), \
+                    patch.object(release.os, 'fchown'), patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stderr=b'')), \
+                    redirect_stdout(io.StringIO()), self.assertRaises(release.Rejected):
+                release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy')
+            self.assertEqual(len(attempts), 2)
+            self.assertEqual(list(root.glob('migration-*')), [])
+            fail_closed.assert_called_once()
+            start.assert_not_called()
+            health.assert_not_called()
+            self.assertFalse(any(call.args[0].name == 'completed' for call in atomic.call_args_list))
 
     def test_owned_stopped_desired_containers_created_before_unit_start(self):
         events = []

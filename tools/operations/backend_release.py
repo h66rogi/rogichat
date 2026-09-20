@@ -430,7 +430,7 @@ def deploy(request, files, container):
     name = 'rogichat-qa-migration-' + request['request_id']
     require(not docker('ps', '-a', '--filter', 'name=^/' + name + '$', '--format', '{{.ID}}').strip())
     secret_path = None
-    cleanup_started = False
+    cleanup_completed = False
     try:
         caddy_config(container, files['bootstrap'])
         for role in ('api', 'worker'):
@@ -462,8 +462,8 @@ def deploy(request, files, container):
         docker(*args, execution_image(request, 'migration'), '/run/release/migrate_entry.mjs', timeout=360)
         # Cleanup is a gate BEFORE app activation and the completion marker.
         # Its own finally owns unlinking, even if Docker removal raises.
-        cleanup_started = True
         cleanup_migration(name, secret_path)
+        cleanup_completed = True
         secret_path = None
         print('QA migration manifest, TLS and scoped grants verified.', flush=True)
         atomic(APP / 'compose.app.yaml', files['compose'])
@@ -488,7 +488,7 @@ def deploy(request, files, container):
     finally:
         # Exact generated container only. Killing it prevents a timeout orphan
         # from retaining migration credentials after the host wrapper exits.
-        if not cleanup_started:
+        if not cleanup_completed:
             cleanup_migration(name, secret_path)
 
 
