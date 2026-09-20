@@ -25,7 +25,7 @@ jobs:
           set -euo pipefail
           ssh-keygen -q -t rsa -b 2048 -N '' -f .tools/test-key
           export TF_VAR_ssh_public_key_path="$PWD/.tools/test-key.pub"
-          for target in qa/aws qa/aws-ec2 qa/cloudflare qa/restore-drill management/aws management/cloudflare management/worker; do
+          for target in qa/aws qa/aws-ec2 qa/cloudflare qa/restore-drill prod/aws-ec2 prod/cloudflare management/aws management/cloudflare management/worker; do
             root="infrastructure/environments/$target"
             .tools/terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
             .tools/terraform -chdir="$root" validate
@@ -35,5 +35,7 @@ jobs:
         run: |
           .tools/caddy adapt --config infrastructure/runtime/Caddyfile.bootstrap --adapter caddyfile --validate > /dev/null
           docker compose -f infrastructure/runtime/compose.bootstrap.yaml config --quiet
+          .tools/caddy adapt --config infrastructure/environments/prod/runtime/Caddyfile.bootstrap --adapter caddyfile --validate > /dev/null
+          docker compose -f infrastructure/environments/prod/runtime/compose.bootstrap.yaml config --quiet
           .tools/caddy adapt --config infrastructure/atlantis/runtime/Caddyfile --adapter caddyfile --validate > /dev/null
           ATLANTIS_ENV_FILE=/dev/null docker compose -f infrastructure/atlantis/runtime/compose.yaml config --quiet
