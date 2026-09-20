@@ -20,7 +20,8 @@ export class AccountContentRepository {
     // Select and lock one durable checkpoint before its room. FK-free restored
     // receipts may exist without a live message; absence alone is never proof.
     const [row] = await tx.rows<{ message_id: string; room_id: string; content_owner_user_id: string; environment: string; requested_at: Date; ledger_sha256: Buffer }>(`SELECT c.message_id,c.room_id,c.content_owner_user_id,c.environment,c.requested_at,c.ledger_sha256 FROM account_content_checkpoints c
-      WHERE c.request_id=? AND c.rows_purged_at IS NOT NULL AND (
+      WHERE c.request_id=? AND c.rows_purged_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.room_id=c.room_id AND m.id=c.message_id) AND (
         EXISTS (SELECT 1 FROM command_receipts r WHERE r.room_id=c.room_id AND r.message_id=c.message_id AND (r.deleted=0 OR r.payload_digest IS NOT NULL)) OR
         EXISTS (SELECT 1 FROM push_deliveries p WHERE p.room_id=c.room_id AND p.message_id=c.message_id))
       ORDER BY c.message_id LIMIT 1 FOR UPDATE`, [receipt.intent.requestId]);
