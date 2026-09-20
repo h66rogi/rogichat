@@ -20,7 +20,7 @@ export class AppleLifecycleService {
       if (!await this.repository.receipt(tx, event.id)) return;
       if (event.type === 'email-enabled' || event.type === 'email-disabled') return;
       // Guard fence is shared with deletion and all identity admission paths.
-      // Deleted identities can reject the callback; receipt rollback lets Apple retry.
+      // A verified callback for a guarded deleted identity is acknowledged without reopening it.
       try { await this.guards.checkApple(tx, appleGuardSubject(event.scope, event.subject), this.config?.identityGuardKey); }
       catch (error) { if (error instanceof ApiError && error.code === 'AUTH_FAILED') return; throw error; }
       const prior = await this.identities.event(tx, event.scope, event.subject);

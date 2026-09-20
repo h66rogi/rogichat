@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { test } from 'node:test';
+import { URLSearchParams } from 'node:url';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
@@ -67,6 +68,7 @@ test('Apple native/Services ID share only explicitly scoped identity; restricted
   assert.equal(first.session.soopLinkStatus, 'REQUIRED'); assert.equal(first.session.capabilities.chat, false);
   const userId = first.session.account.userId;
   const second = await f.login('android', first.subject); assert.equal(second.session.account.userId, userId);
+  const web = await f.login('web', first.subject); assert.equal((await f.db.transactions.read(tx => f.auth.require(tx, { token: web.token }))).userId, userId);
   await assert.rejects(f.db.transactions.read(tx => f.auth.require(tx, f.credentials(first), true)), denied('SOOP_LINK_REQUIRED'));
   const subject = `soop-${randomUUID()}`;
   const soopProof = { schemaVersion: 1, provider: 'soop', subject, clientId: 'fixture', transactionId: randomUUID(), authenticatedAt: new Date().toISOString() };
@@ -190,4 +192,30 @@ test('HTTP Apple iOS start/complete/exchange uses the same real provider verifie
   assert.deepEqual(Object.keys(issued).sort(), ['accessToken', 'expiresAt', 'session', 'tokenType']);
   const restored = await fetch(`${origin}/v1/auth/session`, { headers: { authorization: `Bearer ${issued.accessToken}`, 'x-rogi-client': 'ios' } });
   assert.deepEqual(await restored.json(), issued.session);
+});
+
+test('Android Services ID HTTP callback validates Apple form post and binds the native completion', async t => {
+  const f = await fixture(t);
+  const app = await createApi(f.db, new SafeLogger('api', () => {}), undefined, { config: f.config, appleProvider: new AppleProvider(f.config.apple, f.providerFixture.request) });
+  t.after(() => app.close()); await app.listen(0, '127.0.0.1'); const origin = await app.getUrl();
+  const verifier = secret(), returnState = secret();
+  const headers = { 'content-type': 'application/json', 'x-rogi-client': 'android' };
+  const start = await fetch(`${origin}/v1/auth/apple/start`, { method: 'POST', headers, body: JSON.stringify({
+    clientId: 'android', intent: 'login', codeChallenge: hash(verifier), returnState, termsVersion: '2026-09-20',
+  }) });
+  assert.equal(start.status, 200); const pending = await start.json();
+  assert.equal(new URL(pending.authorizeUrl).origin, 'https://appleid.apple.com');
+  const proof = f.providerFixture.code('android', pending.nonce);
+  const callback = await fetch(`${origin}/v1/auth/apple/callback`, { method: 'POST', redirect: 'manual',
+    headers: { 'content-type': 'application/x-www-form-urlencoded', origin: 'https://appleid.apple.com' },
+    body: new URLSearchParams({ state: pending.state, code: proof.code }),
+  });
+  assert.equal(callback.status, 303); const target = new URL(callback.headers.get('location'));
+  assert.equal(target.origin, f.config.origin); assert.equal(target.pathname, '/mobile/auth/complete');
+  assert.equal(target.searchParams.get('state'), returnState); assert.deepEqual([...target.searchParams.keys()].sort(), ['code', 'state']);
+  const response = await fetch(`${origin}/v1/auth/apple/exchange`, { method: 'POST', headers, body: JSON.stringify({
+    clientId: 'android', transactionId: pending.transactionId, code: target.searchParams.get('code'), codeVerifier: verifier,
+  }) });
+  assert.equal(response.status, 200); const issued = await response.json();
+  assert.equal(issued.session.soopLinkStatus, 'REQUIRED'); assert.equal(issued.session.capabilities.chat, false);
 });

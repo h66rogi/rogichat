@@ -102,13 +102,18 @@ its teardown was confirmed at `2026-09-20T10:58:17.223Z`. The generation fixture
 was also removed. Full batch validation is separate from this schema evidence.
 
 
-## Validation progress
+## Validation and release gate
 
-The small single-process TypeScript emit passes. The complete unit/contract run
-passed 396 test entries; the two unavailable contract files then passed all 14
-checks after reusing installed exact-version Ajv dependencies. The focused
-Apple cryptographic, credential-sealing, DTO and v1/v2/v3 ledger suite passes all
-27 checks. OpenAPI exports for health/auth/full compose without database or
-provider I/O. Genuine MySQL generation and fresh replay evidence are above.
-Full source/test ESLint also passes. Hosted integration and required PR checks remain the publishing gate;
-real Apple developer registration and live QA device evidence are not claimed.
+The merged TypeScript emit and source/test ESLint pass. The local unit/contract
+suite covered 412 test entries; the M10 dependency-construction violation was
+corrected through its author's normal merge, then all 18 architecture, Apple
+cryptographic/DTO and composed cleanup regressions passed. V1/V2/V3 ledger checks
+and OpenAPI health/auth/full exports also pass. Genuine MySQL generation and
+fresh replay evidence are above.
+
+[PR 72](https://github.com/h66rogi/rogichat/pull/72) owns hosted MySQL integration,
+process lifecycle, full contracts and required build/security checks against QA.
+The local process E2E had 16 passes and two five-second cold-start wait timeouts
+under concurrent workstation load; no timeout or product behavior was relaxed.
+Hosted checks are the merge gate. No live Apple developer registration, mounted
+production key, real QA device evidence or deployment is claimed.
