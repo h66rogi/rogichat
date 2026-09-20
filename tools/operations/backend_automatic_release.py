@@ -260,9 +260,17 @@ def verify_edge(p, helper, edge):
     require(helper.snapshot_edge(p['edge_network']) == edge)
 
 
+def verify_edge_templates(helper, files, container, edge):
+    require(edge['Id'].startswith(container))
+    if helper.WEB_NETWORK in edge['networks']:
+        require(all(b'import /etc/caddy/sites/*.caddy' in files[key]
+                    for key in ('caddy', 'bootstrap')))
+
+
 def activate(r, p, helper, files, container, targets, candidate, archive, output, edge):
     # Under the shared host lock, before consumption or any candidate mutation.
     verify_edge(p, helper, edge)
+    verify_edge_templates(helper, files, container, edge)
     identity = candidate[0]
     backup = STATE / ('request-' + r['request_id'])
     require(not backup.exists())
@@ -370,6 +378,7 @@ def main():
         edge = helper.snapshot_edge(p['edge_network'])
         helper.verify_web(edge)
         container = helper.get_caddy(p['edge_network'])
+        verify_edge_templates(helper, files, container, edge)
         schema_probe(p, helper)
         with tempfile.TemporaryDirectory(prefix='rogichat-auto-', dir='/var/tmp') as temporary:
             output = Path(temporary) / 'verified'

@@ -15,7 +15,10 @@ before writing current state/completion, and after fail-closed shutdown. Each
 activation gate compares topology again after the route probes. Rollback
 verification also runs when fail-closed shutdown raises; a failed maintenance
 reload still attempts to stop both API and worker through the reviewed helper.
-This is fail-closed shutdown, not automatic restoration of an older runtime.
+Before consumption, the selected Caddy identity must match the snapshot; both
+pinned Caddy templates must retain `import /etc/caddy/sites/*.caddy` whenever
+the web network is attached, including prepared-empty topology. This is
+fail-closed shutdown, not automatic restoration of an older runtime.
 
 The helper preserves Caddy identity, image, host configuration, mounts, network
 identities, bootstrap Compose bytes, site imports and commissioned web identity.

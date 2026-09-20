@@ -241,9 +241,12 @@ class AutomaticEdgeTests(unittest.TestCase):
         helper.IMAGES = directory / 'images'
         helper.UNIT = directory / 'unit'
         helper.get_caddy.return_value = 'edge'
-        edge = {'web': {'Id': 'fixture-web'}, 'sites': {'web.caddy': 'fixture-hash'}}
+        helper.WEB_NETWORK = 'rogichat-qa-web'
+        edge = {'Id': 'edge-full-id', 'networks': {helper.WEB_NETWORK: 'fixture-network'},
+                'web': {'Id': 'fixture-web'}, 'sites': {'web.caddy': 'fixture-hash'}}
         helper.snapshot_edge.return_value = copy.deepcopy(edge)
-        files = {key: key.encode() for key in auto.TEMPLATES}
+        files = {key: key.encode() + b'\nimport /etc/caddy/sites/*.caddy\n' for key in auto.TEMPLATES}
+        helper.files = files
         def activate():
             auto.activate(request(), policy(), helper, files, 'edge', {},
                           ('sha256:' + 'e'*64, None, None), MagicMock(), directory, edge)
@@ -353,3 +356,21 @@ class AutomaticEdgeTests(unittest.TestCase):
             activate()
         helper.fail_closed.assert_called_once()
         self.assert_not_completed(helper)
+
+    def test_missing_sites_import_or_stale_caddy_rejects_before_mutation(self):
+        for failure in ('caddy', 'bootstrap', 'container'):
+            with self.subTest(failure=failure):
+                _, directory, helper, edge, load, activate = self.harness()
+                if failure == 'container':
+                    edge['Id'] = 'another-container'
+                    helper.snapshot_edge.return_value = copy.deepcopy(edge)
+                else:
+                    helper.files[failure] = b'no sites import'
+                with self.assertRaises(ValueError):
+                    activate()
+                self.assertEqual(list(directory.iterdir()), [])
+                helper.atomic.assert_not_called()
+                helper.run.assert_not_called()
+                helper.caddy_config.assert_not_called()
+                helper.start_units.assert_not_called()
+                load.assert_not_called()
