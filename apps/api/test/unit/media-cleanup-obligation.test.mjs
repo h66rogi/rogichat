@@ -4,12 +4,12 @@ import { MediaWorkerService } from '../../dist/modules/media/media-worker.servic
 import { MediaWorkerRepository, acknowledgedWrite } from '../../dist/modules/media/media-worker.repository.js';
 
 function fixture(rows = [{ id: 'input', object_key: 'input-key', state: 'ALLOCATED', byte_length: null, sha256: null }]) {
-  let db = { asset: { id: 'asset', state: 'DELETING', reserved_bytes: 100n }, rows: structuredClone(rows), budget: 100n, pending: [], completed: [] };
+  let db = { asset: { id: 'asset', state: 'DELETING', reserved_bytes: 100n }, rows: globalThis.structuredClone(rows), budget: 100n, pending: [], completed: [] };
   const objects = new Set(rows.map(row => row.object_key)), hooks = {};
   const calls = { removes: 0, refunds: 0 };
   let inTransaction = false;
   const transactions = { async write(fn) {
-    const before = structuredClone(db); inTransaction = true;
+    const before = globalThis.structuredClone(db); inTransaction = true;
     try { return await fn({}); } catch (error) { db = before; throw error; } finally { inTransaction = false; }
   } };
   const repository = {
@@ -18,8 +18,8 @@ function fixture(rows = [{ id: 'input', object_key: 'input-key', state: 'ALLOCAT
     async lockAsset() { return [db.asset]; },
     async block() { db.asset.state = 'DELETING'; },
     async uploading() { return []; }, async recentAttempts() { return []; },
-    async objects() { return structuredClone(db.rows); },
-    async currentObjects() { return structuredClone(db.rows); },
+    async objects() { return globalThis.structuredClone(db.rows); },
+    async currentObjects() { return globalThis.structuredClone(db.rows); },
     async deleteObjects() { db.rows.forEach(row => { row.state = 'DELETED'; }); },
     async releaseBudget(_tx, bytes) { calls.refunds++; db.budget -= bytes; return { affectedRows: 1 }; },
     async deleteAsset() { db.asset.state = 'DELETED'; db.asset.reserved_bytes = 0n; },
@@ -157,7 +157,7 @@ test('real R2 adapter keeps conditional single-attempt PUT on every variant', as
     return { response: { statusCode: 503, headers: {}, body: new Uint8Array() } };
   }, destroy() {} };
   for (const variant of ['input', 'image', 'video', 'poster']) {
-    await assert.rejects(store.put(mediaKey('test', randomUUID(), randomUUID(), variant), path, 7, 'application/octet-stream', new AbortController().signal));
+    await assert.rejects(store.put(mediaKey('test', randomUUID(), randomUUID(), variant), path, 7, 'application/octet-stream', new globalThis.AbortController().signal));
   }
   assert.equal(calls, 4, 'no implicit SDK retry may add an unregistered request');
 });
