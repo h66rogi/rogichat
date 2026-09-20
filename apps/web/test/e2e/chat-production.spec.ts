@@ -427,7 +427,7 @@ test('room loss from reaction during held SEND scrubs before late send settles a
   await input.fill('권한 상실 후 남으면 안 되는 전송'); await input.press('Enter'); await expect.poll(() => state.posts.length).toBe(1);
   reactions.status = 403; state.revoked = true;
   await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
-  await expect(page.getByRole('alert')).toContainText('채팅 접근 권한이 변경되었습니다'); await expect(input).toHaveCount(0);
+  await expect(page.getByText('채팅 접근 권한이 변경되었습니다. 다시 확인해 주세요.', { exact: true })).toBeVisible(); await expect(input).toHaveCount(0);
   state.revoked = false; reactions.status = 200;
   await page.getByRole('button', { name: '다시 시도', exact: true }).click();
   await expect(input).toHaveValue('');
