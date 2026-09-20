@@ -19,7 +19,7 @@ jobs:
   export:
     if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 35
     permissions:
       contents: read
       actions: read
@@ -46,6 +46,13 @@ jobs:
                  'ROGICHAT_EDGE_NETWORK': 'fixture-only-network-not-created'}
           subprocess.run(['docker', 'compose', '-f', 'infrastructure/runtime/compose.app.yaml', 'config', '--quiet'], env=env, check=True)
           PY
+      - name: Scan all exported image layers before public artifact upload
+        run: |
+          set -euo pipefail
+          python3 tools/security/install.py
+          for image in runtime migration; do
+            python3 tools/security/image_scan.py "$RUNNER_TEMP/rogichat-export/$image.tar"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: backend-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}

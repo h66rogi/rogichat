@@ -1,0 +1,23 @@
+name: Public exposure audit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  historical-public-refs:
+    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - run: python3 tools/security/install.py
+      - name: Fetch every advertised public PR ref without credentials
+        run: python3 tools/security/fetch_public_refs.py
+      - name: Audit all locally reachable public material without executing PR code
+        run: python3 tools/security/check.py all

@@ -29,7 +29,7 @@ jobs:
           const sha = process.env.SOURCE_SHA;
           const repository = process.env.SOURCE_REPOSITORY;
           if (!/^[a-f0-9]{40}$/.test(sha) || repository !== 'h66rogi/rogichat') throw new Error('Invalid source');
-          const workflows = ['backend.yml', 'security.yml', 'infrastructure.yml'];
+          const workflows = ['backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'];
           const deadline = Date.now() + 20 * 60 * 1000;
           while (Date.now() < deadline) {
             let ready = true;
@@ -54,7 +54,7 @@ jobs:
     needs: verified-source
     if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -133,6 +133,19 @@ jobs:
             --mount "type=bind,src=$PWD/infrastructure/runtime/Caddyfile.app,dst=/etc/caddy/Caddyfile,readonly" \
             --entrypoint caddy caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e \
             adapt --config /etc/caddy/Caddyfile --adapter caddyfile --validate >/dev/null
+      - name: Scan every image layer and metadata before registry authentication
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 tools/security/install.py
+          python3 tools/security/test_image_scan.py
+          for repository in rogichat-api rogichat-api-migration; do
+            image_id=$(docker image inspect --format '{{.Id}}' "ghcr.io/h66rogi/$repository:qa-$SOURCE_SHA")
+            [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+            docker image save "$image_id" | python3 tools/security/image_scan.py -
+            printf '%s\n' "$image_id" > "$RUNNER_TEMP/$repository.checked-id"
+          done
       - name: Publish only the checked images
         env:
           GHCR_TOKEN: ${{ github.token }}
@@ -148,6 +161,9 @@ jobs:
           unset GHCR_TOKEN
           for repository in rogichat-api rogichat-api-migration; do
             image="ghcr.io/h66rogi/$repository:qa-$SOURCE_SHA"
+            checked_id=$(cat "$RUNNER_TEMP/$repository.checked-id")
+            [[ "$checked_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+            test "$(docker image inspect --format '{{.Id}}' "$image")" = "$checked_id"
             docker push "$image"
             immutable=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
             if ! [[ "$immutable" =~ ^ghcr\.io/h66rogi/$repository@sha256:[a-f0-9]{64}$ ]]; then

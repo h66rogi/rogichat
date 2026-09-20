@@ -1,5 +1,7 @@
 .git
+**/.git
 .tools
+**/.gitleaksignore
 **/.env
 **/.env.*
 **/*.pem
@@ -21,6 +23,8 @@
 **/service-account*.json
 **/.npmrc
 **/.netrc
+**/local.properties
+**/key.properties
 **/secrets
 **/.aws
 **/.ssh
@@ -41,3 +45,13 @@
 **/*.db
 **/*.sqlite*
 **/*.log
+**/*.apk
+**/*.aab
+**/*.ipa
+**/*.xcarchive
+**/*.zip
+**/*.tar
+**/*.tar.gz
+**/*.tgz
+**/*.7z
+**/*.rar

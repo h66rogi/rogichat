@@ -6,7 +6,12 @@
 - SSH private keys must stay outside GitHub, including Secrets, logs and images.
   Approved public keys belong only in PRIVATE h66rogi/rogichat-ops access manifests;
   public keys remain forbidden in this PUBLIC repository. Use OpenSSH over Tailscale.
-- Work on `qa`. Production promotion is a separate reviewed change to `main`.
+- Target `qa` through a task branch and pull request. The owner approved this
+  repository-specific exception to the former direct-QA workflow on 2026-09-20.
+  Required security/build checks must pass against current QA before merge;
+  do not bypass the rules or push directly to QA. Another person's approval is
+  not mandatory for this single-owner project. Production promotion remains a
+  separate reviewed change to `main`.
 - Keep reference repositories read-only. Never copy their Git history, secrets,
   environment files, signing material, operational logs, or private infrastructure identifiers.
 - Run `python3 tools/security/install.py` and `git config core.hooksPath .githooks`

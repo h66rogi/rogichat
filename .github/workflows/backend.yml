@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  tests:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     services:
@@ -56,3 +56,39 @@ jobs:
           TEST_MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
         run: pnpm test:integration
       - run: git diff --exit-code
+  image-safety:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: python3 tools/security/install.py
+      - name: Build and inspect both images without registry or cloud credentials
+        run: |
+          set -euo pipefail
+          for target in runtime migration; do
+            image="rogichat-check:$target"
+            docker build --platform linux/amd64 --file apps/api/Dockerfile --target "$target" --tag "$image" .
+            image_id=$(docker image inspect --format '{{.Id}}' "$image")
+            docker image save "$image_id" | python3 tools/security/image_scan.py -
+          done
+  verify:
+    if: always()
+    needs: [tests, image-safety]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require tests and pre-merge image safety
+        env:
+          TEST_RESULT: ${{ needs.tests.result }}
+          IMAGE_RESULT: ${{ needs.image-safety.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          test "$TEST_RESULT" = success
+          if test "$EVENT_NAME" = pull_request || test "$EVENT_NAME" = workflow_dispatch; then
+            test "$IMAGE_RESULT" = success
+          else
+            test "$EVENT_NAME" = push
+            test "$IMAGE_RESULT" = skipped
+          fi
