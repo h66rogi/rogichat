@@ -1,3 +1,4 @@
+import { sessionAllowsChat } from '../../core/api/session-contract';
 import { ApiError, type ApiClient } from '../../core/api/client';
 import { MediaImageResource } from './image-resource';
 import { MediaClient } from './client';
@@ -42,7 +43,7 @@ export class MediaSessionScope {
       verifySession: async signal => {
         try {
           const current = await api.session(signal);
-          if (current.csrfToken !== csrf || current.soopLinkStatus !== 'VERIFIED') throw new ApiError(401, 'SESSION_CHANGED');
+          if (current.csrfToken !== csrf || !sessionAllowsChat(current)) throw new ApiError(401, 'SESSION_CHANGED');
         } catch (error) {
           // A disposed image/room request is cancellation, not a global account change.
           if (!signal.aborted && !this.abort.signal.aborted) denied();

@@ -1,4 +1,6 @@
 'use client';
+import { sessionAllowsChat } from '@/core/api/session-contract';
+import { AccountAccess } from '@/features/auth/account-access';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, validateProfile, type Profile, type Session } from '@/core/api/client';
 import { sessionBinding } from '@/core/api/session-binding';
@@ -46,7 +48,7 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
       const confirmed = patch.avatarAssetId !== undefined ? await api.profile(controller.signal) : next;
       const binding = await api.session(controller.signal);
       if (!mounted.current) return false;
-      if (binding.csrfToken !== session.csrfToken || binding.soopLinkStatus !== 'VERIFIED') { invalidateSession(); return false; }
+      if (binding.csrfToken !== session.csrfToken || !sessionAllowsChat(binding)) { invalidateSession(); return false; }
       if (patch.avatarAssetId !== undefined && (confirmed.avatar?.assetId ?? null) !== patch.avatarAssetId) throw new ApiError(502, 'INVALID_PROFILE');
       if (patch.avatarAssetId === null && confirmed.providerAvatarUrl) throw new ApiError(502, 'INVALID_PROFILE');
       setProfile(validateProfile(confirmed)); setNotice('프로필을 저장했습니다.');
@@ -90,15 +92,15 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
   const unavailable = (reason: string) => ({ enabled: false as const, reason });
   const model: SettingsViewModel = {
     profile: { ...profile, soopDisplayId: profile.soop?.displayId ?? null, avatarUrl: null, edit: busy ? unavailable('프로필을 저장하고 있습니다.') : { enabled: true } },
-    soop: { status: 'linked', link: unavailable('SOOP 계정이 연결되어 있습니다.') },
+    soop: { status: session.soopLinkStatus === 'VERIFIED' ? 'linked' : 'unlinked', link: session.soopLinkStatus === 'VERIFIED' ? unavailable('SOOP 계정이 연결되어 있습니다.') : { enabled: true } },
     notifications: push.model,
     room: { roomName: room.kind === 'ready' ? room.room.name : '후로기', membership: room.kind === 'ready' && room.room.availability !== 'OWNER_PENDING' ? room.room.joined ? 'joined' : 'left' : room.kind === 'checking' ? 'unknown' : 'unavailable', isOwner: false, leave: room.kind === 'ready' && room.room.availability !== 'OWNER_PENDING' && room.room.joined && !busy ? { enabled: true } : unavailable(room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '채팅방 참여 정보를 확인한 뒤 나갈 수 있습니다.') },
     session: { logout: { enabled: true } },
     account: { deletion: unavailable('계정 탈퇴 기능을 아직 제공하지 않습니다.') },
   };
-  return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLeaveRoom={leave} onToggleNotifications={push.toggle} onRetryNotifications={push.refresh}
+  return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLinkSoop={async () => { try { window.location.assign(await api.authorize('link', session.csrfToken)); } catch { setNotice('SOOP 연결을 시작하지 못했습니다. 다시 시도해 주세요.'); } }} onLeaveRoom={leave} onToggleNotifications={push.toggle} onRetryNotifications={push.refresh}
     accountControls={<AccountDeletionControl origin={api.origin} session={session} generation={generation} cleanupBinding={current => cleanupBinding(api.origin, current)} onPrepare={current => eraseSessionOutbox(api.origin, current)} onBlocked={current => { revokeChatOutboxes(current.accountPartition, current.csrfToken); forgetChatMemory(); invalidateSession(); }} />}
-    privacyControls={<><ReportRecovery origin={api.origin} session={session} generation={generation} /><BlockedRoomsControl origin={api.origin} session={session} generation={generation} onReset={refresh} /></>}
+    privacyControls={<><AccountAccess session={session} /><ReportRecovery origin={api.origin} session={session} generation={generation} /><BlockedRoomsControl origin={api.origin} session={session} generation={generation} onReset={refresh} /></>}
     profileAvatar={<ProfileAvatar profile={profile} />}
     avatarEditor={<AvatarEditor hasProviderAvatar={!!profile.providerAvatarUrl} assetId={profile.avatar?.assetId ?? null} busy={busy} save={assetId => save({ avatarAssetId: assetId })} />} /></SessionMediaProvider>;
 }
