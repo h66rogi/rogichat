@@ -1,9 +1,10 @@
 # M12 isolated quality evidence
 
 This batch evaluates frozen integration `f4c89d853a7c5e35a8d542e6bd383c72009f5568`
-with test-only changes. It does not authorize production promotion or claim the
-entire M12 launch gate is complete. Observed run results are recorded below once
-the hosted execution finishes.
+with test-only changes, then normally merges reconciled QA base
+`3f6b8bf92ee3ab8d5acc8283e819f5755b277dd9`; API runtime/schema remain identical.
+It does not authorize production promotion or claim the entire M12 launch gate
+is complete. Observed results follow below.
 
 ## Reproduction and isolation
 
@@ -82,5 +83,59 @@ measured violations must remain visible rather than being relabeled as passes.
 
 ## Observed execution
 
-Pending hosted execution. No throughput, latency, recovery or restore success
-is claimed from syntax checks or harness implementation alone.
+[Hosted run 35505971573](https://github.com/h66rogi/rogichat/actions/runs/35505971573)
+completed successfully on 2026-09-20, 10:45:50–10:49:05 UTC (19:45:50–19:49:05 KST).
+PR head was `68f5397d7be08f3127f2137420f18a850802ba1e`; the actual tested PR merge
+checkout was `8e939f8eaa728fde567055c2c3c6330cb1b7cea0`. Hosted build/lint passed,
+and all **33 tests passed, zero failed/skipped**, in 109.82 seconds. Node was
+24.21.0, on the workflow's Ubuntu 24.04/MySQL 8.0.44 service.
+
+The durable [scalar evidence JSON](evidence/m12/2026-09-20-run-35505971573.json)
+retains the exact source, timestamps and measurements. The full execution log
+and original JSON reports are in artifact `m12-evidence-35505971573-1` on that run.
+No application defect was reproduced by these scenarios.
+
+| Observed load measurement | Result |
+| --- | --- |
+| Simultaneous authenticated sockets / distinct accounts | 1,000 / 1,000 |
+| Sockets per API process | 500 / 500 |
+| Connection ramp | 25.48 s |
+| Hot-room commands / concurrency | 80 / 8 |
+| Hot-room elapsed / observed throughput | 2.74 s / 29.21 commands/s |
+| Cross-process retries of the same command | 2; exact original ACK, no duplicate |
+| ACK samples, p50 / p95 / p99 / max | 83; 174.74 / 280.57 / 292.00 / 292.00 ms |
+| REST snapshot samples, p50 / p95 / p99 / max | 1,501; 117.64 / 154.24 / 200.74 / 261.29 ms |
+| Recipients of at least one hint over the 80-command batch | 500 / 500; not a per-event delivery result |
+| Disconnected tail recipient, explicit REST recovery | 333.72 ms, including a 300 ms injected wait |
+| SIGKILL, API startup, paced reconnect and sync of all 500 affected clients | **24.19 s** |
+| Final connected sockets | 1,000 |
+| Distinct committed messages / receipts / events | 81 / 81 / 81 |
+| Hot-room scenario duration including fixtures and recovery | 91.84 s |
+
+ACK p95 is below the 500 ms starting comparison point. REST p95 is below 1 s,
+but does not measure rendered screen latency. The **24.19 s aggregate restart
+exercise exceeds the 20 s comparison point**; it includes deliberate reconnect
+pacing and all 500 REST recoveries, so it must not be described as proof that a
+single foreground client misses or meets 20 s. Per-client foreground latency,
+automatic backoff/storm behavior and stable long-run capacity remain unmeasured.
+No latency target is silently substituted for these observed values.
+
+| Observed restore/fault measurement | Result |
+| --- | --- |
+| Consistent backup tables / serialized bytes | 47 / 60,867 |
+| Backup write / restore into second schema | 64.15 / 638.37 ms |
+| Deletion replay, invalidation and HTTP permission checks | 457.21 ms |
+| Post-backup external obligations | 2 (MESSAGE and ACCOUNT) |
+| Rejected evidence conditions | missing, unavailable, corrupt |
+| Invalidated sessions | 8, covering WEB and NATIVE |
+| Restored old session before invalidation | accepted, confirming quarantine requirement |
+| Permission assertions | owner/member allowed; outsider/deleted account denied; deleted private body absent |
+| Physical account purge | explicitly still outstanding; no completion claim |
+| Actual lost ACK + API SIGKILL + new-process retry test | 2,467.41 ms, passed |
+| Purge-worker pre-COMMIT SIGKILL rollback/recovery test | 2,051.20 ms, passed |
+| Purge-worker post-COMMIT SIGKILL exact-proof replay test | 2,051.31 ms, passed |
+
+Fault-test durations cover the entire named test, not isolated recovery latency.
+Security hooks and the full-history scanner passed before publication. Required
+PR checks are tracked separately from this quality-run result; this report does
+not assert QA merge, deployment or public-route verification.
