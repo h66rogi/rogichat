@@ -74,3 +74,27 @@ Infrastructure owns host placement, separate web networking, Caddy, DNS and TLS.
 Publication does not establish deployment. Before reporting a rollout complete,
 verify the running image digest, container health/restarts, public web route,
 rendered runtime origin and real credentialed API behavior for that environment.
+
+## Verified archive transport
+
+Hosts without registry credentials can use the reviewed `web-export.yml` manual
+workflow on QA. Supply the published source SHA and registry digest hex. The
+exporter verifies the five exact-source push checks plus web publication, checks
+that the exporter QA commit descends from the source, pulls only the immutable
+image, verifies its raw registry manifest and config, and logs out before saving.
+Every exported layer is scanned before a one-day Actions artifact is uploaded.
+
+The `web-<source>-<run>-<attempt>` artifact contains exactly `descriptor.json`,
+`runtime.tar` and `runtime.manifest.json`. Descriptor version 1 identifies the
+producer SHA/run/attempt, six verification runs, and one `images.runtime` object
+with `image`, `config_id` and `archive_sha256`. The raw manifest hash must match
+the published digest; its config must match the archive config and every rootfs
+layer. OCI archive manifest identity is verified separately from the registry
+digest. Loading a Docker archive does not create a registry RepoDigest.
+
+`python3 tools/web/archive.py download --export-sha <sha> --run-id <id> \
+--attempt <attempt> --artifact-id <id> --output <new-outside-git-directory>` uses
+the operator's existing GitHub CLI session. It verifies the Actions ZIP digest,
+trusted producer, artifact identity, CI and ancestry before writing an approval
+record. It never loads or deploys the image. The infrastructure-owned release
+helper must select and verify the actual host image identity explicitly.
