@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
  * privately so native seek does not retain an expired signed URL. Never persist this scratch path. */
 object MediaDownload {
     suspend fun fetch(lease: MediaLease, scope: MediaScope, cacheDirectory: File): File {
+        MediaScratchPreparation.prepare(cacheDirectory)
         var scratch: File? = null
         try { return withContext(Dispatchers.IO) {
         val video = lease.variant == MediaVariant.video
@@ -32,7 +33,7 @@ object MediaDownload {
         try {
             call.execute().use { response ->
             val status = response.code
-            val expected = response.body?.contentLength() ?: -1L
+            val expected = response.body.contentLength()
             validateResponse(lease.variant, status, expected, response.header("Content-Type")?.substringBefore(';'),
                 response.header("Content-Range"), response.header("Content-Encoding"))
             requireNotNull(response.body).byteStream().use { source -> file.outputStream().use { sink ->
@@ -64,6 +65,8 @@ object MediaDownload {
 
 /** Invoke once before starting any media jobs at process startup, never during active transfers. */
 fun purgeMediaScratchAtProcessStart(cacheDirectory: File) {
-    cacheDirectory.listFiles()?.filter { it.isFile && (it.name.startsWith("media-pick-") || it.name.startsWith("media-display-")) }
-        ?.forEach { it.delete() }
+    check(cacheDirectory.isDirectory)
+    val files = requireNotNull(cacheDirectory.listFiles())
+    files.filter { it.isFile && (it.name.startsWith("media-pick-") || it.name.startsWith("media-display-")) }
+        .forEach { check(it.delete()) { "media_cleanup_failed" } }
 }

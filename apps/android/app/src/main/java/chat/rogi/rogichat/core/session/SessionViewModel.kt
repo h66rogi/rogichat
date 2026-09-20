@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-data class SessionOperationState(val busy: Boolean = false, val error: String? = null, val consentNeeded: Boolean = false)
+data class SessionOperationState(val busy: Boolean = false, val error: String? = null, val consentNeeded: Boolean = false, val consentProvider: SignInProvider = SignInProvider.SOOP)
 class SessionViewModel(private val services: ProductServices, private val injectedScope: CoroutineScope? = null,
                        private val clock: Clock = Clock.systemUTC()) : ViewModel() {
     private val mutable = MutableStateFlow(SessionOperationState())
@@ -52,7 +52,8 @@ class SessionViewModel(private val services: ProductServices, private val inject
         }
         if (services.session.value.access == ShellAccess.RESTORING) restore()
     }
-    fun foreground() { services.actions?.let { actions -> (injectedScope ?: viewModelScope).launch { actions.revalidate() } } }
+    fun background() { services.actions?.setForeground(false) }
+    fun foreground() { services.actions?.setForeground(true); services.actions?.let { actions -> (injectedScope ?: viewModelScope).launch { actions.revalidate() } } }
     fun retryValidation() { if (services.session.value.account != null) services.actions?.takeIf { it.canRestore }?.let {
         perform("계정 확인을 완료하지 못했어요.") { it.revalidate() }
     } }
@@ -60,8 +61,8 @@ class SessionViewModel(private val services: ProductServices, private val inject
         val actions = services.actions ?: return
         if (services.session.value.access != ShellAccess.SIGNED_OUT) return
         if (provider !in actions.providers) return
-        if (provider == SignInProvider.SOOP && services.auth != null) {
-            if (!services.auth.authState.value.active) mutable.value = mutable.value.copy(consentNeeded = true)
+        if (services.auth != null) {
+            if (!services.auth.authState.value.active) mutable.value = mutable.value.copy(consentNeeded = true, consentProvider = provider)
             return
         }
         perform("로그인을 완료하지 못했어요. 다시 시도해 주세요.") { actions.signIn(provider) }
@@ -69,7 +70,10 @@ class SessionViewModel(private val services: ProductServices, private val inject
     fun dismissConsent() { mutable.value = mutable.value.copy(consentNeeded = false) }
     fun confirmConsent() {
         if (!mutable.value.consentNeeded || services.session.value.access != ShellAccess.SIGNED_OUT) return
-        services.auth?.let { auth -> perform("로그인을 시작하지 못했어요.") { auth.startLogin(CURRENT_TERMS) } }
+        val provider = mutable.value.consentProvider
+        services.auth?.let { auth -> perform("로그인을 시작하지 못했어요.") {
+            if (provider == SignInProvider.APPLE) auth.startAppleLogin(CURRENT_TERMS) else auth.startLogin(CURRENT_TERMS)
+        } }
     }
     fun cancelAuthentication() { services.auth?.let { auth ->
         (injectedScope ?: viewModelScope).launch { auth.cancelAuthentication() }

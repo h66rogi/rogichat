@@ -2,7 +2,7 @@ package chat.rogi.rogichat.core.push
 
 import java.util.UUID
 
-/** Epochs MUST come from the OS owner's protected persistent session/install store. */
+/** Session epoch is the coordinator-owned invalidation identity; installation epoch is protected on disk. */
 data class PushScope(val environment: String, val accountId: String, val accountGeneration: String,
                      val sessionEpoch: UUID, val installationEpoch: UUID)
 enum class PushPermission { UNKNOWN, NOT_DETERMINED, DENIED, AUTHORIZED }

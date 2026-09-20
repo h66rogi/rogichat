@@ -30,10 +30,11 @@ import com.adamglin.phosphoricons.regular.Code
 @Composable
 fun SettingsScreen(account: AccountSummary?, appearance: Appearance, onSignIn: () -> Unit,
                    onProfile: (() -> Unit)?, onAccount: (() -> Unit)?, onAppearance: () -> Unit,
-                   onNotifications: () -> Unit, onAbout: () -> Unit) {
+                   onNotifications: () -> Unit, onAbout: () -> Unit, onBlocks: (() -> Unit)? = null) {
     ProfileHeader(account, onProfile ?: if (account == null) onSignIn else null)
     if (onAccount != null) SettingsSection("계정") {
         SettingsRow("계정 관리", "로그인 및 SOOP 연결", PhosphorIcons.Regular.ShieldCheck, onClick = onAccount)
+        if (onBlocks != null) SettingsRow("차단 관리", "차단한 사용자 확인 및 해제", PhosphorIcons.Regular.ShieldCheck, onClick = onBlocks)
     }
     SettingsSection("앱 설정") {
         SettingsRow("화면 모드", appearance.title, PhosphorIcons.Regular.Moon, onClick = onAppearance)

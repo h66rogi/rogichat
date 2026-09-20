@@ -50,11 +50,21 @@ interface RoomsDao {
 @Database(entities = [MembershipRow::class, StagedMembership::class, DiscoveryRow::class,
     DirectoryCheckpoint::class, PageCheckpoint::class, ConversationOwner::class, ConversationCheckpoint::class,
     ConversationMessageRow::class, ConversationProfileRow::class, ConversationProfileStage::class,
-    ConversationPage::class, ConversationOutboxRow::class], version = 2, exportSchema = true)
+    ConversationPage::class, ConversationOutboxRow::class, ConversationMediaRow::class, ConversationActionRow::class, ConversationAnchorRow::class, AccountUnblockRow::class, AccountMediaRow::class], version = 3, exportSchema = true)
 abstract class RoomsDatabase : RoomDatabase() {
     abstract fun rooms(): RoomsDao
     abstract fun conversation(): ConversationDao
     companion object {
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS account_unblocks (id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS account_media (assetId TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY(assetId))")
+                db.execSQL("ALTER TABLE conversation_outbox ADD COLUMN mediaContent TEXT")
+                db.execSQL("CREATE TABLE IF NOT EXISTS conversation_actions (id TEXT NOT NULL, roomId TEXT NOT NULL, membership TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS conversation_anchors (roomId TEXT NOT NULL, membership TEXT NOT NULL, messageId TEXT NOT NULL, offset INTEGER NOT NULL, PRIMARY KEY(roomId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS conversation_media (roomId TEXT NOT NULL, assetId TEXT NOT NULL, membership TEXT NOT NULL, authorization TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY(roomId, assetId))")
+            }
+        }
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS conversation_owner (id INTEGER NOT NULL, credentialBinding TEXT NOT NULL, serverGeneration TEXT NOT NULL, PRIMARY KEY(id))")

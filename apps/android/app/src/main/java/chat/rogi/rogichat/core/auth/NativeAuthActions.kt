@@ -7,6 +7,7 @@ interface NativeAuthActions {
     val browserLaunch: StateFlow<BrowserLaunch?>
     val rulesUrl: String
     suspend fun startLogin(termsVersion: String): Result<Unit>
+    suspend fun startAppleLogin(termsVersion: String): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
     suspend fun restorePending(): Result<Unit>
     suspend fun handleCallback(url: String): Result<Unit>
     suspend fun claimBrowserLaunch(state: String): BrowserLaunch?

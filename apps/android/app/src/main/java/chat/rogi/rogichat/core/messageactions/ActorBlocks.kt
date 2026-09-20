@@ -27,6 +27,7 @@ class BlockPageToken internal constructor(val view: BlockViewToken, val after: S
 class UnblockPermit internal constructor(val record: UnblockRecord, private val owner: ActorBlocksState, private val token: BlockViewToken) {
     private var used = false
     fun claim() = synchronized(owner) { check(!used && owner.admits(token) && owner.pending === this); used = true }
+    internal fun currentView() = owner.admits(token)
     fun request() = ActionRequest("DELETE", "rooms/${record.scope.roomId}/blocks/${record.actorId}", null, 200)
 }
 /** Return Reset on acknowledged change OR fresh current-state recovery, never infer operation success from a GET. */
@@ -96,6 +97,13 @@ class ActorBlocksState(private val journal: BlockJournal, private val actionJour
         val record = UnblockRecord(UUID.randomUUID().toString(), token.scope, actorId, UnblockOutcome.UNKNOWN)
         journal.put(record); lastOutcome = UnblockOutcome.UNKNOWN; generation++; complete = false; pagePending = null
         return UnblockPermit(record, this, capture()!!).also { pending = it }
+    }
+    /** The HTTP dispatch ended, but its result transaction did not commit. Keep durable UNKNOWN;
+     * only release the in-memory owner so an explicit fresh GET can recover current state. */
+    @Synchronized fun dispatchEndedWithoutPersistence(permit: UnblockPermit, enqueued: Boolean) {
+        if (!permit.currentView() || scope != permit.record.scope || pending != null && pending !== permit) return
+        generation++; pending = null; pagePending = null; blocks = emptyList(); complete = false
+        next = null; failed = true; lastOutcome = if (enqueued) UnblockOutcome.UNKNOWN else null
     }
     @Synchronized fun finish(permit: UnblockPermit, outcome: UnblockOutcome): BlockReset? {
         val original = journal.records().singleOrNull { it.id == permit.record.id } ?: return null

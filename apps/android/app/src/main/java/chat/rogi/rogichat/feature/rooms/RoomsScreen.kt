@@ -26,12 +26,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.ChatCircle
 
 interface RoomsRepository {
+    val roomRefreshRequests: StateFlow<Long>? get() = null
     val roomCommands: StateFlow<RoomCommandState>
     suspend fun submitRoomCommand(intent: RoomCommandIntent): Result<Unit>
     suspend fun recheckRoomCommand(scope: RoomsAccountScope): Result<Unit>
@@ -50,8 +52,10 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
     val state = mutable.asStateFlow()
     private var revision = 0L
     private var job: Job? = null
+    private val externalRefresh: Job?
     private val observer: Job
     init {
+        externalRefresh = repository.roomRefreshRequests?.let { flow -> (injectedScope ?: viewModelScope).launch { flow.drop(1).collect { reload() } } }
         val initial = repository.roomCommands.value
         if (initial.scope == accountScope && (initial.busy || initial.needsVerification)) applyCommand(initial) else reload()
         observer = (injectedScope ?: viewModelScope).launch {
@@ -132,7 +136,7 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
         is RoomsStorageException -> "기기에 대화 목록을 저장하지 못했어요. 저장 공간을 확인하고 다시 시도해 주세요."
         else -> "대화 목록을 불러오지 못했어요. 연결을 확인하고 다시 시도해 주세요."
     }
-    override fun onCleared() { revision++; job?.cancel(); observer.cancel(); mutable.value = RoomsState(loading = false) }
+    override fun onCleared() { revision++; job?.cancel(); observer.cancel(); externalRefresh?.cancel(); mutable.value = RoomsState(loading = false) }
 }
 
 @Composable

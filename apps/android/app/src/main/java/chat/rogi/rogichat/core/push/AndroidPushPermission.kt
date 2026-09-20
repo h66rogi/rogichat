@@ -1,5 +1,6 @@
 package chat.rogi.rogichat.core.push
 
+import androidx.core.content.edit
 import android.Manifest
 import android.app.NotificationManager
 import android.content.Context
@@ -19,6 +20,6 @@ class AndroidPushPermission(context: Context) {
         return if (notifications.areNotificationsEnabled()) PushPermission.AUTHORIZED else PushPermission.DENIED
     }
     // OS writer invokes immediately before ActivityResult launch; actual OS state wins over callback Boolean.
-    fun willRequest() { preferences.edit().putBoolean("requested", true).apply() }
+    fun willRequest() { preferences.edit { putBoolean("requested", true) } }
     fun onPermissionResult(): PushPermission = current()
 }
