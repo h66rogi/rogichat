@@ -524,7 +524,10 @@ test('unknown original PUT completing after DELETE/404 stays registered across r
   // Provider-side request completes after the client disappeared and absence was observed.
   f.objects.set(attempt.key, inputBytes);
   const next = await f.lease(attempt.assetId);
-  await f.process(next); const reconciled = await f.inspect(attempt.assetId);
+  assert.equal(await f.process(next), 'deferred'); // Durable cursor wraps before re-observing the first attempt.
+  assert.equal(f.objects.size, 1);
+  assert.equal(await f.process(await f.lease(attempt.assetId)), 'progress');
+  const reconciled = await f.inspect(attempt.assetId);
   assert.equal(f.objects.size, 0); assert.equal(reconciled.asset.state, 'DELETING');
   assert.deepEqual(reconciled.objects, before.objects); assert.equal(reconciled.reserved, before.reserved);
   assert.equal(reconciled.jobs.filter(job => job.state === 'PENDING').length, 1);
@@ -543,14 +546,16 @@ test('final cleanup reads current object proof after an older RR reference snaps
     if (id === attempt.assetId && ++references === 3) { snapshot.release(); await changed.wait; }
     return rows;
   });
-  const running = f.process(lease); const rejected = assert.rejects(running, { code: 'SOURCE_UNAVAILABLE' });
+  const running = f.process(lease);
   await snapshot.wait;
-  try { await f.txs.write(tx => tx.prisma.media_objects.updateMany({ where: { asset_id: attempt.assetId }, data: { state: 'ALLOCATED' } })); }
-  finally { changed.release(); }
-  await rejected;
+  try { await f.txs.write(async tx => {
+    await tx.prisma.media_objects.updateMany({ where: { asset_id: attempt.assetId }, data: { state: 'ALLOCATED' } });
+    await tx.prisma.media_cleanup_attempts.updateMany({ where: { asset_id: attempt.assetId }, data: { writer_acknowledged: false, delete_observed_at: null } });
+  }); } finally { changed.release(); }
+  assert.equal(await running, 'progress');
   const after = await f.inspect(attempt.assetId);
   assert.equal(after.asset.state, 'DELETING'); assert.equal(after.objects[0].state, 'ALLOCATED');
-  assert.equal(after.reserved, before.reserved); assert.equal(after.jobs[0].state, 'RUNNING');
+  assert.equal(after.reserved, before.reserved); assert.equal(after.jobs[0].state, 'PENDING');
 });
 
 test('restart recovery reopens legacy DELETED keys without acknowledged-write evidence', { timeout: 20000 }, async t => {
