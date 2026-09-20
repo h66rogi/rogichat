@@ -46,6 +46,47 @@ class ImageScanTests(unittest.TestCase):
             worker.image(io.BytesIO(data))
             return worker
 
+    def installation_token(self, length, structured=False):
+        prefix = "gh" + "s_"
+        body = ("123456_" + "eyJ" + "hbGciOiJIUzI1NiJ9." if structured else "")
+        alphabet = "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7" + ("._-" if structured else "")
+        return (prefix + (body + alphabet * length)[:length - len(prefix)]).encode()
+
+    def test_installation_token_layers_environment_history_and_encoding(self):
+        import base64
+        for length in (40, 390, 520, 1024, 4096):
+            for structured in (False, True):
+                token = self.installation_token(length, structured)
+                value = token.decode()
+                cases = {
+                    "bare": image([tar([('app/data', token)]), tar([('app/.wh.data', b'')])]),
+                    "assignment": image([tar([('app/data', b'token=' + token)])]),
+                    "env": image([tar([('app/main', b'ok')])], env=['TOKEN=' + value]),
+                    "history": image([tar([('app/main', b'ok')])], history=[{'created_by': 'RUN TOKEN=' + value}]),
+                    "base64": image([tar([('app/data', base64.b64encode(token))])]),
+                    "utf16": image([tar([('app/data', value.encode('utf-16'))])]),
+                }
+                for location, data in cases.items():
+                    with self.subTest(length=length, structured=structured, location=location):
+                        with self.assertRaises(scan.Blocked) as caught:
+                            self.run_scan(data)
+                        self.assertEqual(str(caught.exception), 'secret findings require review')
+                        self.assertNotIn(value, str(caught.exception))
+
+    def test_installation_token_short_template_and_boundary(self):
+        for value in ("gh" + "s_APPID_JWT", "gh" + "s_" + "a" * 35):
+            self.run_scan(image([tar([('app/data', value.encode())])]))
+        with self.assertRaisesRegex(scan.Blocked, '^secret findings require review$'):
+            self.run_scan(image([tar([('app/data', ("gh" + "s_" + "a" * 36).encode())])]))
+
+    def test_installation_token_policy_matches_repository_rule(self):
+        import tomllib
+        from check import expected_policy
+        rule_id = 'rogichat-github-installation-token'
+        repository = next(rule for rule in expected_policy()['rules'] if rule['id'] == rule_id)
+        embedded = next(rule for rule in tomllib.loads(scan.POLICY)['rules'] if rule['id'] == rule_id)
+        self.assertEqual(repository, embedded)
+
     def test_normal_image_with_links_and_compressed_documentation(self):
         data = image([tar([('app/main.js', b'console.log("ready")'), ('usr/share/doc/readme.gz', gzip.compress(b'public documentation'))])])
         self.assertEqual(self.run_scan(data).layers, 1)
