@@ -1,0 +1,16 @@
+# Merge with the existing environment bootstrap Compose file. Preserve Caddy
+# volumes, project name and default API network; attach only this separate web net.
+services:
+  caddy:
+    volumes:
+      - type: bind
+        source: /opt/rogichat/web/sites
+        target: /etc/caddy/sites
+        read_only: true
+        bind:
+          create_host_path: false
+    networks: [default, web]
+networks:
+  web:
+    external: true
+    name: rogichat-qa-web

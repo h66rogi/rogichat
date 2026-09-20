@@ -1,0 +1,12 @@
+name: rogichat-prod-web
+services:
+  web:
+    container_name: rogichat-prod-web
+    environment:
+      ROGICHAT_DEFAULT_ROOM_ID: ${ROGICHAT_DEFAULT_ROOM_ID:-}
+      ROGICHAT_WEB_ENV: production
+      ROGICHAT_API_ORIGIN: https://api.rogi.chat
+networks:
+  web:
+    name: rogichat-prod-web
+    external: true

@@ -4,7 +4,8 @@ import { AuthService } from '../auth/auth.service.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import type { SessionCredentials, CommandCredentials } from '../auth/auth-context.js';
-import { ApiError, opaque } from '../auth/auth-primitives.js';
+import { ApiError } from '../auth/auth-primitives.js';
+import { requireCommandProof } from '../auth/auth-context.js';
 import { identifier } from '../../common/validation/identifier.js';
 import { roomCommandRate } from '../../infrastructure/rate-limit/room-command-rate.js';
 import { PublicationsCoreService } from './publications-core.service.js';
@@ -16,7 +17,7 @@ export class PublicationsService {
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
     @Inject(PublicationsCoreService) private readonly core: PublicationsCoreService) {}
   async request(credentials: CommandCredentials, roomId: string, messageId: string) {
-    identifier(roomId); identifier(messageId); opaque(credentials.csrf);
+    identifier(roomId); identifier(messageId); requireCommandProof(credentials);
     const allowed = await this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
       return roomCommandRate(tx, this.config.key, actor.userId, roomId, 'publication');

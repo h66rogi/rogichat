@@ -1,0 +1,107 @@
+name: rogichat-prod-app
+
+x-runtime: &runtime
+  # systemd owns restart ordering after the tmpfs secret has been regenerated.
+  # A Docker restart policy would bypass that ordering on a host reboot.
+  restart: "no"
+  user: "10001:10001"
+  read_only: true
+  init: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 128
+  stop_signal: SIGTERM
+  stop_grace_period: 20s
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,nodev,size=16777216,mode=1777
+  volumes:
+    - &database-secret
+      type: bind
+      source: /run/rogichat-prod/secrets/database.json
+      target: /run/secrets/database.json
+      read_only: true
+      bind:
+        create_host_path: false
+    - &database-ca
+      type: bind
+      source: /etc/rogichat/prod/rds-global-bundle.pem
+      target: /run/secrets/rds-ca.pem
+      read_only: true
+      bind:
+        create_host_path: false
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+x-environment: &environment
+  APP_ENV: production
+  NODE_ENV: production
+  DATABASE_SECRET_FILE: /run/secrets/database.json
+  DB_CA_FILE: /run/secrets/rds-ca.pem
+  DB_TLS_MODE: required
+
+services:
+  api:
+    <<: *runtime
+    image: ${ROGICHAT_API_IMAGE:?Set the approved GHCR repository@sha256 digest}
+    # Named containers prevent scaling and provide Caddy's globally unique DNS
+    # target. Do not use the generic Compose service alias "api" at the proxy.
+    container_name: rogichat-prod-api
+    command: [dist/main.js]
+    environment:
+      <<: *environment
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DB_POOL_SIZE: "5"
+      AUTH_SECRET_FILE: /run/secrets/auth.json
+    # M03+: API only. Never add auth credentials to the shared runtime anchor or
+    # worker/migration containers. Prepare the reviewed persistent host file first.
+    volumes:
+      - *database-secret
+      - *database-ca
+      - type: bind
+        source: /etc/rogichat/prod/auth.json
+        target: /run/secrets/auth.json
+        read_only: true
+        bind:
+          create_host_path: false
+    mem_limit: 512m
+    cpus: 0.75
+    expose: ["3000"]
+    networks: [edge]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/ready',{signal:AbortSignal.timeout(2500)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+  worker:
+    <<: *runtime
+    image: ${ROGICHAT_WORKER_IMAGE:?Set the approved GHCR repository@sha256 digest}
+    container_name: rogichat-prod-worker
+    command: [dist/worker.js]
+    environment:
+      <<: *environment
+      DB_POOL_SIZE: "2"
+    mem_limit: 384m
+    cpus: 0.5
+    networks: [jobs]
+    # The current worker has no HTTP listener. This verifies its mounted runtime
+    # configuration/DB schema, not job progress; check worker logs/backlog separately.
+    healthcheck:
+      test: [CMD, node, --input-type=module, -e, "import {readConfig} from './dist/infrastructure/config/config.js';import {PrismaDatabase} from './dist/infrastructure/database/database.js';const db=new PrismaDatabase(readConfig('worker'));try{const r=await db.check();process.exitCode=r.ready?0:1}catch{process.exitCode=1}finally{await db.close()}"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+networks:
+  edge:
+    external: true
+    # Existing Caddy network: only Caddy + this API may remain attached. The
+    # deployer verifies membership and API host-port absence for trust-proxy=1.
+    name: ${ROGICHAT_EDGE_NETWORK:?Set the verified existing Caddy network name}
+  jobs:
+    driver: bridge

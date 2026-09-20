@@ -67,6 +67,11 @@ enum LoginStatus {
   FAILED
 }
 
+enum SessionTransport {
+  WEB
+  NATIVE
+}
+
 enum JobPurpose {
   REALTIME_HINT
   MEDIA
@@ -156,6 +161,8 @@ model auth_sessions {
   token_digest Bytes     @unique @db.Binary(32)
   csrf_digest  Bytes     @db.Binary(32)
   audience     String    @db.VarChar(32)
+  transport    SessionTransport @default(WEB)
+  client_id    String?   @db.VarChar(32)
   created_at   DateTime  @default(now()) @db.DateTime(3)
   expires_at   DateTime  @db.DateTime(3)
   revoked_at   DateTime? @db.DateTime(3)
