@@ -201,7 +201,9 @@ test('uncertain PUT and exhausted worker recovery retain discoverable attempts a
   // A lost acknowledgment can conceal a provider write completing after 404.
   const key = copy.destination.objects[0].object_key;
   f.objects.set(key, bytes);
-  await f.cleanup(copy.destination_asset_id);
+  assert.equal(await f.cleanup(copy.destination_asset_id), 'deferred'); // Persisted cursor wraps.
+  assert.equal(f.objects.size, 2);
+  assert.equal(await f.cleanup(copy.destination_asset_id), 'progress');
   const reconciled = await f.inspect(publication.publicationId);
   assert.equal(reconciled.budget, state.budget);
   assert.equal(reconciled.copies[0].destination.state, 'DELETING');
