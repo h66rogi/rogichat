@@ -137,7 +137,9 @@ export function classifyNativePush(provider: NativePushProvider, status: number,
   if (!value || typeof value !== 'object' || Array.isArray(value)) return { kind: 'retry' };
   if (provider === 'APNS') {
     if (status === 200 && body.length === 0) return { kind: 'accepted' };
-    if ((status === 410 && value.reason === 'Unregistered') || (status === 400 && value.reason === 'BadDeviceToken')) return { kind: 'gone' };
+    // BadDeviceToken also covers an incorrect sandbox/production environment;
+    // configuration errors must not permanently revoke otherwise valid bindings.
+    if (status === 410 && value.reason === 'Unregistered') return { kind: 'gone' };
   } else {
     if (status === 200 && typeof value.name === 'string' && /^projects\/[a-z0-9-]+\/messages\/[^\s]{1,1024}$/.test(value.name)) return { kind: 'accepted' };
     const error = value.error as { details?: unknown } | undefined;

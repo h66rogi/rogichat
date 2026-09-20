@@ -154,7 +154,10 @@ model auth_identities {
   subject    Bytes      @db.VarBinary(191)
   status     LinkStatus @default(VERIFIED)
   user       users      @relation(fields: [user_id], references: [id], onDelete: Restrict)
-  @@unique([provider, issuer, subject])
+  scope      String     @default("") @db.VarChar(64)
+  verified_at DateTime? @db.DateTime(3)
+  revoked_at DateTime? @db.DateTime(3)
+  @@unique([provider, issuer, scope, subject])
 }
 
 model auth_sessions {
@@ -804,6 +807,52 @@ model deletion_replay_entries {
   @@index([source_id, state, next_attempt_at, key_sha256], map: "deletion_replay_due")
 }
 
+// Personal room policy is reversible and independent of membership/grant revocation.
+model actor_blocks {
+  room_id String @db.Char(36)
+  blocker_actor_id String @db.Char(36)
+  target_actor_id String @db.Char(36)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  @@id([room_id, blocker_actor_id, target_actor_id])
+  @@index([room_id, target_actor_id, blocker_actor_id])
+}
+
+// No FK to message: the body-free receipt survives physical content erasure.
+// Internal identities never enter report DTOs; detail is separately expiring user content.
+model moderation_reports {
+  id String @id @db.Char(36)
+  reporter_user_id String @db.Char(36)
+  idempotency_key String @db.Char(36)
+  payload_digest Bytes @db.Binary(32)
+  room_id String @db.Char(36)
+  message_id String @db.Char(36)
+  root_message_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  reason String @db.VarChar(16)
+  detail String? @db.VarChar(1000)
+  detail_expires_at DateTime @db.DateTime(3)
+  status String @default("received") @db.VarChar(16)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  resolved_at DateTime? @db.DateTime(3)
+  @@unique([reporter_user_id, idempotency_key])
+  @@index([status, id])
+  @@index([detail_expires_at, id])
+  @@index([room_id, root_message_id])
+  @@index([content_owner_user_id])
+}
+
+model moderation_audit {
+  id String @id @db.Char(36)
+  operator_user_id String @db.Char(36)
+  report_id String? @db.Char(36)
+  room_id String? @db.Char(36)
+  target_actor_id String? @db.Char(36)
+  action String @db.VarChar(32)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  @@index([report_id, created_at])
+  @@index([room_id, created_at])
+}
+
 // Bounded recovery discovery only. Never a physical-purge proof or deadline.
 model deletion_purge_discovery {
   source_id String @db.Char(64)
@@ -811,4 +860,113 @@ model deletion_purge_discovery {
   cursor String? @db.Char(36)
   next_scan_at DateTime @default(now()) @db.DateTime(3)
   @@id([source_id, environment])
+}
+
+// ACCOUNT authority/provenance survives content removal and restored children.
+// UUIDs deliberately have no FK to live domain rows.
+model account_content_checkpoints {
+  request_id String @db.Char(36)
+  message_id String @db.Char(36)
+  room_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  deletion_root_id String? @db.Char(36)
+  environment String @db.VarChar(10)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  rows_purged_at DateTime? @db.DateTime(3)
+  @@id([request_id, message_id])
+  @@index([room_id, message_id])
+}
+
+// Each detached reference retains its ownership basis, including unpublished copies.
+model account_media_provenance {
+  request_id String @db.Char(36)
+  reference_kind String @db.VarChar(16)
+  reference_id String @db.Char(36)
+  asset_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  asset_owner_user_id String @db.Char(36)
+  room_id String? @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  disposition String @db.VarChar(16)
+  @@id([request_id, reference_kind, reference_id, asset_id])
+  @@index([asset_id])
+}
+
+// A stable asset continuation with bounded object enumeration, independent of leases.
+model media_cleanup_checkpoints {
+  asset_id String @id @db.Char(36)
+  object_cursor String? @db.Char(36)
+}
+
+// Captured BEFORE storage DELETE; ALLOCATED remains unresolved after DELETE/404.
+model media_cleanup_attempts {
+  object_id String @id @db.Char(36)
+  asset_id String @db.Char(36)
+  attempt_id String @db.Char(36)
+  object_key String @db.VarChar(191)
+  writer_acknowledged Boolean @default(false)
+  delete_observed_at DateTime? @db.DateTime(3)
+  @@index([asset_id, object_id])
+}
+
+model account_media_scans {
+  request_id String @id @db.Char(36)
+  asset_cursor String? @db.Char(36)
+}
+
+// Apple stages are separate from the SOOP broker protocol.
+model apple_auth_transactions {
+  id String @id @db.Char(36)
+  audience String @db.VarChar(32)
+  client_id String @db.VarChar(16)
+  intent String @db.VarChar(16)
+  state_digest Bytes @unique @db.Binary(32)
+  nonce String @db.VarChar(43)
+  code_challenge String @db.VarChar(43)
+  return_state String @db.VarChar(43)
+  user_id String? @db.Char(36)
+  session_id String? @db.Char(36)
+  bound_generation BigInt? @db.UnsignedBigInt
+  terms_version String? @db.VarChar(32)
+  status LoginStatus @default(PENDING)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  expires_at DateTime @db.DateTime(3)
+  code_digest Bytes? @unique @db.Binary(32)
+  completion_digest Bytes? @unique @db.Binary(32)
+  completion_expires DateTime? @db.DateTime(3)
+  proof Bytes? @db.Blob
+  @@index([expires_at])
+  @@index([user_id, status])
+}
+
+// Encrypted token obligation exists before account admission, including abandoned proofs.
+model apple_provider_credentials {
+  id String @id @db.Char(36)
+  transaction_id String @unique @db.Char(36)
+  lease_token String? @db.Char(36)
+  identity_id String? @db.Char(36)
+  user_id String? @db.Char(36)
+  audience String @db.VarChar(191)
+  token Bytes? @db.Blob
+  status String @default("PENDING") @db.VarChar(24)
+  expires_at DateTime @db.DateTime(3)
+  available_at DateTime @default(now()) @db.DateTime(3)
+  attempts Int @default(0) @db.UnsignedInt
+  @@index([status, available_at])
+  @@index([user_id, status])
+}
+
+model apple_notification_receipts {
+  digest Bytes @id @db.Binary(32)
+  received_at DateTime @default(now()) @db.DateTime(3)
+}
+
+// A notification before first login must invalidate a proof already in flight.
+model apple_identity_events {
+  scope String @db.VarChar(64)
+  subject Bytes @db.VarBinary(191)
+  revoked_at DateTime @db.DateTime(3)
+  @@id([scope, subject])
 }

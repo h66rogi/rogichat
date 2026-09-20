@@ -55,7 +55,7 @@ fun WelcomeScreen(providers: Set<SignInProvider>, busy: Boolean, onSignIn: (Sign
                 }
                 Spacer(Modifier.height(12.dp))
             }
-            Text("Apple로 시작해도 SOOP 계정 연결이 필요해요.", style = MaterialTheme.typography.bodySmall,
+            if (SignInProvider.APPLE in providers) Text("Apple로 시작해도 SOOP 계정 연결이 필요해요.", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
         Spacer(Modifier.height(40.dp))

@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import subprocess
 from product_guards import inspect_android_package, inspect_product_sources
+from android_associations import verify_callback_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -28,6 +29,7 @@ def main():
                 if expected not in badging:
                     raise SystemExit(f"{name}: missing {expected}")
             manifest = subprocess.check_output([aapt, "dump", "xmltree", str(apk), "--file", "AndroidManifest.xml"], text=True)
+            verify_callback_manifest(manifest, environment)
             for expected in (f'"{environment}"', f'"{url}"'):
                 if expected not in manifest:
                     raise SystemExit(f"{name}: wrong environment metadata")

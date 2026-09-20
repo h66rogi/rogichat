@@ -89,6 +89,9 @@ root or process EUID, exact mode 0400/0600, strict UTF-8 flat JSON up to 16 KiB.
 Duplicate/escaped/unknown field names, environment mismatch and incomplete groups
 are rejected. The non-root runtime UID must be able to read it. Keep credentials
 outside public Git, images, public CI and logs; use the private operator workflow.
+For the UID 10001 runtime, provision **UID 10001-owned mode 0400** and mount
+read-only in API and worker only. The existing root:10001 mode 0440 convention
+for other credentials is not accepted by this loader; do not assume a fallback.
 
 Required: `environment` exactly matching APP_ENV; `encryptionKey` (32 random bytes
 as 64 lowercase hex characters). At least one complete group:
@@ -133,6 +136,14 @@ checks the actual controller graph. Disposable MySQL scenarios cover account
 switching, stale DELETE/provider replies, concurrent CAS, native message fanout
 and dispatch, post-prepare revocation, quota recovery and credential cleanup.
 These fixtures never enter product code.
+
+The native provider migration was generated with Prisma on an isolated MySQL
+8.0.44 instance and all 23 migrations were replayed successfully into a second
+empty database. The bounded native/WebPush preferences, fanout and delivery
+integration suite passed 54 tests, including final-dispatch personal-block
+checks; fixture teardown was confirmed on 2026-09-20. The focused unit/OpenAPI/
+schema suite passed 40 tests. These are local integration results, not real
+provider delivery or deployment evidence.
 
 Activation requires genuine migration generation/fresh replay, required CI and
 security checks, immutable API/worker releases, privately provisioned credentials

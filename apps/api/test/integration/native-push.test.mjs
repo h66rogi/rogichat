@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID, generateKeyPairSync } from 'node:crypto';
-import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, activeMember, loadMessage, readable, leaveRoom } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, activeMember, actorBlocked, loadMessage, readable, leaveRoom } from '../support/domain-fixture.mjs';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
@@ -183,7 +183,7 @@ async function deliveryFixture(t, provider = 'APNS') {
   const intent = await f.db.transactions.read(tx => tx.prisma.push_deliveries.findFirstOrThrow({ where: { subscription_id: subscription.id, message_id: message.messageId }, select: { id: true } }));
   const lease = await claim(intent.id, room);
   const worker = native => new PushDeliveryService(f.db.transactions, new PushDeliveryRepository(), f.core,
-    { requireActiveMember: activeMember }, { load: loadMessage, readable }, jobs,
+    { requireActiveMember: activeMember, actorBlocked }, { load: loadMessage, readable }, jobs,
     { config: { audience: f.config.audience }, prepare: () => assert.fail('native delivery used Web Push') }, { config: f.nativeConfig, ...native });
   return { ...f, room, value, subscription, messageId: message.messageId, lease, worker };
 }

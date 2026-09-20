@@ -21,6 +21,39 @@ function backend(override?: ChatRequest): ChatRequest {
     throw new Error('Unexpected request');
   };
 }
+void test('committed send starts a fresh read after an older in-flight sync settles', async () => {
+  let release!: (value: unknown) => void;
+  let reached!: () => void;
+  const reading = new Promise<void>(resolve => { reached = resolve; });
+  let eventReads = 0;
+  let committed = false;
+  const saved = { ...source('saved-test'), author: { kind: 'member' as const, actorId: room.actorId, nickname: '테스트 팬' }, content: { type: 'TEXT', text: submission.body } };
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (path.endsWith('/messages')) {
+      committed = true;
+      const body = options?.body as { clientMessageId: string };
+      return { clientMessageId: body.clientMessageId, messageId: saved.id, status: 'committed', version: '1' };
+    }
+    if (path.includes('/events?')) {
+      if (++eventReads === 1) { reached(); return new Promise(resolve => { release = resolve; }); }
+      return { schemaVersion: 1, resetRequired: false, events: [{ type: 'message.upsert', message: saved }], nextCursor: 'after-send', hasMore: false };
+    }
+    if (path.includes('/snapshot?') && committed) return { schemaVersion: 1, resetRequired: false, messages: [source(), saved], nextCursor: 'after-send', historyCursor: null };
+    return undefined;
+  }));
+  await controller.refresh();
+  const oldRead = controller.refresh();
+  await reading;
+  assert.equal((await controller.send(submission)).accepted, true);
+  assert.equal(controller.getSnapshot().items.some(item => item.id === saved.id), false);
+  release({ schemaVersion: 1, resetRequired: false, events: [], nextCursor: 'before-send', hasMore: false });
+  await oldRead;
+  // No timer, socket hint or manual refresh may be needed to see the saved send.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(eventReads, 2);
+  assert.equal(controller.getSnapshot().items.some(item => item.id === saved.id), true);
+  controller.dispose();
+});
 void test('actual DTO mapping does not guess private recipient, quote author, avatar or read status', () => {
   const dto = message({ ...source(), quote: { id: 'quote-test', content: { type: 'TEXT', text: '인용' } } });
   const item = projectMessages([dto], 'fan-test', [])[0]!;

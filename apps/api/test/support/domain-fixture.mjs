@@ -60,6 +60,7 @@ export const updateProfile = bind(UsersCoreService, 'updateProfile');
 export const roomProfile = bind(UsersCoreService, 'roomProfile');
 export const profileManifest = bind(UsersCoreService, 'profileManifest');
 export const activeMember = bind(AccessService, 'requireActiveMember');
+export const actorBlocked = bind(AccessService, 'actorBlocked');
 export const createRoom = bind(RoomStateService, 'createRoom');
 // Explicit isolated provisioning: callers choose an existing member, never send admission.
 export async function assignRoomOwner(tx, roomId, actorId) {

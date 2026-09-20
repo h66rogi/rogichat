@@ -70,6 +70,7 @@ test('provider error classification never invalidates on generic 404/configurati
   }
   assert.equal(classifyNativePush('APNS', 200, Buffer.alloc(0)).kind, 'accepted');
   assert.equal(classifyNativePush('APNS', 410, b({ reason: 'Unregistered' })).kind, 'gone');
+  assert.equal(classifyNativePush('APNS', 400, b({ reason: 'BadDeviceToken' })).kind, 'rejected');
   assert.equal(classifyNativePush('APNS', 400, b({ reason: 'DeviceTokenNotForTopic' })).kind, 'rejected');
   assert.equal(classifyNativePush('FCM', 404, b({ error: { details: [{ '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError', errorCode: 'UNREGISTERED' }] } })).kind, 'gone');
   assert.equal(classifyNativePush('FCM', 200, b({ name: 'projects/isolated-project/messages/receipt' })).kind, 'accepted');

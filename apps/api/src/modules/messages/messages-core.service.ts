@@ -31,6 +31,9 @@ export class MessagesCoreService {
   load(tx: Transaction, roomId: string, messageId: string) { return this.repository.load(tx, roomId, messageId); }
 
   async readable(tx: Transaction, viewer: ActiveMember, row: MessageRow): Promise<boolean> {
+    // Publication authors are anonymous: never resolve the private source fan.
+    // The publisher actor remains the policy subject without exposing it in DTOs.
+    if (await this.access.actorBlocked(tx, row.room_id, viewer.id, row.sender_member_id)) return false;
     const grant = row.stream_kind === 'RESTRICTED' ? await this.repository.grant(tx, row.room_id, row.stream_id, viewer.id) : undefined;
     const allowed = canReadMessage({ accountActive: true, soopLinked: true, roomId: viewer.room_id, memberRoomId: viewer.room_id,
       roomActive: true, memberId: viewer.id, memberActive: true, periodActive: true,
@@ -85,6 +88,7 @@ export class MessagesCoreService {
     const target = await this.repository.target(tx, viewer.room_id, input.recipientActorId!);
     if (!target) throw new ApiError('NOT_FOUND', 404);
     if (viewer.mode === 'FAN' && !((viewer.role === 'FAN' && target.role === 'STREAMER') || (viewer.role === 'STREAMER' && target.role === 'FAN'))) throw new ApiError('FORBIDDEN', 403);
+    if (await this.access.actorBlocked(tx, viewer.room_id, viewer.id, target.id, true)) throw new ApiError('NOT_FOUND', 404);
     const members = [viewer.id, input.recipientActorId!].sort() as [string, string];
     const pair = await this.repository.pair(tx, viewer.room_id, members);
     const streamId = pair ? String(pair.stream_id) : randomUUID();

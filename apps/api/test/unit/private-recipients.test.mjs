@@ -8,7 +8,7 @@ import { PrivateRecipientsRepository } from '../../dist/modules/rooms/private-re
 const roomId = randomUUID(), userId = randomUUID(), viewerId = randomUUID();
 const actorId = index => `10000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
 const candidate = index => ({ id: actorId(index), user_id: randomUUID(), active_period: { member_id: actorId(index), room_id: roomId, left_at: null }, user: { profile: { nickname: `합성 ${index}`, avatar: null } } });
-const access = { requireActiveMember: async () => ({ id: viewerId, role: 'STREAMER', mode: 'FAN' }) };
+const access = { blockedActors: async () => [], requireActiveMember: async () => ({ id: viewerId, role: 'STREAMER', mode: 'FAN' }) };
 const tx = { now: async () => new Date('2026-01-01T00:00:00Z') };
 const blocked = recipient => ({ left_member_id: viewerId, right_member_id: recipient.id, stream: { room_id: roomId, kind: 'RESTRICTED', grants: [] } });
 
