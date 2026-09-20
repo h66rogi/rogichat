@@ -7,6 +7,7 @@ simulator, contact the API, or access system Keychain (explicit test ByteStore).
 import argparse
 from pathlib import Path
 import subprocess
+from check_ios_wireframe import NATIVE_FEATURE_SOURCES
 
 ROOT = Path(__file__).resolve().parents[2]
 NATIVE_SOURCES = [
@@ -28,6 +29,7 @@ NATIVE_SOURCES = [
     "Sources/Core/Auth/SOOPAuthCoordinator.swift",
     "Sources/Core/Conversation/ConversationEndpoint.swift",
     "Sources/Core/Rooms/NativeRoomsRemote.swift",
+    *NATIVE_FEATURE_SOURCES,
     "Tests/Integration/ConversationRecoveryChecks.swift",
 ]
 
@@ -50,7 +52,7 @@ def main():
     cache = scratch / "conversation-recovery-module-cache"
     subprocess.run([
         "xcrun", "--sdk", "macosx", "swiftc", "-swift-version", "6",
-        "-strict-concurrency=complete", "-module-cache-path", str(cache),
+        "-strict-concurrency=complete", "-j", "2", "-module-cache-path", str(cache),
         "-I", str(binary / "Modules"),
         "-I", str(scratch / "checkouts/GRDB.swift/Sources/GRDBSQLite"),
         *(str(ROOT / "apps/ios" / source) for source in NATIVE_SOURCES),

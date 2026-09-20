@@ -68,7 +68,11 @@ tracking=false, AppFunctionality를 함께 추가해야 한다. 이 분류는 �
 포함한다는 [Apple의 수집 데이터 정의](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacycollecteddatatypes/nsprivacycollecteddatatype)에 따른다.
 Play의 대응 분류는 [Data safety의 Other in-app messages](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)다.
 실제 스토어 공개 설명·수집/공유 답변도 연결해 확인하며, manifest 변경을 스토어 설정 완료로
-집계하지 않는다. 아직 전송하지 않는 사진/동영상 업로드까지 구현됐다고 선언하지 않는다.
+집계하지 않는다. 후속 기능 묶음은 실제 사진/동영상 업로드 API를 연결하므로 `PhotosorVideos`를 다섯 번째
+계정 연계·기능 목적·추적 없음 데이터로 추가한다. SocketIO/Starscream의 정확한 고지와
+실제 포함되는 GRDB/Starscream privacy bundle도 app/IPA에서 검사한다.
+[현재 통합 기록](mobile-product-integration-progress.md)의 소스·시험·서명·실제 provider 검증
+상태를 구분하며, 이 변경을 스토어 개인정보 답변 게시 완료로 집계하지 않는다.
 
 ## Production 서명과 등록
 

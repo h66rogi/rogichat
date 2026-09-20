@@ -8,7 +8,7 @@ from pathlib import Path
 import plistlib
 import re
 import zipfile
-from ios_dependencies import GRDB_LICENSE_PATH, GRDB_PRIVACY_PATH, inspect_grdb_resources
+from ios_dependencies import SDK_RESOURCE_PATHS, inspect_sdk_resources
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # to the account's server record. Sync also transmits an installation UUID bound
 # to the authenticated account; do not assume an unverified ephemeral exemption.
 # Native TEXT commands also send account-linked message bodies and recipients.
+# Media uploads send account-linked photos and videos for app functionality.
 # Appearance remains app-private UserDefaults.
 # New data flows or required-reason APIs must update declaration and policy together.
 EXPECTED_IOS_PRIVACY = {
@@ -29,7 +30,8 @@ EXPECTED_IOS_PRIVACY = {
             "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"],
         }
         for category in ("NSPrivacyCollectedDataTypeUserID", "NSPrivacyCollectedDataTypeOtherDataTypes",
-                         "NSPrivacyCollectedDataTypeDeviceID", "NSPrivacyCollectedDataTypeEmailsOrTextMessages")
+                         "NSPrivacyCollectedDataTypeDeviceID", "NSPrivacyCollectedDataTypeEmailsOrTextMessages",
+                         "NSPrivacyCollectedDataTypePhotosorVideos")
     ],
     "NSPrivacyAccessedAPITypes": [{
         "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
@@ -79,7 +81,7 @@ def inspect_ios_privacy(data: bytes, label: str):
             or any(type(item[key]) is not bool
                    for item in declaration["NSPrivacyCollectedDataTypes"]
                    for key in ("NSPrivacyCollectedDataTypeLinked", "NSPrivacyCollectedDataTypeTracking"))):
-        raise ValueError(f"{label}: iOS privacy manifest must match profile/sync/message data and app-private UserDefaults use")
+        raise ValueError(f"{label}: iOS privacy manifest must match profile/sync/message/media data and app-private UserDefaults use")
 
 
 def inspect_ios_app(app: Path, executable_name: str):
@@ -95,9 +97,9 @@ def inspect_ios_app(app: Path, executable_name: str):
         if path.is_file():
             inspect_product_data(path.read_bytes(), f"{app.name}/{path.relative_to(app)}")
     try:
-        inspect_grdb_resources((app / GRDB_PRIVACY_PATH).read_bytes(), (app / GRDB_LICENSE_PATH).read_bytes())
+        inspect_sdk_resources(lambda path: (app / path).read_bytes())
     except OSError as error:
-        raise ValueError("iOS bundle must include GRDB privacy and license resources") from error
+        raise ValueError("iOS bundle must include reviewed SDK privacy and license resources") from error
 
 
 def inspect_ios_package(package: zipfile.ZipFile, app_prefix: str, executable_name: str):
@@ -112,10 +114,10 @@ def inspect_ios_package(package: zipfile.ZipFile, app_prefix: str, executable_na
     for name in package.namelist():
         if name.startswith(app_prefix) and not name.endswith("/"):
             inspect_product_data(package.read(name), name)
-    for relative in (GRDB_PRIVACY_PATH, GRDB_LICENSE_PATH):
+    for relative in SDK_RESOURCE_PATHS:
         if package.namelist().count(app_prefix + relative) != 1:
-            raise ValueError("IPA must contain exactly one GRDB privacy and license resource")
-    inspect_grdb_resources(package.read(app_prefix + GRDB_PRIVACY_PATH), package.read(app_prefix + GRDB_LICENSE_PATH))
+            raise ValueError("IPA must contain exactly one of each reviewed SDK privacy and license resource")
+    inspect_sdk_resources(lambda path: package.read(app_prefix + path))
 
 
 def _inspect_android_sources(root: Path):

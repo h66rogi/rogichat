@@ -39,6 +39,7 @@ private actor RecoveryAPI: NativeRequesting, RoomsRequesting, ConversationReques
         try scope.check()
         switch endpoint {
         case .send: calls.append("send"); sends += 1; throw ConversationError.unavailable
+        case .feature: preconditionFailure("Unexpected feature request in the TEXT cold-recovery scenario")
         case .read(let query):
             switch query {
             case .snapshot:

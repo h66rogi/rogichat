@@ -9,12 +9,13 @@ import zipfile
 from product_guards import (EXPECTED_IOS_PRIVACY, RETIRED_MARKERS, inspect_android_package,
                             inspect_ios_app, inspect_ios_package, inspect_ios_privacy,
                             inspect_product_data, inspect_product_sources)
-from ios_dependencies import GRDB_LICENSE_PATH, GRDB_PRIVACY_PATH, GRDB_PRIVACY
+from ios_dependencies import SDK_LICENSES, SDK_PRIVACY, SDK_RESOURCE_PATHS
 
 
 def sdk_resources():
-    return {GRDB_PRIVACY_PATH: plistlib.dumps(GRDB_PRIVACY),
-            GRDB_LICENSE_PATH: (Path(__file__).resolve().parents[2] / "apps/ios/Resources" / GRDB_LICENSE_PATH).read_bytes()}
+    resources = Path(__file__).resolve().parents[2] / "apps/ios/Resources"
+    return {**{path: plistlib.dumps(value) for path, value in SDK_PRIVACY.items()},
+            **{path: (resources / path).read_bytes() for path in SDK_LICENSES}}
 
 
 class ProductGuardsTest(unittest.TestCase):
@@ -143,21 +144,23 @@ class ProductGuardsTest(unittest.TestCase):
         for format in (plistlib.FMT_XML, plistlib.FMT_BINARY):
             inspect_ios_privacy(plistlib.dumps(EXPECTED_IOS_PRIVACY, fmt=format), "fixture")
 
-    def test_pre_conversation_declaration_cannot_ship_in_app_or_ipa(self):
-        declaration = deepcopy(EXPECTED_IOS_PRIVACY)
-        declaration["NSPrivacyCollectedDataTypes"] = [
-            item for item in declaration["NSPrivacyCollectedDataTypes"]
-            if item["NSPrivacyCollectedDataType"] != "NSPrivacyCollectedDataTypeEmailsOrTextMessages"
-        ]
-        entries = {"Rogichat": b"real code", "PrivacyInfo.xcprivacy": plistlib.dumps(declaration), **sdk_resources()}
-        for name, data in entries.items():
-            self.write("Rogichat.app/" + name, data.decode())
-        with self.assertRaisesRegex(ValueError, "privacy manifest"):
-            inspect_ios_app(self.root / "Rogichat.app", "Rogichat")
-        prefix = "Payload/Rogichat.app/"
-        archive = self.package("old-privacy.ipa", {prefix + name: data for name, data in entries.items()})
-        with zipfile.ZipFile(archive) as package, self.assertRaisesRegex(ValueError, "privacy manifest"):
-            inspect_ios_package(package, prefix, "Rogichat")
+    def test_pre_conversation_or_media_declaration_cannot_ship_in_app_or_ipa(self):
+        for category in ("NSPrivacyCollectedDataTypeEmailsOrTextMessages", "NSPrivacyCollectedDataTypePhotosorVideos"):
+            with self.subTest(missing=category):
+                declaration = deepcopy(EXPECTED_IOS_PRIVACY)
+                declaration["NSPrivacyCollectedDataTypes"] = [
+                    item for item in declaration["NSPrivacyCollectedDataTypes"]
+                    if item["NSPrivacyCollectedDataType"] != category
+                ]
+                entries = {"Rogichat": b"real code", "PrivacyInfo.xcprivacy": plistlib.dumps(declaration), **sdk_resources()}
+                for name, data in entries.items():
+                    self.write("Rogichat.app/" + name, data.decode())
+                with self.assertRaisesRegex(ValueError, "privacy manifest"):
+                    inspect_ios_app(self.root / "Rogichat.app", "Rogichat")
+                prefix = "Payload/Rogichat.app/"
+                archive = self.package("old-privacy.ipa", {prefix + name: data for name, data in entries.items()})
+                with zipfile.ZipFile(archive) as package, self.assertRaisesRegex(ValueError, "privacy manifest"):
+                    inspect_ios_package(package, prefix, "Rogichat")
 
     def test_wrong_reason_category_collection_and_tracking_fail_closed(self):
         mutations = []
@@ -216,7 +219,7 @@ class ProductGuardsTest(unittest.TestCase):
         clean = self.package("sdk-clean.ipa", {prefix + key: value for key, value in entries.items()})
         with zipfile.ZipFile(clean) as package:
             inspect_ios_package(package, prefix, "Rogichat")
-        for target in (GRDB_PRIVACY_PATH, GRDB_LICENSE_PATH):
+        for target in SDK_RESOURCE_PATHS:
             for replacement in (None, b"changed resource"):
                 mutated = dict(entries)
                 if replacement is None:
@@ -225,7 +228,36 @@ class ProductGuardsTest(unittest.TestCase):
                     mutated[target] = replacement
                 archive = self.package("sdk-mutated.ipa", {prefix + key: value for key, value in mutated.items()})
                 with self.subTest(target=target, removed=replacement is None), zipfile.ZipFile(archive) as package:
-                    with self.assertRaisesRegex(ValueError, "GRDB"):
+                    with self.assertRaisesRegex(ValueError, "SDK"):
+                        inspect_ios_package(package, prefix, "Rogichat")
+
+    def test_device_sdk_app_requires_all_reviewed_sdk_resources(self):
+        entries = {"Rogichat": b"real code", "PrivacyInfo.xcprivacy": plistlib.dumps(EXPECTED_IOS_PRIVACY), **sdk_resources()}
+        app = self.root / "Rogichat.app"
+        for name, data in entries.items():
+            self.write("Rogichat.app/" + name, data.decode())
+        inspect_ios_app(app, "Rogichat")
+        for target in SDK_RESOURCE_PATHS:
+            with self.subTest(target=target):
+                path = app / target
+                path.unlink()
+                with self.assertRaisesRegex(ValueError, "SDK"):
+                    inspect_ios_app(app, "Rogichat")
+                path.write_bytes(entries[target])
+                path.write_bytes(b"changed resource")
+                with self.assertRaisesRegex(ValueError, "SDK"):
+                    inspect_ios_app(app, "Rogichat")
+                path.write_bytes(entries[target])
+
+    def test_sdk_tracking_must_be_boolean_false_in_actual_package(self):
+        entries = {"Rogichat": b"real code", "PrivacyInfo.xcprivacy": plistlib.dumps(EXPECTED_IOS_PRIVACY), **sdk_resources()}
+        prefix = "Payload/Rogichat.app/"
+        for target, expected in SDK_PRIVACY.items():
+            for tracking in (0, True):
+                with self.subTest(target=target, tracking=tracking):
+                    changed = {**entries, target: plistlib.dumps({**expected, "NSPrivacyTracking": tracking})}
+                    path = self.package("sdk-tracking.ipa", {prefix + key: value for key, value in changed.items()})
+                    with zipfile.ZipFile(path) as package, self.assertRaisesRegex(ValueError, "SDK"):
                         inspect_ios_package(package, prefix, "Rogichat")
 
 

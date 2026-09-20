@@ -631,6 +631,25 @@ push하고 QA 대상 PR의 필수 검증을 통과시켜 병합한 뒤
 정수 ID, sequence cursor, 화면별 socket, 새 ID 재전송, 다른 앱의 auth 의미/운영 설정은 이식하지 않는다. 소스 이식이
 필요하면 파일·원본 commit·license를 별도로 기록하고 reference repo는 읽기 전용으로 유지한다.
 
+## 10.1. 실제 제품 기능 통합의 검증 순서
+
+[제품 통합 기록](mobile-product-integration-progress.md)에 현재 소스·CI·실배포 증거를
+구분한다. 검증된 TEXT/영속 복구 checkpoint 뒤에 미디어·메시지 동작·Apple·native push·실시간을
+기존 보호 세션과 Room/GRDB에 연결한 하나의 후보를 만든다. 추출 helper의 성공만으로
+제품 연결이나 실제 provider 동작을 완료로 집계하지 않는다.
+
+- 전송 직전에도 원래 계정·참여·권한 scope를 확인한다. 취소/로그아웃 이후 늦게 시작되는
+  SEND·읽음·메시지 동작을 차단하고, 이미 불명 상태가 된 명령은 자동 재생하지 않는다.
+- 푸시 REGISTER와 명시적 알림 ON은 실제 HTTP 실행 경계에서 OS 권한과 원래 세션을
+  다시 확인한다. 연결 해제·알림 OFF는 권한이 없어도 가능해야 한다.
+- 설정의 차단 관리에 계정별 `GET /v1/blocked-rooms` discovery를 연결한다. 방을 나간 뒤와
+  새 로그인/기기에서도 복구하고, 비어 있지만 다음 cursor가 있는 페이지도 끝까지 읽는다.
+  현재 서버가 허용한 nullable 이름만 표시한다.
+- SDK pin·라이선스·개인정보 리소스를 실제 QA/Prod bundle과 서명 산출물에서 검사한다.
+  실제 Firebase 환경 입력은 Git 밖에 두며 빌드의 로컬 검증과 업로드의 원격 대상 검증을 유지한다.
+- 전체 후보의 플랫폼/영속 상태/배포 도구 검사 뒤 서명하고 TestFlight/App Distribution에
+  배포한다. 기기/provider 인증과 실제 전달 증거가 없는 항목은 구체적 미검증 상태로 남긴다.
+
 ## 11. 독립 리뷰 기록
 
 문서 초안에 대해 backend/auth/contract와 native persistence/UX/실행 순서를 독립 리뷰한다.

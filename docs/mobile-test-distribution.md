@@ -6,8 +6,9 @@ Apple validation → TestFlight 업로드 순서다. `4e222de`까지의
 [오프라인 와이어프레임](mobile-wireframe-progress.md) 제품 방향은 폐기됐다.
 현재 [제품 구성 교체](mobile-product-progress.md)는 [통합 계획 §2.1·§8](mobile-implementation-plan.md)의
 **멜로밍 구현 최대 재사용, QA/prod 공통 제품 구성, 양 배포 산출물 fixture 제외**를 적용한다.
-네이티브 로그인·프로필 API·채팅 통합은 아직 완료되지 않았다. 내부 테스트 배포를
-로그인·대화 가능한 MVP 완성이나 정식 출시로 보고하지 않는다.
+네이티브 로그인·프로필·채팅과 후속 미디어/메시지 동작은 실제 API에 연결한다.
+현재 통합 및 실행 증거는 [기능 통합 기록](mobile-product-integration-progress.md)을 따른다.
+내부 테스트 배포만으로 실제 제공자 로그인·기기 간 대화나 정식 출시 검증을 대신하지 않는다.
 이 설명은 기존 TestFlight/App Tester 업로드가 최신 소스라는 뜻이 아니다. 배포된 source SHA와
 build number는 개별 release manifest로 확인한다. 이 도구는 `chat.rogi.rogichat.qa`만 처리한다.
 
@@ -39,7 +40,10 @@ chmod 600 ~/.config/rogichat/mobile-qa.json
 설정·서명 키·비밀번호 파일·Apple API 키·산출물·업로드 로그는 **모든 Git 저장소 밖**에 둔다.
 개인 team/key/issuer ID, Firebase 프로젝트/app ID는 외부 설정에만 보관한다.
 기존 Apple API 키는 원래 외부 위치를 참조할 수 있지만 다른 앱의 인증서·환경 파일을 복사하지 않는다.
-Firebase SDK와 `google-services.json`은 APK 배포만을 위해 추가할 필요가 없다.
+App Distribution 업로드 인증과 앱의 FCM 설정은 별개다. 앱의 FCM 입력은 Git 밖의
+환경별 mode 600 파일을 사용하며, [서명 준비 기록](mobile-prod-signing-progress.md)의 정확한
+형식과 대상 검사를 따른다. SDK 설정 경로가 완전히 없으면 푸시만 사용할 수 없고 서명
+빌드는 가능하다. 명시했지만 잘못된 설정이나 다른 앱/환경의 설정은 빌드를 차단한다.
 
 원격 Mac 터미널을 Windows 브라우저로 인증할 때는 다음 명령을 사용한다.
 
@@ -65,9 +69,9 @@ Mac 키체인에 준비한다. 현재 로컬 QA 환경은 별도 배포 인증�
 외부 설정의 선택 항목 `ios.keychain`, `ios.keychain_password_file`을 지정하면 해당
 키체인만 빌드/export 전에 잠금 해제한다. 비밀번호 파일은 mode 600이어야 한다.
 키체인은 사용자 검색 목록에 등록해야 하며 인증서 만료 전에 갱신한다.
-수동 export에는 선택 항목 `ios.provisioning_profile`(설치한 App Store profile UUID)과
-`ios.signing_certificate`(배포 인증서 SHA-1)를 함께 지정한다. 현재 로컬 QA 설정은
-이 경로를 사용하며 profile은 QA Bundle ID와 해당 배포 인증서에만 연결한다. 다른 앱의
+현재 서명 경로는 archive부터 `ios.provisioning_profile`(설치한 Capabilities v2 App Store
+profile UUID)과 `ios.signing_certificate`(배포 인증서 SHA-1)를 함께 요구한다. Profile은
+정확한 QA Bundle ID/team/인증서 및 Apple 로그인·푸시·Associated Domains에 연결한다. 다른 앱의
 인증서를 폐기해서 자리를 만들지 않는다. 키와 키체인 비밀번호는 비공개 백업 대상이다.
 
 ## Android
@@ -82,7 +86,8 @@ python3 tools/mobile/qa_release.py android-build --build-number 10 --version 0.1
 
 `artifact_root/android/10/`에 APK, AAB, 검증 로그, `release.json`이 생성된다.
 `qaRelease`만 외부 QA 키로 서명한다. 일반 Debug는 개발 키, 외부 서명 설정이 없는 Release와
-prod Release는 unsigned다. build number는 업로드한 값보다 크게 지정한다.
+Prod Release는 각 환경의 외부 서명 입력이 없으면 unsigned다. 별도 Prod 서명은
+`prod_release.py`와 [Production 준비 절차](mobile-prod-signing-progress.md)를 따른다. build number는 업로드한 값보다 크게 지정한다.
 이미 존재하는 산출물 디렉터리는 덮어쓰지 않는다.
 
 검증 항목은 APK 서명·QA ID·버전·표시 이름·API 주소·debuggable 비활성화와
@@ -116,9 +121,10 @@ python3 tools/mobile/qa_release.py ios-export --manifest "$RELEASE_DIR/ios/10/re
 ```
 
 Archive는 `Rogichat-QA` / `Release-QA` / generic iOS destination을 사용한다.
-설정 파일의 team과 API 키로 automatic signing/provisioning을 요청한다.
-QA ID·버전·API URL·iPhone 전용 설정·코드 서명·프로비저닝을 검사하고 Archive 전체 checksum을
-기록한다. IPA export 후 같은 앱/버전인지 검사하고 `altool --validate-app`을 통과해야 한다.
+외부 설정의 정확한 v2 App Store profile과 배포 인증서로 수동 서명한다.
+QA ID·버전·API URL·iPhone 전용 설정·코드 서명·프로비저닝과 Apple 로그인/푸시/도메인
+entitlement를 검사하고 Archive 전체 checksum을 기록한다. Export와 upload에는 각각
+검증된 별도 작업 복사본을 사용해 canonical Archive를 보존한다. IPA export 후 같은 앱/버전인지 검사하고 `altool --validate-app`을 통과해야 한다.
 빌드 번호는 명령 인자로 고정하며 export가 임의로 올리지 않도록 설정한다.
 
 ```sh
@@ -137,8 +143,9 @@ API에서 같은 build number가 이미 보이거나 로컬 업로드 시도 기
 연결한다. 테스터가 TestFlight에서 설치 가능한지까지 확인해야 테스트 배포 완료다.
 이 도구는 테스터 초대나 외부 심사 제출을 자동으로 수행하지 않는다.
 
-현재 iOS 앱에는 별도 암호화 구현이나 외부 라이브러리가 없으므로
-`ITSAppUsesNonExemptEncryption=false`를 plist에 명시한다. 암호화 기능이나 의존성을
+현재 iOS 앱은 GRDB·SocketIO·Starscream을 사용하며 외부 라이브러리가 없다고 간주하지 않는다.
+현재 plist의 `ITSAppUsesNonExemptEncryption=false` 선언은 실제 제품의 암호화 사용 범위에
+대한 스토어 제출 검토와 함께 유지한다. 암호화 기능이나 의존성을
 추가할 때에는 [Apple의 해당 키 설명](https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption)에 따라 선언을 다시 검토한다.
 
 ## Xcode CLI 진단

@@ -18,6 +18,37 @@ CONVERSATION_CONTRACTS = [
     "Packages/RogichatRooms/Sources/RogichatRooms/ConversationProfiles.swift",
     "Packages/RogichatRooms/Sources/RogichatRooms/TextCommand.swift",
 ]
+MEDIA_SOURCES = [
+    "Sources/Core/Media/MediaContract.swift", "Sources/Core/Media/MediaClient.swift",
+    "Sources/Core/Media/MediaUpload.swift", "Sources/Core/Media/MediaDownload.swift",
+]
+ACTION_SOURCES = [
+    "Sources/Core/MessageActions/MessageActions.swift", "Sources/Core/MessageActions/MessageActionWire.swift",
+    "Sources/Core/MessageActions/ModerationWire.swift", "Sources/Core/MessageActions/ActorBlocks.swift",
+    "Sources/Core/MessageActions/MessageReadPosition.swift", "Sources/Core/MessageActions/MessageViewport.swift",
+]
+IDENTITY_SOURCES = [
+    "Sources/Core/Identity/IdentityAttempt.swift", "Sources/Core/Identity/AppleIdentityContract.swift",
+    "Sources/Core/Identity/AppleIdentityRequest.swift", "Sources/Core/Identity/AppleIdentityProblem.swift",
+]
+PUSH_SOURCES = [
+    "Sources/Core/Push/PushLifecycle.swift", "Sources/Core/Push/NativePushContract.swift",
+    "Sources/Core/Push/NativePushRequest.swift", "Sources/Core/Push/NativePushWake.swift",
+    "Sources/Core/Push/PushRouteGate.swift",
+]
+SESSION_FEATURE_SOURCES = [
+    "Sources/Core/Push/PushLifecycle.swift", "Sources/Core/Push/NativePushContract.swift",
+    "Sources/Core/Realtime/RealtimeContract.swift", "Sources/Core/Realtime/RealtimeSession.swift",
+]
+NATIVE_FEATURE_SOURCES = [
+    *MEDIA_SOURCES, *ACTION_SOURCES, *IDENTITY_SOURCES, *PUSH_SOURCES,
+    "Sources/Core/Navigation/PendingRoute.swift",
+    "Sources/Core/Identity/AppleIdentityCoordinator.swift",
+    "Sources/Core/Push/NativePushStore.swift",
+    "Sources/Core/Realtime/RealtimeContract.swift", "Sources/Core/Realtime/RealtimeSession.swift",
+    "Sources/Core/Session/AccountFeatureGateway.swift",
+    "Sources/Core/MessageActions/OwnBlockRooms.swift",
+]
 
 
 def run_checks(sdk, directory, name, sources):
@@ -25,6 +56,7 @@ def run_checks(sdk, directory, name, sources):
     subprocess.run([
         "xcrun", "--sdk", "macosx", "swiftc", "-sdk", sdk, "-swift-version", "6",
         "-strict-concurrency=complete",
+        "-j", "2", "-module-cache-path", str(directory / "ModuleCache"),
         *(str(ROOT / "apps/ios" / source) for source in sources), "-o", str(executable),
     ], check=True)
     subprocess.run([str(executable)], check=True)
@@ -57,6 +89,7 @@ def main():
             *CONVERSATION_CONTRACTS,
             "Sources/Core/AccountDeletion/AccountDeletionState.swift",
             "Sources/Core/Session/AppSession.swift",
+            *SESSION_FEATURE_SOURCES,
             "Tests/Product/ProductStateChecks.swift",
         ])
         native_sources = [
@@ -80,6 +113,7 @@ def main():
             "Sources/Core/Auth/SOOPPending.swift",
             "Sources/Core/Auth/SOOPAuthCoordinator.swift",
         ]
+        native_sources += NATIVE_FEATURE_SOURCES
         run_checks(sdk, Path(temporary), "native-transport-checks", [
             *native_sources, "Tests/Product/NativeTransportChecks.swift",
         ])
@@ -100,6 +134,15 @@ def main():
         run_checks(sdk, Path(temporary), "account-deletion-checks", [
             *native_sources, "Tests/Product/AccountDeletionChecks.swift",
         ])
+        run_checks(sdk, Path(temporary), "apple-composition-checks", [
+            *native_sources, "Tests/Features/AppleCompositionChecks.swift",
+        ])
+        for name, source in (
+            ("native-feature-admission-checks", "Tests/Features/NativeFeatureAdmissionChecks.swift"),
+            ("push-composition-checks", "Tests/Features/PushCompositionChecks.swift"),
+            ("own-block-room-checks", "Tests/Features/OwnBlockRoomsChecks.swift"),
+        ):
+            run_checks(sdk, Path(temporary), name, [*native_sources, source])
         run_checks(sdk, Path(temporary), "rooms-model-checks", [
             "Sources/Core/Navigation/ShellNavigation.swift",
             "Sources/Features/Settings/ProfileEditor.swift",
@@ -109,6 +152,7 @@ def main():
             *CONVERSATION_CONTRACTS,
             "Sources/Core/AccountDeletion/AccountDeletionState.swift",
             "Sources/Core/Session/AppSession.swift",
+            *SESSION_FEATURE_SOURCES,
             "Sources/Core/State/Loadable.swift",
             "Sources/Core/Rooms/RoomsScreenModel.swift",
             "Sources/Features/Conversation/ConversationScreenModel.swift",
@@ -121,6 +165,28 @@ def main():
             "Sources/Features/Conversation/ConversationScreenModel.swift",
             "Tests/Product/ConversationModelChecks.swift",
         ])
+        run_checks(sdk, Path(temporary), "media-regressions", [
+            *MEDIA_SOURCES, "Tests/Media/MediaRegression.swift",
+        ])
+        run_checks(sdk, Path(temporary), "message-action-checks", [
+            *ACTION_SOURCES, "Tests/MessageActions/MessageActionChecks.swift",
+        ])
+        run_checks(sdk, Path(temporary), "identity-checks", [
+            "Sources/Core/Identity/IdentityAttempt.swift", "Sources/Core/Identity/AppleIdentityContract.swift",
+            "Sources/Core/Identity/AppleIdentityProblem.swift", "Tests/Identity/IdentityChecks.swift",
+        ])
+        run_checks(sdk, Path(temporary), "push-checks", [
+            *native_sources, "Tests/Push/PushChecks.swift",
+        ])
+        run_checks(sdk, Path(temporary), "realtime-lifecycle-checks", [
+            "Sources/Core/Realtime/RealtimeContract.swift", "Sources/Core/Realtime/NativeRealtimeManager.swift",
+            "Tests/Realtime/RealtimeChecks.swift",
+        ])
+        run_checks(sdk, Path(temporary), "engine-io-checks", [
+            "Sources/Core/Realtime/RealtimeContract.swift", "Sources/Core/Realtime/NativeEngineIOState.swift",
+            "Sources/Core/Realtime/RealtimeWebSocketRequest.swift", "Tests/Realtime/EngineIOChecks.swift",
+        ])
+    subprocess.run([sys.executable, str(ROOT / "apps/ios/Tests/Realtime/run_transport_checks.py")], check=True)
     # Run real on-disk SQLite/GRDB regressions on the macOS host. The device SDK
     # build separately validates iOS packaging; no simulator or app test mode.
     subprocess.run([

@@ -8,7 +8,8 @@ from unittest.mock import patch
 
 import build_ios
 import release_ios
-from ios_dependencies import EXPECTED_PIN, RESOLVED_PATHS, XCODE_RESOLVED_FLAGS, inspect_ios_dependencies
+from ios_dependencies import (EXPECTED_PIN, EXPECTED_PINS_BY_PATH, RESOLVED_PATHS,
+                              XCODE_RESOLVED_FLAGS, inspect_ios_dependencies)
 
 
 class StopBeforeSDK(Exception):
@@ -20,9 +21,11 @@ class IOSDependenciesTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.value = {"originHash": "a" * 64, "pins": [deepcopy(EXPECTED_PIN)], "version": 3}
+        self.values = {path: {"originHash": "a" * 64, "pins": deepcopy(pins), "version": 3}
+                       for path, pins in EXPECTED_PINS_BY_PATH.items()}
+        self.value = self.values[RESOLVED_PATHS[0]]
         for path in RESOLVED_PATHS:
-            self.write(path, self.value)
+            self.write(path, self.values[path])
 
     def write(self, relative, value):
         path = self.root / relative
@@ -30,7 +33,7 @@ class IOSDependenciesTests(unittest.TestCase):
         path.write_text(json.dumps(value))
         return path
 
-    def test_both_resolver_roots_accept_only_the_reviewed_pin(self):
+    def test_each_resolver_accepts_its_exact_reviewed_pin_set(self):
         inspect_ios_dependencies(self.root)
         # Different supported lock schemas/origin hashes do not change the pin.
         self.write(RESOLVED_PATHS[0], {"pins": [EXPECTED_PIN], "version": 2})
@@ -42,30 +45,48 @@ class IOSDependenciesTests(unittest.TestCase):
                 (self.root / relative).unlink()
                 with self.assertRaises(ValueError):
                     inspect_ios_dependencies(self.root)
-                self.write(relative, self.value)
+                self.write(relative, self.values[relative])
 
     def test_each_resolver_rejects_changed_source_version_revision_or_branch(self):
-        mutations = []
-        for key, value in (("identity", "another"), ("kind", "localSourceControl"),
-                           ("location", "https://example.invalid/GRDB.swift.git"),
-                           ("location", "https://github.com/groue/GRDB.swift")):
-            pin = deepcopy(EXPECTED_PIN); pin[key] = value; mutations.append(pin)
-        for key, value in (("version", "7.11.2"), ("revision", "0" * 40), ("branch", "main")):
-            pin = deepcopy(EXPECTED_PIN); pin["state"][key] = value; mutations.append(pin)
         for relative in RESOLVED_PATHS:
-            for pin in mutations:
-                with self.subTest(path=relative, pin=pin):
-                    self.write(relative, {**self.value, "pins": [pin]})
-                    with self.assertRaises(ValueError):
-                        inspect_ios_dependencies(self.root)
-            self.write(relative, self.value)
+            original = self.values[relative]
+            for index, original_pin in enumerate(original["pins"]):
+                mutations = []
+                for key, value in (("identity", "another"), ("kind", "localSourceControl"),
+                                   ("location", "https://example.invalid/dependency.git"),
+                                   ("location", original_pin["location"] + "/")):
+                    pin = deepcopy(original_pin); pin[key] = value; mutations.append(pin)
+                for key, value in (("version", "999.0.0"), ("revision", "0" * 40), ("branch", "main")):
+                    pin = deepcopy(original_pin); pin["state"][key] = value; mutations.append(pin)
+                for pin in mutations:
+                    with self.subTest(path=relative, index=index, pin=pin):
+                        changed = deepcopy(original)
+                        changed["pins"][index] = pin
+                        self.write(relative, changed)
+                        with self.assertRaises(ValueError):
+                            inspect_ios_dependencies(self.root)
+            self.write(relative, original)
 
     def test_missing_duplicate_or_extra_dependencies_are_rejected(self):
-        for pins in ([], {}, None, [EXPECTED_PIN, EXPECTED_PIN], [EXPECTED_PIN, {"identity": "extra"}]):
-            with self.subTest(pins=pins):
-                self.write(RESOLVED_PATHS[0], {**self.value, "pins": pins})
+        for relative in RESOLVED_PATHS:
+            original = self.values[relative]
+            pins = original["pins"]
+            mutations = [[], {}, None, pins + [pins[0]], pins + [{"identity": "extra"}]]
+            mutations.extend(pins[:index] + pins[index + 1:] for index in range(len(pins)))
+            for changed in mutations:
+                with self.subTest(path=relative, pins=changed):
+                    self.write(relative, {**original, "pins": changed})
+                    with self.assertRaises(ValueError):
+                        inspect_ios_dependencies(self.root)
+            self.write(relative, original)
+
+    def test_app_and_host_lock_sets_cannot_be_swapped(self):
+        for relative, other in (RESOLVED_PATHS, RESOLVED_PATHS[::-1]):
+            with self.subTest(path=relative):
+                self.write(relative, self.values[other])
                 with self.assertRaises(ValueError):
                     inspect_ios_dependencies(self.root)
+                self.write(relative, self.values[relative])
 
     def test_lock_schema_and_origin_types_fail_closed(self):
         mutations = [[], {}, {**self.value, "version": True}, {**self.value, "version": 1},
