@@ -1,8 +1,11 @@
 import SwiftUI
 
 // Adapted NotificationSettingsView's native List sections and system-settings action.
-// Server preferences stay absent until that independent contract exists.
+// Account preferences are a separate credential-scoped section; OS reads never save them.
 struct NotificationSettingsScreen: View {
+    let accountScope: UInt64?
+    let fetchPreferences: () async throws -> AccountNotificationPreferences
+    let disablePreferences: (PreferenceGeneration) async throws -> AccountNotificationPreferences
     @Environment(\.foregroundEpoch) private var epoch
     @State private var state = NotificationReadState()
     @State private var failure: String?
@@ -11,6 +14,9 @@ struct NotificationSettingsScreen: View {
 
     var body: some View {
         List {
+            if let accountScope {
+                AccountNotificationSection(fetch: fetchPreferences, disable: disablePreferences).id(accountScope)
+            }
             Section {
                 HStack(spacing: 14) {
                     Image(systemName: "bell.badge.fill").foregroundStyle(AppTheme.accent).font(.title2).accessibilityHidden(true)

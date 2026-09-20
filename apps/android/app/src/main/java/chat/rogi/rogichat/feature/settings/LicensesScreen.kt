@@ -27,7 +27,7 @@ fun LicensesScreen() {
     }
     Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text("로기챗은 다음 오픈소스 소프트웨어를 사용합니다.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        LicenseItem("AndroidX · Jetpack Compose", "Apache License 2.0", "Copyright The Android Open Source Project")
+        LicenseItem("AndroidX · Jetpack Compose · Browser", "Apache License 2.0", "Copyright The Android Open Source Project")
         LicenseItem("Kotlin · Kotlinx Coroutines", "Apache License 2.0", "Copyright JetBrains s.r.o.")
         LicenseItem("Ktor · Kotlinx Serialization · Kotlinx IO", "Apache License 2.0", "Copyright JetBrains s.r.o. and contributors")
         LicenseItem("OkHttp · Okio", "Apache License 2.0", "Copyright Square, Inc. and contributors")
