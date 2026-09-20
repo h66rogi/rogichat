@@ -356,3 +356,11 @@ ACL-before-DISTINCT/LIMIT query for revoked sticker IDs across the selected room
 set. This preserves the exact viewer ACL vector with aggregate 10,001-row bounds
 and no per-room fanout; ordinary reads remain generated Prisma operations. The
 captured DB time is passed to all temporal predicates for response consistency.
+
+### Initial owner operator command
+
+`modules/owner-bootstrap/owner-bootstrap.repository.ts` uses generated Prisma CRUD
+for grants, receipts and projections. Its only raw statements lock the global
+bootstrap receipt and exact identity/account/capability/room targets; shared
+targets use `FOR UPDATE NOWAIT` to avoid inverse-order waits with API commands.
+See `backend-genuine-owner-bootstrap.md` for the transaction and custody review.

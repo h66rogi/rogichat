@@ -8,12 +8,21 @@ import type { RoomRow } from './room-state.repository.js';
 export class RoomStateService {
   constructor(@Inject(RoomStateRepository) private readonly repository: RoomStateRepository) {}
   // Internal provisioning primitive. HTTP callers must separately require manage_rooms capability.
-  async createRoom(tx: Transaction, name: string, mode: 'FAN' | 'GROUP'): Promise<string> {
-    const id = randomUUID();
+  async createRoom(tx: Transaction, name: string, mode: 'FAN' | 'GROUP', id: string = randomUUID()): Promise<string> {
+    uuid(id);
     await this.repository.insertRoom(tx, id, name, mode);
     await this.repository.insertCounter(tx, id);
     await this.repository.insertSharedStream(tx, randomUUID(), id, 'ROOM_SHARED');
     return id;
+  }
+
+  // Shared internal domain composition; caller owns authorization and account fences.
+  async createOwnedRoom(tx: Transaction, name: string, mode: 'FAN' | 'GROUP', policy: 'ALL_AVAILABLE' | 'SINCE_JOIN', ownerId: string, id?: string) {
+    const roomId = await this.createRoom(tx, name, mode, id);
+    await this.repository.initialPolicy(tx, roomId, policy);
+    const ownerActorId = await this.joinRoom(tx, roomId, ownerId);
+    await this.repository.assignOwner(tx, roomId, ownerActorId);
+    return { roomId, ownerActorId };
   }
 
   async lockRoom(tx: Transaction, roomId: string): Promise<RoomRow> {
