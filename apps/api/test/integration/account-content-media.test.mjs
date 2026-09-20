@@ -196,3 +196,23 @@ for (const concurrent of [false, true]) test(`ACCOUNT and MESSAGE exact checkpoi
     assert.equal(await tx.prisma.jobs.count({ where: { purpose: 'PURGE', resource_id: { in: [messageIntent.requestId, f.intent.requestId] } } }), 2);
   });
 });
+
+test('restart reopens restored owned rows and scrubs orphan receipts using original ACCOUNT evidence', { timeout: 30000 }, async t => {
+  const f = await fixture(t), root = await f.message(); await f.admit(); await f.drain();
+  const original = await f.db.transactions.read(tx => tx.prisma.account_content_checkpoints.findUniqueOrThrow({ where: { request_id_message_id: { request_id: f.intent.requestId, message_id: root } } }));
+  const receiptId = randomUUID();
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.command_receipts.create({ data: { id: receiptId, room_id: f.rooms[0].id, actor_id: f.rooms[0].other,
+      client_message_id: randomUUID(), message_id: root, payload_digest: Buffer.alloc(32, 7) } });
+  });
+  await f.restart(); await f.drain();
+  const scrubbed = await f.db.transactions.read(tx => tx.prisma.command_receipts.findUniqueOrThrow({ where: { id: receiptId } }));
+  assert.equal(scrubbed.deleted, true); assert.equal(scrubbed.payload_digest, null);
+  await f.db.transactions.write(tx => tx.prisma.messages.create({ data: { id: root, room_id: f.rooms[0].id, stream_id: f.rooms[0].stream,
+    sender_member_id: f.rooms[0].other, content_owner_user_id: f.user, content_kind: 'TEXT', text_content: 'restored private body', created_order: 1n } }));
+  await f.restart(); await f.drain();
+  const replayed = await f.db.transactions.read(tx => tx.prisma.account_content_checkpoints.findUniqueOrThrow({ where: { request_id_message_id: { request_id: f.intent.requestId, message_id: root } } }));
+  assert.equal(replayed.requested_at.getTime(), original.requested_at.getTime()); assert.deepEqual(replayed.ledger_sha256, original.ledger_sha256);
+  assert.ok(replayed.rows_purged_at >= original.rows_purged_at);
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.messages.count({ where: { id: root } })), 0);
+});

@@ -15,7 +15,7 @@ export type MessagePurgeResult = { status: 'progress' | 'rows_purged' | 'deferre
 export class MessagePurgeService {
   constructor(@Inject(MessagePurgeRepository) private readonly repository: MessagePurgeRepository,
     @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService,
-    @Inject(MessageDependenciesService) private readonly dependencies: MessageDependenciesService = new MessageDependenciesService(repository, notifications)) {}
+    @Inject(MessageDependenciesService) private readonly dependencies: MessageDependenciesService) {}
 
   // One fresh transaction per bounded step. No external I/O, hidden inherited RR
   // snapshot, whole-account sweep, job completion or LIVE_PURGED claim.
