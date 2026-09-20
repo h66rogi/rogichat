@@ -114,7 +114,7 @@ struct BlockReset: Equatable, Sendable { let scope: BlockScope }
 enum ActorBlocksWire {
     static func list(_ token: BlockPageToken) throws -> ActionRequest {
         if let after = token.after, !actionID(after) { throw MessageActionError.invalidResponse }
-        return ActionRequest(method: "GET", path: "rooms/\(token.view.scope.roomId)/blocks" + (token.after.map { "?after=\($0)" } ?? ""), body: nil, successStatus: 200)
+        return ActionRequest(method: "GET", path: "rooms/\(token.view.scope.roomId)/blocks", body: nil, successStatus: 200, query: token.after.map { ["after": $0] } ?? [:])
     }
     static func validDate(_ value: String) -> Bool {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]

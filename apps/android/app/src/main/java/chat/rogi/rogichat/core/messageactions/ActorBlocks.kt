@@ -108,7 +108,7 @@ class ActorBlocksState(private val journal: BlockJournal, private val actionJour
 object ActorBlocksWire {
     fun list(token: BlockPageToken): ActionRequest {
         token.after?.let(::actionId)
-        return ActionRequest("GET", "rooms/${token.view.scope.roomId}/blocks" + (token.after?.let { "?after=$it" } ?: ""), null, 200)
+        return ActionRequest("GET", "rooms/${token.view.scope.roomId}/blocks", null, 200, token.after?.let { mapOf("after" to it) }.orEmpty())
     }
     fun page(body: String): BlockPage {
         val root = StrictAuthJson.objectValue(body); require(root.keys == setOf("blocks", "next"))

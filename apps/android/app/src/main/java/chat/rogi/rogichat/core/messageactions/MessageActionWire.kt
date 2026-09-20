@@ -5,7 +5,7 @@ import kotlinx.serialization.json.*
 
 /** Relative v1 routes only; parent transports with the ORIGINAL admitted session credential.
  * No redirects, automatic mutation retries, cookie fallback or credential refresh. */
-data class ActionRequest(val method: String, val path: String, val body: String?, val successStatus: Int)
+data class ActionRequest(val method: String, val path: String, val body: String?, val successStatus: Int, val query: Map<String, String> = emptyMap())
 data class ReactionCount(val emoji: String, val count: Long)
 data class MessageReactions(val counts: List<ReactionCount>, val mine: String?)
 object MessageActionWire {

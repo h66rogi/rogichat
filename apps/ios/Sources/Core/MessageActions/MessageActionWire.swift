@@ -3,6 +3,10 @@ import Foundation
 /// Relative v1 path. Shared transport supplies original scoped credential, no redirects/retries.
 struct ActionRequest: Equatable, Sendable {
     let method: String; let path: String; let body: Data?; let successStatus: Int
+    let query: [String: String]
+    init(method: String, path: String, body: Data?, successStatus: Int, query: [String: String] = [:]) {
+        self.method = method; self.path = path; self.body = body; self.successStatus = successStatus; self.query = query
+    }
 }
 struct ReactionCount: Equatable, Sendable { let emoji: String; let count: Int64 }
 struct MessageReactions: Equatable, Sendable { let counts: [ReactionCount]; let mine: String? }

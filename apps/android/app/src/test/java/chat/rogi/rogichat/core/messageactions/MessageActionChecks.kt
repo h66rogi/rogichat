@@ -170,7 +170,7 @@ class MessageActionChecks {
                 val partial = manager.refresh()!!
                 verify(manager.accept(partial, rows.copy(next = b)) == null && !manager.complete)
                 val continuation = manager.more()!!
-                verify(ActorBlocksWire.list(continuation).path.endsWith("?after=$b"))
+                verify(ActorBlocksWire.list(continuation).query == mapOf("after" to b) && !ActorBlocksWire.list(continuation).path.contains("?"))
                 verify(manager.accept(continuation, BlockPage(emptyList(), null)) == BlockReset(blockScope))
                 state.deleted(scope, b)
                 verify(journal.records().single { it.action == MessageAction.REPORT }.phase == ActionPhase.UNKNOWN)

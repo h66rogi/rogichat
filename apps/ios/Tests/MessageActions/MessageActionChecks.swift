@@ -157,7 +157,7 @@ import Foundation
         let partial = try manager.refresh()!
         check(try manager.accept(partial, page: BlockPage(blocks: rows.blocks, next: b)) == nil && !manager.complete)
         let continuation = manager.more()!
-        check(try ActorBlocksWire.list(continuation).path.hasSuffix("?after=\(b)"))
+        check(try ActorBlocksWire.list(continuation).query == ["after": b] && !ActorBlocksWire.list(continuation).path.contains("?"))
         check(try manager.accept(continuation, page: BlockPage(blocks: [], next: nil)) == BlockReset(scope: blockScope))
         try state.deleted(scope, messageId: b)
         check(try journal.records().first { $0.action == .report }?.phase == .unknown)
