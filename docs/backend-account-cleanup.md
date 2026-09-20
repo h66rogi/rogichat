@@ -1,10 +1,11 @@
 # M10 bounded account remainder slice
 
-This schema-free internal slice is based on integration `388c9d0`. It adds
+The original schema-free internal slice was based on integration `388c9d0`. It adds
 `AccountCleanupModule` and its exported `AccountCleanupService.step(requestId)`.
 It is deliberately not registered in API/worker composition, exposed through
 HTTP, or installed as a job handler. The parent purge coordinator must integrate
-it with content/media cleanup and cache invalidation before scheduling it.
+it with content/media cleanup before scheduling it. The composed candidate now
+requires migration 17's room content epoch for cache invalidation.
 
 ## Authority and bounded continuation
 
@@ -82,13 +83,16 @@ Fresh reaction counts already exclude DELETING users. Fresh counterpart and
 reply hints require ACTIVE user/member/open period, and new private sends perform
 current recipient checks rather than trusting those hints.
 
-Silent physical reaction/grant/period removal does **not** update already cached
-data on other devices. The baseline sync ACL binding covers the viewer's own
-account/member/grants, not all counterpart changes. Final integration must connect
-the physical-purge content epoch/reset mechanism (owned by the content-purge slice)
-before claiming clients erase cached reactions/private-recipient hints. This module
-does not edit sync contracts, advance a shared room counter, fabricate events, or
-claim real-time convergence. C06 remains a separate coordinated contract cutover.
+Each actual membership/reaction/grant/period cleanup page increments the selected
+room's `content_epoch` under its existing room lock, in the same transaction as
+the mutation. Rollback preserves both data and epoch; a drained retry does not
+advance it. Migration 17 binds that epoch into event/history/profile cursor scopes,
+so another participant's next request with an older cursor requires a reset.
+No new response shape, public counter or fabricated event is introduced. ACCOUNT
+admission and profile/read-state cleanup do not synchronously advance every room;
+room invalidation follows bounded room cleanup, and offline clients must reconnect.
+This is not instantaneous device erasure or global purge completion. C06 remains a
+separate coordinated contract cutover and must preserve the content-epoch binding.
 
 ## Verification scope
 
@@ -96,7 +100,9 @@ Tests added for the real Nest module and disposable MySQL cover external/checkpo
 authorization, current status versus an older RR snapshot, pages over 100 rows,
 restart/no-starvation, read-state/period and push/session FK ordering, unrelated
 content and approved sticker preservation, original identity/replay coverage, and
-profile/avatar denial. Focused unit tests exercise the distinct M11 continuation
+profile/avatar denial. A composed real HTTP regression covers another participant's
+event/history/profile reset, atomic rollback, reaction-page reset, no-op epoch
+stability, and independent message preservation. Focused unit tests exercise the distinct M11 continuation
 contracts, including zero-deletion pending pages, and the isolated module graph.
 No local build, install or database execution is authorized under the mobile
 resource hold; final exact-head hosted validation must supply execution evidence.

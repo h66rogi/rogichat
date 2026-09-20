@@ -29,7 +29,7 @@ export class SyncCoreService {
     const grants = await this.repository.grants(tx, roomId, viewer.id);
     if (grants.length > 10000) throw new ServiceUnavailableException();
     const revokedStickers = await this.messages.stickerRevocations(tx, viewer);
-    const acl = hash(this.key, [viewer.id, viewer.role, viewer.mode, viewer.active_period_id, viewer.visible_from_order, String(state!.acl_epoch), state!.policy_version, String(state!.membership_generation), grants, revokedStickers]);
+    const acl = hash(this.key, [viewer.id, viewer.role, viewer.mode, viewer.active_period_id, viewer.visible_from_order, String(state!.acl_epoch), state!.policy_version, String(state!.content_epoch), String(state!.membership_generation), grants, revokedStickers]);
     return { viewer, now: await this.repository.clock(tx), high: String(state!.last_order), binding: this.base(principal, input, purpose, acl, roomId, viewer.active_period_id) };
   }
   async manifest(tx: Transaction, principal: Principal, input: SyncInput) {

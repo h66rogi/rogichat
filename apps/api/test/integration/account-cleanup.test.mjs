@@ -268,3 +268,58 @@ test('retained private pairs are history, not authoritative counterpart hints or
     sendInput({ clientMessageId: randomUUID(), intent: 'PRIVATE', recipientActorId: r.memberId, content: { type: 'TEXT', text: 'stale hint attempt' } }), f.config.key)),
   error => error.getStatus?.() === 404);
 });
+
+test('room cleanup atomically resets other participants event/history/profile cursors without deleting their content', async t => {
+  const f = await fixture(t); const r = await f.room();
+  const messages = [];
+  for (let i = 0; i < 2; i++) messages.push(await f.db.transactions.write(tx => sendMessage(tx, r.roomId, f.otherId,
+    sendInput({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: 'independent surviving body' } }), f.config.key)));
+  await f.db.transactions.write(tx => tx.prisma.message_reactions.create({ data: { id: randomUUID(), room_id: r.roomId,
+    message_id: messages[1].messageId, member_id: r.memberId, emoji: '👍' } }));
+  const app = await createApi(f.db, new SafeLogger('api', () => {}), undefined, { config: f.config });
+  await app.listen(0, '127.0.0.1');
+  try {
+    const query = { deviceId: randomUUID(), cacheId: randomUUID(), limit: '1' };
+    const sync = async (path, cursor) => {
+      const params = new URLSearchParams({ ...query, ...(cursor ? { cursor } : {}) });
+      const response = await fetch(`${await app.getUrl()}/v1/rooms/${r.roomId}/${path}?${params}`, {
+        headers: { Cookie: `rogi_session=${f.other.token}` },
+      });
+      assert.equal(response.status, 200); return response.json();
+    };
+    const epoch = () => f.db.transactions.read(async tx => (await tx.prisma.rooms.findUniqueOrThrow({
+      where: { id: r.roomId }, select: { content_epoch: true },
+    })).content_epoch);
+    const before = await epoch(), snapshot = await sync('snapshot'), profiles = await sync('profile-sync');
+    assert.ok(snapshot.historyCursor); assert.ok(profiles.nextCursor);
+    const receipt = await f.admit();
+    assert.equal((await f.step()).phase, 'private-fields');
+    assert.equal(await epoch(), before); // Admission is not a synchronous all-room cache purge.
+    await assert.rejects(f.db.transactions.write(async tx => {
+      const repository = new AccountCleanupRepository();
+      await repository.authorize(tx, receipt);
+      await repository.memberPage(tx, f.userId, 100);
+      throw new Error('isolated_rollback');
+    }), /isolated_rollback/);
+    assert.equal(await epoch(), before);
+    assert.equal((await f.db.transactions.read(tx => tx.prisma.room_members.findUniqueOrThrow({ where: { id: r.memberId } }))).status, 'ACTIVE');
+    assert.equal((await f.step()).phase, 'membership');
+    assert.equal(await epoch(), before + 1n);
+    for (const [path, cursor] of [['events', snapshot.nextCursor], ['history', snapshot.historyCursor], ['profile-sync', profiles.nextCursor]]) {
+      assert.equal((await sync(path, cursor)).resetRequired, true);
+    }
+    const beforeReaction = await sync('snapshot');
+    assert.equal((await f.step()).phase, 'reactions');
+    assert.equal(await epoch(), before + 2n);
+    assert.equal((await sync('events', beforeReaction.nextCursor)).resetRequired, true);
+    await f.drain();
+    const drained = await epoch();
+    assert.deepEqual(await f.step(), { phase: 'subset-drained', changed: 0, hasMore: false });
+    assert.equal(await epoch(), drained);
+    const fresh = await sync('snapshot'); assert.equal(fresh.resetRequired, false);
+    assert.equal(fresh.messages[0].content.text, 'independent surviving body');
+    assert.equal(await f.db.transactions.read(tx => tx.prisma.messages.count({ where: { id: { in: messages.map(row => row.messageId) },
+      text_content: 'independent surviving body' } })), 2);
+    assert.equal(await f.db.transactions.read(tx => tx.prisma.message_reactions.count({ where: { member_id: r.memberId } })), 0);
+  } finally { await app.close(); }
+});

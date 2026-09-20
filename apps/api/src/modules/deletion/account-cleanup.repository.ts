@@ -48,28 +48,35 @@ export class AccountCleanupRepository {
     ] }, orderBy: { id: 'asc' }, select: { id: true, room_id: true } });
     if (!member) return null;
     await tx.rows('SELECT id FROM rooms WHERE id=? FOR UPDATE', [member.room_id]);
+    // This room lock serializes cleanup with message projections. Commit the
+    // cache scope change with each actual mutation, never with a drained retry.
+    const changedPage = async (phase: 'membership' | 'reactions' | 'grants' | 'periods', changed: number) => {
+      if (changed) await tx.prisma.rooms.update({ where: { id: member.room_id },
+        data: { content_epoch: { increment: 1n } }, select: { id: true } });
+      return { phase, changed };
+    };
     const departed = await tx.prisma.room_members.updateMany({ where: { id: member.id, user_id: userId,
       OR: [{ status: { not: 'LEFT' } }, { active_period_id: { not: null } }] },
     data: { status: 'LEFT', active_period_id: null, acl_epoch: { increment: 1n } } });
     // Do not reassign rooms.owner_member_id or delete member/user UUID anchors.
-    if (departed.count) return { phase: 'membership' as const, changed: departed.count };
+    if (departed.count) return changedPage('membership', departed.count);
     const reactions = await tx.prisma.message_reactions.findMany({ where: { member_id: member.id, room_id: member.room_id },
       orderBy: { id: 'asc' }, take: limit, select: { id: true } });
-    if (reactions.length) return { phase: 'reactions' as const, changed: (await tx.prisma.message_reactions.deleteMany({ where: {
+    if (reactions.length) return changedPage('reactions', (await tx.prisma.message_reactions.deleteMany({ where: {
       member_id: member.id, room_id: member.room_id, id: { in: reactions.map(row => row.id) },
-    } })).count };
+    } })).count);
     const grants = await tx.prisma.stream_grants.findMany({ where: { member_id: member.id, room_id: member.room_id },
       orderBy: { id: 'asc' }, take: limit, select: { id: true } });
-    if (grants.length) return { phase: 'grants' as const, changed: (await tx.prisma.stream_grants.deleteMany({ where: {
+    if (grants.length) return changedPage('grants', (await tx.prisma.stream_grants.deleteMany({ where: {
       member_id: member.id, room_id: member.room_id, id: { in: grants.map(row => row.id) },
-    } })).count };
+    } })).count);
     // ReadStateCore has already drained all account read states before this port.
     // Ended participation has no remaining FK consumer; remove its private history.
     const periods = await tx.prisma.membership_periods.findMany({ where: { member_id: member.id, room_id: member.room_id },
       orderBy: { id: 'asc' }, take: limit, select: { id: true } });
-    if (periods.length) return { phase: 'periods' as const, changed: (await tx.prisma.membership_periods.deleteMany({ where: {
+    if (periods.length) return changedPage('periods', (await tx.prisma.membership_periods.deleteMany({ where: {
       member_id: member.id, room_id: member.room_id, id: { in: periods.map(row => row.id) },
-    } })).count };
+    } })).count);
     // A concurrent physical-content cleanup can remove our discovered work.
     return { phase: 'membership' as const, changed: 0 };
   }

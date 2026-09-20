@@ -30,7 +30,15 @@ This source integration is not a QA release or a completed M10 purge.
   Its isolated internal module drains private profile/capability fields,
   read-state, own membership/reactions/grants/periods, push references and sessions.
   It remains unregistered in API/worker runtime; identity, avatar/media, outbox,
-  shared cache invalidation and global purge obligations remain outstanding.
+  and global purge obligations remain outstanding. The composed candidate adds
+  per-room content-epoch invalidation for actual membership/reaction/grant/period
+  cleanup mutations; this does not make admission an immediate all-room purge.
+- Internal MESSAGE row purge `28145c8` (PR 60): bounded transaction/lease-fenced
+  text/sticker row cleanup, detached dedupe receipts, exact atomic purge evidence,
+  and room content epochs. It is not installed as a runtime job handler; media
+  targets defer with provenance intact. Initial hosted MySQL ran 281/282 passing,
+  including all 15 new purge cases; an old missing-root replay assertion is being
+  corrected before acceptance. Actual process-death tests are a separate task.
 
 These input results do not substitute for final composed-tree validation.
 
@@ -51,7 +59,9 @@ Both independently generated migrations are retained byte-for-byte, ordered
 `20260920061207_m11_notifications_read_state`, followed by the original generated
 `20260920074544_account_deletion_admission` (SHA-256
 `1e3d298e965c15500e83d96f4ebae5e2ce3336c154ce67d369a207058bff85fb`).
-This candidate has **16** migrations;
+The generated `20260920084358_m10_message_row_purge` follows (SHA-256
+`9f55555af7708656e7a4db09b1196b819b58e859d3aad95c23c96c2d52a2dc7a`).
+Its predecessor files are unchanged. This candidate has **17** migrations;
 the earlier reviewed native-login QA candidate has **13**, and the observed live
 QA runtime has **12**. Approval for one is not approval for another. No SQL was
 hand-edited, no shared database was changed, and no production promotion occurred.
@@ -59,8 +69,9 @@ hand-edited, no shared database was changed, and no production promotion occurre
 The earlier MESSAGE/push integration `46bca35` passed all required hosted gates,
 including Backend CI `35498258627`. ACCOUNT/owner composition `388c9d0` then
 passed Backend CI `35499262730`; its docs-only follow-up `d9614ed` passed all
-required gates, including Backend CI `35499608318`. These results do not cover
-the subsequent media/account-cleanup composition, which needs its own hosted build,
+required gates, including Backend CI `35499608318`. Media/account cleanup composition
+`6d01b9e` passed all required gates, including Backend CI `35500464784`. Those
+results do not cover the subsequent row-purge/cache composition, which needs its own hosted build,
 generated-client/schema, unit, HTTP/OpenAPI, real-MySQL and image checks.
 The local resource gate defers new heavy suites. Existing tests and explicit
 API/worker push-plus-deletion composition regressions are retained. The media

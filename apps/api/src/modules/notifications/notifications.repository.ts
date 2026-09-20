@@ -44,6 +44,16 @@ export class NotificationsRepository {
   async invalidate(tx: Transaction, id: string, generation: bigint) {
     return (await tx.prisma.push_subscriptions.updateMany({ where: { id, generation, revoked_at: null }, data: { revoked_at: await tx.now(), generation: { increment: 1n } } })).count;
   }
+  async purgeMessage(tx: Transaction, roomId: string, messageId: string, limit: number): Promise<{ deleted: number; done: boolean }> {
+    const fanout = await tx.prisma.jobs.findMany({ where: { purpose: 'PUSH', room_id: null, resource_id: messageId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (fanout.length) return { deleted: (await tx.prisma.jobs.deleteMany({ where: { id: { in: fanout.map(row => row.id) }, purpose: 'PUSH', room_id: null, resource_id: messageId } })).count, done: false };
+    const deliveries = await tx.prisma.push_deliveries.findMany({ where: { room_id: roomId, message_id: messageId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (!deliveries.length) return { deleted: 0, done: true };
+    const ids = deliveries.map(row => row.id);
+    const jobs = await tx.prisma.jobs.findMany({ where: { purpose: 'PUSH', room_id: roomId, resource_id: { in: ids } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (jobs.length) return { deleted: (await tx.prisma.jobs.deleteMany({ where: { id: { in: jobs.map(row => row.id) }, purpose: 'PUSH', room_id: roomId } })).count, done: false };
+    return { deleted: (await tx.prisma.push_deliveries.deleteMany({ where: { id: { in: ids }, room_id: roomId, message_id: messageId } })).count, done: false };
+  }
   async purgeAccount(tx: Transaction, userId: string, limit: number): Promise<{ deleted: number; done: boolean }> {
     // Polymorphic jobs.resource_id has no Prisma relation: this bounded join
     // applies content ownership BEFORE LIMIT without materializing all messages.
