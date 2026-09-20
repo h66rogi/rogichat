@@ -23,7 +23,7 @@ import { createUser, createRoom, joinRoom, assignRoomOwner, authorizedMediaObjec
 
 const key = randomBytes(32); // Shared only across this isolated test file.
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
-async function fixture(t) {
+async function fixture(t, elapsedAuthGrace = true) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
   const db = new MysqlDatabase(readConfig('api'));
   const { ledger, store } = deletionFixture();
@@ -53,7 +53,7 @@ async function fixture(t) {
   });
   const requestId = accountDeletionId('qa', userId);
   const intent = { schemaVersion: 2, environment: 'qa', scope: 'ACCOUNT', roomId: null, actorUserId: userId, targetId: userId,
-    requestId, requestedAt: (await db.transactions.read(tx => tx.now())).toISOString(),
+    requestId, requestedAt: new Date((await db.transactions.read(tx => tx.now())).getTime() - (elapsedAuthGrace ? 1200000 : 0)).toISOString(),
     subjectGuard: context.get(IdentityGuardService).evidence(subject, identityId, key) };
   const admit = async () => {
     const receipt = await ledger.ensureIntent(intent);
@@ -333,4 +333,16 @@ test('room cleanup atomically resets other participants event/history/profile cu
       text_content: 'independent surviving body' } })), 2);
     assert.equal(await f.db.transactions.read(tx => tx.prisma.message_reactions.count({ where: { member_id: r.memberId } })), 0);
   } finally { await app.close(); }
+});
+
+test('unelapsed original auth grace allows independent private-field cleanup but prevents auth subset closure', async t => {
+  const f = await fixture(t, false); await f.admit();
+  assert.equal((await f.step()).phase, 'private-fields');
+  let result;
+  for (let i = 0; i < 20; i++) { result = await f.step(); if (result.phase === 'auth') break; }
+  assert.deepEqual(result, { phase: 'auth', changed: 0, hasMore: true });
+  const obligation = await f.db.transactions.read(tx => tx.prisma.account_deletion_obligations.findUniqueOrThrow({ where: { user_id: f.userId } }));
+  assert.equal(obligation.requested_at.toISOString(), f.intent.requestedAt);
+  assert.equal(obligation.auth_not_before.getTime(), Date.parse(f.intent.requestedAt) + 600000);
+  assert.equal(obligation.live_purged_at, null);
 });

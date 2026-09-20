@@ -130,7 +130,7 @@ test('native HTTP session projects only own account, preserves web response and 
   assert.equal(duplicated, 400);
   const webHeaders = { Cookie: `rogi_session=${f.web.token}`, Origin: f.config.origin };
   response = await fetch(`${f.base}/v1/auth/session`, { headers: webHeaders });
-  assert.deepEqual(await response.json(), { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: f.web.csrf, accountPartition: before.accountPartition });
+  assert.deepEqual(await response.json(), { authenticated: true, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true }, csrfToken: f.web.csrf, accountPartition: before.accountPartition });
   response = await fetch(`${f.base}/v1/auth/logout`, { method: 'POST', headers: { ...webHeaders, 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(response.status, 400);
   assert.equal((await f.call('POST', '/v1/auth/logout', { csrf: 'no' })).status, 400);

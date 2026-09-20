@@ -9,7 +9,7 @@ import { NotificationsModule } from '../../dist/modules/notifications/notificati
 import { ReadStateCoreModule } from '../../dist/modules/read-state/read-state-core.module.js';
 
 const requestId = '00000000-0000-4000-8000-000000000001';
-function fixture(readResult, pushResult, moderation = { changed: 0, done: true }) {
+function fixture(readResult, pushResult, authResult = { changed: 0, hasMore: false }, contentResult = null, moderation = { changed: 0, done: true }) {
   const calls = []; let inTransaction = false;
   const ledger = { environment: 'qa', async readByKey() {
     assert.equal(inTransaction, false); calls.push('external'); return { intent: { scope: 'ACCOUNT', targetId: 'isolated' } };
@@ -25,7 +25,7 @@ function fixture(readResult, pushResult, moderation = { changed: 0, done: true }
   };
   const read = { async purgeAccount(_tx, _userId, limit) { assert.equal(limit, 100); calls.push('read'); return readResult; } };
   const push = { async purgeAccount(_tx, _userId, limit) { assert.equal(limit, 100); calls.push('push'); return pushResult; } };
-  return { calls, service: new AccountCleanupService(transactions, ledger, repository, read, push, { async page() { return null; } }, { async page() { return false; } }, { async clearForAccount() { return moderation; } }) };
+  return { calls, service: new AccountCleanupService(transactions, ledger, repository, read, push, { async page() { calls.push('content'); return contentResult; } }, { async page() { calls.push('media'); return false; } }, { async clearForAccount() { return moderation; } }, { async purgeAccount() { calls.push('auth'); return authResult; } }) };
 }
 
 test('read-state hasMore and push done are distinct continuation barriers, including zero-deletion passes', async () => {
@@ -40,7 +40,7 @@ test('read-state hasMore and push done are distinct continuation barriers, inclu
   }
   const f = fixture({ deleted: 0, hasMore: false }, { deleted: 0, done: true });
   assert.deepEqual(await f.service.step(requestId), { phase: 'subset-drained', changed: 0, hasMore: false });
-  assert.equal(f.calls.at(-1), 'sessions');
+  assert.deepEqual(f.calls.slice(-4), ['sessions', 'auth', 'content', 'media']);
 });
 
 test('cleanup module exports only its internal service and consumes existing domain ports without installing a runner', () => {
@@ -55,8 +55,20 @@ test('cleanup module exports only its internal service and consumes existing dom
 
 test('moderation detail cleanup remains inside the account transaction and zero-change pending work cannot complete', async () => {
   for (const result of [{ changed: 2, done: true }, { changed: 0, done: false }]) {
-    const f = fixture({ deleted: 0, hasMore: false }, { deleted: 0, done: true }, result);
+    const f = fixture({ deleted: 0, hasMore: false }, { deleted: 0, done: true }, undefined, null, result);
     assert.deepEqual(await f.service.step(requestId), { phase: 'moderation', changed: result.changed, hasMore: true });
     assert.deepEqual(f.calls, ['external', 'authorize', 'private']);
+  }
+});
+
+test('provider revocation and auth grace waits permit independent content and media cleanup', async () => {
+  for (const providerPending of [true, false]) {
+    const pending = { changed: 0, hasMore: true, providerPending };
+    const f = fixture({ deleted: 0, hasMore: false }, { deleted: 0, done: true }, pending);
+    assert.deepEqual(await f.service.step(requestId), { phase: providerPending ? 'provider-revocation' : 'auth', changed: 0, hasMore: true });
+    assert.deepEqual(f.calls.slice(-3), ['auth', 'content', 'media']);
+    const content = { phase: 'content', changed: 1, hasMore: true };
+    const active = fixture({ deleted: 0, hasMore: false }, { deleted: 0, done: true }, pending, content);
+    assert.deepEqual(await active.service.step(requestId), content);
   }
 });

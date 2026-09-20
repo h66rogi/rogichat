@@ -1,4 +1,5 @@
 import { ModerationRetentionService } from '../moderation/moderation-retention.service.js';
+import { AppleLifecycleService } from '../auth/apple/apple-lifecycle.service.js';
 import { AccountContentService } from './account-content.service.js';
 import { AccountMediaService } from '../media/account-media.service.js';
 import type { DeletionReceipt } from './deletion-ledger.js';
@@ -10,7 +11,7 @@ import { ReadStateCoreService } from '../read-state/read-state-core.service.js';
 import { AccountCleanupRepository } from './account-cleanup.repository.js';
 import { DeletionLedger, deletionIntentKey } from './deletion-ledger.js';
 
-export type AccountCleanupPhase = 'private-fields' | 'moderation' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'profile-changes' | 'content' | 'media' | 'media-usage' | 'subset-drained';
+export type AccountCleanupPhase = 'private-fields' | 'moderation' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'profile-changes' | 'content' | 'media' | 'media-usage' | 'auth' | 'provider-revocation' | 'subset-drained';
 export interface AccountCleanupResult { phase: AccountCleanupPhase; changed: number; hasMore: boolean }
 
 /** Internal bounded ACCOUNT step composed by the durable PURGE worker. */
@@ -23,7 +24,8 @@ export class AccountCleanupService {
     @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService,
     @Inject(AccountContentService) private readonly content: AccountContentService,
     @Inject(AccountMediaService) private readonly media: AccountMediaService,
-    @Inject(ModerationRetentionService) private readonly moderation: ModerationRetentionService) {}
+    @Inject(ModerationRetentionService) private readonly moderation: ModerationRetentionService,
+    @Inject(AppleLifecycleService) private readonly apple: AppleLifecycleService) {}
 
   async step(requestId: string, limit = 100, finish?: (tx: Transaction, result: AccountCleanupResult) => Promise<void>): Promise<AccountCleanupResult> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('invalid_account_cleanup_limit');
@@ -54,6 +56,9 @@ export class AccountCleanupService {
     if (push.deleted || !push.done) return { phase: 'push', changed: push.deleted, hasMore: true };
     const sessions = await this.repository.sessions(tx, userId, limit);
     if (sessions) return { phase: 'sessions', changed: sessions, hasMore: true };
+    const auth = await this.apple.purgeAccount(tx, receipt, limit);
+    if (auth.changed) return { phase: 'auth', changed: auth.changed, hasMore: true };
+    // Provider I/O and the original auth grace period must not starve content/media.
     const profileChanges = await this.repository.profileChanges(tx, userId, limit);
     if (profileChanges) return { phase: 'profile-changes', changed: profileChanges, hasMore: true };
     const content = await this.content.page(tx, receipt, limit);
@@ -61,6 +66,7 @@ export class AccountCleanupService {
     if (await this.media.page(tx, receipt)) return { phase: 'media', changed: 1, hasMore: true };
     const usage = await this.repository.mediaUsage(tx, userId, limit);
     if (usage) return { phase: 'media-usage', changed: usage, hasMore: true };
+    if (auth.hasMore) return { phase: auth.providerPending ? 'provider-revocation' : 'auth', changed: 0, hasMore: true };
     // No persistent phase flag: after restart, re-check the first remaining
     // page in every phase. Storage/provider/backup closure remains independent.
     return { phase: 'subset-drained', changed: 0, hasMore: false };

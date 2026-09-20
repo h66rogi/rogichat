@@ -129,6 +129,7 @@ test('native SOOP HTTP login returns the exact nested session DTO, opaque seven-
   const headers = { Authorization: `Bearer ${body.accessToken}`, 'X-Rogi-Client': 'ios' };
   const session = await fetch(`${f.base}/v1/auth/session`, { headers }); assert.deepEqual(await session.json(), body.session);
   const saved = await f.db.transactions.read(tx => tx.prisma.auth_sessions.findUnique({ where: { token_digest: digest(body.accessToken) } }));
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.login_transactions.findUniqueOrThrow({ where: { id: started.transactionId } }))).user_id, saved.user_id);
   assert.equal(saved.transport, 'NATIVE'); assert.equal(saved.client_id, 'ios'); assert.ok(Math.abs(saved.expires_at - saved.created_at - 604800000) < 1000);
   assert.equal((await f.exchange(started)).status, 400); // Lost ACK cannot recover a credential.
   for (const value of [started.request.state, started.state, started.verifier, started.providerCode, started.code, body.accessToken, f.config.broker.clientSecret]) assert.ok(!f.logs().includes(value));

@@ -17,12 +17,21 @@ export interface AccountSubjectGuard {
   readonly subjectHmac: string;
   readonly identityId: string;
 }
+export interface ScopedAccountSubjectGuard extends AccountSubjectGuard { readonly provider: 'soop' | 'apple' }
 export type DeletionIntent = LegacyDeletionIntent | (Omit<LegacyDeletionIntent, 'schemaVersion' | 'scope' | 'roomId'> & {
   readonly schemaVersion: 2;
   readonly scope: 'ACCOUNT';
   readonly roomId: null;
   readonly subjectGuard: Readonly<AccountSubjectGuard> | null;
+}) | (Omit<LegacyDeletionIntent, 'schemaVersion' | 'scope' | 'roomId'> & {
+  readonly schemaVersion: 3;
+  readonly scope: 'ACCOUNT';
+  readonly roomId: null;
+  readonly subjectGuards: readonly Readonly<ScopedAccountSubjectGuard>[];
 });
+export function accountSubjectGuards(intent: DeletionIntent): readonly AccountSubjectGuard[] {
+  return intent.schemaVersion === 3 ? intent.subjectGuards : intent.schemaVersion === 2 && intent.subjectGuard ? [intent.subjectGuard] : [];
+}
 export interface LedgerDiscoveryItem {
   readonly keySha256: string;
   readonly key: string | null;
@@ -47,7 +56,7 @@ export interface DeletionLedgerStore {
 export class DeletionLedgerError extends Error {
   constructor(readonly code: 'LEDGER_UNAVAILABLE' | 'LEDGER_CONFLICT' | 'INVALID_LEDGER_INTENT') { super(code); }
 }
-export const LEDGER_MAX_BYTES = 1024;
+export const LEDGER_MAX_BYTES = 4096;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
 export function checkedDeletionIntent(value: unknown, environment: LedgerEnvironment): Readonly<DeletionIntent> {
@@ -55,9 +64,10 @@ export function checkedDeletionIntent(value: unknown, environment: LedgerEnviron
   if (!['qa', 'production'].includes(environment) || !value || typeof value !== 'object' || Array.isArray(value)) return invalid();
   const v = value as Record<string, unknown>;
   const version2 = v.schemaVersion === 2;
-  const expectedKeys = version2 ? 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,subjectGuard,targetId' : 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,targetId';
+  const version3 = v.schemaVersion === 3;
+  const expectedKeys = version3 ? 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,subjectGuards,targetId' : version2 ? 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,subjectGuard,targetId' : 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,targetId';
   if (Object.keys(v).sort().join(',') !== expectedKeys ||
-      (!version2 && v.schemaVersion !== 1) || (version2 && v.scope !== 'ACCOUNT') || v.environment !== environment ||
+      (!version2 && !version3 && v.schemaVersion !== 1) || ((version2 || version3) && v.scope !== 'ACCOUNT') || v.environment !== environment ||
       ![v.requestId, v.actorUserId, v.targetId].every(id => typeof id === 'string' && uuid.test(id)) ||
       typeof v.scope !== 'string' || !['MESSAGE', 'ACCOUNT'].includes(v.scope) || typeof v.requestedAt !== 'string' ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v.requestedAt) ||
@@ -65,6 +75,21 @@ export function checkedDeletionIntent(value: unknown, environment: LedgerEnviron
       (v.scope === 'ACCOUNT' ? v.roomId !== null || v.targetId !== v.actorUserId : typeof v.roomId !== 'string' || !uuid.test(v.roomId))) return invalid();
   const base: LegacyDeletionIntent = { schemaVersion: 1, environment, requestId: v.requestId as string, actorUserId: v.actorUserId as string,
     scope: v.scope as DeletionIntent['scope'], targetId: v.targetId as string, roomId: v.roomId as string | null, requestedAt: v.requestedAt };
+  if (version3) {
+    if (!Array.isArray(v.subjectGuards) || v.subjectGuards.length > 8) return invalid();
+    const subjectGuards = v.subjectGuards.map(value => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid();
+      const guard = value as Record<string, unknown>;
+      if (Object.keys(guard).sort().join(',') !== 'identityId,keyFingerprint,provider,subjectHmac,version' || guard.version !== 1 ||
+          !['soop', 'apple'].includes(String(guard.provider)) || typeof guard.identityId !== 'string' || !uuid.test(guard.identityId) ||
+          ![guard.keyFingerprint, guard.subjectHmac].every(item => typeof item === 'string' && /^[a-f0-9]{64}$/.test(item))) return invalid();
+      return Object.freeze({ version: 1 as const, keyFingerprint: guard.keyFingerprint as string, subjectHmac: guard.subjectHmac as string,
+        identityId: guard.identityId, provider: guard.provider as 'soop' | 'apple' });
+    });
+    if (new Set(subjectGuards.map(item => item.identityId)).size !== subjectGuards.length || new Set(subjectGuards.map(item => item.subjectHmac)).size !== subjectGuards.length ||
+        subjectGuards.some((item, index) => index > 0 && subjectGuards[index - 1]!.subjectHmac >= item.subjectHmac)) return invalid();
+    return Object.freeze({ ...base, schemaVersion: 3, scope: 'ACCOUNT', roomId: null, subjectGuards: Object.freeze(subjectGuards) });
+  }
   if (!version2) return Object.freeze(base);
   let subjectGuard: Readonly<AccountSubjectGuard> | null = null;
   if (v.subjectGuard !== null) {

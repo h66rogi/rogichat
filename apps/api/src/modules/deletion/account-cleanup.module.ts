@@ -1,4 +1,5 @@
 import { ModerationRetentionModule } from '../moderation/moderation-retention.module.js';
+import { AppleLifecycleModule } from '../auth/apple/apple-lifecycle.module.js';
 import { AccountContentRepository } from './account-content.repository.js';
 import { AccountContentService } from './account-content.service.js';
 import { MessagePurgeModule } from './message-purge.module.js';
@@ -16,7 +17,7 @@ import { AccountCleanupRepository } from './account-cleanup.repository.js';
 @Module({})
 export class AccountCleanupModule {
   static register(infrastructure: DynamicModule, options: DeletionOptions): DynamicModule {
-    return { module: AccountCleanupModule, imports: [ModerationRetentionModule, infrastructure, ReadStateCoreModule, NotificationsModule, MessagePurgeModule, AccountMediaModule,
+    return { module: AccountCleanupModule, imports: [ModerationRetentionModule, infrastructure, AppleLifecycleModule.register(infrastructure), ReadStateCoreModule, NotificationsModule, MessagePurgeModule, AccountMediaModule,
       ...('config' in options ? [DeletionLedgerModule.register(options.config)] : [])],
     providers: [AccountCleanupRepository, AccountCleanupService, AccountContentRepository, AccountContentService,
       ...('ledger' in options ? [{ provide: DeletionLedger, useValue: options.ledger }] : [])],

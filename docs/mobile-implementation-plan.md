@@ -605,3 +605,14 @@ push하고 QA 대상 PR의 필수 검증을 통과시켜 병합한 뒤
 
 기존 탐색에서 확인한 공식 지침이다. 구체적 패키지 버전·스토어 요건은 해당 구현 PR에서
 다시 조회하고 실제 채택·시험 결과를 기록한다.
+
+
+### Apple 서버 인증 배치 연결 (2026-09-20)
+
+`task/apple-soop-link`의 [Apple 서버 구현](apple-auth-backend.md)과
+[정확한 네이티브 DTO](apple-auth-client-contract.md)를 MB03/C02에 적용한다.
+iOS native Apple 증명, Android Services ID 브라우저 callback과 원래 S256 완료
+교환을 구현하며, 로그인 뒤 SOOP 필수 연결 gate는 유지한다. 직접 SOOP 로그인과
+기존 SOOP 계정에서의 명시적 Apple 연결은 같은 user UUID를 유지하고 충돌을
+자동 병합하지 않는다. 제공자 개발자 등록·실제 QA 계정 및 두 OS 왕복 증거는
+별도 출시 gate이며 새 web Apple UI 배포는 이번 native 배치 범위가 아니다.

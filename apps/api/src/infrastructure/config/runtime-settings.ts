@@ -12,7 +12,7 @@ export interface MediaSettings { config: MediaConfig; scratch: string; decoderSo
 export interface RuntimeSettings { config: Config; auth?: AuthConfig; media?: MediaSettings; push?: PushConfig; deletion?: { config: DeletionLedgerConfig } }
 export function readRuntimeSettings(role: Role): RuntimeSettings {
   const config = readConfig(role);
-  const auth = role === 'api' && (config.environment === 'qa' || config.environment === 'production' || process.env.AUTH_SECRET_FILE) ? readAuthConfig(config) : undefined;
+  const auth = (role === 'api' || (role === 'worker' && Boolean(process.env.APPLE_AUTH_SECRET_FILE))) && (config.environment === 'qa' || config.environment === 'production' || process.env.AUTH_SECRET_FILE) ? readAuthConfig(config) : undefined;
   const media = readMediaConfig(config.environment);
   const deletion = readDeletionConfig(config.environment, media);
   if (process.env.MEDIA_ENABLED !== undefined && !['true', 'false'].includes(process.env.MEDIA_ENABLED)) throw new ConfigurationError('MEDIA_ENABLED');

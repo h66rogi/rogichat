@@ -6,7 +6,7 @@ export const revisedProfile = object({ ...actorProfile.properties!, revision: te
 const self = object({ id: uuid, nickname: text, avatar, birthday: nullable(birthday), birthdayVisibleToStreamers: boolean });
 export const updateProfileRequest = { ...object({ nickname: { type: 'string' as const, minLength: 1, maxLength: 40, description: 'NFC 정규화·trim 후 길이 검사. 제어/포맷 문자 금지.' }, birthday: nullable(birthday), birthdayVisibleToStreamers: boolean, avatarAssetId: nullable(uuid) }, []), minProperties: 1 };
 export const profileDocs = {
-  me: () => contract({ id: 'getSelfProfile', summary: '내 프로필 조회', response: self }),
+  me: () => contract({ id: 'getSelfProfile', summary: '내 프로필 조회', response: object({ ...self.properties!, soopLinkStatus: enumeration('VERIFIED', 'REQUIRED'), onboardingState: enumeration('READY', 'SOOP_LINK_REQUIRED'), capabilities: object({ chat: boolean }) }) }),
   update: () => contract({ id: 'updateSelfProfile', summary: '내 프로필 수정', auth: 'write', body: updateProfileRequest, response: self,
     description: '생일은 유효한 월·일이어야 합니다(윤년 2월 29일 허용). null은 삭제입니다. 생일 공개 설정은 참여한 모든 방의 스트리머에게 적용됩니다. 아바타는 본인의 준비된 AVATAR asset만 사용합니다.', errors: [400, 401, 403, 404, 413] }),
   profile: () => contract({ id: 'getActorProfile', summary: '방 참여자 공개 프로필 조회', params: ['roomId', 'actorId'], response: object({ replace: { ...boolean, enum: [true] }, profile: revisedProfile }),

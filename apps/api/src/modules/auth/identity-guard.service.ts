@@ -2,6 +2,7 @@ import { IdentityGuardRepository } from './identity-guard.repository.js';
 import { createHash, createHmac } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
+import { accountSubjectGuards } from '../deletion/deletion-ledger.js';
 import type { AccountSubjectGuard, DeletionIntent } from '../deletion/deletion-ledger.js';
 import { ApiError } from './auth-primitives.js';
 
@@ -21,6 +22,18 @@ export class IdentityGuardService {
     return { version: 1, identityId,
       keyFingerprint: createHash('sha256').update('rogi:identity-guard-key:v1:').update(key).digest('hex'),
       subjectHmac: createHmac('sha256', key).update('rogi:identity-resurrection:soop:v1:').update(subject).digest('hex') };
+  }
+
+  appleEvidence(subject: Uint8Array, identityId: string, key: Buffer | undefined): AccountSubjectGuard {
+    const evidence = this.evidence(Buffer.alloc(0), identityId, key);
+    return { ...evidence, subjectHmac: createHmac('sha256', key!).update('rogi:identity-resurrection:apple:v1:').update(subject).digest('hex') };
+  }
+  async checkApple(tx: Transaction, subject: Uint8Array, key?: Buffer): Promise<void> {
+    // Apple is new: unlike the legacy SOOP bootstrap, it requires a real guard key.
+    if (!key) throw new ApiError('AUTH_UNAVAILABLE', 503);
+    await this.checkKey(tx, key);
+    const row = await this.repository.lock(tx, this.appleEvidence(subject, 'unused', key));
+    if (row.request_id !== null) throw new ApiError('AUTH_FAILED', 400);
   }
 
   async check(tx: Transaction, subject: Uint8Array, key?: Buffer): Promise<void> {
@@ -44,12 +57,12 @@ export class IdentityGuardService {
   }
 
   async block(tx: Transaction, intent: DeletionIntent): Promise<void> {
-    if (intent.schemaVersion !== 2 || !intent.subjectGuard) return;
-    const guard = intent.subjectGuard;
+    for (const guard of accountSubjectGuards(intent)) {
     const policy = await this.repository.pin(tx, guard);
     if (!policy || policy.fingerprint.toString('hex') !== guard.keyFingerprint) throw new Error('identity_guard_key_conflict');
     const prior = await this.repository.lock(tx, guard);
     if (prior.request_id !== null && (prior.request_id !== intent.requestId || prior.user_id !== intent.targetId || prior.requested_at?.toISOString() !== intent.requestedAt)) throw new Error('identity_guard_receipt_conflict');
     await this.repository.block(tx, guard, intent, MAX_AUTH_TRANSACTION_MS);
+    }
   }
 }

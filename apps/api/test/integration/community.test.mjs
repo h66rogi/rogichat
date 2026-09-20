@@ -165,7 +165,7 @@ test('community HTTP rejects missing CSRF, unlinked chat, overbroad fields and r
   }
   assert.equal((await f.call(f.fan1, 'POST', `/rooms/${room.roomId}/join`, { role: 'STREAMER' })).status, 400);
   const self = await f.call(f.fan1, 'GET', '/me/profile');
-  assert.deepEqual(Object.keys(self.body).sort(), ['avatar', 'birthday', 'birthdayVisibleToStreamers', 'id', 'nickname']);
+  assert.deepEqual(Object.keys(self.body).sort(), ['avatar', 'birthday', 'birthdayVisibleToStreamers', 'capabilities', 'id', 'nickname', 'onboardingState', 'soopLinkStatus']);
   assert.equal(self.body.nickname, '합성 팬 하나');
   await f.db.transactions.write(tx => tx.execute("UPDATE platform_soop SET status='REVOKED' WHERE user_id=?", [f.fan1.id]));
   assert.equal((await f.call(f.fan1, 'GET', '/rooms')).status, 403);

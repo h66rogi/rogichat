@@ -88,6 +88,7 @@ async function fixture(t, withHttp = false, secure = false) {
   const principal = token => db.transactions.read(tx => sessions.require(tx, token));
   const localSession = () => db.transactions.write(async tx => {
     const userId = await createUser(tx, '연결 전 합성 계정');
+    await tx.prisma.users.update({ where: { id: userId }, data: { terms_version: '2026-09-20' } });
     return { userId, ...await sessions.issue(tx, userId) };
   });
   return { db, config, sessions, broker, flow, begin, complete, principal, localSession,
@@ -145,7 +146,7 @@ test('real MySQL HTTP login/session/logout uses strict minimal DTOs, cookie bind
   response = await fetch(`${f.base}/v1/auth/session`, { headers: { Cookie: sessionCookie, Origin: f.config.origin } });
   assert.equal(response.status, 200);
   const status = await response.json();
-  assert.deepEqual(Object.keys(status).sort(), ['accountPartition', 'authenticated', 'csrfToken', 'soopLinkStatus']);
+  assert.deepEqual(Object.keys(status).sort(), ['accountPartition', 'authenticated', 'capabilities', 'csrfToken', 'onboardingState', 'soopLinkStatus']);
   assert.match(status.accountPartition, /^[A-Za-z0-9_-]{43}$/);
   f.verify('GET', '/v1/auth/session', response.status, status);
   assert.equal(status.authenticated, true);
@@ -201,8 +202,9 @@ test('state/browser/audience binding and one-time callback claims reject tamperi
   await assert.rejects(f.flow.callback(started.request.state, code, started.browser), errorCode('AUTH_FAILED', 400));
   const session = results.find(result => result.status === 'fulfilled').value;
   await assert.rejects(f.db.transactions.read(tx => otherSessions.require(tx, session.token)), errorCode('UNAUTHENTICATED', 401));
-  const [login] = await f.db.transactions.read(tx => tx.rows('SELECT status,LENGTH(verifier) AS verifier_size FROM login_transactions WHERE id=?', [started.request.transactionId]));
+  const [login] = await f.db.transactions.read(tx => tx.rows('SELECT user_id,status,LENGTH(verifier) AS verifier_size FROM login_transactions WHERE id=?', [started.request.transactionId]));
   assert.equal(login.status, 'SUCCEEDED');
+  assert.equal(login.user_id, (await f.principal(session.token)).userId);
   assert.equal(Number(login.verifier_size), 0);
 });
 
@@ -215,7 +217,7 @@ test('broker client/provider/transaction/freshness mismatch, denied codes and re
   ]) {
     const started = await f.begin();
     await assert.rejects(f.complete(started, undefined, overrides), errorCode('AUTH_FAILED', 400));
-    const [row] = await f.db.transactions.read(tx => tx.rows('SELECT status,LENGTH(verifier) AS verifier_size FROM login_transactions WHERE id=?', [started.request.transactionId]));
+    const [row] = await f.db.transactions.read(tx => tx.rows('SELECT user_id,status,LENGTH(verifier) AS verifier_size FROM login_transactions WHERE id=?', [started.request.transactionId]));
     assert.equal(row.status, 'FAILED');
     assert.equal(Number(row.verifier_size), 0);
   }
