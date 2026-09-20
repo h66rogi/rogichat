@@ -3,9 +3,11 @@ import json
 from pathlib import Path
 import plistlib
 import shutil
+import tempfile
 import zipfile
 from keychain_unlock import unlock
 from product_guards import inspect_ios_app, inspect_ios_package, inspect_product_sources
+from ios_associations import inspect_signed_callback
 
 from release_common import APP_ID, API_URL, ROOT, AppStoreConnect, capture, external, manifest, new_output, private_write, run, save_manifest, sha256, tree_sha256
 
@@ -35,6 +37,7 @@ def inspect_archive(path, number, version):
     capture(["codesign", "--verify", "--deep", "--strict", str(app)])
     if not (app / "embedded.mobileprovision").is_file():
         raise ValueError("Archive has no provisioning profile")
+    inspect_signed_callback(app, (app / "embedded.mobileprovision").read_bytes(), distribution=False)
     return app / info["CFBundleExecutable"]
 
 
@@ -47,6 +50,18 @@ def inspect_ipa(path, number, version):
         info = plistlib.loads(ipa.read(names[0]))
         inspect_info(info, number, version)
         inspect_ios_package(ipa, names[0].removesuffix("Info.plist"), info.get("CFBundleExecutable", ""))
+        prefix = names[0].removesuffix("Info.plist")
+        profile = prefix + "embedded.mobileprovision"
+        executable = prefix + info["CFBundleExecutable"]
+        if ipa.namelist().count(profile) != 1 or ipa.namelist().count(executable) != 1:
+            raise ValueError("IPA must contain one signed executable and provisioning profile")
+        # Inspect the actual exported Mach-O entitlement. No arbitrary ZIP paths
+        # are extracted, and private provisioning data is never printed.
+        with tempfile.TemporaryDirectory(prefix="rogichat-ipa-callback-") as directory:
+            binary = Path(directory) / "executable"
+            binary.write_bytes(ipa.read(executable))
+            binary.chmod(0o700)
+            inspect_signed_callback(binary, ipa.read(profile), distribution=True)
 
 
 def archive(cfg, number, version):

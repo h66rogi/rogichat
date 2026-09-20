@@ -20,14 +20,36 @@ header and `X-Rogi-Client: android`, fixed seven-day expiry and no refresh,
 cookies, CSRF, invented Origin, redirects or HTTP body logging. Local operation
 epochs are separate from the server's opaque account-generation hint.
 
-Native SOOP/Apple credential issuance is still unavailable. No login provider,
-account linking, deletion, room adapter or chat operation is enabled by this
-transport slice. A fresh installation stays honestly signed out; no credential
-entry screen or fixture adapter is packaged. Network/storage failures retain
-truthful retry state; authoritative 401 removes only the still-current session.
-Offline logout removes the local credential and reports unconfirmed server revoke.
+SOOP login and account linking use the committed native transaction/HTTPS handoff/
+completion contract. Login requires the reviewed `2026-09-20` usage consent and
+sends no Bearer; linking captures the same current native session at start and
+exchange. AndroidX Browser 1.10.0 opens a system Custom Tab; only exact same-environment
+API launch and HTTPS completion URLs are accepted. Browser completion alone never
+means login succeeded. Independent PKCE/state proofs live only in protected
+short-lived storage; durable consume, credential clear stamps and local epoch
+checks reject replay, canceled and stale results. Lost exchange responses require
+a fresh login. Explicit local reset can recover unreadable login storage without
+claiming server logout or deleting the server account.
+
+The broker is still activation-gated. Actual signed App Links association and
+provider/device round trips remain external release gates; neither the manifest
+nor mocked tests establish deployment or provider success. Server 404/503/offline
+failures are displayed honestly. Apple, account deletion, rooms and chat adapters
+remain unavailable. A fresh installation has no credential entry screen or
+fixture adapter. Authoritative session 401 removes only the current session;
+LINK errors never clear a newer account. Offline logout removes the local
+credential and reports unconfirmed server revoke.
 Appearance is saved on device; notification settings read and open actual OS
-settings. No disconnected server preference switches are displayed.
+settings independently of the authenticated account's server preferences.
+M11 GET preferences and explicit account-wide disable use real Bearer requests.
+Disabling explains its effect on other devices and the web, sends the latest
+positive uint64-string `expectedGeneration`, and only applies a confirmed response.
+Conflict or uncertain results trigger a read, never automatic write replay.
+Enabling native push, registration and FCM remain unavailable; no permission
+request, optimistic toggle, default-enabled state or synthetic success is added.
+Read-state UUID/context DTOs and closed transport are available for future C05/C06
+integration. No screen reports read progress, calculates unread counts or borrows
+Meloming chat UX from this foundation.
 
 Use JDK 17 and the installed Android SDK. Examples:
 
@@ -49,3 +71,16 @@ checks real Android Keystore/atomic persistence in isolated test-only file/key
 namespaces and activity recreation without populating a product credential.
 The instrumentation APK is never distributed. Ktor 3.6.0, serialization 1.11.0,
 and their resolved dependencies are locked; upstream license texts are packaged.
+
+SOOP contract/race tests additionally cover strict URL/JSON grammar, public versus
+bound authorization, TTL, two reversed flows, cold callbacks, one-shot consume,
+partial protected writes, cancel/logout failures, and explicit consent. Tests use
+isolated fakes under `src/test`; no successful broker/device authentication is
+claimed by these tests. App Link hosts are `qa.rogi.chat` and `rogi.chat`, with
+exact path `/mobile/auth/complete`, no custom-scheme fallback.
+
+M11 tests cover strict generations/DTOs, exact transport, session-scoped mutation
+admission, request inversion, single-flight disable, conflict/lost-response reads,
+expiry and account teardown. Preferences stay in their account's feature state;
+they are not persisted in shared device preferences. Unit tests do not establish
+hosted M11 deployment, native push-provider availability or device delivery.

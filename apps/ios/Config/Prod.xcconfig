@@ -3,3 +3,5 @@ PRODUCT_BUNDLE_IDENTIFIER = chat.rogi.rogichat
 ROGICHAT_DISPLAY_NAME = 로기챗
 ROGICHAT_ENVIRONMENT = prod
 ROGICHAT_API_BASE_URL = https:/$()/api.rogi.chat/v1/
+
+CODE_SIGN_ENTITLEMENTS = Config/Prod.entitlements

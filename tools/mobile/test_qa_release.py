@@ -183,7 +183,12 @@ class ReleaseGuards(unittest.TestCase):
             archive.writestr("Payload/App.app/Info.plist", plistlib.dumps(info))
             archive.writestr("Payload/App.app/App", b"real app code")
             archive.writestr("Payload/App.app/PrivacyInfo.xcprivacy", plistlib.dumps(EXPECTED_IOS_PRIVACY))
-        inspect_ipa(ipa, 7, "0.1.0")
+            archive.writestr("Payload/App.app/embedded.mobileprovision", b"test-only profile")
+        with patch.object(release_ios, "inspect_signed_callback") as callback:
+            inspect_ipa(ipa, 7, "0.1.0")
+            callback.assert_called_once()
+            self.assertEqual(callback.call_args.args[1], b"test-only profile")
+            self.assertTrue(callback.call_args.kwargs["distribution"])
         with self.assertRaisesRegex(ValueError, "CFBundleVersion"):
             inspect_ipa(ipa, 8, "0.1.0")
 
