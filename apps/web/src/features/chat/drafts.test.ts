@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-floating-promises -- node:test's describe/it return promises the runner awaits itself */
 import assert from 'node:assert/strict';
-import { describe, it } from 'node:test';
+import { describe, it, test } from 'node:test';
 
 import { clearDraft, draftKeyFor, isAuthorizedTarget, isSameTarget, readDraft, targetLabel, writeDraft } from './drafts';
 import { formatDateLabel, truncateExcerpt } from './formatters';
@@ -95,4 +95,14 @@ describe('formatters', () => {
     assert.equal(truncateExcerpt('첫 줄\n\n둘째 줄'), '첫 줄 둘째 줄');
     assert.equal(truncateExcerpt('가'.repeat(70)).length, 61);
   });
+});
+
+
+void test('fan can explicitly select any server-permitted streamer, never a missing actor or shared audience', () => {
+  const second = { ...streamer, actorId: 'second-streamer' };
+  const options = { viewerRole: 'FAN' as const, fanRecipient: null, fanRecipients: [streamer, second], streamerRecipients: [] };
+  assert.equal(isAuthorizedTarget({ scope: 'PRIVATE', recipient: second }, options), true);
+  assert.equal(isAuthorizedTarget({ scope: 'PRIVATE', recipient: fanA }, options), false);
+  assert.equal(isAuthorizedTarget({ scope: 'SHARED' }, options), false);
+  assert.equal(isAuthorizedTarget({ scope: 'PRIVATE', recipient: second }, { ...options, fanRecipients: [streamer] }), false);
 });

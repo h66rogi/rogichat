@@ -82,6 +82,12 @@ class ImageScanTests(unittest.TestCase):
         with self.assertRaises(scan.Blocked):
             self.run_scan(image([tar([('public-fixture', fixture + b'\n' + self.token())])]), fixtures=allowed)
 
+    def test_exact_fixture_does_not_suppress_other_rules(self):
+        fixture = b'token=' + self.token()
+        allowed = [{'sha256': scan.digest(fixture), 'rules': ['unrelated-reviewed-rule']}]
+        with self.assertRaises(scan.Blocked):
+            self.run_scan(image([tar([('public-fixture', fixture)])]), fixtures=allowed)
+
     def test_forbidden_paths_state_and_traversal(self):
         for name, data in [('app/.env', b'x'), ('../escape', b'x'), ('app/data', b'{"terraform_version":"1.0","resources":[]}')]:
             with self.subTest(name=name), self.assertRaises(scan.Blocked):

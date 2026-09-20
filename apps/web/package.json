@@ -7,14 +7,13 @@
     "node": ">=24.21.0 <25"
   },
   "scripts": {
-    "dev": "ROGICHAT_WEB_ENV=qa next dev -p 3001",
+    "dev": "ROGICHAT_WEB_ENV=qa ROGICHAT_API_ORIGIN=https://api.qa.rogi.chat next dev -p 3001",
     "build": "next build",
-    "build:qa": "ROGICHAT_WEB_ENV=qa next build",
     "start": "next start",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "node ../../tools/web/check-preview-isolation.mjs",
-    "test:unit": "node --import ./src/features/chat/testing/register-ts.mjs --test src/features/chat/*.test.ts",
+    "check": "node ../../tools/web/check-production.mjs .next",
+    "test:unit": "node --import ./src/features/chat/testing/register-ts.mjs --test src/features/chat/*.test.ts src/core/api/*.test.ts src/core/runtime/*.test.ts",
     "test": "playwright test",
     "test:install": "playwright install chromium"
   },
@@ -26,6 +25,7 @@
     "radix-ui": "1.6.7",
     "react": "19.3.0",
     "react-dom": "19.3.0",
+    "socket.io-client": "4.8.3",
     "tailwind-merge": "3.7.0"
   },
   "devDependencies": {

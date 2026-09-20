@@ -1,10 +1,15 @@
 # 프론트엔드 웹 구현 계획
 
-2026-09-20. 상태: **FW00/FW01 구현 완료, FW02 이후 진행 전**. `apps/web`에 scaffold·공개 홈·route·
-공통 UI·QA 미리보기·SW 기반이 있으며([진행 기록](frontend-web-foundation-progress.md)),
-실제 로그인·채팅 연결·배포는 완료된 상태가 아니다. 초안 기준 `9a028b9`, 독립 리뷰 기준
-`c110863`의 커밋된 소스·계약을 대조했다. 병행 중인 서버 작업의 미커밋 API를 확정 계약으로
-사용하지 않는다. [다층 리뷰와 반영 기록](frontend-web-implementation-review.md)을 함께 읽는다.
+2026-09-20 업데이트. 현재 작업은 **QA와 운영에 동일한 production 웹을 배포하는 실제 API 연결**이다.
+FW00/FW01의 미리보기는 과거 검토 산출물이며, 모든 배포에서 제거했다.
+[production 구현 보고서](frontend-web-production-report.md)가 현재 구현·검증·제한의 기준이다.
+서버 API는 커밋된 controller/service/DTO를 기준으로 사용하며, 준비되지 않은 계약은 완료로 표시하지 않는다.
+[기반 진행 기록](frontend-web-foundation-progress.md)과 [리뷰 기록](frontend-web-implementation-review.md)은 역사 자료다.
+
+QA/prod 모두 `NODE_ENV=production`과 하나의 동일한 빌드 구성을 사용한다. runtime
+`ROGICHAT_WEB_ENV`·`ROGICHAT_API_ORIGIN`은 정확히 일치하는 허용 쌍만 사용한다.
+선택적 `ROGICHAT_DEFAULT_ROOM_ID`가 없거나 빈 문자열이면 미개설 상태다. UUID가 설정되어도
+API에서 해당 방의 접근·참여 상태를 다시 확인한다. 목록 첫 항목이나 이름으로 기본 방을 추정하지 않는다.
 
 첫 목표는 **후로기의 홈 → 로그인·SOOP 연결 → 채팅 입장 → 실제 텍스트 왕복 →
 새로고침 후 복구**다. 홈과 채팅 화면을 먼저 리뷰하고 서버 계약이 준비되는 순서대로 연결한다.
@@ -69,7 +74,7 @@
 
 ### 세 단계로 구분하는 산출물
 
-1. **화면 원형:** 홈·팬/스트리머 채팅·설정의 반응형 UI와 합성 fixture. 실제 로그인 성공으로 표시하지 않음.
+1. **화면 검증:** 실제 production 화면을 격리된 테스트 서버의 합성 응답으로 검증한다. 합성 계정·역할·채팅·설정은 배포 소스에 넣지 않는다.
 2. **실제 텍스트 연결:** 인증·입장·전송·history·sync·복구·공개·반응을 QA API에 연결.
 3. **출시 후보:** 미디어·프로필·Web Push·계정 lifecycle을 연결하고 실제 기기·권한·삭제 검증 완료.
 
@@ -355,7 +360,7 @@ private R2의 60초 GET Signed URL은 열람 권한 확인 후 발급받는다. 
 | 단계 | 작업·산출물 | 완료 조건 |
 |---|---|---|
 | FW00 | 이식 파일/의존성 목록, DESIGN.md 기준 홈·팬/스트리머 채팅·설정 화면안 | 데스크톱/모바일, 수신 대상·메뉴·기본 채널 경계 리뷰 |
-| FW01 | Next scaffold, workspace/CI 추가, ChannelShell 선별 이식, 공개 홈·route·공통 UI·SW 기반 | 타입/린트/build, deep link, 모바일 폭/키보드/접근성 확인. fixture 화면임을 구분 |
+| FW01 | Next scaffold, workspace/CI 추가, ChannelShell 선별 이식, 공개 홈·route·공통 UI·SW 기반 | 타입/린트/build, deep link, 모바일 폭/키보드/접근성 확인. 모든 배포에서 preview 경로·데이터 없음 |
 | FW02 | W01–W06/W08 ADR·OpenAPI·공통 JSON·TS adapter | 문서/fixture 초안은 FW01과 병행. 신규 서버 기능 착수는 구조 보정 R5 완료 증거 후; 계약/회귀/모바일 parity |
 | FW03 | 실제 웹 인증·SOOP·callback/복귀·bootstrap·명시적 입장/퇴장·로그아웃 | 실제 QA 계정, 취소/실패/두 탭·복귀, 미확정 로그아웃 잠금·서버 revoke 검증 |
 | FW04 | IndexedDB/outbox, 최소 SHARED/PRIVATE 입력·서버 수신자, 텍스트/삭제 REST, history/snapshot/delta, socket hint | 빈 대화 팬 PRIVATE→스트리머, 스트리머 SHARED/PRIVATE→팬, ACK 유실·reset·manifest 철회·두 탭·DB migration 복구 |
@@ -391,7 +396,7 @@ FW06은 W07의 M08/M09, FW07은 M10/M11·신고/차단의 공통 출시 계약�
   검증을 유지하고 Actions는 SHA 고정, 공개 PR에는 cloud credential을 주지 않는다.
 - 배포 이미지는 web 전용 digest로 만들고 Next standalone의 monorepo tracing·static/public 자산을 검사한다.
   Caddy의 API/socket 경로를 보존하며 웹 deep link·`/sw.js`·health를 확인한다.
-- `qa`에 검증·커밋·push 후 CI를 확인한다. 실제 배포는 기존 운영 절차로 실행하고 running digest와
+- 최신 `qa`에서 task branch에 검증·커밋·push하고 PR의 필수 검사를 확인한 뒤 정상 머지한다. 실제 배포는 기존 운영 절차로 실행하고 running digest와
   공개 경로 확인 후에만 배포 완료라 한다. `main` 운영 승격은 별도 리뷰다.
 
 ## 9. 다음 착수 시 닫을 항목

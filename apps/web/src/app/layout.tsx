@@ -2,9 +2,9 @@ import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
 
 import './globals.css';
-
-/** QA builds carry preview routes and are not the product origin: keep crawlers out of them. */
-const isQaBuild = process.env.NEXT_PUBLIC_ROGICHAT_WEB_ENV === 'qa';
+import { runtimeConfig } from '@/core/runtime/config';
+import { RuntimeProvider } from '@/core/runtime/provider';
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: {
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
     statusBarStyle: 'default',
   },
   formatDetection: { telephone: false },
-  robots: isQaBuild ? { index: false, follow: false } : { index: true, follow: true },
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {
@@ -32,9 +32,10 @@ export const viewport: Viewport = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  const config = runtimeConfig();
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body><RuntimeProvider apiOrigin={config.apiOrigin} defaultRoomId={config.defaultRoomId}>{children}</RuntimeProvider></body>
     </html>
   );
 }

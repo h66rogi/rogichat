@@ -9,7 +9,8 @@
     "team_id": "",
     "key_id": "",
     "issuer_id": "",
-    "key_file": "/absolute/path/to/existing/AppStoreConnect-key.p8"
+    "key_file": "/absolute/path/to/existing/AppStoreConnect-key.p8",
+    "testflight_group_id": ""
   },
   "firebase": {
     "project_id": "",

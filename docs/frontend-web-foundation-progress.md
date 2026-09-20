@@ -1,4 +1,9 @@
-# 프론트엔드 웹 FW00/FW01 진행 기록
+# 프론트엔드 웹 FW00/FW01 과거 진행 기록
+
+> 아래 내용은 PR #9 당시의 역사 기록이다. QA 미리보기·두 빌드 구성·비활성 인증 gate는
+> 현재 서비스에서 제거되었다. QA/prod는 같은 production 앱이며 실제 API를 사용한다.
+> 현재 상태와 제한은 [production 구현 보고서](frontend-web-production-report.md)를 따른다.
+
 
 2026-09-20. [웹 구현 계획](frontend-web-implementation-plan.md)의 FW00(화면·이식 범위)과
 FW01(scaffold·공개 홈·route·공통 UI·SW 기반)을 구현한 기록이다. 실제 로그인·SOOP 연결·입장·전송·

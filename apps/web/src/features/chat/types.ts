@@ -2,8 +2,7 @@
  * Presentation-only models for the 로기챗 chat screen.
  *
  * These types describe what the UI needs to render and nothing more. They are not
- * server DTOs: the harness (route, preview fixture, or later the feature model over
- * IndexedDB/REST) projects real data into this shape. Fans only ever receive SHARED
+ * server DTOs: the live REST sync controller projects real data into this shape. Fans only ever receive SHARED
  * items and their own PRIVATE conversation; that projection happens before this layer.
  */
 
@@ -16,7 +15,7 @@ export interface ChatActorRef {
   actorId: string;
   displayName: string;
   avatarUrl: string | null;
-  role: ChatViewerRole;
+  role?: ChatViewerRole | undefined;
 }
 
 /**
@@ -50,8 +49,6 @@ export interface ChatMessageItemModel {
   /** Short, user-facing explanation for `rejected` / `unknown` states. */
   statusNote?: string;
   quote?: ChatQuotePreview;
-  /** True for sample items in preview screens; rendered with an explicit "미리보기" mark. */
-  isPreviewSample?: boolean;
 }
 
 /**
@@ -83,5 +80,5 @@ export interface ChatComposerSubmission {
   quoteMessageId?: string;
 }
 
-/** Returned by the harness `onSubmit`. On `accepted: false` the composer keeps the draft. */
+/** Returned by the controller `onSubmit`. On `accepted: false` the composer keeps the draft. */
 export type ChatSubmitResult = { accepted: true; note?: string } | { accepted: false; reason: string };

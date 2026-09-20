@@ -42,17 +42,15 @@
     "next.config.ts",
     "playwright.config.ts",
     "src/**/*.ts",
+    "src/app/.well-known/**/*.ts",
     "src/**/*.tsx",
     "test/**/*.ts",
     ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts",
-    ".next-qa/types/**/*.ts",
-    ".next-qa/dev/types/**/*.ts"
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     ".next",
-    ".next-qa",
     "public"
   ]
 }

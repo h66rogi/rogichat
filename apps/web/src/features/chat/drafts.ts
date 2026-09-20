@@ -52,13 +52,12 @@ export function isSameTarget(a: ChatComposerTarget | null, b: ChatComposerTarget
  */
 export function isAuthorizedTarget(
   target: ChatComposerTarget,
-  options: { viewerRole: 'FAN' | 'STREAMER'; fanRecipient: ChatActorRef | null; streamerRecipients: readonly ChatActorRef[] },
+  options: { viewerRole: 'FAN' | 'STREAMER'; fanRecipient: ChatActorRef | null; fanRecipients?: readonly ChatActorRef[]; streamerRecipients: readonly ChatActorRef[] },
 ): boolean {
   if (options.viewerRole === 'FAN') {
     return (
       target.scope === 'PRIVATE' &&
-      options.fanRecipient !== null &&
-      target.recipient.actorId === options.fanRecipient.actorId
+      (options.fanRecipients ?? (options.fanRecipient ? [options.fanRecipient] : [])).some(recipient => recipient.actorId === target.recipient.actorId)
     );
   }
   if (target.scope === 'SHARED') return true;
