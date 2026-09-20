@@ -1,5 +1,6 @@
 package chat.rogi.rogichat.preview
 
+import chat.rogi.rogichat.core.navigation.*
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -14,6 +15,15 @@ class WireframeStateTest {
         assertEquals(rooms(), rooms().openRoom("unknown"))
         val empty = rooms().copy(scenario = ListScenario.EMPTY)
         assertEquals(empty, empty.openRoom("sample-room-a"))
+    }
+    @Test fun singleRoomAutoEntryOnlyHappensOnInitialPreviewBootstrap() {
+        val chat = WireframeState().previewLink().previewRooms(singleRoom = true)
+        assertEquals(PreviewPage.CHAT, chat.page)
+        assertEquals(1, chat.visibleRooms.size)
+        val list = chat.back()
+        assertEquals(PreviewPage.ROOMS, list.page)
+        assertEquals(PreviewPage.ROOMS, list.selectTab(AppTab.SETTINGS).selectTab(AppTab.TALKS).page)
+        assertEquals(list, list.openRoom("sample-room-b"))
     }
     @Test fun fanCannotSwitchToSharedOrChooseAnotherFan() {
         val fan = chat().editDraft("hello")
@@ -41,10 +51,17 @@ class WireframeStateTest {
         assertEquals("", next.draft)
         assertEquals("sample-room-b", next.roomId)
         assertEquals(WireframeState(role = PreviewRole.STREAMER), draft.switchRole(PreviewRole.STREAMER))
-        assertEquals(WireframeState(), draft.back().back())
+        assertEquals(PreviewPage.ROOMS, draft.back().back().page)
+    }
+    @Test fun tabsPreserveDraftButAccountStateChangesDiscardIt() {
+        val original = chat().editDraft("local only")
+        val returned = original.selectTab(AppTab.SETTINGS).selectTab(AppTab.TALKS)
+        assertEquals(original, returned)
+        assertEquals("", returned.switchAccess(ShellAccess.LINK_REQUIRED).draft)
+        assertNull(returned.switchAccess(ShellAccess.BLOCKED).roomId)
     }
     @Test fun settingsCannotBypassNavigationAndDraftIsBounded() {
-        assertEquals(WireframeState(), WireframeState().open(PreviewPage.SETTINGS))
+        assertEquals(PreviewPage.SETTINGS, WireframeState().open(PreviewPage.SETTINGS).page)
         assertEquals(PreviewPage.SETTINGS, rooms().open(PreviewPage.SETTINGS).open(PreviewPage.ACCOUNT).back().page)
         assertEquals(2000, chat().editDraft("a".repeat(3000)).draft.length)
     }

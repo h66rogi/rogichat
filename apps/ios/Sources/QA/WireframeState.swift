@@ -3,10 +3,7 @@
 enum PreviewRole: String, CaseIterable {
     case fan = "팬", streamer = "스트리머"
 }
-enum PreviewPage: String, Hashable {
-    case link = "SOOP 계정 연결", rooms = "대화", chat = "대화방", settings = "설정"
-    case profile = "내 프로필", account = "계정 관리", report = "신고 및 차단"
-}
+typealias PreviewPage = AppPage
 enum ListScenario: String, CaseIterable {
     case content = "목록", loading = "로딩", empty = "빈 목록", error = "오류"
 }
@@ -28,15 +25,17 @@ enum WireframeFixtures {
 
 struct WireframeState {
     private(set) var role: PreviewRole = .fan
-    private(set) var path: [PreviewPage] = []
-    private(set) var linkPreviewPassed = false
+    private(set) var navigation = ShellNavigation()
+    var linkPreviewPassed: Bool { navigation.access == .ready }
+    private(set) var singleRoomMode = false
+    var visibleRooms: [SampleRoom] { singleRoomMode ? Array(WireframeFixtures.rooms.prefix(1)) : WireframeFixtures.rooms }
     private(set) var roomID: String?
     var scenario: ListScenario = .content
     private(set) var audience: PreviewAudience = .private
     private(set) var target: String?
     private(set) var draft = ""
 
-    var page: PreviewPage? { path.last }
+    var page: AppPage { navigation.page }
     var canCompose: Bool {
         page == .chat && roomID != nil && (role == .fan || audience == .shared || target != nil)
     }
@@ -44,31 +43,31 @@ struct WireframeState {
     mutating func switchRole(_ value: PreviewRole) {
         if value != role { self = WireframeState(role: value) }
     }
-    mutating func previewLink() {
-        guard path.isEmpty else { return }
-        path = [.link]
+    mutating func switchAccess(_ value: ShellAccess) {
+        self = WireframeState(role: role)
+        navigation.setAccess(value)
     }
-    mutating func previewRooms() {
+    mutating func selectTab(_ value: AppTab) { navigation.selectTab(value) }
+    mutating func previewLink() {
+        guard page == .welcome else { return }
+        switchAccess(.linkRequired)
+    }
+    mutating func previewRooms(singleRoom: Bool = false) {
         guard page == .link else { return }
-        linkPreviewPassed = true
-        path = [.rooms]
+        switchAccess(.ready)
+        singleRoomMode = singleRoom
+        if singleRoom { openRoom(visibleRooms[0].id) }
     }
     mutating func openRoom(_ id: String) {
         guard linkPreviewPassed, page == .rooms, scenario == .content,
-              WireframeFixtures.rooms.contains(where: { $0.id == id }) else { return }
+              visibleRooms.contains(where: { $0.id == id }) else { return }
         roomID = id
         draft = ""
         target = nil
         audience = .private
-        path.append(.chat)
+        navigation.open(.chat)
     }
-    mutating func open(_ value: PreviewPage) {
-        switch (page, value) {
-        case (.rooms, .settings), (.settings, .profile), (.settings, .account), (.chat, .report):
-            path.append(value)
-        default: break
-        }
-    }
+    mutating func open(_ value: PreviewPage) { navigation.open(value) }
     mutating func changeAudience(_ value: PreviewAudience) {
         guard role == .streamer, page == .chat, audience != value else { return }
         audience = value
@@ -86,12 +85,9 @@ struct WireframeState {
         guard canCompose else { return }
         draft = String(value.prefix(2000))
     }
-    // NavigationStack back gesture/button may only remove an existing suffix.
-    mutating func pop(to newPath: [PreviewPage]) {
-        guard newPath.count < path.count, Array(path.prefix(newPath.count)) == newPath else { return }
-        path = newPath
-        if path.isEmpty { reset() }
-        else if !path.contains(.chat) {
+    mutating func pop(to newPath: [AppPage], in tab: AppTab) {
+        navigation.pop(to: newPath, in: tab)
+        if !navigation.talkPath.contains(.chat) {
             roomID = nil
             target = nil
             draft = ""

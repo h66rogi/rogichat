@@ -96,7 +96,30 @@
 `ID | source SHA/path/symbol | 대상 path | 수정 재사용/그대로/신규 | 변경 이유 |
 직접 의존성 | 출처·권리·고지 확인 | 검증 결과 | 미해결 blocker`
 
-현재 표는 **후보 조사**다. 아직 이식 완료한 단위가 없으므로 코드 재사용률이나 이식 완료를
-보고하지 않는다. 원본을 읽고 전부 새로 작성한 경우도 “신규”로 기록한다. 실제 이식은 순수
+위 표는 **최초 후보 조사**이며 실제 반영 상태는 아래 추출 기록을 따른다.
+원본을 읽고 전부 새로 작성한 경우는 “신규”로 기록한다. 실제 이식은 순수
 컴포넌트 → 화면 조립 → OS adapter → 서버 adapter 순으로 진행하고, 원본 test 중 의미 있는
 규칙도 적응해 이식한다. 원본 git history·환경 파일·private 운영 자료는 가져오지 않는다.
+
+## 실제 추출 기록 — 공통 기반 1차
+
+2026-09-20. 아래 단위는 고정 SHA의 파일을 직접 읽어 작은 구현 단위로 수정 추출했다.
+원본 조사 경로는 clean 상태였고 파일을 수정하지 않았다. 각 단위에서 별도 third-party 소스
+헤더/자산을 발견하지 않았으며 사용자의 자체 코드 재사용 지시 범위로 반영했다. 원본 전체
+저장소에 대한 라이선스 추정은 하지 않는다. 추가 SDK/아이콘 묶음/운영 설정은 가져오지 않았다.
+
+| ID | source SHA / 파일·심볼 | 대상 (앱 루트 기준) | 방식·변경 | 직접 의존 / 검증·잔여 |
+|---|---|---|---|---|
+| R01 | Android `ecb3dbe` / `DS/component/MelomingNavigationBar.kt`의 bar/item | Android `.../core/design/AppNavigation.kt` | 수정 추출: Surface/Row/weight/inset 구조, icon-only를 텍스트 label·선택 Role.Tab으로 교체, 고정 높이를 최솟값으로 | 기존 Compose; 빌드/lint, 실제 TalkBack·큰 글자 확인 남음 |
+| R02 | Android `ecb3dbe` / `DS/component/MelomingTopBar.kt`의 기본 top bar | 같은 `AppNavigation.kt` | 수정 추출: Surface/Row/title/navigation slot, 가변 높이·뒤로 버튼, 미사용 중앙 정렬 variant 제외 | 기존 Compose; 긴 제목 실기기 확인 남음 |
+| R03 | Android `ecb3dbe` / `MORE/MoreScreen.kt`의 SectionTitle/MenuItem | `.../core/design/SettingsComponents.kt` | 수정 추출: section·row spacing/action, subtitle을 다중 행으로 분리, 사업 icon/모델 제거, disabled·Role.Button 보강 | 기존 Compose; gate/state 검사, 실제 접근성 확인 남음 |
+| R04 | Android `ecb3dbe` / `DS/component/{LoadingIndicator,EmptyView}.kt` | `.../core/design/ScreenStatus.kt` | 수정 추출: Column/indicator/title/description, Phosphor icon 제외. retry callback은 신규 보강 | 기존 Compose; 목록 loading/empty/error 시나리오 연결 |
+| R05 | iOS `18a33bb` / `Presentation/More/MyPageView.swift`의 MyPageSection/MyActionRow | `Sources/Core/Design/SettingsComponents.swift` | 수정 추출: section background·row label/icon/subtitle/chevron/contentShape, 1줄 제한 제거, Button/disabled·접근성 병합 | SwiftUI·SF Symbols; 네 구성 컴파일, VoiceOver/Dynamic Type 확인 남음 |
+| R06 | iOS `18a33bb` / `Presentation/Common/Components/LoadingView.swift`, `ErrorView.swift`의 EmptyStateView | `Sources/Core/Design/ScreenStatus.swift` | 수정 추출: VStack/ProgressView·message/action 배치, legacy logo/이미지·raw Error 제거 | SwiftUI; QA 상태 화면 연결 |
+| R07 | 양 OS 원본 tab/stack 분리 방식 참고 | Android `.../core/design/AppShell.kt`, iOS `Sources/Core/Design/AppShell.swift`, 양쪽 `Core/Navigation` | **신규 작성**: 기존 거대 NavHost/router를 복사하지 않음. 원본과 같은 책임 구분을 로기챗 gate/2탭에 적용 | 기존 Compose/SwiftUI; 탭별 path·제한 계정·상태 reset 검사 |
+| R08 | Android `ecb3dbe` / `DS/component/MelomingButton.kt`의 primary button | `.../core/design/AppButton.kt` | 수정 추출: shape/padding/zero elevation/content slot, 높이 48dp를 최소 높이로 변경 | 기존 Material3; 시작/QA 진입 화면 연결 |
+
+위 SHA의 전체 값과 약어 경로는 앞의 조사 표를 따른다. 실제 Kotlin 대상 `...`는
+`app/src/main/java/chat/rogi/rogichat`이다. 알림 OS 조회, 3축 설정 상태, route parser와
+pending queue는 **신규 작성**이며 멜로밍의 provider/auth 의미를 이식하지 않았다.
+Swift/Compose 기본 API 호출이라는 이유만으로 원본 코드 재사용 건수를 늘리지 않는다.

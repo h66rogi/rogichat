@@ -14,8 +14,8 @@ Run은 해당 환경의 Debug, Archive는 Release를 사용한다.
 원본은 `project.yml`과 `Config/*.xcconfig`이며 프로젝트 생성기는 XcodeGen 2.44.1이다.
 기본 앱에는 외부 SPM 의존성이 없어 `Package.resolved`는 아직 없다.
 QA 앱은 로그인 안내·SOOP 연결 안내·방 목록·채팅·설정의 오프라인 와이어프레임을 제공한다.
-`ROGICHAT_QA` 컴파일 조건으로 prod에는 시작 화면만 포함한다. 실제 로그인·전송은 미연동이다.
-[구현 범위·QA 탐색 방법·블로커](../../docs/mobile-wireframe-progress.md)를 확인한다.
+`ROGICHAT_QA` 컴파일 조건으로 QA fixture를 격리하고 prod는 로그인 대기와 일반 설정 shell만 제공한다. 실제 로그인·전송은 미연동이다.
+[공통 기반·재사용·QA 탐색·블로커](../../docs/mobile-common-foundation-progress.md)를 확인한다.
 상태 전이는 `python3 tools/mobile/check_ios_wireframe.py`로 Simulator 없이 검사한다.
 [서명 Archive·IPA 검증·TestFlight 업로드](../../docs/mobile-test-distribution.md)를 따른다.
 

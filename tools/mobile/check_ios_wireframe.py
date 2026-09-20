@@ -14,6 +14,8 @@ def main():
         subprocess.run([
             "xcrun", "--sdk", "macosx", "swiftc", "-sdk", sdk, "-swift-version", "6",
             "-strict-concurrency=complete", "-D", "ROGICHAT_QA",
+            str(ROOT / "apps/ios/Sources/Core/Navigation/ShellNavigation.swift"),
+            str(ROOT / "apps/ios/Sources/Core/Navigation/PendingRoute.swift"),
             str(ROOT / "apps/ios/Sources/QA/WireframeState.swift"),
             str(ROOT / "apps/ios/Tests/WireframeStateChecks.swift"), "-o", str(executable),
         ], check=True)

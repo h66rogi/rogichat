@@ -3,6 +3,7 @@ import SwiftUI
 
 struct LinkWireframe: View {
     let onPreview: () -> Void
+    let onSinglePreview: () -> Void
     var body: some View {
         WireCard(title: "대화를 시작하기 전") {
             Text("1. 로기챗 계정으로 로그인")
@@ -12,6 +13,7 @@ struct LinkWireframe: View {
         Text("Apple 로그인만으로는 대화방을 이용할 수 없어요. SOOP 연결을 완료해야 해요.")
         Button("SOOP 계정 연결 · 준비 중") {}.buttonStyle(.bordered).disabled(true)
         Button("연결 이후 화면 미리보기", action: onPreview).buttonStyle(.borderedProminent)
+        Button("방 1개 계정 화면 미리보기", action: onSinglePreview).buttonStyle(.bordered)
         Text("계정이 연결되거나 생성되지 않아요.").font(.footnote).foregroundStyle(.secondary)
     }
 }
@@ -29,7 +31,7 @@ struct RoomsWireframe: View {
         }.pickerStyle(.menu)
         switch state.scenario {
         case .content:
-            ForEach(WireframeFixtures.rooms) { room in
+            ForEach(state.visibleRooms) { room in
                 WireCard(title: room.title) {
                     Text(room.summary)
                     Text("샘플 대화방").font(.caption).foregroundStyle(.secondary)
@@ -37,14 +39,11 @@ struct RoomsWireframe: View {
                 }
             }
         case .loading:
-            WireCard(title: "대화방을 불러오는 중") { Text("목록과 참여 정보를 확인하는 자리예요. 위 ‘목록’으로 돌아갈 수 있어요.") }
+            ScreenStatus(title: "대화방을 불러오는 중", message: "위 목록 상태를 바꾸면 다른 화면을 볼 수 있어요.", loading: true)
         case .empty:
-            WireCard(title: "아직 참여한 대화방이 없어요") { Text("참여 조건이 확인되면 이곳에 대화방이 표시돼요.") }
+            ScreenStatus(title: "아직 참여한 대화방이 없어요", message: "참여 조건이 확인되면 이곳에 대화방이 표시돼요.")
         case .error:
-            WireCard(title: "목록을 불러오지 못했어요") {
-                Text("연결 오류 화면 예시예요.")
-                Button("다시 시도 화면 미리보기") { onScenario(.content) }.buttonStyle(.bordered)
-            }
+            ScreenStatus(title: "목록을 불러오지 못했어요", message: "연결 오류 화면 예시예요.") { onScenario(.content) }
         }
     }
 }
@@ -90,19 +89,6 @@ struct ChatWireframe: View {
             Text("첨부·반응·공개 전환은 추후 연결돼요. 실제 메시지가 전송되지 않아요.").font(.footnote)
         }
         Button("신고 및 차단 안내", action: onReport)
-    }
-}
-
-struct SettingsWireframe: View {
-    let onOpen: (PreviewPage) -> Void
-    var body: some View {
-        WireCard(title: "샘플 계정") {
-            Text("SOOP 연결 정보가 표시될 자리예요.")
-            Button("내 프로필") { onOpen(.profile) }.buttonStyle(.bordered)
-            Button("계정 관리") { onOpen(.account) }.buttonStyle(.bordered)
-        }
-        WireCard(title: "알림") { Text("푸시 알림 연동 준비 중 · 시스템 권한을 요청하지 않아요.") }
-        WireCard(title: "로기챗 정보") { Text("이용약관 · 개인정보 처리방침 · 문의 경로 준비 중") }
     }
 }
 
