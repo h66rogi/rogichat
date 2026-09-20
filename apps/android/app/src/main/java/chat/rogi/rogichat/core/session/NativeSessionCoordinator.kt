@@ -10,6 +10,7 @@ import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.NonCancellable
@@ -25,7 +26,7 @@ import kotlinx.coroutines.sync.withLock
  */
 class NativeSessionCoordinator(private val store: CredentialStore, private val api: NativeApi,
                                private val clock: Clock = Clock.systemUTC(),
-                               private val auth: SoopAuthSupport? = null) : SessionActions, ProfileRepository, NativeAuthActions {
+                               private val auth: SoopAuthSupport? = null) : SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository {
     private val lock = Mutex()
     private val mutable = MutableStateFlow(SessionSnapshot(access = ShellAccess.RESTORING))
     val session = mutable.asStateFlow()
@@ -57,7 +58,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     override suspend fun linkSoop() = beginAuthentication(AuthIntent.LINK)
     override suspend fun closeAccount() = unavailable()
     private fun unavailable(): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
-    fun services() = ProductServices(session, this, this, auth = this.takeIf { auth != null })
+    fun services() = ProductServices(session, this, this, auth = this.takeIf { auth != null }, notificationPreferences = this)
 
     private class Ticket(val epoch: Long, val credential: NativeCredential, val accountId: String?, val profileRevision: Long)
     private fun current(ticket: Ticket) = epoch == ticket.epoch && credential?.token == ticket.credential.token
@@ -181,6 +182,44 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     }
     override suspend fun load(accountId: String): Result<UserProfile> = profile(accountId) { token ->
         NativeDtos.profile(api.get(ApiRoute.PROFILE, token))
+    }
+    override suspend fun getPreferences(scope: NotificationAccountScope): Result<NotificationPreferences> = ownState(scope) { token ->
+        NotificationApi(api).getPreferences(token)
+    }
+    override suspend fun disablePush(scope: NotificationAccountScope, expected: PreferenceGeneration): Result<NotificationPreferences> = ownState(scope) { token ->
+        NotificationApi(api).disablePush(token, expected)
+    }
+    // Reuses the profile transport's exact credential/epoch/expiry gate. Preferences do not require SOOP linking.
+    private suspend fun <T> ownState(scope: NotificationAccountScope, call: suspend (String) -> T): Result<T> = outcome {
+        val accountId = scope.accountId
+        val ticket = lock.withLock {
+            if (epoch != scope.localEpoch || mutable.value.account?.id != accountId || mutable.value.access !in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED))
+                throw CancellationException("account_scope_changed")
+            val saved = credential ?: throw CancellationException("account_scope_changed")
+            if (!saved.expiresAt.isAfter(clock.instant())) { clearLocked(); throw CancellationException("session_expired") }
+            Ticket(epoch, saved, accountId, profileRevision)
+        }
+        suspend fun checkCurrent() {
+            if (!current(ticket) || mutable.value.account?.id != accountId) throw CancellationException("account_scope_changed")
+            if (!ticket.credential.expiresAt.isAfter(clock.instant())) { clearLocked(); throw CancellationException("session_expired") }
+        }
+        try {
+            currentCoroutineContext().ensureActive()
+            lock.withLock { checkCurrent() }
+            val result = call(ticket.credential.token)
+            lock.withLock { checkCurrent() }
+            result
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            lock.withLock {
+                checkCurrent()
+                if (failure is ApiException && failure.statusCode == 401) {
+                    clearLocked()
+                    throw CancellationException("session_unauthenticated")
+                }
+            }
+            throw failure
+        }
     }
     override suspend fun save(accountId: String, changes: ProfileChanges): Result<UserProfile> = profile(accountId, save = true) { token ->
         NativeDtos.profile(api.patch(ApiRoute.PROFILE, token, NativeDtos.profilePatch(changes)))

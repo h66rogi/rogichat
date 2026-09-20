@@ -13,6 +13,7 @@ import chat.rogi.rogichat.core.network.ApiClient
 import chat.rogi.rogichat.core.navigation.ShellAccess
 import chat.rogi.rogichat.feature.settings.ProfileRepository
 import chat.rogi.rogichat.feature.settings.ProfileEditor
+import chat.rogi.rogichat.feature.settings.NotificationPreferencesRepository
 import chat.rogi.rogichat.feature.rooms.RoomsRepository
 import kotlinx.coroutines.flow.StateFlow
 
@@ -65,6 +66,7 @@ class ProductServices(
     val profiles: ProfileRepository? = null,
     val rooms: RoomsRepository? = null,
     val auth: NativeAuthActions? = null,
+    val notificationPreferences: NotificationPreferencesRepository? = null,
 ) {
     private val callbackScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     fun receiveAuthCallback(url: String) {

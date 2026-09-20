@@ -158,7 +158,12 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 }
             }
             composable("appearance") { ProductPage("화면 모드", { nav.popBackStack() }) { AppearanceScreen(appearance, onAppearance) } }
-            composable("notifications") { ProductPage("알림 설정", { nav.popBackStack() }) { NotificationSettingsScreen() } }
+            composable("notifications") {
+                val repository = services.notificationPreferences
+                val model: NotificationSettingsViewModel? = if (privateAccount != null && repository != null)
+                    viewModel { NotificationSettingsViewModel(repository, NotificationAccountScope(privateAccount.id, session.generation)) } else null
+                ProductPage("알림 설정", { nav.popBackStack() }) { NotificationSettingsScreen(model) }
+            }
             composable("about") { ProductPage("로기챗 정보", { nav.popBackStack() }) { AboutScreen { open("licenses") } } }
             composable("licenses") { ProductPage("오픈소스 라이선스", { nav.popBackStack() }) { LicensesScreen() } }
             composable("profile") {
