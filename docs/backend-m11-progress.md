@@ -17,7 +17,7 @@ provider activation, provisioning or deployment is authorized by this work.
 | Security and race review | Concrete implementation | Independent security source review passed after SOOP, deletion, room and lease lock-wait fixes; runtime evidence pending |
 | Consumer review | Exact endpoint/DTO/error contract | Independent review drove CAS/retry and exact OpenAPI/error parity; consumer implementation remains external |
 | Focused validation | Integrated implementation | Compile/lint, 14 feature unit tests and 23 contract/module/HTTP baseline tests passed; final compile/lint after review fixes passed |
-| Hosted CI | Draft QA PR at frozen SHA | Publishing draft QA PR; full backend, MySQL persistence/races and security checks pending |
+| Hosted CI | Draft QA PR at frozen SHA | Draft PR #36; branch workflow_dispatch runs below, current-QA conflict resolution remains separate |
 | M10 integration | Exported deletion ports and M10 account purge implementation | External acceptance gate; does not block independent feature code |
 | Live product | Reviewed integration release, provider configuration, clients | External gate; real browser/device foreground/background sync and revocation evidence required |
 
@@ -98,3 +98,29 @@ final commit SHA, PR URL and review outcomes will be recorded when available.
 
 No QA/production database, provider, host or cloud configuration was changed.
 No branch merge, release image or live product readiness is claimed here.
+
+## Published artifact and hosted verification
+
+Implementation commit `02bcba81d5a0989568afa1c70de6b626e7d2238d` is published in
+[draft QA PR #36](https://github.com/h66rogi/rogichat/pull/36). The working branch
+has not been merged or deployed. Current-QA conflict discovery identifies only
+`apps/api/package.json` and `pnpm-lock.yaml`; branch workflow_dispatch evidence
+cannot replace required checks on the eventual QA integration commit.
+
+[Security run 35494040518](https://github.com/h66rogi/rogichat/actions/runs/35494040518)
+passed on that commit. [Backend run 35494034219](https://github.com/h66rogi/rogichat/actions/runs/35494034219)
+passed lint, typecheck, unit, HTTP, contract and release-helper checks. Its disposable
+MySQL suite passed 186 of 187 tests, including every M11 own-state, preferences,
+HTTP, fanout, revocation and lease-wait case. The one failing legacy publication
+restart fixture waited behind older PUSH intents from preceding fixtures. Its
+15-second assertion had implicitly depended on PUBLICATION being the only installed
+consumer purpose; this is test scheduling evidence, not a production fairness SLA.
+
+The runtime image built, but its unchanged content scanner rejected example keys
+in the pinned web-push package README. A private hashed corpus reproduced five
+findings solely in that documentation file, and zero after excluding that exact
+file. Build and production-dependency install layers now omit that unused README
+and their package download store while retaining runtime source and licensing.
+There is no scanner exemption or policy change. The corrected image and complete
+MySQL suite require a fresh hosted run before the branch CI gate can pass; the PR
+check links are the authoritative latest results.
