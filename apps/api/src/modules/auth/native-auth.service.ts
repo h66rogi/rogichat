@@ -1,3 +1,4 @@
+import { brokerAuthorizeUrl } from './broker-authorize-url.js';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import type { Transaction, Transactions } from '../../infrastructure/database/transactions.js';
@@ -84,12 +85,9 @@ export class NativeAuthService {
         launch_digest: new Uint8Array(digest(ticket)), expires_at: new Date(now.getTime() + 600000) });
     });
     try {
-      const url = await this.broker.request({ transactionId: id, state, challenge: createHash('sha256').update(verifier).digest('base64url') });
-      // Defense at this service boundary as well as HttpBroker: never persist an arbitrary redirect.
-      const target = new URL(url);
-      if (target.origin !== this.config.broker?.baseUrl || target.protocol !== 'https:' || target.username || target.password || target.hash ||
-          target.pathname !== '/v1/platform/oauth/rogichat/authorize' || [...target.searchParams.keys()].join(',') !== 'request') throw new ApiError('AUTH_UNAVAILABLE', 503);
-      opaque(target.searchParams.get('request'));
+      const candidate = await this.broker.request({ transactionId: id, state, challenge: createHash('sha256').update(verifier).digest('base64url') });
+      // Apply the same browser boundary even when the Broker implementation changes.
+      const url = brokerAuthorizeUrl(this.config, candidate);
       await this.transactions.write(async tx => {
         const row = await this.repository.lock(tx, { id }, this.config.audience); const now = await tx.now();
         this.active(row, now); await this.binding(tx, row);

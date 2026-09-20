@@ -34,7 +34,7 @@ class FixtureBroker {
   async request(input) {
     if (this.requestFailure) throw new Error('fixture-broker-request-secret');
     this.requests.push(input);
-    return `https://broker.example.invalid/v1/platform/oauth/rogichat/authorize?request=${secret()}`;
+    return `https://auth.rogi.chat/v1/platform/oauth/rogichat/authorize?request=${secret()}`;
   }
   code(request, subject = `fixture-${randomUUID()}`, overrides = {}) {
     const code = secret(); this.codes.set(code, { request, subject, overrides }); return code;
@@ -276,11 +276,18 @@ test('unconfigured broker/environment fails closed; production uses the exact pr
 
 test('broker start timeout or arbitrary authorization URL cannot produce a launch ticket', { timeout: 20000 }, async t => {
   const f = await fixture(t);
+  const previousIds = new Set(await f.db.transactions.read(async tx => (await tx.prisma.login_transactions.findMany({ select: { id: true } })).map(row => row.id)));
   const body = { clientId: 'ios', intent: 'login', codeChallenge: secret(), codeChallengeMethod: 'S256', returnState: secret(), termsVersion: '2026-09-20' };
   f.broker.requestFailure = true;
   let response = await f.call(startPath, body); assert.equal(response.status, 503); assert.deepEqual(await response.json(), { error: { code: 'AUTH_UNAVAILABLE' } });
   f.broker.request = async () => 'https://evil.invalid/authorize';
   response = await f.call(startPath, body); assert.equal(response.status, 503); assert.deepEqual(await response.json(), { error: { code: 'AUTH_UNAVAILABLE' } });
+  f.broker.request = async () => `${f.config.broker.baseUrl}/v1/platform/oauth/rogichat/authorize?request=${secret()}`;
+  response = await f.call(startPath, body); assert.equal(response.status, 503); assert.deepEqual(await response.json(), { error: { code: 'AUTH_UNAVAILABLE' } });
+  assert.equal(response.headers.get('location'), null);
+  const rows = await f.db.transactions.read(tx => tx.prisma.login_transactions.findMany({ where: { audience: f.config.audience, channel: 'NATIVE' } }));
+  const created = rows.filter(row => !previousIds.has(row.id));
+  assert.equal(created.length, 3); assert.ok(created.every(row => row.status === 'FAILED' && row.launch_payload === null));
   assert.ok(!f.logs().includes('fixture-broker-request-secret'));
 });
 

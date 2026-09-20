@@ -167,7 +167,7 @@ test('bounded replay scrubs bound web/native secrets without consuming the physi
 });
 
 function brokerFor(f) {
-  return { requests: [], async request(input) { this.requests.push(input); return `https://broker.example.invalid/v1/platform/oauth/rogichat/authorize?request=${secret()}`; },
+  return { requests: [], async request(input) { this.requests.push(input); return `https://auth.rogi.chat/v1/platform/oauth/rogichat/authorize?request=${secret()}`; },
     async exchange(input) { this.entered?.resolve(); if (this.release) await this.release.promise; return { ...f.identity(), transactionId: input.transactionId }; } };
 }
 

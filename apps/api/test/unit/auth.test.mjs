@@ -1,3 +1,4 @@
+import { brokerAuthorizeUrl } from '../../dist/modules/auth/broker-authorize-url.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
@@ -30,7 +31,7 @@ test('auth secret config is strict, host-only origins are environment-bound, cre
 test('HTTP broker request/exchange allowlists, fixed binding, bounded response and redirect policy', async t => {
   const config = { audience: 'rogi-qa', callback: 'https://api.qa.rogi.chat/v1/auth/soop/callback', broker: { baseUrl: 'https://broker.example', clientId: 'fixture-qa', clientSecret: secret() } };
   const id = randomUUID(); const state = secret(); const code = secret();
-  let body = { authorize_url: `https://broker.example/v1/platform/oauth/rogichat/authorize?request=${code}`, expires_in: 600 };
+  let body = { authorize_url: `https://auth.rogi.chat/v1/platform/oauth/rogichat/authorize?request=${code}`, expires_in: 600 };
   let status = 201; let contentType = 'application/json'; let raw;
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     assert.match(url, /^https:\/\/broker.example\/v1\/platform\/oauth\/rogichat\/(requests|exchange)$/);
@@ -43,9 +44,11 @@ test('HTTP broker request/exchange allowlists, fixed binding, bounded response a
   const broker = new HttpBroker(config);
   const request = () => broker.request({ transactionId: id, state, challenge: secret() });
   assert.equal(await request(), body.authorize_url);
+  body = { authorize_url: `${config.broker.baseUrl}/v1/platform/oauth/rogichat/authorize?request=${code}`, expires_in: 600 };
+  await assert.rejects(request(), { code: 'AUTH_UNAVAILABLE' });
   body = { authorize_url: `https://evil.example/?request=${code}`, expires_in: 600 };
   await assert.rejects(request(), { code: 'AUTH_UNAVAILABLE' });
-  body = { authorize_url: `https://broker.example/v1/platform/oauth/rogichat/authorize?request=${code}&extra=1`, expires_in: 600 };
+  body = { authorize_url: `https://auth.rogi.chat/v1/platform/oauth/rogichat/authorize?request=${code}&extra=1`, expires_in: 600 };
   await assert.rejects(request());
   body = { schemaVersion: 1, provider: 'soop', subject: 'fixture-viewer', clientId: 'fixture-qa', transactionId: id, authenticatedAt: new Date().toISOString(), nickname: 'not-forwarded' };
   const result = await broker.exchange({ transactionId: id, code, verifier: secret() });
@@ -55,4 +58,25 @@ test('HTTP broker request/exchange allowlists, fixed binding, bounded response a
   raw = undefined; contentType = 'text/html'; await assert.rejects(request(), { code: 'AUTH_UNAVAILABLE' });
   contentType = 'application/json'; status = 503; await assert.rejects(request(), { code: 'AUTH_UNAVAILABLE' });
   await assert.rejects(new HttpBroker({ ...config, broker: undefined }).request({ transactionId: id, state, challenge: secret() }), { code: 'AUTH_UNAVAILABLE' });
+});
+
+test('hosted browser authorize origin is first-party independently of confidential transport', () => {
+  const proof = secret();
+  const path = `/v1/platform/oauth/rogichat/authorize?request=${proof}`;
+  for (const audience of ['rogi-qa', 'rogi-production']) {
+    const config = { audience, broker: { baseUrl: 'https://broker.example.invalid' } };
+    assert.equal(brokerAuthorizeUrl(config, `https://auth.rogi.chat${path}`), `https://auth.rogi.chat${path}`);
+    for (const candidate of [
+      `https://broker.example.invalid${path}`, `https://auth.rogi.chat.evil.invalid${path}`,
+      `http://auth.rogi.chat${path}`, `https://auth.rogi.chat:444${path}`,
+      `https://user:password@auth.rogi.chat${path}`, `https://auth.rogi.chat${path}#fragment`,
+      `https://auth.rogi.chat${path}&request=${proof}`, `https://auth.rogi.chat${path}&extra=1`,
+      'https://auth.rogi.chat/v1/platform/oauth/rogichat/authorize?request=short',
+      `https://auth.rogi.chat/v1/platform/oauth/rogichat/authorize/extra?request=${proof}`,
+      'not-a-url', undefined,
+    ]) assert.throws(() => brokerAuthorizeUrl(config, candidate), { code: 'AUTH_UNAVAILABLE' });
+  }
+  const local = { audience: 'rogi-development', broker: { baseUrl: 'https://broker.example.invalid' } };
+  assert.equal(brokerAuthorizeUrl(local, `https://broker.example.invalid${path}`), `https://broker.example.invalid${path}`);
+  assert.throws(() => brokerAuthorizeUrl(local, `https://auth.rogi.chat${path}`), { code: 'AUTH_UNAVAILABLE' });
 });

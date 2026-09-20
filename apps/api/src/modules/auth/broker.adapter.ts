@@ -1,4 +1,5 @@
-import { ApiError, object, opaque } from '../../modules/auth/auth-primitives.js';
+import { brokerAuthorizeUrl } from './broker-authorize-url.js';
+import { ApiError, object } from '../../modules/auth/auth-primitives.js';
 import type { VerifiedIdentity } from '../../modules/auth/identity.service.js';
 import type { Broker } from './auth-flow.service.js';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
@@ -9,10 +10,7 @@ export class HttpBroker implements Broker {
   async request(input: { transactionId: string; state: string; challenge: string }): Promise<string> {
     const result = object(await this.post('requests', { ...this.binding(input.transactionId), return_state: input.state, code_challenge: input.challenge, code_challenge_method: 'S256' }), ['authorize_url', 'expires_in']);
     if (typeof result.authorize_url !== 'string' || result.expires_in !== 600) throw new ApiError('AUTH_UNAVAILABLE', 503);
-    const target = new URL(result.authorize_url);
-    if (target.origin !== this.config.broker?.baseUrl || target.pathname !== '/v1/platform/oauth/rogichat/authorize' || target.username || target.password || target.hash || [...target.searchParams.keys()].join(',') !== 'request') throw new ApiError('AUTH_UNAVAILABLE', 503);
-    opaque(target.searchParams.get('request'));
-    return target.toString();
+    return brokerAuthorizeUrl(this.config, result.authorize_url);
   }
   async exchange(input: { transactionId: string; code: string; verifier: string }): Promise<VerifiedIdentity> {
     const response = object(await this.post('exchange', { ...this.binding(input.transactionId), code: input.code, code_verifier: input.verifier }), ['schemaVersion', 'provider', 'subject', 'clientId', 'transactionId', 'authenticatedAt', 'nickname']);
