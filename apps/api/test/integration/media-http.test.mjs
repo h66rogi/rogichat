@@ -13,7 +13,7 @@ import { createApi } from '../../dist/application.js';
 import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
 import { MediaSpooler } from '../../dist/common/media/media-spool.js';
 
-async function fixture(t) {
+async function fixture(t, { allowSigning = false } = {}) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
   const db = new MysqlDatabase(readConfig('api')); const directory = await mkdtemp(join(tmpdir(), 'media-http-'));
   const key = randomBytes(32), sessions = new SessionService(new SessionRepository(), 'media-http-fixture', key);
@@ -24,8 +24,8 @@ async function fixture(t) {
     const room = await createRoom(tx, '업로드 합성방', 'GROUP'); await joinRoom(tx, room, id);
     return { id, room, ...await sessions.issue(tx, id) };
   });
-  const stored = new Map(); let beforePut = async () => {};
-  const store = { async put(key, path, bytes, mime) { await beforePut(); const body = await readFile(path); assert.equal(body.length, bytes); assert.equal(mime, 'application/octet-stream'); stored.set(key, body); }, async signedGet() { throw new Error('unexpected signing'); } };
+  const stored = new Map(), signed = []; let beforePut = async () => {};
+  const store = { async put(key, path, bytes, mime) { await beforePut(); const body = await readFile(path); assert.equal(body.length, bytes); assert.equal(mime, 'application/octet-stream'); stored.set(key, body); }, async signedGet(key) { if (!allowSigning) throw new Error('unexpected signing'); signed.push(key); return 'https://media.test.invalid/fixture'; } };
   const spool = new MediaSpooler({ directory, idleMs: 1000 });
   const app = await createApi(db, { event() {} }, new LifecycleState(), { sessions, config, flow: {} }, { store, prefix: 'test', spool });
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
@@ -33,12 +33,12 @@ async function fixture(t) {
   const headers = { origin: config.origin, cookie: `rogi_session=${person.token}`, 'x-csrf-token': person.csrf };
   const request = async (path, body, extra = {}) => {
     const response = await fetch(base + path, { method: 'POST', headers: { ...headers, 'content-type': 'application/json', ...extra }, body: JSON.stringify(body) });
-    return { status: response.status, body: await response.json() };
+    return { status: response.status, body: await response.json(), cacheControl: response.headers.get('cache-control') };
   };
   const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), Buffer.alloc(24)]);
   const reserve = (body = {}) => request('/v1/media/upload-intents', { roomId: person.room, kind: 'PHOTO', contentType: 'image/png', byteLength: png.length, ...body });
   const upload = (assetId, bytes = png, extra = {}) => fetch(`${base}/v1/media/upload-intents/${assetId}/content`, { method: 'POST', headers: { ...headers, 'content-type': 'application/octet-stream', ...extra }, body: bytes });
-  return { db, person, headers, base, stored, spool, request, reserve, upload, beforePut: fn => { beforePut = fn; } };
+  return { db, person, headers, base, stored, signed, spool, request, reserve, upload, beforePut: fn => { beforePut = fn; } };
 }
 
 test('binary upload streams to private quarantine with no key/URL DTO and cannot be read before decoding', async t => {
@@ -84,4 +84,31 @@ test('URL access has a committed account budget even when every requested asset 
   assert.equal(f.stored.size, 0);
   const unauthenticated = await f.request(`/v1/media/assets/${randomUUID()}/access`, { variant: 'image' }, { 'x-csrf-token': randomBytes(32).toString('base64url') });
   assert.equal(unauthenticated.status, 403);
+});
+
+test('actor avatar HTTP access accepts scoped identifiers only and signs after fresh authorization', async t => {
+  const f = await fixture(t, { allowSigning: true });
+  const { assetId, actorId, objectKey } = await f.db.transactions.write(async tx => {
+    const assetId = randomUUID(), attempt = randomUUID(), objectKey = `test/${assetId}/${attempt}/image`;
+    await tx.prisma.media_assets.create({ data: { id: assetId, owner_user_id: f.person.id, kind: 'AVATAR', content_type: 'image/png',
+      state: 'READY', declared_bytes: 32n, reserved_bytes: 0n, expires_at: new Date(0),
+      objects: { create: { id: randomUUID(), attempt_id: attempt, variant: 'image', object_key: objectKey, state: 'READY', byte_length: 32n, sha256: 'a'.repeat(64), width: 1, height: 1 } } }, select: { id: true } });
+    await tx.prisma.user_profiles.update({ where: { user_id: f.person.id }, data: { avatar_asset_id: assetId }, select: { user_id: true } });
+    const member = await tx.prisma.room_members.findFirstOrThrow({ where: { room_id: f.person.room, user_id: f.person.id }, select: { id: true } });
+    return { assetId, actorId: member.id, objectKey };
+  });
+  const path = `/v1/media/assets/${assetId}/access`, body = { roomId: f.person.room, actorId, variant: 'image' };
+  const success = await f.request(path, body);
+  assert.equal(success.status, 200);
+  assert.deepEqual(success.body, { url: 'https://media.test.invalid/fixture', expiresIn: 60 });
+  assert.match(success.cacheControl, /no-store/);
+  assert.deepEqual(f.signed, [objectKey]);
+  assert.equal((await f.request(path, { ...body, userId: f.person.id })).status, 400);
+  assert.equal((await f.request(path, { ...body, objectKey })).status, 400);
+  assert.equal((await f.request(path, { ...body, actorId: f.person.id })).status, 404);
+  assert.equal((await f.request(path, { ...body, messageId: randomUUID() })).status, 404);
+  assert.equal((await f.request(path, body, { 'x-csrf-token': randomBytes(32).toString('base64url') })).status, 403);
+  await f.db.transactions.write(tx => tx.prisma.auth_sessions.updateMany({ where: { user_id: f.person.id }, data: { revoked_at: new Date() } }));
+  assert.equal((await f.request(path, body)).status, 401);
+  assert.deepEqual(f.signed, [objectKey]);
 });

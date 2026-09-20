@@ -4,6 +4,7 @@ import { AccessService } from '../access/access.service.js';
 import { MessagesCoreService } from '../messages/messages-core.service.js';
 import { JobsCoreService } from '../jobs/jobs-core.service.js';
 import { RoomMediaCoreService } from './room-media-core.service.js';
+import { UsersCoreService } from '../users/users-core.service.js';
 import { randomUUID } from 'node:crypto';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { ApiError, digest } from '../../modules/auth/auth-primitives.js';
@@ -17,7 +18,7 @@ export interface UploadAttempt { assetId: string; token: string; objectId: strin
 
 @Injectable()
 export class MediaCoreService {
-  constructor(@Inject(MediaRepository) private readonly repository: MediaRepository, @Inject(AccessService) private readonly access: AccessService, @Inject(MessagesCoreService) private readonly messages: MessagesCoreService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService) {}
+  constructor(@Inject(MediaRepository) private readonly repository: MediaRepository, @Inject(AccessService) private readonly access: AccessService, @Inject(MessagesCoreService) private readonly messages: MessagesCoreService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService, @Inject(UsersCoreService) private readonly users: UsersCoreService) {}
   private async owner(tx: Transaction, userId: string): Promise<void> {
     const rows = await this.repository.owner(tx, userId);
     if (!rows.length) throw new ApiError('NOT_FOUND', 404);
@@ -101,12 +102,15 @@ export class MediaCoreService {
   }
 
   // Called in a fresh authenticated transaction immediately before local 60-second URL signing.
-  async authorizedMediaObject(tx: Transaction, userId: string, assetId: string, context: { roomId?: string; messageId?: string; variant: string }) {
+  async authorizedMediaObject(tx: Transaction, userId: string, assetId: string, context: { roomId?: string; messageId?: string; actorId?: string; variant: string }) {
     await this.owner(tx, userId);
     if (!['image', 'video', 'poster'].includes(context.variant)) throw new ApiError('NOT_FOUND', 404);
     const [asset] = await this.repository.ready(tx, identifier(assetId));
     if (!asset) throw new ApiError('NOT_FOUND', 404);
-    if (context.roomId && context.messageId) {
+    if (context.actorId !== undefined) {
+      if (!context.roomId || context.messageId !== undefined || context.variant !== 'image' || asset.kind !== 'AVATAR' || asset.room_id !== null) throw new ApiError('NOT_FOUND', 404);
+      await this.users.requireActorAvatar(tx, context.roomId, userId, context.actorId, assetId);
+    } else if (context.roomId && context.messageId) {
       const viewer = await this.access.requireActiveMember(tx, identifier(context.roomId), userId);
       const message = await this.messages.load(tx, context.roomId, identifier(context.messageId));
       if (!message || !await this.messages.readable(tx, viewer, message)) throw new ApiError('NOT_FOUND', 404);
