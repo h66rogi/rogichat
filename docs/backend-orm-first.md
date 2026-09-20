@@ -354,3 +354,12 @@ ACL-before-DISTINCT/LIMIT query for revoked sticker IDs across the selected room
 set. This preserves the exact viewer ACL vector with aggregate 10,001-row bounds
 and no per-room fanout; ordinary reads remain generated Prisma operations. The
 captured DB time is passed to all temporal predicates for response consistency.
+
+### Native push current-lock exceptions
+
+`NativePushRepository` locks current session/account/installation state in the
+calling transaction. Cross-account registration takes the prior account NOWAIT
+to avoid inverse A→B/B→A cycles. Hint lookup, uniqueness, count and conditional
+writes use generated Prisma. Existing push enqueue locking predicates now match
+provider/client/session for WEB, APNS and FCM; they do not introduce a second pool
+or external network I/O under a database lock. See [native push](backend-native-push.md).

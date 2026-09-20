@@ -1,3 +1,4 @@
+import { BlockPolicyRepository } from './block-policy.repository.js';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { uuid } from '../../common/validation/identifier.js';
@@ -7,7 +8,15 @@ import { MembershipRepository } from './membership.repository.js';
 
 @Injectable()
 export class AccessService {
-  constructor(@Inject(MembershipRepository) private readonly memberships: MembershipRepository) {}
+  constructor(@Inject(MembershipRepository) private readonly memberships: MembershipRepository, @Inject(BlockPolicyRepository) private readonly blocks: BlockPolicyRepository) {}
+  blockedActors(tx: Transaction, roomId: string, actorId: string, bilateral = false) {
+    return this.blocks.targets(tx, roomId, actorId, bilateral);
+  }
+
+  async actorBlocked(tx: Transaction, roomId: string, actorId: string, targetId: string, bilateral = false) {
+    return (await this.blockedActors(tx, roomId, actorId, bilateral)).includes(targetId);
+  }
+
   lockRoomSendOwner(tx: Transaction, roomId: string) {
     return this.memberships.lockRoomSendOwner(tx, uuid(roomId));
   }

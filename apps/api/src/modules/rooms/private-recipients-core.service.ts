@@ -19,6 +19,7 @@ export class PrivateRecipientsCoreService {
   async list(tx: Transaction, roomId: string, userId: string, after?: string): Promise<{ recipients: PrivateRecipientDto[]; next: string | null }> {
     const viewer = await this.access.requireActiveMember(tx, identifier(roomId), userId);
     if (viewer.mode !== 'FAN' || (viewer.role !== 'STREAMER' && viewer.role !== 'FAN')) throw new ApiError('FORBIDDEN', 403);
+    const blocked = new Set(await this.access.blockedActors(tx, roomId, viewer.id, true));
     const targetRole = viewer.role === 'STREAMER' ? 'FAN' : 'STREAMER';
     let scannedAfter = after === undefined ? '' : identifier(after);
     const now = await tx.now();
@@ -30,6 +31,7 @@ export class PrivateRecipientsCoreService {
       const pairs = candidates.length ? await this.repository.pairs(tx, roomId, viewer.id, candidates.map(candidate => candidate.id), now) : [];
       const byRecipient = new Map(pairs.map(pair => [pair.left_member_id === viewer.id ? pair.right_member_id : pair.left_member_id, pair]));
       for (const candidate of candidates) {
+        if (blocked.has(candidate.id)) continue;
         if (!candidate.active_period || candidate.active_period.member_id !== candidate.id ||
           candidate.active_period.room_id !== roomId || candidate.active_period.left_at !== null) continue;
         const pair = byRecipient.get(candidate.id);

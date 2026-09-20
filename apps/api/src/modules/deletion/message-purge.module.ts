@@ -3,7 +3,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
 import { MessagePurgeRepository } from './message-purge.repository.js';
 import { MessagePurgeService } from './message-purge.service.js';
 
-// Internal only. Not installed as a runtime PURGE handler until the remaining
-// media/account/backup obligations have their own truthful continuation paths.
+// Internal bounded row-cleanup port. PurgeWorkerModule schedules this subset
+// while retaining media/account/backup obligations as durable pending work.
 @Module({ imports: [NotificationsModule], providers: [MessagePurgeRepository, MessagePurgeService], exports: [MessagePurgeService] })
 export class MessagePurgeModule {}

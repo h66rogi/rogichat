@@ -1,7 +1,7 @@
 import SwaggerParser from '@apidevtools/swagger-parser';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { RequestMethod } from '@nestjs/common';
 import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
 import { ModulesContainer } from '@nestjs/core';
@@ -19,6 +19,26 @@ import { nativeStartRequest, nativeExchangeRequest } from '../../dist/modules/au
 const ajv = new Ajv({ strict: false, allErrors: true });
 addFormats(ajv);
 const check = (schema, value, valid = true) => { const validate = ajv.compile(schema); assert.equal(validate(value), valid, JSON.stringify(validate.errors)); };
+test('native push OpenAPI declares exact provider union, secret proofs and owner-free recovery', async t => {
+  const { app, config } = await openApiFixture(); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config), path = '/v1/me/native-push-subscriptions';
+  const register = doc.paths[path].post, recover = doc.paths[`${path}/resolve`].post;
+  const schema = register.requestBody.content['application/json'].schema;
+  const base = { provider: 'APNS', token: randomBytes(32).toString('hex'), installationId: randomUUID(), bindingSecret: randomBytes(32).toString('base64url') };
+  check(schema, base); check(schema, { ...base, generation: '18446744073709551615' });
+  check(schema, { ...base, provider: 'FCM', token: 'isolated:token_0123456789' });
+  for (const patch of [{ provider: 'WEB' }, { token: 'https://example.com/token' }, { bindingSecret: 'a'.repeat(42) + '_' },
+    { generation: '01' }, { generation: '18446744073709551616' }, { userId: randomUUID() }, { endpoint: 'https://example.com' }]) check(schema, { ...base, ...patch }, false);
+  for (const operation of [register, recover, doc.paths[`${path}/{id}`].delete, doc.paths['/v1/me/native-push-capabilities'].get]) {
+    assert.deepEqual(operation.security, [{ nativeBearer: [], nativeClient: [] }]);
+    assert.ok(operation.responses['503']);
+  }
+  const response = recover.responses['200'].content['application/json'].schema;
+  check(response, { binding: null });
+  const binding = { id: randomUUID(), generation: '1', revoked: false };
+  check(response, { binding }); check(response, { binding: { ...binding, userId: randomUUID() } }, false);
+  assert.equal(doc.paths[`${path}/{id}`].delete.responses['204'].content, undefined);
+});
 function inventory(app) {
   const routes = [];
   for (const module of app.get(ModulesContainer).values()) for (const wrapper of module.controllers.values()) {

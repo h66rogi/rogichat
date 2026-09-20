@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createECDH, randomBytes, randomUUID } from 'node:crypto';
-import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, activeMember, loadMessage, readable, leaveRoom } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, activeMember, actorBlocked, loadMessage, readable, leaveRoom } from '../support/domain-fixture.mjs';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
@@ -47,7 +47,7 @@ async function fixture(t) {
     await tx.prisma.jobs.update({ where: { id: job.id }, data: { state: 'RUNNING', generation: 1n, attempts: 1, lease_owner: queue.ownerId, lease_token: token, lease_until: new Date((await tx.now()).getTime() + 30000) } });
     return { id: job.id, purpose: 'PUSH', roomId: job.room_id, resourceId: intentId, generation: 1n, leaseOwner: queue.ownerId, leaseToken: token, attempts: 1, maxAttempts: 5 };
   });
-  const worker = (transport, repository = new PushDeliveryRepository()) => new PushDeliveryService(txs, repository, notifications, { requireActiveMember: activeMember }, { load: loadMessage, readable }, jobs, { config: { audience }, ...transport });
+  const worker = (transport, repository = new PushDeliveryRepository()) => new PushDeliveryService(txs, repository, notifications, { requireActiveMember: activeMember, actorBlocked }, { load: loadMessage, readable }, jobs, { config: { audience }, ...transport });
   return { ...f, db, txs, notifications, producer, queue, worker, lease, intentId, messageId: message.messageId, input };
 }
 
@@ -174,4 +174,21 @@ test('real MySQL lease expiring during completion lock wait rolls back gone-gene
   const row = await f.txs.read(tx => tx.prisma.push_subscriptions.findUnique({ where: { id: f.subscription.id }, select: { generation: true, revoked_at: true } }));
   assert.equal(row.generation, 1n); assert.equal(row.revoked_at, null);
   assert.equal((await f.txs.read(tx => tx.prisma.jobs.findUnique({ where: { id: f.lease.id }, select: { state: true } }))).state, 'RUNNING');
+});
+
+test('personal block in either direction after transport preparation suppresses final push without global account changes', { timeout: 30000 }, async t => {
+  for (const reverse of [false, true]) await t.test(reverse ? 'sender blocks recipient' : 'recipient blocks sender', async t => {
+    const f = await fixture(t); const preparing = barrier(), proceed = barrier(); let sends = 0;
+    const pending = f.worker({ prepare: async () => { preparing.release(); await proceed.wait; return { send: async () => { sends++; return { kind: 'accepted' }; } }; } }).consume(f.lease);
+    await preparing.wait;
+    try {
+      await f.txs.write(async tx => {
+        const sender = await activeMember(tx, f.room, f.sender);
+        await tx.prisma.actor_blocks.create({ data: { room_id: f.room, blocker_actor_id: reverse ? sender.id : f.member, target_actor_id: reverse ? f.member : sender.id } });
+      });
+    } finally { proceed.release(); }
+    assert.equal(await pending, 'completed'); assert.equal(sends, 0);
+    const binding = await f.txs.read(tx => tx.prisma.push_subscriptions.findUnique({ where: { id: f.subscription.id }, select: { revoked_at: true } }));
+    assert.equal(binding.revoked_at, null);
+  });
 });
