@@ -178,6 +178,7 @@ private actor ReorderedRemote: RoomsFetching {
     var pending: [Int: CheckedContinuation<DiscoveryPage, any Error>] = [:]
     private var waiters: [(Int, CheckedContinuation<Void, Never>)] = []
     private var count = 0
+    private(set) var commands = 0
     let page: MembershipPage
     init(page: MembershipPage) { self.page = page }
     func discovery(after: String?, scope: RoomsScope) async throws -> DiscoveryPage {
@@ -188,6 +189,7 @@ private actor ReorderedRemote: RoomsFetching {
         }
     }
     func manifest(_ request: ManifestRequest, scope: RoomsScope) async throws -> MembershipPage { page }
+    func command(_ intent: RoomCommandIntent) async throws { try intent.scope.check(); commands += 1 }
     func wait(_ desired: Int) async { if count >= desired { return }; await withCheckedContinuation { waiters.append((desired, $0)) } }
     func finish(_ index: Int, _ page: DiscoveryPage) { pending.removeValue(forKey: index)?.resume(returning: page) }
 }
@@ -227,4 +229,187 @@ private actor ReorderedRemote: RoomsFetching {
     #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("accounts").path))
     #expect(try cold.open(scope: scope()).listing().memberships.isEmpty)
     try cold.purge()
+}
+
+private actor MutationRemote: RoomsFetching {
+    enum Response { case acknowledged, unknown, conflict }
+    var response: Response = .acknowledged
+    var members: [[String: String]] = []
+    var failReconciliation = false
+    private var blockNext = false
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var waiter: CheckedContinuation<Void, Never>?
+    private(set) var commands = 0
+    private(set) var order: [String] = []
+    private let beforePost: @Sendable () throws -> Void
+    init(beforePost: @escaping @Sendable () throws -> Void = {}) { self.beforePost = beforePost }
+    func configure(_ response: Response, fail: Bool = false, block: Bool = false) { self.response = response; failReconciliation = fail; blockNext = block }
+    func discovery(after: String?, scope: RoomsScope) async throws -> DiscoveryPage {
+        order.append("discovery")
+        return try decode(["rooms": [room()], "next": NSNull()], DiscoveryPage.self)
+    }
+    func manifest(_ request: ManifestRequest, scope: RoomsScope) async throws -> MembershipPage {
+        order.append("manifest")
+        if commands > 0, failReconciliation { throw RoomsError.connection }
+        return try decode(["schemaVersion": 2, "resetRequired": false, "rooms": members, "generation": token(3), "complete": true, "nextCursor": NSNull()], MembershipPage.self)
+    }
+    func command(_ intent: RoomCommandIntent) async throws {
+        try beforePost(); try intent.scope.check(); commands += 1; order.append("post")
+        if blockNext {
+            blockNext = false
+            await withCheckedContinuation { continuation = $0; waiter?.resume(); waiter = nil }
+        }
+        switch response {
+        case .acknowledged: commit(intent.action)
+        case .unknown: throw RoomsError.connection
+        case .conflict: throw RoomCommandError.conflict
+        }
+    }
+    func commit(_ action: RoomCommandAction) {
+        if action == .join {
+            members = [["roomId": room1, "name": "확정한 방", "mode": "FAN", "actorId": actor, "role": "FAN", "membershipScope": token(), "authorizationRevision": token(5)]]
+        } else { members = [] }
+    }
+    func wait() async { if continuation != nil { return }; await withCheckedContinuation { waiter = $0 } }
+    func release() { continuation?.resume(); continuation = nil }
+}
+private func intent(_ listing: RoomsListing, _ lifetime: RoomsScope, action: RoomCommandAction = .join) throws -> RoomCommandIntent {
+    let cycle = try #require(listing.cycle)
+    return try RoomCommandIntent(scope: lifetime, roomID: room1, roomName: "방", action: action, cycle: cycle, membershipScope: action == .leave ? listing.memberships.first?.membershipScope : nil)
+}
+@Test func commandCommitsInvalidationBeforeOnePOST() async throws {
+    let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+    let lifetime = try scope(); let storage = RoomsStorage(root: root)
+    let remote = MutationRemote(beforePost: {
+        let db = try storage.open(scope: lifetime)
+        guard try !db.listing().membershipConfirmed else { throw RoomsError.persistence }
+    })
+    let repository = RoomsRepository(remote: remote, storage: storage, scope: lifetime)
+    let before = try await repository.refresh()
+    let result = try await repository.command(intent(before, lifetime))
+    #expect(result.outcome == .acknowledged)
+    #expect(result.listing.memberships.count == 1)
+    #expect(result.listing.memberships.first?.authorizationRevision == token(5))
+    #expect(await remote.commands == 1)
+    #expect(await remote.order.suffix(3) == ["post", "manifest", "discovery"])
+    #expect(throws: RoomCommandError.confirmationChanged) { try storage.open(scope: lifetime).prepareCommand(intent(before, lifetime)) }
+    try storage.purge()
+}
+@Test func commandOwnedAcrossCancelledObserverAndRefresh() async throws {
+    let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+    let lifetime = try scope(); let storage = RoomsStorage(root: root); let remote = MutationRemote()
+    let repository = RoomsRepository(remote: remote, storage: storage, scope: lifetime)
+    let before = try await repository.refresh(); let selected = try intent(before, lifetime)
+    await remote.configure(.acknowledged, block: true)
+    let observer = Task { try await repository.command(selected) }
+    await remote.wait(); observer.cancel()
+    await #expect(throws: RoomCommandError.inProgress) { try await repository.refresh() }
+    await #expect(throws: RoomCommandError.inProgress) { try await repository.command(selected) }
+    #expect(await remote.commands == 1)
+    await remote.release()
+    let result = try await observer.value
+    #expect(result.listing.memberships.count == 1)
+    #expect(await remote.commands == 1)
+    try storage.purge()
+}
+@Test func ACKAndUnknownReconciliationFailureCannotRestoreOldAuthority() async throws {
+    for response in [MutationRemote.Response.acknowledged, .unknown] {
+        let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+        let lifetime = try scope(); let storage = RoomsStorage(root: root); let remote = MutationRemote()
+        let coordinator = RoomsRepository(remote: remote, storage: storage, scope: lifetime)
+        let preserved = try await coordinator.refresh(); let selected = try intent(preserved, lifetime)
+        #expect(preserved.membershipConfirmed)
+        await remote.configure(response, fail: true)
+        await #expect(throws: RoomCommandReconciliationError.self) { try await coordinator.command(selected) }
+        // A reattached screen still points at this coordinator. Even a preserved
+        // loaded value with confirmed=true is not new mutation authority.
+        await #expect(throws: RoomCommandError.confirmationChanged) { try await coordinator.command(selected) }
+        #expect(await remote.commands == 1)
+        var live = RoomsActionState(); live.confirmed(cycle: selected.cycle); live.close(working: false)
+        #expect(!live.permits(cycle: preserved.cycle))
+        try storage.purge()
+    }
+}
+@Test func unknownGETIsNotPreviousPOSTOutcomeOrTermination() async throws {
+    let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+    let lifetime = try scope(); let storage = RoomsStorage(root: root); let remote = MutationRemote()
+    let coordinator = RoomsRepository(remote: remote, storage: storage, scope: lifetime)
+    let before = try await coordinator.refresh()
+    await remote.configure(.unknown)
+    let current = try await coordinator.command(intent(before, lifetime))
+    #expect(current.outcome == .unknown)
+    #expect(current.listing.memberships.isEmpty) // Only this GET's current state.
+    #expect(current.outcome.notice != nil)
+    // The already-sent server command commits after that reconciliation GET.
+    await remote.commit(.join)
+    let later = try await coordinator.refresh()
+    #expect(later.memberships.count == 1)
+    #expect(await remote.commands == 1) // Neither GET causes replay/inverse POST.
+    try storage.purge()
+}
+@Test func commandDatabaseFailureAndStaleScopeSendNothing() async throws {
+    let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+    let fault = Fault(); let lifetime = try scope()
+    let storage = RoomsStorage(root: root, beforeDatabaseCommit: { _ in try fault.check() })
+    let remote = MutationRemote(); let coordinator = RoomsRepository(remote: remote, storage: storage, scope: lifetime)
+    let listing = try await coordinator.refresh(); let selected = try intent(listing, lifetime)
+    fault.set(true)
+    await #expect(throws: RoomsError.persistence) { try await coordinator.command(selected) }
+    #expect(await remote.commands == 0)
+    fault.set(false)
+    #expect(try storage.open(scope: lifetime).listing().membershipConfirmed) // Whole invalidation transaction rolled back.
+    let fresh = try await coordinator.refresh(); lifetime.invalidate()
+    await #expect(throws: RoomsError.staleScope) { try await coordinator.command(intent(fresh, lifetime)) }
+    #expect(await remote.commands == 0)
+    try storage.purge()
+}
+@Test func leaveAcknowledgementAndConflictUseFreshManifest() async throws {
+    let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+    let lifetime = try scope(); let storage = RoomsStorage(root: root); let remote = MutationRemote()
+    await remote.commit(.join)
+    let coordinator = RoomsRepository(remote: remote, storage: storage, scope: lifetime)
+    let joined = try await coordinator.refresh()
+    await remote.configure(.conflict)
+    let rejected = try await coordinator.command(intent(joined, lifetime, action: .leave))
+    #expect(rejected.outcome == .rejected(.conflict)); #expect(rejected.listing.memberships.count == 1)
+    await remote.configure(.acknowledged)
+    let left = try await coordinator.command(intent(rejected.listing, lifetime, action: .leave))
+    #expect(left.outcome == .acknowledged); #expect(left.listing.membershipConfirmed && left.listing.memberships.isEmpty)
+    #expect(await remote.commands == 2)
+    try storage.purge()
+}
+
+@Test func oldGETCannotReopenAuthorityAfterMutationBegins() async throws {
+    let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+    let lifetime = try scope(); let storage = RoomsStorage(root: root)
+    let remote = ReorderedRemote(page: try manifest([])); let coordinator = RoomsRepository(remote: remote, storage: storage, scope: lifetime)
+    let old = Task { try await coordinator.refresh() }; await remote.wait(1)
+    let fresh = Task { try await coordinator.refresh() }; await remote.wait(2)
+    try await remote.finish(2, discovery([room()]))
+    let current = try await fresh.value; let selected = try intent(current, lifetime)
+    let command = Task { try await coordinator.command(selected) }; await remote.wait(3)
+    try await remote.finish(1, discovery([room(room2)]))
+    await #expect(throws: RoomsError.staleScope) { try await old.value }
+    await #expect(throws: RoomCommandError.inProgress) { try await coordinator.command(selected) }
+    try await remote.finish(3, discovery([room()]))
+    let result = try await command.value
+    #expect(result.listing.discovery.map(\.id) == [room1])
+    #expect(await remote.commands == 1)
+    try storage.purge()
+}
+@Test func coldReopenAfterUnknownCommandOnlyFetches() async throws {
+    let root = try directory(); defer { try? FileManager.default.removeItem(at: root) }
+    let firstScope = try scope(); let storage = RoomsStorage(root: root); let remote = MutationRemote()
+    let coordinator = RoomsRepository(remote: remote, storage: storage, scope: firstScope)
+    let current = try await coordinator.refresh()
+    await remote.configure(.unknown, fail: true)
+    await #expect(throws: RoomCommandReconciliationError.self) { try await coordinator.command(intent(current, firstScope)) }
+    try storage.open(scope: firstScope).close(); firstScope.invalidate()
+    let coldStorage = RoomsStorage(root: root); let coldScope = try scope()
+    let cold = RoomsRepository(remote: remote, storage: coldStorage, scope: coldScope)
+    await remote.configure(.unknown)
+    let observed = try await cold.refresh()
+    #expect(observed.membershipConfirmed)
+    #expect(await remote.commands == 1)
+    try coldStorage.purge()
 }

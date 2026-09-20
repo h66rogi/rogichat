@@ -72,7 +72,13 @@ enum ProductError: Error, LocalizedError, Equatable {
     }
 }
 
-protocol RoomsAuthorizing: Sendable { func roomsData(_ endpoint: RoomsQuery, scope: RoomsScope) async throws -> Data }
+protocol RoomsAuthorizing: Sendable {
+    func roomsData(_ endpoint: RoomsQuery, scope: RoomsScope) async throws -> Data
+    func roomsCommand(_ intent: RoomCommandIntent) async throws -> Data
+}
+extension RoomsAuthorizing {
+    func roomsCommand(_ intent: RoomCommandIntent) async throws -> Data { throw RoomsError.unavailable }
+}
 
 // Provider issuance and native credential transport are separate capabilities.
 protocol SessionServing: Sendable {
@@ -298,6 +304,20 @@ final class AppSession {
             let data = try await service.roomsData(endpoint, scope: scope)
             guard ticket == generation, roomsScope === scope else { throw RoomsError.staleScope }
             try scope.check()
+            return data
+        } catch {
+            await handleAccountError(error, ticket: ticket)
+            throw error
+        }
+    }
+    func roomsCommand(_ intent: RoomCommandIntent) async throws -> Data {
+        guard !busy, access == .ready, roomsScope === intent.scope, let service = service as? any RoomsAuthorizing else { throw RoomsError.staleScope }
+        let ticket = generation
+        do {
+            try intent.scope.check()
+            let data = try await service.roomsCommand(intent)
+            guard ticket == generation, roomsScope === intent.scope else { throw RoomsError.staleScope }
+            try intent.scope.check()
             return data
         } catch {
             await handleAccountError(error, ticket: ticket)

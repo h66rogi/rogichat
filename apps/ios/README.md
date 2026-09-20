@@ -36,8 +36,15 @@ Swift 6 / SwiftUI, iOS 18 이상, iPhone 전용 앱이다. QA와 prod는 같은
 - 대화방 목록은 실제 discovery와 schema 2 complete manifest를 구분한다. 일부 탐색 페이지의
   누락이나 참여 표시로 확정 멤버십을 삭제/덮어쓰지 않는다. 환경·서버 accountPartition별
   GRDB SQLite에 저장하고, 전체 manifest 교체와 checkpoint를 같은 transaction에 반영한다.
-  계정 전환/만료 시 HTTP·DB commit·화면 반영을 원래 scope에서 차단한다. 방 입장·퇴장,
-  메시지 저장/발송과 outbox는 이번 단계에 포함하지 않는다. 서버 schema 2와 모바일·웹의
+  계정 전환/만료 시 HTTP·DB commit·화면 반영을 원래 scope에서 차단한다.
+- 실제 참여/나가기는 확인 시점 계정·방·목록 세대에 묶은 단일 POST로 처리한다. 나가기는
+  방 이름을 표시하는 네이티브 확인창을 거친다. 전송 전에 DB 권한 상태를 닫고 COMMIT한 뒤,
+  응답 이후 전체 manifest를 먼저 다시 확인한다. 화면 재생성·취소·refresh는 실행 중인
+  command를 재전송하거나 해제하지 않는다. 보존된 이전 목록으로 버튼을 다시 활성화하지 않는다.
+  응답 유실 뒤 GET은 그 시점의 참여 상태만 보여주며 앞선 POST 종료/실패를 증명하지 않는다.
+  자동 POST 반복·취소 완료·낙관적 성공을 만들지 않는다. 서버의 현재 멤버십에 적용되는 `{}`
+  계약을 따르며, 다른 기기의 leave/rejoin을 특정 참여 기간 CAS로 막았다고 주장하지 않는다.
+  메시지 저장/발송과 outbox는 포함하지 않는다. 서버 schema 2와 모바일·웹의
   동시 전환 및 실제 사용자 세션 검증은 배포 단계의 별도 조건이다.
 - GRDB는 7.11.1을 고정한다. `Packages/RogichatRooms`가 실제 앱 dependency이며,
   라이선스는 앱 정보에 표시한다. 저장소는 WAL/FULL, 백업 제외와 iOS complete 파일 보호를

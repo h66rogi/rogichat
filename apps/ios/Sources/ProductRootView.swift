@@ -7,6 +7,7 @@ struct ProductRootView: View {
     private let nativeEnvironment: NativeEnvironment
     @State private var navigation = ShellNavigation()
     @State private var roomsStorage: RoomsStorage
+    @State private var roomsFeatures = RoomsFeatureOwner()
     @Environment(\.scenePhase) private var scenePhase
 
     init(service: (any SessionServing)? = nil) {
@@ -60,6 +61,7 @@ struct ProductRootView: View {
                 await session.expire(expected: expiry)
             } catch { /* View cancellation does not change credentials. */ }
         }
+        .onChange(of: session.roomsScope?.clientScope) { _, value in if value == nil { roomsFeatures.clear() } }
         .onChange(of: session.generation) { _, _ in navigation.setAccess(session.access) }
         .onChange(of: session.access, initial: true) { _, access in navigation.setAccess(access) }
     }
@@ -97,7 +99,9 @@ struct ProductRootView: View {
         case .rooms:
             if session.account != nil, session.access == .ready {
                 if let scope = session.roomsScope {
-                    RoomsScreen(repository: RoomsRepository(remote: NativeRoomsRemote(session: session), storage: roomsStorage, scope: scope), scope: scope)
+                    RoomsScreen(model: roomsFeatures.model(scope: scope) {
+                        RoomsScreenModel(repository: RoomsRepository(remote: NativeRoomsRemote(session: session), storage: roomsStorage, scope: scope), scope: scope)
+                    })
                         .id(scope.clientScope)
                 } else {
                     ContentUnavailableView("대화방을 확인할 수 없어요", systemImage: "bubble.left.and.bubble.right", description: Text("계정 정보를 다시 확인해 주세요."))

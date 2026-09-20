@@ -29,6 +29,7 @@
 		927A5853882407D4289CAE3A /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75A7351D1500FED5B7264B1D /* AppEnvironment.swift */; };
 		9D9D67C23A4A07D3CFB24A21 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31446C8CC8137185674F1F1F /* AppSession.swift */; };
 		A48686A0D8747A1F32D8AD42 /* SOOPPending.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43501230026F1C91108FFC8A /* SOOPPending.swift */; };
+		A4B62C9E3590D2CD92C454BC /* RoomsScreenModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EE892CDCF7BA8D77035A040 /* RoomsScreenModel.swift */; };
 		AB57731A2394F15BB8474DB4 /* ProfileDraft.swift in Sources */ = {isa = PBXBuildFile; fileRef = F31AFFF9647E8091CA636C95 /* ProfileDraft.swift */; };
 		B277D96D24A0C492F272B3E2 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A6D4A284950FD4E58D8E1D13 /* AppTheme.swift */; };
 		B4A7180F0792BD8637D73891 /* ProfileEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF74DA95F12F80B094834636 /* ProfileEditor.swift */; };
@@ -57,6 +58,7 @@
 		1CCED899D64C717F52CA323F /* ProductRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductRootView.swift; sourceTree = "<group>"; };
 		2459C08530C3FFA0600C8874 /* NativeRoomsRemote.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeRoomsRemote.swift; sourceTree = "<group>"; };
 		24B71449C6C287CB6CE1368A /* SOOPAuthCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SOOPAuthCoordinator.swift; sourceTree = "<group>"; };
+		2EE892CDCF7BA8D77035A040 /* RoomsScreenModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoomsScreenModel.swift; sourceTree = "<group>"; };
 		306959893BFAB5D6566C792A /* NativeCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeCredentialStore.swift; sourceTree = "<group>"; };
 		31446C8CC8137185674F1F1F /* AppSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSession.swift; sourceTree = "<group>"; };
 		34AE2801D9ACB8FBE29E3A09 /* ProfileScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileScreen.swift; sourceTree = "<group>"; };
@@ -260,6 +262,7 @@
 			children = (
 				2459C08530C3FFA0600C8874 /* NativeRoomsRemote.swift */,
 				A56178D2E6A4EF7BCB8CE308 /* RoomsEndpoint.swift */,
+				2EE892CDCF7BA8D77035A040 /* RoomsScreenModel.swift */,
 			);
 			path = Rooms;
 			sourceTree = "<group>";
@@ -408,6 +411,7 @@
 				E581B9252402C6917B5E638C /* RogichatApp.swift in Sources */,
 				E4E4258DDEDEBC7AD2AC184F /* RoomsEndpoint.swift in Sources */,
 				044DDEE328CB2E24DCEB6B60 /* RoomsScreen.swift in Sources */,
+				A4B62C9E3590D2CD92C454BC /* RoomsScreenModel.swift in Sources */,
 				5E306130DC45C411D699231E /* SOOPAuthContract.swift in Sources */,
 				DF33458F2C845BE8D7D740B2 /* SOOPAuthCoordinator.swift in Sources */,
 				4C3A0ADDD16BC7BBFC0E27E6 /* SOOPBrowserSession.swift in Sources */,
