@@ -10,9 +10,11 @@ import type { PushScope } from './scope';
  * Web Push enrollment lifecycle for one account/session scope.
  *
  * The state is what the browser and the server actually reported. There is no optimistic
- * "on": the toggle reads enabled only after the server stored `pushEnabled` true for this
- * account and this browser owns a registered subscription. Every failure keeps the real
- * state and carries a reason.
+ * "on": the toggle reads enabled only while the account preference is on and this browser
+ * session holds a live subscription for the server's current application server key, with the
+ * permission still granted and the capability still available. Every failure keeps the real
+ * state and carries a reason, and turning notifications off stays possible whenever there is
+ * state left to clear.
  *
  * Server enrollment capability is not delivery. A registered subscription means the server
  * may enqueue a wake for this browser; it proves nothing about the push service, the device
@@ -23,11 +25,20 @@ export interface PushEnrollmentState {
   permission: PushPermission;
   /** Server enrollment capability; null until read in this scope. */
   serverAvailable: boolean | null;
+  /** The server's current application server key, or null when it is unavailable/unread. */
+  applicationServerKey: string | null;
   /** Stored account preference; null until read in this scope. */
   preferenceEnabled: boolean | null;
   preferenceGeneration: string | null;
-  /** Server subscription this browser currently owns, or null. */
+  /**
+   * The subscription this browser session is actually enrolled with: registered by this very
+   * session, still live in the browser, and created with the server's current application
+   * server key. A record from another session, a missing browser subscription or a key that
+   * has rotated is not an enrollment and leaves this null.
+   */
   subscriptionId: string | null;
+  /** A local record exists for this account, so there is stored state left to clear. */
+  ownsBinding: boolean;
   busy: boolean;
   /** User-facing result of the last action; empty when there is nothing to say. */
   notice: string;
@@ -39,9 +50,11 @@ const INITIAL: PushEnrollmentState = {
   support: 'unknown',
   permission: 'unknown',
   serverAvailable: null,
+  applicationServerKey: null,
   preferenceEnabled: null,
   preferenceGeneration: null,
   subscriptionId: null,
+  ownsBinding: false,
   busy: false,
   notice: '',
   needsDecision: false,
@@ -96,11 +109,11 @@ export class PushEnrollment {
     await this.perform(async () => {
       this.set({ support: this.browser.support(), permission: this.browser.permission(), needsDecision: false, notice: '' });
       const capabilities = await this.scope.run(signal => this.api.capabilities(signal));
-      this.set({ serverAvailable: capabilities.available });
+      this.set({ serverAvailable: capabilities.available, applicationServerKey: capabilities.available ? capabilities.applicationServerKey : null });
       const preferences = await this.scope.run(signal => this.api.preferences(signal));
       this.set({ preferenceEnabled: preferences.pushEnabled, preferenceGeneration: preferences.generation });
       await this.releaseForeignBinding();
-      this.set({ subscriptionId: await this.ownedSubscriptionId() });
+      await this.reconcileSubscription();
     });
   }
 
@@ -108,41 +121,58 @@ export class PushEnrollment {
    * Enrolls this browser. Call only from an explicit user gesture: it is the sole path that
    * asks for the notification permission.
    *
-   * Order matters. Capability and permission come first, then the subscription is registered,
-   * and only then is the account preference switched on, so the stored preference is never
-   * true while the server has no endpoint for this browser.
+   * The permission prompt is started before the first `await`, inside the click's transient
+   * activation: a browser rejects a request made after that activation expires, and two HTTP
+   * round trips are long enough to lose it. Everything the decision to prompt needs — browser
+   * support and the server's enrollment capability — was already read by `refresh`, and the
+   * toggle stays blocked until it is known, so this never prompts for a capability the server
+   * has not confirmed.
+   *
+   * The capability is then read again for the current application server key, the subscription
+   * is registered, and only then is the account preference switched on, so the preference the
+   * server holds is never true while it has no endpoint for this browser.
    */
   async enable(): Promise<void> {
     await this.perform(async () => {
-      this.set({ support: this.browser.support(), permission: this.browser.permission(), needsDecision: false, notice: '' });
-      if (this.state.support !== 'supported') {
-        this.set({ notice: supportNotice(this.state.support) });
+      const support = this.browser.support();
+      const permission = this.browser.permission();
+      this.set({ support, permission, needsDecision: false, notice: '' });
+      if (support !== 'supported') {
+        this.set({ notice: supportNotice(support) });
+        return;
+      }
+      if (this.state.serverAvailable !== true) {
+        this.set({ notice: '서버의 웹 푸시 준비 상태를 확인한 뒤 다시 시도해 주세요.' });
+        return;
+      }
+      if (permission === 'denied') {
+        this.set({ notice: '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용한 뒤 다시 시도해 주세요.' });
         return;
       }
 
+      // Started synchronously: nothing may be awaited before the prompt.
+      const prompt = permission === 'granted' ? null : this.browser.requestPermission();
+      if (prompt !== null) this.set({ permission: await this.scope.run(() => prompt) });
+      if (this.state.permission !== 'granted') {
+        this.set({ notice: '알림 권한을 허용해야 알림을 켤 수 있습니다.' });
+        return;
+      }
+
+      // The prompt may have taken a while, and registration needs the server's current
+      // application server key rather than the one read before the click.
       const capabilities = await this.scope.run(signal => this.api.capabilities(signal));
-      this.set({ serverAvailable: capabilities.available });
+      this.set({ serverAvailable: capabilities.available, applicationServerKey: capabilities.available ? capabilities.applicationServerKey : null });
       if (!capabilities.available) {
         this.set({ notice: '서버에서 웹 푸시가 아직 준비되지 않아 알림을 켤 수 없습니다.' });
         return;
       }
 
-      // Read the stored preference before prompting, so every branch below shows the real
-      // account state instead of an unknown one, and so the PUT carries a current generation.
       const preferences = await this.scope.run(signal => this.api.preferences(signal));
       this.set({ preferenceEnabled: preferences.pushEnabled, preferenceGeneration: preferences.generation });
 
-      if (this.browser.permission() === 'not-asked') {
-        this.set({ permission: await this.scope.run(() => this.browser.requestPermission()) });
-      }
-      if (this.state.permission !== 'granted') {
-        this.set({ notice: this.state.permission === 'denied' ? '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용한 뒤 다시 시도해 주세요.' : '알림 권한을 허용해야 알림을 켤 수 있습니다.' });
-        return;
-      }
-
       const identity = await this.registerSubscription(capabilities);
       if (identity === null) return;
-      this.set({ subscriptionId: identity.id });
+      this.set({ subscriptionId: identity.id, ownsBinding: true });
 
       try {
         const stored = await this.scope.run(signal => this.api.setPreferences(true, preferences.generation, signal));
@@ -179,14 +209,21 @@ export class PushEnrollment {
   }
 
   /**
-   * Presentation model for the settings screen. `enabled` is true only when the account
-   * preference is on and this browser owns a registered subscription.
+   * Presentation model for the settings screen.
+   *
+   * `enabled` is true only when every condition a notification actually depends on holds at
+   * once: the account preference is on, this browser session owns a live subscription created
+   * with the server's current application server key, the browser still supports Web Push, the
+   * permission is still granted and the server still reports the capability. A permission
+   * revoked in browser settings, a rotated key or a server that lost its configuration all make
+   * this false, because none of them can deliver anything.
    */
   model(): PushNotificationsModel {
-    const { support, permission, preferenceEnabled, subscriptionId, serverAvailable, busy } = this.state;
-    const enabled = preferenceEnabled === null ? null : preferenceEnabled && subscriptionId !== null;
-    const reason = toggleBlock({ support, permission, serverAvailable, busy, enabled });
-    return { support, permission, enabled, toggle: reason === null ? { enabled: true } : { enabled: false, reason } };
+    const state = this.state;
+    const enabled = state.preferenceEnabled === null ? null : state.preferenceEnabled &&
+      state.subscriptionId !== null && state.support === 'supported' && state.permission === 'granted' && state.serverAvailable === true;
+    const reason = toggleBlock(state, enabled);
+    return { support: state.support, permission: state.permission, enabled, toggle: reason === null ? { enabled: true } : { enabled: false, reason } };
   }
 
   // --- internals -------------------------------------------------------------------------
@@ -221,7 +258,7 @@ export class PushEnrollment {
       await this.scope.run(() => this.browser.unsubscribe());
       const fresh = await this.scope.run(() => this.browser.subscribe(capabilities.applicationServerKey));
       if (fresh.endpoint === previous) {
-        this.set({ subscriptionId: null, notice: '브라우저가 이전과 같은 알림 주소를 다시 발급해 지금은 알림을 켤 수 없습니다. 브라우저의 사이트 알림 권한을 해제한 뒤 다시 시도해 주세요.' });
+        this.set({ subscriptionId: null, ownsBinding: false, notice: '브라우저가 이전과 같은 알림 주소를 다시 발급해 지금은 알림을 켤 수 없습니다. 브라우저의 사이트 알림 권한을 해제한 뒤 다시 시도해 주세요.' });
         return null;
       }
       return this.remember(await this.registerEndpoint(fresh, null));
@@ -275,7 +312,7 @@ export class PushEnrollment {
     }
     forgetBinding(this.storage);
     await this.scope.run(() => this.browser.unsubscribe());
-    this.set({ subscriptionId: null });
+    this.set({ subscriptionId: null, ownsBinding: false });
     return detail;
   }
 
@@ -291,12 +328,34 @@ export class PushEnrollment {
     await this.scope.run(() => this.browser.unsubscribe());
   }
 
-  private async ownedSubscriptionId(): Promise<string | null> {
+  /**
+   * Decides what this browser session is really enrolled with.
+   *
+   * A record for this account proves there is state to clear, which keeps the disable path
+   * available, but it is an enrollment only when this very session registered it and the
+   * browser still holds a live subscription for the server's current application server key.
+   * A record from an earlier session, a subscription the browser has dropped, or one created
+   * with a key that has since rotated cannot receive anything and is never shown as enrolled.
+   */
+  private async reconcileSubscription(): Promise<void> {
     const owned = readAccountBinding(this.storage, this.scope.identity);
-    if (owned === null) return null;
-    // A record without a live browser subscription describes nothing this browser can receive.
+    this.set({ ownsBinding: owned !== null });
+    if (owned === null || owned.session !== this.scope.identity.session) {
+      this.set({ subscriptionId: null });
+      return;
+    }
     const current = await this.scope.run(() => this.browser.current());
-    return current === null ? null : owned.id;
+    this.set({ subscriptionId: current !== null && this.matchesCurrentKey(current) ? owned.id : null });
+  }
+
+  /**
+   * A browser that hides `applicationServerKey` gives nothing to compare, so a rotation cannot
+   * be detected there and the server binding stands; a key that is visible and different is a
+   * rotation and disqualifies the subscription.
+   */
+  private matchesCurrentKey(subscription: BrowserSubscription): boolean {
+    const live = this.state.applicationServerKey;
+    return subscription.applicationServerKey === null || live === null || subscription.applicationServerKey === live;
   }
 
   private async handlePreferenceFailure(error: unknown): Promise<void> {
@@ -340,13 +399,17 @@ function supportNotice(support: PushSupport): string {
   }
 }
 
-function toggleBlock(view: { support: PushSupport; permission: PushPermission; serverAvailable: boolean | null; busy: boolean; enabled: boolean | null }): string | null {
-  if (view.busy) return '알림 설정을 변경하고 있습니다.';
-  if (view.enabled === null) return '알림 설정을 확인하는 중입니다.';
-  // Turning notifications off stays available even where this browser or the server cannot enroll.
-  if (view.enabled) return null;
-  if (view.support !== 'supported') return supportNotice(view.support);
-  if (view.permission === 'denied') return '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용해 주세요.';
-  if (view.serverAvailable === false) return '서버에서 웹 푸시가 아직 준비되지 않았습니다.';
+function toggleBlock(state: PushEnrollmentState, enabled: boolean | null): string | null {
+  if (state.busy) return '알림 설정을 변경하고 있습니다.';
+  if (enabled === null) return '알림 설정을 확인하는 중입니다.';
+  // Turning notifications off must stay available while any state remains to clear, including
+  // when the permission was withdrawn, the key rotated or the server lost its configuration.
+  // Without this the user could never release a subscription the server still holds.
+  if (state.preferenceEnabled === true || state.ownsBinding) return null;
+  if (state.support !== 'supported') return supportNotice(state.support);
+  if (state.permission === 'denied') return '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용해 주세요.';
+  if (state.serverAvailable === false) return '서버에서 웹 푸시가 아직 준비되지 않았습니다.';
+  // Enabling needs a confirmed capability; the toggle waits rather than prompting blindly.
+  if (state.serverAvailable === null) return '알림 설정을 확인하는 중입니다.';
   return null;
 }

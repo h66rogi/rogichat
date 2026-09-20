@@ -81,8 +81,12 @@ const enrollment = new PushEnrollment({ api: new PushApi(http), browser: new Web
   `NotificationSection` consumes; assign it directly so any drift fails typecheck at the
   wiring site. `enrollment.test.ts` asserts that structural match.
 - `refresh()` on mount. `enable()` and `disable()` are the toggle handlers, and `enable()` must
-  run inside the click handler: it is the only path that calls `Notification.requestPermission`,
-  and nothing in the module prompts on load, navigation or refresh.
+  be called directly from the click handler: it is the only path that calls
+  `Notification.requestPermission`, and nothing in the module prompts on load, navigation or
+  refresh. `enable()` starts the prompt before its first `await`, inside the click's transient
+  activation, so do not wrap it in work of your own that awaits first. It also refuses to
+  prompt until `refresh()` has confirmed the server capability, and the toggle stays blocked
+  until then, so the prompt never appears for a capability the server has not confirmed.
 - `refresh()` reads existing browser state through `getRegistration`, so opening settings never
   installs the service worker. `enable()` registers `/sw.js`, inside the user action.
 - When `getState().needsDecision` is true a compare-and-set conflict happened. The module has
@@ -90,6 +94,13 @@ const enrollment = new PushEnrollment({ api: new PushApi(http), browser: new Web
   never replayed.
 - `NotificationSection` renders `enabled === null` as "알림을 제공하지 않습니다". The module
   reports `null` only while the account preference has not been read in this scope.
+- `model().enabled` is true only while every condition a notification depends on holds: the
+  stored preference is on, this browser session owns a live subscription created with the
+  server's current application server key, the browser still supports Web Push, the permission
+  is still granted and the server still reports the capability. A permission revoked in browser
+  settings, a rotated key, a dropped browser subscription, a record left by an earlier session
+  or a server that lost its configuration all report false. In each of those the toggle stays
+  usable, because the user must still be able to release what the server holds.
 
 ## 3. Service worker (`public/sw.js`, core owner)
 
@@ -167,6 +178,13 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 - **Wake fence.** `WakeBindingRegistry` gives every binding a monotonic generation, so an
   A → B → A account sequence never admits work from the first A, and `WakeCoalescer` fences each
   cycle so a late completion from an abandoned one cannot change a running sync.
+- **Truthful eligibility.** A local record proves only that there is state to clear. It counts
+  as an enrollment solely for the session that registered it, with a live browser subscription
+  for the current application server key; a browser that hides that key leaves nothing to
+  compare, so no rotation is claimed and the server binding stands.
+- **Gesture.** The permission prompt is the first thing `enable()` does, before any `await`,
+  and only for a capability `refresh()` already confirmed. The capability is then re-read for
+  the current key before anything is registered.
 - **Fence.** Every step runs under `PushScope`. An account or session change aborts the requests
   in flight and discards their completions, so no state, binding or notice from a previous
   account is applied to the new one.
@@ -197,7 +215,7 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 Node 24.21.0, TypeScript 5.9.3 (the repository pin), from `apps/web`:
 
 - `node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts`
-  — 69 tests, 69 pass, 0 fail.
+  — 76 tests, 76 pass, 0 fail.
 - `tsc --noEmit` over `src/features/push/**` with the repository's strict options
   (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`) — clean.
 - ESLint 10.11.0 with the repository's type-aware rule set over the module's 18 files — 0 errors,
