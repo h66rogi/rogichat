@@ -29,6 +29,11 @@ export class PublicationFlow {
   private set(state: PublicationState) { if (!this.disposed) { this.state = state; this.changed(state); } }
   dispose() { this.disposed = true; this.active.abort(); this.id = undefined; }
   get canCheck() { return !!this.id && !this.disposed && !['published', 'revoked'].includes(this.state); }
+  private async verify(): Promise<boolean> {
+    const current = await this.api.session(this.active.signal); this.active.signal.throwIfAborted();
+    if (current.accountPartition !== this.context.session.accountPartition || current.csrfToken !== this.context.session.csrfToken) { this.id = undefined; this.set('unavailable'); return false; }
+    return true;
+  }
   private accept(receipt: PublicationReceipt) {
     this.active.signal.throwIfAborted(); this.id = receipt.publicationId; this.set(receipt.status);
     if (receipt.status === 'published') this.onPublished();
@@ -37,9 +42,11 @@ export class PublicationFlow {
     if (!confirmed || this.busy || this.disposed || this.state !== 'idle' || !canOfferPublication(this.context)) return;
     this.busy = true; this.set('sending');
     try {
-      const current = await this.api.session(this.active.signal); this.active.signal.throwIfAborted();
-      if (current.accountPartition !== this.context.session.accountPartition || current.csrfToken !== this.context.session.csrfToken) { this.set('unavailable'); return; }
-      this.accept(await this.api.publish(this.context.scope.roomId, this.context.message.id, current.csrfToken, this.active.signal));
+      if (!await this.verify()) return;
+      const receipt = await this.api.publish(this.context.scope.roomId, this.context.message.id, this.context.session.csrfToken, this.active.signal);
+      this.active.signal.throwIfAborted();
+      if (!await this.verify()) return;
+      this.accept(receipt);
     } catch { this.set('unknown'); }
     finally { this.busy = false; }
   }
@@ -47,9 +54,11 @@ export class PublicationFlow {
     if (this.busy || !this.canCheck) return;
     this.busy = true;
     try {
-      const current = await this.api.session(this.active.signal); this.active.signal.throwIfAborted();
-      if (current.accountPartition !== this.context.session.accountPartition || current.csrfToken !== this.context.session.csrfToken) { this.id = undefined; this.set('unavailable'); return; }
-      this.accept(await this.api.publication(this.context.scope.roomId, this.id!, this.active.signal));
+      if (!await this.verify()) return;
+      const receipt = await this.api.publication(this.context.scope.roomId, this.id!, this.active.signal);
+      this.active.signal.throwIfAborted();
+      if (!await this.verify()) return;
+      this.accept(receipt);
     }
     catch { this.set('unknown'); }
     finally { this.busy = false; }

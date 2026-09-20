@@ -163,3 +163,37 @@ void test('throwing browser storage getter is deferred and fails closed', async 
     else Reflect.deleteProperty(globalThis, 'window');
   }
 });
+
+void test('late session change during publication POST or status GET cannot refresh successor timeline', async () => {
+  for (const during of ['POST', 'GET']) {
+    let changed = false; let synchronized = 0;
+    const flow = new PublicationFlow(api((path, init) => {
+      if (path.endsWith('/session')) return response(changed ? { ...session, accountPartition: 'D'.repeat(42) + 'A' } : session);
+      if (init.method === 'POST') {
+        if (during === 'POST') changed = true;
+        return response({ publicationId: pub, status: during === 'POST' ? 'published' : 'preparing', ...(during === 'POST' ? { messageId: id } : {}) }, 202);
+      }
+      changed = true; return response({ publicationId: pub, status: 'published', messageId: id });
+    }), context, () => {}, () => { synchronized++; });
+    await flow.publish(true);
+    if (during === 'GET') await flow.check();
+    assert.equal(synchronized, 0); assert.equal(flow.state, 'unavailable'); assert.equal(flow.canCheck, false);
+  }
+});
+
+void test('noncooperative late publication response after disposal never updates UI', async () => {
+  let release!: (value: Response) => void; let synchronized = 0;
+  const flow = new PublicationFlow(api(path => path.endsWith('/session') ? response(session) : new Promise(resolve => { release = resolve; })), context, () => {}, () => { synchronized++; });
+  const work = flow.publish(true);
+  while (!release) await new Promise(resolve => setTimeout(resolve, 0));
+  flow.dispose(); release(response({ publicationId: pub, status: 'published', messageId: id }, 202)); await work;
+  assert.equal(synchronized, 0); assert.equal(flow.canCheck, false);
+});
+
+void test('reauth marker remains actionable across reload and rotated same-account session still needs confirmation', async () => {
+  const storage = store(); let current = session; let deletes = 0;
+  const client = api(path => { if (path.endsWith('/session')) return response(current); deletes++; return response({ error: { code: 'RECENT_AUTH_REQUIRED' } }, 403); });
+  const flow = new DeletionFlow(client, storage, () => {}, () => {}); await flow.submit(session);
+  const recovery = new DeletionFlow(client, storage, () => {}, () => {}); await recovery.recover(); assert.equal(recovery.state, 'reauth');
+  current = { ...session, csrfToken: 'D'.repeat(42) + 'A' }; await recovery.recover(); assert.equal(recovery.state, 'ready'); assert.equal(deletes, 1);
+});

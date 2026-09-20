@@ -6,7 +6,7 @@ export const DELETION_PENDING = 'rogichat.account-deletion.v1';
 export const ACCOUNT_DELETION_PENDING = DELETION_PENDING;
 export const PRIVACY_CHANGED = 'rogichat-privacy-changed';
 export type DeletionPhase = 'unknown' | 'reauth' | 'blocked';
-export interface DeletionMarker { version: 1; operation: string; account: string; phase: DeletionPhase }
+export interface DeletionMarker { version: 1; operation: string; account: string; phase: DeletionPhase; auth?: string }
 export interface MarkerStore { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 /** Accessing window.localStorage itself can throw; defer it into guarded operations. */
 export const browserPrivacyStore: MarkerStore = {
@@ -24,8 +24,9 @@ export async function accountBinding(origin: string, accountPartition: string): 
 export function readDeletion(store: MarkerStore): DeletionMarker | null {
   const raw = store.getItem(DELETION_PENDING);
   if (raw === null) return null;
-  const data = exact(JSON.parse(raw), ['version', 'operation', 'account', 'phase']);
+  const data = exact(JSON.parse(raw), ['version', 'operation', 'account', 'phase'], ['auth']);
   if (data.version !== 1 || typeof data.operation !== 'string' || !/^[0-9a-f-]{36}$/.test(data.operation) || typeof data.account !== 'string' || !/^[a-f0-9]{64}$/.test(data.account) || !['unknown', 'reauth', 'blocked'].includes(String(data.phase))) throw new Error('INVALID_MARKER');
+  if ('auth' in data && (typeof data.auth !== 'string' || !/^[a-f0-9]{64}$/.test(data.auth))) throw new Error('INVALID_MARKER');
   return data as unknown as DeletionMarker;
 }
 export function updateDeletion(store: MarkerStore, marker: DeletionMarker, phase: DeletionPhase): boolean {
@@ -74,8 +75,9 @@ export class DeletionFlow {
       if (!marker) { this.set('idle'); return; }
       if (marker.phase === 'blocked') { this.set('blocked'); return; }
       const session = await this.api.session(this.active.signal);
-      const binding = await accountBinding(this.api.origin, session.accountPartition); this.current(marker);
-      this.set(binding !== marker.account ? 'differentAccount' : 'ready');
+      const binding = await accountBinding(this.api.origin, session.accountPartition);
+      const auth = await accountBinding(`${this.api.origin}:session`, session.csrfToken); this.current(marker);
+      this.set(binding !== marker.account ? 'differentAccount' : marker.phase === 'reauth' && marker.auth === auth ? 'reauth' : 'ready');
     } catch { this.set('unknown'); }
     finally { this.busy = false; }
   }
@@ -96,15 +98,19 @@ export class DeletionFlow {
     let dispatched = false;
     try {
       const account = await accountBinding(this.api.origin, expected.accountPartition); this.current();
+      const auth = await accountBinding(`${this.api.origin}:session`, expected.csrfToken); this.current();
       marker = readDeletion(this.store);
       if (marker?.phase === 'blocked') { this.set('blocked'); return; }
       if (marker && marker.account !== account) { this.set('differentAccount'); return; }
       const session = await this.api.session(this.active.signal); this.current(marker ?? undefined);
       if (session.accountPartition !== expected.accountPartition || session.csrfToken !== expected.csrfToken) { this.set('differentAccount'); return; }
       if (!marker) {
-        marker = { version: 1, operation: crypto.randomUUID(), account, phase: 'unknown' };
+        marker = { version: 1, operation: crypto.randomUUID(), account, phase: 'unknown', auth };
         this.store.setItem(DELETION_PENDING, JSON.stringify(marker));
-      } else if (!updateDeletion(this.store, marker, 'unknown')) { this.set('unknown'); return; }
+      } else {
+        marker = { ...marker, auth };
+        if (!updateDeletion(this.store, marker, 'unknown')) { this.set('unknown'); return; }
+      }
       this.current(marker); this.set('sending');
       dispatched = true;
       await this.api.deleteAccount(session.csrfToken, this.active.signal); this.current(marker);
