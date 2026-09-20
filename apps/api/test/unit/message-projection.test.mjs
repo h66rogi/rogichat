@@ -7,14 +7,15 @@ import { projectMessageDto } from '../../dist/modules/messages/message-projectio
 const model = overrides => ({
   id: 'message-fixture', version: 18446744073709551615n, createdAt: new Date('2026-01-01T01:02:03.004Z'), audience: 'PRIVATE',
   author: { kind: 'member', actorId: 'room-scoped-actor', nickname: '합성 사용자', avatar: null },
-  content: { type: 'TEXT', text: '합성 본문' }, quote: null, ...overrides,
+  content: { type: 'TEXT', text: '합성 본문' }, quote: null, counterpart: null,
+  allowedActions: { reply: false, publish: false, delete: false }, ...overrides,
 });
 
 test('message mapper preserves the legacy DTO, bigint precision, text null and nickname fallback', () => {
   assert.deepEqual(projectMessageDto(model()), {
     id: 'message-fixture', version: '18446744073709551615', createdAt: '2026-01-01T01:02:03.004Z', audience: 'PRIVATE',
     author: { kind: 'member', actorId: 'room-scoped-actor', nickname: '합성 사용자', avatar: null },
-    content: { type: 'TEXT', text: '합성 본문' }, quote: null,
+    content: { type: 'TEXT', text: '합성 본문' }, quote: null, counterpart: null, allowedActions: { reply: false, publish: false, delete: false },
   });
   const nullable = projectMessageDto(model({ version: '12', content: { type: 'TEXT', text: null },
     author: { kind: 'member', actorId: 'actor', nickname: null, avatar: { assetId: 'avatar' } } }));
@@ -35,7 +36,7 @@ test('anonymous projection drops identity and allowlists fields at every nested 
   assert.deepEqual(result.author, { kind: 'anonymous' });
   assert.deepEqual(result.content, { type: 'TEXT', text: '공개 본문' });
   assert.deepEqual(result.quote, { id: 'visible-quote', content: { type: 'TEXT', text: '열람 가능 인용' } });
-  assert.deepEqual(Object.keys(result), ['id', 'version', 'createdAt', 'audience', 'author', 'content', 'quote']);
+  assert.deepEqual(Object.keys(result), ['id', 'version', 'createdAt', 'audience', 'counterpart', 'allowedActions', 'author', 'content', 'quote']);
   assert.equal(JSON.stringify(result).includes('private-'), false);
 });
 
@@ -95,4 +96,15 @@ test('message projection AST has no imports, reexports or runtime module loading
     ts.forEachChild(node, visit);
   };
   visit(ast); assert.deepEqual(forbidden, []);
+});
+
+test('counterpart and action projection allowlists fields and does not alias eligibility facts', () => {
+  const input = model({ counterpart: { actorId: '00000000-0000-4000-8000-000000000003', sourceId: 'private-source' },
+    allowedActions: { reply: true, publish: false, delete: true, peerStatus: 'private-status' } });
+  const dto = projectMessageDto(input);
+  assert.deepEqual(dto.counterpart, { actorId: input.counterpart.actorId });
+  assert.deepEqual(dto.allowedActions, { reply: true, publish: false, delete: true });
+  dto.counterpart.actorId = 'changed'; dto.allowedActions.reply = false;
+  assert.notEqual(input.counterpart.actorId, 'changed'); assert.equal(input.allowedActions.reply, true);
+  assert.equal(JSON.stringify(dto).includes('private-'), false);
 });

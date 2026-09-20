@@ -1,3 +1,4 @@
+import { MessageEligibilityService } from './message-eligibility.service.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
@@ -21,7 +22,7 @@ import type { MessageReadModel } from './message-projection.js';
 @Injectable()
 export class MessagesCoreService {
   constructor(@Inject(MessagesRepository) private readonly repository: MessagesRepository,
-    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService, @Inject(StickersCoreService) private readonly stickers: StickersCoreService) {}
+    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService, @Inject(StickersCoreService) private readonly stickers: StickersCoreService, @Inject(MessageEligibilityService) private readonly eligibility: MessageEligibilityService) {}
 
   load(tx: Transaction, roomId: string, messageId: string) { return this.repository.load(tx, roomId, messageId); }
 
@@ -56,7 +57,8 @@ export class MessagesCoreService {
       const attachments = await this.repository.attachments(tx, row.room_id, row.id);
       content = { type: row.content_kind, attachments: attachments.map(a => ({ assetId: String(a.id), width: Number(a.width), height: Number(a.height), variant: String(a.variant) })) };
     } else throw new ApiError('NOT_FOUND', 404);
-    return projectMessageDto({ id: row.id, version: String(row.version), createdAt: row.created_at,
+    const hints = (await this.eligibility.project(tx, viewer, [row.id])).get(row.id)!;
+    return projectMessageDto({ ...hints, id: row.id, version: String(row.version), createdAt: row.created_at,
       audience: row.stream_kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
       author: row.deletion_root_id ? { kind: 'anonymous' } : { kind: 'member', actorId: row.sender_member_id, nickname: row.nickname ?? '사용자', avatar: row.avatar_id ? { assetId: row.avatar_id } : null }, content, quote });
   }

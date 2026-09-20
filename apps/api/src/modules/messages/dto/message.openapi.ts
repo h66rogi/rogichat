@@ -1,10 +1,12 @@
-import { array, contract, decimal, empty, enumeration, integer, nullable, object, text, uuid } from '../../../common/openapi/schema.js';
+import { array, boolean, contract, decimal, empty, enumeration, integer, nullable, object, text, uuid } from '../../../common/openapi/schema.js';
 import type { Schema } from '../../../common/openapi/schema.js';
 export const avatar = nullable(object({ assetId: uuid }));
 const textContent = object({ type: enumeration('TEXT'), text: nullable(text) });
 const attachment = object({ assetId: uuid, width: integer, height: integer, variant: text });
 export const message: Schema = object({
   id: uuid, version: decimal, createdAt: { type: 'string', format: 'date-time' }, audience: enumeration('SHARED', 'PRIVATE'),
+  counterpart: nullable(object({ actorId: uuid })),
+  allowedActions: { ...object({ reply: boolean, publish: boolean, delete: boolean }), description: '현재 읽기 트랜잭션의 UI 힌트이며 실행 권한이나 성공을 보장하지 않습니다. reply는 PRIVATE 인용 초안입니다. 같은 메시지 version에서도 변할 수 있으며 모든 변경 요청은 재인가합니다.' },
   author: { oneOf: [object({ kind: enumeration('anonymous') }), object({ kind: enumeration('member'), actorId: uuid, nickname: text, avatar })] },
   content: { oneOf: [textContent, object({ type: enumeration('PHOTO', 'VIDEO'), attachments: array(attachment) }),
     object({ type: enumeration('STICKER'), stickerId: uuid, assetId: uuid, width: integer, height: integer })] },

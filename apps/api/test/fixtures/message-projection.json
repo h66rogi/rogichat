@@ -1,0 +1,36 @@
+{
+  "privateOutgoing": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "version": "7",
+    "createdAt": "2026-09-20T00:00:00.000Z",
+    "audience": "PRIVATE",
+    "author": {"kind": "member", "actorId": "00000000-0000-4000-8000-000000000002", "nickname": "사용자", "avatar": null},
+    "content": {"type": "TEXT", "text": "안녕하세요"},
+    "quote": null,
+    "counterpart": {"actorId": "00000000-0000-4000-8000-000000000003"},
+    "allowedActions": {"reply": true, "publish": true, "delete": true}
+  },
+  "anonymousPublisher": {
+    "id": "00000000-0000-4000-8000-000000000004",
+    "version": "1",
+    "createdAt": "2026-09-20T00:00:00.000Z",
+    "audience": "SHARED",
+    "author": {"kind": "anonymous"},
+    "content": {"type": "TEXT", "text": "공유된 본문"},
+    "quote": null,
+    "counterpart": null,
+    "allowedActions": {"reply": false, "publish": false, "delete": true}
+  },
+  "stalePrivateOutgoing": {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "version": "7",
+    "createdAt": "2026-09-20T00:00:00.000Z",
+    "audience": "PRIVATE",
+    "author": {"kind": "member", "actorId": "00000000-0000-4000-8000-000000000002", "nickname": "사용자", "avatar": null},
+    "content": {"type": "TEXT", "text": "안녕하세요"},
+    "quote": null,
+    "counterpart": null,
+    "allowedActions": {"reply": false, "publish": true, "delete": true}
+  },
+  "tombstone": {"type": "message.deleted", "messageId": "00000000-0000-4000-8000-000000000001", "version": "8"}
+}
