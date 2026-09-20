@@ -99,3 +99,23 @@ Completion requires the production entrypoints to use the intended module graph,
 parallel legacy implementation, passing full regression evidence and independent structural review.
 Folder moves, injectable wrappers around unchanged monoliths, green old tests or this document
 alone do not prove that the correction has been completed.
+
+## R1 checkpoint — 2026-09-20
+
+The API now composes explicit AuthModule and HealthModule alongside a temporary adapter for
+the remaining controllers. AuthController uses AuthService, with session logout persistence and
+independently committed rate charging behind a private repository. DatabaseModule rejects split
+database/transaction overrides and tests shared provider identity and shutdown ownership.
+Pure message/profile projection contracts are available for the subsequent vertical slices.
+
+The exact staged source snapshot passed 89 unit, 14 HTTP/process and 2 contract tests (105 total).
+The development tree with preserved, unfinished M08 changes also passed 62 disposable-MySQL
+integration tests after the auth controller transition. These are different validation scopes;
+neither result means M08 or the architecture correction is finished. Independent review checked
+the DB module boundaries and projection allowlists. Cross-repository searches found no references
+to the changed internal types or sampled session endpoint in the local sibling source repositories.
+
+Remaining gates include all R2–R5 work, legacy Sessions/AuthFlow SQL extraction, removal of
+AuthRuntime from other domains, production provider lifecycle ownership, canonical query wiring,
+and full structural review. The API/worker still receive externally constructed dependencies.
+Feature development and QA host deployment remain held; this checkpoint is not release acceptance.

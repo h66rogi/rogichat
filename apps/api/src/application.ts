@@ -1,7 +1,7 @@
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { Catch, HttpException, Module } from '@nestjs/common';
-import type { ArgumentsHost, DynamicModule, ExceptionFilter } from '@nestjs/common';
+import { Catch, HttpException } from '@nestjs/common';
+import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import express from 'express';
@@ -9,26 +9,13 @@ import type { Express, Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import type { Server } from 'node:http';
 import type { Database } from './database.js';
-import { DATABASE, HealthController, LifecycleState } from './health.js';
+import { LifecycleState } from './common/lifecycle/lifecycle-state.js';
 import type { SafeLogger } from './logging.js';
 import { ApiError } from './auth-core.js';
-import { AUTH, AuthController, authCors } from './auth-http.js';
+import { authCors } from './auth-http.js';
 import type { AuthRuntime } from './auth-http.js';
-import { CommunityController } from './community-http.js';
-import { MessagesController } from './messages-http.js';
-import { SyncController } from './sync-http.js';
-import { InteractionsController } from './interactions-http.js';
-
-@Module({})
-class RuntimeModule {
-  static register(database: Database, lifecycle: LifecycleState, http: boolean, auth?: AuthRuntime): DynamicModule {
-    return {
-      module: RuntimeModule,
-      controllers: http ? [HealthController, ...(auth ? [AuthController, CommunityController, MessagesController, SyncController, InteractionsController] : [])] : [],
-      providers: [{ provide: DATABASE, useValue: database }, { provide: LifecycleState, useValue: lifecycle }, ...(auth ? [{ provide: AUTH, useValue: auth }] : [])],
-    };
-  }
-}
+import { AppModule } from './app.module.js';
+import { WorkerModule } from './worker.module.js';
 
 @Catch()
 class SafeExceptionFilter implements ExceptionFilter {
@@ -44,7 +31,7 @@ class SafeExceptionFilter implements ExceptionFilter {
 }
 
 export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthRuntime): Promise<NestExpressApplication> {
-  const app = await NestFactory.create<NestExpressApplication>(RuntimeModule.register(database, lifecycle, true, auth), {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule.register(database, lifecycle, auth), {
     logger: false, abortOnError: false, bodyParser: false,
   });
   const server: Express = app.getHttpAdapter().getInstance();
@@ -78,5 +65,5 @@ export async function createApi(database: Database, logger: SafeLogger, lifecycl
 }
 
 export function createWorker(database: Database, lifecycle = new LifecycleState()) {
-  return NestFactory.createApplicationContext(RuntimeModule.register(database, lifecycle, false), { logger: false, abortOnError: false });
+  return NestFactory.createApplicationContext(WorkerModule.register(database, lifecycle), { logger: false, abortOnError: false });
 }
