@@ -1,12 +1,15 @@
+import { createHash } from 'node:crypto';
+import { encodeDeletionIntent } from './deletion-ledger.js';
 import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import type { DeletionReceipt } from './deletion-ledger.js';
 
-/** Private persistence for the schema-free remainder slice, not a purge coordinator. */
+/** Private account authority and bounded non-content dependency persistence. */
 @Injectable()
 export class AccountCleanupRepository {
   async authorize(tx: Transaction, receipt: DeletionReceipt) {
     const { intent } = receipt;
+    if (intent.scope !== 'ACCOUNT' || !createHash('sha256').update(encodeDeletionIntent(intent)).digest().equals(Buffer.from(receipt.sha256, 'hex'))) throw new Error('account_cleanup_not_admitted');
     // Current projections, never an earlier RR snapshot. Checkpoint precedes account,
     // matching admission replay; all later domain/job locks follow the account.
     const [checkpoint] = await tx.rows<{ environment: string; scope: string; actor_user_id: string; target_id: string;
@@ -81,6 +84,14 @@ export class AccountCleanupRepository {
     return { phase: 'membership' as const, changed: 0 };
   }
 
+  async profileChanges(tx: Transaction, userId: string, limit: number) {
+    const page = await tx.prisma.profile_changes.findMany({ where: { user_id: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (!page.length) return 0;
+    const ids = page.map(row => row.id);
+    const jobs = await tx.prisma.jobs.findMany({ where: { purpose: 'REALTIME_HINT', room_id: null, resource_id: { in: ids } }, take: limit, orderBy: { id: 'asc' }, select: { id: true } });
+    if (jobs.length) return (await tx.prisma.jobs.deleteMany({ where: { id: { in: jobs.map(row => row.id) }, purpose: 'REALTIME_HINT', room_id: null } })).count;
+    return (await tx.prisma.profile_changes.deleteMany({ where: { id: { in: ids }, user_id: userId } })).count;
+  }
   async sessions(tx: Transaction, userId: string, limit: number) {
     const rows = await tx.prisma.auth_sessions.findMany({ where: { user_id: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     return rows.length ? (await tx.prisma.auth_sessions.deleteMany({ where: { user_id: userId, id: { in: rows.map(row => row.id) } } })).count : 0;

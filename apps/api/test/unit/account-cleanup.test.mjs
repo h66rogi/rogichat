@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AccountCleanupService } from '../../dist/modules/deletion/account-cleanup.service.js';
 import { AccountCleanupModule } from '../../dist/modules/deletion/account-cleanup.module.js';
+import { AccountContentService } from '../../dist/modules/deletion/account-content.service.js';
 import { AccountCleanupRepository } from '../../dist/modules/deletion/account-cleanup.repository.js';
 import { NotificationsModule } from '../../dist/modules/notifications/notifications.module.js';
 import { ReadStateCoreModule } from '../../dist/modules/read-state/read-state-core.module.js';
@@ -18,11 +19,12 @@ function fixture(readResult, pushResult) {
     async authorize() { assert.equal(inTransaction, true); calls.push('authorize'); },
     async privateFields() { calls.push('private'); return 0; },
     async memberPage() { calls.push('member'); return null; },
+    async profileChanges() { return 0; },
     async sessions() { calls.push('sessions'); return 0; },
   };
   const read = { async purgeAccount(_tx, _userId, limit) { assert.equal(limit, 100); calls.push('read'); return readResult; } };
   const push = { async purgeAccount(_tx, _userId, limit) { assert.equal(limit, 100); calls.push('push'); return pushResult; } };
-  return { calls, service: new AccountCleanupService(transactions, ledger, repository, read, push) };
+  return { calls, service: new AccountCleanupService(transactions, ledger, repository, read, push, { async page() { return null; } }, { async page() { return false; } }) };
 }
 
 test('read-state hasMore and push done are distinct continuation barriers, including zero-deletion passes', async () => {
@@ -42,7 +44,7 @@ test('read-state hasMore and push done are distinct continuation barriers, inclu
 
 test('cleanup module exports only its internal service and consumes existing domain ports without installing a runner', () => {
   const module = AccountCleanupModule.register({ module: class Infrastructure {} }, { ledger: {} });
-  assert.deepEqual(module.exports, [AccountCleanupService]);
+  assert.deepEqual(module.exports, [AccountCleanupService, AccountContentService]);
   assert.ok(module.providers.includes(AccountCleanupRepository));
   assert.ok(module.imports.includes(ReadStateCoreModule)); assert.ok(module.imports.includes(NotificationsModule));
   assert.equal(module.controllers, undefined);

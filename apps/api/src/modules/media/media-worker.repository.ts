@@ -2,7 +2,7 @@ import { affected } from '../../infrastructure/database/transactions.js';
 import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
-export interface CleanupObject { id: string; object_key: string; state: string; byte_length: string | null; sha256: string | null }
+export interface CleanupObject { id: string; object_key: string; state: string; byte_length: string | null; sha256: string | null; attempt_id?: string }
 // Only acknowledged PUT finalization populates both fields in registered writers.
 // ALLOCATED never proves termination, including after abort or lease expiry.
 export function acknowledgedWrite(row: CleanupObject): boolean {
@@ -54,20 +54,38 @@ export class MediaWorkerRepository {
   readyAsset(tx: Transaction, assetId: unknown) {
     return affected(tx.prisma.media_assets.updateMany({ where: { id: String(assetId) }, data: { state: 'READY' } }));
   }
-  uploading(tx: Transaction, assetId: unknown) {
-    return tx.rows("SELECT id FROM media_assets WHERE id=? AND upload_until>TIMESTAMPADD(MINUTE,-5,UTC_TIMESTAMP(3)) FOR UPDATE", [assetId]);
-  }
-  recentAttempts(tx: Transaction, assetId: unknown) {
-    return tx.rows("SELECT id FROM media_objects WHERE asset_id=? AND created_at>TIMESTAMPADD(MINUTE,-10,UTC_TIMESTAMP(3)) LIMIT 1 FOR UPDATE", [assetId]);
-  }
   objects(tx: Transaction, assetId: unknown) {
     return tx.rows<CleanupObject>("SELECT id,object_key,state,byte_length,sha256 FROM media_objects WHERE asset_id=? ORDER BY id LIMIT 501 FOR UPDATE", [assetId]);
   }
   currentObjects(tx: Transaction, assetId: unknown) {
     return this.objects(tx, assetId);
   }
-  deleteObjects(tx: Transaction, assetId: unknown) {
-    return affected(tx.prisma.media_objects.updateMany({ where: { asset_id: String(assetId) }, data: { state: 'DELETED' } }));
+  async cleanupPage(tx: Transaction, assetId: string) {
+    const checkpoint = await tx.prisma.media_cleanup_checkpoints.upsert({ where: { asset_id: assetId }, create: { asset_id: assetId }, update: {}, select: { object_cursor: true } });
+    const page = await tx.rows<CleanupObject & { attempt_id: string }>(
+      'SELECT id,attempt_id,object_key,state,byte_length,sha256 FROM media_objects WHERE asset_id=? AND id>? ORDER BY id LIMIT 100 FOR UPDATE', [assetId, checkpoint.object_cursor ?? '']);
+    for (const row of page) {
+      const prior = await tx.prisma.media_cleanup_attempts.findUnique({ where: { object_id: row.id }, select: { asset_id: true, attempt_id: true, object_key: true } });
+      if (prior && (prior.asset_id !== assetId || prior.attempt_id !== row.attempt_id || prior.object_key !== row.object_key)) throw new Error('media_cleanup_provenance_conflict');
+      await tx.prisma.media_cleanup_attempts.upsert({ where: { object_id: row.id }, create: {
+        object_id: row.id, asset_id: assetId, attempt_id: row.attempt_id, object_key: row.object_key, writer_acknowledged: acknowledgedWrite(row),
+      }, update: { writer_acknowledged: acknowledgedWrite(row) }, select: { object_id: true } });
+    }
+    return page;
+  }
+  async finishPage(tx: Transaction, assetId: string, page: CleanupObject[]) {
+    for (const planned of page) {
+      const [current] = await tx.rows<CleanupObject>('SELECT id,object_key,state,byte_length,sha256 FROM media_objects WHERE asset_id=? AND id=? FOR UPDATE', [assetId, planned.id]);
+      if (!current || current.object_key !== planned.object_key) throw new Error('media_cleanup_provenance_conflict');
+      const acknowledged = acknowledgedWrite(current);
+      await tx.prisma.media_cleanup_attempts.update({ where: { object_id: current.id }, data: { writer_acknowledged: acknowledged, delete_observed_at: await tx.now() }, select: { object_id: true } });
+      // Acknowledgment arriving DURING DELETE is not ordered before it: retain
+      // that attempt for another pass, so a late PUT cannot resurrect a closed key.
+      if (acknowledged && acknowledgedWrite(planned)) await tx.prisma.media_objects.updateMany({ where: { id: current.id, asset_id: assetId }, data: { state: 'DELETED' } });
+    }
+    await tx.prisma.media_cleanup_checkpoints.update({ where: { asset_id: assetId }, data: { object_cursor: page.at(-1)?.id ?? null }, select: { asset_id: true } });
+    return !(await tx.rows(`SELECT o.id FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.object_key=o.object_key
+      WHERE o.asset_id=? AND (o.state<>'DELETED' OR ${unprovenWrite} OR p.object_id IS NULL OR p.writer_acknowledged=0 OR p.delete_observed_at IS NULL) LIMIT 1 FOR UPDATE`, [assetId])).length;
   }
   releaseBudget(tx: Transaction, bytes: unknown, minimum: unknown) {
     return affected(tx.prisma.media_budget.updateMany({ where: { id: 'global', reserved_bytes: { gte: BigInt(String(minimum)) } }, data: { reserved_bytes: { decrement: BigInt(String(bytes)) } } }));
@@ -85,12 +103,9 @@ export class MediaWorkerRepository {
     (a.state='UPLOADING' AND a.upload_until<=UTC_TIMESTAMP(3)) OR a.state='DELETING' OR
     (a.state='DELETED' AND EXISTS (SELECT 1 FROM media_objects o WHERE o.asset_id=a.id AND ${unprovenWrite})))
     AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.purpose='MEDIA' AND j.resource_id=a.id AND
-      (j.state='PENDING' OR (j.state='RUNNING' AND j.lease_until>UTC_TIMESTAMP(3)) OR
-       j.dedupe_key=UNHEX(SHA2(CONCAT('media-recovery:',a.id,':',DATE_FORMAT(UTC_TIMESTAMP(3),'%Y%m%d%H')),256))))
+      (j.state='PENDING' OR (j.state='RUNNING' AND j.lease_until>UTC_TIMESTAMP(3))))
+
     ORDER BY a.created_at LIMIT 20 FOR UPDATE SKIP LOCKED`, []);
-  }
-  epoch(tx: Transaction) {
-    return tx.rows<RowDataPacket>("SELECT DATE_FORMAT(UTC_TIMESTAMP(3),'%Y%m%d%H') AS epoch", []);
   }
   currentState(tx: Transaction, assetId: unknown) {
     return tx.rows<RowDataPacket>('SELECT state FROM media_assets WHERE id=? FOR UPDATE', [assetId]);

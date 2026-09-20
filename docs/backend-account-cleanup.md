@@ -1,5 +1,10 @@
 # M10 bounded account remainder slice
 
+The later [ACCOUNT content/media runtime](backend-account-content-media.md) composes
+this subset into automatic PURGE continuation and supersedes the retained-content,
+avatar and profile-change limitations below. Identity/provider/backup closure stays
+independent; the historical standalone design is retained for context.
+
 The original schema-free internal slice was based on integration `388c9d0`. It adds
 `AccountCleanupModule` and its exported `AccountCleanupService.step(requestId)`.
 It is deliberately not registered in API/worker composition, exposed through

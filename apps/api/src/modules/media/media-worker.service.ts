@@ -101,54 +101,29 @@ export class MediaWorkerService {
     await this.repository.readyAsset(tx, asset.id);
     await this.finish(tx, lease);
   }
-  private async deferCleanup(tx: Transaction, lease: JobLease, assetId: string): Promise<void> {
-    await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: assetId, delayMs: 20 * 60 * 1000,
-      dedupeKey: digest(`media-cleanup-deferred:${assetId}:${lease.id}`) });
-    await this.finish(tx, lease);
-  }
   private async cleanupMedia(lease: JobLease, signal: AbortSignal) {
     const plan = await this.transactions.write(async tx => {
       const { asset } = await this.assetLock(tx, lease.resourceId!);
       if (asset.state !== 'DELETING') throw new JobFailure('SOURCE_UNAVAILABLE');
-      // Defer while upload leases or recent transform attempts remain visible.
-      // Age/abort alone cannot prove provider-side writes stopped. The adapter's
-      // absence check is point-in-time; LIVE_PURGED additionally needs writer
-      // termination and durable orphan reconciliation.
-      const uploading = await this.repository.uploading(tx, asset.id);
-      const recent = await this.repository.recentAttempts(tx, asset.id);
-      if (uploading.length || recent.length) {
-        await this.deferCleanup(tx, lease, String(asset.id)); return null;
-      }
-      const objects = await this.repository.objects(tx, asset.id);
-      // Overflow needs a separately durable page checkpoint; retain rather than
-      // silently ignoring keys or performing unbounded storage work.
-      if (objects.length > 500) throw new JobFailure('TEMPORARY_UNAVAILABLE');
-      return objects;
+      const page = await this.repository.cleanupPage(tx, String(asset.id));
+      if (!(await this.repository.fence(tx, lease.id, lease.generation.toString(), lease.leaseOwner, lease.leaseToken)).length) throw new StaleMediaLease();
+      return page;
     });
-    if (!plan) return;
+    // Even unacknowledged attempts get a best-effort DELETE, but never closure.
     for (const object of plan) await this.store.remove(object.object_key, signal);
-    await this.transactions.write(async tx => {
+    return this.transactions.write(async tx => {
       const { asset } = await this.assetLock(tx, lease.resourceId!);
       if (asset.state !== 'DELETING') throw new JobFailure('SOURCE_UNAVAILABLE');
-      const objects = await this.repository.currentObjects(tx, asset.id);
-      if (objects.length !== plan.length || objects.some((row, index) => {
-        const planned = plan[index]!;
-        return row.id !== planned.id || row.object_key !== planned.object_key || row.state !== planned.state ||
-          String(row.byte_length) !== String(planned.byte_length) || row.sha256 !== planned.sha256;
-      })) throw new JobFailure('SOURCE_UNAVAILABLE');
-      if (objects.some(row => !acknowledgedWrite(row))) {
-        // DELETE/404 cannot close an unknown provider-side PUT. Keep every key,
-        // state and reservation, with durable restartable orphan reconciliation.
-        await this.deferCleanup(tx, lease, String(asset.id)); return;
-      }
-      await this.repository.deleteObjects(tx, asset.id);
+      const closed = await this.repository.finishPage(tx, String(asset.id), plan);
+      if (!closed) { await this.jobs.continueMedia(tx, lease, plan.length > 0); return plan.length ? 'progress' as const : 'deferred' as const; }
       const changed = await this.repository.releaseBudget(tx, asset.reserved_bytes, asset.reserved_bytes);
       if (changed.affectedRows !== 1) throw new JobFailure('INVALID_RESOURCE', true);
       await this.repository.deleteAsset(tx, asset.id);
       await this.finish(tx, lease);
+      return 'completed' as const;
     });
   }
-  async processMedia(lease: JobLease): Promise<'completed' | 'lease_lost'> {
+  async processMedia(lease: JobLease): Promise<'completed' | 'lease_lost' | 'progress' | 'deferred'> {
     // Includes GET, 270s decoder transport and both PUTs. Remains below the
     // existing 10-minute late-write guard; renewal never extends this deadline.
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 450000);
@@ -189,7 +164,7 @@ export class MediaWorkerService {
       if (invalidated) return 'completed';
       const attempt = await this.transactions.write(tx => this.prepareMedia(tx, lease));
       if (attempt === 'completed') return 'completed';
-      if (attempt === 'cleanup') { await this.cleanupMedia(lease, controller.signal); return 'completed'; }
+      if (attempt === 'cleanup') return await this.cleanupMedia(lease, controller.signal);
       const input = await this.store.read(attempt.inputKey, controller.signal);
       source = input.stream;
       controller.signal.throwIfAborted();
@@ -217,7 +192,7 @@ export class MediaWorkerService {
       const result = decoded;
       await this.transactions.write(tx => this.finalizeMedia(tx, lease, attempt, result));
       return 'completed';
-    } catch (error) { if (leaseLost || error instanceof StaleMediaLease) return 'lease_lost'; throw error; }
+    } catch (error) { if (leaseLost || error instanceof StaleMediaLease || (error instanceof Error && error.message === 'media_cleanup_lease_lost')) return 'lease_lost'; throw error; }
     finally {
       stopped = true; clearTimeout(timeout); clearTimeout(heartbeat); source?.destroy();
       await renewal;
@@ -228,7 +203,6 @@ export class MediaWorkerService {
   // Bounded restart recovery. No storage I/O inside the transaction; cleanup remains a fenced job.
   async recoverMedia(tx: Transaction): Promise<void> {
     const assets = await this.repository.recoverable(tx);
-    const [time] = await this.repository.epoch(tx);
     for (const asset of assets) {
       // Attachment commands lock the asset before installing a reference. Re-read references
       // using current locking reads after our asset lock, not an earlier consistent snapshot.
@@ -242,7 +216,8 @@ export class MediaWorkerService {
         if (attachments.length || avatars.length || catalog.length || copies.length) continue;
       }
       await this.repository.blockRecovery(tx, asset.id);
-      await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: String(asset.id), dedupeKey: digest(`media-recovery:${asset.id}:${time!.epoch}`) });
+      await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: String(asset.id), dedupeKey: digest(`media-cleanup:${asset.id}`) });
+      await this.jobs.recoverMedia(tx, String(asset.id));
     }
   }
 
