@@ -69,7 +69,7 @@ private fun AuthorizedMediaBody(client: MediaClient, assetId: String, access: Me
                 setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
                 setOnErrorListener { _, _, _ -> failed = true; true }
                 setVideoURI(Uri.fromFile(file))
-            } }, onRelease = { it.stopPlayback() }, update = {})
+            } }, onReset = null, onRelease = { it.stopPlayback() }, update = {})
         } else { bitmap?.let { Image(it, contentDescription = "첨부 이미지") } }
     }
 }

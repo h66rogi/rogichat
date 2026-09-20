@@ -53,3 +53,5 @@ No Talk/TalkV2 source or chat UX was reused. No reference assets, environment fi
 - QA runtime readiness depends on the media worker, isolated decoder/object store and current deployed SHA; source tests alone do not establish those operational facts. No deployment was triggered for these leaf modules.
 
 Final native checkpoint: iOS device-SDK typecheck of all Core/Media + Features/Media files passed with Swift 6 and warnings-as-errors. Swift executable regressions passed including permit/context presentation replacement, pre-expiry lease budget, overlap rejection and cancellation cleanup. Android isolated JUnit suite contains six tests and passed; pinned Gradle/Compose integration remains the OS owner's shared build check. Required public-repository security scanning and remote publication are recorded in the worker's delivery receipt.
+
+Follow-up platform smoke check: all Android Core/Media and feature/media sources compiled together with the cached Kotlin 2.0.21 Compose plugin and Android SDK, under a 512 MiB heap. This verified the explicit AndroidView onReset=null/onRelease lifecycle overload; it does not replace the parent pinned Gradle build.
