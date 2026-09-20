@@ -79,6 +79,15 @@ replay coverage before activation. Do not delete fingerprints, invent a new key,
 or reopen restored service to bypass a mismatch. Restore stays isolated until the
 complete ledger and denies have been rebuilt and independently verified.
 
+The new secret shape is not backward compatible with pre-guard binaries: their
+strict parser permits only `key` and `broker`, so `identityGuardKey` causes startup
+and release preflight failure independently of the schema-version gate. Before
+installing the key or enabling admission, approve a same-schema, guard-aware
+recovery artifact and configuration strategy. Never strip or rotate the key to
+force an old image to start: after durable deletion receipts exist, a pre-guard
+binary cannot safely resume identity resolution or ledger replay. Preserve the
+original key, pinned policy and deletion evidence during rollback and restore.
+
 Both web and native overall auth transaction lifetime is ten minutes. The original
 request fixes `auth_not_before = requested_at + 10 minutes`; retries never restart
 it. The guard does not expire at that timestamp. No cleanup operation exists here:
