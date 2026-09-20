@@ -107,7 +107,7 @@ async function fixture(t, overrides = {}) {
     return { ...issued, ...principal };
   });
   const update = (started, data) => db.transactions.write(tx => tx.prisma.login_transactions.update({ where: { id: started.transactionId }, data }));
-  return { db, config, broker, nativeFlow, sessions, flow, base, call, get, begin, launch, callback, complete, exchange, local, update, logs: () => logs };
+  return { db, config, broker, identities, nativeFlow, sessions, flow, base, call, get, begin, launch, callback, complete, exchange, local, update, logs: () => logs };
 }
 
 test('native SOOP HTTP login returns the exact nested session DTO, opaque seven-day credential and redacted logs', { timeout: 20000 }, async t => {
@@ -225,8 +225,19 @@ test('logout during broker I/O cannot finalize link; provider I/O holds no autho
 test('concurrent first logins share canonical identity; conflicting native links never merge accounts', { timeout: 20000 }, async t => {
   const f = await fixture(t); const subject = `fixture-${randomUUID()}`;
   const first = await f.complete(await f.launch(await f.begin()), { subject }); const second = await f.complete(await f.launch(await f.begin()), { subject });
-  const results = await Promise.all([f.exchange(first), f.exchange(second)]); assert.deepEqual(results.map(r => r.status), [200, 200]);
-  const bodies = await Promise.all(results.map(r => r.json())); assert.equal(bodies[0].session.account.userId, bodies[1].session.account.userId);
+  // Force second's stage-row read before first registers the canonical account.
+  // A consistent RR read at that stage must not hide the newly committed profile
+  // from the exact session DTO projection after identity authorization.
+  const entered = deferred(); const release = deferred(); const resolve = f.identities.resolve.bind(f.identities);
+  t.mock.method(f.identities, 'resolve', async (tx, identity, linkUser) => {
+    if (identity.transactionId === second.transactionId) { entered.resolve(); await release.promise; }
+    return resolve(tx, identity, linkUser);
+  });
+  const secondResponse = f.exchange(second); await entered.promise;
+  const firstResponse = await f.exchange(first); release.resolve();
+  const results = [firstResponse, await secondResponse]; assert.deepEqual(results.map(r => r.status), [200, 200]);
+  const bodies = await Promise.all(results.map(r => r.json())); assert.deepEqual(bodies[0].session.account, bodies[1].session.account);
+  assert.notEqual(bodies[0].accessToken, bodies[1].accessToken);
   const local = await f.local(); const link = await f.complete(await f.launch(await f.begin({ token: local.token })), { subject });
   const response = await f.exchange(link); assert.equal(response.status, 409); assert.deepEqual(await response.json(), { error: { code: 'SOOP_LINK_CONFLICT' } });
   assert.equal(await f.db.transactions.read(tx => tx.prisma.platform_soop.count({ where: { user_id: local.userId } })), 0);

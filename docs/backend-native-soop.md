@@ -75,6 +75,10 @@ the required handoff. No plaintext session credential is persisted.
 
 The private native repository uses Prisma CRUD. Its only raw SQL exceptions are
 fixed, bound current-row locks by transaction ID/state digest/launch digest.
+The stage projection comes directly from that locking read, so it does not
+establish a repeatable-read snapshot before a concurrent first-login account is
+registered; the later own-account DTO can see the newly committed canonical
+account. A deterministic two-request regression forces this ordering.
 `SessionRepository.boundNative` uses a fixed, bound joined session/account lock
 for fresh session, account status, DB-clock recent-auth, consent and generation
 checks. These checks and protected mutations share the caller transaction.
