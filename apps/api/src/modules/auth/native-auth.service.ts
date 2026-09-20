@@ -139,6 +139,7 @@ export class NativeAuthService {
       await this.transactions.write(async tx => {
         const row = await this.repository.lock(tx, { id: claim.id }, this.config.audience); const now = await tx.now(); this.active(row, now);
         if (row.status !== 'PROCESSING' || row.completion_digest) throw new ApiError('NATIVE_CALLBACK_FAILED', 400);
+        await this.identities.check(tx, identity);
         await this.binding(tx, row);
         await this.repository.update(tx, row.id, { verifier: Buffer.alloc(0), identity_payload: this.seal(identity, row.id, 'identity'),
           completion_digest: new Uint8Array(digest(completion)), completion_expires: new Date(now.getTime() + 120000) });
@@ -158,8 +159,9 @@ export class NativeAuthService {
               !row.completion_expires || row.completion_expires <= now || !row.identity_payload ||
               !equalDigest(input.code, Buffer.from(row.completion_digest)) ||
               createHash('sha256').update(input.codeVerifier).digest('base64url') !== row.app_challenge) throw new ApiError('NATIVE_CALLBACK_FAILED', 400);
-          await this.binding(tx, row, credentials, true);
           const identity = this.open(row.identity_payload, row.id, 'identity') as VerifiedIdentity;
+          await this.identities.check(tx, identity);
+          await this.binding(tx, row, credentials, true);
           let userId: string;
           try { userId = await this.identities.resolve(tx, identity, row.intent === 'link' ? row.user_id! : undefined); }
           catch (error) { if (error instanceof ApiError && error.code === 'CONFLICT') throw new ApiError('SOOP_LINK_CONFLICT', 409); throw error; }
@@ -167,7 +169,7 @@ export class NativeAuthService {
           const issued = await this.sessions.issueNative(tx, userId, input.clientId);
           if (row.session_id) await this.logins.revokeSession(tx, row.session_id);
           const session = await this.sessions.nativeSession(tx, issued.token, input.clientId);
-          await this.repository.update(tx, row.id, { status: 'SUCCEEDED', completion_digest: null, identity_payload: null });
+          await this.repository.update(tx, row.id, { status: 'SUCCEEDED', user_id: userId, completion_digest: null, identity_payload: null });
           return { tokenType: 'Bearer', accessToken: issued.token, expiresAt: session.expiresAt, session };
         });
       } catch (error) {

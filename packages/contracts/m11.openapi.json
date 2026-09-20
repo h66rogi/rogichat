@@ -1,0 +1,539 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "로기챗 own read state and notifications",
+    "version": "1.0.0",
+    "description": "Own-state endpoints. WEB mutations require the existing same-origin Origin and x-csrf-token proof with session cookie. Native Bearer requests require X-Rogi-Client ios or android and forbid cookies, Origin and CSRF headers. Malformed or mixed credentials return 400; Origin checks may precede session checks. Native preference read/disable and read-state are supported. Native enable requires a configured provider and current session-bound native enrollment; separate native-push endpoints are documented in the full runtime OpenAPI. These Web Push registration/removal endpoints remain WEB-only. Queue ACK is not notification receipt or read proof."
+  },
+  "security": [
+    {
+      "WebSession": []
+    },
+    {
+      "NativeBearer": [],
+      "NativeClient": []
+    }
+  ],
+  "paths": {
+    "/v1/rooms/{roomId}/read-state": {
+      "parameters": [
+        {
+          "name": "roomId",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "get": {
+        "operationId": "getOwnReadState",
+        "description": "Recent bounded snapshot of at most 100 saved stream positions, reauthorized and filtered to readable message UUIDs. Omission does not mean unread. No pagination.",
+        "responses": {
+          "200": {
+            "description": "Own current-period display progress and context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnReadStates"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST"
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          },
+          "403": {
+            "description": "SOOP_LINK_REQUIRED"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        }
+      },
+      "put": {
+        "operationId": "putOwnReadState",
+        "description": "Report a newly displayed authorized message; same-period state advances monotonically. A saved message that is now hidden projects null.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadStateInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Currently readable saved position",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnReadState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST"
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          },
+          "403": {
+            "description": "FORBIDDEN or SOOP_LINK_REQUIRED"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          },
+          "409": {
+            "description": "CONFLICT: stale read context"
+          }
+        }
+      }
+    },
+    "/v1/me/push-capabilities": {
+      "get": {
+        "operationId": "getPushCapabilities",
+        "description": "Current session/account, verified SOOP and current terms required. No-store; native or unconfigured Web Push returns available false. Enrollment capability is not enqueue or delivery success.",
+        "responses": {
+          "200": {
+            "description": "Persisted own state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushCapabilities"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST"
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          },
+          "403": {
+            "description": "FORBIDDEN"
+          },
+          "503": {
+            "description": "AUTH_UNAVAILABLE"
+          }
+        }
+      }
+    },
+    "/v1/me/notification-preferences": {
+      "get": {
+        "operationId": "getNotificationPreferences",
+        "description": "Own persisted account preference; missing state means false, generation 1.",
+        "responses": {
+          "200": {
+            "description": "Persisted own state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST"
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          }
+        }
+      },
+      "put": {
+        "operationId": "putNotificationPreferences",
+        "description": "Change own account preference with current GET generation as expectedGeneration; stale writes return CONFLICT. Changes increment its generation. Native enable requires verified SOOP/current terms, a configured provider and a current native subscription bound to this session and account generation; missing or stale binding returns CONFLICT. Clients obtain OS permission and register before explicit enable. Unconfigured providers return AUTH_UNAVAILABLE; disabling always remains available.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationPreferencesInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Persisted own state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferences"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST"
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          },
+          "403": {
+            "description": "FORBIDDEN"
+          },
+          "409": {
+            "description": "CONFLICT: stale or exhausted generation"
+          },
+          "503": {
+            "description": "AUTH_UNAVAILABLE"
+          }
+        }
+      }
+    },
+    "/v1/me/push-subscriptions": {
+      "post": {
+        "operationId": "registerWebPushSubscription",
+        "description": "WEB sessions only. New endpoints omit generation; rotations and rebindings require current CAS generation. A generation-free retry returns the exact current active same-session binding without mutation only when endpoint/keys and account generation all match. A new session on the same account may rebind; cross-account endpoints return NOT_FOUND even after revoke. On account switch unsubscribe and obtain a new provider endpoint. Responses never echo endpoint or keys.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscriptionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Persisted own state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscription"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_REQUEST"
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          },
+          "403": {
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          },
+          "409": {
+            "description": "CONFLICT: missing or stale generation, endpoint creation race"
+          },
+          "503": {
+            "description": "AUTH_UNAVAILABLE"
+          }
+        }
+      }
+    },
+    "/v1/me/push-subscriptions/{id}": {
+      "parameters": [
+        {
+          "name": "id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          }
+        }
+      ],
+      "delete": {
+        "operationId": "removeWebPushSubscription",
+        "description": "Only current owning WEB session may revoke. Matching generation is mandatory; first revocation increments it and retains a tombstone to prevent stale registration revival. An exact repeat with the original generation succeeds only while that same-session tombstone is exactly one generation ahead; an active replacement rejects the stale removal.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionGenerationInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Revoked; empty response"
+          },
+          "400": {
+            "description": "INVALID_REQUEST"
+          },
+          "401": {
+            "description": "UNAUTHENTICATED"
+          },
+          "403": {
+            "description": "FORBIDDEN"
+          },
+          "404": {
+            "description": "NOT_FOUND: unknown or different session/account binding"
+          },
+          "409": {
+            "description": "CONFLICT: stale generation"
+          },
+          "503": {
+            "description": "AUTH_UNAVAILABLE: native push unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "WebSession": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-rogi_session",
+        "description": "Hosted cookie name; local development uses rogi_session."
+      },
+      "NativeBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      },
+      "NativeClient": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Rogi-Client",
+        "description": "Exactly ios or android."
+      }
+    },
+    "schemas": {
+      "ReadStateInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "messageId",
+          "readContext"
+        ],
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "readContext": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$",
+            "description": "Opaque current-session/account/room/membership-period context. Discard queued updates on CONFLICT and obtain a fresh context before reporting newly displayed messages."
+          }
+        }
+      },
+      "OwnReadState": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "messageId"
+        ],
+        "properties": {
+          "messageId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+            "nullable": true
+          }
+        }
+      },
+      "OwnReadStates": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "readContext",
+          "items"
+        ],
+        "properties": {
+          "readContext": {
+            "type": "string",
+            "minLength": 43,
+            "maxLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$",
+            "description": "Opaque current-session/account/room/membership-period context. Discard queued updates on CONFLICT and obtain a fresh context before reporting newly displayed messages."
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "messageId"
+              ],
+              "properties": {
+                "messageId": {
+                  "type": "string",
+                  "format": "uuid",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                  "nullable": true
+                }
+              }
+            }
+          }
+        }
+      },
+      "PushCapabilities": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              }
+            },
+            "required": [
+              "available"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "available": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "applicationServerKey": {
+                "type": "string",
+                "pattern": "^B[A-P][A-Za-z0-9_-]{84}[AEIMQUYcgkosw048]$"
+              }
+            },
+            "required": [
+              "available",
+              "applicationServerKey"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "NotificationPreferences": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pushEnabled",
+          "generation"
+        ],
+        "properties": {
+          "pushEnabled": {
+            "type": "boolean"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "description": "Canonical positive uint64 decimal, maximum 18446744073709551615."
+          }
+        }
+      },
+      "NotificationPreferencesInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pushEnabled",
+          "expectedGeneration"
+        ],
+        "properties": {
+          "pushEnabled": {
+            "type": "boolean"
+          },
+          "expectedGeneration": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "description": "Canonical positive uint64 decimal, maximum 18446744073709551615."
+          }
+        }
+      },
+      "PushSubscription": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "generation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "description": "Canonical positive uint64 decimal, maximum 18446744073709551615."
+          }
+        }
+      },
+      "PushSubscriptionInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "endpoint",
+          "keys"
+        ],
+        "properties": {
+          "endpoint": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048,
+            "description": "HTTPS Web Push provider endpoint; strict destination policy applies."
+          },
+          "generation": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "description": "Canonical positive uint64 decimal, maximum 18446744073709551615."
+          },
+          "keys": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "p256dh",
+              "auth"
+            ],
+            "properties": {
+              "p256dh": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{86}[AEIMQUYcgkosw048]$",
+                "description": "Canonical base64url uncompressed P-256 curve point."
+              },
+              "auth": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{21}[AQgw]$",
+                "description": "Canonical base64url 16-byte auth secret."
+              }
+            }
+          }
+        }
+      },
+      "SubscriptionGenerationInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "generation"
+        ],
+        "properties": {
+          "generation": {
+            "type": "string",
+            "pattern": "^[1-9][0-9]{0,19}$",
+            "description": "Canonical positive uint64 decimal, maximum 18446744073709551615."
+          }
+        }
+      }
+    }
+  }
+}

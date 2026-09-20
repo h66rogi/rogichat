@@ -1,3 +1,4 @@
+import { MembershipScopeModule } from '../membership-scope/membership-scope.module.js';
 import { RoomStateModule } from './room-state.module.js';
 import { Module } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
@@ -13,7 +14,7 @@ import { PrivateRecipientsCoreService } from './private-recipients-core.service.
 @Module({})
 export class RoomsModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule): DynamicModule {
-    return { module: RoomsModule, imports: [infrastructure, authentication, RoomStateModule, RoomMediaCoreModule, AccessModule],
+    return { module: RoomsModule, imports: [infrastructure, authentication, MembershipScopeModule.register(authentication), RoomStateModule, RoomMediaCoreModule, AccessModule],
       controllers: [RoomsController], providers: [RoomsRepository, RoomsCoreService, RoomsService, PrivateRecipientsRepository, PrivateRecipientsCoreService] };
   }
 }

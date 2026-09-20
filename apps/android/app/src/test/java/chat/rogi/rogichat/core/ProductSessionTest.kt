@@ -22,7 +22,7 @@ class ProductSessionTest {
         assertNull(services.session.value.account)
         assertTrue(services.actions.providers.isEmpty())
         assertFalse(services.actions.canLinkSoop)
-        assertFalse(services.actions.canCloseAccount)
+        assertNull(services.deletion)
         assertNotNull(services.profiles)
         assertNull(services.rooms)
     }
@@ -50,8 +50,7 @@ class ProductSessionTest {
                 calls++; gate.await(); return Result.failure(IllegalStateException("sensitive detail"))
             }
             override suspend fun linkSoop() = Result.success(Unit)
-            override suspend fun signOut() = Result.success(Unit)
-            override suspend fun closeAccount() = Result.success(Unit)
+            override suspend fun signOut(expected: SessionIdentity?) = Result.success(Unit)
             override suspend fun restore() = Result.success(Unit)
         }
         val model = SessionViewModel(ProductServices(session, actions), this)
@@ -76,12 +75,11 @@ class ProductSessionTest {
                 return Result.failure(CancellationException("user cancelled"))
             }
             override suspend fun linkSoop(): Result<Unit> = error("unsupported operation")
-            override suspend fun signOut(): Result<Unit> = error("unsupported operation")
-            override suspend fun closeAccount(): Result<Unit> = error("unsupported operation")
+            override suspend fun signOut(expected: SessionIdentity?): Result<Unit> = error("unsupported operation")
             override suspend fun restore(): Result<Unit> = error("unsupported operation")
         }
         val model = SessionViewModel(ProductServices(MutableStateFlow(SessionSnapshot()), actions), this)
-        model.linkSoop(); model.signOut(); model.closeAccount(); model.restore()
+        model.linkSoop(); model.signOut(); model.restore()
         model.signIn(SignInProvider.APPLE)
         yield()
         assertFalse(model.state.value.busy)
@@ -104,8 +102,7 @@ class ProductSessionTest {
             override val canRestore = true
             override suspend fun signIn(provider: SignInProvider): Result<Unit> = error("unsupported")
             override suspend fun linkSoop(): Result<Unit> = error("unsupported")
-            override suspend fun signOut(): Result<Unit> = error("unsupported")
-            override suspend fun closeAccount(): Result<Unit> = error("unsupported")
+            override suspend fun signOut(expected: SessionIdentity?): Result<Unit> = error("unsupported")
             override suspend fun restore(): Result<Unit> { restores++; return Result.success(Unit) }
         }
         val model = SessionViewModel(ProductServices(MutableStateFlow(SessionSnapshot(ShellAccess.RESTORING)), actions), backgroundScope)

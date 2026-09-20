@@ -1,11 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { WifiOff } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { useMediaScope } from '@/features/media/session-ui';
+import { PhotoDraftComposer } from './ChatMedia';
+import { StickerPicker } from './StickerPicker';
 import { cn } from '@/shared/lib/cn';
 
+import type { ComposerStore } from './chat-memory';
 import { ChatComposer } from './ChatComposer';
 import type { ChatComposerNotice } from './ChatComposer';
 import { ChatTimeline } from './ChatTimeline';
@@ -51,6 +56,8 @@ export interface ChatRoomViewProps {
    * Changing it resets drafts, quote, target, notices and scroll position.
    */
   conversationScopeKey: string;
+  composerMemory?: ComposerStore | undefined;
+  composerEpoch?: number | undefined;
   roomName: string;
   viewer: ChatActorRef;
   viewerRole: ChatViewerRole;
@@ -64,6 +71,7 @@ export interface ChatRoomViewProps {
   initialTarget?: ChatComposerTarget | undefined;
   /** Absent means sending is not wired yet; the composer says so instead of pretending. */
   onSubmit?: ((submission: ChatComposerSubmission) => ChatSubmitResult | Promise<ChatSubmitResult>) | undefined;
+  submitBlockedReason?: string | undefined;
   onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   actionNotice?: string | undefined;
   onLoadOlder?: (() => void | Promise<void>) | undefined;
@@ -83,6 +91,7 @@ const EMPTY_RECIPIENTS: readonly ChatActorRef[] = [];
 
 function ScopedChatRoom({
   conversationScopeKey,
+  composerMemory, composerEpoch,
   roomName,
   viewer,
   viewerRole,
@@ -92,6 +101,7 @@ function ScopedChatRoom({
   streamerRecipients = EMPTY_RECIPIENTS,
   initialTarget,
   onSubmit,
+  submitBlockedReason,
   onLoadOlder,
   onDelete,
   actionNotice,
@@ -100,6 +110,10 @@ function ScopedChatRoom({
   connectionNotice,
   className,
 }: ChatRoomViewProps) {
+  const media = useMediaScope();
+  const [photoTargets, setPhotoTargets] = useState<Record<string, ChatComposerTarget>>({});
+  const [videoTarget, setVideoTarget] = useState<ChatComposerTarget | null>(null);
+  const [stickerTarget, setStickerTarget] = useState<ChatComposerTarget | null>(null);
   const permittedFans = useMemo(() => fanRecipients ?? (fanRecipient ? [fanRecipient] : EMPTY_RECIPIENTS), [fanRecipients, fanRecipient]);
   const authorization = useMemo(
     () => ({ viewerRole, fanRecipient, fanRecipients: permittedFans, streamerRecipients }),
@@ -116,10 +130,13 @@ function ScopedChatRoom({
   const defaultTarget = viewerRole === 'FAN' && targetOptions.length !== 1 ? null : targetOptions[0] ?? null;
 
   const [requestedTarget, setRequestedTarget] = useState<ChatComposerTarget | null>(() => {
+    const parked = composerMemory?.getComposer().target;
+    if (parked && isAuthorizedTarget(parked, authorization)) return parked;
     if (initialTarget && isAuthorizedTarget(initialTarget, authorization)) return initialTarget;
     return defaultTarget;
   });
-  const [drafts, setDrafts] = useState<ChatDrafts>({});
+  const [drafts, setDrafts] = useState<ChatDrafts>(() => composerMemory?.getComposer().drafts ?? {});
+  useLayoutEffect(() => { if (composerEpoch !== undefined) composerMemory?.saveComposer(drafts, requestedTarget, composerEpoch); }, [composerMemory, composerEpoch, drafts, requestedTarget]);
   /** Draft key whose send is pending, or null. */
   const [submittingKey, setSubmittingKey] = useState<ChatDraftKey | null>(null);
   /** Result/guidance per draft key, so a late result lands on the target it belongs to. */
@@ -191,7 +208,7 @@ function ScopedChatRoom({
     (value: string) => {
       if (!draftKeyTarget || !currentKey) return;
       commitTarget();
-      setDrafts((prev) => writeDraft(prev, draftKeyTarget, { body: value }));
+      setDrafts((prev) => writeDraft(prev, draftKeyTarget, { body: value, retryCommandId: undefined }));
       setNoticeFor(currentKey, null);
     },
     [draftKeyTarget, currentKey, commitTarget, setNoticeFor],
@@ -219,16 +236,17 @@ function ScopedChatRoom({
       setNoticeFor(currentKey, { tone: 'info', text: '보내는 중에는 인용을 바꿀 수 없습니다.' });
       return;
     }
-    setDrafts((prev) => writeDraft(prev, draftKeyTarget, { quote: null }));
+    setDrafts((prev) => writeDraft(prev, draftKeyTarget, { quote: null, retryCommandId: undefined }));
   }, [draftKeyTarget, currentKey, isSubmittingCurrent, setNoticeFor]);
 
   const handleReplyPrivate = useCallback(
     (item: ChatMessageItemModel) => {
+      if (!item.allowedActions?.reply) return;
       const quote = { messageId: item.id, authorName: item.author.displayName, excerpt: truncateExcerpt(item.body) };
 
-      const recipient = (viewerRole === 'FAN' ? permittedFans : streamerRecipients).find((r) => r.actorId === item.author.actorId);
+      const recipient = (viewerRole === 'FAN' ? permittedFans : streamerRecipients).find((r) => r.actorId === (item.scope === 'PRIVATE' ? item.counterpartActorId : item.author.actorId));
       if (!recipient) {
-        if (currentKey) setNoticeFor(currentKey, { tone: 'error', text: `${item.author.displayName}님에게는 지금 개인 답장을 보낼 수 없습니다.` });
+        if (currentKey) setNoticeFor(currentKey, { tone: 'error', text: `${item.recipient?.displayName ?? (item.isOwn ? '상대방' : item.author.displayName)}님에게는 지금 개인 답장을 보낼 수 없습니다.` });
         return;
       }
       const next: ChatComposerTarget = { scope: 'PRIVATE', recipient };
@@ -240,13 +258,13 @@ function ScopedChatRoom({
         return;
       }
       if (!isSameTarget(next, requestedTarget)) changeTarget(next);
-      setDrafts((prev) => writeDraft(prev, next, { quote }));
+      setDrafts((prev) => writeDraft(prev, next, { quote, retryCommandId: undefined }));
     },
     [viewerRole, permittedFans, currentKey, streamerRecipients, requestedTarget, changeTarget, submittingKey, setNoticeFor],
   );
 
   const handleSubmit = useCallback(() => {
-    if (!onSubmit || target === null || currentKey === null) return;
+    if (!onSubmit || submitBlockedReason || target === null || currentKey === null) return;
     if (submittingKey !== null) {
       if (submittingKey !== currentKey) setNoticeFor(currentKey, { tone: 'info', text: '다른 메시지를 보내는 중입니다. 끝나면 다시 시도해 주세요.' });
       return;
@@ -256,6 +274,7 @@ function ScopedChatRoom({
     if (!body) return;
     const quoteId = submittedDraft.quote?.messageId;
     const submission: ChatComposerSubmission = quoteId ? { target, body, quoteMessageId: quoteId } : { target, body };
+    if (submittedDraft.retryCommandId) submission.retryCommandId = submittedDraft.retryCommandId;
     const submittedTarget = target;
     const submittedKey = currentKey;
 
@@ -276,6 +295,11 @@ function ScopedChatRoom({
         setDrafts((prev) => (prev[submittedKey] === submittedDraft ? clearDraft(prev, submittedTarget) : prev));
       }
 
+      if (!result.accepted && result.retryCommandId) {
+        const retryCommandId = result.retryCommandId;
+        setDrafts(prev => prev[submittedKey] === submittedDraft ? writeDraft(prev, submittedTarget, { retryCommandId }) : prev);
+      }
+
       const resultNotice: ChatComposerNotice | null = result.accepted
         ? result.note
           ? { tone: 'info', text: result.note }
@@ -293,7 +317,7 @@ function ScopedChatRoom({
         );
       }
     })();
-  }, [onSubmit, target, currentKey, submittingKey, drafts, setNoticeFor]);
+  }, [onSubmit, submitBlockedReason, target, currentKey, submittingKey, drafts, setNoticeFor]);
 
   const canReply = viewerRole === 'FAN' ? permittedFans.length > 0 : streamerRecipients.length > 0;
 
@@ -346,7 +370,32 @@ function ScopedChatRoom({
         notice={notice}
         announcement={announcement}
         disabled={onSubmit === undefined}
+        submitBlockedReason={submitBlockedReason}
       />
+      {onSubmit && <div className="border-t border-line px-3 py-2">
+        <Button type="button" variant="outline" disabled={!target || !media?.configured || (Object.keys(photoTargets).length >= 2 && !photoTargets[draftKeyFor(target)])} onClick={() => {
+          if (target) { commitTarget(); setPhotoTargets(previous => previous[draftKeyFor(target)] || Object.keys(previous).length < 2 ? { ...previous, [draftKeyFor(target)]: target } : previous); }
+        }}>사진 첨부</Button>
+        <Button type="button" className="ml-2" variant="outline" disabled={!target || !media?.configured} onClick={() => {
+          if (target) { commitTarget(); setStickerTarget(target); }
+        }}>스티커 선택</Button>
+        <Button type="button" className="ml-2" variant="outline" disabled={!target || !media?.configured} onClick={() => {
+          if (target) { commitTarget(); setVideoTarget(target); }
+        }}>영상 첨부</Button>
+        {Object.keys(photoTargets).length >= 2 && <p className="text-sm text-muted">사진 첨부는 두 대화까지 유지됩니다. 다른 사진을 준비하려면 열어 둔 첨부를 닫아 주세요.</p>}
+        {!media?.configured && <p className="text-sm text-muted">지금은 사진 첨부를 사용할 수 없습니다.</p>}
+      </div>}
+      {onSubmit && videoTarget && isAuthorizedTarget(videoTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(videoTarget) !== currentKey}>
+        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setVideoTarget(null)} />
+      </div>}
+      {onSubmit && stickerTarget && isAuthorizedTarget(stickerTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(stickerTarget) !== currentKey}>
+        <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setStickerTarget(null)} />
+      </div>}
+      {onSubmit && Object.entries(photoTargets).filter(([, value]) => isAuthorizedTarget(value, authorization)).map(([key, value]) => <div key={key} hidden={key !== currentKey} className="max-h-96 overflow-y-auto">
+        <PhotoDraftComposer target={value} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setPhotoTargets(previous => {
+          const next = { ...previous }; delete next[key]; return next;
+        })} />
+      </div>)}
     </section>
   );
 }

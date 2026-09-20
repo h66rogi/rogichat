@@ -1,13 +1,15 @@
 import { Agent } from 'node:https';
 import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, S3ServiceException, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ConfigurationError } from '../../../infrastructure/config/config.js';
 
 export interface MediaStore {
   put(key: string, path: string, bytes: number, contentType: string, signal: AbortSignal): Promise<void>;
   read(key: string, signal: AbortSignal): Promise<{ stream: Readable; bytes: number }>;
+  // Resolves only after direct storage read-back proves this immutable key absent.
+  // Point-in-time proof; callers still own late-writer guards and lease fences.
   remove(key: string, signal: AbortSignal): Promise<void>;
   signedGet(key: string): Promise<string>;
 }
@@ -71,7 +73,51 @@ export class R2MediaStore implements MediaStore {
     return { stream: response.Body, bytes: response.ContentLength! };
   }
   async remove(key: string, signal: AbortSignal): Promise<void> {
-    await this.client.send(new DeleteObjectCommand({ Bucket: this.config.bucket, Key: this.key(key) }), { abortSignal: signal });
+    const input = { Bucket: this.config.bucket, Key: this.key(key) };
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    const timeout = setTimeout(abort, 30_000);
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) abort();
+    let rejectAborted: () => void = () => {};
+    const aborted = new Promise<never>((_, reject) => {
+      rejectAborted = () => reject(new Error('media_absence_unverified'));
+      controller.signal.addEventListener('abort', rejectAborted, { once: true });
+    });
+    const verify = async () => {
+      controller.signal.throwIfAborted();
+      try {
+        await this.client.send(new DeleteObjectCommand(input), { abortSignal: controller.signal });
+      } catch (error) {
+        // A lost ACK can be recovered by read-back, but an explicit client/write
+        // rejection must never be converted to successful cleanup.
+        if (error instanceof Error && ['AccessDenied', 'Forbidden', 'InvalidAccessKeyId', 'SignatureDoesNotMatch'].includes(error.name)) throw error;
+        if (error instanceof S3ServiceException && error.$metadata.httpStatusCode !== undefined &&
+          error.$metadata.httpStatusCode >= 400 && error.$metadata.httpStatusCode < 500) throw error;
+      }
+      controller.signal.throwIfAborted();
+      try {
+        await this.client.send(new HeadObjectCommand(input), { abortSignal: controller.signal });
+      } catch (error) {
+        controller.signal.throwIfAborted();
+        if (!(error instanceof S3ServiceException) || error.$metadata.httpStatusCode !== 404 ||
+          !['NotFound', 'NoSuchKey'].includes(error.name)) throw error;
+        // HEAD has no error body and can conflate an absent bucket with an absent
+        // object. Never cache this existence proof or broaden credentials for it.
+        const bucket = await this.client.send(new HeadBucketCommand({ Bucket: input.Bucket }), { abortSignal: controller.signal });
+        controller.signal.throwIfAborted();
+        if (bucket.$metadata.httpStatusCode !== 200) throw error;
+        return;
+      }
+      throw new Error(); // Any successful HEAD means the object still exists.
+    };
+    try { await Promise.race([verify(), aborted]); controller.signal.throwIfAborted(); }
+    catch { throw new Error('media_absence_unverified'); }
+    finally {
+      clearTimeout(timeout);
+      signal.removeEventListener('abort', abort);
+      controller.signal.removeEventListener('abort', rejectAborted);
+    }
   }
   signedGet(key: string): Promise<string> {
     // Local signing only; caller must authorize immediately before this operation. No presigned PUT API.

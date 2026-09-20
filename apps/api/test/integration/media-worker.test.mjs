@@ -1,20 +1,13 @@
-import 'reflect-metadata';
-import { Module } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { Transactions } from '../../dist/infrastructure/database/transactions.js';
-import { MediaWorkerModule } from '../../dist/modules/media/media-worker.module.js';
-import { MediaWorkerService } from '../../dist/modules/media/media-worker.service.js';
-import { RecoveryMediaWorkerService } from '../../dist/modules/media/recovery-media-worker.service.js';
-import { MediaSpooler } from '../../dist/common/media/media-spool.js';
 import { createUser, createRoom, joinRoom, reserveMedia, beginUpload, finishUpload, failUpload, prepareMedia, processMedia, recoverMedia, enqueueJob } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MediaWorkerRepository } from '../../dist/modules/media/media-worker.repository.js';
 import { JobsCoreService } from '../../dist/modules/jobs/jobs-core.service.js';
 import { JobsRepository } from '../../dist/modules/jobs/jobs.repository.js';
+import { R2MediaStore } from '../../dist/modules/media/adapters/media-store.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 
 const MiB = 1024 * 1024;
@@ -150,7 +143,7 @@ for (const kind of ['PHOTO', 'VIDEO']) test(`${kind}: two concurrent MEDIA jobs 
   assert.equal(BigInt(after.asset.reserved_bytes) - BigInt(before.asset.reserved_bytes), BigInt((kind === 'VIDEO' ? 52 : 10) * MiB));
 });
 
-test('owner deletion committed during external PUT wins READY race; young objects defer cleanup without freeing quota', { timeout: 20000 }, async t => {
+test('owner deletion committed during external PUT wins READY race; actual late PUT acknowledgement permits later ordered cleanup', { timeout: 20000 }, async t => {
   const f = await fixture(t); const attempt = await f.processing(); const lease = await f.lease(attempt.assetId);
   const entered = barrier(), resume = barrier(); f.hooks.put = async () => { entered.release(); await resume.wait; };
   const running = f.process(lease); await entered.wait;
@@ -162,17 +155,16 @@ test('owner deletion committed during external PUT wins READY race; young object
   delete f.hooks.put;
   assert.equal(await f.process(lease), 'completed');
   const after = await f.inspect(attempt.assetId);
-  assert.equal(after.asset.state, 'DELETING'); assert.equal(after.reserved, before.reserved); assert.equal(f.calls.remove.length, 0);
-  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 1);
+  assert.equal(after.asset.state, 'DELETED'); assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes)); assert.ok(f.calls.remove.length > 0);
+  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 0);
   assert.equal(after.jobs.filter(job => job.state === 'COMPLETED').length, 1);
 });
 
 test('external deletion failure retains reservation; successful cleanup releases it once and atomically completes the job', { timeout: 20000 }, async t => {
   const f = await fixture(t); const attempt = await f.processing(); const first = await f.lease(attempt.assetId);
-  f.hooks.put = () => f.expire(first); assert.equal(await f.process(first), 'lease_lost'); delete f.hooks.put;
   await f.txs.write(tx => tx.execute("UPDATE media_assets SET state='DELETING',deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [attempt.assetId]));
   await f.age(attempt.assetId); const lease = await f.lease(attempt.assetId, first.id); const before = await f.inspect(attempt.assetId);
-  let removals = 0; f.hooks.remove = () => { if (++removals === 2) throw new Error('synthetic-storage-unavailable'); };
+  let removals = 0; f.hooks.remove = () => { if (++removals === 1) throw new Error('synthetic-storage-unavailable'); };
   await assert.rejects(f.process(lease), /synthetic-storage-unavailable/);
   let after = await f.inspect(attempt.assetId);
   assert.equal(after.reserved, before.reserved); assert.equal(after.asset.state, 'DELETING'); assert.equal(after.objects.some(object => object.state === 'DELETED'), false);
@@ -185,7 +177,7 @@ test('external deletion failure retains reservation; successful cleanup releases
   assert.equal(await f.process(lease), 'lease_lost'); assert.equal((await f.inspect(attempt.assetId)).reserved, after.reserved);
 });
 
-test('cleanup with an expired completion fence cannot release quota after external DELETE; a fresh lease recovers safely', { timeout: 20000 }, async t => {
+test('cleanup with an expired completion fence retains unknown upload across fresh reconciliation', { timeout: 20000 }, async t => {
   const f = await fixture(t); const attempt = await f.uploading();
   await f.txs.write(tx => failUpload(tx, attempt)); await f.age(attempt.assetId);
   const first = await f.lease(attempt.assetId); const before = await f.inspect(attempt.assetId);
@@ -195,9 +187,10 @@ test('cleanup with an expired completion fence cannot release quota after extern
   assert.equal(after.asset.state, 'DELETING'); assert.equal(after.objects[0].state, 'ALLOCATED'); assert.equal(after.reserved, before.reserved);
   assert.equal(f.objects.size, 0); // Physical deletion is idempotent, DB reservation remains conservative.
   delete f.hooks.remove; const second = await f.lease(attempt.assetId, first.id);
-  assert.equal(await f.process(second), 'completed');
-  after = await f.inspect(attempt.assetId); assert.equal(after.asset.state, 'DELETED');
-  assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes));
+  assert.equal(await f.process(second), 'progress');
+  after = await f.inspect(attempt.assetId); assert.equal(after.asset.state, 'DELETING');
+  assert.equal(after.reserved, before.reserved); assert.equal(after.objects[0].state, 'ALLOCATED');
+  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 1);
 });
 
 test('restart recovery fences expired UPLOADING and abandoned RESERVED assets without releasing quota or duplicating jobs', { timeout: 20000 }, async t => {
@@ -262,7 +255,7 @@ test('an earlier consistent snapshot cannot let recovery delete a newly attached
   assert.equal(retained.asset.state, 'READY'); assert.equal(retained.jobs.length, 0);
 });
 
-test('recovery skips twenty old queued or epoch-exhausted deletions and defers processing only until its live lease expires', { timeout: 20000 }, async t => {
+test('recovery preserves queued work and replaces legacy exhausted deletion identities once and defers processing only until its live lease expires', { timeout: 20000 }, async t => {
   const f = await fixture(t); const expired = await f.uploading(); const processing = await f.processing();
   const active = await f.lease(processing.assetId);
   const oldAssets = [];
@@ -287,7 +280,7 @@ test('recovery skips twenty old queued or epoch-exhausted deletions and defers p
   assert.equal(recovered.asset.state, 'DELETING'); assert.equal(recovered.jobs.length, 1); assert.equal(recovered.reserved, before.reserved);
   assert.equal((await f.inspect(processing.assetId)).asset.state, 'PROCESSING');
   const [oldJobs] = await f.txs.read(tx => tx.rows(`SELECT COUNT(*) AS n FROM jobs WHERE purpose='MEDIA' AND resource_id IN (${oldAssets.map(() => '?').join(',')})`, oldAssets));
-  assert.equal(Number(oldJobs.n), 20);
+  assert.equal(Number(oldJobs.n), 26); // Six legacy failed identities receive one stable asset continuation.
   await f.expire(active); await f.txs.write(recoverMedia);
   recovered = await f.inspect(processing.assetId);
   assert.equal(recovered.asset.state, 'DELETING'); assert.equal(recovered.jobs.length, 2); assert.equal(recovered.reserved, before.reserved);
@@ -330,7 +323,7 @@ for (const failingVariant of ['video', 'poster']) test(`VIDEO unknown ${failingV
   assert.equal(new Set(f.calls.put).size, f.calls.put.length); assert.equal(f.calls.dispose, 4);
 });
 
-test('VIDEO stale generation cannot finalize either output; fresh retry and expired cleanup cannot refund quota', { timeout: 20000 }, async t => {
+test('VIDEO stale generation cannot finalize outputs; expired cleanup rolls back and acknowledged writers later close', { timeout: 20000 }, async t => {
   const f = await fixture(t, 'VIDEO'); const input = await f.processing(); const first = await f.lease(input.assetId);
   let next;
   f.hooks.put = async key => { if (key.endsWith('/poster')) next = await f.lease(input.assetId, first.id); };
@@ -349,6 +342,7 @@ test('VIDEO stale generation cannot finalize either output; fresh retry and expi
   assert.equal(await f.process(current), 'completed'); state = await f.inspect(input.assetId);
   assert.equal(state.asset.state, 'DELETED'); assert.equal(f.objects.size, 0);
   assert.equal(before.reserved - state.reserved, BigInt(before.asset.reserved_bytes));
+  assert.ok(state.objects.every(row => row.state === 'DELETED'));
 });
 
 for (const revoked of ['owner', 'linked', 'membership', 'room', 'asset']) test(`VIDEO fresh ${revoked} revocation during PUT blocks READY`, { timeout: 20000 }, async t => {
@@ -403,16 +397,16 @@ test('VIDEO real DB heartbeat extends its live lease during decoder I/O', { time
   assert.equal(await running, 'completed');
 });
 
-test('VIDEO uncertain poster and young deletion defer cleanup with all quota retained', { timeout: 20000 }, async t => {
+test('VIDEO uncertain poster retains quota even after immediate bounded deletion', { timeout: 20000 }, async t => {
   const f = await fixture(t, 'VIDEO'); const input = await f.processing(); const lease = await f.lease(input.assetId);
   f.hooks.put = key => { if (key.endsWith('/poster')) throw new Error('unknown-put'); };
   await assert.rejects(f.process(lease));
   await f.txs.write(tx => tx.execute("UPDATE media_assets SET state='DELETING',deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [input.assetId]));
   const before = await f.inspect(input.assetId); delete f.hooks.put;
-  assert.equal(await f.process(lease), 'completed'); const after = await f.inspect(input.assetId);
+  assert.equal(await f.process(lease), 'progress'); const after = await f.inspect(input.assetId);
   assert.equal(after.asset.state, 'DELETING'); assert.equal(after.reserved, before.reserved);
-  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 1); assert.equal(f.calls.remove.length, 0);
-  assert.equal(f.objects.size, 3);
+  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 1); assert.equal(f.calls.remove.length, 3);
+  assert.equal(f.objects.size, 0);
 });
 
 
@@ -444,28 +438,144 @@ test('VIDEO poster failure before storage leaves video discoverable and cleanup 
   assert.equal(before.asset.state, 'PROCESSING'); assert.equal(before.objects.filter(row => row.state === 'ALLOCATED').length, 2);
   assert.equal(f.objects.size, 2); assert.equal(f.calls.dispose, 2);
   await f.txs.write(tx => tx.execute("UPDATE media_assets SET state='DELETING',deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [input.assetId]));
-  await f.age(input.assetId); assert.equal(await f.process(lease), 'completed');
+  await f.age(input.assetId); assert.equal(await f.process(lease), 'progress');
   const after = await f.inspect(input.assetId);
-  assert.equal(after.asset.state, 'DELETED'); assert.equal(f.objects.size, 0);
-  assert.equal(f.calls.remove.length, 3); assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes));
+  assert.equal(after.asset.state, 'DELETING'); assert.equal(f.objects.size, 0);
+  assert.equal(f.calls.remove.length, 3); assert.equal(after.reserved, before.reserved);
+  assert.equal(after.objects.filter(row => row.state === 'ALLOCATED').length, 1);
 });
 
 
-test('recovery product worker rejects VIDEO transforms but retains deletion cleanup', async t => {
-  const f = await fixture(t, 'VIDEO'), attempt = await f.processing(), lease = await f.lease(attempt.assetId);
-  class FixtureInfrastructure {}
-  Module({})(FixtureInfrastructure);
-  const infrastructure = { module: FixtureInfrastructure, providers: [{ provide: Transactions, useValue: f.txs }], exports: [Transactions] };
-  const context = await NestFactory.createApplicationContext(MediaWorkerModule.register(infrastructure,
-    { store: f.store, prefix: 'test', spool: new MediaSpooler(), decoderSocket: '/tmp/unused-recovery-fixture.sock' }), { logger: false, abortOnError: false });
-  t.after(() => context.close());
-  const worker = context.get(MediaWorkerService); assert.ok(worker instanceof RecoveryMediaWorkerService);
-  await assert.rejects(worker.processMedia(lease), { code: 'INVALID_RESOURCE' });
-  const state = await f.inspect(attempt.assetId);
-  assert.equal(state.asset.state, 'PROCESSING'); assert.equal(state.objects.filter(row => row.variant !== 'input').length, 0);
-  assert.equal(f.calls.read.length, 0); assert.equal(f.calls.put.length, 0);
-  await f.txs.write(tx => tx.prisma.media_assets.update({ where: { id: attempt.assetId }, data: { state: 'DELETING' } }));
-  await f.age(attempt.assetId);
-  assert.equal(await worker.processMedia(lease), 'completed');
-  assert.equal((await f.inspect(attempt.assetId)).asset.state, 'DELETED');
+// Real cleanup service + real disposable MySQL + actual R2 adapter. Only the
+// SDK HTTP transport is isolated; this does not claim a live cloud deletion.
+for (const uncertainty of ['object-exists', 'object-denied', 'object-throttled', 'object-5xx', 'bucket-absent', 'bucket-denied', 'network', 'abort', 'delete-denied']) {
+  test(`R2 absence proof ${uncertainty} retains cleanup obligations until fresh verified retry`, { timeout: 20000 }, async t => {
+    const f = await fixture(t); const attempt = await f.processing();
+    await f.txs.write(tx => tx.execute("UPDATE media_assets SET state='DELETING',deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [attempt.assetId])); await f.age(attempt.assetId);
+    const first = await f.lease(attempt.assetId); const before = await f.inspect(attempt.assetId);
+    const store = new R2MediaStore({ accountId: randomBytes(16).toString('hex'), bucket: 'fixture-private', accessKeyId: randomBytes(16).toString('hex'), secretAccessKey: randomBytes(32).toString('hex'), prefix: 'test' });
+    t.after(() => store.close());
+    let verified = false; const requests = [];
+    store.client.config.requestHandler = { async handle(request) {
+      requests.push(request.method);
+      const bucketHead = request.path === '/fixture-private/';
+      assert.equal(request.path, bucketHead ? '/fixture-private/' : `/fixture-private/${attempt.key}`);
+      let statusCode = 204;
+      if (request.method === 'DELETE') {
+        if (!verified && uncertainty === 'delete-denied') statusCode = 403;
+        else { f.objects.delete(attempt.key); if (verified) throw new Error('lost DELETE ACK'); }
+      } else if (bucketHead) {
+        statusCode = !verified && uncertainty === 'bucket-absent' ? 404 : !verified && uncertainty === 'bucket-denied' ? 403 : 200;
+      } else {
+        if (!verified && uncertainty === 'network') throw new Error('synthetic private network failure');
+        statusCode = verified ? 404 : ({ 'object-exists': 200, 'object-denied': 403, 'object-throttled': 429, 'object-5xx': 503 }[uncertainty] ?? 404);
+      }
+      return { response: { statusCode, headers: {}, body: new Uint8Array() } };
+    }, destroy() {} };
+    f.store.remove = (key, signal) => store.remove(key, !verified && uncertainty === 'abort' ? AbortSignal.abort() : signal);
+    await assert.rejects(f.process(first), { message: 'media_absence_unverified' });
+    const uncertain = await f.inspect(attempt.assetId);
+    assert.equal(uncertain.asset.state, 'DELETING'); assert.equal(uncertain.asset.reserved_bytes, before.asset.reserved_bytes);
+    assert.deepEqual(uncertain.objects, before.objects); assert.equal(uncertain.reserved, before.reserved);
+    assert.equal(uncertain.jobs.length, 1); assert.equal(uncertain.jobs[0].state, 'RUNNING');
+    verified = true;
+    const next = await f.lease(attempt.assetId, first.id);
+    assert.equal(await f.process(next), 'completed');
+    const after = await f.inspect(attempt.assetId);
+    assert.equal(after.asset.state, 'DELETED'); assert.ok(after.objects.every(row => row.state === 'DELETED'));
+    assert.equal(after.jobs[0].state, 'COMPLETED'); assert.equal(f.objects.size, 0);
+    assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes));
+    const count = requests.length;
+    assert.equal(await f.process(first), 'lease_lost'); assert.equal(await f.process(next), 'lease_lost');
+    assert.equal((await f.inspect(attempt.assetId)).reserved, after.reserved); assert.equal(requests.length, count);
+  });
+}
+
+test('verified R2 absence still cannot release quota under an expired completion lease', { timeout: 20000 }, async t => {
+  const f = await fixture(t); const attempt = await f.processing();
+  await f.txs.write(tx => tx.execute("UPDATE media_assets SET state='DELETING',deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [attempt.assetId])); await f.age(attempt.assetId);
+  const first = await f.lease(attempt.assetId); const before = await f.inspect(attempt.assetId);
+  const store = new R2MediaStore({ accountId: randomBytes(16).toString('hex'), bucket: 'fixture-private', accessKeyId: randomBytes(16).toString('hex'), secretAccessKey: randomBytes(32).toString('hex'), prefix: 'test' });
+  t.after(() => store.close()); let expire = true;
+  store.client.config.requestHandler = { async handle(request) {
+    const bucketHead = request.path === '/fixture-private/';
+    assert.equal(request.path, bucketHead ? '/fixture-private/' : `/fixture-private/${attempt.key}`);
+    if (bucketHead && expire) await f.expire(first);
+    if (request.method === 'DELETE') f.objects.delete(attempt.key);
+    return { response: { statusCode: request.method === 'DELETE' ? 204 : bucketHead ? 200 : 404, headers: {}, body: new Uint8Array() } };
+  }, destroy() {} };
+  f.store.remove = store.remove.bind(store);
+  assert.equal(await f.process(first), 'lease_lost');
+  const fenced = await f.inspect(attempt.assetId);
+  assert.equal(fenced.asset.state, 'DELETING'); assert.deepEqual(fenced.objects, before.objects); assert.equal(fenced.reserved, before.reserved);
+  expire = false; const next = await f.lease(attempt.assetId, first.id);
+  assert.equal(await f.process(next), 'completed');
+  const after = await f.inspect(attempt.assetId);
+  assert.equal(after.asset.state, 'DELETED'); assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes));
+});
+
+test('unknown original PUT completing after DELETE/404 stays registered across restart reconciliation', { timeout: 20000 }, async t => {
+  const f = await fixture(t); const attempt = await f.uploading();
+  await f.txs.write(tx => failUpload(tx, attempt)); await f.age(attempt.assetId);
+  const first = await f.lease(attempt.assetId), before = await f.inspect(attempt.assetId);
+  await f.process(first); const observedAbsent = await f.inspect(attempt.assetId);
+  assert.equal(f.objects.size, 0); assert.equal(observedAbsent.asset.state, 'DELETING');
+  assert.deepEqual(observedAbsent.objects, before.objects); assert.equal(observedAbsent.reserved, before.reserved);
+  // Provider-side request completes after the client disappeared and absence was observed.
+  f.objects.set(attempt.key, inputBytes);
+  const next = await f.lease(attempt.assetId);
+  assert.equal(await f.process(next), 'deferred'); // Durable cursor wraps before re-observing the first attempt.
+  assert.equal(f.objects.size, 1);
+  assert.equal(await f.process(await f.lease(attempt.assetId)), 'progress');
+  const reconciled = await f.inspect(attempt.assetId);
+  assert.equal(f.objects.size, 0); assert.equal(reconciled.asset.state, 'DELETING');
+  assert.deepEqual(reconciled.objects, before.objects); assert.equal(reconciled.reserved, before.reserved);
+  assert.equal(reconciled.jobs.filter(job => job.state === 'PENDING').length, 1);
+  assert.equal(await f.process(first), 'lease_lost');
+});
+
+test('final cleanup reads current object proof after an older RR reference snapshot', { timeout: 20000 }, async t => {
+  const f = await fixture(t); const attempt = await f.processing();
+  await f.txs.write(tx => tx.execute("UPDATE media_assets SET state='DELETING',deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [attempt.assetId]));
+  await f.age(attempt.assetId); const lease = await f.lease(attempt.assetId), before = await f.inspect(attempt.assetId);
+  const snapshot = barrier(), changed = barrier(); let references = 0;
+  const original = MediaWorkerRepository.prototype.reference;
+  t.mock.method(MediaWorkerRepository.prototype, 'reference', async function(tx, id) {
+    const rows = await original.call(this, tx, id);
+    // prepare, cleanup plan, then final transaction: this read establishes RR.
+    if (id === attempt.assetId && ++references === 3) { snapshot.release(); await changed.wait; }
+    return rows;
+  });
+  const running = f.process(lease);
+  await snapshot.wait;
+  try { await f.txs.write(async tx => {
+    await tx.prisma.media_objects.updateMany({ where: { asset_id: attempt.assetId }, data: { state: 'ALLOCATED' } });
+    await tx.prisma.media_cleanup_attempts.updateMany({ where: { asset_id: attempt.assetId }, data: { writer_acknowledged: false, delete_observed_at: null } });
+  }); } finally { changed.release(); }
+  assert.equal(await running, 'progress');
+  const after = await f.inspect(attempt.assetId);
+  assert.equal(after.asset.state, 'DELETING'); assert.equal(after.objects[0].state, 'ALLOCATED');
+  assert.equal(after.reserved, before.reserved); assert.equal(after.jobs[0].state, 'PENDING');
+});
+
+test('restart recovery reopens legacy DELETED keys without acknowledged-write evidence', { timeout: 20000 }, async t => {
+  const f = await fixture(t); const attempt = await f.uploading();
+  await f.txs.write(tx => failUpload(tx, attempt)); await f.age(attempt.assetId);
+  const before = await f.inspect(attempt.assetId);
+  // Reproduce the old terminal marker and refund without inventing write proof.
+  await f.txs.write(async tx => {
+    await tx.prisma.media_objects.updateMany({ where: { asset_id: attempt.assetId }, data: { state: 'DELETED' } });
+    await tx.prisma.media_assets.update({ where: { id: attempt.assetId }, data: { state: 'DELETED', reserved_bytes: 0n, created_at: new Date('1970-01-01T00:00:00Z') } });
+    await tx.prisma.media_budget.update({ where: { id: 'global' }, data: { reserved_bytes: { decrement: BigInt(before.asset.reserved_bytes) } } });
+    await tx.prisma.jobs.updateMany({ where: { purpose: 'MEDIA', resource_id: attempt.assetId }, data: { state: 'COMPLETED' } });
+  });
+  const refunded = await f.inspect(attempt.assetId);
+  await f.txs.write(recoverMedia);
+  const recovered = await f.inspect(attempt.assetId);
+  assert.equal(recovered.asset.state, 'DELETING'); assert.equal(recovered.objects[0].object_key, attempt.key);
+  assert.equal(recovered.reserved, refunded.reserved); assert.equal(BigInt(recovered.asset.reserved_bytes), 0n);
+  const next = await f.lease(attempt.assetId); await f.process(next);
+  const reconciled = await f.inspect(attempt.assetId);
+  assert.equal(reconciled.asset.state, 'DELETING'); assert.deepEqual(reconciled.objects, recovered.objects);
+  assert.equal(reconciled.reserved, refunded.reserved); assert.equal(f.objects.size, 0);
 });

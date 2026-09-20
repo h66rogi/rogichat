@@ -13,6 +13,10 @@ export class IdentityRepository {
     const [row] = await tx.rows<RowDataPacket>('SELECT status FROM users WHERE id=? FOR UPDATE', [userId]);
     return row;
   }
+  async reverify(tx: Transaction, userId: string) {
+    const result = await tx.prisma.platform_soop.updateMany({ where: { user_id: userId, status: 'REVOKED' }, data: { status: 'VERIFIED', verified_at: await tx.now() } });
+    if (result.count) await tx.prisma.users.updateMany({ where: { id: userId }, data: { membership_generation: { increment: 1n } } });
+  }
   async linked(tx: Transaction, userId: string): Promise<boolean> {
     return (await tx.rows('SELECT id FROM platform_soop WHERE user_id=? FOR UPDATE', [userId])).length > 0;
   }

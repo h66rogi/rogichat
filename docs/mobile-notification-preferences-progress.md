@@ -63,8 +63,22 @@ Prod 105개 JVM 시험(각 환경 M11 22개), QA lint와 양 환경 컴파일을
 집계하지 않는다. iOS는 strict Swift 6 실행 파일 다섯 종과 네 기기 SDK 구성·패키지 guard,
 XcodeGen 재생성 diff 0을 확인했다. iOS Simulator/GUI는 사용하지 않았다.
 
-필수 CI·서명 배포의 결과와 SHA는 완료된 증거를 기준으로 갱신한다. 합성 서버 응답·credential은
-자동 테스트에만 존재하며 앱·QA 배포물에 포함하지 않는다.
+PR #51의 고정 소스 `1d5ecfd2e9cda6755159c9ebfe2aa8b40bcdff75`는 필수 hosted CI를 모두
+통과했다. 같은 clean 소스에서 양 OS **빌드 12**를 서명·배포했다. Android는 실제 APK/AAB의
+환경·콜백·제품 fixture 제외 검사 후 한 번 업로드했고, 원격 APK 해시 일치와 승인 테스터
+등록·배포 응답을 확인했다. APK SHA-256은
+`add6f54ba01ba76c9752cf8245d11a827d60040ec1e43641b1df0b2cf5c5e910`이다.
+
+iOS는 실제 archive/IPA의 서명·associated domains·환경·privacy 검사를 통과했고 Apple
+validation 후 한 번 업로드했다. 정확한 앱/버전/빌드의 `VALID / IN_BETA_TESTING`, 한국어
+릴리스 노트와 기존 내부 그룹 연결을 조회해 확인했다. IPA SHA-256은
+`bd643fa62f1eb2730fd537e5a6fe39f475a3cc22d8e4e3d1fd7702d0d130aad2`다.
+업로드용 복제본과 별도로 canonical archive 해시는 유지한다. 배포 receipt·테스터 정보·
+서명 자료는 저장소 밖에 보관한다. 이 단계 artifact 재검사는 해당 소스 `1d5ecfd`의 도구를 사용한다.
+
+이것은 내부 배포 증거이며 QA 브랜치 병합·서버 활성화·실제 계정 설정 왕복이나 물리 iPhone
+검증의 대체가 아니다. 합성 서버 응답·credential은 자동 테스트에만 존재하며 앱·QA 배포물에
+포함하지 않는다.
 
 M11 서버의 QA 활성화와 실제 발급 credential을 이용한 설정 영속 왕복은 별도 검증이다.
 서버가 준비되지 않았거나 요청이 실패하면 오류와 재시도를 제공한다. 실제 provider,

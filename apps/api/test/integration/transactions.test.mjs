@@ -4,10 +4,27 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { DatabaseUnavailableError } from '../../dist/infrastructure/database/database-unavailable.js';
 
 const barrier = () => { let release; return { promise: new Promise(resolve => { release = resolve; }), release: () => release() }; };
 // MySQL hides the detailed FK name from DML-only accounts (1216 vs 1452 with admin visibility).
 const fkRejected = error => error.code === 'P2003' || error.meta?.driverAdapterError?.cause?.kind === 'ForeignKeyConstraintViolation' || [1216, 1452].includes(error.meta?.driverAdapterError?.cause?.code);
+
+test('real single-connection pool exhaustion is classified without replay and recovers after release', { timeout: 15000 }, async t => {
+  assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
+  const config = readConfig('api');
+  const db = new MysqlDatabase({ ...config, database: { ...config.database, poolSize: 1 } });
+  t.after(() => db.close());
+  const locked = barrier(), unlock = barrier();
+  const blocker = db.transactions.read(async tx => { await tx.rows('SELECT 1 AS value'); locked.release(); await unlock.promise; });
+  let executed = 0;
+  try {
+    await locked.promise;
+    await assert.rejects(db.transactions.write(async () => { executed++; }), error => error instanceof DatabaseUnavailableError && error.reason === 'database_acquisition');
+    assert.equal(executed, 0);
+  } finally { unlock.release(); await blocker; }
+  assert.equal((await db.transactions.read(tx => tx.rows('SELECT 1 AS value')))[0].value, '1');
+});
 
 test('MySQL transaction boundaries, scoped FKs, concurrent membership, counters, snapshots and limiter', { timeout: 30000 }, async t => {
   const db = new MysqlDatabase(readConfig('api'));

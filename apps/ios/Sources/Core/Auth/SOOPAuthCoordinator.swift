@@ -2,7 +2,13 @@ import Foundation
 
 protocol SOOPRequesting: Sendable {
     func performSOOP(_ request: SOOPRequest, credential: NativeCredential?) async throws -> Data
+    func performSOOP(_ request: SOOPRequest, credential: NativeCredential?, admit: @escaping @Sendable () throws -> Void) async throws -> Data
     func revokeSOOPCredential(_ credential: NativeCredential) async
+}
+extension SOOPRequesting {
+    func performSOOP(_ request: SOOPRequest, credential: NativeCredential?, admit: @escaping @Sendable () throws -> Void) async throws -> Data {
+        try admit(); return try await performSOOP(request, credential: credential)
+    }
 }
 enum SOOPRequest: Sendable {
     case start(SOOPStart), exchange(SOOPExchange)
@@ -52,7 +58,7 @@ actor SOOPAuthCoordinator: SOOPAuthenticating {
         self.environment = environment; self.store = store; self.api = api; self.browser = browser; self.now = now
     }
     func authenticate(pending: SOOPPending, consentVersion: String?, attempt: SessionAttempt = SessionAttempt()) async throws -> SOOPAuthResult {
-        guard pending.intent == .login ? consentVersion == "2026-09-20" && pending.originalCredential == nil : consentVersion == nil && pending.originalCredential != nil else { throw SOOPAuthError.consentRequired }
+        guard pending.provider == nil, pending.intent == .login ? consentVersion == "2026-09-20" && pending.originalCredential == nil : consentVersion == nil && pending.originalCredential != nil else { throw SOOPAuthError.consentRequired }
         // Reservation belongs to the service before its first actor hop. A cancelled
         // ticket cannot create a fresh pending operation when this actor finally runs.
         var preservePending = false
@@ -61,7 +67,7 @@ actor SOOPAuthCoordinator: SOOPAuthenticating {
             await closeBrowser()
             try attempt.check(); try requireReserved(pending)
             let start = SOOPStart(intent: pending.intent, codeChallenge: pending.proof.challenge, returnState: pending.proof.state, termsVersion: consentVersion)
-            let data = try await api.performSOOP(.start(start), credential: pending.originalCredential)
+            let data = try await api.performSOOP(.start(start), credential: pending.originalCredential, admit: admission(pending, phase: .starting, attempt: attempt))
             try Task.checkCancellation()
             let response = try decode(SOOPStartResponse.self, data)
             let launched = try store.finishAuthStart(id: pending.id, response: response, now: now())
@@ -81,6 +87,14 @@ actor SOOPAuthCoordinator: SOOPAuthenticating {
             throw error
         }
     }
+    private func admission(_ pending: SOOPPending, phase: SOOPPending.Phase, attempt: SessionAttempt) -> @Sendable () throws -> Void {
+        let store = store; let now = now
+        return {
+            try attempt.check()
+            guard let value = try store.pendingAuth(now: now()), value.id == pending.id, value.provider == nil,
+                  value.phase == phase else { throw SOOPAuthError.sessionChanged }
+        }
+    }
     private func requireReserved(_ pending: SOOPPending) throws {
         try Task.checkCancellation()
         guard let current = try store.pendingAuth(now: now()), current.id == pending.id, current.phase == .starting else { throw SOOPAuthError.sessionChanged }
@@ -88,7 +102,7 @@ actor SOOPAuthCoordinator: SOOPAuthenticating {
     // Both ASWebAuthenticationSession and Universal Links enter the same parser.
     // A warm link completes the existing continuation; a cold link owns completion.
     func accept(_ url: URL) async throws -> SOOPAuthResult? {
-        guard let pending = try store.pendingAuth(now: now()) else { throw SOOPAuthError.failed }
+        guard let pending = try store.pendingAuth(now: now()), pending.provider == nil else { throw SOOPAuthError.failed }
         _ = try SOOPCallback.parse(url, environment: environment, expectedState: pending.proof.state)
         if pending.phase == .exchanging { return nil }
         if browserOperation == pending.id, await browser.deliver(url, operation: pending.id) { return nil }
@@ -113,7 +127,7 @@ actor SOOPAuthCoordinator: SOOPAuthenticating {
         var returned: NativeCredential?
         do {
             // One attempt only. The protected 'exchanging' record survives a lost response.
-            let data = try await api.performSOOP(.exchange(request), credential: claimed.originalCredential)
+            let data = try await api.performSOOP(.exchange(request), credential: claimed.originalCredential, admit: admission(claimed, phase: .exchanging, attempt: attempt))
             // Capture only a valid returned token before nested DTO validation so a
             // rejected response can revoke its newly issued credential best-effort.
             returned = try decode(SOOPIssuedCredential.self, data).credential(environment: environment, now: now())

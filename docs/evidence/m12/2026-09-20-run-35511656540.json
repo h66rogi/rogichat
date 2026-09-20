@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "runId": 35511656540,
+  "artifactId": 10605148493,
+  "sourceHead": "81f2603773506596459aa1ab20a1beab14442365",
+  "outcome": "failed",
+  "qualityTests": {
+    "passed": 33,
+    "failed": 1
+  },
+  "classification": "Expansion benchmark; not the documented single-user MVP release prerequisite. Failure remains a failure.",
+  "single-event-fanout": {
+    "originalSha256": "f02dc429de2904eb53ffb56a4d17ef8ea0206783a4adab4b3bf813740822413b",
+    "schemaVersion": 1,
+    "sourceSha": "d8f5b01e96736808aa136accc275a00005cdefd0",
+    "timestamp": "2026-09-20T12:55:53.192Z",
+    "node": "v24.21.0",
+    "outcome": "measured",
+    "ackMs": 60.30220899998676,
+    "recipientsPerProcess": [
+      500,
+      0
+    ],
+    "hintRecipients": 500,
+    "eligibleRecipients": 1000,
+    "crossNodeFanoutComplete": false,
+    "sendToHint": {
+      "count": 500,
+      "p50Ms": 290,
+      "p95Ms": 406.82,
+      "p99Ms": 408.06,
+      "maxMs": 408.5
+    },
+    "sendToRestProjection": {
+      "count": 40,
+      "p50Ms": 684.54,
+      "p95Ms": 844.48,
+      "p99Ms": 852.67,
+      "maxMs": 852.67
+    },
+    "projectionSuccesses": 40,
+    "limitations": [
+      "only the API that claims the single durable hint job dispatches to its local sockets",
+      "REST projection is not a rendered UI measurement"
+    ],
+    "projectionErrorsByStatus": {
+      "503": 460
+    }
+  },
+  "automatic-reconnect": {
+    "originalSha256": "4ca5b8277dcb1b202c6bfeb8648c84b4417f1a05f67284654c505f0227fe70ab",
+    "schemaVersion": 1,
+    "sourceSha": "d8f5b01e96736808aa136accc275a00005cdefd0",
+    "timestamp": "2026-09-20T12:56:07.802Z",
+    "node": "v24.21.0",
+    "outcome": "failed",
+    "concurrentSockets": 1000,
+    "killedApiProcesses": 2,
+    "recoveredProjections": 946,
+    "connectedSockets": 1000,
+    "recoveryFromSigkill": {
+      "count": 946,
+      "p50Ms": 9012.35,
+      "p95Ms": 13969.26,
+      "p99Ms": 14341.83,
+      "maxMs": 14600.26
+    },
+    "deadlineMs": 20000,
+    "clientsMissingDeadline": 54,
+    "connectErrors": 1904,
+    "reconnectAttempts": 4107,
+    "backoff": {
+      "initialMs": 1000,
+      "maximumMs": 5000,
+      "randomizationFactor": 0.5
+    },
+    "limitations": [
+      "default-style Socket.IO client plus immediate REST snapshot, not browser rendering",
+      "same-host runner, no WAN or load balancer"
+    ],
+    "recoveryErrorsByStatus": {
+      "503": 54
+    }
+  },
+  "single-api-capacity": {
+    "originalSha256": "4adb04e02a12127c156c902214955cd60cf24d2ccf8dac0eb21a50afe3d3b6a8",
+    "schemaVersion": 1,
+    "sourceSha": "d8f5b01e96736808aa136accc275a00005cdefd0",
+    "timestamp": "2026-09-20T12:56:23.469Z",
+    "node": "v24.21.0",
+    "outcome": "failed",
+    "connectedSockets": 1000,
+    "readinessStatus": null,
+    "transportRejected": true,
+    "configuredHttpMaxConnections": 1000,
+    "configuredRealtimeMaxConnections": 1000,
+    "limitation": "same-host synthetic connection-bound probe, not production capacity certification"
+  }
+}

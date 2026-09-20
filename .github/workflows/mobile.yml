@@ -63,6 +63,27 @@ jobs:
           PY
           python3 tools/mobile/qa_release.py --config "$RUNNER_TEMP/rogichat-signing-test/config.json" android-init-key
           python3 tools/mobile/qa_release.py --config "$RUNNER_TEMP/rogichat-signing-test/config.json" android-build --build-number 7
+  android-storage:
+    needs: changes
+    if: needs.changes.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install fixed platform and storage-test system image
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" "platform-tools" "emulator" "system-images;android-36;google_apis;x86_64"'
+      - name: Allow this ephemeral hosted runner to use KVM
+        run: |
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Verify actual Keystore and on-disk SQLite with an isolated emulator
+        run: python3 tools/mobile/check_android_storage.py
   ios:
     needs: changes
     if: needs.changes.outputs.changed == 'true'
@@ -90,7 +111,7 @@ jobs:
   required:
     name: Mobile required checks
     if: always()
-    needs: [changes, android, ios]
+    needs: [changes, android, android-storage, ios]
     runs-on: ubuntu-24.04
     steps:
       - name: Require successful builds when mobile inputs changed
@@ -98,14 +119,17 @@ jobs:
           CHANGE_RESULT: ${{ needs.changes.result }}
           CHANGED: ${{ needs.changes.outputs.changed }}
           ANDROID_RESULT: ${{ needs.android.result }}
+          ANDROID_STORAGE_RESULT: ${{ needs.android-storage.result }}
           IOS_RESULT: ${{ needs.ios.result }}
         run: |
           test "$CHANGE_RESULT" = success
           if test "$CHANGED" = true; then
             test "$ANDROID_RESULT" = success
+            test "$ANDROID_STORAGE_RESULT" = success
             test "$IOS_RESULT" = success
           else
             test "$CHANGED" = false
             test "$ANDROID_RESULT" = skipped
+            test "$ANDROID_STORAGE_RESULT" = skipped
             test "$IOS_RESULT" = skipped
           fi

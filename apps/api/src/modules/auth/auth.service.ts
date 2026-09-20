@@ -33,13 +33,27 @@ export class AuthService {
     return this.sessionStore.require(tx, credentials.token, credentials.csrf, requireSoop);
   }
 
+  async requireEnrollmentRead(tx: Transaction, credentials: SessionCredentials): Promise<void> {
+    if (tx.writable) throw new Error('enrollment_requires_read_snapshot');
+    await this.requireEnrollment(tx, credentials);
+  }
+
+  async requireEnrollment(tx: Transaction, credentials: SessionCredentials): Promise<Principal> {
+    const actor = await this.require(tx, credentials, true);
+    const account = await this.sessionRepository.currentTerms(tx, actor.userId);
+    if (account?.terms_version !== '2026-09-20') throw new ApiError('TERMS_REQUIRED', 403);
+    return actor;
+  }
+
   session(credentials: SessionCredentials) {
     return this.unitOfWork.read(async tx => {
       const principal = await this.require(tx, credentials);
       if (credentials.transport === 'NATIVE') {
         return this.sessionStore.nativeSession(tx, credentials.token, credentials.clientId);
       }
-      return { authenticated: true, soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED', csrfToken: this.csrf(credentials.token!) };
+      return { authenticated: true, soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED',
+        onboardingState: principal.soopLinked ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: principal.soopLinked }, csrfToken: this.csrf(credentials.token!),
+        accountPartition: this.sessionStore.accountPartition(principal.userId) };
     });
   }
 

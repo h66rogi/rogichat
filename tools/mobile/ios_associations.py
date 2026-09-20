@@ -1,64 +1,75 @@
-"""Verify native HTTPS callback permissions in the signed QA app, not project text."""
-from datetime import datetime, timezone
+"""Verify exact QA distribution identity and actual Apple/push/callback entitlements."""
+import hashlib
+from pathlib import Path
 import plistlib
+import re
 import subprocess
+import tempfile
 
-from release_common import APP_ID
+from prod_capabilities import TARGETS, check_config, validate as validate_capability_profile
+from release_common import APP_ID, cli_environment
 
+QA_PROFILE = TARGETS["qa"][1]
 QA_DOMAINS = {"applinks:qa.rogi.chat", "webcredentials:qa.rogi.chat"}
 DOMAIN_KEY = "com.apple.developer.associated-domains"
 
 
-def verify_binding(entitlements, profile, *, distribution, now=None):
-    """A development archive may use a wildcard profile; exported IPA may not."""
+def require_qa_signing(cfg):
+    check_config(cfg, "qa")
+    ios = cfg.get("ios")
+    if not isinstance(ios, dict):
+        raise ValueError("QA signing configuration is missing")
+    if (ios.get("provisioning_profile") != QA_PROFILE or not isinstance(ios.get("team_id"), str)
+            or not re.fullmatch(r"[A-Z0-9]{10}", ios["team_id"])
+            or not isinstance(ios.get("signing_certificate"), str)
+            or not re.fullmatch(r"[0-9A-Fa-f]{40}", ios["signing_certificate"])):
+        raise ValueError("QA release requires its exact v2 distribution profile, team and certificate")
+
+
+def verify_binding(entitlements, profile, cfg, certificate, *, now=None):
+    require_qa_signing(cfg)
+    validate_capability_profile(profile, "qa", cfg, certificate, now=now)
     domains = entitlements.get(DOMAIN_KEY)
     if (not isinstance(domains, list) or len(domains) != 2
             or any(not isinstance(value, str) for value in domains) or set(domains) != QA_DOMAINS):
         raise ValueError("Signed QA app must contain only its exact HTTPS callback domains")
-    teams = profile.get("TeamIdentifier")
-    prefixes = profile.get("ApplicationIdentifierPrefix")
-    if (not isinstance(teams, list) or len(teams) != 1 or not isinstance(teams[0], str)
-            or not isinstance(prefixes, list) or len(prefixes) != 1 or not isinstance(prefixes[0], str)):
-        raise ValueError("Callback profile has ambiguous app/team binding")
-    app_id = prefixes[0] + "." + APP_ID
-    allowed = profile.get("Entitlements", {})
-    if (entitlements.get("application-identifier") != app_id
-            or entitlements.get("com.apple.developer.team-identifier") != teams[0]
-            or allowed.get("com.apple.developer.team-identifier") != teams[0]
-            or allowed.get("application-identifier") not in
-            ({app_id} if distribution else {app_id, prefixes[0] + ".*"})):
-        raise ValueError("Signed QA app and callback profile identity do not match")
-    permitted = allowed.get(DOMAIN_KEY)
-    if permitted not in ("*", ["*"]):
-        if not isinstance(permitted, list) or not QA_DOMAINS.issubset(permitted):
-            raise ValueError("Provisioning profile does not permit both native callback domains")
-    if distribution and (entitlements.get("get-task-allow") is not False
-                         or allowed.get("get-task-allow") is not False
-                         or profile.get("ProvisionedDevices") or profile.get("ProvisionsAllDevices")):
-        raise ValueError("QA TestFlight export requires a distribution profile")
-    expiry = profile.get("ExpirationDate")
-    if not isinstance(expiry, datetime):
-        raise ValueError("Callback profile has no valid expiration")
-    if expiry.tzinfo is None:
-        expiry = expiry.replace(tzinfo=timezone.utc)
-    if expiry <= (now or datetime.now(timezone.utc)):
-        raise ValueError("Callback profile has expired")
+    team = cfg["ios"]["team_id"]
+    if (entitlements.get("application-identifier") != team + "." + APP_ID
+            or entitlements.get("com.apple.developer.team-identifier") != team
+            or entitlements.get("get-task-allow") is not False
+            or entitlements.get("com.apple.developer.applesignin") != ["Default"]
+            or entitlements.get("aps-environment") != "production"):
+        raise ValueError("Actual signed QA app must have distribution Apple and production push permissions")
+    if hashlib.sha1(certificate).hexdigest().upper() != cfg["ios"]["signing_certificate"].upper():
+        raise ValueError("Actual QA signing certificate differs from the pinned identity")
+
+
+def _run(command, *, data=None):
+    try:
+        result = subprocess.run(command, input=data, capture_output=True, env=cli_environment(), timeout=60)
+    except subprocess.TimeoutExpired:
+        raise ValueError("Signed capability inspection timed out") from None
+    if result.returncode:
+        raise ValueError("Cannot inspect signed native permissions")
+    return result.stdout
 
 
 def _plist(command, *, data=None):
-    result = subprocess.run(command, input=data, capture_output=True)
-    if result.returncode:
-        raise ValueError("Cannot inspect signed native callback permissions")
     try:
-        value = plistlib.loads(result.stdout)
-        if not isinstance(value, dict):
-            raise ValueError()
+        value = plistlib.loads(_run(command, data=data))
+        if not isinstance(value, dict): raise ValueError()
         return value
     except (plistlib.InvalidFileException, ValueError, TypeError, OverflowError) as error:
-        raise ValueError("Invalid signed native callback permissions") from error
+        raise ValueError("Invalid signed native permissions") from error
 
 
-def inspect_signed_callback(executable, profile_data, *, distribution):
+def inspect_signed_callback(executable, profile_data, cfg):
+    require_qa_signing(cfg)
+    _run(["codesign", "--verify", "--strict", str(executable)])
     signed = _plist(["codesign", "-d", "--entitlements", ":-", str(executable)])
     profile = _plist(["security", "cms", "-D"], data=profile_data)
-    verify_binding(signed, profile, distribution=distribution)
+    with tempfile.TemporaryDirectory(prefix="rogichat-qa-certificate-") as temporary:
+        prefix = str(Path(temporary) / "signer")
+        _run(["codesign", "-d", "--extract-certificates", prefix, str(executable)])
+        certificate = Path(prefix + "0").read_bytes()
+    verify_binding(signed, profile, cfg, certificate)

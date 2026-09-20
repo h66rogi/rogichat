@@ -1,7 +1,9 @@
+import { parseMembershipScope } from '../../membership-scope/membership-scope.js';
 import { ApiError, object } from '../../auth/auth-primitives.js';
 import { identifier } from '../../../common/validation/identifier.js';
 
 export interface SendInput {
+  membershipScope: string;
   clientMessageId: string;
   intent: 'SHARED' | 'PRIVATE';
   recipientActorId: string | null;
@@ -10,7 +12,7 @@ export interface SendInput {
 }
 
 export function sendInput(body: unknown): SendInput {
-  const input = object(body, ['clientMessageId', 'intent', 'recipientActorId', 'quoteId', 'content']);
+  const input = object(body, ['membershipScope', 'clientMessageId', 'intent', 'recipientActorId', 'quoteId', 'content']);
   if (input.intent !== 'SHARED' && input.intent !== 'PRIVATE') throw new ApiError('INVALID_REQUEST', 400);
   if (input.intent === 'SHARED' && input.recipientActorId !== undefined) throw new ApiError('INVALID_REQUEST', 400);
   const content = object(input.content, ['type', 'text', 'assetIds', 'stickerId']);
@@ -29,7 +31,7 @@ export function sendInput(body: unknown): SendInput {
     if (new Set(assetIds).size !== assetIds.length) throw new ApiError('INVALID_REQUEST', 400);
     parsed = { type: content.type, assetIds };
   } else throw new ApiError('INVALID_REQUEST', 400);
-  return { clientMessageId: identifier(input.clientMessageId), intent: input.intent,
+  return { membershipScope: parseMembershipScope(input.membershipScope), clientMessageId: identifier(input.clientMessageId), intent: input.intent,
     recipientActorId: input.intent === 'PRIVATE' ? identifier(input.recipientActorId) : null,
     quoteId: input.quoteId === undefined || input.quoteId === null ? null : identifier(input.quoteId), content: parsed };
 }

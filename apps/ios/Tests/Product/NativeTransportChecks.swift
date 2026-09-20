@@ -187,7 +187,10 @@ actor ControlledNativeAPI: NativeRequesting {
         try bytes.write(Data("invalid credential".utf8))
         expect(.secureStorage) { _ = try reopened.read() }
         try reopened.setLogoutPending(true)
-        try reopened.completePendingLogout()
+        // Schema3 may contain a protected receipt. Automatic logout recovery
+        // cannot decode-free erase an unknown/corrupt journal; explicit reset can.
+        expect(.secureStorage) { try reopened.completePendingLogout() }
+        try reopened.resetConfirmed()
         check(try reopened.read() == nil)
         try bytes.write(Data("retained corrupt credential".utf8))
         // A new install cannot restore Keychain data retained from the previous install.

@@ -1,3 +1,4 @@
+import { MediaWriteProofModule } from '../../dist/modules/media/media-write-proof.module.js';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -19,9 +20,7 @@ import { PublicationsCoreService } from '../../dist/modules/publications/publica
 import { MediaCopyService } from '../../dist/modules/media/media-copy.service.js';
 import { MediaStorageModule } from '../../dist/modules/media/media-storage.module.js';
 import { MediaSpooler } from '../../dist/common/media/media-spool.js';
-import { createApi, createConfiguredApi } from '../../dist/application.js';
-import { AppModule } from '../../dist/app.module.js';
-import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
+import { createApi } from '../../dist/application.js';
 
 const bytes = Buffer.from('isolated synthetic image bytes; no R2 or decoder evidence');
 const sha256 = createHash('sha256').update(bytes).digest('hex');
@@ -39,7 +38,7 @@ async function fixture(t) {
   };
   const media = { store, prefix: 'test', spool: new MediaSpooler({ directory }) };
   class FixtureModule {}
-  Module({ imports: [{ module: PublicationsCoreModule, providers: [PublicationsCoreService] }, MediaStorageModule.register(media, true)], providers: [MediaCopyService, { provide: Transactions, useValue: txs }] })(FixtureModule);
+  Module({ imports: [MediaWriteProofModule, PublicationsCoreModule, MediaStorageModule.register(media, true)], providers: [MediaCopyService, { provide: Transactions, useValue: txs }] })(FixtureModule);
   const context = await NestFactory.createApplicationContext(FixtureModule, { logger: false, abortOnError: false });
   const core = context.get(PublicationsCoreService), worker = context.get(MediaCopyService);
   const config = { audience: randomBytes(8).toString('hex'), key: randomBytes(32), origin: 'http://localhost:3001', secure: false };
@@ -76,28 +75,18 @@ async function fixture(t) {
   const request = id => txs.write(tx => core.requestPublication(tx, room, owner.id, id));
   const status = id => txs.read(tx => core.publicationStatus(tx, room, owner.id, id));
   const claim = (publicationId, purpose = 'PUBLICATION') => txs.write(async tx => {
-    const job = await tx.prisma.jobs.findFirst({ where: { purpose, resource_id: publicationId, state: { in: ['PENDING', 'RUNNING'] } }, orderBy: { created_at: 'asc' }, select: { id: true, generation: true, attempts: true, max_attempts: true } });
+    const job = await tx.prisma.jobs.findFirst({ where: { purpose, resource_id: publicationId, state: { in: ['PENDING', 'RUNNING'] } }, orderBy: { created_at: 'asc' }, select: { id: true, room_id: true, generation: true, attempts: true, max_attempts: true } });
     assert.ok(job); const generation = job.generation + 1n, leaseOwner = randomUUID(), leaseToken = randomUUID();
     await tx.prisma.jobs.update({ where: { id: job.id }, data: { state: 'RUNNING', generation, lease_owner: leaseOwner, lease_token: leaseToken, lease_until: new Date((await tx.now()).getTime() + 300000), attempts: { increment: 1 } }, select: { id: true } });
-    return { id: job.id, purpose, roomId: room, resourceId: publicationId, generation, leaseOwner, leaseToken, attempts: job.attempts + 1, maxAttempts: job.max_attempts };
+    return { id: job.id, purpose, roomId: job.room_id, resourceId: publicationId, generation, leaseOwner, leaseToken, attempts: job.attempts + 1, maxAttempts: job.max_attempts };
   });
   const expire = lease => txs.write(async tx => tx.prisma.jobs.update({ where: { id: lease.id }, data: { lease_until: new Date((await tx.now()).getTime() - 1000) }, select: { id: true } }));
   const inspect = publicationId => txs.read(async tx => ({
     copies: await tx.prisma.publication_media.findMany({ where: { publication_id: publicationId }, select: { destination_asset_id: true, destination: { select: { state: true, reserved_bytes: true, objects: { select: { object_key: true, state: true } } } } } }),
     budget: (await tx.prisma.media_budget.findUnique({ where: { id: 'global' }, select: { reserved_bytes: true } }))?.reserved_bytes ?? 0n,
   }));
-  const http = async (recovery = false) => {
-    if (recovery) app = await createApi(db, { event() {} }, undefined, { sessions, config }, media);
-    else {
-      // Full-feature security regressions register the preserved implementation only here.
-      const lifecycle = new LifecycleState();
-      const module = AppModule.register(db, lifecycle, { sessions, config }, media);
-      const publications = module.imports.find(entry => entry.module?.name === 'PublicationsModule');
-      publications.imports = publications.imports.map(entry => entry === PublicationsCoreModule
-        ? { module: PublicationsCoreModule, providers: [PublicationsCoreService] } : entry);
-      app = await createConfiguredApi(module, { event() {} }, lifecycle, config, true);
-    }
-    await app.listen(0, '127.0.0.1');
+  const http = async () => {
+    app = await createApi(db, { event() {} }, undefined, { sessions, config }, media); await app.listen(0, '127.0.0.1');
     const base = await app.getUrl();
     return async (user, method, path, body) => {
       const result = await fetch(base + '/v1' + path, { method, headers: { cookie: `rogi_session=${user.token}`, origin: config.origin, 'x-csrf-token': user.csrf, 'content-type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
@@ -105,10 +94,10 @@ async function fixture(t) {
     };
   };
   const get = id => txs.read(tx => getMessage(tx, room, other.id, id));
-  const remove = id => txs.write(tx => deleteMessage(tx, room, fan.id, id));
+  const remove = id => deleteMessage(txs, room, fan.id, id);
   const cleanup = async assetId => { const lease = await claim(assetId, 'MEDIA'); return processMedia(txs, store, {}, 'test', lease); };
   const age = id => txs.write(async tx => { await tx.prisma.media_objects.updateMany({ where: { asset_id: id }, data: { created_at: new Date(0) } }); });
-  return { recoveryCore: () => app.get(PublicationsCoreService), db, txs, core, worker, source, request, status, claim, expire, inspect, http, get, remove, owner, fan, other, room, objects, hooks, puts, removes, signs, cleanup, age };
+  return { db, txs, core, worker, source, request, status, claim, expire, inspect, http, get, remove, owner, fan, other, room, objects, hooks, puts, removes, signs, cleanup, age };
 }
 
 test('PHOTO publication HTTP and anonymous DTO use independent keys, and every destination stays inaccessible before atomic READY', async t => {
@@ -144,18 +133,19 @@ test('PHOTO publication HTTP and anonymous DTO use independent keys, and every d
   assert.ok(state.copies.every(copy => copy.destination.state === 'READY' && copy.destination.objects[0].state === 'READY'));
 });
 
-test('source deletion during PUT revokes publication and defers cleanup; cleanup releases reservation exactly once', async t => {
+test('source deletion during PUT revokes publication and actual writer acknowledgement enables ordered cleanup', async t => {
   const f = await fixture(t), source = await f.source(), publication = await f.request(source.messageId), lease = await f.claim(publication.publicationId);
-  const before = await f.inspect(publication.publicationId);
   f.hooks.put = () => f.remove(source.messageId);
   assert.equal(await f.worker.processPublication(lease), 'completed');
   assert.equal((await f.status(publication.publicationId)).status, 'revoked');
   const state = await f.inspect(publication.publicationId), copy = state.copies[0];
   assert.equal(copy.destination.state, 'DELETING'); assert.equal(copy.destination.objects[0].state, 'ALLOCATED');
   assert.equal(await f.cleanup(copy.destination_asset_id), 'completed');
-  assert.equal((await f.inspect(publication.publicationId)).budget, state.budget); assert.equal(f.removes.length, 0);
-  await f.age(copy.destination_asset_id); assert.equal(await f.cleanup(copy.destination_asset_id), 'completed');
-  assert.equal((await f.inspect(publication.publicationId)).budget, before.budget);
+  const reconciled = await f.inspect(publication.publicationId);
+  assert.equal(reconciled.budget, state.budget - BigInt(bytes.length));
+  assert.equal(reconciled.copies[0].destination.state, 'DELETED');
+  assert.equal(reconciled.copies[0].destination.objects[0].state, 'DELETED');
+  assert.equal(f.removes.length, 1);
   assert.ok(!f.objects.has(copy.destination.objects[0].object_key));
 });
 
@@ -178,7 +168,7 @@ test('owner, membership, SOOP, original revision, source asset and moderation ch
   }
 });
 
-test('expired generation after PUT rolls back READY; retry uses a new destination and reclaims only orphan reservation', async t => {
+test('expired generation after PUT rolls back READY; retry uses a new destination and acknowledged orphan is cleaned', async t => {
   const f = await fixture(t), source = await f.source(), publication = await f.request(source.messageId), first = await f.claim(publication.publicationId);
   const baseline = await f.inspect(publication.publicationId);
   f.hooks.put = () => f.expire(first); assert.equal(await f.worker.processPublication(first), 'lease_lost');
@@ -189,6 +179,8 @@ test('expired generation after PUT rolls back READY; retry uses a new destinatio
   assert.notEqual(f.puts[0], f.puts[1]); assert.equal(await f.worker.processPublication(first), 'lease_lost');
   await f.age(old.destination_asset_id); await f.cleanup(old.destination_asset_id);
   assert.equal((await f.inspect(publication.publicationId)).budget - baseline.budget, BigInt(bytes.length));
+  const retained = await f.txs.read(tx => tx.prisma.media_assets.findUnique({ where: { id: old.destination_asset_id }, select: { state: true, reserved_bytes: true } }));
+  assert.equal(retained.state, 'DELETED'); assert.equal(retained.reserved_bytes, 0n);
   assert.ok(f.objects.has(current.destination.objects[0].object_key));
   const original = await f.txs.read(tx => tx.prisma.media_assets.findUnique({ where: { id: source.assets[0] }, select: { state: true, deleted_at: true } }));
   assert.deepEqual(original, { state: 'READY', deleted_at: null });
@@ -204,8 +196,20 @@ test('uncertain PUT and exhausted worker recovery retain discoverable attempts a
   assert.equal((await f.status(publication.publicationId)).status, 'revoked');
   assert.equal((await f.inspect(publication.publicationId)).budget, state.budget);
   await f.age(copy.destination_asset_id); await f.cleanup(copy.destination_asset_id);
-  assert.equal((await f.inspect(publication.publicationId)).budget, state.budget - BigInt(bytes.length));
+  assert.equal((await f.inspect(publication.publicationId)).budget, state.budget);
   assert.equal(f.objects.size, 1); assert.equal(f.removes.length, 1);
+  // A lost acknowledgment can conceal a provider write completing after 404.
+  const key = copy.destination.objects[0].object_key;
+  f.objects.set(key, bytes);
+  assert.equal(await f.cleanup(copy.destination_asset_id), 'deferred'); // Persisted cursor wraps.
+  assert.equal(f.objects.size, 2);
+  assert.equal(await f.cleanup(copy.destination_asset_id), 'progress');
+  const reconciled = await f.inspect(publication.publicationId);
+  assert.equal(reconciled.budget, state.budget);
+  assert.equal(reconciled.copies[0].destination.state, 'DELETING');
+  assert.equal(reconciled.copies[0].destination.objects[0].object_key, key);
+  assert.equal(reconciled.copies[0].destination.objects[0].state, 'ALLOCATED');
+  assert.equal(f.objects.size, 1); assert.equal(f.removes.length, 2);
 });
 
 test('source deletion after successful copy blocks DTO and URL immediately and deletes only the independent public attachment', async t => {
@@ -224,7 +228,7 @@ test('original author leaving preserves published history; deleting the public c
   assert.equal(await f.worker.processPublication(await f.claim(publication.publicationId)), 'completed');
   const published = await f.status(publication.publicationId), dto = await f.get(published.messageId);
   const copyId = dto.content.attachments[0].assetId;
-  await f.txs.write(tx => deleteMessage(tx, f.room, f.owner.id, published.messageId));
+  await deleteMessage(f.txs, f.room, f.owner.id, published.messageId);
   await f.age(copyId); await f.cleanup(copyId);
   const original = await f.txs.read(tx => tx.prisma.media_assets.findUnique({ where: { id: source.assets[0] }, select: { state: true, deleted_at: true, objects: { select: { object_key: true } } } }));
   assert.equal(original.state, 'READY'); assert.equal(original.deleted_at, null);
@@ -282,7 +286,7 @@ test('copy cleanup never waits on room membership after acquiring owner and asse
   await locked.wait;
   let timer;
   try {
-    assert.equal(await Promise.race([f.cleanup(assetId), new Promise(resolve => { timer = setTimeout(() => resolve('room-lock-inversion'), 1500); })]), 'completed');
+    assert.equal(await Promise.race([f.cleanup(assetId), new Promise(resolve => { timer = setTimeout(() => resolve('room-lock-inversion'), 1500); })]), 'progress');
   } finally { clearTimeout(timer); unlock.release(); await holder; }
 });
 
@@ -304,23 +308,4 @@ test('two publication copies competing for the final quota slot reserve exactly 
   } finally {
     await f.txs.write(tx => tx.prisma.media_budget.update({ where: { id: 'global' }, data: { limit_bytes: budget.limit_bytes }, select: { id: true } }));
   }
-});
-
-
-test('recovery product rejects new PHOTO publication and cleans existing PREPARING copies', async t => {
-  const f = await fixture(t), source = await f.source(), call = await f.http(true);
-  const rejected = await call(f.owner, 'POST', `/rooms/${f.room}/messages/${source.messageId}/publications`, {});
-  assert.equal(rejected.status, 400); assert.equal(rejected.body.error.code, 'INVALID_REQUEST');
-  // Model a previously admitted job using the preserved feature implementation.
-  const publication = await f.request(source.messageId), lease = await f.claim(publication.publicationId);
-  await f.txs.write(tx => f.core.preparePhoto(tx, lease, 'test'));
-  assert.equal((await f.inspect(publication.publicationId)).copies.length, 1);
-  const result = await f.txs.write(tx => f.recoveryCore().preparePhoto(tx, lease, 'test'));
-  assert.equal(result, 'completed'); assert.equal((await f.status(publication.publicationId)).status, 'revoked');
-  for (const copy of (await f.inspect(publication.publicationId)).copies) {
-    assert.equal(copy.destination.state, 'DELETING');
-    await f.age(copy.destination_asset_id); await f.cleanup(copy.destination_asset_id);
-  }
-  for (const copy of (await f.inspect(publication.publicationId)).copies) assert.equal(copy.destination.state, 'DELETED');
-  assert.equal(f.puts.length, 0);
 });

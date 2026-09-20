@@ -114,6 +114,7 @@ class FinalizationTests(unittest.TestCase):
         self.stack = self.enterContext(ExitStack())
         self.stack.enter_context(patch("builtins.print"))
         self.stack.enter_context(patch("release_finalize.verify_apk"))
+        self.stack.enter_context(patch("release_finalize.verify_firebase_apk", return_value="configured"))
         self.stack.enter_context(patch("release_finalize.inspect_archive"))
         self.stack.enter_context(patch("release_finalize.inspect_ipa"))
 
@@ -148,6 +149,24 @@ class FinalizationTests(unittest.TestCase):
         self.assertEqual(len(api.posts), 1)
         self.assertEqual(api.posts[0][1], {"testerEmails": ["approved@example.invalid"]})
         self.assertEqual(self.journal("android")["steps"]["verification"]["state"], "verified")
+
+    def test_android_config_resource_rejection_blocks_distribution(self):
+        path, value = self.release("android")
+        api = FirebaseFake(value["artifacts"]["apk"]["sha256"])
+        with patch("release_finalize.verify_firebase_apk", side_effect=ValueError("resource mismatch")) as guard:
+            with self.assertRaisesRegex(ValueError, "resource mismatch"):
+                android(self.cfg, path, self.testers_file, client=api)
+            guard.assert_called_once_with(Path(value["artifacts"]["apk"]["path"]), self.cfg)
+        self.assertEqual(api.posts, [])
+        self.assertNotEqual(self.journal("android")["steps"]["verification"]["state"], "verified")
+
+    def test_android_unavailable_push_still_distributes_and_records_truthful_sdk_state(self):
+        path, value = self.release("android")
+        api = FirebaseFake(value["artifacts"]["apk"]["sha256"])
+        with patch("release_finalize.verify_firebase_apk", return_value="unavailable"):
+            android(self.cfg, path, self.testers_file, client=api)
+        self.assertEqual(len(api.posts), 1)
+        self.assertEqual(self.journal("android")["steps"]["verification"]["firebase_sdk_state"], "unavailable")
         self.assertEqual((path.parent / "finalization.json").stat().st_mode & 0o777, 0o600)
 
     def test_android_unknown_post_response_blocks_all_retries(self):
@@ -213,6 +232,18 @@ class FinalizationTests(unittest.TestCase):
         ios(self.cfg, path, self.notes_file, client=api)
         self.assertEqual(len(api.mutations), 2)
         self.assertEqual(self.journal("ios")["steps"]["verification"]["state"], "verified")
+
+    def test_ios_signed_capability_rejection_blocks_remote_notes_and_group_mutations(self):
+        path, value = self.release("ios")
+        api = AppleFake()
+        with patch("release_finalize.inspect_archive") as archive, \
+                patch("release_finalize.inspect_ipa", side_effect=ValueError("missing actual Apple permission")) as ipa:
+            with self.assertRaisesRegex(ValueError, "actual Apple"):
+                ios(self.cfg, path, self.notes_file, client=api)
+            archive.assert_called_once_with(Path(value["archive_path"]), 8, "0.1.0", self.cfg)
+            ipa.assert_called_once_with(Path(value["artifacts"]["ipa"]["path"]), 8, "0.1.0", self.cfg)
+        self.assertEqual(api.mutations, [])
+        self.assertNotEqual(self.journal("ios")["steps"]["verification"]["state"], "verified")
 
     def test_ios_absent_uncertain_or_wrong_upload_receipt_blocks_all_writes(self):
         path, value = self.release("ios")

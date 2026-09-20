@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <queries>
         <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="https" /></intent>
         <intent><action android:name="android.support.customtabs.action.CustomTabsService" /></intent>
@@ -14,6 +15,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Rogichat"
         android:usesCleartextTraffic="false">
+        <provider android:name="com.google.firebase.provider.FirebaseInitProvider" tools:node="remove" />
+        <meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false" />
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <service android:name=".core.push.RogichatMessagingService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
         <meta-data android:name="chat.rogi.environment" android:value="${environment}" />
         <meta-data android:name="chat.rogi.apiBaseURL" android:value="${apiBaseURL}" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">

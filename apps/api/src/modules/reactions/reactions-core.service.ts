@@ -16,7 +16,7 @@ export class ReactionsCoreService {
   private async projection(tx: Transaction, roomId: string, messageId: string, memberId: string) {
     // Binary grouping is essential: the database's human-text collation may equate
     // distinct supplementary emoji or presentation/modifier sequences.
-    const rows = await this.repository.counts(tx, roomId, messageId);
+    const rows = await this.repository.counts(tx, roomId, messageId, await this.access.blockedActors(tx, roomId, memberId));
     const [mine] = await this.repository.mine(tx, roomId, messageId, memberId);
     return { counts: rows.map(row => ({ emoji: String(row.emoji), count: Number(row.total) })), mine: mine ? String(mine.emoji) : null };
   }
@@ -36,6 +36,7 @@ export class ReactionsCoreService {
     const viewer = await this.access.requireActiveMember(tx, roomId, userId);
     const message = await this.messages.load(tx, roomId, identifier(messageId));
     if (!message || !await this.messages.readable(tx, viewer, message)) throw new ApiError('NOT_FOUND', 404);
+    if (message.stream_kind === 'RESTRICTED' && (await this.access.actorBlocked(tx, roomId, viewer.id, message.sender_member_id, true) || await this.access.privateInteractionBlocked(tx, roomId, viewer.id, message.stream_id))) throw new ApiError('NOT_FOUND', 404);
     const [prior] = await this.repository.prior(tx, roomId, messageId, viewer.id);
     if ((prior ? String(prior.emoji) : null) === emoji) return this.projection(tx, roomId, messageId, viewer.id);
     if (emoji === null) await this.repository.remove(tx, roomId, messageId, viewer.id);

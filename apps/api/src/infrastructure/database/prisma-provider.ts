@@ -6,6 +6,7 @@ import type { Pool, PoolConnection } from 'mariadb';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import type { Config } from '../config/config.js';
+import type { DatabaseFailure } from './database-unavailable.js';
 
 export interface TransactionState {
   discovery?: boolean;
@@ -14,6 +15,7 @@ export interface TransactionState {
   commitStarted: boolean;
   rollbackConfirmed: boolean;
   abort?: () => void;
+  failure?: DatabaseFailure;
 }
 
 export function poolOptions(config: Config) {
@@ -38,7 +40,7 @@ async function statement<T>(operation: () => Promise<T>, state?: TransactionStat
   let timer: ReturnType<typeof setTimeout>;
   const deadline = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      if (state) { state.closed = true; state.abort?.(); }
+      if (state) { state.failure = 'database_statement_timeout'; state.closed = true; state.abort?.(); }
       reject(new Error('database_statement_timeout'));
     }, 3000);
   });
@@ -53,7 +55,9 @@ function ownedPool(options: ReturnType<typeof poolOptions>, context: AsyncLocalS
   pool.getConnection = async () => {
     const state = context.getStore();
     if (!state) throw new Error('transaction_required');
-    const connection = await acquire();
+    let connection: PoolConnection;
+    try { connection = await acquire(); }
+    catch (error) { state.failure = 'database_acquisition'; throw error; }
     // Public destroy is patched and integrity-tested for this pinned driver.
     let owned = true;
     const abort = () => { if (owned) { owned = false; connection.destroy(); } };

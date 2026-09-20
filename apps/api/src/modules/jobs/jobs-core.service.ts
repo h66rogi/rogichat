@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { uuid } from '../../common/validation/identifier.js';
 import { integer, purpose, leaseValues, MAX_DELAY_MS } from './jobs.policy.js';
-import type { EnqueueJob, JobLease } from './jobs.policy.js';
+import type { EnqueueJob, JobLease, PurgeContinuation } from './jobs.policy.js';
 import { JobsRepository } from './jobs.repository.js';
 @Injectable()
 export class JobsCoreService {
@@ -15,7 +15,9 @@ export class JobsCoreService {
     const id = uuid(input.id ?? randomUUID());
     const jobPurpose = purpose(input.purpose);
     const roomId = input.roomId === undefined ? null : uuid(input.roomId);
-    const resourceId = input.resourceId === undefined ? null : uuid(input.resourceId);
+    // MESSAGE deletion intents use UUIDv5; this does not grant deletion authority.
+    const resourceId = input.resourceId === undefined ? null :
+      jobPurpose === 'PURGE' && /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(input.resourceId) ? input.resourceId : uuid(input.resourceId);
     const maxAttempts = integer(input.maxAttempts ?? 5, 1, 25);
     const delayMs = integer(input.delayMs ?? 0, 0, MAX_DELAY_MS);
     if (input.dedupeKey !== undefined && (!Buffer.isBuffer(input.dedupeKey) || input.dedupeKey.length !== 32)) throw new Error('invalid_job_dedupe');
@@ -34,6 +36,17 @@ export class JobsCoreService {
     const result = await this.repository.complete(tx, leaseValues(lease));
     return result.affectedRows === 1;
   }
-
-
+  async continueMedia(tx: Transaction, lease: JobLease, progress: boolean): Promise<void> {
+    leaseValues(lease);
+    if (lease.purpose !== 'MEDIA' || !lease.resourceId || !await this.repository.continueMedia(tx, lease, progress)) throw new Error('media_cleanup_lease_lost');
+  }
+  async recoverMedia(tx: Transaction, assetId: string): Promise<void> {
+    await this.repository.recoverMedia(tx, assetId);
+  }
+  /** Domain locks first; this must be the last mutation in the domain transaction. */
+  async continuePurge(tx: Transaction, lease: JobLease, outcome: PurgeContinuation): Promise<void> {
+    leaseValues(lease);
+    if (lease.purpose !== 'PURGE' || !lease.resourceId || !['progress', 'deferred', 'subset_drained', 'evidence_unavailable'].includes(outcome)) throw new Error('invalid_purge_continuation');
+    if (!await this.repository.continuePurge(tx, lease, outcome)) throw new Error('purge_lease_lost');
+  }
 }

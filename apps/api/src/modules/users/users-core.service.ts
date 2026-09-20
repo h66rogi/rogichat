@@ -62,14 +62,14 @@ export class UsersCoreService {
     const viewer = await this.access.requireActiveMember(tx, uuid(roomId), userId);
     const profile = await this.repository.actorAvatar(tx, roomId, uuid(actorId));
     const avatar = profile?.user.profile?.avatar;
-    if (!profile || !this.canViewActor(viewer, profile.id, profile.role) || !avatar || avatar.id !== uuid(assetId) ||
+    if (!profile || await this.access.actorBlocked(tx, roomId, viewer.id, actorId) || !this.canViewActor(viewer, profile.id, profile.role) || !avatar || avatar.id !== uuid(assetId) ||
       avatar.owner_user_id !== profile.user_id || avatar.kind !== 'AVATAR' || avatar.room_id !== null ||
       avatar.state !== 'READY' || avatar.deleted_at !== null) throw new ApiError('NOT_FOUND', 404);
   }
 
   private async actorProfile(tx: Transaction, viewer: ActiveMember, actorId: string, key: Buffer) {
     const [profile] = await this.repository.actor(tx, viewer.room_id, uuid(actorId));
-    if (!profile || !this.canViewActor(viewer, profile.actor_id, profile.role)) throw new ApiError('NOT_FOUND', 404);
+    if (!profile || await this.access.actorBlocked(tx, viewer.room_id, viewer.id, actorId) || !this.canViewActor(viewer, profile.actor_id, profile.role)) throw new ApiError('NOT_FOUND', 404);
     const visibleBirthday = viewer.role === 'STREAMER' && Number(profile.birthday_visible_to_streamers) === 1 && profile.birthday_month !== null && profile.birthday_day !== null ? { month: profile.birthday_month, day: profile.birthday_day } : null;
     const projection = projectActorProfileDto({ actorId: profile.actor_id, nickname: profile.nickname, avatar: profile.visible_avatar_id ? { assetId: profile.visible_avatar_id } : null, role: profile.role, visibleBirthday });
     // Opaque viewer-specific revision of visible fields only: hidden birthdays never signal activity to fans.
@@ -86,7 +86,7 @@ export class UsersCoreService {
     if (viewer.role !== 'STREAMER') throw new ApiError('FORBIDDEN', 403);
     // A revision refresh PAGE, never an authoritative room-wide manifest or a fan activity feed.
     // M06 adds stable-generation sync. A page must not purge actors missing from this page.
-    const candidates = await this.repository.manifestCandidates(tx, roomId, after ? uuid(after) : '');
+    const candidates = await this.repository.manifestCandidates(tx, roomId, viewer.id, after ? uuid(after) : '');
     const profiles = [];
     for (const row of candidates.slice(0, 50)) {
       const profile = await this.actorProfile(tx, viewer, row.id as string, key);

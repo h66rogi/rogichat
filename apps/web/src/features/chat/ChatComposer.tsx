@@ -51,6 +51,8 @@ export interface ChatComposerProps {
   /** Polite, target-labelled announcement for results that arrived for another target. */
   announcement?: string | undefined;
   disabled?: boolean | undefined;
+  /** Blocks dispatch during recovery without hiding or locking the editable draft. */
+  submitBlockedReason?: string | undefined;
   className?: string | undefined;
 }
 
@@ -70,6 +72,7 @@ export function ChatComposer({
   notice = null,
   announcement = '',
   disabled = false,
+  submitBlockedReason,
   className,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -80,7 +83,7 @@ export function ChatComposer({
 
   const locked = target === null || disabled;
   const isEmpty = value.trim().length === 0;
-  const canSend = !locked && !isEmpty && !isSubmitting;
+  const canSend = !locked && !isEmpty && !isSubmitting && !submitBlockedReason;
 
   // Auto-height: measure line-height once per render, cap at MAX_LINES.
   useLayoutEffect(() => {
@@ -196,6 +199,7 @@ export function ChatComposer({
         </div>
       )}
 
+      {submitBlockedReason && <p role="status" className="px-4 pb-2 text-sm text-muted">{submitBlockedReason}</p>}
       {/* Two regions so the assertive alert never carries a conflicting polite setting. */}
       <div id={noticeId} className={cn('px-4 text-[13px]', notice || announcement ? 'pb-2' : 'sr-only')} data-testid="chat-composer-notice">
         <p role="alert" className={cn('text-danger', !errorText && 'sr-only')} data-testid="chat-composer-error">

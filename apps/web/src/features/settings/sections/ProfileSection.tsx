@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useId, useState, type ReactNode } from 'react';
 import { Cake, Lock } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
@@ -17,9 +17,11 @@ const DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
 export function ProfileSection({
   model,
   onChange,
+  avatarEditor,
 }: {
   model: SettingsProfileModel;
   onChange?: ((patch: SettingsProfilePatch) => void | Promise<void>) | undefined;
+  avatarEditor?: ReactNode;
 }) {
   const state = effectiveState(model.edit, onChange);
   const editable = state.enabled;
@@ -67,9 +69,11 @@ export function ProfileSection({
         </Avatar>
         <div className="flex flex-col gap-1 text-[14px]">
           <span className="font-semibold text-ink">{model.nickname || '이름 없음'}</span>
-          <span className="text-muted">프로필 사진 변경은 사진 업로드가 준비된 뒤 제공됩니다.</span>
+          {!avatarEditor && <span className="text-muted">프로필 사진 변경은 사진 업로드가 준비된 뒤 제공됩니다.</span>}
         </div>
       </div>
+
+      {avatarEditor}
 
       <div className="flex flex-col gap-2">
         <Label htmlFor={nicknameId}>닉네임</Label>

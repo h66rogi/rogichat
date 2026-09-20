@@ -1,0 +1,100 @@
+{
+  "runUrl": "https://github.com/h66rogi/rogichat/actions/runs/35505971573",
+  "pullRequest": 69,
+  "headSha": "68f5397d7be08f3127f2137420f18a850802ba1e",
+  "artifact": "m12-evidence-35505971573-1",
+  "tests": {
+    "passed": 33,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 109822.702325
+  },
+  "faultTestDurationsMs": {
+    "apiLostAckSigkill": 2467.407574,
+    "purgePreCommitSigkill": 2051.196574,
+    "purgePostCommitSigkill": 2051.312772
+  },
+  "hotRoom": {
+    "schemaVersion": 1,
+    "sourceSha": "8e939f8eaa728fde567055c2c3c6330cb1b7cea0",
+    "timestamp": "2026-09-20T10:48:44.245Z",
+    "node": "v24.21.0",
+    "outcome": "passed",
+    "topology": "two local API processes, MySQL, node-local lossy hints; REST recovery",
+    "concurrentSockets": 1000,
+    "distinctAccounts": 1000,
+    "socketsPerProcess": 500,
+    "connectionRampMs": 25483.471759,
+    "concurrentSenders": 8,
+    "hotRoomCommands": 80,
+    "crossProcessIdempotentRetries": 2,
+    "hotRoomDurationMs": 2738.4823319999996,
+    "commandsPerSecond": 29.21326132550707,
+    "ack": {
+      "count": 83,
+      "p50Ms": 174.74,
+      "p95Ms": 280.57,
+      "p99Ms": 292,
+      "maxMs": 292
+    },
+    "restSnapshot": {
+      "count": 1501,
+      "p50Ms": 117.64,
+      "p95Ms": 154.24,
+      "p99Ms": 200.74,
+      "maxMs": 261.29
+    },
+    "hintRecipientsPerProcess": [
+      500,
+      500
+    ],
+    "tailLossRecoveryMs": 333.71600800000306,
+    "killedApiRecoveryMs": 24187.77277699999,
+    "recoveredSockets": 1000,
+    "totals": {
+      "messages": 81,
+      "receipts": 81,
+      "events": 81
+    },
+    "totalDurationMs": 91837.462119,
+    "limitations": [
+      "no Redis adapter or cross-node delivery guarantee",
+      "REST latency is not rendered screen latency",
+      "no 30-minute soak, video overlap or production capacity claim",
+      "paced explicit reconnect, not automatic reconnect storm"
+    ]
+  },
+  "restore": {
+    "schemaVersion": 1,
+    "sourceSha": "8e939f8eaa728fde567055c2c3c6330cb1b7cea0",
+    "timestamp": "2026-09-20T10:47:11.676Z",
+    "node": "v24.21.0",
+    "outcome": "passed",
+    "backupTables": 47,
+    "backupBytes": 60867,
+    "backupMs": 64.14511000000016,
+    "restoreMs": 638.3741949999999,
+    "replayAndPermissionCheckMs": 457.205007,
+    "externalObligations": 2,
+    "rejectedEvidenceCases": [
+      "missing",
+      "unavailable",
+      "corrupt"
+    ],
+    "invalidatedWebAndNativeSessions": 8,
+    "permissionChecks": [
+      "owner shared allowed",
+      "member shared allowed",
+      "deleted private body absent",
+      "outsider denied",
+      "deleted account denied"
+    ],
+    "quarantineHazardObserved": "old session accepted before explicit invalidation",
+    "limitations": [
+      "logical disposable MySQL backup, not Aurora PITR",
+      "external ledger is an isolated in-memory adapter",
+      "release guard is test-only; production restore orchestration unverified",
+      "BLOCKED is not physical purge completion"
+    ]
+  }
+}

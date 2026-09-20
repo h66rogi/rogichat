@@ -25,7 +25,7 @@ import chat.rogi.rogichat.core.design.*
 
 // ProfileSettingsScreen's top-bar save, fields, validation, busy state and server-success handling.
 @Composable
-fun ProfileScreen(model: ProfileViewModel, onBack: () -> Unit) {
+fun ProfileScreen(model: ProfileViewModel, avatar: chat.rogi.rogichat.feature.media.AvatarSettingsModel? = null, onBack: () -> Unit) {
     val state: ProfileUiState = model.uiState.collectAsStateWithLifecycle().value
     val snackbars = remember { SnackbarHostState() }
     val focus = LocalFocusManager.current
@@ -48,6 +48,7 @@ fun ProfileScreen(model: ProfileViewModel, onBack: () -> Unit) {
                 state.isLoading -> ScreenStatus("프로필을 불러오는 중", "잠시만 기다려 주세요.", loading = true)
                 state.original == null -> ScreenStatus("프로필을 불러오지 못했어요", "연결 상태를 확인하고 다시 시도해 주세요.", onRetry = model::load)
                 else -> {
+                    if (avatar != null) chat.rogi.rogichat.feature.media.AvatarSettings(avatar, state.isSaving, model::avatarApplied)
                     ProfileField(label = "표시 이름", value = state.editor.draft,
                         onValueChange = model::editNickname, enabled = !state.isSaving,
                         error = state.editor.error, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),

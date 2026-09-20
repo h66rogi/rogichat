@@ -1,0 +1,187 @@
+{
+  "runUrl": "https://github.com/h66rogi/rogichat/actions/runs/35507401036",
+  "conclusion": "failure",
+  "classification": "supplementary 1000-client stress; not the ten-client MVP acceptance gate",
+  "reports": {
+    "restore": {
+      "schemaVersion": 1,
+      "sourceSha": "dc442000b9efb7ab6ab6d04ce34aa883b9a5d132",
+      "timestamp": "2026-09-20T11:19:13.693Z",
+      "node": "v24.21.0",
+      "outcome": "passed",
+      "backupTables": 47,
+      "backupBytes": 63684,
+      "backupMs": 69.78186700000015,
+      "restoreMs": 721.1626150000002,
+      "replayAndPermissionCheckMs": 483.62213999999994,
+      "externalObligations": 2,
+      "rejectedEvidenceCases": [
+        "missing",
+        "unavailable",
+        "corrupt"
+      ],
+      "invalidatedWebAndNativeSessions": 8,
+      "permissionChecks": [
+        "all restored positive memberships/grants/owner/admin/creator capabilities disabled",
+        "birthday visibility reset OFF",
+        "only independently approved owner receives fresh membership",
+        "former owner login/rejoin/publication denied",
+        "revoked private grant stays denied",
+        "old cursor requires reset",
+        "new membership and authorization revision differ",
+        "deleted private body absent",
+        "outsider denied",
+        "deleted account denied"
+      ],
+      "quarantineCounts": {
+        "members": 0,
+        "owners": 0,
+        "grants": 0,
+        "admins": 0,
+        "creators": 0,
+        "birthdays": 0
+      },
+      "quarantineHazardObserved": "old session accepted before explicit invalidation",
+      "limitations": [
+        "logical disposable MySQL backup, not Aurora PITR",
+        "external ledger is an isolated in-memory adapter",
+        "release guard is test-only; production restore orchestration unverified",
+        "BLOCKED is not physical purge completion"
+      ]
+    },
+    "hot-room": {
+      "schemaVersion": 1,
+      "sourceSha": "dc442000b9efb7ab6ab6d04ce34aa883b9a5d132",
+      "timestamp": "2026-09-20T11:20:43.485Z",
+      "node": "v24.21.0",
+      "outcome": "passed",
+      "topology": "two local API processes, MySQL, node-local lossy hints; REST recovery",
+      "concurrentSockets": 1000,
+      "distinctAccounts": 1000,
+      "socketsPerProcess": 500,
+      "connectionRampMs": 25304.482586999995,
+      "concurrentSenders": 8,
+      "hotRoomCommands": 80,
+      "crossProcessIdempotentRetries": 2,
+      "hotRoomDurationMs": 2650.790108000001,
+      "commandsPerSecond": 30.179681053796948,
+      "ack": {
+        "count": 83,
+        "p50Ms": 168.19,
+        "p95Ms": 274.22,
+        "p99Ms": 322.17,
+        "maxMs": 322.17
+      },
+      "restSnapshot": {
+        "count": 1501,
+        "p50Ms": 114.9,
+        "p95Ms": 148.69,
+        "p99Ms": 171.36,
+        "maxMs": 250.05
+      },
+      "hintRecipientsPerProcess": [
+        500,
+        500
+      ],
+      "tailLossRecoveryMs": 333.3333050000074,
+      "killedApiRecoveryMs": 23578.64701100001,
+      "recoveredSockets": 1000,
+      "totals": {
+        "messages": 81,
+        "receipts": 81,
+        "events": 81
+      },
+      "totalDurationMs": 89079.951073,
+      "limitations": [
+        "no Redis adapter or cross-node delivery guarantee",
+        "REST latency is not rendered screen latency",
+        "no 30-minute soak, video overlap or production capacity claim",
+        "paced explicit reconnect, not automatic reconnect storm"
+      ]
+    },
+    "automatic-reconnect": {
+      "schemaVersion": 1,
+      "sourceSha": "dc442000b9efb7ab6ab6d04ce34aa883b9a5d132",
+      "timestamp": "2026-09-20T11:22:19.275Z",
+      "node": "v24.21.0",
+      "outcome": "failed",
+      "concurrentSockets": 1000,
+      "killedApiProcesses": 2,
+      "recoveredProjections": 570,
+      "connectedSockets": 839,
+      "recoveryFromSigkill": {
+        "count": 570,
+        "p50Ms": 7133.01,
+        "p95Ms": 10053.76,
+        "p99Ms": 10201.25,
+        "maxMs": 10248.36
+      },
+      "deadlineMs": 20000,
+      "clientsMissingDeadline": 430,
+      "connectErrors": 1174,
+      "reconnectAttempts": 2013,
+      "backoff": {
+        "initialMs": 1000,
+        "maximumMs": 5000,
+        "randomizationFactor": 0.5
+      },
+      "limitations": [
+        "default-style Socket.IO client plus immediate REST snapshot, not browser rendering",
+        "same-host runner, no WAN or load balancer"
+      ],
+      "recoveryErrorsByStatus": {
+        "500": 269
+      }
+    },
+    "single-api-capacity": {
+      "schemaVersion": 1,
+      "sourceSha": "dc442000b9efb7ab6ab6d04ce34aa883b9a5d132",
+      "timestamp": "2026-09-20T11:22:52.934Z",
+      "node": "v24.21.0",
+      "outcome": "failed",
+      "connectedSockets": 926,
+      "readinessStatus": 200,
+      "transportRejected": false,
+      "configuredHttpMaxConnections": 1000,
+      "configuredRealtimeMaxConnections": 1000,
+      "limitation": "same-host synthetic connection-bound probe, not production capacity certification"
+    },
+    "single-event-fanout": {
+      "schemaVersion": 1,
+      "sourceSha": "dc442000b9efb7ab6ab6d04ce34aa883b9a5d132",
+      "timestamp": "2026-09-20T11:21:32.504Z",
+      "node": "v24.21.0",
+      "outcome": "measured",
+      "ackMs": 67.99950499999977,
+      "recipientsPerProcess": [
+        500,
+        0
+      ],
+      "hintRecipients": 500,
+      "eligibleRecipients": 1000,
+      "crossNodeFanoutComplete": false,
+      "sendToHint": {
+        "count": 500,
+        "p50Ms": 349.29,
+        "p95Ms": 491.88,
+        "p99Ms": 498.26,
+        "maxMs": 500.01
+      },
+      "sendToRestProjection": {
+        "count": 101,
+        "p50Ms": 1168.83,
+        "p95Ms": 1947.16,
+        "p99Ms": 2030.53,
+        "maxMs": 2036.66
+      },
+      "projectionSuccesses": 101,
+      "limitations": [
+        "only the API that claims the single durable hint job dispatches to its local sockets",
+        "REST projection is not a rendered UI measurement"
+      ],
+      "projectionErrorsByStatus": {
+        "500": 399
+      }
+    }
+  }
+}

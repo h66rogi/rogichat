@@ -9,6 +9,8 @@ import type { RealtimeService } from '../../modules/realtime/realtime.service.js
 import type { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
 import type { Jobs } from '../jobs/jobs.service.js';
 import type { JobLease } from '../../modules/jobs/jobs.policy.js';
+import { DatabaseUnavailableError } from '../../infrastructure/database/database-unavailable.js';
+import { REALTIME_CONNECTION_LIMIT } from '../../common/http/connection-budget.js';
 
 export interface RealtimeOptions { maxConnections?: number; maxPerAccount?: number; dispatchIntervalMs?: number; chunkSize?: number }
 interface Connection { socket: Socket; userId: string; sessionId: string }
@@ -63,7 +65,7 @@ export class RealtimeGateway {
   private admissions = 0;
 
   constructor(private readonly http: HttpServer | (() => HttpServer), private readonly service: RealtimeService, private readonly config: AuthConfig, private readonly lifecycle: LifecycleState, private readonly jobs: Jobs, options: RealtimeOptions = {}) {
-    this.maxConnections = bounded(options.maxConnections ?? 1000, 1000);
+    this.maxConnections = bounded(options.maxConnections ?? REALTIME_CONNECTION_LIMIT, REALTIME_CONNECTION_LIMIT);
     this.maxPerAccount = bounded(options.maxPerAccount ?? 5, 10);
     this.intervalMs = bounded(options.dispatchIntervalMs ?? 250, 5000, 100);
     this.chunkSize = bounded(options.chunkSize ?? 50, 100);
@@ -90,7 +92,12 @@ export class RealtimeGateway {
     });
     if (typeof http !== 'function') this.attach(http);
     this.io.use((socket, next) => {
-      void this.authenticate(socket).then(() => next(), () => next(new Error('UNAUTHENTICATED')));
+      void this.authenticate(socket).then(() => next(), error => {
+        // Namespace auth rejection disables automatic Socket.IO reconnect.
+        // Temporary dependency overload must instead use transport retry.
+        if (error instanceof DatabaseUnavailableError) { socket.conn.close(); return; }
+        next(new Error('UNAUTHENTICATED'));
+      });
     });
     this.io.on('connection', socket => {
       if (this.stopped || lifecycle.draining) { socket.conn.close(); return; }

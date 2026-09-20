@@ -8,6 +8,11 @@
 이 원칙을 적용한 실제 코드·검증 범위는 [제품 구성 교체 기록](mobile-product-progress.md)에 있다.
 후속 세션·프로필 연결과 구체적 발급/기기 블로커는 [네이티브 연결 기록](mobile-native-transport-progress.md)에 분리한다.
 진행 중인 SOOP 클라이언트와 서명 준비는 [네이티브 인증 기록](mobile-native-auth-progress.md)에 기록한다.
+실제 방 목록·계정별 SQLite의 구현 및 검증은 [방 저장소 기록](mobile-rooms-progress.md)에 기록한다.
+그 후속인 실제 참여·나가기는 [방 명령 기록](mobile-room-mutations-progress.md)에 기록한다.
+MB07의 서버 탈퇴 접수는 [후속 구현 계획](mobile-account-deletion-plan.md)으로 구체화했으며
+동결된 양 OS 소스와 검증 경계는 [구현 기록](mobile-account-deletion-progress.md)에 있다.
+이를 실제 접수·물리 삭제 완료로 집계하지 않는다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
@@ -108,7 +113,8 @@ KMP/TCA 등 추가 아키텍처 프레임워크 도입은 이번 기반 작업 �
   재확인한다. 경고를 blanket `@unchecked Sendable`로 숨기지 않는다.
 - 제품 화면·상태 모델·앱 조립부는 main/shared 영역에 둔다. QA/prod는 같은 제품 경로를
   실행하고 endpoint·식별자·서명 등 환경 설정을 분리한다. 실제 계정/권한에 따른 분기는 유지한다.
-  합성 계정·방·역할 선택·preview 진입·fake adapter는 test 또는 개발 preview target에만 둔다.
+  합성 계정·방·역할 선택·fake adapter는 격리된 자동 테스트에만 둔다. 제품 runtime과
+  QA/prod target에 preview 진입이나 sample content를 넣지 않는다.
   QA flavor/`ROGICHAT_QA` 자체는 테스트 코드 격리 조건이 아니다. TestFlight/App Distribution
   산출물에도 합성 진입이 없어야 한다. 인증 전 private 화면은 양 환경 모두 실제 gate로 차단한다.
 - 원본 고정 endpoint/ID/브랜드/서명/분석·결제·방송·고객지원 SDK를 제거한다. 사용자 재사용
@@ -148,7 +154,7 @@ ID를 승계하지 않는다. 인증 completion은 content route hint와 별도 
 것과 사용자 변경 command를 분리하고, 빠른 연속 토글은 직렬화 또는 revision으로 최신 의도를
 보장한다. 실패 rollback이 더 최근 선택을 덮어쓰지 않아야 한다. destructive action은 확인
 화면을 거친다. 실제 API 미연결 기능을 `저장 준비 중`·가짜 성공·작동하지 않는 메뉴로
-배포하지 않는다. 화면/상태 모델은 완성하고 개발 preview와 테스트에서 상태를 검증한다.
+배포하지 않는다. 화면/상태 모델은 완성하고 격리된 자동 테스트에서 상태를 검증한다.
 필수 인증·계정 기능의 미연결은 통합 완료를 막는 블로커로 기록한다. 선택 기능은 완성될 때
 제품 탐색에 연결한다. 실제 서비스 오류·빈 상태는 사용자에게 필요한 안내와 가능한 행동을 제공한다.
 
@@ -201,7 +207,7 @@ Distribution 사용을 runtime FCM 선택/설정 완료로 해석하지 않는�
 | C03 | native `/auth/session` 계정 요약·SOOP 상태·만료·opaque generation 확정. 방/동기화 scope 연결은 남음 | 요약과 전체 프로필을 분리하고 제공자를 추정하지 않음. room의 joined/mode/actorId/next 보존, 방별 인가·scope 확인. capabilities는 서버 인가 대체 불가 | 서버 Auth/Rooms/Access |
 | C04 | PR #34 `4002329`에 본인 command receipt 조회와 stable accountPartition 후보 구현. 기존 session account.userId는 호환 유지 | 기존 send의 동일 ID/정규화 payload와 receipt GET으로 ACK 유실을 조정. deleted는 terminal, 404는 미전송 증거나 새 ID 발급 허가가 아님. accountPartition은 인증/멤버십 fence가 아니며 키 회전 시 자동 replay 금지. QA 계약·멤버십 scope와 양 OS parity 검증 후 outbox 연결 | 서버 Messages/Sync + 앱 Outbox |
 | C05 | 서버가 nullable counterpart와 required allowedActions 계약을 고정하고 독립 소스 리뷰를 통과했다고 전달. 게시 SHA·호스팅 CI·앱 parity는 후속 | 현재 viewer의 reply/publish/delete 힌트이며 인가를 대체하지 않음. 같은 version도 현재 scope의 전체 힌트를 교체하고 tombstone을 보존. 익명 공개본의 원 작성자/원본 연결 미노출 시험 | 서버 projector + 앱 Composer |
-| C06 | 서버가 schemaVersion 2·membershipScope/authorizationRevision·표시 정렬 계약을 승인하고 구현 중. 고정 게시 소스와 앱 통합은 후속 | `(createdAt,id)` 표시 정렬과 opaque pagination 분리. SEND는 현재 membershipScope를 receipt/dedupe보다 먼저 확인. 옛 pending을 새 멤버십에 자동 재결합하지 않음. 내부 order/숨은 gap을 노출하지 않음 | 서버 Sync + 양 OS DB |
+| C06 | PR #45 `691aff80`에 schemaVersion 2·membershipScope/authorizationRevision·표시 정렬과 terminal tombstone 보정 고정, 해당 hosted CI 통과. 앱 parity·동시 활성화는 후속 | `(createdAt,id)` 표시 정렬과 opaque pagination 분리. SEND는 현재 membershipScope를 receipt/dedupe보다 먼저 확인. 옛 pending을 새 멤버십에 자동 재결합하지 않음. 내부 order/숨은 gap을 노출하지 않음 | 서버 Sync + 양 OS DB |
 | C07 | PR #17 OpenAPI exporter·응답 계약 시험이 QA에 통합됨. 양 OS의 세션/프로필 strict decode 구현 | 실제 exporter/projector를 기준으로 sync/socket versioned schema와 공통 JSON의 양 OS decode parity를 확정. nullable PATCH absent/null/value 및 unsigned bigint 문자열 비교 검증을 유지 | 서버 contracts + 양 OS API |
 | C08 | `ac69ca2`에서 고정 7일 opaque credential·만료 시 재인증 확정 | 앱 보호 저장·복원·명시적 폐기·expiry/401/응답 경쟁 검증. refresh API는 없으며, 향후 도입 시 rotation/replay/응답 유실을 별도 검증 | 서버 Auth + 앱 Session |
 
@@ -284,8 +290,8 @@ mapper가 변환한다. 약관 필요 상태와 연결 진행/취소 상태는 A
 - Apple identity 철회·SOOP 재검증·정지·탈퇴 결과를 서버와 앱에 연결한다. 로그아웃/탈퇴 시
   socket, 진행 요청, DB 관찰, 전송 작업을 정지하고 계정 데이터를 제거한다.
 
-실제 provider 연동이 막혀 있는 동안 화면과 상태 처리는 제품 코드로 개발하고 test/개발
-preview에서 검증한다. **QA Release의 synthetic adapter 허용 정책은 폐기한다.**
+실제 provider 연동이 막혀 있는 동안 화면과 상태 처리는 제품 코드로 개발하고 격리된 자동
+테스트에서 검증한다. **QA Release의 synthetic adapter 허용 정책은 폐기한다.**
 QA/prod 배포 산출물 모두 fixture/preview 진입이 없어야 한다. QA에서만 가짜 로그인으로
 완성된 앱처럼 이동시키거나 prod를 별도의 축소된 시작 화면으로 유지하지 않는다.
 hosted QA의 mock login·고정 사용자 토큰·인증 우회도 금지한다.
@@ -359,9 +365,18 @@ C06의 `membershipScope`(M)를 사용하며 `authorizationRevision`(A)과 구분
   별도 결정한다. `deleted`이면 낙관 표시·본문을 지우고 최소 종료 표식만 남긴다.
   결과 확인 권한이 사라지면 미전송으로 단정하지 않고 송신 종료·해당 scope 정리를 적용한다.
   재입장 후 새 M을 오래된 command에 끼워 넣거나 같은 내용을 새 ID로 자동 생성하지 않는다.
-- 명시적 400/409는 자동 반복하지 않는다. 429는 서버 재시도 정보가 있으면 따르고,
-  없으면 bounded exponential backoff+jitter를 적용한다. 네트워크/5xx는 같은 명령으로
-  제한된 재시도와 수동 재시도를 제공한다. 실패 메시지를 새 명령으로 몰래 다시 보내지 않는다.
+- 명시적 400/409는 자동 반복하지 않는다. SEND의 timeout·연결 유실·5xx와 콜드 시작의
+  sending은 결과 불명으로 보존하고 GET receipt만 수행한다. GET의 404도 자동 POST를
+  허용하지 않는다. 첫 통합 구현은 결과 불명 명령의 자동 SEND 재시도를 제공하지 않는다.
+  향후 명시적 재시도를 붙일 때도 실제 현재 권한·원래 M과 불변 ID/payload를 별도 검사한다.
+  429의 대기 정보나 GET용 bounded backoff+jitter를 SEND 재실행 정책으로 공유하지 않는다.
+  서버가 보낸 메시지 projection에는 clientMessageId가 없으므로 본문·시각 추정으로 pending을
+  합치지 않고 실제 receipt의 serverMessageId만 사용한다.
+
+같은 accountPartition의 콜드 복원은 인증·manifest를 재확인할 때까지 표시·전송 권한을 닫되,
+결과 불명 명령의 불변 ID/payload/M을 먼저 삭제하지 않는다. 일시적인 미검증 상태와 실제
+logout/401/partition 변경·확정된 접근 상실의 파괴적 정리를 분리한다. 실제 세션 restore와
+DB close/reopen을 거친 시험에서 POST 0회·GET receipt 우선 복구를 검증한다.
 
 | 사건 | 표시/저장 정책 | 재개 |
 |---|---|---|
@@ -442,10 +457,19 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 
 ### MB04의 첫 구현 경계 — 교차 OS 리뷰 반영
 
-C06 `48c00bb`의 schemaVersion 2와 C05 `492f2f7`, C04 `4002329`를 읽고 양 OS 설계를
-독립 검토했다. C06 terminal tombstone은 같은 cache generation/M/A 안에서 모든 later
-live를 거부하도록 서버 담당자가 확정했으며 reference helper의 후속 수정 SHA는 timeline
-구현 전에 다시 고정한다. 현재 첫 단계의 계약 블로커는 없다.
+후속 구현은 C04/C05/C06이 함께 들어 있는 서버 고정 소스
+`f9197a31d61b7c34256e92f0bcb73ee255275d40`과 그 OpenAPI를 기준으로 한다.
+개별 계약 브랜치는 변경 이력이며 DTO를 조합하는 구현 기준이 아니다. 이 소스는 공개 PR의
+원격 SHA까지 확인했지만 아직 live 활성화 증거가 아니다. schema 2 서버·웹·양 OS의 호환성은
+같은 활성화 계획에서 확인한다. `authorizationRevision`에 추가된 content_epoch도 불투명 값으로
+처리하고 클라이언트가 M/A를 계산하지 않는다.
+
+C06 `691aff80bbcc96903ffe11d76b2a7561859ddb02`의 schemaVersion 2와 C05 `492f2f7`,
+C04 `4002329`를 기준으로 양 OS 설계를 독립 검토했다. C06 terminal tombstone은 같은
+cache generation/M/A 안에서 높은 version을 포함한 모든 later live를 거부한다. 해당
+reference helper·문서·회귀 보정은 고정 SHA에 포함됐다. 새 authority는 새 fenced generation과
+authoritative snapshot으로 확인한다. 첫 단계의 소스 계약 블로커는 없으며, 실제 API 활성화는
+웹·양 OS의 schema 2 대응과 rollback 경로를 함께 확인한 뒤 조정한다.
 
 1. **MB04a**는 실제 discovery·complete membership manifest·계정별 on-disk DB와
    partition/session commit fence까지만 양 OS 동일하게 구현한다. Android Room과 iOS
@@ -470,12 +494,33 @@ MB03의 실제 provider/기기 gate는 유지하면서 위 코드·격리 검증
 schema 2의 QA 활성화는 web/Android/iOS 소비자와 backend의 정확한 통합 SHA 및 동시
 전환/rollback 계획을 조율한 뒤 수행한다. 코드 존재를 실제 계정·호스팅 왕복으로 대체하지 않는다.
 
+MB04a의 후속 참여·나가기는 고정 C06의 `{}` POST만 한 번 전송하고 fresh complete
+manifest로 전체 참여 상태를 재확인한다. 표시한 원본 scope/cycle/M을 coordinator admission과
+실제 DB COMMIT까지 보존하며 화면 재생성이 전송·재확인을 중복 실행하지 못하게 한다.
+GET의 현재 상태는 이전 POST 종료나 실패의 증거가 아니다. 결과 불명 안내는 조회 오류와
+분리하고 old row callback·A→B→A·late response·DB 실패 회귀로 검증한다. 이 후속을 별도
+메시지 단계로 바꾸지 않으며 MB04b/c의 cache/outbox/SEND 범위와 gate는 유지한다.
+
+2026-09-20 실행에서는 MB04b/c의 실제 TEXT·수신·history·재시작 복구와 동시에 MB05–07의
+독립 구현을 진행한다. 미디어, 메시지 동작·읽음·스크롤 복원, Apple/SOOP·push worker는
+각자의 typed feature 코드를 소유한다. 각 OS의 기존 작성자가 보호 세션·원래 계정 DB·HTTP·
+앱 조립·navigation·플랫폼 설정을 단독 소유하며 이 코드를 실제 제품 경로에 연결한다.
+helper 작성·타입검사만으로 기능 완료라고 기록하지 않는다. 별도 테스트 배포를 작은 변경마다
+만들지 않고 사용할 수 있는 대화 흐름과 검증 결과를 묶어 서명·배포한다.
+
+현재 명령의 원래 M과 계정·credential 세대를 유지한다. 완전 manifest에서 M이 바뀌거나
+방이 빠지면 이전 본문·인용·프로필·outbox payload가 새 참여 화면에 나타나지 않도록 정리한다.
+A만 바뀌면 현재 projection/cache를 새로 확인하되 원래 M의 불명 전송을 새 SEND로 바꾸지
+않는다. 개별 메시지의 403/404는 해당 projection의 표시 중단이며 방 권한 상실·삭제 완료로
+추정하지 않는다. 서버 저장을 확인했더라도 현재 허용된 projection이 없는 메시지의 본문을
+옛 outbox에서 대신 표시하지 않는다. 이 경계는 양 OS 실제 저장소와 화면 모델 회귀로 확인한다.
+
 ### MB02 실행 분할과 현재 우선순위
 
 | 순서 | 구체적인 산출물 | 선행/통과 gate | 막힐 때 계속할 일 |
 |---|---|---|---|
 | MB02a — 재사용 단위·공통 UI | 원본 theme·navigation·settings·공통 상태의 구조와 유용한 구현을 수정 재사용. R01–R08도 원본 화면 맥락과 다시 비교하고 지나친 축소를 보정 | MB00 기준 SHA, 파일별 권리/의존 확인. 재작성 사유와 실제 추출 구분. 양 OS light/dark/긴 한글/큰 글자/스크린리더 확인 | 불명확 코드 단위만 보류; 독립된 화면/기능 재사용 계속 |
-| MB02b — shell·설정 조립 | 원본 NavHost/MainTab/AppRouter, More/MyPage·프로필 흐름을 적용 가능한 범위에서 재사용. 대화/설정 루트, 계정 gate, back/tab 복원. QA/prod 동일 제품 조립부 | MB02a. 합성 선택기/preview 진입을 배포 target에서 제거. SignedOut/LinkRequired/Ready/Blocked, 방 하나 자동 진입·설정 복귀, Activity 재생성/stack dismiss 시험 | 정책 URL/API 미확정 부분은 블로커 기록; 화면 상태·입력·복원은 개발 preview/테스트로 검증 |
+| MB02b — shell·설정 조립 | 원본 NavHost/MainTab/AppRouter, More/MyPage·프로필 흐름을 적용 가능한 범위에서 재사용. 대화/설정 루트, 계정 gate, back/tab 복원. QA/prod 동일 제품 조립부 | MB02a. 합성 선택기/preview 진입을 배포 target에서 제거. SignedOut/LinkRequired/Ready/Blocked, 방 하나 자동 진입·설정 복귀, Activity 재생성/stack dismiss 시험 | 정책 URL/API 미확정 부분은 블로커 기록; 화면 상태·입력·복원은 격리된 자동 테스트로 검증 |
 | MB02c — OS 알림·링크·lifecycle | 원본 알림 설정·권한·앱 복귀 흐름과 테스트를 재사용하고 기존 결함을 보정. 안전한 parser/pending intent, 실제 OS 상태와 서버 선호/등록 분리 | MB02b; OS 설정 복귀, cold/warm/중복/TTL/환경/계정 변경 시험. 합성 provider는 테스트 전용. 실제 등록/푸시 성공은 MB07까지 보류 | 서버 계약 없이 가능한 실제 OS 동작 완성; 제품 UI에 서버 미연동/provider 진단 행을 추가하지 않음 |
 | MB02d — 서비스 adapter·영속 기반 | 원본 APIClient/오류·보호 저장의 적용 가능한 코드를 수정 재사용. C01/07/08에 맞춘 SessionManager와 계정별 저장소, Room/GRDB migration | 확정된 MB01 계약만 연결. 재작성 부분은 원본과 계약 불일치 근거 기록. 원본 refresh/WebView token/민감 logging 금지. 실제 SQLite·secure store 오류·취소·generation 시험 | 미확정 adapter는 port/fixture만, 다른 제품 코드 진행 |
 
@@ -492,8 +537,8 @@ More/MyPage·프로필·알림 화면 재사용, 세션별 작업 폐기와 양 
    테스트를 함께 읽는다. 재사용/수정/제외/신규 사유와 대상 파일을 기록한다. 원본이 가진
    화면 완성도와 상태 처리를 일부 row 추출만으로 대체하지 않았는지 대조한다.
 2. **제품 조립부와 배포 경계 교체:** Android QA/prod `AppEntry`, iOS `RogichatApp`의
-   QA `WireframeHost` 분기를 공통 제품 조립부로 통합한다. 합성 시나리오는 테스트/개발
-   preview target으로 이동한다. `check_android.py`·`build_ios.py`의 **QA fixture 포함 필수**
+   QA `WireframeHost` 분기를 공통 제품 조립부로 통합한다. 합성 시나리오는 격리된 자동
+   테스트로 이동한다. `check_android.py`·`build_ios.py`의 **QA fixture 포함 필수**
    검사를 **양 배포 환경 fixture 제외** 검사로 바꾸고 실제 APK/실행 파일을 검사한다.
 3. **설정·탐색·OS 기능 재사용 완성:** 원본의 적용 가능한 전체 화면 흐름을 MB02a–c에
    반영한다. 상태 소유권·복귀·실제 시스템 설정 이동과 접근성을 검증한다. 프로필 저장·탈퇴·
@@ -586,6 +631,25 @@ push하고 QA 대상 PR의 필수 검증을 통과시켜 병합한 뒤
 정수 ID, sequence cursor, 화면별 socket, 새 ID 재전송, 다른 앱의 auth 의미/운영 설정은 이식하지 않는다. 소스 이식이
 필요하면 파일·원본 commit·license를 별도로 기록하고 reference repo는 읽기 전용으로 유지한다.
 
+## 10.1. 실제 제품 기능 통합의 검증 순서
+
+[제품 통합 기록](mobile-product-integration-progress.md)에 현재 소스·CI·실배포 증거를
+구분한다. 검증된 TEXT/영속 복구 checkpoint 뒤에 미디어·메시지 동작·Apple·native push·실시간을
+기존 보호 세션과 Room/GRDB에 연결한 하나의 후보를 만든다. 추출 helper의 성공만으로
+제품 연결이나 실제 provider 동작을 완료로 집계하지 않는다.
+
+- 전송 직전에도 원래 계정·참여·권한 scope를 확인한다. 취소/로그아웃 이후 늦게 시작되는
+  SEND·읽음·메시지 동작을 차단하고, 이미 불명 상태가 된 명령은 자동 재생하지 않는다.
+- 푸시 REGISTER와 명시적 알림 ON은 실제 HTTP 실행 경계에서 OS 권한과 원래 세션을
+  다시 확인한다. 연결 해제·알림 OFF는 권한이 없어도 가능해야 한다.
+- 설정의 차단 관리에 계정별 `GET /v1/blocked-rooms` discovery를 연결한다. 방을 나간 뒤와
+  새 로그인/기기에서도 복구하고, 비어 있지만 다음 cursor가 있는 페이지도 끝까지 읽는다.
+  현재 서버가 허용한 nullable 이름만 표시한다.
+- SDK pin·라이선스·개인정보 리소스를 실제 QA/Prod bundle과 서명 산출물에서 검사한다.
+  실제 Firebase 환경 입력은 Git 밖에 두며 빌드의 로컬 검증과 업로드의 원격 대상 검증을 유지한다.
+- 전체 후보의 플랫폼/영속 상태/배포 도구 검사 뒤 서명하고 TestFlight/App Distribution에
+  배포한다. 기기/provider 인증과 실제 전달 증거가 없는 항목은 구체적 미검증 상태로 남긴다.
+
 ## 11. 독립 리뷰 기록
 
 문서 초안에 대해 backend/auth/contract와 native persistence/UX/실행 순서를 독립 리뷰한다.
@@ -605,3 +669,14 @@ push하고 QA 대상 PR의 필수 검증을 통과시켜 병합한 뒤
 
 기존 탐색에서 확인한 공식 지침이다. 구체적 패키지 버전·스토어 요건은 해당 구현 PR에서
 다시 조회하고 실제 채택·시험 결과를 기록한다.
+
+
+### Apple 서버 인증 배치 연결 (2026-09-20)
+
+`task/apple-soop-link`의 [Apple 서버 구현](apple-auth-backend.md)과
+[정확한 네이티브 DTO](apple-auth-client-contract.md)를 MB03/C02에 적용한다.
+iOS native Apple 증명, Android Services ID 브라우저 callback과 원래 S256 완료
+교환을 구현하며, 로그인 뒤 SOOP 필수 연결 gate는 유지한다. 직접 SOOP 로그인과
+기존 SOOP 계정에서의 명시적 Apple 연결은 같은 user UUID를 유지하고 충돌을
+자동 병합하지 않는다. 제공자 개발자 등록·실제 QA 계정 및 두 OS 왕복 증거는
+별도 출시 gate이며 새 web Apple UI 배포는 이번 native 배치 범위가 아니다.

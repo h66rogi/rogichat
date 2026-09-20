@@ -1,4 +1,10 @@
-# Thirteen-migration source recovery candidate
+# Historical thirteen-migration recovery candidate
+
+This document records the isolated recovery artifact retained in PR49 history.
+The current feature integration restores normal auth/native, PHOTO publication
+and VIDEO worker composition and uses its full current migration manifest.
+The restrictions below describe that historical recovery artifact only; they are
+not the active feature product contract.
 
 This is a source-only fallback candidate, not a deployment or a feature-QA
 promotion. Application capability reference: `f6958c5b344e0a50aa519c02be433c6c90477ec2`.

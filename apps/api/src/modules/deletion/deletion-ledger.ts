@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export type LedgerEnvironment = 'qa' | 'production';
-export interface DeletionIntent {
+interface LegacyDeletionIntent {
   readonly schemaVersion: 1;
   readonly environment: LedgerEnvironment;
   readonly requestId: string;
@@ -11,32 +11,96 @@ export interface DeletionIntent {
   readonly roomId: string | null;
   readonly requestedAt: string;
 }
+export interface AccountSubjectGuard {
+  readonly version: 1;
+  readonly keyFingerprint: string;
+  readonly subjectHmac: string;
+  readonly identityId: string;
+}
+export interface ScopedAccountSubjectGuard extends AccountSubjectGuard { readonly provider: 'soop' | 'apple' }
+export type DeletionIntent = LegacyDeletionIntent | (Omit<LegacyDeletionIntent, 'schemaVersion' | 'scope' | 'roomId'> & {
+  readonly schemaVersion: 2;
+  readonly scope: 'ACCOUNT';
+  readonly roomId: null;
+  readonly subjectGuard: Readonly<AccountSubjectGuard> | null;
+}) | (Omit<LegacyDeletionIntent, 'schemaVersion' | 'scope' | 'roomId'> & {
+  readonly schemaVersion: 3;
+  readonly scope: 'ACCOUNT';
+  readonly roomId: null;
+  readonly subjectGuards: readonly Readonly<ScopedAccountSubjectGuard>[];
+});
+export function accountSubjectGuards(intent: DeletionIntent): readonly AccountSubjectGuard[] {
+  return intent.schemaVersion === 3 ? intent.subjectGuards : intent.schemaVersion === 2 && intent.subjectGuard ? [intent.subjectGuard] : [];
+}
+export interface LedgerDiscoveryItem {
+  readonly keySha256: string;
+  readonly key: string | null;
+  readonly classification: 'VALID' | 'INVALID_KEY' | 'INVALID_SIZE';
+}
+export interface LedgerListing {
+  keys: string[];
+  cursor: string | null;
+  /** Production listings always include sizes; isolated stores may omit metadata. */
+  sizes?: (number | undefined)[];
+}
 export interface DeletionLedgerStore {
+  /** Canonical storage identity, excluding credentials. Required for replay. */
+  readonly sourceId?: string;
   /** Atomic create only. Existing bytes must never be overwritten. */
   putIfAbsent(key: string, bytes: Uint8Array, signal: AbortSignal): Promise<void>;
   /** Return null only for a confirmed missing object, never permission/network errors. */
   read(key: string, signal: AbortSignal): Promise<Uint8Array | null>;
+  list(cursor: string | null, limit: number, signal: AbortSignal): Promise<LedgerListing>;
   close(): void;
 }
 export class DeletionLedgerError extends Error {
   constructor(readonly code: 'LEDGER_UNAVAILABLE' | 'LEDGER_CONFLICT' | 'INVALID_LEDGER_INTENT') { super(code); }
 }
-export const LEDGER_MAX_BYTES = 1024;
+export const LEDGER_MAX_BYTES = 4096;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
 export function checkedDeletionIntent(value: unknown, environment: LedgerEnvironment): Readonly<DeletionIntent> {
   const invalid = () => { throw new DeletionLedgerError('INVALID_LEDGER_INTENT'); };
   if (!['qa', 'production'].includes(environment) || !value || typeof value !== 'object' || Array.isArray(value)) return invalid();
   const v = value as Record<string, unknown>;
-  if (Object.keys(v).sort().join(',') !== 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,targetId' ||
-      v.schemaVersion !== 1 || v.environment !== environment ||
+  const version2 = v.schemaVersion === 2;
+  const version3 = v.schemaVersion === 3;
+  const expectedKeys = version3 ? 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,subjectGuards,targetId' : version2 ? 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,subjectGuard,targetId' : 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,targetId';
+  if (Object.keys(v).sort().join(',') !== expectedKeys ||
+      (!version2 && !version3 && v.schemaVersion !== 1) || ((version2 || version3) && v.scope !== 'ACCOUNT') || v.environment !== environment ||
       ![v.requestId, v.actorUserId, v.targetId].every(id => typeof id === 'string' && uuid.test(id)) ||
       typeof v.scope !== 'string' || !['MESSAGE', 'ACCOUNT'].includes(v.scope) || typeof v.requestedAt !== 'string' ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v.requestedAt) ||
       !Number.isFinite(Date.parse(v.requestedAt)) || new Date(v.requestedAt).toISOString() !== v.requestedAt ||
       (v.scope === 'ACCOUNT' ? v.roomId !== null || v.targetId !== v.actorUserId : typeof v.roomId !== 'string' || !uuid.test(v.roomId))) return invalid();
-  return Object.freeze({ schemaVersion: 1, environment, requestId: v.requestId as string, actorUserId: v.actorUserId as string,
-    scope: v.scope as DeletionIntent['scope'], targetId: v.targetId as string, roomId: v.roomId as string | null, requestedAt: v.requestedAt });
+  const base: LegacyDeletionIntent = { schemaVersion: 1, environment, requestId: v.requestId as string, actorUserId: v.actorUserId as string,
+    scope: v.scope as DeletionIntent['scope'], targetId: v.targetId as string, roomId: v.roomId as string | null, requestedAt: v.requestedAt };
+  if (version3) {
+    if (!Array.isArray(v.subjectGuards) || v.subjectGuards.length > 8) return invalid();
+    const subjectGuards = v.subjectGuards.map(value => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid();
+      const guard = value as Record<string, unknown>;
+      if (Object.keys(guard).sort().join(',') !== 'identityId,keyFingerprint,provider,subjectHmac,version' || guard.version !== 1 ||
+          !['soop', 'apple'].includes(String(guard.provider)) || typeof guard.identityId !== 'string' || !uuid.test(guard.identityId) ||
+          ![guard.keyFingerprint, guard.subjectHmac].every(item => typeof item === 'string' && /^[a-f0-9]{64}$/.test(item))) return invalid();
+      return Object.freeze({ version: 1 as const, keyFingerprint: guard.keyFingerprint as string, subjectHmac: guard.subjectHmac as string,
+        identityId: guard.identityId, provider: guard.provider as 'soop' | 'apple' });
+    });
+    if (new Set(subjectGuards.map(item => item.identityId)).size !== subjectGuards.length || new Set(subjectGuards.map(item => item.subjectHmac)).size !== subjectGuards.length ||
+        subjectGuards.some((item, index) => index > 0 && subjectGuards[index - 1]!.subjectHmac >= item.subjectHmac)) return invalid();
+    return Object.freeze({ ...base, schemaVersion: 3, scope: 'ACCOUNT', roomId: null, subjectGuards: Object.freeze(subjectGuards) });
+  }
+  if (!version2) return Object.freeze(base);
+  let subjectGuard: Readonly<AccountSubjectGuard> | null = null;
+  if (v.subjectGuard !== null) {
+    if (!v.subjectGuard || typeof v.subjectGuard !== 'object' || Array.isArray(v.subjectGuard)) return invalid();
+    const guard = v.subjectGuard as Record<string, unknown>;
+    if (Object.keys(guard).sort().join(',') !== 'identityId,keyFingerprint,subjectHmac,version' || guard.version !== 1 ||
+        typeof guard.identityId !== 'string' || !uuid.test(guard.identityId) ||
+        ![guard.keyFingerprint, guard.subjectHmac].every(value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value))) return invalid();
+    subjectGuard = Object.freeze({ version: 1, keyFingerprint: guard.keyFingerprint as string, subjectHmac: guard.subjectHmac as string, identityId: guard.identityId });
+  }
+  return Object.freeze({ ...base, schemaVersion: 2, scope: 'ACCOUNT', roomId: null, subjectGuard });
 }
 export function deletionIntentKey(environment: LedgerEnvironment, requestId: string): string {
   if (!['qa', 'production'].includes(environment) || !uuid.test(requestId)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
@@ -59,11 +123,69 @@ export function decodeDeletionIntent(bytes: Uint8Array, environment: LedgerEnvir
 /** Internal write-ahead port, NOT authorization and NOT deletion completion.
  * Caller first authorizes the exact immutable target and captures server/DB UTC,
  * closes that transaction, then records intent before the DB blocking mutation.
- * Request UUID is retained across retries; no HTTP endpoint calls this yet.
+ * Request UUID is retained across retries; only the internal admission service calls this.
  */
 export class DeletionLedger {
-  constructor(private readonly store: DeletionLedgerStore, private readonly environment: LedgerEnvironment) {
+  constructor(private readonly store: DeletionLedgerStore, readonly environment: LedgerEnvironment) {
     if (!['qa', 'production'].includes(environment)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+  }
+  get sourceId(): string {
+    const value = this.store.sourceId;
+    if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    return value;
+  }
+  async inventory(cursor: string | null = null, limit = 50, signal?: AbortSignal) {
+    const page = await this.discover(cursor, limit, signal);
+    if (page.items.some(item => item.classification !== 'VALID')) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    return { keys: page.items.map(item => item.key!), cursor: page.cursor };
+  }
+  async discover(cursor: string | null = null, limit = 50, signal?: AbortSignal) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+        (cursor !== null && (typeof cursor !== 'string' || !cursor.length || cursor.length > 2048))) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    const bounded = AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]);
+    try {
+      bounded.throwIfAborted();
+      const page = await this.store.list(cursor, limit, bounded);
+      if (!page || !Array.isArray(page.keys) || page.keys.length > limit || new Set(page.keys).size !== page.keys.length ||
+          (page.sizes !== undefined && (!Array.isArray(page.sizes) || page.sizes.length !== page.keys.length)) ||
+          (page.cursor !== null && (typeof page.cursor !== 'string' || !page.cursor.length || page.cursor.length > 2048 || page.cursor === cursor))) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+      const items: LedgerDiscoveryItem[] = page.keys.map((key, index) => {
+        // Missing identity, an escaped prefix or unbounded metadata invalidates the envelope.
+        if (typeof key !== 'string' || !key.startsWith(`${this.environment}/`) || Buffer.byteLength(key, 'utf8') > 1024 ||
+            Buffer.from(key, 'utf8').toString('utf8') !== key) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+        let classification: LedgerDiscoveryItem['classification'] = 'VALID';
+        try { this.checkedKey(key); } catch { classification = 'INVALID_KEY'; }
+        if (classification === 'VALID' && page.sizes !== undefined &&
+            (!Number.isSafeInteger(page.sizes[index]) || page.sizes[index]! < 1 || page.sizes[index]! > LEDGER_MAX_BYTES)) classification = 'INVALID_SIZE';
+        return { keySha256: createHash('sha256').update(key, 'utf8').digest('hex'),
+          key: classification === 'VALID' ? key : null, classification };
+      });
+      bounded.throwIfAborted();
+      return { items, cursor: page.cursor };
+    } catch (error) {
+      if (error instanceof DeletionLedgerError) throw error;
+      throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
+    }
+  }
+  private checkedKey(key: string) {
+    if (typeof key !== 'string' || key !== deletionIntentKey(this.environment, key.split('/')[1] ?? '')) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    return key;
+  }
+  async readByKey(key: string, signal?: AbortSignal) {
+    this.checkedKey(key);
+    const bounded = AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]);
+    try {
+      bounded.throwIfAborted();
+      const bytes = await this.store.read(key, bounded);
+      bounded.throwIfAborted();
+      if (!bytes) throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
+      const intent = decodeDeletionIntent(bytes, this.environment);
+      if (deletionIntentKey(this.environment, intent.requestId) !== key) throw new DeletionLedgerError('LEDGER_CONFLICT');
+      return Object.freeze({ intent, sha256: createHash('sha256').update(bytes).digest('hex') });
+    } catch (error) {
+      if (error instanceof DeletionLedgerError) throw error;
+      throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
+    }
   }
   async ensureIntent(value: DeletionIntent, signal?: AbortSignal) {
     const intended = checkedDeletionIntent(value, this.environment);
@@ -85,10 +207,33 @@ export class DeletionLedger {
       for (const field of ['requestId', 'actorUserId', 'scope', 'targetId', 'roomId'] as const) {
         if (durable[field] !== intended[field]) throw new DeletionLedgerError('LEDGER_CONFLICT');
       }
+      // Account retries reuse immutable guard evidence, including legacy receipts.
+      // New evidence never overwrites the original externally authorized command.
       return Object.freeze({ intent: durable, sha256: createHash('sha256').update(bytes).digest('hex') });
     } catch (error) {
       if (error instanceof DeletionLedgerError) throw error;
       throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
     }
   }
+}
+
+export type DeletionReceipt = Awaited<ReturnType<DeletionLedger['ensureIntent']>>;
+// Versioned namespace is an identifier, never authority. RFC 9562 UUIDv5.
+const MESSAGE_NAMESPACE_V1 = Buffer.from('c905df9b942b53e8a72659c955726fcc', 'hex');
+export function messageDeletionId(environment: LedgerEnvironment, actor: string, room: string, message: string): string {
+  const bytes = createHash('sha1').update(MESSAGE_NAMESPACE_V1).update(JSON.stringify([environment, actor, 'MESSAGE', room, message])).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+const ACCOUNT_NAMESPACE_V1 = Buffer.from('a29017d181de5f7baaf7af234a5cebe4', 'hex');
+export function accountDeletionId(environment: LedgerEnvironment, userId: string): string {
+  if (!['qa', 'production'].includes(environment) || !uuid.test(userId)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+  const bytes = createHash('sha1').update(ACCOUNT_NAMESPACE_V1).update(JSON.stringify([environment, userId, 'ACCOUNT'])).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

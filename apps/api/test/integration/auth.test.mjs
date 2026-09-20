@@ -1,3 +1,5 @@
+import { IdentityGuardRepository } from '../../dist/modules/auth/identity-guard.repository.js';
+import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.service.js';
 import { createUser } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
@@ -14,6 +16,7 @@ import { AuthFlow } from '../../dist/modules/auth/auth-flow.service.js';
 import { oauthCookieName } from '../../dist/modules/auth/auth-context.js';
 import { createApi } from '../../dist/application.js';
 import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
+import { responseContract } from '../support/openapi-response.mjs';
 
 function deferred() {
   let resolve;
@@ -68,7 +71,7 @@ async function fixture(t, withHttp = false, secure = false) {
   };
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const broker = new FixtureBroker(config.broker.clientId);
-  const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), new IdentityService(new IdentityRepository()));
+  const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), new IdentityService(new IdentityRepository(), config, new IdentityGuardService(new IdentityGuardRepository())));
   let logs = '';
   if (withHttp) {
     app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { sessions, flow, config });
@@ -85,9 +88,11 @@ async function fixture(t, withHttp = false, secure = false) {
   const principal = token => db.transactions.read(tx => sessions.require(tx, token));
   const localSession = () => db.transactions.write(async tx => {
     const userId = await createUser(tx, '연결 전 합성 계정');
+    await tx.prisma.users.update({ where: { id: userId }, data: { terms_version: '2026-09-20' } });
     return { userId, ...await sessions.issue(tx, userId) };
   });
   return { db, config, sessions, broker, flow, begin, complete, principal, localSession,
+    verify: app ? responseContract(app, config) : undefined,
     base: app ? await app.getUrl() : undefined, logs: () => logs };
 }
 
@@ -141,7 +146,9 @@ test('real MySQL HTTP login/session/logout uses strict minimal DTOs, cookie bind
   response = await fetch(`${f.base}/v1/auth/session`, { headers: { Cookie: sessionCookie, Origin: f.config.origin } });
   assert.equal(response.status, 200);
   const status = await response.json();
-  assert.deepEqual(Object.keys(status).sort(), ['authenticated', 'csrfToken', 'soopLinkStatus']);
+  assert.deepEqual(Object.keys(status).sort(), ['accountPartition', 'authenticated', 'capabilities', 'csrfToken', 'onboardingState', 'soopLinkStatus']);
+  assert.match(status.accountPartition, /^[A-Za-z0-9_-]{43}$/);
+  f.verify('GET', '/v1/auth/session', response.status, status);
   assert.equal(status.authenticated, true);
   assert.equal(status.soopLinkStatus, 'VERIFIED');
   assert.match(status.csrfToken, /^[A-Za-z0-9_-]{43}$/);
@@ -182,7 +189,7 @@ test('state/browser/audience binding and one-time callback claims reject tamperi
   await assert.rejects(f.flow.callback(started.request.state, code, secret()), errorCode('AUTH_FAILED', 400));
   const otherConfig = { ...f.config, audience: 'rogi-other-environment' };
   const otherSessions = new SessionService(new SessionRepository(), otherConfig.audience, otherConfig.key);
-  const otherFlow = new AuthFlow(otherSessions, f.db.transactions, otherConfig, f.broker, new LoginRepository(), new IdentityService(new IdentityRepository()));
+  const otherFlow = new AuthFlow(otherSessions, f.db.transactions, otherConfig, f.broker, new LoginRepository(), new IdentityService(new IdentityRepository(), otherConfig, new IdentityGuardService(new IdentityGuardRepository())));
   await assert.rejects(otherFlow.callback(started.request.state, code, started.browser), errorCode('AUTH_FAILED', 400));
   assert.equal(f.broker.exchanges, 0);
   const results = await Promise.allSettled([
@@ -195,8 +202,9 @@ test('state/browser/audience binding and one-time callback claims reject tamperi
   await assert.rejects(f.flow.callback(started.request.state, code, started.browser), errorCode('AUTH_FAILED', 400));
   const session = results.find(result => result.status === 'fulfilled').value;
   await assert.rejects(f.db.transactions.read(tx => otherSessions.require(tx, session.token)), errorCode('UNAUTHENTICATED', 401));
-  const [login] = await f.db.transactions.read(tx => tx.rows('SELECT status,LENGTH(verifier) AS verifier_size FROM login_transactions WHERE id=?', [started.request.transactionId]));
+  const [login] = await f.db.transactions.read(tx => tx.rows('SELECT user_id,status,LENGTH(verifier) AS verifier_size FROM login_transactions WHERE id=?', [started.request.transactionId]));
   assert.equal(login.status, 'SUCCEEDED');
+  assert.equal(login.user_id, (await f.principal(session.token)).userId);
   assert.equal(Number(login.verifier_size), 0);
 });
 
@@ -209,7 +217,7 @@ test('broker client/provider/transaction/freshness mismatch, denied codes and re
   ]) {
     const started = await f.begin();
     await assert.rejects(f.complete(started, undefined, overrides), errorCode('AUTH_FAILED', 400));
-    const [row] = await f.db.transactions.read(tx => tx.rows('SELECT status,LENGTH(verifier) AS verifier_size FROM login_transactions WHERE id=?', [started.request.transactionId]));
+    const [row] = await f.db.transactions.read(tx => tx.rows('SELECT user_id,status,LENGTH(verifier) AS verifier_size FROM login_transactions WHERE id=?', [started.request.transactionId]));
     assert.equal(row.status, 'FAILED');
     assert.equal(Number(row.verifier_size), 0);
   }
@@ -256,7 +264,7 @@ test('link requires CSRF/recent session, rotates successful sessions, rejects ac
   await assert.rejects(f.principal(local.token), errorCode('UNAUTHENTICATED', 401));
   const old = await f.localSession();
   await f.db.transactions.write(tx => tx.execute('UPDATE auth_sessions SET created_at=TIMESTAMPADD(MINUTE,-16,UTC_TIMESTAMP(3)) WHERE token_digest=?', [digest(old.token)]));
-  await assert.rejects(f.begin('link', secret(), old), errorCode('FORBIDDEN', 403));
+  await assert.rejects(f.begin('link', secret(), old), errorCode('RECENT_AUTH_REQUIRED', 403));
   const revoking = await f.localSession();
   started = await f.begin('link', secret(), revoking);
   code = f.broker.code(started.request);
@@ -288,7 +296,7 @@ test('two concurrent first logins share one canonical identity and a link cannot
   assert.equal(mappings.length, 1);
   const other = await f.localSession();
   const link = await f.begin('link', secret(), other);
-  await assert.rejects(f.flow.callback(link.request.state, f.broker.code(link.request, subject), link.browser, other.token), errorCode('AUTH_FAILED', 400));
+  await assert.rejects(f.flow.callback(link.request.state, f.broker.code(link.request, subject), link.browser, other.token), errorCode('SOOP_LINK_CONFLICT', 409));
   assert.equal((await f.principal(other.token)).soopLinked, false);
   assert.equal((await f.principal(sessions[0].token)).userId, mappings[0].user_id);
 });

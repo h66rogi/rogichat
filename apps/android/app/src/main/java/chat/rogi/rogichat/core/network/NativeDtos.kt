@@ -4,11 +4,10 @@ import chat.rogi.rogichat.core.navigation.ShellAccess
 import chat.rogi.rogichat.core.session.AccountSummary
 import chat.rogi.rogichat.feature.settings.*
 import java.time.Instant
-import java.util.Base64
 import kotlinx.serialization.json.*
 
 data class NativeSessionProjection(val account: AccountSummary, val access: ShellAccess,
-                                   val expiresAt: Instant, val serverGeneration: String)
+                                   val expiresAt: Instant, val serverGeneration: String, val accountPartition: AccountPartition? = null)
 
 /** Explicit DTO projections from committed backend native transport/profile contracts. */
 object NativeDtos {
@@ -16,12 +15,7 @@ object NativeDtos {
     fun session(text: String): NativeSessionProjection = decode {
         val root = json.parseToJsonElement(text).jsonObject
         require(root.bool("authenticated"))
-        if ("accountPartition" in root) {
-            val partition = root.string("accountPartition")
-            require(partition.matches(Regex("[A-Za-z0-9_-]{43}")))
-            val bytes = Base64.getUrlDecoder().decode(partition)
-            require(bytes.size == 32 && Base64.getUrlEncoder().withoutPadding().encodeToString(bytes) == partition)
-        }
+        val partition = if ("accountPartition" in root) AccountPartition(root.string("accountPartition")) else null
         val own = root.getValue("account").jsonObject
         val linked = when (root.string("soopLinkStatus")) { "VERIFIED" -> true; "REQUIRED" -> false; else -> error("invalid") }
         require(root.string("onboardingState") == if (linked) "READY" else "SOOP_LINK_REQUIRED")
@@ -29,7 +23,7 @@ object NativeDtos {
         val generation = root.string("accountGeneration").also { require(it.matches(Regex("[A-Za-z0-9_-]{43}"))) }
         val account = AccountSummary(own.uuid("userId"), own.nickname(), null, linked, own.nullableUuid("avatarAssetId"))
         NativeSessionProjection(account, if (linked) ShellAccess.READY else ShellAccess.LINK_REQUIRED,
-            Instant.parse(root.string("expiresAt")), generation)
+            Instant.parse(root.string("expiresAt")), generation, partition)
     }
     fun profile(text: String): UserProfile = decode {
         val root = json.parseToJsonElement(text).jsonObject

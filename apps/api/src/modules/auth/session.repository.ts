@@ -30,6 +30,9 @@ export class SessionRepository {
     const row = await tx.prisma.auth_sessions.findFirst({ where: { token_digest: new Uint8Array(tokenDigest), audience, transport: binding.transport, client_id: binding.clientId ?? null, revoked_at: null, expires_at: { gt: await tx.now() } }, select: { id: true, user_id: true, csrf_digest: true, user: { select: { status: true, soop: { select: { status: true } } } } } });
     return row ? { id: row.id, user_id: row.user_id, csrf_digest: Buffer.from(row.csrf_digest), status: row.user.status, soop_status: row.user.soop?.status ?? null } : undefined;
   }
+  currentTerms(tx: Transaction, userId: string) {
+    return tx.prisma.users.findUnique({ where: { id: userId }, select: { terms_version: true } });
+  }
   async insert(tx: Transaction, session: { id: string; userId: string; tokenDigest: Buffer; csrfDigest: Buffer; audience: string }, binding: SessionBinding = { transport: 'WEB' }): Promise<Date> {
     const expiresAt = new Date((await tx.now()).getTime() + 7 * 86400000);
     await tx.prisma.auth_sessions.create({ data: { id: session.id, user_id: session.userId, token_digest: new Uint8Array(session.tokenDigest), csrf_digest: new Uint8Array(session.csrfDigest), audience: session.audience, transport: binding.transport, client_id: binding.clientId ?? null, expires_at: expiresAt }, select: { id: true } });

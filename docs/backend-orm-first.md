@@ -168,7 +168,7 @@ Prisma except the specifically identified arithmetic/lease/limiter statements.
 | `modules/auth/session.repository.ts` | `findCurrent` (write) | Lock session, current account and SOOP status together before mutation |
 | `modules/auth/identity.repository.ts` | `findSubject`, `account`, `linked` | Lock unique subject/account/link before identity creation or link mutation |
 | `modules/auth/login.repository.ts` | `pending`, `processing` | Lock unexpired single-use login state before claim/finalization |
-| `modules/access/membership.repository.ts` | `findActive` (write) | Current room/member/active-period authorization locks |
+| `modules/access/membership.repository.ts` | `findActive` (write), `lockRoomSendOwner` | Current room/member/active-period authorization locks; one discovered owner account PK locked before room for new-message admission, with current owner-pointer/member revalidation |
 | `modules/rooms/rooms.repository.ts` | `manager` (write), `eligibleOwner`, `activeOwner` | Capability, eligible owner and active owner-period locks |
 | `modules/rooms/room-state.repository.ts` | `lockRoom`, `counter`, `member`, `leavingMember` | Room serialization, monotonic event counter, membership transition locks |
 | `modules/messages/messages.repository.ts` | `load` (write), `grant` (write), `sharedStreams`, `target`, `pair`, `sendGrants`, `room`, `member`, `receipt` | Current content-owner/deletion/quote, grant, stream, member and idempotent receipt locks |
@@ -306,3 +306,90 @@ barrier observes the new ORM owner-reference read while retaining the original
 concurrency assertion. Other unit fixture adapters and moved imports are coordinated
 with the Nest worker. This ownership list does not transfer unrelated source,
 mobile, infrastructure or security edits to the ORM worker.
+
+## M11 scoped SQL exceptions
+
+Ordinary own-state, preference, subscription, delivery and fanout persistence uses
+generated Prisma operations on the caller transaction. New fixed-identifier,
+bound-value SQL is limited to these cases:
+
+- Read-state room locks preserve room-before-member ordering for advancement and
+  leave/rejoin races.
+- Notification account/session/SOOP, preference and subscription current reads
+  serialize registration and dispatch with revocation, account deletion and CAS.
+- Push intent production locks current recipient/source/root state before adding
+  references that account deletion must subsequently remove.
+- Push delivery explicitly locks the room before membership/message checks.
+  Delivery and fanout lease admission/completion lock the job first, then sample
+  fresh DB time, preventing expiry during a lock wait from admitting an effect.
+- Bounded account purge joins polymorphic PUSH fanout resource IDs to message/root
+  ownership before LIMIT; jobs have no Prisma relation for that resource union.
+
+No external provider or DNS I/O occurs under those locks. M10 callers must fence
+the account before invoking the exported bounded cleanup services.
+
+### M10 ACCOUNT admission locking exceptions
+
+`AccountDeletionRepository` takes bounded current locks on one SOOP identity, one
+account and one independent obligation. `IdentityGuardRepository` takes a shared
+current key-policy lock, one current subject-guard lock and an indexed first
+unresolved-coverage registration barrier. Guard/request/status projections are
+returned with the lock itself to defeat older repeatable-read snapshots. All
+creates, updates, bounded binding cleanup and ordinary lookup operations use
+Prisma; external ledger I/O remains outside transactions. See
+[ACCOUNT admission](backend-account-deletion-admission.md) for ordering and limits.
+
+## MESSAGE physical-row subset
+
+`modules/deletion/message-purge.repository.ts` retains individual bound current
+locking reads for immutable intent, account, room, message, deletion request and
+last job fence. `DeletionRepository.messageExists` is a current root-existence
+lock for replay after physical deletion; a failed author check is not absence. All discovery/CRUD uses Prisma after those parent locks in a fresh
+transaction. The job clock is sampled after lock acquisition. See
+[the bounded purge contract](backend-message-row-purge.md) for deferred media,
+retained dedupe metadata and cursor invalidation. The configured
+[bounded deletion runtime](backend-purge-runtime.md) now schedules this subset
+with same-transaction lease-fenced continuation; it does not assert full deletion.
+
+C06 exception: `membership-scope/membership-scope.repository.ts` uses one bound
+ACL-before-DISTINCT/LIMIT query for revoked sticker IDs across the selected room
+set. This preserves the exact viewer ACL vector with aggregate 10,001-row bounds
+and no per-room fanout; ordinary reads remain generated Prisma operations. The
+captured DB time is passed to all temporal predicates for response consistency.
+
+### Initial owner operator command
+
+`modules/owner-bootstrap/owner-bootstrap.repository.ts` uses generated Prisma CRUD
+for grants, receipts and projections. Its only raw statements lock the global
+bootstrap receipt and exact identity/account/capability/room targets; shared
+targets use `FOR UPDATE NOWAIT` to avoid inverse-order waits with API commands.
+See `backend-genuine-owner-bootstrap.md` for the transaction and custody review.
+
+### Native push current-lock exceptions
+
+`NativePushRepository` locks current session/account/installation state in the
+calling transaction. Cross-account registration takes the prior account NOWAIT
+to avoid inverse A→B/B→A cycles. Hint lookup, uniqueness, count and conditional
+writes use generated Prisma. Existing push enqueue locking predicates now match
+provider/client/session for WEB, APNS and FCM; they do not introduce a second pool
+or external network I/O under a database lock. See [native push](backend-native-push.md).
+
+### Account content and media cleanup
+
+ACCOUNT content/media cleanup (migration 20) uses generated Prisma for checkpoints,
+reference provenance, bounded discovery and mutations. Current-row SQL exceptions
+lock the selected room/message after account authorization, one restored physical
+checkpoint, and shared-reference existence after an asset-lock wait (an older RR
+snapshot cannot authorize revocation). MEDIA cleanup uses bounded current locking
+object pages and closure projections around external DELETE, then the final queue
+fence; no storage I/O runs in a DB transaction. These exceptions retain fixed SQL
+identifiers and bound values, with no second database pool.
+
+## Operator restore gate exceptions
+
+`modules/restore-gate/restore-gate.repository.ts` retains two fixed, bound SQL
+operations: `serialize` (also used by `lock`) takes the exact checkpoint row `FOR UPDATE`, and `fence` reads
+`IS_USED_LOCK`, `@@server_uuid` and `DATABASE()` to verify external MySQL custody
+on the current transaction connection. Prisma cannot express these server lock
+introspection/current-lock operations. All quarantine, observation, checkpoint
+progress and single-use release CAS writes use the generated Prisma client.
