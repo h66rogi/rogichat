@@ -79,7 +79,7 @@ try {
   // Generated migrations only, on this harness-owned loopback database. Never reads repository .env.
   const migrationName = process.argv.find(x => x.startsWith('--migration-name='))?.split('=')[1] ?? 'schema_update';
   if (!/^[a-z0-9_]{1,64}$/.test(migrationName)) throw new Error('invalid fixture migration name');
-  await run(process.execPath, [createRequire(import.meta.url).resolve('prisma'), 'migrate', 'dev', '--name', migrationName], {
+  await run(process.execPath, [createRequire(import.meta.url).resolve('prisma/build/index.js'), 'migrate', 'dev', '--name', migrationName], {
     PATH: process.env.PATH, DATABASE_URL: adminUrl,
   });
   if (process.argv.includes('--migration-only')) {
