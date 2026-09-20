@@ -1,3 +1,5 @@
+import { ApiTags } from '@nestjs/swagger';
+import { authDocs } from './dto/auth.openapi.js';
 import { Controller, Get, Inject, Post, Req, Res } from '@nestjs/common';
 import type { Request, Response, CookieOptions } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
@@ -8,14 +10,17 @@ import { cookie, cookieName, oauthCookieName, sessionToken, csrf, readSessionCre
 
 const options = (config: AuthConfig): CookieOptions => ({ httpOnly: true, secure: config.secure, sameSite: 'lax', path: '/' });
 
+@ApiTags('Authentication')
 @Controller('v1/auth')
 export class AuthController {
   constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(AUTH_CONFIG) private readonly config: AuthConfig) {}
 
   @Get('session')
+  @authDocs.session()
   session(@Req() request: Request) { return this.auth.session(readSessionCredentials(request, this.config)); }
 
   @Post('logout')
+  @authDocs.logout()
   async logout(@Req() request: Request, @Res() response: Response): Promise<void> {
     object(request.body, []);
     const credentials = readCommandCredentials(request, this.config);
@@ -25,6 +30,7 @@ export class AuthController {
   }
 
   @Post('soop/start')
+  @authDocs.start()
   async start(@Req() request: Request, @Res() response: Response): Promise<void> {
     if (request.headers.origin !== this.config.origin || !request.is('application/json')) throw new ApiError('FORBIDDEN', 403);
     const body = object(request.body, ['intent', 'termsVersion']);
@@ -42,6 +48,7 @@ export class AuthController {
   }
 
   @Get('soop/callback')
+  @authDocs.callback()
   async callback(@Req() request: Request, @Res() response: Response): Promise<void> {
     const query = object(request.query, ['state', 'code', 'error']);
     await this.auth.charge('callback', request.ip);
