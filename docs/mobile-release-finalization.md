@@ -42,6 +42,9 @@ python3 tools/mobile/qa_release.py --config "$ROGICHAT_QA_CONFIG" ios-finalize \
 `attempted`, 누락, 다른 빌드의 기록은 거부한다. 불확실한 업로드를 다시 전송하거나
 기존 업로드 시도 기록을 삭제·초기화하지 않는다. 새 업로드 기록은 커밋·아카이브·IPA
 해시도 포함하며, 기존 번호/상태 형식은 같은 canonical 빌드 디렉터리에서만 허용한다.
+Xcode는 업로드 성공 후 아카이브 메타데이터를 수정할 수 있으므로, 업로드 도구는 전체
+해시가 같은 독립 `UploadWorking.xcarchive` 복사본만 전달한다. 원본 아카이브와
+manifest는 그대로 보존하고 Xcode가 수정한 작업 복사본은 비공개 증거로 남긴다.
 
 ## 검증과 완료 의미
 
