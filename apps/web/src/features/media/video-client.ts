@@ -4,7 +4,9 @@ import type { MediaClientOptions } from './client';
 export const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 const POSTER_MAX_BYTES = 2 * 1024 * 1024;
 const RANGE_BYTES = 1024 * 1024;
-export interface VideoContext { readonly roomId: string; readonly messageId: string }
+export type VideoContext =
+  | { readonly roomId: string; readonly messageId: string }
+  | { readonly roomId?: never; readonly messageId?: never };
 // Structural interface to the session owner's shared MediaByteBudget. Never a local pool.
 export interface VideoByteBudget { reserve(bytes: number): () => void }
 export interface VideoLease { readonly blob: Blob; readonly expiresAt: number; release(): void }
@@ -60,7 +62,10 @@ export class VideoClient {
   }
   async load(assetId: string, context: VideoContext, variant: 'video' | 'poster', signal: AbortSignal): Promise<VideoLease> {
     const row = record(context, ['roomId', 'messageId']);
-    const body = { variant, roomId: uuid(row.roomId), messageId: uuid(row.messageId) };
+    // Exact empty context is the backend's owner-only, unattached READY preview.
+    // Partial references must never silently degrade into owner-preview access.
+    const body = row.roomId === undefined && row.messageId === undefined ? { variant } :
+      { variant, roomId: uuid(row.roomId), messageId: uuid(row.messageId) };
     uuid(assetId);
     if (!['video', 'poster'].includes(variant) || !this.origins.size) throw new MediaError('MEDIA_UNAVAILABLE');
     const csrf = this.options.csrf();

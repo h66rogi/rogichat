@@ -150,3 +150,10 @@ void test('paused/ended expiry and background suspension make no fetch until exp
     assert.equal(element.currentTime, reason === 'ended' ? 3 : 1.25); assert.equal(element.paused, true); assert.equal(calls, 4); resource.dispose();
   }
 });
+void test('unattached owner preview sends variant only; partial or extra references never reach API', async () => {
+  const s = setup(); const lease = await s.client.load(asset, {}, 'video', idle());
+  assert.deepEqual(JSON.parse(s.calls[0]!.body as string), { variant: 'video' }); lease.release(); assert.equal(s.used(), 0);
+  for (const invalid of [{ roomId: context.roomId }, { messageId: context.messageId }, { actorId: asset }, { roomId: null, messageId: null }]) {
+    const denied = setup(); await assert.rejects(denied.client.load(asset, invalid as never, 'video', idle())); assert.equal(denied.calls.length, 0);
+  }
+});

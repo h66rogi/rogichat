@@ -20,6 +20,10 @@ OpenAPI, media-core authorization and isolated video decoder), on the media base
   unsupported-codec states. Context/resource must be stable. Supply a lifetime
   that synchronously aborts on account/session, room/membership, visibility gate,
   message deletion and revision changes; `isCurrent` additionally fences late work.
+  For an owned, unattached READY draft preview, pass exact empty `context: {}`; the
+  backend remains the owner/attachment authorization authority. Abort its draft
+  lifetime on discard or SEND association and change the revision for a new draft.
+  Partial room/message references and unknown fields are rejected before API access.
   Use the same lifetime on the client and component. A changed revision/reference
   resets the playback position and hides the previous element before effect cleanup.
 - No access occurs before user load. No signed URL is given to the video element,
