@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import plistlib
+import shutil
 import zipfile
 from keychain_unlock import unlock
 from product_guards import inspect_ios_app, inspect_ios_package, inspect_product_sources
@@ -107,6 +108,20 @@ def export(cfg, manifest_path):
     print("QA IPA exported and Apple validation passed. No upload performed.")
 
 
+def upload_working_archive(path, directory, expected_hash):
+    # Xcode appends Distributions to archive Info.plist after uploading. Preserve
+    # the signed canonical archive and its manifest; retain the working copy as
+    # private upload evidence instead of accepting a changed canonical hash.
+    working = directory / "UploadWorking.xcarchive"
+    shutil.copytree(path, working, symlinks=True)
+    for item in working.rglob("*"):
+        if item.is_symlink() and not item.resolve().is_relative_to(working):
+            raise ValueError("Upload archive links must remain inside its independent working copy")
+    if tree_sha256(working) != expected_hash:
+        raise ValueError("Upload working archive differs from the verified canonical archive")
+    return working
+
+
 def upload(cfg, manifest_path):
     value = manifest(manifest_path, "ios", uploading=True)
     unlock_signing(cfg)
@@ -121,12 +136,17 @@ def upload(cfg, manifest_path):
         raise ValueError("An upload was already attempted. Check ios-status and private logs; never blindly retry")
     path = external(value["archive_path"])
     inspect_archive(path, value["build_number"], value["version"])
+    working = upload_working_archive(path, directory, value["archive_sha256"])
     options = directory / "UploadOptions.plist"
     private_write(options, plistlib.dumps(export_options(cfg["ios"]["team_id"], "upload", cfg["ios"])).decode())
-    private_write(attempt, json.dumps({"build_number": value["build_number"], "state": "attempted"}) + "\n")
-    run(["xcodebuild", "-exportArchive", "-archivePath", str(path), "-exportOptionsPlist", str(options),
+    receipt = {"build_number": value["build_number"], "state": "attempted", "commit": value["commit"],
+               "archive_sha256": value["archive_sha256"], "ipa_sha256": value["artifacts"]["ipa"]["sha256"],
+               "upload_archive_path": str(working)}
+    private_write(attempt, json.dumps(receipt) + "\n")
+    run(["xcodebuild", "-exportArchive", "-archivePath", str(working), "-exportOptionsPlist", str(options),
          "-exportPath", str(directory / "upload"), *asc.signing_args()], directory / "upload.log")
-    private_write(attempt, json.dumps({"build_number": value["build_number"], "state": "transport_completed"}) + "\n")
+    receipt["state"] = "transport_completed"
+    private_write(attempt, json.dumps(receipt) + "\n")
     print("Upload transport completed. Run ios-status until processingState is VALID; tester availability is separate.")
 
 
