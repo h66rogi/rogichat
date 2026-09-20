@@ -4,6 +4,24 @@ This source integration is not a QA release or proof of physical deletion.
 
 ## Whole-batch follow-up (2026-09-20)
 
+Accepted schema-23 checkpoint `9e77390b5efa02a171a5753e109740d95ed44d06`
+passed every required PR52 check against current QA. Backend
+[run 35509521452](https://github.com/h66rogi/rogichat/actions/runs/35509521452)
+passed 441 unit, 18 end-to-end, 21 contract and 400 actual MySQL/process tests,
+including the new populated WEB upgrade, native NOWAIT and pool recovery cases.
+API/decoder image safety, public security, web, infrastructure, mobile-required
+and the existing isolated quality gate also passed. Two obsolete auth error-code
+expectations and one raw scalar type expectation were corrected precisely;
+no runtime assertion was relaxed to accept arbitrary failures.
+
+The next additive input is moderation discovery
+`0d75c977244b43c2882b6f0fcbce8bc50664e25f`: `GET /v1/blocked-rooms` recovers
+only rooms with the caller's durable blocks, uses session-bound encrypted
+pagination, and returns currently permitted nullable labels. Its local merge
+passes compilation and 14 focused unit/contract checks; it requires its own
+combined hosted acceptance. Restore/schema-24, media reconciliation and approved
+web/mobile source remain separate pending inputs to the final product candidate.
+
 The follow-up preserves accepted `4216aaaa53cc657a2d15e11cd12e53ce159e3b3b`
 and normally merges these complete source histories:
 
