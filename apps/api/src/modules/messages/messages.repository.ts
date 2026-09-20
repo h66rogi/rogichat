@@ -86,7 +86,7 @@ export class MessagesRepository {
     return row;
   }
 
-  async requireAsset(tx: Transaction, roomId: string, userId: string, kind: 'PHOTO' | 'VIDEO' | 'STICKER', assetId: string): Promise<{ declaredBytes: number } | undefined> {
+  async requireAsset(tx: Transaction, roomId: string, userId: string, kind: 'PHOTO' | 'VIDEO', assetId: string): Promise<{ declaredBytes: number } | undefined> {
     const assets = await tx.rows<MessageIdRow & { declared_bytes: string }>("SELECT id,declared_bytes FROM media_assets WHERE room_id=? AND id=? AND owner_user_id=? AND kind=? AND state='READY' AND deleted_at IS NULL AND expires_at>UTC_TIMESTAMP(3) FOR UPDATE", [roomId, assetId, userId, kind]);
     const attached = await tx.rows<MessageIdRow>('SELECT id FROM message_attachments WHERE asset_id=? FOR UPDATE', [assetId]);
     return assets.length === 1 && attached.length === 0 ? { declaredBytes: Number(assets[0]!.declared_bytes) } : undefined;
@@ -95,10 +95,25 @@ export class MessagesRepository {
   async insertMessage(tx: Transaction, fields: { id: string; roomId: string; streamId: string; actorId: string; userId: string; quoteId: string | null; content: SendInput['content']; order: bigint }): Promise<void> {
     const { id, roomId, streamId, actorId, userId, quoteId, content, order } = fields;
     await tx.prisma.messages.create({ data: { id, room_id: roomId, stream_id: streamId, sender_member_id: actorId, content_owner_user_id: userId, quote_id: quoteId, content_kind: content.type, text_content: content.type === 'TEXT' ? content.text : null, created_order: order }, select: { id: true } });
-    if (content.type !== 'TEXT') await tx.prisma.message_attachments.createMany({ data: content.assetIds.map((asset_id, position) => ({ id: randomUUID(), room_id: roomId, message_id: id, asset_id, position })) });
+    if (content.type === 'PHOTO' || content.type === 'VIDEO') await tx.prisma.message_attachments.createMany({ data: content.assetIds.map((asset_id, position) => ({ id: randomUUID(), room_id: roomId, message_id: id, asset_id, position })) });
   }
   async insertReceipt(tx: Transaction, fields: { roomId: string; actorId: string; clientMessageId: string; messageId: string; payloadDigest: Buffer }): Promise<void> {
     await tx.prisma.command_receipts.create({ data: { id: randomUUID(), room_id: fields.roomId, actor_id: fields.actorId, client_message_id: fields.clientMessageId, message_id: fields.messageId, payload_digest: new Uint8Array(fields.payloadDigest) }, select: { id: true } });
+  }
+  stickerInvalidationCandidate(tx: Transaction, assetId: string) {
+    return tx.prisma.message_stickers.findFirst({ where: { sticker: { asset_id: assetId, status: 'REVOKED' }, message: { content_kind: 'STICKER', moderated: false, deleted_at: null } },
+      orderBy: [{ room_id: 'asc' }, { message_id: 'asc' }], select: { room_id: true, message_id: true } });
+  }
+  stickerInvalidationBatch(tx: Transaction, roomId: string, assetId: string) {
+    // Current rows after the room lock, not the candidate lookup's older snapshot.
+    // Bound one room/50 messages; catalog revocation itself never takes room locks.
+    return tx.rows<{ id: string; room_id: string; stream_id: string; version: string }>(`SELECT m.id,m.room_id,m.stream_id,m.version
+      FROM messages m JOIN message_stickers ms ON ms.room_id=m.room_id AND ms.message_id=m.id JOIN sticker_catalog sc ON sc.id=ms.sticker_id
+      WHERE m.room_id=? AND sc.asset_id=? AND sc.status='REVOKED' AND m.content_kind='STICKER' AND m.moderated=0 AND m.deleted_at IS NULL
+      ORDER BY m.id LIMIT 50 FOR UPDATE`, [roomId, assetId]);
+  }
+  moderateSticker(tx: Transaction, roomId: string, messageId: string) {
+    return tx.prisma.messages.updateMany({ where: { room_id: roomId, id: messageId, moderated: false, deleted_at: null, content_kind: 'STICKER' }, data: { moderated: true, version: { increment: 1n } } });
   }
   async ownedMessage(tx: Transaction, roomId: string, messageId: string, userId: string): Promise<OwnedMessageRow | undefined> {
     const [row] = await tx.rows<OwnedMessageRow>('SELECT m.id,m.stream_id,m.version,m.deleted_at FROM messages m JOIN room_members sender ON sender.room_id=m.room_id AND sender.id=m.sender_member_id WHERE m.room_id=? AND m.id=? AND sender.user_id=? FOR UPDATE', [roomId, messageId, userId]);
