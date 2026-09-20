@@ -337,3 +337,36 @@ void test('provider avatar rejects untrusted origins, paths, extra query, wrong 
     await assert.rejects(state.client.providerAvatar(room, asset, idleSignal()));
   }
 });
+
+void test('provider avatar admission bounds distinct transfers and discards cancelled queued work', async () => {
+  const lifetime = new AbortController();
+  const completions: Array<() => void> = [];
+  let admissions = 0;
+  let active = 0;
+  let peak = 0;
+  const client = new MediaClient({ apiOrigin: 'https://api.qa.rogi.chat', storageOrigins: [],
+    csrf: () => 'a'.repeat(43), lifetime: { signal: lifetime.signal, isCurrent: () => true },
+    transport: async (_url, init) => {
+      if (init?.method === 'POST') {
+        admissions++;
+        return json({ url: 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64), expiresIn: 60 });
+      }
+      active++; peak = Math.max(peak, active);
+      return new Promise<Response>(resolve => { completions.push(() => { active--; resolve(image()); }); });
+    } });
+  const tick = () => new Promise<void>(resolve => setImmediate(resolve));
+  const first = client.providerAvatar(room, asset, idleSignal());
+  const second = client.providerAvatar(room, room, idleSignal());
+  const cancelled = new AbortController();
+  const abandoned = assert.rejects(client.providerAvatar(room, asset, cancelled.signal), /abort/i);
+  const next = client.providerAvatar(room, room, idleSignal());
+  await tick(); assert.equal(admissions, 2); assert.equal(completions.length, 2);
+  cancelled.abort(); await abandoned;
+  completions.shift()!(); (await first).release?.();
+  await tick(); assert.equal(admissions, 3); assert.equal(peak, 2);
+  completions.shift()!(); completions.shift()!();
+  for (const lease of await Promise.all([second, next])) lease.release?.();
+  lifetime.abort();
+  await assert.rejects(client.providerAvatar(room, asset, idleSignal()), /abort/i);
+  assert.equal(admissions, 3);
+});

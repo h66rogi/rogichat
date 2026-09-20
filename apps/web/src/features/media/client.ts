@@ -26,6 +26,26 @@ export class MediaClient {
   private readonly verifySession: MediaClientOptions['verifySession'];
   private readonly onUnauthorized: MediaClientOptions['onUnauthorized'];
   private readonly budget: MediaByteBudget | undefined;
+  private providerTransfers = 0;
+  private readonly providerWaiters = new Set<() => void>();
+  private admitProvider(signal: AbortSignal): Promise<() => void> {
+    return new Promise((resolve, reject) => {
+      const cancel = () => { this.providerWaiters.delete(admit); signal.removeEventListener('abort', cancel); reject(signal.reason); };
+      const admit = () => {
+        if (signal.aborted) { cancel(); return; }
+        if (this.providerTransfers >= 2) { this.providerWaiters.add(admit); return; }
+        this.providerWaiters.delete(admit); signal.removeEventListener('abort', cancel);
+        this.providerTransfers++;
+        let released = false;
+        resolve(() => {
+          if (released) return; released = true;
+          this.providerTransfers--;
+          this.providerWaiters.values().next().value?.();
+        });
+      };
+      signal.addEventListener('abort', cancel, { once: true }); admit();
+    });
+  }
   constructor(options: MediaClientOptions) {
     if (!['https://api.qa.rogi.chat', 'https://api.rogi.chat'].includes(options.apiOrigin)) throw new MediaError('INVALID_ORIGIN');
     this.origin = options.apiOrigin;
@@ -140,6 +160,11 @@ export class MediaClient {
     return this.fetchImage(url, expiresAt, signal);
   }
   async providerAvatar(roomId: string, actorId: string, signal: AbortSignal): Promise<ImageLease> {
+    const finish = await this.admitProvider(AbortSignal.any([signal, this.lifetime.signal, AbortSignal.timeout(15_000)]));
+    try { return await this.providerAvatarBytes(roomId, actorId, signal); }
+    finally { finish(); }
+  }
+  private async providerAvatarBytes(roomId: string, actorId: string, signal: AbortSignal): Promise<ImageLease> {
     let reservation = this.budget?.reserve(2 * 1024 * 1024);
     const owned = AbortSignal.any([signal, this.lifetime.signal]);
     const release = () => { owned.removeEventListener('abort', release); reservation?.(); };
