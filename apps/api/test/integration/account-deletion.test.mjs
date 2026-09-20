@@ -233,3 +233,27 @@ for (const channel of ['WEB', 'NATIVE']) test(`two connections: ${channel} linke
   await pending;
   assert.equal(await f.db.transactions.read(tx => tx.prisma.auth_sessions.count({ where: { user_id: f.userId } })), channel === 'WEB' ? 1 : 2);
 });
+
+test('legacy missing account independently replays without synthetic parents and retains the global registration barrier', async t => {
+  const f = await fixture(t); const base = await f.intent(); delete base.subjectGuard;
+  const legacy = { ...base, schemaVersion: 1, requestedAt: '2026-01-01T00:00:00.000Z' };
+  await f.ledger.ensureIntent(legacy);
+  // Isolated synthetic restore fixture only; product admission never deletes these rows.
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.auth_sessions.deleteMany({ where: { user_id: f.userId } });
+    await tx.prisma.platform_soop.deleteMany({ where: { user_id: f.userId } });
+    await tx.prisma.user_profiles.deleteMany({ where: { user_id: f.userId } });
+    await tx.prisma.users.delete({ where: { id: f.userId } });
+  });
+  await f.replay.tick(); await f.replay.tick();
+  const state = await f.db.transactions.read(async tx => ({ user: await tx.prisma.users.findUnique({ where: { id: f.userId } }),
+    obligation: await tx.prisma.account_deletion_obligations.findUnique({ where: { user_id: f.userId } }),
+    checkpoint: await tx.prisma.deletion_intents.findUnique({ where: { request_id: f.requestId } }) }));
+  assert.equal(state.user, null); assert.equal(state.checkpoint.blocked_at, null);
+  assert.equal(state.obligation.guard_coverage, false); assert.equal(state.obligation.live_purged_at, null);
+  assert.equal(state.obligation.requested_at.toISOString(), legacy.requestedAt);
+  for (const config of [f.config, { ...f.config, identityGuardKey: undefined }]) {
+    const identities = new IdentityService(new IdentityRepository(), config, f.guards);
+    await assert.rejects(f.db.transactions.write(tx => identities.resolve(tx, f.identity())), error => error.code === 'AUTH_UNAVAILABLE');
+  }
+});
