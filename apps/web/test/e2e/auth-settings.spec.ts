@@ -1,0 +1,117 @@
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test } from '@playwright/test';
+import { installApi, json } from './api-fixture';
+test('profile edits use CSRF and are restored from persisted server response', async ({ page }) => {
+  const state = await installApi(page, true);
+  await page.goto('/settings');
+  await page.getByLabel('닉네임', { exact: true }).fill('저장된 이름');
+  await page.getByRole('button', { name: '변경 내용 저장' }).click();
+  await expect(page.getByText('프로필을 저장했습니다.')).toBeVisible();
+  expect(state.profile.nickname).toBe('저장된 이름');
+  await page.reload();
+  await expect(page.getByLabel('닉네임', { exact: true })).toHaveValue('저장된 이름');
+  expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain('저장된 이름');
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(results.violations.filter(item => ['critical', 'serious'].includes(item.impact ?? ''))).toEqual([]);
+});
+test('failed profile save never reports success and preserves input', async ({ page }) => {
+  const state = await installApi(page, true);
+  await page.goto('/settings');
+  await page.getByLabel('닉네임', { exact: true }).fill('아직 저장 안 됨');
+  state.profileStatus = 503;
+  await page.getByRole('button', { name: '변경 내용 저장' }).click();
+  await expect(page.getByText('요청을 완료하지 못했습니다. 다시 시도해 주세요.')).toBeVisible();
+  await expect(page.getByLabel('닉네임', { exact: true })).toHaveValue('아직 저장 안 됨');
+  await expect(page.getByText('프로필을 저장했습니다.')).toHaveCount(0);
+});
+test('network failure is visible and retry checks the session again', async ({ page }) => {
+  const state = await installApi(page, true); state.sessionStatus = 503;
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: '연결을 확인할 수 없어요' })).toBeVisible();
+  await expect(page.getByTestId('settings-view')).toHaveCount(0);
+  state.sessionStatus = 200;
+  await page.getByRole('button', { name: '다시 확인' }).click();
+  await expect(page.getByTestId('settings-view')).toBeVisible();
+});
+test('empty room directory is an honest unavailable state', async ({ page }) => {
+  const state = await installApi(page, true); state.rooms = false;
+  await page.goto('/chat');
+  await expect(page.getByRole('heading', { name: /지금은 채팅방에 접근할 수 없어요|아직 채팅방이 열리지 않았어요/ })).toBeVisible();
+  await expect(page.getByTestId('chat-room')).toHaveCount(0);
+});
+test('logout locks immediately, survives reload, and retries only the same session', async ({ page }) => {
+  const state = await installApi(page, true); state.logoutStatus = 503;
+  await page.goto('/settings');
+  await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+  await expect(page.getByTestId('settings-view')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '로그아웃 확인이 필요해요' })).toBeVisible();
+  await expect.poll(() => state.logoutCount).toBe(1);
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '로그아웃 확인이 필요해요' })).toBeVisible();
+  state.logoutStatus = 204;
+  await page.getByRole('button', { name: '로그아웃 다시 시도' }).click();
+  await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
+  expect(state.logoutCount).toBe(2);
+});
+test('logout recovery never revokes a different login session', async ({ page }) => {
+  const state = await installApi(page, true); state.logoutStatus = 503;
+  await page.goto('/settings');
+  await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+  await expect.poll(() => state.logoutCount).toBe(1);
+  state.sessionToken = 'synthetic-csrf-session-B';
+  await page.getByRole('button', { name: '로그아웃 다시 시도' }).click();
+  await expect(page.getByText(/다른 로그인 세션이 확인되었습니다/)).toBeVisible();
+  expect(state.logoutCount).toBe(1);
+  await page.getByRole('button', { name: '현재 로그인 상태 확인' }).click();
+  await expect(page.getByTestId('settings-view')).toBeVisible();
+});
+test('page restoration discards old private content before fresh authorization', async ({ page }) => {
+  const state = await installApi(page, true);
+  await page.goto('/settings');
+  await expect(page.getByTestId('settings-view')).toBeVisible();
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+  await expect(page.getByTestId('settings-view')).toHaveCount(0);
+  state.authenticated = false;
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
+});
+test('SOOP-link required state never fabricates a profile', async ({ page }) => {
+  await installApi(page, true);
+  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, csrfToken: 'synthetic-csrf-session-A', soopLinkStatus: 'REQUIRED' }));
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: 'SOOP 계정 연결이 필요해요' })).toBeVisible();
+  await expect(page.getByTestId('settings-view')).toHaveCount(0);
+});
+test('room leave is explicit and updates only after server confirmation', async ({ page }) => {
+  const state = await installApi(page, true); state.joined = true;
+  await page.goto('/settings');
+  await page.getByRole('button', { name: '채팅방 나가기', exact: true }).click();
+  expect(state.joined).toBe(true);
+  await page.getByRole('button', { name: '나가기', exact: true }).click();
+  await expect(page.getByTestId('settings-room-membership')).toHaveText('나감');
+  expect(state.joined).toBe(false);
+});
+test('two visible windows reauthorize when a new login publishes its session binding', async ({ page, context }) => {
+  await context.addInitScript(() => Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' }));
+  const first = await installApi(page, true);
+  await page.goto('/settings');
+  await expect(page.getByLabel('닉네임', { exact: true })).toHaveValue('테스트 팬');
+  first.sessionToken = 'synthetic-csrf-session-B'; first.profile.nickname = '다른 계정';
+  const other = await context.newPage();
+  const second = await installApi(other, true); second.sessionToken = first.sessionToken; second.profile.nickname = first.profile.nickname;
+  await other.goto('/auth/complete');
+  await expect(other.getByRole('heading', { name: '로그인되어 있어요' })).toBeVisible();
+  await expect(page.getByLabel('닉네임', { exact: true })).toHaveValue('다른 계정');
+  await expect(page.getByText('테스트 팬', { exact: true })).toHaveCount(0);
+});
+test('a cookie changing between session and profile reads cannot publish the profile', async ({ page }) => {
+  await installApi(page, true);
+  let reads = 0;
+  await page.route('**/v1/auth/session', route => {
+    reads++;
+    return json(route, { authenticated: true, csrfToken: `synthetic-csrf-session-${reads}`, soopLinkStatus: 'VERIFIED' });
+  });
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: '연결을 확인할 수 없어요' })).toBeVisible();
+  await expect(page.getByTestId('settings-view')).toHaveCount(0);
+});

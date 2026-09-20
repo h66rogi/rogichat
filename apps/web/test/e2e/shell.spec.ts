@@ -1,5 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { installApi } from './api-fixture';
+test.beforeEach(async ({ page }) => { await installApi(page); });
 
 test.describe('channel shell', () => {
   test('mounts the content tree exactly once', async ({ page }) => {
@@ -23,7 +25,7 @@ test.describe('channel shell', () => {
   });
 
   test('has no horizontal overflow on any screen', async ({ page }) => {
-    for (const route of ['/', '/chat', '/rules', '/settings', '/login', '/preview/chat/fan', '/preview/settings']) {
+    for (const route of ['/', '/chat', '/rules', '/settings', '/login']) {
       await page.goto(route);
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow, `${route} overflows horizontally`).toBeLessThanOrEqual(0);

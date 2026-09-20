@@ -41,7 +41,7 @@ export interface SettingsNotificationsModel {
 
 export interface SettingsRoomModel {
   roomName: string;
-  membership: 'joined' | 'left' | 'unknown';
+  membership: 'joined' | 'left' | 'unknown' | 'unavailable';
   isOwner: boolean;
   leave: SettingsActionState;
 }
@@ -63,8 +63,6 @@ export interface SettingsViewModel {
   room: SettingsRoomModel;
   session: SettingsSessionModel;
   account: SettingsAccountModel;
-  /** Banner for preview screens. */
-  previewNotice?: string;
 }
 
 export interface SettingsProfilePatch {
