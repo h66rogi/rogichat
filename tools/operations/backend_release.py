@@ -400,6 +400,24 @@ def fail_closed(container, bootstrap):
     require(not failed)
 
 
+def cleanup_migration(name, secret_path):
+    """Unlink the temporary credential even when Docker cleanup is unverified."""
+    try:
+        require(re.fullmatch(r'rogichat-qa-migration-[a-f0-9-]{36}', name))
+        try:
+            result = subprocess.run(['/usr/bin/docker', 'rm', '-f', name], stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.PIPE, timeout=30,
+                                    env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'HOME': '/root'})
+        except (OSError, subprocess.TimeoutExpired):
+            raise Rejected('Migration container cleanup unverified') from None
+        # --rm normally already removed a successful migration container.
+        missing = ('Error response from daemon: No such container: ' + name).encode()
+        require(result.returncode == 0 or (result.returncode == 1 and result.stderr.strip() == missing))
+    finally:
+        if secret_path is not None:
+            secret_path.unlink(missing_ok=True)
+
+
 def deploy(request, files, container):
     backup = RELEASES / ('backup-' + request['request_id'])
     backup.mkdir(mode=0o700)
@@ -412,6 +430,7 @@ def deploy(request, files, container):
     name = 'rogichat-qa-migration-' + request['request_id']
     require(not docker('ps', '-a', '--filter', 'name=^/' + name + '$', '--format', '{{.ID}}').strip())
     secret_path = None
+    cleanup_completed = False
     try:
         caddy_config(container, files['bootstrap'])
         for role in ('api', 'worker'):
@@ -441,9 +460,12 @@ def deploy(request, files, container):
         for source, target in mounts:
             args.extend(['--mount', f'type=bind,src={source},dst={target},readonly'])
         docker(*args, execution_image(request, 'migration'), '/run/release/migrate_entry.mjs', timeout=360)
-        print('QA migration manifest, TLS and scoped grants verified.', flush=True)
-        secret_path.unlink()
+        # Cleanup is a gate BEFORE app activation and the completion marker.
+        # Its own finally owns unlinking, even if Docker removal raises.
+        cleanup_migration(name, secret_path)
+        cleanup_completed = True
         secret_path = None
+        print('QA migration manifest, TLS and scoped grants verified.', flush=True)
         atomic(APP / 'compose.app.yaml', files['compose'])
         atomic(IMAGES, (f"ROGICHAT_API_IMAGE={execution_image(request, 'runtime')}\n"
                         f"ROGICHAT_WORKER_IMAGE={execution_image(request, 'runtime')}\n"
@@ -466,9 +488,8 @@ def deploy(request, files, container):
     finally:
         # Exact generated container only. Killing it prevents a timeout orphan
         # from retaining migration credentials after the host wrapper exits.
-        subprocess.run(['/usr/bin/docker', 'rm', '-f', name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30)
-        if secret_path is not None and secret_path.exists():
-            secret_path.unlink()
+        if not cleanup_completed:
+            cleanup_migration(name, secret_path)
 
 
 def main():

@@ -1,6 +1,11 @@
-"""Pure validation tests: no Docker, network, host writes or database access."""
+"""Synthetic temporary files only; no Docker, network, host configuration or DB."""
 import copy
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
+from pathlib import Path
+import subprocess
+import tempfile
 import time
 import unittest
 import stat
@@ -35,6 +40,98 @@ def ready_container(role='api'):
 
 
 class RequestTests(unittest.TestCase):
+    def test_migration_cleanup_failures_always_unlink_without_reflecting_details(self):
+        name = 'rogichat-qa-migration-' + fixture()['request_id']
+        detail = b'synthetic-private-diagnostic-do-not-print'
+        failures = [subprocess.TimeoutExpired(['fixture'], 30, stderr=detail), OSError(detail.decode()),
+                    SimpleNamespace(returncode=1, stderr=detail),
+                    SimpleNamespace(returncode=2, stderr=('Error response from daemon: No such container: ' + name).encode()),
+                    SimpleNamespace(returncode=1, stderr=b'Error response from daemon: No such container: unrelated'),
+                    SimpleNamespace(returncode=1, stderr=('Error response from daemon: No such container: ' + name).encode() + b'\n' + detail)]
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                secret = Path(directory) / 'migration-fixture'
+                secret.write_bytes(b'{}')
+                output, error_output = io.StringIO(), io.StringIO()
+                kwargs = {'side_effect': failure} if isinstance(failure, Exception) else {'return_value': failure}
+                with patch.object(release.subprocess, 'run', **kwargs) as cleanup, \
+                        redirect_stdout(output), redirect_stderr(error_output), self.assertRaises(release.Rejected) as error:
+                    release.cleanup_migration(name, secret)
+                self.assertFalse(secret.exists())
+                self.assertNotIn(detail.decode(), str(error.exception) + output.getvalue() + error_output.getvalue())
+                self.assertEqual(cleanup.call_args.args[0], ['/usr/bin/docker', 'rm', '-f', name])
+                self.assertEqual(cleanup.call_args.kwargs['timeout'], 30)
+
+    def test_migration_cleanup_accepts_success_or_only_exact_missing_and_is_idempotent(self):
+        name = 'rogichat-qa-migration-' + fixture()['request_id']
+        for result in [SimpleNamespace(returncode=0, stderr=b''), SimpleNamespace(returncode=1,
+                       stderr=('Error response from daemon: No such container: ' + name + '\n').encode())]:
+            with tempfile.TemporaryDirectory() as directory, patch.object(release.subprocess, 'run', return_value=result):
+                secret = Path(directory) / 'migration-fixture'
+                secret.write_bytes(b'{}')
+                release.cleanup_migration(name, secret)
+                release.cleanup_migration(name, secret)
+                self.assertFalse(secret.exists())
+
+    def test_cleanup_failure_blocks_activation_even_when_migration_or_rollback_fails(self):
+        real_mkstemp = tempfile.mkstemp
+        failures = [subprocess.TimeoutExpired(['fixture'], 30), OSError('fixture daemon unavailable'),
+                    SimpleNamespace(returncode=1, stderr=b'fixture daemon unavailable')]
+        cases = [(stage, failure) for stage in ('success', 'migration-failed', 'rollback-failed') for failure in failures]
+        for stage, failure in cases:
+            with self.subTest(stage=stage, failure=type(failure).__name__), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                kwargs = {'side_effect': failure} if isinstance(failure, Exception) else {'return_value': failure}
+                migration = b'' if stage == 'success' else release.Rejected('fixture migration rejected')
+                with patch.object(release, 'RELEASES', root), patch.object(release, 'APP', root / 'app'), \
+                        patch.object(release, 'IMAGES', root / 'images'), patch.object(release, 'UNIT', root / 'unit'), \
+                        patch.object(release, 'CADDY', root / 'caddy'), patch.object(release, 'atomic') as atomic, \
+                        patch.object(release, 'caddy_config'), patch.object(release, 'docker', side_effect=[b'', migration]), \
+                        patch.object(release, 'start_units') as start, patch.object(release, 'wait_health') as health, \
+                        patch.object(release, 'fail_closed', side_effect=release.Rejected() if stage == 'rollback-failed' else None) as fail_closed, \
+                        patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))), \
+                        patch.object(release.tempfile, 'mkstemp', side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)), \
+                        patch.object(release.os, 'fchown'), patch.object(release.subprocess, 'run', **kwargs) as cleanup, \
+                        redirect_stdout(io.StringIO()) as output, self.assertRaises(release.Rejected):
+                    release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy')
+                self.assertEqual(list(root.glob('migration-*')), [])
+                self.assertEqual(cleanup.call_count, 2 if stage == 'success' else 1)
+                fail_closed.assert_called_once_with('fixture-caddy', b'fixture')
+                start.assert_not_called()
+                health.assert_not_called()
+                self.assertFalse(any(call.args[0].name == 'completed' for call in atomic.call_args_list))
+                self.assertNotIn('verified', output.getvalue())
+
+    def test_cancel_before_cleanup_entry_still_unlinks_and_prevents_activation(self):
+        real_mkstemp = tempfile.mkstemp
+        real_cleanup = release.cleanup_migration
+        attempts = []
+        def interrupted(name, secret):
+            attempts.append(name)
+            if len(attempts) == 1:
+                raise release.Rejected('interrupted before cleanup entry')
+            return real_cleanup(name, secret)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(release, 'RELEASES', root), patch.object(release, 'APP', root / 'app'), \
+                    patch.object(release, 'IMAGES', root / 'images'), patch.object(release, 'UNIT', root / 'unit'), \
+                    patch.object(release, 'CADDY', root / 'caddy'), patch.object(release, 'atomic') as atomic, \
+                    patch.object(release, 'caddy_config'), patch.object(release, 'docker', return_value=b''), \
+                    patch.object(release, 'start_units') as start, patch.object(release, 'wait_health') as health, \
+                    patch.object(release, 'fail_closed') as fail_closed, \
+                    patch.object(release, 'cleanup_migration', side_effect=interrupted), \
+                    patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))), \
+                    patch.object(release.tempfile, 'mkstemp', side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)), \
+                    patch.object(release.os, 'fchown'), patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stderr=b'')), \
+                    redirect_stdout(io.StringIO()), self.assertRaises(release.Rejected):
+                release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy')
+            self.assertEqual(len(attempts), 2)
+            self.assertEqual(list(root.glob('migration-*')), [])
+            fail_closed.assert_called_once()
+            start.assert_not_called()
+            health.assert_not_called()
+            self.assertFalse(any(call.args[0].name == 'completed' for call in atomic.call_args_list))
+
     def test_owned_stopped_desired_containers_created_before_unit_start(self):
         events = []
         def run(args, **_):
