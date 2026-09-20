@@ -27,20 +27,26 @@ public enum RoomsWire {
     }
     public static func cursor(_ value: String) -> Bool { !value.isEmpty && value.utf8.count <= 4096 && value.utf8.allSatisfy { (33...126).contains($0) } }
 }
+public enum RoomAvailability: String, Codable, Sendable { case ready = "READY", ownerPending = "OWNER_PENDING" }
 public struct DiscoveryRoom: Codable, Equatable, Sendable, Identifiable {
     public let roomId: String
     public let name: String
     public let mode: String
     public let joined: Bool
+    public let isDefault: Bool
+    public let availability: RoomAvailability
     public let actorId: String?
     public let membershipScope: String?
     public let authorizationRevision: String?
     public var id: String { roomId }
-    enum CodingKeys: String, CodingKey { case roomId, name, mode, joined, actorId, membershipScope, authorizationRevision }
+    enum CodingKeys: String, CodingKey { case roomId, name, mode, joined, actorId, membershipScope, authorizationRevision, isDefault, availability }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         roomId = try c.decode(String.self, forKey: .roomId); name = try c.decode(String.self, forKey: .name)
         mode = try c.decode(String.self, forKey: .mode); joined = try c.decode(Bool.self, forKey: .joined)
+        isDefault = c.contains(.isDefault) ? try c.decode(Bool.self, forKey: .isDefault) : false
+        availability = c.contains(.availability) ? try c.decode(RoomAvailability.self, forKey: .availability) : .ready
+        guard availability != .ownerPending || (isDefault && !joined) else { throw RoomsError.invalidResponse }
         actorId = try c.decodeIfPresent(String.self, forKey: .actorId)
         membershipScope = try c.decodeIfPresent(String.self, forKey: .membershipScope)
         authorizationRevision = try c.decodeIfPresent(String.self, forKey: .authorizationRevision)
@@ -57,12 +63,17 @@ public struct DiscoveredRoom: Codable, Equatable, Sendable, Identifiable {
     public let roomId: String
     public let name: String
     public let mode: String
+    public let isDefault: Bool
+    public let availability: RoomAvailability
     public var id: String { roomId }
-    init(_ room: DiscoveryRoom) { roomId = room.roomId; name = room.name; mode = room.mode }
-    enum CodingKeys: CodingKey { case roomId, name, mode }
+    init(_ room: DiscoveryRoom) { roomId = room.roomId; name = room.name; mode = room.mode; isDefault = room.isDefault; availability = room.availability }
+    enum CodingKeys: CodingKey { case roomId, name, mode, isDefault, availability }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         roomId = try c.decode(String.self, forKey: .roomId); name = try c.decode(String.self, forKey: .name); mode = try c.decode(String.self, forKey: .mode)
+        isDefault = c.contains(.isDefault) ? try c.decode(Bool.self, forKey: .isDefault) : false
+        availability = c.contains(.availability) ? try c.decode(RoomAvailability.self, forKey: .availability) : .ready
+        guard availability != .ownerPending || isDefault else { throw RoomsError.persistence }
         guard RoomsWire.uuid(roomId), !name.isEmpty, ["FAN", "GROUP"].contains(mode) else { throw RoomsError.persistence }
     }
 }

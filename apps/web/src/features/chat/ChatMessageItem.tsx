@@ -3,7 +3,7 @@
 import { ChatPrivacyActions } from './ChatPrivacyActions';
 import { Ban, Check, CircleAlert, CornerUpLeft, Lock, LoaderCircle, Megaphone, Reply } from 'lucide-react';
 
-import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
+import { ChatActorAvatar } from './ChatActorAvatar';
 import { cn } from '@/shared/lib/cn';
 
 import { ReactionControl } from './ReactionControl';
@@ -72,14 +72,7 @@ function MessageRow({
       data-scope={item.scope}
       data-status={item.status}
     >
-      {!isOwn && (
-        <Avatar className="mt-1 size-8">
-          {item.author.avatarUrl && <AvatarImage src={item.author.avatarUrl} alt="" />}
-          <AvatarFallback className="text-[12px]" aria-hidden="true">
-            {item.author.displayName.charAt(0)}
-          </AvatarFallback>
-        </Avatar>
-      )}
+      {!isOwn && <ChatActorAvatar actor={item.author} />}
 
       <div className={cn('flex min-w-0 max-w-[min(100%,36rem)] flex-col gap-1', isOwn ? 'items-end' : 'items-start')}>
         <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-[12px] text-muted', isOwn && 'flex-row-reverse')}>

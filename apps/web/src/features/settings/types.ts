@@ -16,6 +16,7 @@ export interface SettingsBirthday {
 }
 
 export interface SettingsProfileModel {
+  soopDisplayId?: string | null;
   nickname: string;
   avatarUrl: string | null;
   /** Optional; private by default. */

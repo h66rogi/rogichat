@@ -31,6 +31,14 @@ private func reset() throws -> MembershipPage {
     try decode(["schemaVersion": 2, "resetRequired": true, "rooms": [], "generation": NSNull(), "complete": false, "nextCursor": NSNull()], MembershipPage.self)
 }
 @Test func strictWireVariants() throws {
+    var pending = room(); pending["isDefault"] = true; pending["availability"] = "OWNER_PENDING"
+    let pendingRoom = try discovery([pending]).rooms[0]
+    #expect(pendingRoom.isDefault && pendingRoom.availability == .ownerPending)
+    let stored = DiscoveredRoom(pendingRoom)
+    #expect(try JSONDecoder().decode(DiscoveredRoom.self, from: JSONEncoder().encode(stored)) == stored)
+    #expect(try decode(room(), DiscoveredRoom.self).availability == .ready)
+    pending["isDefault"] = false
+    #expect(throws: (any Error).self) { try discovery([pending]) }
     #expect(try discovery([room(joined: true)]).rooms.first?.joined == true)
     var bad = room(); bad["actorId"] = NSNull()
     #expect(throws: (any Error).self) { try discovery([bad]) }

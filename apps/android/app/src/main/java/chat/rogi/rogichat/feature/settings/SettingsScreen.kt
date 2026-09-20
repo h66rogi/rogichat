@@ -5,7 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -30,8 +31,19 @@ import com.adamglin.phosphoricons.regular.Code
 @Composable
 fun SettingsScreen(account: AccountSummary?, appearance: Appearance, onSignIn: () -> Unit,
                    onProfile: (() -> Unit)?, onAccount: (() -> Unit)?, onAppearance: () -> Unit,
-                   onNotifications: () -> Unit, onAbout: () -> Unit, onBlocks: (() -> Unit)? = null) {
-    ProfileHeader(account, onProfile ?: if (account == null) onSignIn else null)
+                   onNotifications: () -> Unit, onAbout: () -> Unit, onBlocks: (() -> Unit)? = null,
+                   profileModel: ProfileViewModel? = null, avatar: @Composable (UserProfile) -> Unit = {}) {
+    val profileState = profileModel?.uiState?.collectAsStateWithLifecycle()?.value
+    LaunchedEffect(profileModel, account?.nickname, account?.avatarAssetId) { profileModel?.load() }
+    val profile = profileState?.takeIf { !it.isLoading && it.error == null }?.original
+    ProfileHeader(account, profile, avatar, onProfile ?: if (account == null) onSignIn else null)
+    if (profileState?.isLoading == true) LinearProgressIndicator(Modifier.fillMaxWidth())
+    profileState?.error?.let { message ->
+        Column(Modifier.padding(horizontal = 20.dp)) {
+            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = { profileModel?.load() }) { Text("프로필 다시 불러오기") }
+        }
+    }
     if (onAccount != null) SettingsSection("계정") {
         SettingsRow("계정 관리", "로그인 및 SOOP 연결", PhosphorIcons.Regular.ShieldCheck, onClick = onAccount)
         if (onBlocks != null) SettingsRow("차단 관리", "차단한 사용자 확인 및 해제", PhosphorIcons.Regular.ShieldCheck, onClick = onBlocks)
@@ -46,19 +58,21 @@ fun SettingsScreen(account: AccountSummary?, appearance: Appearance, onSignIn: (
 }
 
 @Composable
-private fun ProfileHeader(account: AccountSummary?, onClick: (() -> Unit)?) {
+private fun ProfileHeader(account: AccountSummary?, profile: UserProfile?, avatar: @Composable (UserProfile) -> Unit, onClick: (() -> Unit)?) {
     Row(Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(role = Role.Button, onClick = onClick) else Modifier)
         .padding(horizontal = 20.dp, vertical = 24.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(56.dp).clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.primaryContainer),
+        Box(Modifier.size(76.dp).clip(androidx.compose.foundation.shape.CircleShape).background(MaterialTheme.colorScheme.primaryContainer),
             contentAlignment = Alignment.Center) {
-            if (account != null) Text(profileMonogram(account.nickname), style = MaterialTheme.typography.titleLarge,
+            if (profile != null && (profile.avatarAssetId != null || profile.providerAvatarUrl != null)) avatar(profile)
+            else if (account != null) Text(profileMonogram(profile?.nickname ?: account.nickname), style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onPrimaryContainer)
             else Icon(PhosphorIcons.Fill.User, null, Modifier.size(26.dp), MaterialTheme.colorScheme.onPrimaryContainer)
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(account?.nickname ?: "로기챗에 오신 것을 환영해요", style = MaterialTheme.typography.titleMedium,
+            Text(profile?.nickname ?: account?.nickname ?: "로기챗에 오신 것을 환영해요", style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold)
+            profile?.soopDisplayId?.let { Text("SOOP ID · $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text(if (account == null) "로그인하고 대화를 시작하세요" else if (account.soopConnected) "SOOP 계정 연결됨" else "SOOP 계정 연결 필요",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

@@ -2,6 +2,7 @@ import { ApiError, object, opaque } from '../../modules/auth/auth-primitives.js'
 import type { VerifiedIdentity } from '../../modules/auth/identity.service.js';
 import type { Broker } from './auth-flow.service.js';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
+import { parseSoopProfile } from './soop-profile.contract.js';
 
 // Contract checked against the broker Controller/contract/service, not a guessed OAuth endpoint.
 export class HttpBroker implements Broker {
@@ -15,9 +16,10 @@ export class HttpBroker implements Broker {
     return target.toString();
   }
   async exchange(input: { transactionId: string; code: string; verifier: string }): Promise<VerifiedIdentity> {
-    const response = object(await this.post('exchange', { ...this.binding(input.transactionId), code: input.code, code_verifier: input.verifier }), ['schemaVersion', 'provider', 'subject', 'clientId', 'transactionId', 'authenticatedAt', 'nickname']);
+    const response = object(await this.post('exchange', { ...this.binding(input.transactionId), code: input.code, code_verifier: input.verifier }), ['schemaVersion', 'provider', 'subject', 'clientId', 'transactionId', 'authenticatedAt', 'nickname', 'profile']);
     if (response.schemaVersion !== 1 || response.provider !== 'soop' || typeof response.subject !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(response.subject) || typeof response.clientId !== 'string' || response.clientId !== this.config.broker?.clientId || response.transactionId !== input.transactionId || typeof response.authenticatedAt !== 'string') throw new ApiError('AUTH_FAILED', 400);
-    return { schemaVersion: 1, provider: 'soop', subject: response.subject, clientId: response.clientId, transactionId: response.transactionId, authenticatedAt: response.authenticatedAt };
+    return { schemaVersion: 1, provider: 'soop', subject: response.subject, clientId: response.clientId, transactionId: response.transactionId, authenticatedAt: response.authenticatedAt,
+      ...(response.profile === undefined ? {} : { profile: parseSoopProfile(response.profile, response.subject) }) };
   }
   private binding(transactionId: string) {
     if (!this.config.broker || !['rogi-qa', 'rogi-production'].includes(this.config.audience)) throw new ApiError('AUTH_UNAVAILABLE', 503);

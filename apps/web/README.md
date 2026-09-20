@@ -17,7 +17,7 @@ Node 24.21.0, pnpm 12.4.2, Next App Router의 standalone 출력 하나를 사용
 | `NODE_ENV` | `production` | `production` |
 | `ROGICHAT_WEB_ENV` | `qa` | `production` |
 | `ROGICHAT_API_ORIGIN` | `https://api.qa.rogi.chat` | `https://api.rogi.chat` |
-| `ROGICHAT_DEFAULT_ROOM_ID` | 선택적 서버 기본 방 UUID | 선택적 서버 기본 방 UUID |
+| `ROGICHAT_DEFAULT_ROOM_ID` | 선택적 서버 기본 방 UUID (없으면 API의 명시적 isDefault 사용) | 선택적 서버 기본 방 UUID (없으면 API의 명시적 isDefault 사용) |
 
 기본 방 ID가 없거나 빈 문자열이면 미개설로 표시한다. 다른 값은 UUID 검증을 통과해야 한다.
 실제 방 ID는 비공개 배포 구성에만 보관한다. 공개 표시 설정은 인가 증거가 아니며 매번 API가 접근을 판정한다.
