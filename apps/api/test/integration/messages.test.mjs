@@ -80,7 +80,7 @@ test('same-key concurrent commands and API restart return one durable message, e
   assert.equal(stored.receipts[0].payload_digest.length, 32);
   for (const records of [stored.receipts, stored.events, stored.jobs]) assert.ok(!JSON.stringify(records).includes(body.content.text));
   const view = await f.get(f.fan1, ack.messageId); assert.equal(view.status, 200);
-  assert.deepEqual(keys(view.body), ['audience', 'author', 'content', 'createdAt', 'id', 'quote', 'version']);
+  assert.deepEqual(keys(view.body), ['allowedActions', 'audience', 'author', 'content', 'counterpart', 'createdAt', 'id', 'quote', 'version']);
   assert.deepEqual(keys(view.body.author), ['actorId', 'avatar', 'kind', 'nickname']);
   for (const forbidden of [f.owner.id, body.clientMessageId, stored.messages[0].stream_id]) assert.ok(!JSON.stringify(view.body).includes(forbidden));
 });

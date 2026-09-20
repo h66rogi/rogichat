@@ -1,3 +1,5 @@
+import { MessageEligibilityRepository } from './message-eligibility.repository.js';
+import { MessageEligibilityService } from './message-eligibility.service.js';
 import { RoomMediaCoreModule } from '../media/room-media-core.module.js';
 import { StickersCoreModule } from '../stickers/stickers-core.module.js';
 import { RoomStateModule } from '../rooms/room-state.module.js';
@@ -10,5 +12,5 @@ import { MessagesRepository } from './messages.repository.js';
 import { AccessModule } from '../access/access.module.js';
 
 // Separate entrypoint: worker imports do not load HTTP controllers or authentication providers.
-@Module({ imports: [StickersCoreModule, RoomMediaCoreModule, RoomStateModule, JobsCoreModule, AccessModule], providers: [MessagesRepository, MessagesCoreService, MessagesQueryRepository, MessagesQueryService], exports: [MessagesCoreService, MessagesQueryService] })
+@Module({ imports: [StickersCoreModule, RoomMediaCoreModule, RoomStateModule, JobsCoreModule, AccessModule], providers: [MessageEligibilityRepository, MessageEligibilityService, MessagesRepository, MessagesCoreService, MessagesQueryRepository, MessagesQueryService], exports: [MessagesCoreService, MessagesQueryService] })
 export class MessagesCoreModule {}

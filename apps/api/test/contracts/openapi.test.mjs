@@ -109,7 +109,7 @@ test('OpenAPI describes real projections, auth alternatives, binary transport an
   const doc = createOpenApiDocument(app, config);
   const response = (path, verb = 'get', status = '200') => doc.paths[path][verb].responses[status].content['application/json'].schema;
   const id = randomUUID();
-  const dto = projectMessageDto({ id, version: 1n, createdAt: new Date(), audience: 'SHARED', author: { kind: 'anonymous' }, content: { type: 'STICKER', stickerId: randomUUID(), assetId: randomUUID(), width: 128, height: 128 }, quote: null });
+  const dto = projectMessageDto({ counterpart: null, allowedActions: { reply: false, publish: false, delete: false }, id, version: 1n, createdAt: new Date(), audience: 'SHARED', author: { kind: 'anonymous' }, content: { type: 'STICKER', stickerId: randomUUID(), assetId: randomUUID(), width: 128, height: 128 }, quote: null });
   check(response('/v1/rooms/{roomId}/messages/{messageId}'), dto);
   check(response('/v1/rooms/{roomId}/messages/{messageId}'), { ...dto, author: { kind: 'anonymous', actorId: id } }, false);
   const profile = projectActorProfileDto({ actorId: id, nickname: '사용자', avatar: null, role: 'FAN' });
@@ -159,4 +159,29 @@ test('own command and account partition contracts reject widened or incomplete p
   check(session, { ...web, accountPartition: undefined }, false);
   check(session, { ...web, accountPartition: id }, false);
   check(session, { ...web, userId: id }, false);
+});
+
+test('C05 shared fixtures require minimal action fields only on complete live DTOs, never tombstones', async t => {
+  const { readFile } = await import('node:fs/promises');
+  const fixtures = JSON.parse(await readFile(new URL('../fixtures/message-projection.json', import.meta.url), 'utf8'));
+  const { app, config } = await openApiFixture(); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config);
+  const schema = doc.paths['/v1/rooms/{roomId}/messages/{messageId}'].get.responses['200'].content['application/json'].schema;
+  for (const value of [fixtures.privateOutgoing, fixtures.anonymousPublisher, fixtures.stalePrivateOutgoing]) {
+    check(schema, value);
+    for (const field of ['counterpart', 'allowedActions']) {
+      const missing = { ...value }; delete missing[field]; check(schema, missing, false);
+    }
+  }
+  check(schema, { ...fixtures.privateOutgoing, counterpart: { actorId: fixtures.privateOutgoing.counterpart.actorId, peerStatus: 'ACTIVE' } }, false);
+  check(schema, { ...fixtures.privateOutgoing, counterpart: { actorId: 'AAAAAAAA-0000-4000-8000-000000000003' } }, false);
+  check(schema, { ...fixtures.privateOutgoing, allowedActions: { ...fixtures.privateOutgoing.allowedActions, sourceActorId: randomUUID() } }, false);
+  for (const counterpart of [{}, { actorId: null }, { actorId: 'not-a-uuid' }, []]) check(schema, { ...fixtures.privateOutgoing, counterpart }, false);
+  for (const allowedActions of [null, {}, { reply: true, publish: false }, { reply: 'true', publish: false, delete: false },
+    { reply: null, publish: false, delete: false }]) check(schema, { ...fixtures.privateOutgoing, allowedActions }, false);
+  const event = doc.paths['/v1/rooms/{roomId}/events'].get.responses['200'].content['application/json'].schema.properties.events.items;
+  check(event, fixtures.tombstone);
+  check(event, { ...fixtures.tombstone, allowedActions: fixtures.privateOutgoing.allowedActions }, false);
+  assert.equal(fixtures.privateOutgoing.version, fixtures.stalePrivateOutgoing.version);
+  assert.notDeepEqual(fixtures.privateOutgoing.allowedActions, fixtures.stalePrivateOutgoing.allowedActions);
 });
