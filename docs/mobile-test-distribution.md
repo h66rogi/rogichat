@@ -7,6 +7,9 @@ Apple validation → TestFlight 업로드 순서다. 현재 소스의 QA 앱은
 이 설명은 기존 TestFlight/App Tester 업로드가 최신 소스라는 뜻이 아니다. 배포된 source SHA와
 build number는 개별 release manifest로 확인한다. 이 도구는 `chat.rogi.rogichat.qa`만 처리한다.
 
+사용자 운영 지시: 단계별 구현·검증·커밋 후 두 QA 배포 경로에 업로드하고 처리/테스터 접근을 확인한다.
+테스터 식별자는 공개 문서에 기록하지 않는다.
+
 ## 로컬 설정
 
 Python 3.11 이상, JDK 17, Android SDK/Build Tools 37, Firebase CLI, Xcode 26.6을 사용한다.

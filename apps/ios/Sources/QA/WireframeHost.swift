@@ -31,8 +31,14 @@ struct WireframeHost: View {
                 case .chat: ChatWireframe(state: state, onAudience: { state.changeAudience($0) },
                     onTarget: { state.selectTarget($0) }, onDraft: { state.editDraft($0) }, onReport: { state.open(.report) })
                 case .settings: SettingsScreen(access: state.navigation.access) { state.open($0) }
-                case .profile: ProfileWireframe()
-                case .account: AccountWireframe { state.reset() }
+                case .profile:
+                    Picker("프로필 화면 예시", selection: Binding(get: { state.profile.phase }, set: { state.profilePhase($0) })) {
+                        ForEach(ProfilePhase.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }.pickerStyle(.menu)
+                    ProfileScreen(editor: state.profile, onEdit: { state.editProfile($0) }, onDiscard: { state.discardProfile() },
+                        onRetry: { state.profilePhase(.ready) })
+                case .account: AccountScreen(account: AccountPresentation(signInSummary: "샘플 로그인 상태 · 실제 계정 미연동",
+                    connectionSummary: state.navigation.access == .linkRequired ? "연결이 필요한 상태 예시" : "연결 이후 상태 예시 · 실제 연결 안 됨"), onEndPreview: { state.reset() })
                 case .report: ReportWireframe()
                 case .notifications: NotificationSettingsScreen()
                 case .about: AboutScreen()

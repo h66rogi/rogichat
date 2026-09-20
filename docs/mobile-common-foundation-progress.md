@@ -31,7 +31,7 @@
 | 공통 UI MB02a | source 추출·양 OS 화면 연결, 코드/빌드 검사 | 기기 접근성·큰 글자·작은 화면·다크 모드 확인은 미완료; 다음 조립 가능 |
 | shell MB02b | route gate·탭 stack·QA 1방 초기 진입 구현 | 실제 SessionManager/계정 scope는 C01–03/08 뒤 연결. QA 인가 상태는 실제 인증 아님 |
 | 상태 복원 | 같은 실행 안의 탭 path/QA draft 유지, 환경/계정 변경은 reset contract | 앱 종료 및 Android Activity 재생성 시 미리보기 초기화. private 화면의 영속 복원은 실제 세션/저장 계약 뒤 |
-| 프로필/계정 상세 | 기존 QA 폼과 종료 동작 유지 | 실제 저장·logout·탈퇴 command 및 확인 UI는 서비스 계약에 따라 연결. 현재 실제 파괴적 동작 없음 |
+| 프로필/계정 상세 | 공통 화면, 이름 검증·입력 유지·되돌리기, 종료 확인과 logout/탈퇴 안내 | 실제 저장·logout·탈퇴 command는 서비스 계약 뒤 연결. 현재 실제 파괴적 동작 없음 |
 | 알림 MB02c | read/settings-open와 화면 복귀 재조회, 세 축 분리 | 실제 prompt/permission request와 provider/binding/preference는 C09/MB07에서 연결 |
 | 링크 MB02c | 주입형 parser/queue와 경쟁 검사 | **OS intent/Universal Link/푸시 callback에 연결하지 않음**. 테스트 host/path는 합성 정책이며 공개 URL 계약 아님. allowlist·C02 auth callback 분리·C03 재인가 coordinator 필요 |
 | pending 소비 | 오래된 scope offer/인가 결과가 새 intent를 덮거나 지우지 못함 | consume은 인가 성공 증거가 아니다. 미래 coordinator가 실제 권한 확인 후 같은 actor turn에서 consume+navigation할 것. logout/환경 변경에서 resetScope, callback 등록 시 scope capture 필수 |
@@ -57,3 +57,25 @@ QA 포함/prod 제외를 실제 APK와 iOS 실행 파일에서 검사한다. 기
 다음 독립 작업은 위 기기 UI 확인과 설정/계정 상세의 공통 화면 모델 정리다. allowlist/계정
 재인가 계약이 합의되면 준비된 route queue를 실제 coordinator에 연결한다. C09 전에는 알림
 선호 설정 저장·푸시 등록·전달 성공을 구현 완료로 처리하지 않는다. 채팅 UX는 별도 설계한다.
+
+## 2차 — 프로필·계정 공통 화면
+
+- QA 파일 안의 프로필/계정 레이아웃을 양 OS 공통 feature 화면으로 옮겼다. 샘플 계정과
+  상태 전환 버튼은 QA host만 주입한다. 미로그인 prod에서 개인 화면을 열지 않는다.
+- `ProfileEditor`가 baseline/draft와 loading/failed/unavailable/ready를 분리한다. 탭 전환과
+  상세 뒤로 이동에도 같은 실행의 입력은 유지하고, 역할/계정 상태 전환·미리보기 종료에서 지운다.
+- 표시 이름 검증은 기준 QA `87a38c2`의 `apps/api/src/access.ts#nickname`을 읽어 NFC,
+  ECMAScript trim, 1–40 Unicode scalar, Cc/Cf 거부로 맞췄다. 서버 호출이나 API DTO는 없다.
+  입력은 200 scalar로 제한하며 잘못된 값을 조용히 저장하지 않는다. 실제 저장은 비활성이다.
+- 입력 되돌리기와 미리보기 종료는 확인 대화상자를 거친다. 로그아웃/탈퇴는 안내만 제공하며
+  실행 버튼은 준비 중이다. 생일의 동의 토글처럼 저장된 설정으로 오해할 수 있는 미연동 입력은
+  비활성 안내로 바꿨다. 사진·생일 편집과 실제 계정 명령은 이후 계약/미디어 단계에서 연결한다.
+- 양 OS 상태 검사에서 Unicode 경계, loading 중 편집 거부, 뒤로/탭 입력 유지, 되돌리기와
+  계정 전환 초기화를 검증한다. 실제 시스템 대화상자/스크린리더 조작은 기기 QA에 남는다.
+
+## 단계별 테스트 배포 규칙
+
+사용자 지시(2026-09-20)에 따라 각 단계의 검증·커밋 후 QA 서명 빌드를 TestFlight와
+Firebase App Distribution에 올린다. 업로드뿐 아니라 처리 상태와 기존 테스터 접근을 확인한다.
+앱 기록과 개인 식별자가 든 배포 영수증은 Git 밖에 보관한다. Android 수신자 정보가 없으면
+업로드와 배포를 구분하고, 그 입력만 기다리며 다음 독립 구현을 계속한다.
