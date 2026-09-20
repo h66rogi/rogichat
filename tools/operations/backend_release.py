@@ -28,6 +28,9 @@ RELEASES = Path('/opt/rogichat/releases')
 APP = Path('/opt/rogichat/app')
 IMAGES = Path('/etc/rogichat/app-images.env')
 CADDY = Path('/opt/rogichat/bootstrap/Caddyfile')
+BOOTSTRAP_COMPOSE = Path('/opt/rogichat/bootstrap/compose.yaml')
+WEB_SITES = Path('/opt/rogichat/web/sites')
+WEB_NETWORK = 'rogichat-qa-web'
 UNIT = Path('/etc/systemd/system/rogichat-app@.service')
 LOCK = Path('/run/lock/rogichat-deploy.lock')
 RUNTIME_SECRET = Path('/run/rogichat/secrets/database.json')
@@ -268,6 +271,84 @@ def validate_api_ingress(api, network):
             and set(api['NetworkSettings']['Networks']) == {network})
 
 
+def snapshot_edge(network):
+    """Preserve commissioned web independently of the API maintenance switch.
+
+    No credentials or container environment enter this in-memory comparison.
+    Legacy API-only topology remains supported, but extra networks/mounts do
+    not silently count as a commissioned web deployment.
+    """
+    container = get_caddy(network)
+    current = json.loads(docker('inspect', container))[0]
+    require(current['State']['Running'])
+    networks = current['NetworkSettings']['Networks']
+    require(set(networks) in ({network}, {network, WEB_NETWORK}))
+    mounts = current['Mounts']
+    require(len({m['Destination'] for m in mounts}) == len(mounts))
+    sites = [m for m in mounts if m['Destination'] == '/etc/caddy/sites']
+    result = {key: current[key] for key in ('Id', 'Image', 'HostConfig')}
+    result['mounts'] = sorted(mounts, key=lambda m: m['Destination'])
+    result['networks'] = {name: value['NetworkID'] for name, value in networks.items()}
+    require(all(re.fullmatch(r'[a-f0-9]{64}', value) for value in result['networks'].values()))
+    result['bootstrap'] = digest(protected(BOOTSTRAP_COMPOSE))
+    result['web'] = None
+    result['sites'] = {}
+    if WEB_NETWORK not in networks:
+        require(not sites)
+        return result
+    require(len(sites) == 1 and sites[0]['Type'] == 'bind'
+            and sites[0]['Source'] == str(WEB_SITES) and sites[0]['RW'] is False)
+    for path in [WEB_SITES, *WEB_SITES.parents]:
+        metadata = path.lstat()
+        require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0 and not metadata.st_mode & 0o022)
+    # Only the separately reviewed web deployer owns this import directory.
+    entries = list(WEB_SITES.iterdir())
+    require(all(path.name == 'web.caddy' for path in entries))
+    result['sites'] = {path.name: digest(protected(path)) for path in entries}
+    members = json.loads(docker('network', 'inspect', WEB_NETWORK))[0]
+    require(members['Id'] == result['networks'][WEB_NETWORK]
+            and members['Driver'] == 'bridge' and not members['Internal'])
+    peers = members.get('Containers') or {}
+    require(all(peer['Name'] in (current['Name'].removeprefix('/'), WEB_NETWORK) for peer in peers.values()))
+    web_ids = [identity for identity, peer in peers.items() if peer['Name'] == WEB_NETWORK]
+    require(len(web_ids) == (1 if entries else 0))
+    if web_ids:
+        web = json.loads(docker('inspect', web_ids[0]))[0]
+        require(web['Name'] == '/' + WEB_NETWORK and web['State']['Running']
+                and web['State'].get('Health', {}).get('Status') == 'healthy'
+                and web['Config']['Labels'].get('com.docker.compose.project') == WEB_NETWORK
+                and web['Config']['Labels'].get('com.docker.compose.service') == 'web')
+        validate_api_ingress(web, WEB_NETWORK)
+        result['web'] = {key: web[key] for key in ('Id', 'Image', 'HostConfig', 'Mounts')}
+        result['web']['network_id'] = web['NetworkSettings']['Networks'][WEB_NETWORK]['NetworkID']
+        require(result['web']['network_id'] == result['networks'][WEB_NETWORK])
+    return result
+
+
+def web_route(path):
+    # Fixed origin, no redirects/proxy, bounded bytes and wall time. curl is
+    # already an installed host prerequisite; no shell interpolation is used.
+    require(path in ('/', '/healthz') or re.fullmatch(r'/_next/static/[A-Za-z0-9_./-]+\.(?:js|css)', path))
+    require('..' not in path)
+    url = 'https://qa.rogi.chat' + path
+    output = run(['/usr/bin/curl', '--disable', '--silent', '--show-error', '--fail', '--noproxy', '*',
+                  '--proto', '=https', '--max-time', '10', '--max-filesize', '1048576',
+                  '--write-out', '\n%{http_code}\n%{url_effective}', url], timeout=15)
+    body, status, effective = output.rsplit(b'\n', 2)
+    require(status == b'200' and effective == url.encode() and len(body) <= 1048576)
+    return body
+
+
+def verify_web(edge):
+    if edge['web'] is None:
+        return  # Prepared-but-empty web is not claimed to be deployed.
+    web_route('/healthz')
+    page = web_route('/')
+    assets = re.findall(rb'(?:src|href)="(/_next/static/[A-Za-z0-9_./-]+\.(?:js|css))"', page)
+    require(bool(assets))
+    require(bool(web_route(assets[0].decode('ascii'))))
+
+
 def atomic(path, data, mode=0o644):
     for parent in reversed([path.parent, *path.parent.parents]):
         if not parent.exists():
@@ -418,7 +499,10 @@ def cleanup_migration(name, secret_path):
             secret_path.unlink(missing_ok=True)
 
 
-def deploy(request, files, container):
+def deploy(request, files, container, edge):
+    # This check is under the host lock and precedes even request consumption.
+    require(snapshot_edge(request['edge_network']) == edge)
+    verify_web(edge)
     backup = RELEASES / ('backup-' + request['request_id'])
     backup.mkdir(mode=0o700)
     targets = {'compose': APP / 'compose.app.yaml', 'images': IMAGES, 'unit': UNIT, 'caddy': CADDY}
@@ -474,16 +558,27 @@ def deploy(request, files, container):
         start_units(files['bootstrap'])
         print('QA app units requested; waiting for bounded container startup and health.', flush=True)
         wait_health(request)
-        require(get_caddy(request['edge_network']) == container)
+        require(snapshot_edge(request['edge_network']) == edge)
         caddy_config(container, files['caddy'])
         for route in ('/live', '/ready', '/_infra/health'):
             with urllib.request.urlopen('https://api.qa.rogi.chat' + route, timeout=10) as response:
                 require(response.status == 200 and response.geturl() == 'https://api.qa.rogi.chat' + route)
+        verify_web(edge)
+        require(snapshot_edge(request['edge_network']) == edge)
         atomic(backup / 'completed', b'QA runtime health and public route verified.\n', 0o600)
     except BaseException:
         # A changed schema may be incompatible with the previous image. Do not
         # restart M01 or run down migrations. Preserve old artifacts for review.
         fail_closed(container, files['bootstrap'])
+        if not cleanup_completed:
+            # A timed-out migrator can still be attached to the API network.
+            # Remove that exact owned container before the strict Caddy/API
+            # peer check; never weaken the normal ingress allowlist for it.
+            cleanup_migration(name, secret_path)
+            cleanup_completed = True
+            secret_path = None
+        require(snapshot_edge(request['edge_network']) == edge)
+        verify_web(edge)
         raise
     finally:
         # Exact generated container only. Killing it prevents a timeout orphan
@@ -510,6 +605,10 @@ def main():
     verify_release_images(request)
     verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
     container = get_caddy(request['edge_network'])
+    edge = snapshot_edge(request['edge_network'])
+    require(edge['Id'].startswith(container))
+    if WEB_NETWORK in edge['networks']:
+        require(all(b'import /etc/caddy/sites/*.caddy' in files[key] for key in ('caddy', 'bootstrap')))
     require(not (RELEASES / ('backup-' + request['request_id'])).exists())
     if not args.apply:
         print('QA release preflight verified; no app, DB or configuration changes made.')
@@ -527,7 +626,7 @@ def main():
             raise Rejected('interrupted')
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             signal.signal(sig, interrupt)
-        deploy(request, files, container)
+        deploy(request, files, container, edge)
     print('QA API and worker release verified; migration and public route gates passed.')
 
 

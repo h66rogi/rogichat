@@ -252,7 +252,25 @@ def load_candidate(r, helper, output, candidate):
     helper.verify_archive_image_data(data, expected, config, r['source_sha'], r['archive'], 'runtime')
 
 
-def activate(r, p, helper, files, container, targets, candidate, archive, output):
+def verify_edge(p, helper, edge):
+    require(all(callable(getattr(helper, name, None))
+                for name in ('snapshot_edge', 'verify_web')))
+    require(helper.snapshot_edge(p['edge_network']) == edge)
+    helper.verify_web(edge)
+    require(helper.snapshot_edge(p['edge_network']) == edge)
+
+
+def verify_edge_templates(helper, files, container, edge):
+    require(edge['Id'].startswith(container))
+    if helper.WEB_NETWORK in edge['networks']:
+        require(all(b'import /etc/caddy/sites/*.caddy' in files[key]
+                    for key in ('caddy', 'bootstrap')))
+
+
+def activate(r, p, helper, files, container, targets, candidate, archive, output, edge):
+    # Under the shared host lock, before consumption or any candidate mutation.
+    verify_edge(p, helper, edge)
+    verify_edge_templates(helper, files, container, edge)
     identity = candidate[0]
     backup = STATE / ('request-' + r['request_id'])
     require(not backup.exists())
@@ -282,6 +300,7 @@ def activate(r, p, helper, files, container, targets, candidate, archive, output
         helper.start_units(files['bootstrap'])
         # Candidate's own /ready + worker schema check must pass too.
         helper.wait_health(health_request)
+        verify_edge(p, helper, edge)
         schema_probe(p, helper)
         fresh(r, archive)
         require(helper.get_caddy(p['edge_network']) == container)
@@ -292,12 +311,17 @@ def activate(r, p, helper, files, container, targets, candidate, archive, output
                 require(response.status == 200 and response.geturl() == url)
         current = {'source_sha': r['source_sha'], 'runtime_image': identity, 'schema_sha256': p['schema_sha256'],
                    'migrations': p['migrations'], 'files': {key: digest(protected(path)) for key, path in targets.items()}}
+        verify_edge(p, helper, edge)
         helper.atomic(STATE / 'current.json', json.dumps(current, sort_keys=True).encode(), 0o600)
         helper.atomic(backup / 'completed', b'QA schema-unchanged runtime and public routes verified.\n', 0o600)
         sync_directory(backup)
         sync_directory(STATE)
     except BaseException:
-        helper.fail_closed(container, files['bootstrap'])
+        try:
+            helper.fail_closed(container, files['bootstrap'])
+        finally:
+            # Check preservation even if maintenance reload/shutdown fails.
+            verify_edge(p, helper, edge)
         raise
 
 
@@ -349,7 +373,12 @@ def main():
         _, targets = verify_current(r, p, helper)
         files = {key: protected(helper.RELEASES / r['source_sha'] / relative) for key, relative in TEMPLATES.items()}
         require(all(digest(files[key]) == p['templates'][key] for key in files))
+        require(all(callable(getattr(helper, name, None))
+                    for name in ('snapshot_edge', 'verify_web')))
+        edge = helper.snapshot_edge(p['edge_network'])
+        helper.verify_web(edge)
         container = helper.get_caddy(p['edge_network'])
+        verify_edge_templates(helper, files, container, edge)
         schema_probe(p, helper)
         with tempfile.TemporaryDirectory(prefix='rogichat-auto-', dir='/var/tmp') as temporary:
             output = Path(temporary) / 'verified'
@@ -359,7 +388,7 @@ def main():
                 return
             fresh(r, archive)
             verify_current(r, p, helper)
-            activate(r, p, helper, files, container, targets, candidate, archive, output)
+            activate(r, p, helper, files, container, targets, candidate, archive, output, edge)
     print('QA schema-unchanged release and public routes verified.')
 
 
