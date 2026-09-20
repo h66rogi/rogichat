@@ -179,3 +179,20 @@ test('production aborted IDB write preserves composer and never sends unpersiste
   await expect(page.getByText('저장 실패에도 사라지지 않을 입력', { exact: true })).toBeVisible();
   await expect(input).toHaveValue(''); expect(state.posts).toHaveLength(1); expect(state.lookups.length).toBeGreaterThan(0);
 });
+
+test('production settings logout scrubs durable payload after chat controller has unmounted', async ({ page }) => {
+  const { account } = await recoveryApi(page); const body = '채팅을 떠난 뒤에도 로그아웃 시 지울 본문';
+  await unknownSend(page, body);
+  // Full document navigation guarantees the old active-controller registry is gone.
+  await page.goto('/settings'); await page.getByRole('button', { name: '로그아웃', exact: true }).click();
+  await expect.poll(() => account.logoutCount).toBe(1);
+  const stored = await page.evaluate(async () => new Promise<string>((resolve, reject) => {
+    const request = indexedDB.open('rogichat-outbox-qa', 1);
+    request.onsuccess = () => {
+      const db = request.result, tx = db.transaction('state', 'readonly'), read = tx.objectStore('state').get('singleton');
+      read.onsuccess = () => { resolve(JSON.stringify(read.result)); db.close(); }; read.onerror = () => reject(Error('read failed'));
+    };
+    request.onerror = () => reject(Error('open failed'));
+  }));
+  expect(stored).not.toContain(body); expect(stored).not.toContain('synthetic-csrf-session');
+});

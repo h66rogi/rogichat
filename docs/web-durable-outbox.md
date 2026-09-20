@@ -68,8 +68,9 @@ Limits: 256 command records, 2 MiB encoded records, 15-minute payload eligibilit
 24-hour receipt identity retention, maximum 10,000 complete-manifest rooms.
 Expiry is enforced in every authorized operation; physical expired records are
 removed on the next transaction, not by a service worker timer while the browser
-is closed. Unknown commands are never silently evicted to make room; full storage
-refuses new input with CAPACITY. Exact expiry is never extended by retry.
+is closed. Only settled receipts are evicted under count/byte pressure. Unknown commands
+are never silently evicted to make room; if they fill storage, new input is
+refused with CAPACITY. Exact expiry is never extended by retry.
 No drafts, participant labels, quote excerpts, auth proof, upload objects, signed
 URLs, File/Blob objects or transport error bodies are stored. TEXT is NFC with
 4,000-codepoint/16,384-byte bounds; PHOTO has 1–4 unique UUIDv4 asset references,
@@ -133,3 +134,21 @@ and a real native prepare-write failure followed by storage reconnect and an
 actual user retry. Fixtures and native storage fault injection are isolated to
 tests. These product cases require the composed PR67 production artifact; authoring,
 typechecking or passing the isolated store suite does not count as product-UI proof.
+
+Logout/deletion integration must also call
+`DurableOutbox.revokeSession(environment, accountPartition, sessionKey)` with the
+captured trusted session digest, even when no chat controller is mounted. This
+opens storage only to compare the erasure identity and perform epoch-fenced
+scrubbing; it does not authorize reading or sending. A different account/session
+is untouched, including a late old-session logout after successor login. A native
+closed-owner regression and a seventh production-route test cover settings logout
+after a full navigation away from chat. The shared lifecycle owner wires the
+helper; the aggregate product test must pass before that fix is claimed complete.
+
+A validated compact pending-deletion marker can instead use
+`DurableOutbox.revokeSessionKey(environment, sessionKey)` for erase-only recovery.
+The key must be the exact 64-character environment-domain-separated session digest;
+malformed keys reject, mismatched stored sessions are untouched, and the captured
+authority epoch still prevents late erasure of a successor. This helper never
+unlocks records or creates authorization. Legacy markers lacking the digest must
+remain blocked for explicit recovery rather than inferring a new session identity.
