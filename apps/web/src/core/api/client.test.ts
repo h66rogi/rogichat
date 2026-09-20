@@ -2,6 +2,26 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ApiClient, ApiError } from './client';
 const origin = 'https://api.qa.rogi.chat';
+void test('session accepts the current API cookie projection and validates its admission fields', async () => {
+  const base = { authenticated: true, accountPartition: 'A'.repeat(43), csrfToken: 'synthetic-test-only', soopLinkStatus: 'VERIFIED' };
+  for (const linked of [true, false]) {
+    const value = { ...base, soopLinkStatus: linked ? 'VERIFIED' : 'REQUIRED', onboardingState: linked ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: linked } };
+    const client = new ApiClient(origin, async () => Response.json(value));
+    assert.equal((await client.session()).soopLinkStatus, value.soopLinkStatus);
+  }
+  for (const value of [
+    { ...base, onboardingState: 'READY' },
+    { ...base, capabilities: { chat: true } },
+    { ...base, onboardingState: 'READY', capabilities: { chat: false } },
+    { ...base, onboardingState: 'SOOP_LINK_REQUIRED', capabilities: { chat: true } },
+    { ...base, onboardingState: 'READY', capabilities: { chat: 'true' } },
+    { ...base, onboardingState: 'READY', capabilities: { chat: true, admin: true } },
+    { ...base, unexpected: true },
+    { authenticated: true, csrfToken: base.csrfToken, soopLinkStatus: 'VERIFIED' },
+  ]) {
+    await assert.rejects(new ApiClient(origin, async () => Response.json(value)).session(), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_SESSION');
+  }
+});
 void test('reads use API host cookies without CSRF and never HTTP cache', async () => {
   let options: RequestInit | undefined;
   const client = new ApiClient(origin, async (url, init) => { assert.equal(url, origin + '/v1/auth/session'); options = init; return Response.json({ authenticated: true, accountPartition: 'A'.repeat(43), csrfToken: 'synthetic-test-only', soopLinkStatus: 'VERIFIED' }); });
