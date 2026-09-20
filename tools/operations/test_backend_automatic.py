@@ -73,14 +73,16 @@ class AutomaticTests(unittest.TestCase):
     def test_import_rejects_unpinned_helper(self,_):
         with self.assertRaises(ValueError): auto.pinned_module('backend_release','0'*64)
 
-    def test_archive_validation_does_not_load_or_execute(self):
+    @patch.object(auto,'verify_candidate_schema')
+    def test_archive_validation_does_not_load_or_execute(self,schema):
         r=request(); helper=MagicMock(); helper.RELEASES=Path('/fixture')
         archive=MagicMock()
         expected={'config_id':r['archive']['runtime_config_id']}
         descriptor={'source_sha':r['source_sha'],'verification_runs':r['verification_runs'],'images':{'runtime':expected}}
         archive.validate_zip.return_value=(descriptor,{'runtime':{'_archive_manifest':None}})
-        candidate=auto.verify_candidate(r,helper,archive,Path('/fixture/verified'))
+        candidate=auto.verify_candidate(r,policy(),helper,archive,Path('/fixture/verified'))
         archive.verify_provenance.assert_called_once_with(descriptor,r['archive'])
+        schema.assert_called_once_with(r,policy(),archive)
         helper.docker.assert_not_called()
         helper.docker.return_value=b'[{}]'
         auto.load_candidate(r,helper,Path('/fixture/verified'),candidate)
@@ -88,12 +90,13 @@ class AutomaticTests(unittest.TestCase):
         self.assertNotIn('migration',str(helper.docker.call_args_list))
         helper.verify_archive_image_data.assert_called_once()
 
-    def test_bad_archive_manifest_rejected_before_load(self):
+    @patch.object(auto,'verify_candidate_schema')
+    def test_bad_archive_manifest_rejected_before_load(self,_):
         r=request(); r['archive']['execution_identity']='archive-manifest'
         helper=MagicMock(); helper.RELEASES=Path('/fixture'); archive=MagicMock()
         archive.validate_zip.return_value=({'source_sha':r['source_sha'],'verification_runs':r['verification_runs'],
             'images':{'runtime':{'config_id':r['archive']['runtime_config_id']}}}, {'runtime':{'_archive_manifest':None}})
-        with self.assertRaises(ValueError): auto.verify_candidate(r,helper,archive,Path('/fixture/out'))
+        with self.assertRaises(ValueError): auto.verify_candidate(r,policy(),helper,archive,Path('/fixture/out'))
         helper.docker.assert_not_called()
 
     def test_failed_candidate_health_consumes_and_fails_closed(self):
@@ -170,3 +173,49 @@ class AutomaticTests(unittest.TestCase):
         self.assertTrue(all(arg.endswith(',readonly') for arg in args if arg.startswith('type=bind,')))
         self.assertNotIn('migrator',str(args))
         self.assertNotIn('migration',str(args))
+
+    def manifest(self, rows):
+        return ('export const migrationManifest: readonly { name: string; checksum: string }[] = [' + ','.join(
+            "{name:'"+row['name']+"',checksum:'"+row['checksum']+"'}" for row in rows)+'];').encode()
+
+    def blob(self, raw):
+        import base64, hashlib
+        return {'type':'file','path':'apps/api/src/infrastructure/database/schema-manifest.ts',
+            'encoding':'base64','size':len(raw),'content':base64.b64encode(raw).decode(),
+            'sha':hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()}
+
+    def test_candidate_manifest_exact_before_load(self):
+        archive=MagicMock(); archive.api.return_value=self.blob(self.manifest(policy()['migrations']))
+        auto.verify_candidate_schema(request(),policy(),archive)
+        self.assertTrue(archive.api.call_args.args[0].endswith('?ref='+request()['source_sha']))
+        for rows in [[], policy()['migrations']*2,
+                     [{'name':'20260101000001_extra','checksum':'d'*64}],
+                     [{'name':policy()['migrations'][0]['name'],'checksum':'e'*64}]]:
+            archive.api.return_value=self.blob(self.manifest(rows))
+            with self.assertRaises(ValueError): auto.verify_candidate_schema(request(),policy(),archive)
+
+    def test_candidate_name_order_and_untrusted_blob_rejected(self):
+        p=policy(); p['migrations'].append({'name':'20260101000001_second','checksum':'e'*64})
+        archive=MagicMock(); archive.api.return_value=self.blob(self.manifest(list(reversed(p['migrations']))))
+        with self.assertRaises(ValueError): auto.verify_candidate_schema(request(),p,archive)
+        archive.api.return_value={**self.blob(self.manifest(policy()['migrations'])),'sha':'0'*40}
+        with self.assertRaises(ValueError): auto.verify_candidate_schema(request(),policy(),archive)
+        for suffix in [b'console.log("execute")', b'process.exit(0)']:
+            with self.assertRaises(ValueError): auto.parse_candidate_manifest(self.manifest(policy()['migrations'])+suffix)
+
+    def test_manifest_property_order_is_semantic(self):
+        raw=("// reviewed header\nexport const migrationManifest: readonly { name: string; checksum: string }[] = ["
+             "{checksum:'"+'d'*64+"',name:'20260101000000_fixture'},];").encode()
+        self.assertEqual(auto.parse_candidate_manifest(raw),policy()['migrations'])
+        actual=Path(__file__).resolve().parents[2]/'apps/api/src/infrastructure/database/schema-manifest.ts'
+        self.assertTrue(auto.parse_candidate_manifest(actual.read_bytes()))
+
+    def test_candidate_retrieval_size_and_syntax_fail_closed(self):
+        archive=MagicMock(); archive.api.side_effect=OSError('offline')
+        with self.assertRaises(OSError): auto.verify_candidate_schema(request(),policy(),archive)
+        archive.api.side_effect=None
+        archive.api.return_value={**self.blob(self.manifest(policy()['migrations'])),'size':65537}
+        with self.assertRaises(ValueError): auto.verify_candidate_schema(request(),policy(),archive)
+        for raw in [b'x'*65537,b'export const migrationManifest = dynamic();',
+                    self.manifest(policy()['migrations']).replace(b"name:",b"unknown:")]:
+            with self.assertRaises(ValueError): auto.parse_candidate_manifest(raw)

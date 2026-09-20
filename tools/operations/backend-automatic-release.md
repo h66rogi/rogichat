@@ -92,6 +92,15 @@ run/attempt, exact artifact digest/ID and QA ancestry. It parses migration archi
 bytes solely to validate this existing export format. **Only `runtime.tar` is
 loaded**, after verification and durable request consumption. No registry pull,
 migration image load/run, Prisma migration command or migrator secret is used.
+After artifact provenance binds its exact source SHA, the tool retrieves that
+immutable Git source's `apps/api/src/infrastructure/database/schema-manifest.ts`
+through the GitHub contents API. It verifies size, encoding and Git blob hash,
+recognizes the full reviewed static declaration without eval/import, and requires
+exact policy manifest equality before request consumption, image loading or drain.
+Missing/extra/duplicate/reordered names, checksum drift, unsupported syntax,
+retrieval failure or oversized data fail closed. Property order within a row is
+semantic. Existing exact-source contract CI also checks source SQL checksums.
+
 Automatic-export event support requires separately reviewing and pinning the
 future archive verifier; this PR does not loosen existing producer checks.
 
@@ -144,7 +153,7 @@ readiness is deliberately not claimed by verification alone.
 
 1. Revalidate policy/request, expiry, exact current QA head and all exact checks;
    verify current host state and pinned templates; run the trusted readonly probe.
-2. Verify archive completely. Create `request-<uuid>` in the private state
+2. Verify archive and immutable candidate source manifest completely. Create `request-<uuid>` in the private state
    directory, save consumed request and previous state/configuration, and fsync
    both directories. An interrupted/failed consumed request cannot be replayed.
 3. Load and inspect only the verified runtime image; run the existing isolated
@@ -170,7 +179,15 @@ consumed. Image load/probe cleanup failures never become successful activation.
 Run `python3 -m unittest discover -s tools/operations -p 'test_backend_*.py'`.
 The existing backend CI glob runs the new Python safety tests, which also invoke
 `node --test tools/operations/test_backend_schema_readonly.mjs`. Tests use isolated
-fixtures/mocks; no production or QA service is contacted. Existing public scanner
+fixtures/mocks; no production or QA service is contacted. The separately wired
+`node tools/operations/test_backend_schema_mysql.mjs` uses the existing CI
+loopback disposable MySQL service, or initializes its own fresh local datadir
+when no explicit fixture port is supplied. It tests real ledger reads, physical
+metadata queries, DML-only grants, DML rejection inside the read-only transaction,
+row/auto-increment fingerprint stability, column/index/FK drift and failed/rolled
+back/duplicate/missing ledger rejection. It refuses existing fixture database/user
+names and cleans only resources it created. The fixture uses a self-signed TLS
+certificate; real host CA/hostname verification remains a commissioning gate. Existing public scanner
 and hooks must pass before publication.
 
 Before any real activation, root must separately review this draft, merge through

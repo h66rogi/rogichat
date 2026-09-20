@@ -6,6 +6,7 @@ registry credentials, arbitrary paths, production activation or automatic rollba
 """
 from __future__ import annotations
 import argparse
+import base64
 from contextlib import contextmanager
 import fcntl
 import hashlib
@@ -184,12 +185,56 @@ def schema_probe(p, helper):
                 helper.docker('rm', '-f', name)
 
 
-def verify_candidate(r, helper, archive, output):
+def parse_candidate_manifest(raw):
+    """Recognize only the reviewed static TS declaration; never eval/import it."""
+    require(len(raw) <= 65536)
+    text = raw.decode('utf-8')
+    text = '\n'.join(line for line in text.splitlines() if not line.lstrip().startswith('//'))
+    match = re.fullmatch(r'\s*export\s+const\s+migrationManifest\s*:\s*readonly\s*'
+                         r'\{\s*name\s*:\s*string\s*;\s*checksum\s*:\s*string\s*}\s*\[\]'
+                         r'\s*=\s*\[(.*)]\s*;\s*', text, re.DOTALL)
+    require(match is not None)
+    remaining = match[1].strip()
+    rows = []
+    while remaining:
+        row = re.match(r"\{([^{}]*)}\s*(,|$)", remaining)
+        require(row is not None)
+        fields = row[1].split(',')
+        require(len(fields) == 2)
+        value = {}
+        for field in fields:
+            item = re.fullmatch(r"\s*(name|checksum)\s*:\s*(['\"])([a-z0-9_]+)\2\s*", field)
+            require(item is not None and item[1] not in value)
+            value[item[1]] = item[3]
+        require(set(value) == {'name', 'checksum'})
+        rows.append(value)
+        require(len(rows) <= 100)
+        remaining = remaining[row.end():].strip()
+    return rows
+
+
+def verify_candidate_schema(r, p, archive):
+    path = 'apps/api/src/infrastructure/database/schema-manifest.ts'
+    blob = archive.api('contents/' + path + '?ref=' + r['source_sha'])
+    require(blob['type'] == 'file' and blob['path'] == path and blob['encoding'] == 'base64'
+            and type(blob['size']) is int and 0 < blob['size'] <= 65536
+            and type(blob['sha']) is str and SHA.fullmatch(blob['sha']))
+    require(type(blob['content']) is str and len(blob['content']) <= 100000)
+    raw = base64.b64decode(''.join(blob['content'].split()), validate=True)
+    require(len(raw) == blob['size']
+            and hashlib.sha1(b'blob ' + str(len(raw)).encode() + b'\0' + raw).hexdigest() == blob['sha'])
+    require(parse_candidate_manifest(raw) == p['migrations'])
+
+
+def verify_candidate(r, p, helper, archive, output):
     path = helper.RELEASES / r['source_sha'] / 'export.zip'
     helper.protected(path, read=False)
     descriptor, configs = archive.validate_zip(path, r['archive']['artifact_sha256'], output)
     archive.verify_provenance(descriptor, r['archive'])
     require(descriptor['source_sha'] == r['source_sha'] and descriptor['verification_runs'] == r['verification_runs'])
+    # Artifact source is now independently verified; inspect its immutable Git
+    # source blob, not a checkout or executable candidate/migrator module.
+    verify_candidate_schema(r, p, archive)
     expected = descriptor['images']['runtime']
     require(expected['config_id'] == r['archive']['runtime_config_id'])
     config = configs['runtime']
@@ -308,7 +353,7 @@ def main():
         schema_probe(p, helper)
         with tempfile.TemporaryDirectory(prefix='rogichat-auto-', dir='/var/tmp') as temporary:
             output = Path(temporary) / 'verified'
-            candidate = verify_candidate(r, helper, archive, output)
+            candidate = verify_candidate(r, p, helper, archive, output)
             if not args.apply:
                 print('QA artifact/schema verified; activation and candidate health not performed.')
                 return
