@@ -18,7 +18,7 @@ export function AccountDeletionSection({ model, onDelete }: { model: SettingsAcc
       id="account"
       title="계정 탈퇴"
       tone="danger"
-      description="계정과 프로필, SOOP 연결을 삭제하는 절차입니다. 채팅방 나가기와 다르며 되돌릴 수 없습니다. SOOP 연결이 끝나지 않은 계정도 탈퇴할 수 있어야 합니다. 세부 동작은 아직 준비 중입니다."
+      description="현재 웹에서는 계정 탈퇴를 제공하지 않습니다. 채팅방 나가기나 로그아웃으로는 계정이 삭제되지 않습니다."
       footer={
         <div className="flex w-full flex-col gap-3">
           {confirming ? (

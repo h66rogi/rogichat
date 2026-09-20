@@ -232,7 +232,7 @@ def verify_archive(request, image):
         directory = Path(temporary) / 'verified'
         descriptor, configs = module.validate_zip(archive, approval['artifact_sha256'], directory)
         require(digest((directory / 'descriptor.json').read_bytes()) == approval['descriptor_sha256'])
-        module.verify_provenance(descriptor, approval)
+        module.verify_provenance(descriptor, approval, publication_proof=module.read_proof(directory))
         require(descriptor['source_sha'] == request['source_sha']
                 and descriptor['verification_runs'] == request['verification_runs'])
         item = descriptor['images']['runtime']

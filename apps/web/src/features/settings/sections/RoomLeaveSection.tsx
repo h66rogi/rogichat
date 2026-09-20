@@ -55,7 +55,7 @@ export function RoomLeaveSection({ model, onLeave }: { model: SettingsRoomModel;
           value={
             <span className="inline-flex items-center gap-2">
               <Badge variant={joined ? 'brand' : 'outline'} data-testid="settings-room-membership">
-                {joined ? '참여 중' : model.membership === 'left' ? '나감' : '확인 중'}
+                {joined ? '참여 중' : model.membership === 'left' ? '나감' : model.membership === 'unavailable' ? '이용 불가' : '확인 중'}
               </Badge>
               {model.isOwner && <Badge variant="secondary">방장</Badge>}
             </span>

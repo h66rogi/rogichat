@@ -8,7 +8,7 @@ import { cn } from '@/shared/lib/cn';
 
 import { ChatMessageItem } from './ChatMessageItem';
 import { formatDateLabel, isSameDay, parseIsoDate, truncateExcerpt } from './formatters';
-import type { ChatMessageItemModel, ChatTimelineItem, ChatViewerRole } from './types';
+import type { ChatMessageItemModel, ChatTimelineItem, ChatViewerRole, ChatSubmitResult } from './types';
 
 /**
  * Scrollable message timeline with date separators.
@@ -27,6 +27,7 @@ import type { ChatMessageItemModel, ChatTimelineItem, ChatViewerRole } from './t
 export interface ChatTimelineProps {
   items: ChatTimelineItem[];
   viewerRole: ChatViewerRole;
+  onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
   onLoadOlder?: (() => void | Promise<void>) | undefined;
   hasOlder?: boolean | undefined;
@@ -44,6 +45,7 @@ export function ChatTimeline({
   items,
   viewerRole,
   onReplyPrivate,
+  onDelete,
   onLoadOlder,
   hasOlder = false,
   isLoadingOlder = false,
@@ -196,7 +198,7 @@ export function ChatTimeline({
               </li>
             ) : (
               <li key={entry.item.id} data-item-id={entry.item.id} data-testid="chat-timeline-item">
-                <ChatMessageItem item={entry.item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} />
+                <ChatMessageItem item={entry.item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} />
               </li>
             ),
           )}

@@ -1,0 +1,35 @@
+import AxeBuilder from '@axe-core/playwright';
+import { expect, test } from '@playwright/test';
+test('QA associations serve JSON directly and never reflect request host', async ({ request }) => {
+  const apple = await request.get('/.well-known/apple-app-site-association', { headers: { Host: 'untrusted.invalid' }, maxRedirects: 0 });
+  expect(apple.status()).toBe(200);
+  expect(apple.headers()['content-type']).toContain('application/json');
+  const aasa = await apple.json() as { applinks: { details: { appIDs: string[]; components: { '/': string }[] }[] }; webcredentials: { apps: string[] } };
+  expect(aasa.webcredentials.apps).toEqual(['FS9YQ9URFY.chat.rogi.rogichat.qa']);
+  expect(aasa.applinks.details[0]?.components).toEqual([{ '/': '/mobile/auth/complete' }]);
+  const android = await request.get('/.well-known/assetlinks.json', { maxRedirects: 0 });
+  expect(android.status()).toBe(200);
+  expect(android.headers()['content-type']).toContain('application/json');
+  expect(JSON.stringify(await android.json())).not.toContain('untrusted.invalid');
+});
+test('native fallback never consumes or renders callback secrets and strips the address query', async ({ page, request }) => {
+  const sentinel = 'SYNTHETIC_CALLBACK_SENTINEL';
+  const response = await request.get(`/mobile/auth/complete?code=${sentinel}&state=${sentinel}`, { maxRedirects: 0 });
+  expect(response.status()).toBe(200);
+  expect(response.headers()['cache-control']).toBe('no-store');
+  expect(response.headers()['referrer-policy']).toBe('no-referrer');
+  expect(response.headers()['content-security-policy']).toContain("default-src 'none'");
+  expect(JSON.stringify(response.headers())).not.toContain(sentinel);
+  expect(await response.text()).not.toContain(sentinel);
+  const requests: string[] = [];
+  page.on('request', outgoing => { requests.push(outgoing.url()); });
+  await page.goto(`/mobile/auth/complete?code=${sentinel}&state=${sentinel}#${sentinel}`);
+  await expect(page).toHaveURL(/\/mobile\/auth\/complete$/);
+  await expect(page.getByRole('heading', { name: '로기챗 앱으로 돌아가 주세요' })).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(sentinel);
+  expect(requests.filter(url => !url.includes('/mobile/auth/complete'))).toEqual([]);
+  await page.getByRole('link', { name: '로기챗 홈으로' }).focus();
+  await expect(page.getByRole('link', { name: '로기챗 홈으로' })).toBeFocused();
+  const axe = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(axe.violations.filter(item => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([]);
+});

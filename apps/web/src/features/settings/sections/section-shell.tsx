@@ -49,8 +49,8 @@ export function canAct(state: SettingsActionState, callback: unknown): boolean {
   return state.enabled && typeof callback === 'function';
 }
 
-/** Reason shown when the harness allows an action but no callback is wired (preview screens). */
-export const NOT_CONNECTED_REASON = '미리보기 화면에서는 이 동작을 실행할 수 없습니다.';
+/** Reason shown when an action has no connected implementation. */
+export const NOT_CONNECTED_REASON = '현재 이 기능을 이용할 수 없습니다.';
 
 export function effectiveState(state: SettingsActionState, callback: unknown): SettingsActionState {
   if (!state.enabled) return state;
