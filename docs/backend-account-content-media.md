@@ -52,7 +52,9 @@ Worker outcomes distinguish progress/deferred from completed cleanup.
 All three registered writers (upload, decoder variants and publication copies)
 record successful PUT acknowledgements in an evidence-only transaction before
 normal domain finalization. Revocation still prevents READY/publication success,
-but does not discard proof that the provider finished that exact write.
+but does not discard proof that the provider finished that exact write. A late
+acknowledgement reopens an already-DELETED legacy asset for an ordered cleanup
+pass; historical quota already refunded is not fabricated or refunded again.
 
 Successful DELETE/404 is only an observed deletion at that instant. ALLOCATED,
 missing/invalid acknowledged-write metadata, failed storage operations and late

@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
 import type { JobLease } from '../jobs/jobs.policy.js';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
-export interface CleanupObject { id: string; object_key: string; state: string; byte_length: string | null; sha256: string | null; attempt_id?: string; writer_acknowledged?: boolean | number | string }
+export interface CleanupObject { id: string; object_key: string; state: string; byte_length: string | null; sha256: string | null; attempt_id?: string; writer_acknowledged?: boolean | number | string; cleanup_proof_id?: string | null; delete_observed_at?: Date | null }
 // Successful PUT acknowledgements are recorded separately from domain finalization.
 // ALLOCATED alone never proves termination, including after abort or lease expiry.
 export function acknowledgedWrite(row: CleanupObject): boolean {
@@ -56,7 +56,7 @@ export class MediaWorkerRepository {
     return affected(tx.prisma.media_assets.updateMany({ where: { id: String(assetId) }, data: { state: 'READY' } }));
   }
   objects(tx: Transaction, assetId: unknown) {
-    return tx.rows<CleanupObject>("SELECT o.id,o.object_key,o.state,o.byte_length,o.sha256,p.writer_acknowledged FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key WHERE o.asset_id=? ORDER BY o.id LIMIT 501 FOR UPDATE", [assetId]);
+    return tx.rows<CleanupObject>("SELECT o.id,o.object_key,o.state,o.byte_length,o.sha256,p.writer_acknowledged,p.object_id AS cleanup_proof_id,p.delete_observed_at FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key WHERE o.asset_id=? ORDER BY o.id LIMIT 501 FOR UPDATE", [assetId]);
   }
   currentObjects(tx: Transaction, assetId: unknown) {
     return this.objects(tx, assetId);
@@ -76,10 +76,10 @@ export class MediaWorkerRepository {
   }
   async finishPage(tx: Transaction, assetId: string, page: CleanupObject[]) {
     for (const planned of page) {
-      const [current] = await tx.rows<CleanupObject>('SELECT o.id,o.object_key,o.state,o.byte_length,o.sha256,p.writer_acknowledged FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key WHERE o.asset_id=? AND o.id=? FOR UPDATE', [assetId, planned.id]);
+      const [current] = await tx.rows<CleanupObject>('SELECT o.id,o.object_key,o.state,o.byte_length,o.sha256,p.writer_acknowledged,p.object_id AS cleanup_proof_id,p.delete_observed_at FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key WHERE o.asset_id=? AND o.id=? FOR UPDATE', [assetId, planned.id]);
       if (!current || current.object_key !== planned.object_key) throw new Error('media_cleanup_provenance_conflict');
       const acknowledged = acknowledgedWrite(current);
-      await tx.prisma.media_cleanup_attempts.update({ where: { object_id: current.id }, data: { writer_acknowledged: acknowledged, delete_observed_at: await tx.now() }, select: { object_id: true } });
+      await tx.prisma.media_cleanup_attempts.update({ where: { object_id: current.id }, data: { writer_acknowledged: acknowledged, delete_observed_at: acknowledged && acknowledgedWrite(planned) ? await tx.now() : null }, select: { object_id: true } });
       // Acknowledgment arriving DURING DELETE is not ordered before it: retain
       // that attempt for another pass, so a late PUT cannot resurrect a closed key.
       if (acknowledged && acknowledgedWrite(planned)) await tx.prisma.media_objects.updateMany({ where: { id: current.id, asset_id: assetId }, data: { state: 'DELETED' } });
@@ -102,7 +102,7 @@ export class MediaWorkerRepository {
       AND NOT EXISTS (SELECT 1 FROM sticker_catalog c WHERE c.asset_id=a.id AND c.status IN ('ACTIVE','RETIRED') AND c.approved_at IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM publication_media pm JOIN message_publications p ON p.room_id=pm.room_id AND p.id=pm.publication_id WHERE pm.destination_asset_id=a.id AND p.state='PREPARING')) OR
     (a.state='UPLOADING' AND a.upload_until<=UTC_TIMESTAMP(3)) OR a.state='DELETING' OR
-    (a.state='DELETED' AND EXISTS (SELECT 1 FROM media_objects o WHERE o.asset_id=a.id AND ${unprovenWrite})))
+    (a.state='DELETED' AND EXISTS (SELECT 1 FROM media_objects o WHERE o.asset_id=a.id AND (o.state<>'DELETED' OR ${unprovenWrite} OR EXISTS (SELECT 1 FROM media_cleanup_attempts p WHERE p.object_id=o.id AND p.delete_observed_at IS NULL)))))
     AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.purpose='MEDIA' AND j.resource_id=a.id AND
       (j.state='PENDING' OR (j.state='RUNNING' AND j.lease_until>UTC_TIMESTAMP(3))))
 
