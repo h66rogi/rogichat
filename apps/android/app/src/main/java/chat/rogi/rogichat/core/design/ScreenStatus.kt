@@ -10,12 +10,12 @@ import androidx.compose.ui.unit.dp
 
 // Loading/empty presentation adapted from the reference app. Actions are supplied by the owning feature.
 @Composable
-fun ScreenStatus(title: String, message: String, loading: Boolean = false, onRetry: (() -> Unit)? = null) {
+fun ScreenStatus(title: String, message: String, loading: Boolean = false, onRetry: (() -> Unit)? = null, retryLabel: String = "다시 시도") {
     Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         if (loading) CircularProgressIndicator(Modifier.size(32.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Text(message, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-        if (onRetry != null) OutlinedButton(onClick = onRetry) { Text("다시 시도") }
+        if (onRetry != null) OutlinedButton(onClick = onRetry) { Text(retryLabel) }
     }
 }

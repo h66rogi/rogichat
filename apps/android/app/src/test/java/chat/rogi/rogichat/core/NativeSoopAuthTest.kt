@@ -1,6 +1,7 @@
 package chat.rogi.rogichat.core
 
 import chat.rogi.rogichat.core.auth.*
+import chat.rogi.rogichat.core.identity.*
 import chat.rogi.rogichat.core.network.*
 import chat.rogi.rogichat.core.session.*
 import chat.rogi.rogichat.core.navigation.ShellAccess
@@ -63,6 +64,13 @@ private class AuthPendingStore : PendingAuthStore {
     }
 }
 private class AuthApi : NativeApi {
+    val appleRequests = mutableListOf<Triple<AppleIdentityRoute, String?, String>>()
+    override suspend fun performApple(route: AppleIdentityRoute, intent: IdentityIntent, originalBearer: String?, body: String): String {
+        appleRequests += Triple(route, originalBearer, body)
+        if (route == AppleIdentityRoute.EXCHANGE) return exchangeBlock()
+        val state = fingerprint("apple-state"); val nonce = fingerprint("apple-nonce")
+        return """{"transactionId":"$TRANSACTION","state":"$state","nonce":"$nonce","authorizeUrl":"https://appleid.apple.com/auth/authorize?state=$state&nonce=$nonce","expiresIn":600}"""
+    }
     var requests = mutableListOf<Triple<ApiRoute, String?, String>>()
     val revoked = mutableListOf<String>()
     var startBlock: suspend () -> String = { startResponse() }
@@ -78,13 +86,14 @@ private class AuthApi : NativeApi {
     override suspend fun postWithoutResponse(route: ApiRoute, token: String, body: String) { assertEquals(ApiRoute.LOGOUT, route); revoked.add(token) }
 }
 private class AuthFixture(val store: AuthStore = AuthStore(), val pending: AuthPendingStore = AuthPendingStore(),
-                          val api: AuthApi = AuthApi(), val clock: AuthClock = AuthClock()) {
+                          val api: AuthApi = AuthApi(), val clock: AuthClock = AuthClock(),
+                          val rooms: chat.rogi.rogichat.core.rooms.RoomsStore? = null) {
     var proofs = 0
     val model = coordinator()
     fun coordinator() = NativeSessionCoordinator(store, api, clock, SoopAuthSupport(SoopAuthContract("qa"), pending) {
         val ordinal = ++proofs
         AuthProof(fingerprint("verifier-$ordinal"), fingerprint("state-$ordinal"))
-    })
+    }, rooms)
     suspend fun login(): String {
         model.restore(); assertTrue(model.startLogin(CURRENT_TERMS).isSuccess)
         return requireNotNull(pending.value).proof.state
@@ -96,6 +105,48 @@ private class AuthFixture(val store: AuthStore = AuthStore(), val pending: AuthP
 }
 
 class NativeSoopAuthTest {
+    @Test fun appleUsesExistingDurableProofAndPublicHeadersThenColdCallbackConsumesOnce() = runTest {
+        val f = AuthFixture(); f.model.restore()
+        assertTrue(f.model.startAppleLogin("old").isFailure); assertTrue(f.api.appleRequests.isEmpty())
+        assertTrue(f.model.startAppleLogin(CURRENT_TERMS).isSuccess)
+        val pending = requireNotNull(f.pending.value)
+        assertEquals(AuthProvider.APPLE, pending.provider)
+        assertEquals(AuthProvider.APPLE, f.model.authState.value.provider)
+        val request = f.api.appleRequests.single()
+        assertNull(request.second)
+        val start = Json.parseToJsonElement(request.third).jsonObject
+        assertFalse("codeChallengeMethod" in start)
+        assertEquals(CURRENT_TERMS, start.getValue("termsVersion").jsonPrimitive.content)
+        val cold = f.coordinator(); cold.restore(); cold.restorePending()
+        assertTrue(cold.handleCallback(callback(pending.proof.state, fingerprint("completion"))).isSuccess)
+        assertEquals(NEW_TOKEN, f.store.value?.token); assertTrue(f.pending.marked)
+        assertEquals(listOf(AppleIdentityRoute.START, AppleIdentityRoute.EXCHANGE), f.api.appleRequests.map { it.first })
+        assertTrue(f.api.appleRequests.all { it.second == null }); assertTrue(f.api.requests.isEmpty())
+        cold.handleCallback(callback(pending.proof.state, fingerprint("completion")))
+        assertEquals(2, f.api.appleRequests.size)
+    }
+    @Test fun cancelledAppleCallbackCannotConsumeNewSoopProofOrInstallLateAppleSession() = runTest {
+        val f = AuthFixture(); f.model.restore(); f.model.startAppleLogin(CURRENT_TERMS).getOrThrow()
+        val oldState = requireNotNull(f.pending.value).proof.state
+        f.model.cancelAuthentication().getOrThrow()
+        f.model.startLogin(CURRENT_TERMS).getOrThrow()
+        val current = requireNotNull(f.pending.value)
+        f.model.handleCallback(callback(oldState, fingerprint("completion")))
+        assertSame(current, f.pending.value); assertNull(f.store.value)
+        assertEquals(1, f.api.appleRequests.size); assertEquals(1, f.api.requests.size)
+    }
+
+    @Test fun roomsPurgeFailureBeforeCredentialInstallEndsAuthAndRevokesOnlyNewToken() = runTest {
+        val db = RoomTestStore(); val fixture = AuthFixture(rooms = db)
+        val state = fixture.login(); db.failClear = true
+        assertTrue(fixture.model.handleCallback(callback(state)).isFailure)
+        assertNull(fixture.store.value)
+        assertFalse(fixture.model.authState.value.active)
+        assertEquals(AuthProblem.STORAGE, fixture.model.authState.value.error)
+        assertEquals(ShellAccess.RETRYABLE_FAILURE, fixture.model.session.value.access)
+        assertEquals(listOf(NEW_TOKEN), fixture.api.revoked)
+        assertTrue(fixture.pending.marked)
+    }
     @Test fun proofUsesIndependentRandom32ByteValuesAndS256() {
         val all = mutableSetOf<String>()
         repeat(20) {
@@ -382,6 +433,8 @@ class NativeSoopAuthTest {
         val store = ProtectedPendingAuthStore(disk, "qa", { key })
         store.write(record); assertFalse(disk.bytes!!.toString(Charsets.ISO_8859_1).contains(record.proof.verifier))
         assertEquals(record.proof.verifier, store.read()!!.proof.verifier)
+        store.write(PendingAuth(TRANSACTION, AuthIntent.LOGIN, record.proof, NOW, null, null, null, null, AuthProvider.APPLE))
+        assertEquals(AuthProvider.APPLE, ProtectedPendingAuthStore(disk, "qa", { key }).read()!!.provider)
         try { ProtectedPendingAuthStore(disk, "prod", { key }).read(); fail() } catch (_: CredentialStoreException) { }
         disk.failErase = true; try { store.clear(); fail() } catch (_: CredentialStoreException) { }
         try { ProtectedPendingAuthStore(disk, "qa", { key }).read(); fail() } catch (_: CredentialStoreException) { }

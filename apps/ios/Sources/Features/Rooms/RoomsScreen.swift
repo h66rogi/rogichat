@@ -1,80 +1,109 @@
 import SwiftUI
+import RogichatRooms
 
-struct RoomSummary: Identifiable, Equatable, Sendable {
-    let id: String
-    let title: String
-    let subtitle: String
-}
-protocol RoomsServing: Sendable {
-    func rooms(for accountID: String) async throws -> [RoomSummary]
-}
-struct UnavailableRoomsService: RoomsServing {
-    func rooms(for accountID: String) async throws -> [RoomSummary] { throw ProductError.unavailable }
-}
-
-// Rogichat-specific room navigation; no reference chat/Talk UX is imported.
 struct RoomsScreen: View {
-    let accountID: String
-    let service: any RoomsServing
-    let onOpen: ((RoomSummary) -> Void)?
-    @State private var state: Loadable<[RoomSummary]> = .idle
+    @State private var model: RoomsScreenModel
+    let onOpenConversation: () -> Void
+    @State private var visible = false
     @State private var query = ""
-    @State private var reload = 0
+    @State private var leaving: RoomCommandIntent?
+    @Environment(\.scenePhase) private var scenePhase
+    init(model: RoomsScreenModel, onOpenConversation: @escaping () -> Void) { _model = State(initialValue: model); self.onOpenConversation = onOpenConversation }
     var body: some View {
-        LoadableView(state: state) {
-            ScreenStatus(title: "대화를 불러오는 중", message: "", loading: true)
-        } loaded: { rooms in
-            let visible = query.isEmpty ? rooms : rooms.filter { $0.title.localizedCaseInsensitiveContains(query) }
-            if rooms.isEmpty {
-                ContentUnavailableView("참여한 대화가 없어요", systemImage: "bubble.left.and.bubble.right", description: Text("대화방에 참여하면 여기에 표시돼요."))
-            } else if visible.isEmpty {
-                ContentUnavailableView.search(text: query)
-            } else {
-                List(visible) { room in
-                    if let onOpen {
-                        Button { onOpen(room) } label: { roomRow(room, canOpen: true) }
-                    } else {
-                        roomRow(room, canOpen: false)
+        Group {
+            if let listing = model.listing {
+                List {
+                    if let error = model.error { errorRow(error) }
+                    else if model.needsConfirmation { errorRow("참여 상태를 다시 확인해 주세요.") }
+                    if let notice = model.notice { Text(notice).font(.footnote).foregroundStyle(.secondary) }
+                    if let action = model.commandAction { ProgressView(action == .join ? "참여 요청과 현재 상태를 확인하는 중" : "나가기 요청과 현재 상태를 확인하는 중") }
+                    if model.loading { ProgressView("대화방을 확인하는 중").accessibilityLabel("대화방을 확인하는 중") }
+                    let joined = listing.memberships.filter { matches($0.name) }
+                    let joinedIDs = Set(listing.memberships.map(\.id))
+                    let discoverable = listing.discovery.filter { !joinedIDs.contains($0.id) && matches($0.name) }
+                    Section("참여 중인 대화방") {
+                        if joined.isEmpty {
+                            Text(query.isEmpty ? "참여한 대화방이 없어요." : "검색한 대화방이 없어요.").foregroundStyle(.secondary)
+                        }
+                        ForEach(joined) { room in
+                            roomRow(name: room.name, mode: room.mode, open: {
+                                Task { if await model.openConversation(roomID: room.id, displayedCycle: listing.cycle) { onOpenConversation() } }
+                            }) {
+                                Button("나가기", role: .destructive) {
+                                    leaving = model.selection(roomID: room.id, roomName: room.name, displayedCycle: listing.cycle, action: .leave, membership: room.membershipScope)
+                                }.buttonStyle(.borderless).disabled(!model.canAct).accessibilityLabel("\(room.name)에서 나가기")
+                            }
+                        }
                     }
-                }.listStyle(.plain)
-            }
-        } failed: { error in
-            if (error as? ProductError) == .unavailable {
-                ContentUnavailableView("대화를 사용할 수 없어요", systemImage: "bubble.left.and.bubble.right")
+                    Section("둘러보기") {
+                        ForEach(discoverable) { room in
+                            roomRow(name: room.name, mode: room.mode) {
+                                Button("참여") {
+                                    if let intent = model.selection(roomID: room.id, roomName: room.name, displayedCycle: listing.cycle, action: .join, membership: nil) { model.submit(intent) }
+                                }.buttonStyle(.bordered).disabled(!model.canAct).accessibilityLabel("\(room.name)에 참여")
+                            }
+                        }
+                        if discoverable.isEmpty {
+                            Text(query.isEmpty ? "불러온 다른 대화방이 없어요." : "불러온 목록에 검색 결과가 없어요.").foregroundStyle(.secondary)
+                        }
+                        if !listing.discoveryComplete {
+                            if model.loadingMore { ProgressView("대화방을 더 불러오는 중") }
+                            else { Button("대화방 더 보기") { Task { await model.loadMore() } }.disabled(!model.canAct) }
+                        }
+                    }
+                }.listStyle(.insetGrouped)
+            } else if let error = model.error {
+                ContentUnavailableView {
+                    Label("대화방을 불러오지 못했어요", systemImage: "wifi.exclamationmark")
+                } description: { Text(error) }
+                actions: { Button("다시 시도") { Task { await model.refresh() } }.buttonStyle(.borderedProminent).disabled(model.loading || model.commandAction != nil) }
             } else {
-            ContentUnavailableView {
-                Label("대화를 불러오지 못했어요", systemImage: "wifi.exclamationmark")
-            } description: { Text("연결을 확인하고 다시 시도해 주세요.") }
-              actions: { Button("다시 시도") { reload += 1 }.buttonStyle(.borderedProminent) }
+                ScreenStatus(title: "대화방을 불러오는 중", message: "", loading: true).frame(maxHeight: .infinity)
             }
         }
-        .searchable(text: $query, prompt: "대화 검색")
-        .task(id: reload) { await load() }
-        .refreshable { await load() }
+        .searchable(text: $query, prompt: "불러온 대화방 검색")
+        .task { await model.refreshIfNeeded() }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active, visible, model.listing != nil { Task { await model.refresh() } }
+        }
+        .refreshable { await model.refresh() }
+        // Selected-row presenting alert adapted from Meloming MyReviewsView.
+        .alert("대화에서 나가기", isPresented: Binding(get: { leaving != nil }, set: { if !$0 { leaving = nil } }), presenting: leaving) { intent in
+            Button("나가기", role: .destructive) { leaving = nil; model.submit(intent) }
+            Button("취소", role: .cancel) { leaving = nil }
+        } message: { intent in
+            Text("\(intent.roomName)에서 나갈까요? 나가도 보낸 메시지는 삭제되지 않아요.")
+        }
     }
-    private func roomRow(_ room: RoomSummary, canOpen: Bool) -> some View {
+    private func matches(_ name: String) -> Bool { query.isEmpty || name.localizedCaseInsensitiveContains(query) }
+    private func roomRow<Action: View>(name: String, mode: String, open: (() -> Void)? = nil, @ViewBuilder action: () -> Action) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let open {
+                Button(action: open) { roomIdentity(name: name, mode: mode) }.buttonStyle(.plain).disabled(!model.canAct)
+                    .accessibilityLabel("\(name) 대화 열기")
+            } else { roomIdentity(name: name, mode: mode) }
+            action().frame(maxWidth: .infinity, alignment: .trailing)
+        }.padding(.vertical, 5).accessibilityElement(children: .contain)
+    }
+    private func roomIdentity(name: String, mode: String) -> some View {
         HStack(spacing: 14) {
-            Text(String(room.title.prefix(1))).font(.title3.bold())
-                .frame(width: 52, height: 52).background(AppTheme.accent.opacity(0.12), in: Circle())
-            VStack(alignment: .leading, spacing: 5) {
-                Text(room.title).font(.headline).foregroundStyle(.primary)
-                Text(room.subtitle).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                Image(systemName: mode == "FAN" ? "bubble.left.and.bubble.right" : "person.2")
+                    .font(.title3).foregroundStyle(AppTheme.accent)
+                    .frame(width: 48, height: 48).background(AppTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(name).font(.headline).foregroundStyle(.primary)
+                    Text(mode == "FAN" ? "팬 대화" : "그룹 대화").font(.subheadline).foregroundStyle(.secondary)
+                }
             }
-            Spacer(minLength: 4)
-            if canOpen { Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary).accessibilityHidden(true) }
-        }.padding(.vertical, 6).accessibilityElement(children: .combine)
     }
-    private func load() async {
-        guard !state.isLoading else { return }
-        state = .loading(previous: state.value)
-        defer { if Task.isCancelled { state = .idle } }
-        do {
-            let value = try await service.rooms(for: accountID)
-            guard !Task.isCancelled else { return }
-            state = .loaded(value)
-        } catch {
-            guard !Task.isCancelled else { return }
-            state = .failed(error)
-        }
+    private func errorRow(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(message).font(.subheadline)
+            Text("이전에 확인한 목록을 표시하고 있어요.").font(.footnote).foregroundStyle(.secondary)
+            Button("참여 상태 다시 확인") { Task { await model.refresh() } }.disabled(model.loading || model.commandAction != nil)
+        }.accessibilityElement(children: .contain)
     }
 }

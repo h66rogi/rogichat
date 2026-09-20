@@ -265,3 +265,95 @@ R34–R38은 새 외부 SDK나 의존성을 추가하지 않는다. 실제 비�
 현재 credential 401 처리, 기존 공통 confirmation/설정 컴포넌트를 그대로 사용한다.
 계정 값은 기기 전역 설정에 캐시하지 않고 서버 응답으로만 확인한다. 실제 provider나
 방 lifecycle이 없는 부분을 UI 토글·가짜 완료·테스트 credential로 대신하지 않는다.
+
+## 실제 추출 기록 — MB04a 방 목록과 SQLite
+
+원본은 Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, iOS
+`18a33bbf96fe52b28d0de361916e20549bdcce6b`다. 읽기 전용으로 원본과 대상의 책임·코드를
+대조했다. [저장소 진행 기록](mobile-rooms-progress.md)은 코드 적용과 실행 검증을 구분한다.
+아래 Android 대상은 기존 app `java/chat/rogi/rogichat/`, iOS는 `apps/ios/` 기준이다.
+
+| ID | source 파일·심볼 | 대상 | 실제 수정 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R39 | Android `core/network/.../api/ChannelApi.kt`의 getPopularChannels/searchChannels/getMyChannels, `core/data/.../repository/ChannelRepositoryImpl.kt`의 searchChannels/getMyChannels | 기존 `core/network/ApiClient.kt`, RoomsApi, `feature/rooms/RoomsScreen.kt`의 RoomsRepository와 NativeSessionCoordinator | **수정 재사용**: 주입 API의 typed 요청·parameters.append·repository 결과 경계. 원본 채널 route/정수 ID/페이지 번호·실패를 빈 배열로 바꾸는 동작·Timber 로그는 제외. 새 room/manifest DTO와 원자적 staging은 별도 신규 구현 |
+| R40 | Android `core/common/.../di/DispatchersModule.kt`의 providesIoDispatcher/providesApplicationScope, NetworkModule/DataModule의 API/repository 주입 | 기존 ProductServices와 `core/rooms/AndroidRoomsStore.kt`, RoomsViewModel | **부분 수정 재사용**: transport 수명·명시적 IO dispatcher·repository 주입과 기존 추출 StateFlow/loading/error 흐름. Hilt graph 전체를 복제하지 않음. credential mutex/DB COMMIT·purge fence는 로기챗 신규 책임 |
+| R41 | iOS `Meloming/Domain/Repositories/NotificationRepository.swift`의 protocol/adapter/init와 cursor 요청, ChannelRepository/NewsRepository의 생성자 주입 | `Sources/Core/Rooms/NativeRoomsRemote.swift`, `Packages/RogichatRooms/Sources/RogichatRooms/RoomsRepository.swift` | **수정 재사용**: protocol·생성자 client 주입·typed cursor 요청. Notification DTO·낙관적 mark-read는 미이식. 기존 R23 HTTP client를 확장하고 실제 manifest/DB/revision 조정은 새 계약으로 구현 |
+| R42 | iOS `Meloming/Presentation/Notifications/NotificationsViewModel.swift`의 Loadable·refresh/loadMore 분리 | `Sources/Features/Rooms/RoomsScreen.swift`, 기존 `Core/State/Loadable.swift` | **부분 수정 재사용**: MainActor 목록 상태·로딩/오류·refresh와 다음 페이지. 원본의 약한 중복/세대 검사와 낙관적 알림 읽음, News의 detached refresh는 제외. 방 행은 확인된 metadata만 표시하고 가짜 대화 진입을 제공하지 않음 |
+| R43 | Android의 Room 의존 선언과 양 OS 비채팅 DB 코드 검색 | Android `core/rooms/{RoomsDatabase,AndroidRoomsStore}.kt`, iOS local package RoomsDatabase/RoomsStorage/RoomsContract | **신규**: 원본에 실제 DB/DAO/migration/SQLite coordinator가 없어 이식할 구현이 없음. 환경/accountPartition DB, schema 2의 완전 manifest 교체, durable cleanup, 실제 COMMIT fence 및 on-disk 회귀는 로기챗용으로 구현. 원본을 읽은 사실을 DB 재사용으로 집계하지 않음 |
+
+Room/KSP와 GRDB의 exact 버전·lock 및 고지/리소스 검사를 app/IPA 배포 guard에 강제한다.
+rooms 단계의 실제 bundle·서명 app/IPA 검사와 빌드 13의 양 OS 내부 배포를 통과했다.
+GRDB host 시험과 Xcode 앱의 서로 다른 resolved 파일이 같은 revision을 가리키도록 검사하고
+자동 재해석을 차단한다. 설치 UUID의 생성·전송·개인정보 선언도 새 데이터 흐름에 맞춘
+로기챗 메타데이터다. 원본의 주소·운영 ID·서명·analytics·Talk/TalkV2는 이식하지 않는다.
+
+## 실제 추출 기록 — 방 참여·나가기
+
+원본 SHA는 R39–R43과 같다. 기존 방 목록과 native HTTP 구현을 확장하며 새 라이브러리를
+추가하지 않는다. [명령 진행 기록](mobile-room-mutations-progress.md)은 결과 불명과 실제
+현재 상태, 로컬 선택 검사와 서버의 current-membership 명령을 구분한다.
+
+| ID | source 파일·심볼 | 대상 | 실제 수정 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R44 | Android `feature/more/.../MoreScreen.kt` logout AlertDialog, `feature/reviews/.../MyReviewsScreen.kt` deleteTarget, `MfaSecuritySettingsScreen.kt` MfaEnrollmentDialog | `feature/rooms/RoomsScreen.kt` | **수정 재사용**: 선택 대상 native 확인창·destructive/cancel·스크롤 본문·진행/버튼 렌더링. 실제 방 이름·원본 scope/cycle/M에 결합. 원본 review 삭제 즉시 filter·성공 toast·MFA business는 제외 |
+| R45 | iOS `Meloming/Presentation/Reviews/MyReviewsView.swift` reviewPendingDelete/presenting alert, `More/MyPageView.swift` logout alert, `MfaSecuritySettingsView.swift` ProgressView/disabled | `Sources/Features/Rooms/RoomsScreen.swift`, `Sources/Core/Rooms/RoomsScreenModel.swift`의 model·owner | **수정 재사용**: 선택 대상 확인·cancel/destructive·진행 표시, 기존 Loadable/List. source의 view-local flag를 명령 소유권으로 쓰거나 낙관적 history 삭제를 가져오지 않음 |
+| R46 | R39/R41의 기존 typed HTTP/repository와 원본 review command/refresh 책임 대조 | 양 OS room command DTO·service/coordinator·실제 DB invalidation 및 재확인 | **기존 추출 확장 + 신규**: closed POST adapter는 기존 구현을 확장. strict UInt32/200/204, 원본 선택·scope fence, view보다 긴 one-shot 소유권, COMMIT-before-POST·전체 manifest 조정은 원본에 대응 계약이 없어 새 구현. 단순 refreshAfterMutation 참고를 내구성 구현 이식으로 집계하지 않음 |
+
+## 실제 추출 기록 — 계정 탈퇴 접수
+
+원본 SHA는 R39–R43과 같다. [구현 기록](mobile-account-deletion-progress.md)은 최종 동결
+소스와 실제 실행 범위를 구분한다. 원본의 웹 탈퇴와 신규 native transaction을 혼동하지 않는다.
+
+| ID | source 파일·심볼 | 대상 | 실제 수정 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R47 | Android `feature/more/.../{ProfileSettingsScreen,MoreNavigation,MoreScreen}.kt`의 onNavigateToWithdrawal·getWithdrawalUrl·destructive confirm; iOS `Meloming/Presentation/More/{MoreView,MyPageView}.swift`의 설정 section·withdrawal entry·logout alert | 양 OS AccountScreen과 기존 ConfirmationPrompt/native alert, 탈퇴 결과 화면 | **부분 수정 재사용**: 설정 위치·선택 대상·cancel/destructive·진행/오류 UI. 원본 탈퇴는 authenticated WebView 진입이다. URL·cookie/token bridge나 웹 business는 이식하지 않음 |
+| R48 | Android `core/network/.../api/ApiClient.kt`, `auth/TokenStorage.kt`의 TokenStorage/StoredMfaChallengeRecordCodec; iOS `Core/Network/APIClient.swift`, `Core/Auth/KeychainService.swift` | 기존 closed HTTP·Android credential/pending·iOS credential envelope와 DB purge 경계 | **기존 추출 확장**: typed DELETE 경로와 보호 저장 primitive·주입·직렬화 경계를 재사용. 기존 원본의 refresh·운영 주소·analytics는 가져오지 않음 |
+| R49 | 원본 웹 탈퇴와 native 저장소 책임 대조 | 양 OS AccountDeletion contract/journal/state, NativeSessionCoordinator/NativeSessionService의 admission·owned request·복구 | **신규**: strict blocked receipt·unknown·최근 인증, 원래 scope CAS, 보호 admission과 DB 정리, crash no-replay·ACK 보존·기록과 표시 분리는 원본에 대응 구현이 없음. 원본을 읽은 사실을 native transaction 재사용으로 집계하지 않음 |
+
+## 실제 추출 확장 — TEXT 대화와 복구
+
+원본은 Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, iOS
+`18a33bbf96fe52b28d0de361916e20549bdcce6b`이며 읽기 전용으로 확인했다.
+[진행 기록](mobile-conversation-progress.md)은 작성·실행·배포 상태를 구분한다.
+이번 변경에 대응하는 별도 Meloming 채팅 UX나 outbox를 이식했다고 주장하지 않는다.
+
+| ID | source 파일·심볼 | 대상 | 실제 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R50 | Android `core/network/.../api/ApiClient.kt`의 get/post/handleResponse, ChannelApi·ChannelRepositoryImpl의 getMyChannels/getChannel; iOS `Core/Network/APIClient.swift`, `Domain/Repositories/NotificationRepository.swift`의 protocol/client 생성자 주입 | 기존 NativeApi/NativeAPIClient, NativeRoomsRemote·ConversationGateway·ConversationFetching | **기존 추출 확장**: 단일 HTTP client, typed 요청·응답과 주입된 repository 경계를 실제 재사용. 원본 route·정수 ID·empty-on-error·payload logging은 이식하지 않음. C04/C05/C06 endpoint·DTO·실제 계정 인가는 신규 계약 |
+| R51 | Android MoreNavigation·MoreScreen·ProfileSettingsScreen에서 이미 추출한 공통 navigation/StateFlow/lifecycle; iOS `Presentation/Notifications/NotificationsViewModel.swift`의 init·Loadable·load/refresh/next-page 구조 | AppEntry/기존 ProductPage 및 ConversationViewModel, 기존 NavigationStack·Loadable과 ConversationScreenModel | **기존 추출 확장 + 제한된 수정 재사용**: 공통 화면 진입·계정 gate·loading/error·constructor 주입을 유지. iOS 알림 모델의 실제 load-if-empty/refresh/다음 페이지 구조를 적용하되 낙관적 mark-read는 제외. 새 timeline·composer·인용 UX를 원본 채팅 UX 재사용으로 집계하지 않음 |
+| R52 | 양 OS 원본 비채팅 저장소·상태 책임 대조 | ConversationContract, 실제 Room/GRDB timeline·profiles·outbox 및 coordinator, cold recovery harness | **신규**: immutable command·원래 M·receipt-only 복구·동일 version 전체 projection 교체·terminal tombstone·실제 COMMIT fence는 대응 원본 구현이 없음. 기존 보호 세션·계정별 DB를 확장하며 두 번째 인증 client나 cache 체계를 추가하지 않음 |
+
+TEXT sender/recipient/body에 맞춘 iOS messages 개인정보 선언과 Android 메시지 데이터 고지
+검토는 로기챗 데이터 흐름의 책임이다. 새 대화 단계 자체는 외부 SDK를 추가하지 않는다.
+원본 운영 ID·endpoint·서명·analytics·Talk/TalkV2는 제품에 포함하지 않는다.
+
+## 독립 feature 추출 — 미디어·메시지 동작·인증/알림
+
+아래는 각 feature 코드의 추출 기록이다. 보호 세션·DB·플랫폼 callback·제품 화면에 연결한
+상태와 실제 운영 검증은 각 [미디어](mobile-media-progress.md),
+[메시지 동작](mobile-message-actions-progress.md),
+[인증·push](mobile-identity-push-progress.md) 기록에서 구분한다. 원본 SHA는 R50–R52와 같고,
+해당 원본 파일·history·설정은 수정하거나 가져오지 않았다.
+
+| ID | source 파일·심볼 | 대상 | 실제 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R53 | Android `feature/channel/.../ChannelSettingsScreen.kt`의 photoPickerLauncher | `feature/media/MediaPicker.kt` | **수정 재사용**: rememberLauncherForActivityResult/PickVisualMedia·선택 URI·ContentResolver/MIME 흐름. UI thread의 무제한 readBytes와 JPEG 추정을 제거하고 취소 가능한 크기 제한 파일 복사·영상 모드 추가 |
+| R54 | iOS `Meloming/Presentation/Channel/ChannelSettingsView.swift`의 ProfileImagePicker | `Features/Media/MediaPicker.swift` | **수정 재사용**: PhotosPicker 선택·import 중 비활성·선택 변경 처리. 전체 Data 읽기와 고정 JPEG 표기 대신 file Transferable·실제 MIME·제한 복사·취소·정리·영상 모드 적용 |
+| R55 | Android MelomingAsyncImage/ProfileImage와 iOS APIClient의 이미지/전역 cache 책임 대조 | MediaDownload·AuthorizedMedia·MediaUpload·journal protocol | **신규**: 원본 URL 전역 cache는 원래 scope와 만료되는 접근 권한에 맞지 않음. 인증된 작업은 기존 HTTP에 연결하고 다운로드는 credential 없이 수행. 실제 접근 권한 갱신·private scratch·원래 대상별 표시 수명은 신규 책임 |
+| R56 | Android `feature/reviews/.../MyReviewsScreen.kt`의 deleteTarget/AlertDialog(:85), iOS `Presentation/Reviews/MyReviewsView.swift`의 reviewPendingDelete/presenting alert(:170) | 양 OS MessageActionsPanel | **수정 재사용**: 대상이 담긴 destructive/cancel 확인창과 dismiss 후 dispatch 구조. 현재 화면의 가변 대상을 읽지 않고 원래 action token을 전달하도록 변경 |
+| R57 | 원본 MyReviewsViewModel/deleteReview와 기존 Rogichat M11Dtos·ReadContext·StrictAuthJson | MessageActionState/MessageActionWire·MessageReadWire·journal/anchor protocol | **기존 추출 확장 + 신규**: 실제 기존 read-state 계약과 strict parser를 재사용. boolean 성공·즉시 행 삭제로는 불명 결과를 표현할 수 없어 typed action·원래 scope·영속 journal·스크롤 복원은 신규 구현 |
+| R58 | iOS `Meloming/Core/Auth/AuthManager.swift`의 loginWithApple | `Core/Identity/AppleAuthorization.swift` | **수정 재사용**: provider/createRequest/scopes/controller/delegate/credential 추출. 강한 수명 소유·nonce/state·한 번의 취소를 추가하고 원본 API·이메일 기반 계정 추정·로그 제거 |
+| R59 | iOS `Core/Push/PushNotificationManager.swift`의 requestAuthorization/checkAuthorizationStatus; Android `core/data/.../push/PushNotificationManager.kt`의 checkPermissionStatus/onPermissionResult | ApplePushPermission·AndroidPushPermission | **수정 재사용**: 실제 OS permission/options/status·원격 알림 등록 요청·요청 여부 보존. OS 앱 전체 차단을 확인하고 callback Boolean보다 실제 OS 상태를 우선. 원본 Firebase singleton·무시된 오류·로그 제외 |
+| R60 | 양 OS 원본 push manager, Android MelomingFirebaseMessagingService, iOS AppDelegate | 각 OS 작성자의 기존 서비스/delegate 연결 지점 | **검토·연결 책임 전달**: callback 파일은 독립 worker의 소유 범위 밖이므로 추출 완료로 집계하지 않음. 실제 연결 시 원본 URL/type/channel 라우팅과 토큰 로그를 가져오지 않음 |
+| R61 | 기존 Rogichat PendingRouteQueue/AuthProof/SOOP exchange validators 및 원본 bearer 수명 책임 대조 | PushRouteGate·AppleIdentityContract·PushLifecycle/native push wire | **실제 기존 코드 재사용 + 신규**: queue/proof/검증된 응답은 직접 재사용. 영속 epoch·설치 binding CAS·sync wake 검증은 원본 서버 계약과 달라 새 구현. 제품 연결·실제 provider 등록 완료는 별도 gate |
+
+
+## 실제 추출 확장 — native realtime 수명
+
+| ID | source 파일·심볼 | 대상 | 실제 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R62 | Android `core/network/.../socket/SongLiveSocketManager.kt`의 connect/callbackFlow/awaitClose, iOS `Meloming/Core/Network/SongLiveSocketManager.swift`의 connect/disconnect/setupEventHandlers/deinit; 원본 SHA는 R50–R52와 동일 | 양 OS NativeRealtimeManager와 실제 Socket.IO driver | **수정 재사용**: retained manager/socket, event registration, connect와 teardown을 실제 재사용. 원본 join/song payload·polling·로그는 제외. 원래 보호 session epoch, REST 재인가 후 명시 reconnect, cookie/Origin 없는 iOS engine은 새 서버 계약에 필요한 신규 구현. callback 등록만으로 실제 QA 수신을 완료했다고 집계하지 않음 |
+
+[실시간 추출 기록](mobile-native-realtime-progress.md)은 SDK 원본의 cookie/Origin 처리와
+공식 engine seam을 선택한 근거, 정확한 pin·라이선스, 실제 loopback 검사의 범위를 기록한다.
+[제품 통합 기록](mobile-product-integration-progress.md)에서 실제 앱 연결과 최종 검증을 구분한다.

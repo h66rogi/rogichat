@@ -7,6 +7,9 @@ struct SettingsScreen: View {
     let capabilities: SessionCapabilities
     let onOpen: (AppPage) -> Void
     let onSignIn: () -> Void
+    var canManageBlocks = false
+    var hasDeletionHistory = false
+    var onDeletionHistory: () -> Void = {}
     @AppStorage("appearance") private var appearance = AppAppearance.system.rawValue
 
     var body: some View {
@@ -20,12 +23,21 @@ struct SettingsScreen: View {
                             Divider().padding(.leading, 65)
                         }
                         SettingsRow(icon: "lock.shield", title: "계정 관리", subtitle: "SOOP 연결과 로그인 계정", tint: .indigo) { onOpen(.account) }
+                        if canManageBlocks {
+                            Divider().padding(.leading, 65)
+                            SettingsRow(icon: "person.crop.circle.badge.minus", title: "차단 관리", subtitle: "차단된 사용자 확인 및 해제", tint: .orange) { onOpen(.report) }
+                        }
                     }
                 }
                 SettingsSection(title: "앱 설정") {
                     SettingsRow(icon: "bell.badge", title: "알림", subtitle: "이 기기의 알림 설정", tint: .red) { onOpen(.notifications) }
                     Divider().padding(.leading, 65)
                     SettingsRow(icon: "circle.lefthalf.filled", title: "화면 모드", subtitle: AppAppearance(rawValue: appearance)?.title ?? AppAppearance.system.title, tint: .indigo) { onOpen(.appearance) }
+                }
+                if hasDeletionHistory {
+                    SettingsSection(title: "기기 기록") {
+                        SettingsRow(icon: "doc.text", title: "탈퇴 요청 기록", subtitle: "접수 결과와 기기 정리", tint: .gray, action: onDeletionHistory)
+                    }
                 }
                 SettingsSection(title: "앱 정보") {
                     SettingsRow(icon: "info.circle", title: "로기챗 정보", subtitle: "버전 및 앱 정보", tint: .gray) { onOpen(.about) }
@@ -84,6 +96,10 @@ struct AppearanceScreen: View {
 }
 
 struct AboutScreen: View {
+    private func license(_ name: String) -> String {
+        guard let url = Bundle.main.url(forResource: name + "-LICENSE", withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) else { return "라이선스 정보를 불러오지 못했어요." }
+        return text
+    }
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—" }
     private var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—" }
     var body: some View {
@@ -97,6 +113,16 @@ struct AboutScreen: View {
                 }.frame(maxWidth: .infinity).padding(.vertical, 24)
                 LabeledContent("버전", value: version)
                 LabeledContent("빌드", value: build)
+                NavigationLink("오픈소스 라이선스") {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            ForEach(["GRDB 7.11.1", "SocketIO 16.1.1", "Starscream 4.0.8"], id: \.self) { package in
+                                Text(package).font(.headline)
+                                Text(license(String(package.split(separator: " ")[0]))).font(.footnote).textSelection(.enabled)
+                            }
+                        }.padding().frame(maxWidth: .infinity, alignment: .leading)
+                    }.navigationTitle("오픈소스 라이선스")
+                }
             }
         }
     }

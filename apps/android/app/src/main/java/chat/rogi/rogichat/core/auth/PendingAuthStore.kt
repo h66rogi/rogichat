@@ -12,9 +12,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 
+enum class AuthProvider { SOOP, APPLE }
 class PendingAuth(val transactionId: String, val intent: AuthIntent, val proof: AuthProof,
                   val createdAt: Instant, val credentialFingerprint: String?, val accountId: String?,
-                  val serverGeneration: String?, val clearStamp: String?) {
+                  val serverGeneration: String?, val clearStamp: String?, val provider: AuthProvider = AuthProvider.SOOP) {
     val expiresAt: Instant get() = createdAt.plusSeconds(600)
     val launchDeadline: Instant get() = createdAt.plusSeconds(60)
     fun active(now: Instant) = !now.isBefore(createdAt) && now.isBefore(expiresAt)
@@ -84,6 +85,7 @@ class ProtectedPendingAuthStore(private val disk: CredentialDisk, environment: S
         catch (_: Exception) { throw CredentialStoreException() }
     }
     private fun encode(value: PendingAuth) = buildJsonObject {
+        if (value.provider != AuthProvider.SOOP) put("provider", value.provider.name)
         put("transactionId", value.transactionId); put("intent", value.intent.name)
         put("verifier", value.proof.verifier); put("state", value.proof.state); put("createdAt", value.createdAt.toString())
         put("credentialFingerprint", value.credentialFingerprint); put("accountId", value.accountId)
@@ -91,10 +93,11 @@ class ProtectedPendingAuthStore(private val disk: CredentialDisk, environment: S
     }.toString()
     private fun decode(text: String): PendingAuth {
         val root = StrictAuthJson.objectValue(text)
-        require(root.keys == setOf("transactionId", "intent", "verifier", "state", "createdAt", "credentialFingerprint", "accountId", "serverGeneration", "clearStamp"))
+        val keys = setOf("transactionId", "intent", "verifier", "state", "createdAt", "credentialFingerprint", "accountId", "serverGeneration", "clearStamp")
+        require(root.keys == keys || root.keys == keys + "provider")
         fun optional(key: String) = if (root.getValue(key) == JsonNull) null else root.string(key)
         return PendingAuth(root.string("transactionId"), AuthIntent.valueOf(root.string("intent")),
             AuthProof(root.string("verifier"), root.string("state")), Instant.parse(root.string("createdAt")),
-            optional("credentialFingerprint"), optional("accountId"), optional("serverGeneration"), optional("clearStamp"))
+            optional("credentialFingerprint"), optional("accountId"), optional("serverGeneration"), optional("clearStamp"), if ("provider" in root) AuthProvider.valueOf(root.string("provider")) else AuthProvider.SOOP)
     }
 }

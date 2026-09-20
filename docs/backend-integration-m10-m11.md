@@ -38,8 +38,16 @@ to the authorization key while retaining stable report/rate and provider-sealing
 keys. Compilation and 17 focused moderation/epoch tests passed. Final restore
 source `7b559b645ef2b71fc5492d79895142745d0d6ead` adds checkpoint binding to both
 the logical database and currently verified MySQL server UUID, preserving nonce
-history and migration bytes. Approved MOBILE source and final hosted acceptance
-are still pending; real joined restore execution remains a separate operator gate.
+history and migration bytes. Final aggregate hosted acceptance remains pending;
+real joined restore execution remains a separate operator gate.
+
+Approved MOBILE `f103f01a8c124701de3091d5b264006b5d24447f` normally merges the
+parent's complete Android/iOS product, persistence, account deletion, media,
+moderation, realtime/push and signing/test-tool histories. Android/iOS source,
+mobile helpers and workflow remain byte-identical to the approved parent. Leaf
+and final aggregate hosted mobile checks plus the parent's integrated-tree review
+remain pending. Signed distribution and device/provider evidence belong to that
+owner; unconfigured FCM continues to expose its unavailable state.
 
 Approved infrastructure source `0af4cef1b2044f82e96bd4858027cde60564eef7`
 adds optional, default-off ledger-copy IAM roles and conditional object policies,

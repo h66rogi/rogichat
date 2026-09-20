@@ -11,6 +11,9 @@ struct SOOPPending: Codable, Equatable, Sendable, CustomStringConvertible, Custo
     let originalCredential: NativeCredential?
     let accountID: String?
     let serverGeneration: String?
+    var provider: String? = nil // nil is the backwards-compatible SOOP record.
+    var nativeNonce: String? = nil
+    var nativeState: String? = nil
     var phase: Phase = .starting
     var transactionID: String?
     var authorizeURL: URL?
@@ -31,4 +34,9 @@ protocol SOOPAuthStoring: NativeCredentialStoring {
     func reconcileAuth(accountID: String?, serverGeneration: String?) throws
     func recoverAuth(now: Date) throws -> String?
     func resetConfirmed() throws
+}
+
+protocol AppleAuthStoring: SOOPAuthStoring {
+    func beginApple(intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending
+    func finishAppleStart(id: UUID, transaction: String, nonce: String, state: String, now: Date) throws -> SOOPPending
 }
