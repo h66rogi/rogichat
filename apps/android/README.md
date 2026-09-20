@@ -1,26 +1,31 @@
-# Android
+# 로기챗 Android
 
-Android 10/API 29 이상, Kotlin/Compose 기반 로기챗 기본 앱.
-QA/prod flavor와 Debug/Release 빌드를 분리했다.
+Native Compose product app, Android 10+ (API 29), target/compile API 37.
+QA and prod both execute `src/main/.../AppEntry.kt`; only endpoint, signing,
+application identity and version suffix differ. Neither APK includes a preview
+host, synthetic account/room selector or fake service operation.
 
-| flavor | applicationId | 표시 이름 |
-|---|---|---|
-| qa | `chat.rogi.rogichat.qa` | 로기챗 QA |
-| prod | `chat.rogi.rogichat` | 로기챗 |
+Reusable navigation, theme/type scale, settings, profile editing and notification
+settings are adapted from the read-only reference app. See
+[`docs/mobile-reuse-audit.md`](../../docs/mobile-reuse-audit.md) for exact evidence.
+Chat UX is independently designed. Navigation Compose 2.10.1 and Lifecycle 2.11.0
+are pinned; Release builds use R8 and resource shrinking.
 
-JDK 17, Android SDK 37.0/Build Tools 37.0.0을 준비하고 실행한다.
+The product currently restores no native credential because the server's native
+login/session handoff contract (C01/C02) is not implemented. The signed-out screen
+states that limitation. Profile, account and room screens use injected domain
+repositories/session state; the shipped app never installs a fake adapter.
+Appearance is saved on device; notification settings read and open actual OS
+settings. No disconnected server preference switches are displayed.
+
+Use JDK 17 and the installed Android SDK. Examples:
 
 ```sh
-./gradlew :app:assembleQaDebug :app:assembleProdRelease --no-daemon
+./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdRelease --max-workers=2
+./gradlew :app:test :app:lint --max-workers=2
 ```
 
-QA debug는 개발 키로 서명한다. QA release는 외부 QA 키로 서명할 수 있고 prod release는 unsigned다.
-두 환경의 동시 설치를 지원한다. QA 앱은 로그인 안내·SOOP 연결 안내·방 목록·채팅·설정의
-오프라인 와이어프레임을 제공한다. prod에는 로그인 대기와 일반 설정 shell만 포함된다. 실제 로그인·전송은 미연동이다.
-[공통 기반·재사용·QA 탐색·블로커](../../docs/mobile-common-foundation-progress.md)를 확인한다.
-
-[서명 APK/AAB 빌드와 Firebase 테스트 배포](../../docs/mobile-test-distribution.md)를 따른다.
-
-[환경 설정·전체 검증 명령](../../docs/mobile-environments.md),
-[모바일 기반 설계](../../docs/mobile-foundation.md),
-[Apple 로그인·SOOP 필수 연결](../../docs/mobile-authentication.md)을 따른다.
+State/repository tests are under `src/test`. Historical reducer fixtures live only
+under `src/testQa`; they cannot enter any APK. Package guards also inspect every
+QA/prod Debug/Release APK for fixture markers. Signed test distribution continues
+through [`tools/mobile/qa_release.py`](../../tools/mobile/qa_release.py).

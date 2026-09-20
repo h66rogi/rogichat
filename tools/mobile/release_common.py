@@ -166,10 +166,20 @@ class AppStoreConnect:
             raise RuntimeError(f"App Store Connect {resource}: HTTP {error.code}; inspect account/app permissions") from None
 
     def app(self):
-        apps = self.request("apps", {"filter[bundleId]": APP_ID})["data"]
+        # Apple filters may include prefix matches; never infer the target from
+        # result count alone, even though this command accepts QA only.
+        apps = [app for app in self.request("apps", {"filter[bundleId]": APP_ID})["data"]
+                if app.get("attributes", {}).get("bundleId") == APP_ID]
         if len(apps) != 1:
             raise ValueError("Create the Rogichat QA app record in App Store Connect first (bundle ID: " + APP_ID + ")")
         return apps[0]["id"]
+
+    def bundle(self):
+        bundles = [bundle for bundle in self.request("bundleIds", {"filter[identifier]": APP_ID})["data"]
+                   if bundle.get("attributes", {}).get("identifier") == APP_ID]
+        if len(bundles) != 1:
+            raise ValueError("Register the Rogichat QA bundle identifier first")
+        return bundles[0]["id"]
 
     def builds(self, number=None):
         params = {"filter[app]": self.app(), "sort": "-uploadedDate", "limit": "200"}
