@@ -290,21 +290,29 @@ export class ChatController {
     if (target.scope === 'SHARED' ? room.role !== 'STREAMER' : !recipient) return { accepted: false, reason: '이 대상에게 메시지를 보낼 수 없습니다.' };
     const text = submission.body.normalize('NFC');
     let photoAsset: string | undefined;
+    let stickerId: string | undefined;
+    if (submission.photo && submission.sticker) return { accepted: false, reason: '사진과 스티커는 따로 보내 주세요.' };
     if (submission.photo) {
       try {
         if (text || submission.quoteMessageId) throw new Error('PHOTO_ONLY');
         photoAsset = submission.photo.readyAsset('PHOTO', this.roomId);
       } catch { return { accepted: false, reason: '준비가 완료된 사진만 따로 보낼 수 있습니다.' }; }
+    } else if (submission.sticker) {
+      try {
+        if (text || submission.quoteMessageId) throw new Error('STICKER_ONLY');
+        stickerId = submission.sticker.readySticker(this.roomId);
+      } catch { return { accepted: false, reason: '현재 목록에서 스티커를 선택해 주세요.' }; }
     } else if (!text.trim() || [...text].length > 4000 || new TextEncoder().encode(text).length > 16384 || text.includes('\0')) return { accepted: false, reason: '메시지는 4,000자 이내로 입력해 주세요.' };
     // Only a server-visible source may be quoted. Cross-private recipient quotes are
     // unavailable because the current DTO deliberately omits its recipient/stream ID.
     const quote = submission.quoteMessageId ? this.messages.find(m => m.id === submission.quoteMessageId) : null;
     if (submission.quoteMessageId && (!quote || (quote.audience === 'PRIVATE' && (quote.author.kind !== 'member' || quote.author.actorId !== recipient?.actorId)))) return { accepted: false, reason: '이 대화에서 인용할 수 없는 메시지입니다.' };
-    const body = { intent: target.scope, ...(recipient ? { recipientActorId: recipient.actorId } : {}), ...(quote ? { quoteId: quote.id } : {}), content: photoAsset ? { type: 'PHOTO', assetIds: [photoAsset] } : { type: 'TEXT', text } };
+    const body = { intent: target.scope, ...(recipient ? { recipientActorId: recipient.actorId } : {}), ...(quote ? { quoteId: quote.id } : {}), content: photoAsset ? { type: 'PHOTO', assetIds: [photoAsset] } : stickerId ? { type: 'STICKER', stickerId } : { type: 'TEXT', text } };
     const fingerprint = JSON.stringify(body);
     const clientMessageId = this.attempts.get(fingerprint) ?? crypto.randomUUID();
     this.attempts.set(fingerprint, clientMessageId);
-    const signal = submission.photo ? AbortSignal.any([this.abort.signal, submission.photo.lifetime.signal]) : this.abort.signal; this.sending = true;
+    const media = submission.photo ?? submission.sticker;
+    const signal = media ? AbortSignal.any([this.abort.signal, media.lifetime.signal]) : this.abort.signal; this.sending = true;
     try {
       const ack = record(await this.request(this.path('messages'), { method: 'POST', body: { ...body, clientMessageId }, signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
       if (signal.aborted || this.dead) return { accepted: false, reason: '접근 권한이 변경되어 전송 결과를 다시 확인해야 합니다.' };

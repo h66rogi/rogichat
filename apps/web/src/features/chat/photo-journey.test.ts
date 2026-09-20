@@ -4,6 +4,7 @@ import { ChatController } from './chat-controller';
 import { message, projectMessages, type ChatRequest } from './contract';
 import { MediaClient } from '../media/client';
 import { MediaUpload } from '../media/upload';
+import { StickerCatalog } from '../media/sticker-catalog';
 
 const roomId = '11111111-1111-4111-8111-111111111111';
 const assetId = '22222222-2222-4222-8222-222222222222';
@@ -83,4 +84,25 @@ void test('PHOTO/STICKER retain exact references without anonymous author linkag
   assert.equal(stickerItem.kind === 'publication' && stickerItem.media?.stickerId, otherRoomId);
   assert.throws(() => message({ ...base, content: { type: 'PHOTO', attachments: [{ assetId, width: 10, height: 20, variant: 'video' }] } }));
   assert.equal(projectMessages([message({ ...base, content: { type: 'VIDEO' } })], 'fan', [])[0]?.kind, 'unsupported');
+});
+
+void test('STICKER requires explicit catalog selection and retries exact catalog ID, never image asset ID', async () => {
+  const writes: Record<string, unknown>[] = [];
+  const controller = new ChatController(roomId, server(async (_path, options) => {
+    const body = options!.body as Record<string, unknown>; writes.push(body);
+    if (writes.length === 1) throw new TypeError('lost ACK');
+    return { clientMessageId: body.clientMessageId, messageId: 'saved', status: 'committed', version: '1' };
+  }));
+  await controller.refresh();
+  const catalog = new StickerCatalog(new MediaClient({ apiOrigin: 'https://api.qa.rogi.chat', storageOrigins: [], csrf: () => 'A'.repeat(43), lifetime: controller.mediaLifetime(),
+    transport: async () => Response.json({ items: [{ id: otherRoomId, assetId, label: '카탈로그 스티커' }], nextCursor: null }),
+  }), roomId);
+  await catalog.load();
+  assert.equal((await controller.send({ target, body: '', sticker: catalog })).accepted, false); assert.equal(writes.length, 0);
+  catalog.select(otherRoomId);
+  assert.equal((await controller.send({ target, body: 'mixed', sticker: catalog })).accepted, false);
+  assert.equal((await controller.send({ target, body: '', sticker: catalog })).accepted, false);
+  assert.equal((await controller.send({ target, body: '', sticker: catalog })).accepted, true);
+  assert.deepEqual(writes[0], writes[1]); assert.deepEqual(writes[0]?.content, { type: 'STICKER', stickerId: otherRoomId });
+  assert.deepEqual(controller.getSnapshot().items, []); controller.dispose(); assert.equal(catalog.getSnapshot().selected, null); catalog.dispose();
 });

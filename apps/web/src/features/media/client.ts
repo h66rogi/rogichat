@@ -1,5 +1,6 @@
 import { current, imageContext, MediaError, receipt, record, stickerPage, uploadInput, uuid } from './contracts';
 import type { ImageContext, ImageKind, MediaLifetime, Receipt, StickerPage } from './contracts';
+import type { MediaByteBudget } from './byte-budget';
 
 // Covers the 50-item catalog, including escaped Unicode labels, with headroom.
 const MAX_METADATA_BYTES = 64 * 1024;
@@ -13,8 +14,9 @@ export interface MediaClientOptions {
   readonly transport?: typeof fetch;
   readonly verifySession?: (signal: AbortSignal) => Promise<void>;
   readonly onUnauthorized?: () => void;
+  readonly budget?: MediaByteBudget;
 }
-export interface ImageLease { readonly blob: Blob; readonly expiresAt: number }
+export interface ImageLease { readonly blob: Blob; readonly expiresAt: number; readonly release?: () => void }
 export class MediaClient {
   readonly lifetime: MediaLifetime;
   private readonly origin: string;
@@ -23,6 +25,7 @@ export class MediaClient {
   private readonly transport: typeof fetch;
   private readonly verifySession: MediaClientOptions['verifySession'];
   private readonly onUnauthorized: MediaClientOptions['onUnauthorized'];
+  private readonly budget: MediaByteBudget | undefined;
   constructor(options: MediaClientOptions) {
     if (!['https://api.qa.rogi.chat', 'https://api.rogi.chat'].includes(options.apiOrigin)) throw new MediaError('INVALID_ORIGIN');
     this.origin = options.apiOrigin;
@@ -33,6 +36,7 @@ export class MediaClient {
     }));
     this.csrf = options.csrf; this.lifetime = options.lifetime;
     this.verifySession = options.verifySession; this.onUnauthorized = options.onUnauthorized;
+    this.budget = options.budget;
     const transport = options.transport ?? fetch;
     this.transport = (input, init) => transport(input, init);
   }
@@ -105,6 +109,19 @@ export class MediaClient {
     return stickerPage(await this.request(`/v1/rooms/${uuid(roomId)}/stickers${after === undefined ? '' : `?after=${uuid(after)}`}`, 200, signal));
   }
   async image(assetId: string, context: ImageContext, signal: AbortSignal): Promise<ImageLease> {
+    let reservation = this.budget?.reserve(10 * 1024 * 1024);
+    const owned = AbortSignal.any([signal, this.lifetime.signal]);
+    const release = () => { owned.removeEventListener('abort', release); reservation?.(); };
+    owned.addEventListener('abort', release, { once: true });
+    try {
+      owned.throwIfAborted(); const result = await this.imageBytes(assetId, context, signal); owned.throwIfAborted();
+      // Transfer is bounded at 10MiB; retained capacity follows verified bytes, not the worst-case cap.
+      reservation?.(); reservation = this.budget?.reserve(result.blob.size);
+      return { ...result, release };
+    }
+    catch (error) { release(); throw error; }
+  }
+  private async imageBytes(assetId: string, context: ImageContext, signal: AbortSignal): Promise<ImageLease> {
     // Start expiry before admission: a delayed response must never extend the URL lifetime.
     const expiresAt = Date.now() + 60_000;
     if (!this.origins.size) throw new MediaError('MEDIA_UNAVAILABLE');

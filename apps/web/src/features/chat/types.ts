@@ -7,6 +7,7 @@
  */
 
 import type { MediaUpload } from '../media/upload';
+import type { StickerCatalog } from '../media/sticker-catalog';
 export type ChatScope = 'SHARED' | 'PRIVATE';
 export interface ChatImageContent { type: 'PHOTO' | 'STICKER'; assets: readonly { assetId: string; width: number; height: number }[]; stickerId?: string }
 
@@ -84,6 +85,7 @@ export interface ChatComposerSubmission {
   quoteMessageId?: string;
   /** Actual READY upload owned by this draft, never a caller-invented asset ID. */
   photo?: MediaUpload;
+  sticker?: StickerCatalog;
 }
 
 /** Returned by the controller `onSubmit`. On `accepted: false` the composer keeps the draft. */

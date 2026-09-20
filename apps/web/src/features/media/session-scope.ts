@@ -1,6 +1,7 @@
 import { ApiError, type ApiClient } from '../../core/api/client';
 import { MediaClient } from './client';
 import type { MediaLifetime } from './contracts';
+import { MediaBudget } from './byte-budget';
 
 /** One mounted, verified account/room scope. No browser persistence or signed URL state. */
 export class MediaSessionScope {
@@ -8,6 +9,7 @@ export class MediaSessionScope {
   readonly lifetime: MediaLifetime;
   readonly client: MediaClient;
   readonly configured: boolean;
+  readonly budget = new MediaBudget();
   private readonly parent: MediaLifetime | undefined;
   constructor(api: ApiClient, csrf: string, origins: readonly string[], invalidate: () => void, parent?: MediaLifetime) {
     this.parent = parent;
@@ -15,6 +17,7 @@ export class MediaSessionScope {
     this.configured = origins.length > 0;
     const denied = () => { this.dispose(); invalidate(); };
     this.client = new MediaClient({ apiOrigin: api.origin, storageOrigins: origins, csrf: () => csrf, lifetime: this.lifetime,
+      budget: this.budget,
       onUnauthorized: denied,
       verifySession: async signal => {
         try {

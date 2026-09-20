@@ -73,3 +73,25 @@ unit tests; they are not product adapters, fallback data or runtime defaults.
   service worker, backend, infrastructure, lockfiles and dependencies remain
   outside this media change. Future schema 2 integration must preserve both its
   command fences and this media lifetime/READY behavior through an explicit review.
+
+
+## Catalog and capacity extension
+
+The mounted picker reads one real server catalog page (maximum 50 references),
+requires explicit selection and sends the catalog ID, not its image asset ID.
+Failed writes keep the exact selected command for explicit retry. No synthetic
+catalog or automatic send is part of the product. Photo drafts are capped at two
+recipient targets; sticker selection holds one page and one preview.
+
+A shared 64 MiB application byte budget reserves bounded image transfer capacity
+before network admission, then shrinks retained reservations to the verified Blob
+size. Abort, disposal and expiry release leases synchronously. This bounds tracked
+application resources, not total browser process or decoder RSS. Focused tests
+cover overflow, non-cooperative late responses and mixed tiny-image/maximum-video
+reservation admission. Video mounting remains a separate pending integration.
+
+After the infrastructure owner confirmed the broker and query-log reload, the
+owned real QA page consent checkbox and login button navigated to the actual SOOP
+credential screen (provider hostname and visible ID/password fields observed).
+No credentials were entered; this is provider-entry evidence only, not evidence
+of a completed callback, authenticated session, actual room or message delivery.

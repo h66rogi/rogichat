@@ -354,3 +354,29 @@ for (const action of ['refresh', 'aggregate'] as const) test(`reaction keyboard 
   else await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
   expect(reactions.calls).toEqual(['GET', action === 'refresh' ? 'GET' : 'DELETE']);
 });
+
+test('catalog sticker selection sends its exact ID, retains selection on failure and preserves text', async ({ page }) => {
+  const { account, state } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
+  const media = await installMedia(page); const stickerId = '88888888-8888-4888-8888-888888888888';
+  let fail = true;
+  await page.route(`**/v1/rooms/${TEST_ROOM_ID}/stickers*`, route => json(route, { items: [{ id: stickerId, assetId: MEDIA_ASSET, label: '카탈로그 스티커' }], nextCursor: null }));
+  await page.route(`**/v1/rooms/${TEST_ROOM_ID}/messages`, async route => {
+    if (route.request().method() === 'OPTIONS') return json(route, null, 204);
+    const body = route.request().postDataJSON() as Record<string, unknown>; state.posts.push(body);
+    if (fail) return json(route, {}, 503);
+    return json(route, { clientMessageId: body.clientMessageId, messageId: incoming.id, status: 'committed', version: '1' });
+  });
+  await page.goto('/chat'); await page.getByTestId('chat-composer-input').fill('별도 글');
+  await page.getByRole('button', { name: '스티커 선택', exact: true }).click();
+  await expect(page.getByRole('button', { name: '스티커 보내기', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '카탈로그 스티커', exact: true }).click();
+  await expect(page.getByRole('img', { name: '선택한 스티커: 카탈로그 스티커' })).toBeVisible();
+  await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
+  await expect(page.getByText('전송을 확인하지 못했습니다. 같은 내용으로 다시 보내면 중복 없이 재확인합니다.')).toBeVisible();
+  fail = false; await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
+  await expect(page.getByRole('button', { name: '스티커 보내기', exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도 글');
+  expect(state.posts).toHaveLength(2); expect(state.posts[0]).toEqual(state.posts[1]);
+  expect(state.posts[0]?.content).toEqual({ type: 'STICKER', stickerId });
+  expect(media.accesses).toContainEqual({ variant: 'image', roomId: TEST_ROOM_ID, stickerId });
+});
