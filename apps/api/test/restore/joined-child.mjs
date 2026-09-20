@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { deserialize } from 'node:v8';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { setTimeout as delay } from 'node:timers/promises';
 import { createConnection } from 'mysql2/promise';
 import { createIsolationAuthority } from '../support/restore-driver/restore_isolation.mjs';
 import { canonical } from '../support/restore-driver/restore_proof.mjs';
@@ -86,7 +87,35 @@ async function main() {
   await json('replay-ledger.json', fixture.records); await rejected('unavailable-ledger', () => run('prepare', { replayLedgerFile: join(directory, 'missing-ledger') }));
   await json('admission.json', { ...admission, pendingRequestIds: [randomUUID()] }); await rejected('pending-admission', () => run('prepare')); await json('admission.json', admission);
   const [[before]] = await admin.query('SELECT COUNT(*) AS count FROM restore_gate_checkpoints'); assert.equal(Number(before.count), 0);
-  report.phase = 'actual-prepare'; const prepared = await run('prepare');
+  report.phase = 'interrupt-after-committed-quarantine';
+  await admin.query('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+  await admin.beginTransaction();
+  await admin.execute('SELECT id FROM apple_provider_credentials WHERE id=? FOR UPDATE', [fixture.appleCredentialId]);
+  let preparingSettled = false;
+  const interrupted = run('prepare').then(value => ({ value }), error => ({ error })).finally(() => { preparingSettled = true; });
+  let durable;
+  for (let attempt = 0; attempt < 300 && !preparingSettled; attempt++) {
+    const [[row]] = await admin.execute('SELECT phase,epoch FROM restore_gate_checkpoints WHERE run_id=?', [scope.restoreRunId]);
+    if (row?.phase === 'QUARANTINED') { durable = row; break; }
+    await delay(5);
+  }
+  await admin.execute('SELECT RELEASE_LOCK(?)', ['restore:' + sha(canonical(scope)).slice(0, 48)]);
+  await admin.commit(); // Release the actual provider row wait after losing custody.
+  const failedPrepare = await interrupted; assert.equal(durable?.phase, 'QUARANTINED'); assert.ok(failedPrepare.error); assert.equal(failedPrepare.value, undefined);
+  const [[persisted]] = await admin.execute('SELECT phase,epoch FROM restore_gate_checkpoints WHERE run_id=?', [scope.restoreRunId]);
+  assert.equal(persisted.phase, 'QUARANTINED'); assert.equal(persisted.epoch, durable.epoch);
+  const [generations] = await admin.query('SELECT id,membership_generation FROM users ORDER BY id');
+  const [[reacquired]] = await admin.execute('SELECT GET_LOCK(?,0) AS held', ['restore:' + sha(canonical(scope)).slice(0, 48)]);
+  assert.equal(Number(reacquired.held), 1); report.rejected.push('prepare-interrupted-after-durable-quarantine');
+  report.phase = 'actual-prepare-retry'; const prepared = await run('prepare');
+  const [[resumed]] = await admin.execute('SELECT epoch FROM restore_gate_checkpoints WHERE run_id=?', [scope.restoreRunId]);
+  assert.equal(resumed.epoch, durable.epoch);
+  const [afterGenerations] = await admin.query('SELECT id,membership_generation FROM users ORDER BY id');
+  // Account deletion can legitimately advance its target; unrelated accounts
+  // must not be quarantined twice when an existing durable checkpoint resumes.
+  assert.deepEqual(afterGenerations.filter(row => row.id !== deleted.id), generations.filter(row => row.id !== deleted.id));
+  report.prepareResume = { durableQuarantineObserved: true, realProviderRowLock: true, actualMysqlCustodyLoss: true, interruptedBeforeObservation: true, resumedSameEpoch: true, unrelatedGenerationStable: true };
+
   report.gate = { ready: prepared.ready, violations: prepared.violations, apple: prepared.apple, media: prepared.media };
   assert.equal(prepared.ready, true); assert.equal(prepared.servingAuthorized, false); assert.equal(prepared.media.status, 'verified'); assert.equal(prepared.media.counts.retained, 3);
   assert.ok(Object.values(prepared.violations).every(value => value === 0)); assert.equal(prepared.apple.upstreamRevocationPending, true);
@@ -113,6 +142,7 @@ async function main() {
   await admin.execute('UPDATE user_profiles SET birthday_visible_to_streamers=1 WHERE user_id=?', [member.id]);
   await rejected('permission-drift-before-consume', () => run('consume')); await admin.execute('UPDATE user_profiles SET birthday_visible_to_streamers=0 WHERE user_id=?', [member.id]);
   const releaseBytes = await readFile(config.releaseProofFile), release = JSON.parse(releaseBytes), decoded = JSON.parse(Buffer.from(release.payloadBase64, 'base64'));
+  await json('release.json', { ...release, signatureBase64: Buffer.alloc(64).toString('base64') }); await rejected('forged-release-signature', () => run('consume')); await writeFile(config.releaseProofFile, releaseBytes);
   await json('release.json', envelope({ ...decoded, observationSha256: '0'.repeat(64) }, fixture.verifierKey)); await rejected('wrong-observation-release', () => run('consume')); await writeFile(config.releaseProofFile, releaseBytes);
   report.phase = 'concurrent-nonce-consume'; const outcomes = await Promise.allSettled([run('consume'), run('consume')]);
   assert.equal(outcomes.filter(value => value.status === 'fulfilled').length, 1); assert.equal(outcomes.filter(value => value.status === 'rejected').length, 1);
