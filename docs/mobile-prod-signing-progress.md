@@ -49,8 +49,8 @@ certificate Google will use for installed applications.
 | Item | Evidence/status |
 | --- | --- |
 | Apple Prod Bundle ID | Created after exact absent lookup, then exact readback |
-| Associated Domains / Sign in with Apple | Enabled on the Prod Bundle ID only |
-| Apple distribution profile | Created using the existing distribution certificate; exact profile verified and installed under its own UUID |
+| Associated Domains / Sign in with Apple / Push | Exact QA and Prod Bundle IDs now have all three capabilities; only missing capabilities were added |
+| Apple distribution profiles | New, distinct `Rogichat QA App Store Capabilities v2` and `Rogichat Prod App Store Capabilities v2` profiles verified and installed; existing certificate reused |
 | Android upload key | Created outside Git with dedicated Prod paths; private-key entry and certificate readback verified |
 | App Store Connect app record | Exact API lookup absent; authenticated browser session unavailable |
 | Google Play app / signing enrollment | Unverified; browser reaches Google sign-in, no authorized Play API credentials are configured in this preparation |
@@ -75,13 +75,35 @@ not evidence that the account lacks a developer role. No password or raw browser
 cookie was extracted, and no additional sign-in or verification-code request was
 sent during this check.
 
+The initial bootstrap profiles remain preserved. The subsequent
+`tools/mobile/prod_capabilities.py` preparation uses a closed environment-to-Bundle
+ID/profile-name mapping. It added Apple login to QA and push to both environments,
+then created the two **new** App Store profiles above. Actual downloaded profiles
+were checked for exact identity/certificate, Apple `Default`, Associated Domains,
+`aps-environment: production`, expiry and distribution-only permissions before
+private config references were updated atomically. The previous configuration and
+profile bytes remain in private `signing/capabilities-v2` evidence directories.
+No old profile/certificate was revoked, and no historical QA archive/IPA was changed.
+
+```sh
+python3 tools/mobile/prod_capabilities.py qa
+python3 tools/mobile/prod_capabilities.py prod
+```
+
+The commands above only recheck/install already prepared profiles. Explicit
+`--create-missing --update-config` enables preparation and config-reference changes.
+The new profile gate applies to the next Apple/push feature build; it does not
+retroactively reclassify historical QA builds. Capability/profile readiness does
+**not** establish an APNs provider credential, a working push registration API,
+notification delivery, or successful Apple authentication.
+
 ## Remaining release gates
 
 - Verify the exact store records and operator permissions; do not infer them from
   Firebase authentication or a successfully generated local upload key.
-- Implement/review the separate Prod archive/export and APK/AAB signing paths.
-  The current Android Gradle configuration wires QA signing only; this preparation
-  does not silently reuse that key for `prodRelease`.
+- Integrate and execute the separate Prod artifact path below. The Android owner
+  must mount its dedicated signing configuration before a signed Prod build;
+  there is no QA signing fallback.
 - Verify signed Prod artifact identity, endpoint, no shipped fixtures, privacy and
   dependency resources, and exact `rogi.chat` associated domains. Capability/profile
   permission alone does not verify a signed app or live AASA/assetlinks file.
@@ -106,3 +128,58 @@ response reconciliation, capability target binding, wrong/wildcard profile app,
 team/certificate/expiry/debug/distribution/platform/capability mutations, immutable
 signing files and the preserved QA-only manifest boundary. It does not count as
 an archive, SDK, device, store upload or provider authentication test.
+
+## Separate local Prod artifacts
+
+`tools/mobile/prod_release.py` prepares a signed `Rogichat-Prod` / `Release-Prod`
+archive, a local App Store IPA export, and signed `prodRelease` APK/AAB files. It
+does not expose an upload, submission or promotion command. The existing QA tools
+and their QA-only manifest gate remain unchanged.
+
+The private Prod configuration is the same one used for signing preparation.
+Each new build requires an exact 40-character committed SHA and a completely clean
+working tree, checked before the build and before its receipt is written. Outputs
+are created once under the external artifact root's `prod/<platform>/<number>/`;
+`release.json` binds the source, exact identity/API, versions and file/tree hashes.
+Export uses an independent archive copy so Xcode metadata cannot mutate the
+canonical signed archive. Reusing an existing build directory/export is rejected.
+
+```sh
+python3 tools/mobile/prod_release.py ios-archive \
+  --source-sha <integrated-commit-sha> --build-number <number> --version <version>
+python3 tools/mobile/prod_release.py ios-export --manifest <external-ios-release.json>
+python3 tools/mobile/prod_release.py android-build \
+  --source-sha <integrated-commit-sha> --build-number <number> --version <version>
+python3 tools/mobile/prod_release.py verify-ios --manifest <external-ios-release.json>
+python3 tools/mobile/prod_release.py verify-android --manifest <external-android-release.json>
+```
+
+The operator selects pinned Xcode through `DEVELOPER_DIR`. The iOS path requires
+the separately prepared exact distribution profile and certificate. The signed
+archive and IPA must contain `chat.rogi.rogichat`, `https://api.rogi.chat/v1/`, the
+two exact `rogi.chat` callback domains, distribution entitlements, pinned GRDB
+resources/license and the current privacy manifest. The app's actual signed
+entitlements must include Apple `Default` and `aps-environment: production`, not
+merely a profile permitting them. Dependency resolution uses
+the committed lock files only. Local export is explicitly recorded as **not Apple
+validated or uploaded**; App Store record registration remains a separate gate.
+
+For Android, the tool reads the mode-600 dedicated Prod password file and supplies
+only `ROGICHAT_PROD_KEYSTORE`, `ROGICHAT_PROD_STORE_PASSWORD` and
+`ROGICHAT_PROD_KEY_ALIAS` to its child process. Passwords are never command-line
+arguments. The agreed Gradle integration rejects partial Prod variables, preserves
+unsigned hosted builds when all are absent, and has no QA fallback. This trusted
+tool only accepts artifacts signed by the dedicated Prod upload certificate; it
+checks both APK and AAB identity, endpoint, callback and signatures. This does not
+establish Play enrollment or the final Play app-signing certificate.
+
+Pure regression tests use temporary files and mocked SDK output, including wrong
+signers/profiles/QA identity, moved or modified artifacts, source changes during a
+build, unsafe IPA paths and Xcode mutation of the independent export archive:
+
+```sh
+python3 -m unittest discover -s tools/mobile -p 'test_prod_*.py' -v
+```
+
+These preparation changes have not yet executed a signed Prod build or store
+validation. The parent integration owns the actual build and resulting evidence.
