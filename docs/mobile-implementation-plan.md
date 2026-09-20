@@ -8,6 +8,7 @@
 이 원칙을 적용한 실제 코드·검증 범위는 [제품 구성 교체 기록](mobile-product-progress.md)에 있다.
 후속 세션·프로필 연결과 구체적 발급/기기 블로커는 [네이티브 연결 기록](mobile-native-transport-progress.md)에 분리한다.
 진행 중인 SOOP 클라이언트와 서명 준비는 [네이티브 인증 기록](mobile-native-auth-progress.md)에 기록한다.
+실제 방 목록·계정별 SQLite의 구현 및 검증은 [방 저장소 기록](mobile-rooms-progress.md)에 기록한다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
@@ -201,7 +202,7 @@ Distribution 사용을 runtime FCM 선택/설정 완료로 해석하지 않는�
 | C03 | native `/auth/session` 계정 요약·SOOP 상태·만료·opaque generation 확정. 방/동기화 scope 연결은 남음 | 요약과 전체 프로필을 분리하고 제공자를 추정하지 않음. room의 joined/mode/actorId/next 보존, 방별 인가·scope 확인. capabilities는 서버 인가 대체 불가 | 서버 Auth/Rooms/Access |
 | C04 | PR #34 `4002329`에 본인 command receipt 조회와 stable accountPartition 후보 구현. 기존 session account.userId는 호환 유지 | 기존 send의 동일 ID/정규화 payload와 receipt GET으로 ACK 유실을 조정. deleted는 terminal, 404는 미전송 증거나 새 ID 발급 허가가 아님. accountPartition은 인증/멤버십 fence가 아니며 키 회전 시 자동 replay 금지. QA 계약·멤버십 scope와 양 OS parity 검증 후 outbox 연결 | 서버 Messages/Sync + 앱 Outbox |
 | C05 | 서버가 nullable counterpart와 required allowedActions 계약을 고정하고 독립 소스 리뷰를 통과했다고 전달. 게시 SHA·호스팅 CI·앱 parity는 후속 | 현재 viewer의 reply/publish/delete 힌트이며 인가를 대체하지 않음. 같은 version도 현재 scope의 전체 힌트를 교체하고 tombstone을 보존. 익명 공개본의 원 작성자/원본 연결 미노출 시험 | 서버 projector + 앱 Composer |
-| C06 | 서버가 schemaVersion 2·membershipScope/authorizationRevision·표시 정렬 계약을 승인하고 구현 중. 고정 게시 소스와 앱 통합은 후속 | `(createdAt,id)` 표시 정렬과 opaque pagination 분리. SEND는 현재 membershipScope를 receipt/dedupe보다 먼저 확인. 옛 pending을 새 멤버십에 자동 재결합하지 않음. 내부 order/숨은 gap을 노출하지 않음 | 서버 Sync + 양 OS DB |
+| C06 | PR #45 `691aff80`에 schemaVersion 2·membershipScope/authorizationRevision·표시 정렬과 terminal tombstone 보정 고정, 해당 hosted CI 통과. 앱 parity·동시 활성화는 후속 | `(createdAt,id)` 표시 정렬과 opaque pagination 분리. SEND는 현재 membershipScope를 receipt/dedupe보다 먼저 확인. 옛 pending을 새 멤버십에 자동 재결합하지 않음. 내부 order/숨은 gap을 노출하지 않음 | 서버 Sync + 양 OS DB |
 | C07 | PR #17 OpenAPI exporter·응답 계약 시험이 QA에 통합됨. 양 OS의 세션/프로필 strict decode 구현 | 실제 exporter/projector를 기준으로 sync/socket versioned schema와 공통 JSON의 양 OS decode parity를 확정. nullable PATCH absent/null/value 및 unsigned bigint 문자열 비교 검증을 유지 | 서버 contracts + 양 OS API |
 | C08 | `ac69ca2`에서 고정 7일 opaque credential·만료 시 재인증 확정 | 앱 보호 저장·복원·명시적 폐기·expiry/401/응답 경쟁 검증. refresh API는 없으며, 향후 도입 시 rotation/replay/응답 유실을 별도 검증 | 서버 Auth + 앱 Session |
 
@@ -442,10 +443,12 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 
 ### MB04의 첫 구현 경계 — 교차 OS 리뷰 반영
 
-C06 `48c00bb`의 schemaVersion 2와 C05 `492f2f7`, C04 `4002329`를 읽고 양 OS 설계를
-독립 검토했다. C06 terminal tombstone은 같은 cache generation/M/A 안에서 모든 later
-live를 거부하도록 서버 담당자가 확정했으며 reference helper의 후속 수정 SHA는 timeline
-구현 전에 다시 고정한다. 현재 첫 단계의 계약 블로커는 없다.
+C06 `691aff80bbcc96903ffe11d76b2a7561859ddb02`의 schemaVersion 2와 C05 `492f2f7`,
+C04 `4002329`를 기준으로 양 OS 설계를 독립 검토했다. C06 terminal tombstone은 같은
+cache generation/M/A 안에서 높은 version을 포함한 모든 later live를 거부한다. 해당
+reference helper·문서·회귀 보정은 고정 SHA에 포함됐다. 새 authority는 새 fenced generation과
+authoritative snapshot으로 확인한다. 첫 단계의 소스 계약 블로커는 없으며, 실제 API 활성화는
+웹·양 OS의 schema 2 대응과 rollback 경로를 함께 확인한 뒤 조정한다.
 
 1. **MB04a**는 실제 discovery·complete membership manifest·계정별 on-disk DB와
    partition/session commit fence까지만 양 OS 동일하게 구현한다. Android Room과 iOS

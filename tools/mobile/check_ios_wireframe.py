@@ -3,10 +3,12 @@
 
 The historical command name remains compatible with existing local scripts.
 """
+import argparse
 from pathlib import Path
 import subprocess
 import tempfile
 from product_guards import inspect_product_sources
+from ios_dependencies import inspect_ios_dependencies
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,6 +24,11 @@ def run_checks(sdk, directory, name, sources):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--package-scratch", type=Path, default=ROOT / ".build/rooms-tests")
+    parser.add_argument("--package-cache", type=Path, default=ROOT / ".build/swiftpm-cache")
+    args = parser.parse_args()
+    inspect_ios_dependencies(ROOT)
     inspect_product_sources(platforms=("ios",))
     sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
     with tempfile.TemporaryDirectory(prefix="rogichat-state-checks-") as temporary:
@@ -39,6 +46,7 @@ def main():
             "Sources/Features/Settings/ProfileEditor.swift",
             "Sources/Features/Settings/ProfileDraft.swift",
             "Sources/Core/Notifications/M11Contract.swift",
+            "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
             "Sources/Core/Session/AppSession.swift",
             "Tests/Product/ProductStateChecks.swift",
         ])
@@ -48,6 +56,8 @@ def main():
             "Sources/Features/Settings/ProfileDraft.swift",
             "Sources/Core/Notifications/M11Contract.swift",
             "Sources/Core/Notifications/M11Endpoint.swift",
+            "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
+            "Sources/Core/Rooms/RoomsEndpoint.swift",
             "Sources/Core/Session/AppSession.swift",
             "Sources/Core/Network/NativeAPIClient.swift",
             "Sources/Core/Session/NativeCredentialStore.swift",
@@ -68,6 +78,17 @@ def main():
             "Sources/Features/Settings/AccountNotificationModel.swift",
             "Tests/Product/M11Checks.swift",
         ])
+        run_checks(sdk, Path(temporary), "rooms-transport-checks", [
+            *native_sources, "Tests/Product/RoomsTransportChecks.swift",
+        ])
+    # Run real on-disk SQLite/GRDB regressions on the macOS host. The device SDK
+    # build separately validates iOS packaging; no simulator or app test mode.
+    subprocess.run([
+        "xcrun", "swift", "test", "--package-path", str(ROOT / "apps/ios/Packages/RogichatRooms"),
+        "--scratch-path", str(args.package_scratch.resolve()), "--force-resolved-versions",
+        "--cache-path", str(args.package_cache.resolve()), "--manifest-cache", "local",
+        "--jobs", "2", "-Xswiftc", "-strict-concurrency=complete",
+    ], check=True)
 
 
 if __name__ == "__main__":

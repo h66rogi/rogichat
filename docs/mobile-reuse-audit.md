@@ -265,3 +265,24 @@ R34–R38은 새 외부 SDK나 의존성을 추가하지 않는다. 실제 비�
 현재 credential 401 처리, 기존 공통 confirmation/설정 컴포넌트를 그대로 사용한다.
 계정 값은 기기 전역 설정에 캐시하지 않고 서버 응답으로만 확인한다. 실제 provider나
 방 lifecycle이 없는 부분을 UI 토글·가짜 완료·테스트 credential로 대신하지 않는다.
+
+## 실제 추출 기록 — MB04a 방 목록과 SQLite
+
+원본은 Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, iOS
+`18a33bbf96fe52b28d0de361916e20549bdcce6b`다. 읽기 전용으로 원본과 대상의 책임·코드를
+대조했다. [저장소 진행 기록](mobile-rooms-progress.md)은 코드 적용과 실행 검증을 구분한다.
+아래 Android 대상은 기존 app `java/chat/rogi/rogichat/`, iOS는 `apps/ios/` 기준이다.
+
+| ID | source 파일·심볼 | 대상 | 실제 수정 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R39 | Android `core/network/.../api/ChannelApi.kt`의 getPopularChannels/searchChannels/getMyChannels, `core/data/.../repository/ChannelRepositoryImpl.kt`의 searchChannels/getMyChannels | 기존 `core/network/ApiClient.kt`, RoomsApi, `feature/rooms/RoomsScreen.kt`의 RoomsRepository와 NativeSessionCoordinator | **수정 재사용**: 주입 API의 typed 요청·parameters.append·repository 결과 경계. 원본 채널 route/정수 ID/페이지 번호·실패를 빈 배열로 바꾸는 동작·Timber 로그는 제외. 새 room/manifest DTO와 원자적 staging은 별도 신규 구현 |
+| R40 | Android `core/common/.../di/DispatchersModule.kt`의 providesIoDispatcher/providesApplicationScope, NetworkModule/DataModule의 API/repository 주입 | 기존 ProductServices와 `core/rooms/AndroidRoomsStore.kt`, RoomsViewModel | **부분 수정 재사용**: transport 수명·명시적 IO dispatcher·repository 주입과 기존 추출 StateFlow/loading/error 흐름. Hilt graph 전체를 복제하지 않음. credential mutex/DB COMMIT·purge fence는 로기챗 신규 책임 |
+| R41 | iOS `Meloming/Domain/Repositories/NotificationRepository.swift`의 protocol/adapter/init와 cursor 요청, ChannelRepository/NewsRepository의 생성자 주입 | `Sources/Core/Rooms/NativeRoomsRemote.swift`, `Packages/RogichatRooms/Sources/RogichatRooms/RoomsRepository.swift` | **수정 재사용**: protocol·생성자 client 주입·typed cursor 요청. Notification DTO·낙관적 mark-read는 미이식. 기존 R23 HTTP client를 확장하고 실제 manifest/DB/revision 조정은 새 계약으로 구현 |
+| R42 | iOS `Meloming/Presentation/Notifications/NotificationsViewModel.swift`의 Loadable·refresh/loadMore 분리 | `Sources/Features/Rooms/RoomsScreen.swift`, 기존 `Core/State/Loadable.swift` | **부분 수정 재사용**: MainActor 목록 상태·로딩/오류·refresh와 다음 페이지. 원본의 약한 중복/세대 검사와 낙관적 알림 읽음, News의 detached refresh는 제외. 방 행은 확인된 metadata만 표시하고 가짜 대화 진입을 제공하지 않음 |
+| R43 | Android의 Room 의존 선언과 양 OS 비채팅 DB 코드 검색 | Android `core/rooms/{RoomsDatabase,AndroidRoomsStore}.kt`, iOS local package RoomsDatabase/RoomsStorage/RoomsContract | **신규**: 원본에 실제 DB/DAO/migration/SQLite coordinator가 없어 이식할 구현이 없음. 환경/accountPartition DB, schema 2의 완전 manifest 교체, durable cleanup, 실제 COMMIT fence 및 on-disk 회귀는 로기챗용으로 구현. 원본을 읽은 사실을 DB 재사용으로 집계하지 않음 |
+
+Room/KSP와 GRDB의 exact 버전·lock 및 고지/리소스 검사를 app/IPA 배포 guard에 강제한다.
+이번 rooms 단계의 서명·빌드 13 배포는 아직 대기 중이며 기기 SDK 빌드의 실제 bundle 검사는 통과했다.
+GRDB host 시험과 Xcode 앱의 서로 다른 resolved 파일이 같은 revision을 가리키도록 검사하고
+자동 재해석을 차단한다. 설치 UUID의 생성·전송·개인정보 선언도 새 데이터 흐름에 맞춘
+로기챗 메타데이터다. 원본의 주소·운영 ID·서명·analytics·Talk/TalkV2는 이식하지 않는다.

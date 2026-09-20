@@ -9,6 +9,12 @@ import zipfile
 from product_guards import (EXPECTED_IOS_PRIVACY, RETIRED_MARKERS, inspect_android_package,
                             inspect_ios_app, inspect_ios_package, inspect_ios_privacy,
                             inspect_product_data, inspect_product_sources)
+from ios_dependencies import GRDB_LICENSE_PATH, GRDB_PRIVACY_PATH, GRDB_PRIVACY
+
+
+def sdk_resources():
+    return {GRDB_PRIVACY_PATH: plistlib.dumps(GRDB_PRIVACY),
+            GRDB_LICENSE_PATH: (Path(__file__).resolve().parents[2] / "apps/ios/Resources" / GRDB_LICENSE_PATH).read_bytes()}
 
 
 class ProductGuardsTest(unittest.TestCase):
@@ -37,6 +43,7 @@ class ProductGuardsTest(unittest.TestCase):
         self.write("apps/android/app/src/testQa/java/Fixture.kt", "WireframeFixtures sample-room-a")
         self.write("apps/android/app/src/androidTest/java/Fixture.kt", "PreviewRole")
         self.write("apps/ios/Tests/Fixtures/WireframeState.swift", "WireframeFixtures sample-room-a")
+        self.write("apps/ios/Packages/Rooms/Tests/RoomsTests/Scenario.swift", "WireframeFixtures sample-room-a")
         inspect_product_sources(self.root)
 
     def test_all_retired_markers_fail_individually(self):
@@ -81,6 +88,13 @@ class ProductGuardsTest(unittest.TestCase):
             with self.subTest(condition=condition), self.assertRaisesRegex(ValueError, "same product composition"):
                 inspect_product_sources(self.root)
 
+    def test_local_swift_package_product_sources_and_resources_are_checked(self):
+        for relative in ("Rooms.swift", "Resources/scenario.json"):
+            path = self.write("apps/ios/Packages/Rooms/Sources/Rooms/" + relative, "sample-room-b")
+            with self.subTest(path=relative), self.assertRaisesRegex(ValueError, "retired demo content"):
+                inspect_product_sources(self.root)
+            path.unlink()
+
     def test_apk_and_aab_check_every_dex_and_resource(self):
         for kind, primary in (("apk", "classes.dex"), ("aab", "base/dex/classes.dex")):
             clean = self.package("clean." + kind, {primary: b"real code"})
@@ -99,6 +113,8 @@ class ProductGuardsTest(unittest.TestCase):
         app = self.root / "Rogichat.app"
         self.write("Rogichat.app/Rogichat", "real code")
         self.write("Rogichat.app/PrivacyInfo.xcprivacy", plistlib.dumps(EXPECTED_IOS_PRIVACY).decode())
+        for name, data in sdk_resources().items():
+            self.write("Rogichat.app/" + name, data.decode())
         inspect_ios_app(app, "Rogichat")
         for name in ("Rogichat.debug.dylib", "Fixtures.json", "Frameworks/Feature.framework/Feature"):
             path = self.write("Rogichat.app/" + name, "PreviewRole")
@@ -177,6 +193,24 @@ class ProductGuardsTest(unittest.TestCase):
         path = self.package("empty.ipa", {"Payload/Rogichat.app/Info.plist": b"plist"})
         with zipfile.ZipFile(path) as package, self.assertRaisesRegex(ValueError, "no executable code"):
             inspect_ios_package(package, "Payload/Rogichat.app/", "Rogichat")
+
+    def test_packaged_sdk_resources_cannot_be_removed_or_changed(self):
+        entries = {"Rogichat": b"real code", "PrivacyInfo.xcprivacy": plistlib.dumps(EXPECTED_IOS_PRIVACY), **sdk_resources()}
+        prefix = "Payload/Rogichat.app/"
+        clean = self.package("sdk-clean.ipa", {prefix + key: value for key, value in entries.items()})
+        with zipfile.ZipFile(clean) as package:
+            inspect_ios_package(package, prefix, "Rogichat")
+        for target in (GRDB_PRIVACY_PATH, GRDB_LICENSE_PATH):
+            for replacement in (None, b"changed resource"):
+                mutated = dict(entries)
+                if replacement is None:
+                    mutated.pop(target)
+                else:
+                    mutated[target] = replacement
+                archive = self.package("sdk-mutated.ipa", {prefix + key: value for key, value in mutated.items()})
+                with self.subTest(target=target, removed=replacement is None), zipfile.ZipFile(archive) as package:
+                    with self.assertRaisesRegex(ValueError, "GRDB"):
+                        inspect_ios_package(package, prefix, "Rogichat")
 
 
 if __name__ == "__main__":

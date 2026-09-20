@@ -8,6 +8,7 @@ import zipfile
 from keychain_unlock import unlock
 from product_guards import inspect_ios_app, inspect_ios_package, inspect_product_sources
 from ios_associations import inspect_signed_callback
+from ios_dependencies import inspect_ios_dependencies, XCODE_RESOLVED_FLAGS
 
 from release_common import APP_ID, API_URL, ROOT, AppStoreConnect, capture, external, manifest, new_output, private_write, run, save_manifest, sha256, tree_sha256
 
@@ -66,14 +67,18 @@ def inspect_ipa(path, number, version):
 
 def archive(cfg, number, version):
     inspect_product_sources(platforms=("ios",))
+    inspect_ios_dependencies(ROOT)
     unlock_signing(cfg)
     asc = AppStoreConnect(cfg)
     asc.bundle()
     directory = new_output(cfg, "ios", number)
     path = directory / "Rogichat-QA.xcarchive"
     run(["xcodebuild", "-project", str(ROOT / "apps/ios/Rogichat.xcodeproj"),
+         *XCODE_RESOLVED_FLAGS,
          "-scheme", "Rogichat-QA", "-configuration", "Release-QA", "-destination", "generic/platform=iOS",
          "-archivePath", str(path), "-derivedDataPath", str(directory / "DerivedData"), "-jobs", "2",
+         "-clonedSourcePackagesDirPath", str(directory / "SourcePackages"),
+         "-packageCachePath", str(directory / "PackageCache"),
          "DEVELOPMENT_TEAM=" + cfg["ios"]["team_id"], "CURRENT_PROJECT_VERSION=" + str(number),
          "MARKETING_VERSION=" + version, *asc.signing_args(), "archive"], directory / "archive.log")
     executable = inspect_archive(path, number, version)

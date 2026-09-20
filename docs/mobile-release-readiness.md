@@ -3,6 +3,8 @@
 2026-09-20. [제품 구성 교체](mobile-product-progress.md)와
 [네이티브 세션·프로필 연결](mobile-native-transport-progress.md)의 준비 상태다.
 후속 [SOOP 인증 구현](mobile-native-auth-progress.md)의 서명·도메인 준비도 함께 추적한다.
+실제 [계정 알림 설정](mobile-notification-preferences-progress.md)은 빌드 12로 배포했다.
+이어지는 [방 저장소 단계](mobile-rooms-progress.md)는 별도 검증 기록을 따른다.
 QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 분리한다. 테스트 배포 완료,
 서버 기능 완료, Production 스토어 출시를 서로 대신하는 증거로 사용하지 않는다.
 
@@ -17,6 +19,10 @@ QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 �
   추적은 없다. 선언 파일과 정확한 내용이 실제 app/IPA에 들어 있는지도 검사한다.
   이는 빌드 8의 로컬 설정만 있던 선언에서 변경된 부분이다. 스토어 제출 전 실제 기능
   범위에 맞춰 App Store Connect 개인정보 입력도 확인한다.
+- 방 저장소 단계는 인증된 동기화 요청에 설치 UUID를 보내므로 Device ID도 계정 연계·
+  앱 기능 목적·추적 없음으로 선언한다. 실제 경로의 로그 제외 설정을 확인했지만 미보관
+  예외를 단정하지 않는다. 추가 GRDB SDK의 privacy bundle과 원본 MIT 고지를 실제
+  app/IPA에서 확인한다. 이 변경은 빌드 12 이후 소스에 적용된다.
 - Android 서명/R8 산출물을 API 36.1의 격리된 읽기 전용 에뮬레이터에서 실행했다.
   탭/뒤로가기·설정·앱 정보·라이선스·화면 모드 재실행 복원·실제 OS 알림 설정 이동과
   글자 200% 표시를 확인했다. 이는 물리 기기·TalkBack·모든 지원 OS의 검증을 대신하지 않는다.
@@ -31,6 +37,11 @@ QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 �
 iOS 빌드 10(`80940d4`, iOS 앱 소스는 `fe07bcf`와 동일)의 `VALID`·기존 내부 그룹
 `IN_BETA_TESTING`·한국어 안내를 확인했다. Android 빌드 10은 실제 화면에서 inset 문제를
 발견해 업로드하지 않았으며 11에서 수정 후 글자 200%의 세로/가로 표시를 재검증했다.
+
+계정 알림 설정은 양 OS 빌드 12(`1d5ecfd`)의 서명·검증·내부 배포를 마쳤다. Android의
+원격 APK 해시와 승인 테스터 배포 응답, iOS의 Apple validation·`VALID / IN_BETA_TESTING`·
+한국어 안내·기존 내부 그룹을 확인했다. 해당 PR의 필수 CI도 통과했다. 실제 provider가 발급한
+계정의 설정 영속 왕복이나 native push 등록/전달 성공을 의미하지 않는다.
 
 현재 로컬 도구의 실제 사용 절차는 [테스트 배포](mobile-test-distribution.md),
 서명 비밀 취급은 [키체인 보호](mobile-signing-security.md)를 따른다.
@@ -74,6 +85,8 @@ Xcode가 업로드 중 메타데이터를 쓰는 아카이브는 독립 작업 �
 도구는 새 수집 선언을 요구하며 빌드 8을 의도적으로 거부한다. 과거 산출물을 재확인하려고
 새 빌드의 검사를 완화하거나 기존 manifest·아카이브를 수정하지 않는다.
 SOOP 앱 복귀용 권한을 추가하기 전의 빌드 9는 도구 `1478765`로 재확인한다.
+계정 알림 빌드 12는 도구 `1d5ecfd`로 재확인한다. 후속 rooms의 설치 식별자 전송·DB 의존성
+검사는 새 소스와 새 artifact에 적용하며, 과거에 포함되지 않은 수집/라이브러리를 가정하지 않는다.
 MB03의 서명 검사는 실제 archive/IPA의 두 QA callback entitlement와 profile의 app/team,
 만료, IPA의 배포 종류를 추가로 요구한다. 과거 서명 산출물에 없는 권한을 있다고 취급하지 않는다.
 

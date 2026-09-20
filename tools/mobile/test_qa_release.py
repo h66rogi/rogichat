@@ -14,6 +14,7 @@ from release_ios import export_options, inspect_ipa
 import release_android
 import release_ios
 from product_guards import EXPECTED_IOS_PRIVACY
+from test_product_guards import sdk_resources
 
 
 class AppStoreTargetGuards(unittest.TestCase):
@@ -184,6 +185,8 @@ class ReleaseGuards(unittest.TestCase):
             archive.writestr("Payload/App.app/App", b"real app code")
             archive.writestr("Payload/App.app/PrivacyInfo.xcprivacy", plistlib.dumps(EXPECTED_IOS_PRIVACY))
             archive.writestr("Payload/App.app/embedded.mobileprovision", b"test-only profile")
+            for name, data in sdk_resources().items():
+                archive.writestr("Payload/App.app/" + name, data)
         with patch.object(release_ios, "inspect_signed_callback") as callback:
             inspect_ipa(ipa, 7, "0.1.0")
             callback.assert_called_once()
