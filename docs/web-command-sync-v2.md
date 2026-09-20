@@ -189,3 +189,12 @@ are unreachable in the current dedicated single-room composition and need a UI
 error boundary before that composition expands. Scrubbed expired entries remain
 in the four-slot registry until bounded eviction, intentionally preserving minimal
 unknown-receipt recovery without retaining private payloads.
+
+The targeted followup also freezes the prior quote-evidence map for the complete
+reauthorization pass, so clearing one revoked quote cannot weaken validation of
+later quoted IDs. Access-error recovery runs even while an aborted SEND awaits its
+late completion; confirmed room loss scrubs before that completion arrives. Live
+event/history projection changes regenerate quoted excerpts, preserve draft text
+and explicit retry IDs, and advance the composer generation to reject stale UI
+writers. Unit and browser regressions cover the held-SEND reaction denial and
+live redaction paths as well as the multiple-quote evidence case.

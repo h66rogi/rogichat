@@ -404,3 +404,34 @@ test('auth-gate resume rebuilds a parked quote from the newly authorized message
   await expect(page.getByTestId('chat-quote-preview')).toContainText('수정된 인용 본문');
   await expect(page.getByTestId('chat-quote-preview')).not.toContainText(incoming.content.text);
 });
+
+test('live redaction refreshes the visible quote while preserving draft and explicit retry identity', async ({ page }) => {
+  const { state, hint } = await chatApi(page); state.failSend = true;
+  await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
+  await page.getByTestId('chat-reply').click(); await input.fill('본문이 바뀌어도 같은 전송'); await input.press('Enter');
+  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
+  const id = state.posts[0]?.clientMessageId;
+  state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '현재 허가된 인용 본문' } }]; hint();
+  await expect(page.getByTestId('chat-quote-preview')).toContainText('현재 허가된 인용 본문');
+  await expect(page.getByTestId('chat-quote-preview')).not.toContainText(incoming.content.text);
+  await expect(input).toHaveValue('본문이 바뀌어도 같은 전송');
+  state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
+  expect(state.posts).toHaveLength(2); expect(state.posts[1]?.clientMessageId).toBe(id);
+});
+
+test('room loss from reaction during held SEND scrubs before late send settles and never restores the draft', async ({ page }) => {
+  const { state, reactions } = await reactionApi(page); let release!: () => void;
+  state.holdSend = new Promise<void>(resolve => { release = resolve; }); state.failSend = true;
+  await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
+  await page.getByRole('button', { name: '반응 보기', exact: true }).click(); await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  await input.fill('권한 상실 후 남으면 안 되는 전송'); await input.press('Enter'); await expect.poll(() => state.posts.length).toBe(1);
+  reactions.status = 403; state.revoked = true;
+  await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('채팅 접근 권한이 변경되었습니다'); await expect(input).toHaveCount(0);
+  state.revoked = false; reactions.status = 200;
+  await page.getByRole('button', { name: '다시 시도', exact: true }).click();
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true })).toHaveCount(0);
+  release(); await expect(page.getByRole('button', { name: '전송 1 결과 조회', exact: true })).toBeEnabled();
+  await expect(input).toHaveValue(''); expect(state.posts).toHaveLength(1);
+});

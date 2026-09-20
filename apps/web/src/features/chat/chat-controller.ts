@@ -60,7 +60,7 @@ export class ChatController {
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private publish(patch: Partial<ChatState>) {
     if (this.dead) return;
-    this.state = { ...this.state, ...patch };
+    this.state = { ...this.state, ...patch, epoch: this.memory.epoch };
     this.state.commands = this.commands.pending().map(command => ({ id: command.clientMessageId, canRetry: this.commandAuthorized(command) }));
     this.state.commandBusy = this.sending;
     if (patch.items) this.state.reactions = Object.fromEntries(Object.entries(this.state.reactions).filter(([id, value]) => this.messages.some(message => message.id === id && message.version === value.version)));
@@ -178,7 +178,7 @@ export class ChatController {
   refresh = (): Promise<void> => {
     if (this.dead) return Promise.resolve();
     if (this.flight) return this.flight;
-    if (this.sending) return Promise.resolve();
+    if (this.sending && this.state.phase === 'ready') return Promise.resolve();
     this.flight = this.synchronize().finally(() => { this.flight = null; });
     return this.flight;
   };
@@ -263,6 +263,7 @@ export class ChatController {
         }
         await this.verifySession();
         if (this.dead || signal.aborted) return;
+        this.refreshQuotedDrafts();
         this.rememberAuthority(auth.room, auth.recipients);
         this.publish({ ...auth, phase: 'ready', items: projectMessages(this.messages, auth.room.actorId, [...auth.profiles, ...auth.recipients]), hasOlder: this.historyCursor !== null, error: null });
         return;
@@ -292,11 +293,12 @@ export class ChatController {
     // A quote outside the new latest page must be re-read before its parked excerpt
     // can return to the DOM; absence from a snapshot is not deletion evidence.
     const quoteIds = [...new Set(Object.values(this.memory.drafts).flatMap(draft => draft.quote ? [draft.quote.messageId] : []))];
+    const priorHints = new Map(this.memory.hints);
     for (const id of quoteIds) {
       try {
         const value = this.messages.find(item => item.id === id) ?? message(await this.request(this.path(`messages/${id}`), { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
         if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError');
-        const prior = this.memory.hints.get(id);
+        const prior = priorHints.get(id);
         if (value.id !== id || (prior && (prior.createdAt !== value.createdAt || BigInt(value.version) < BigInt(prior.version)))) throw new Error('INVALID_RESPONSE');
         this.messages = mergeMessages(this.messages, [value]);
         // A parked excerpt is never display authority: derive it from the current DTO.
@@ -314,7 +316,23 @@ export class ChatController {
       }
     }
     if (quoteIds.length) { await this.authorization(); if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError'); }
-    if (this.messages.some(item => { const prior = this.memory.hints.get(item.id); return prior && JSON.stringify([prior.counterpart, prior.allowedActions]) !== JSON.stringify([item.counterpart, item.allowedActions]); })) this.invalidateComposer();
+    if (this.messages.some(item => { const prior = priorHints.get(item.id); return prior && JSON.stringify([prior.counterpart, prior.allowedActions]) !== JSON.stringify([item.counterpart, item.allowedActions]); })) this.invalidateComposer();
+  }
+  private refreshQuotedDrafts() {
+    let changed = false;
+    const drafts = Object.fromEntries(Object.entries(this.memory.drafts).map(([key, draft]) => {
+      const value = this.messages.find(item => item.id === draft.quote?.messageId);
+      if (!value || !draft.quote) return [key, draft];
+      const prior = this.memory.hints.get(value.id);
+      if (prior && (prior.createdAt !== value.createdAt || BigInt(value.version) < BigInt(prior.version))) throw new Error('INVALID_RESPONSE');
+      const quote = value.content.type === 'TEXT' && typeof value.content.text === 'string' && value.author.kind === 'member' && value.allowedActions.reply
+        ? { messageId: value.id, authorName: value.author.nickname, excerpt: truncateExcerpt(value.content.text) } : null;
+      if (JSON.stringify(quote) === JSON.stringify(draft.quote)) return [key, draft];
+      changed = true;
+      if (!quote) this.commands.quarantine(command => command.payload.quoteId === value.id);
+      return [key, { ...draft, quote, ...(!quote ? { retryCommandId: undefined } : {}) }];
+    }));
+    if (changed) { this.memory.drafts = drafts; this.memory.epoch++; }
   }
   private async snapshot() {
     const signal = this.abort.signal;
@@ -339,6 +357,7 @@ export class ChatController {
         this.historyCursor = cursor(page.nextCursor);
         await this.verifySession();
         if (signal.aborted || this.dead) return;
+        this.refreshQuotedDrafts();
         this.rememberAuthority(this.state.room!, this.state.recipients);
         this.publish({ items: projectMessages(this.messages, this.state.room!.actorId, [...this.state.profiles, ...this.state.recipients]), hasOlder: this.historyCursor !== null, error: null });
       } catch (error) {

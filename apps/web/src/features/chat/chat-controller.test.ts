@@ -708,3 +708,51 @@ for (const corruption of ['createdAt', 'version'] as const) void test(`off-snaps
   await replacement.refresh(); assert.equal(replacement.getSnapshot().phase, 'error'); assert.deepEqual(replacement.getSnapshot().items, []);
   replacement.dispose(); memory.clearAll();
 });
+
+void test('revoking an earlier parked quote cannot erase integrity evidence for a later quote', async () => {
+  const memory = new ChatMemory(); const second = '00000000-0000-4000-8000-000000000007';
+  memory.drafts = { shared: { body: 'first', quote: { messageId: source().id, authorName: 'name', excerpt: 'first quote' } }, private: { body: 'second', quote: { messageId: second, authorName: 'name', excerpt: 'second quote' } } };
+  memory.hints.set(second, { createdAt: '2026-08-01T00:00:00.000Z', version: '2', counterpart: source().counterpart, allowedActions: source().allowedActions });
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.includes('/snapshot?')) return { ...sync, messages: [{ ...source(), allowedActions: { reply: false, publish: false, delete: false } }], nextCursor: 'new', historyCursor: null };
+    if (path.endsWith(`/messages/${second}`)) return { ...source(second, '2020-01-01T00:00:00.000Z'), version: '2' };
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); assert.equal(controller.getSnapshot().phase, 'error'); assert.deepEqual(controller.getSnapshot().items, []);
+  controller.dispose(); memory.clearAll();
+});
+
+void test('reaction denial during a held SEND freshly authorizes and scrubs confirmed room loss before SEND settles', async () => {
+  const memory = new ChatMemory(); let roomLost = false; let release!: () => void; let reached!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; }); const started = new Promise<void>(resolve => { reached = resolve; });
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (roomLost && path.startsWith('/v1/sync?')) throw Object.assign(new Error('room denied'), { status: 403 });
+    if (path.endsWith('/reactions')) throw Object.assign(new Error('message denied'), { status: 403 });
+    if (path.endsWith('/messages')) { reached(); await held; throw new TypeError('ACK lost'); }
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); controller.saveComposer({ shared: { body: 'private draft', quote: null } }, submission.target, controller.getSnapshot().epoch);
+  const sending = controller.send(submission); await started; roomLost = true; await controller.react(source().id);
+  assert.deepEqual(memory.drafts, {}); assert.equal(memory.authority, null); assert.equal(memory.recipients, null); assert.equal(memory.hints.size, 0);
+  assert.equal('payload' in memory.commands.pending()[0]!, false); assert.equal(controller.getSnapshot().phase, 'error');
+  release(); await sending; assert.equal(controller.getSnapshot().phase, 'error'); assert.deepEqual(controller.getSnapshot().items, []);
+  controller.dispose(); memory.clearAll();
+});
+
+for (const pathKind of ['events', 'history'] as const) void test(`live ${pathKind} redaction refreshes quoted excerpts and fences stale composer writers without losing draft intent`, async () => {
+  const memory = new ChatMemory(); let redacted = false;
+  const fresh = { ...source(), version: '2', content: { type: 'TEXT' as const, text: '[current authorized text]' } };
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (redacted && path.includes('/events?')) return { ...sync, events: [{ type: 'message.upsert', message: fresh }], nextCursor: 'after-redaction', hasMore: false };
+    if (redacted && path.includes('/history?')) return { ...sync, messages: [fresh], nextCursor: null };
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); const epoch = controller.getSnapshot().epoch;
+  const drafts = { shared: { body: 'keep draft', quote: { messageId: source().id, authorName: '테스트 운영자', excerpt: '테스트 메시지' }, retryCommandId: '00000000-0000-4000-8000-000000000099' } };
+  controller.saveComposer(drafts, submission.target, epoch); redacted = true;
+  if (pathKind === 'events') await controller.refresh(); else await controller.loadOlder();
+  assert.equal(controller.getComposer().drafts.shared?.quote?.excerpt, '[current authorized text]');
+  assert.equal(controller.getComposer().drafts.shared?.body, 'keep draft'); assert.equal(controller.getComposer().drafts.shared?.retryCommandId, drafts.shared.retryCommandId);
+  assert.ok(controller.getSnapshot().epoch > epoch); controller.saveComposer(drafts, submission.target, epoch);
+  assert.equal(controller.getComposer().drafts.shared?.quote?.excerpt, '[current authorized text]'); controller.dispose(); memory.clearAll();
+});
