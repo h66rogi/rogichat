@@ -1,7 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import {connectionURL, validateCredential, validateGrants, validateHistory, validateManifest} from './migrate_entry.mjs';
+import {connectionURL, validateCredential, validateGrants, validateHistory, validateManifest, initializeCatalog} from './migrate_entry.mjs';
+import { EventEmitter } from 'node:events';
+
+test('official migration initialization uses only QA runtime DML credentials and fails closed', async () => {
+  for (const code of [0, 1]) {
+    const invocation = initializeCatalog((executable, args, options) => {
+      assert.equal(executable, process.execPath);
+      assert.deepEqual(args, ['/workspace/apps/api/dist/modules/owner-bootstrap/default-room-initialize.js']);
+      assert.equal(options.env.APP_ENV, 'qa'); assert.equal(options.env.DATABASE_SECRET_FILE, '/run/secrets/database.json');
+      assert.equal(options.env.DATABASE_URL, undefined); assert.equal(options.env.DEFAULT_ROOM_SECRET_FILE, undefined);
+      assert.equal(options.timeout, 60000); assert.equal(options.stdio, 'ignore');
+      const child = new EventEmitter(); queueMicrotask(() => child.emit('exit', code, null)); return child;
+    });
+    if (code === 0) await invocation; else await assert.rejects(invocation, /initialization failed/);
+  }
+});
 
 const host = 'rogichat-qa.cluster-fixture.ap-northeast-2.rds.amazonaws.com';
 const hostHash = crypto.createHash('sha256').update(host).digest('hex');

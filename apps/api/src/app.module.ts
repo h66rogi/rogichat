@@ -23,6 +23,7 @@ import { ReadStateModule } from './modules/read-state/read-state.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { PushTransportModule } from './modules/notifications/push-module.js';
 import type { PushConfig } from './modules/notifications/push-transport.js';
+import { DefaultRoomModule } from './modules/owner-bootstrap/default-room.module.js';
 
 // Tests override providers through the same feature graph used by production.
 @Module({})
@@ -32,7 +33,9 @@ export class AppModule {
     return this.compose(infrastructure, auth, media, push, deletion);
   }
   static production(settings: RuntimeSettings): DynamicModule {
-    return this.compose(DatabaseModule.register({ config: settings.config }), settings.auth ? { config: settings.auth } : undefined, settings.media, settings.push, settings.deletion);
+    const infrastructure = DatabaseModule.register({ config: settings.config });
+    const app = this.compose(infrastructure, settings.auth ? { config: settings.auth } : undefined, settings.media, settings.push, settings.deletion);
+    return { ...app, imports: [...(app.imports ?? []), ...(settings.auth ? [DefaultRoomModule.register(infrastructure, settings.auth)] : [])] };
   }
   private static compose(infrastructure: DynamicModule, auth?: AuthModuleOptions, media?: MediaOptions | MediaSettings, push?: PushConfig, deletion?: DeletionOptions): DynamicModule {
     const authentication = auth ? AuthModule.register(infrastructure, auth) : undefined;

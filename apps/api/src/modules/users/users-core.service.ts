@@ -16,7 +16,7 @@ export class UsersCoreService {
   async selfProfile(tx: Transaction, userId: string) {
     const [profile] = await this.repository.self(tx, userId);
     if (!profile) throw new ApiError('NOT_FOUND', 404);
-    return { id: userId, nickname: profile.nickname, avatar: profile.visible_avatar_id ? { assetId: profile.visible_avatar_id } : null, birthday: profile.birthday_month !== null ? { month: profile.birthday_month, day: profile.birthday_day } : null, birthdayVisibleToStreamers: Number(profile.birthday_visible_to_streamers) === 1 };
+    return { id: userId, nickname: profile.nickname, avatar: profile.visible_avatar_id ? { assetId: profile.visible_avatar_id } : null, birthday: profile.birthday_month !== null ? { month: profile.birthday_month, day: profile.birthday_day } : null, birthdayVisibleToStreamers: Number(profile.birthday_visible_to_streamers) === 1, ...await this.repository.selfSoop(tx, userId) };
   }
 
   async updateProfile(tx: Transaction, userId: string, body: unknown) {
@@ -35,11 +35,14 @@ export class UsersCoreService {
       const asset = await this.repository.attachableAvatar(tx, avatar, userId, avatar === current.avatar_asset_id);
       if (!asset.length) throw new ApiError('NOT_FOUND', 404);
     }
-    const publicChanged = name !== current.nickname || avatar !== current.avatar_asset_id;
+    const [visibleBefore] = await this.repository.self(tx, userId);
+    const publicChanged = name !== current.nickname || avatar !== current.avatar_asset_id ||
+      (input.avatarAssetId !== undefined && Boolean(visibleBefore?.provider_avatar_url));
     const oldBirthday = Number(current.birthday_visible_to_streamers) === 1 && current.birthday_month !== null ? [current.birthday_month, current.birthday_day] : null;
     const newBirthday = visible && birthday ? [birthday.month, birthday.day] : null;
     const streamerChanged = JSON.stringify(oldBirthday) !== JSON.stringify(newBirthday);
     await this.repository.update(tx, name, birthday?.month ?? null, birthday?.day ?? null, visible, avatar, userId);
+    await this.repository.markCustomized(tx, userId, input.nickname !== undefined, input.avatarAssetId !== undefined);
     if (current.avatar_asset_id !== null && avatar !== current.avatar_asset_id) {
       const removed = await this.repository.blockAvatar(tx, current.avatar_asset_id, userId);
       if (removed.affectedRows) await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: current.avatar_asset_id, dedupeKey: digest(`avatar-cleanup:${current.avatar_asset_id}`) });
@@ -54,6 +57,19 @@ export class UsersCoreService {
 
   private canViewActor(viewer: ActiveMember, actorId: string, role: string): boolean {
     return viewer.mode !== 'FAN' || viewer.role === 'STREAMER' || role === 'STREAMER' || actorId === viewer.id;
+  }
+
+  async providerAvatar(tx: Transaction, userId: string, roomId?: string, actorId?: string): Promise<string> {
+    if (roomId === undefined && actorId === undefined) {
+      const [profile] = await this.repository.self(tx, userId);
+      if (!profile?.provider_avatar_url) throw new ApiError('NOT_FOUND', 404);
+      return profile.provider_avatar_url;
+    }
+    if (!roomId || !actorId) throw new ApiError('NOT_FOUND', 404);
+    const viewer = await this.access.requireActiveMember(tx, uuid(roomId), userId);
+    const [profile] = await this.repository.actor(tx, roomId, uuid(actorId));
+    if (!profile?.provider_avatar_url || await this.access.actorBlocked(tx, roomId, viewer.id, actorId) || !this.canViewActor(viewer, actorId, profile.role)) throw new ApiError('NOT_FOUND', 404);
+    return profile.provider_avatar_url;
   }
 
   // Same snapshot as media authorization. This proves a current, room-visible
@@ -71,7 +87,7 @@ export class UsersCoreService {
     const [profile] = await this.repository.actor(tx, viewer.room_id, uuid(actorId));
     if (!profile || await this.access.actorBlocked(tx, viewer.room_id, viewer.id, actorId) || !this.canViewActor(viewer, profile.actor_id, profile.role)) throw new ApiError('NOT_FOUND', 404);
     const visibleBirthday = viewer.role === 'STREAMER' && Number(profile.birthday_visible_to_streamers) === 1 && profile.birthday_month !== null && profile.birthday_day !== null ? { month: profile.birthday_month, day: profile.birthday_day } : null;
-    const projection = projectActorProfileDto({ actorId: profile.actor_id, nickname: profile.nickname, avatar: profile.visible_avatar_id ? { assetId: profile.visible_avatar_id } : null, role: profile.role, visibleBirthday });
+    const projection = projectActorProfileDto({ actorId: profile.actor_id, nickname: profile.nickname, avatar: profile.visible_avatar_id ? { assetId: profile.visible_avatar_id } : null, role: profile.role, visibleBirthday, providerAvatarAvailable: Boolean(profile.provider_avatar_url) });
     // Opaque viewer-specific revision of visible fields only: hidden birthdays never signal activity to fans.
     const revision = createHmac('sha256', key).update(JSON.stringify([viewer.room_id, viewer.id, viewer.active_period_id, profile.active_period_id, projection])).digest('base64url');
     return { ...projection, revision };
@@ -101,6 +117,7 @@ export class UsersCoreService {
     const rows = await this.repository.syncProfiles(tx, viewer.role, viewer.role, viewer.room_id, viewer.mode, viewer.role, viewer.id);
     return rows.map(row => projectActorProfileDto({ actorId: row.id, nickname: row.nickname,
       avatar: row.avatar_id ? { assetId: row.avatar_id } : null, role: row.role,
+      providerAvatarAvailable: row.provider_avatar_available,
       visibleBirthday: row.month === null || row.day === null ? null : { month: row.month, day: row.day } }));
   }
 
