@@ -79,6 +79,10 @@ bucket 시계는 DB UTC이며 key lock 순서를 통일하고 GC는 활성 bucke
 
 ## 4. 코드 위치·계약과 공통 검증 도구
 
+구현 교정 gate: 현재 flat source/단일 RuntimeModule은 아래 목표와 불일치한다.
+기능 확장 전에 [NestJS 구조 교정 계획](backend-nestjs-architecture-correction.md)의
+모듈·DI·Service/Repository·DTO/projection 경계와 회귀 검증을 완료한다.
+
 아래는 목표 구조다. M01의 실제 경로/명령은 [API README](../apps/api/README.md)에 있고,
 domain modules·Prisma schema·OpenAPI 등 후속 산출물이 이미 있다고 가정하지 않는다.
 

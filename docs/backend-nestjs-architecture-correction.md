@@ -1,0 +1,101 @@
+# NestJS architecture correction — required before more feature delivery
+
+## Finding and scope
+
+The execution plan already required feature modules and domain/repository/DTO boundaries.
+The implementation instead grew one RuntimeModule, flat source files, manually assembled
+dependencies and controllers that own transactions. This is an implementation deviation, not
+an approved simplification for the low-cost MVP. Passing behavioral tests does not satisfy
+the architecture requirement. New M08 feature work and host deployment are held while this
+deviation is corrected. Existing changes and generated migrations must be preserved.
+
+This correction does not replace or reduce M01–M12. It is a prerequisite within that goal.
+There is no permission here to change API contracts, authentication trust, database isolation,
+retention, infrastructure cost, production branches or deployment authorization.
+
+## Target ownership
+
+The service remains a modular monolith, with one API and one worker deployment. Modules do not
+imply more processes, servers, databases or paid infrastructure.
+
+| Location | Responsibility |
+|---|---|
+| `src/main.ts`, `src/worker.ts` | Short bootstrap only; no business dependency assembly |
+| `src/app.module.ts`, `src/worker.module.ts` | Explicit application module composition |
+| `src/infrastructure/config` | Validated configuration providers; secrets never in DTOs |
+| `src/infrastructure/database` | Connection provider, UnitOfWork, transaction handle and lifecycle |
+| `src/infrastructure/observability` | Safe logging and lifecycle/health integration |
+| `src/common/http` | Transport-only filters, guards, decorators, strict validation pipes |
+| `src/modules/auth` | Login, sessions, SOOP broker adapter and authentication service |
+| `src/modules/users` | Self profile, birthday consent and viewer-specific profile projection |
+| `src/modules/rooms` | Rooms, memberships, history snapshots and room policy |
+| `src/modules/access` | Pure access policies and authoritative permission queries |
+| `src/modules/messages` | Message commands/queries, receipts, attachments and canonical projection |
+| `src/modules/reactions`, `src/modules/publications` | Their commands, state machines and repositories |
+| `src/modules/sync` | Cursor/pagination orchestration; consume canonical projections |
+| `src/modules/realtime` | Connection admission and lossy hints; no message command authority |
+| `src/modules/media` | Intent/quota/access orchestration, storage port and R2 adapter |
+| `src/modules/jobs` | Claim/lease/fence/retry primitives and registered worker handlers |
+| `src/modules/audit`, `src/modules/notifications` | Narrow audit/push contracts |
+| isolated decoder entrypoint | Separate credential-free process/container; not an API/worker service |
+
+Each feature owns its `*.module.ts`, `*.controller.ts` when applicable, `*.service.ts`,
+`*.repository.ts`, `dto/`, and only the policies/projectors/adapters it actually needs.
+Do not generate empty layers or make every helper injectable. Pure deterministic policies remain
+plain functions. Stateful services/adapters have explicit Nest providers and constructor injection.
+Feature modules export narrow services/ports, not their repository internals or runtime containers.
+Avoid a global catch-all module, service locators, `ModuleRef.get()` as dependency escape hatch,
+and `forwardRef()` to paper over cycles. Infrastructure providers may be shared deliberately;
+domain dependencies remain visible in imports/exports.
+
+## Behavioral boundaries that must survive
+
+1. Controllers adapt HTTP only: validate DTOs, extract credentials/context and call an application
+   service. They do not query MySQL, open transactions, build services or decide domain policy.
+2. Authentication guards are early admission, not the final authorization guarantee. Application
+   services recheck session/account/SOOP and resource permissions in the SAME transaction as the
+   protected operation. Preserve the routes that intentionally do not require a current SOOP link,
+   including self-profile, logout and author's deletion rights.
+3. Application services own UnitOfWork boundaries. Repositories receive an explicit transaction
+   handle and cannot secretly start another transaction. Preserve writer snapshots, locking reads,
+   lock order, bounded deadlock retries and unknown-commit handling.
+4. Rate charging remains a separate committed transaction before the command transaction. The
+   command transaction repeats authentication and current room/resource authorization.
+5. No generic transaction interceptor: broker calls, streamed upload, R2 I/O and decoding must
+   not run inside an eight-second database transaction. Worker finalization and lease completion
+   remain atomic; external effects remain outside the transaction.
+6. Canonical message/profile projections serve direct GET and sync. Query repositories can batch
+   data differently, but cannot maintain incompatible DTO or privacy logic. No ORM/driver row is
+   returned directly. DTO validation and response projection are separate responsibilities.
+7. R2 signing requires fresh authorization; keys and storage configuration never become ordinary
+   message fields. The isolated decoder cannot acquire API/DB/R2 credentials through module imports,
+   environment inheritance or mounts.
+8. Nest owns production provider instances and shutdown hooks. API, worker and decoder still have
+   distinct entrypoints and resources. Test overrides must exercise the production module graph;
+   do not retain a second monolithic test-only application indefinitely.
+
+## Migration sequence and gates
+
+R1. Freeze the current behavioral baseline and inventory imports, API contracts and unfinished M08
+changes. Establish the infrastructure and authentication provider contracts. Add module-graph tests.
+
+R2. Convert one complete vertical slice (messages) to feature Module/Controller/Service/Repository/
+DTO/projector. Keep authorization, receipt/rate and transaction semantics intact. Migrate the test
+imports and remove the replaced flat implementation, rather than permanently wrapping it.
+
+R3. Convert users/rooms, reactions/publications, sync/realtime and media/jobs. Split the combined
+community controller. Consolidate projections and remove cross-feature private-file imports.
+
+R4. Move API/worker startup and cleanup into configured providers/lifecycle hooks. Remove temporary
+composition adapters and obsolete root files. Generate and verify the planned REST contract without
+publishing a debug endpoint. Add automated dependency-boundary checks and fresh-app DI tests.
+
+R5. Run unit, real MySQL, HTTP, worker-kill/replay, authorization, media and migration regressions;
+review the module graph separately from behavioral/security tests. Scan the public repository,
+commit/push reviewed corrections to qa, inspect CI, then resume the remaining feature plan and
+previously authorized QA delivery. Actual external login/R2/device/restore gates remain independent.
+
+Completion requires the production entrypoints to use the intended module graph, no retained
+parallel legacy implementation, passing full regression evidence and independent structural review.
+Folder moves, injectable wrappers around unchanged monoliths, green old tests or this document
+alone do not prove that the correction has been completed.
