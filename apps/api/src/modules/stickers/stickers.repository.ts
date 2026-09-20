@@ -7,8 +7,8 @@ export interface StickerRow {
   id: string; asset_id: string; label: string; status: string; approved_at: Date | null;
 }
 export interface StickerAssetRow {
-  id: string; owner_user_id: string; owner_status: string; declared_bytes: string; unexpired: number;
-  object_key: string; byte_length: string; width: number; height: number;
+  id: string; owner_user_id: string; declared_bytes: string; unexpired: number;
+  byte_length: string; width: number; height: number;
 }
 
 @Injectable()
@@ -16,12 +16,22 @@ export class StickersRepository {
   operator(tx: Transaction, userId: string) {
     return tx.rows("SELECT u.id FROM users u JOIN admin_capabilities c ON c.user_id=u.id WHERE u.id=? AND u.status='ACTIVE' AND c.manage_stickers=1 FOR UPDATE", [userId]);
   }
-  asset(tx: Transaction, assetId: string) {
+  approvalReference(tx: Transaction, id: string) {
+    return tx.prisma.sticker_catalog.findUnique({ where: { id }, select: { asset_id: true, approved_at: true, asset: { select: { owner_user_id: true } } } });
+  }
+  lockRegistrar(tx: Transaction, userId: string) {
+    // Initial approval serializes with registrar deletion before any asset lock.
+    return tx.rows<{ status: string }>('SELECT status FROM users WHERE id=? FOR UPDATE', [userId]);
+  }
+  serviceAsset(tx: Transaction, assetId: string) {
+    // Approved catalog assets are service-owned. Never acquire the registrar user
+    // after the asset lock: media cleanup takes user -> asset, and deletion of
+    // that registrar must not hide an approved sticker.
     if (!tx.writable) return this.readAsset(tx, assetId);
-    return tx.rows<StickerAssetRow>(`SELECT a.id,a.owner_user_id,u.status AS owner_status,a.declared_bytes,(a.expires_at>UTC_TIMESTAMP(3)) AS unexpired,
-      o.object_key,o.byte_length,o.width,o.height FROM media_assets a JOIN media_objects o ON o.asset_id=a.id JOIN users u ON u.id=a.owner_user_id
+    return tx.rows<StickerAssetRow>(`SELECT a.id,a.owner_user_id,a.declared_bytes,(a.expires_at>UTC_TIMESTAMP(3)) AS unexpired,
+      o.byte_length,o.width,o.height FROM media_assets a JOIN media_objects o ON o.asset_id=a.id
       WHERE a.id=? AND a.kind='STICKER' AND a.room_id IS NULL AND a.state='READY' AND a.deleted_at IS NULL
-      AND o.variant='image' AND o.state='READY'${tx.writable ? ' FOR UPDATE' : ''}`, [assetId]);
+      AND o.variant='image' AND o.state='READY' FOR UPDATE`, [assetId]);
   }
   byAsset(tx: Transaction, assetId: string) {
     return tx.writable ? tx.rows<StickerRow>('SELECT id,asset_id,label,status,approved_at FROM sticker_catalog WHERE asset_id=? FOR UPDATE', [assetId]) : tx.prisma.sticker_catalog.findMany({ where: { asset_id: assetId }, select: { id: true, asset_id: true, label: true, status: true, approved_at: true } });
@@ -60,8 +70,8 @@ export class StickersRepository {
 
   private async readAsset(tx: Transaction, assetId: string): Promise<StickerAssetRow[]> {
     const now = await tx.now();
-    const assets = await tx.prisma.media_assets.findMany({ where: { id: assetId, kind: 'STICKER', room_id: null, state: 'READY', deleted_at: null }, select: { id: true, owner_user_id: true, declared_bytes: true, expires_at: true, owner: { select: { status: true } }, objects: { where: { variant: 'image', state: 'READY' }, select: { object_key: true, byte_length: true, width: true, height: true } } } });
-    return assets.flatMap(asset => asset.objects.map(object => ({ id: asset.id, owner_user_id: asset.owner_user_id, owner_status: asset.owner.status, declared_bytes: String(asset.declared_bytes), unexpired: Number(asset.expires_at > now), object_key: object.object_key, byte_length: String(object.byte_length), width: Number(object.width), height: Number(object.height) })));
+    const assets = await tx.prisma.media_assets.findMany({ where: { id: assetId, kind: 'STICKER', room_id: null, state: 'READY', deleted_at: null }, select: { id: true, owner_user_id: true, declared_bytes: true, expires_at: true, objects: { where: { variant: 'image', state: 'READY' }, select: { byte_length: true, width: true, height: true } } } });
+    return assets.flatMap(asset => asset.objects.map(object => ({ id: asset.id, owner_user_id: asset.owner_user_id, declared_bytes: String(asset.declared_bytes), unexpired: Number(asset.expires_at > now), byte_length: String(object.byte_length), width: Number(object.width), height: Number(object.height) })));
   }
 
 }

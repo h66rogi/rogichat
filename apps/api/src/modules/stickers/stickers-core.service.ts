@@ -19,7 +19,7 @@ export class StickersCoreService {
     if (!(await this.repository.operator(tx, userId)).length) throw new ApiError('FORBIDDEN', 403);
   }
   private async asset(tx: Transaction, assetId: string): Promise<StickerAssetRow> {
-    const rows = await this.repository.asset(tx, assetId);
+    const rows = await this.repository.serviceAsset(tx, assetId);
     const value = rows[0];
     if (rows.length !== 1 || !value || !Number.isSafeInteger(Number(value.byte_length)) || Number(value.byte_length) < 1 ||
       Number(value.byte_length) > MEDIA_LIMITS.stickerBytes || Number(value.declared_bytes) > MEDIA_LIMITS.stickerBytes ||
@@ -62,12 +62,18 @@ export class StickersCoreService {
     const input = object(body, ['status']);
     if (input.status !== 'ACTIVE' && input.status !== 'RETIRED' && input.status !== 'REVOKED') throw new ApiError('INVALID_REQUEST', 400);
     await this.operator(tx, userId);
+    // The nonlocking reference only chooses lock order; current catalog/asset
+    // checks below decide authorization. Approved service assets never require
+    // the registrar to remain active. Initial approval takes user -> asset.
+    const reference = input.status === 'ACTIVE' ? await this.repository.approvalReference(tx, identifier(stickerId)) : null;
+    const registrar = reference?.approved_at === null ? (await this.repository.lockRegistrar(tx, reference.asset.owner_user_id))[0] : undefined;
     const catalog = await this.catalog(tx, stickerId);
     if (catalog.status === input.status) return this.dto(catalog);
     if (catalog.status === 'REVOKED' || (catalog.status === 'DRAFT' && input.status === 'RETIRED')) throw new ApiError('CONFLICT', 409);
     if (input.status === 'ACTIVE') {
       const asset = await this.asset(tx, catalog.asset_id);
-      if (catalog.approved_at === null && (Number(asset.unexpired) !== 1 || asset.owner_status !== 'ACTIVE')) throw new ApiError('NOT_FOUND', 404);
+      if (!reference || reference.asset_id !== catalog.asset_id || reference.asset.owner_user_id !== asset.owner_user_id) throw new ApiError('NOT_FOUND', 404);
+      if (catalog.approved_at === null && (Number(asset.unexpired) !== 1 || registrar?.status !== 'ACTIVE')) throw new ApiError('NOT_FOUND', 404);
     }
     await this.repository.state(tx, catalog.id, input.status, userId);
     if (input.status === 'REVOKED') {
@@ -103,5 +109,10 @@ export class StickersCoreService {
     if (!['ACTIVE', 'RETIRED'].includes(catalog.status) || !catalog.approved_at) throw new ApiError('NOT_FOUND', 404);
     const asset = await this.asset(tx, catalog.asset_id);
     return { stickerId: catalog.id, assetId: catalog.asset_id, width: asset.width, height: asset.height };
+  }
+
+  async preview(tx: Transaction, roomId: string, userId: string, stickerId: string) {
+    await this.access.requireActiveMember(tx, identifier(roomId), userId);
+    return this.requireSend(tx, roomId, stickerId);
   }
 }

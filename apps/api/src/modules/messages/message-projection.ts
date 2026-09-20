@@ -14,9 +14,9 @@ export interface MessageReadModel {
     readonly avatar: { readonly assetId: string } | null;
   };
   readonly content: { readonly type: 'TEXT'; readonly text: string | null } | {
-    readonly type: 'PHOTO' | 'VIDEO' | 'STICKER';
+    readonly type: 'PHOTO' | 'VIDEO';
     readonly attachments: readonly MessageAttachmentReadModel[];
-  };
+  } | { readonly type: 'STICKER'; readonly stickerId: string; readonly assetId: string; readonly width: number; readonly height: number };
   readonly quote: { readonly id: string; readonly content: { readonly type: 'TEXT'; readonly text: string } } | null;
 }
 
@@ -24,8 +24,8 @@ export interface MessageDto {
   id: string; version: string; createdAt: string; audience: 'SHARED' | 'PRIVATE';
   author: { kind: 'anonymous' } | { kind: 'member'; actorId: string; nickname: string; avatar: { assetId: string } | null };
   content: { type: 'TEXT'; text: string | null } | {
-    type: 'PHOTO' | 'VIDEO' | 'STICKER'; attachments: { assetId: string; width: number; height: number; variant: string }[];
-  };
+    type: 'PHOTO' | 'VIDEO'; attachments: { assetId: string; width: number; height: number; variant: string }[];
+  } | { type: 'STICKER'; stickerId: string; assetId: string; width: number; height: number };
   quote: { id: string; content: { type: 'TEXT'; text: string } } | null;
 }
 
@@ -42,7 +42,9 @@ export function projectMessageDto(model: MessageReadModel): MessageDto {
 
   let content: MessageDto['content'];
   if (model.content.type === 'TEXT') content = { type: 'TEXT', text: model.content.text };
-  else if (['PHOTO', 'VIDEO', 'STICKER'].includes(model.content.type)) {
+  else if (model.content.type === 'STICKER') {
+    content = { type: 'STICKER', stickerId: model.content.stickerId, assetId: model.content.assetId, width: model.content.width, height: model.content.height };
+  } else if (model.content.type === 'PHOTO' || model.content.type === 'VIDEO') {
     content = { type: model.content.type, attachments: model.content.attachments.map(attachment => ({
       assetId: attachment.assetId, width: attachment.width, height: attachment.height, variant: attachment.variant,
     })) };
