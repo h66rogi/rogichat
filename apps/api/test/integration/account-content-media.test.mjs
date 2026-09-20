@@ -1,3 +1,4 @@
+import { MediaWriteProofRepository } from '../../dist/modules/media/media-write-proof.repository.js';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -49,7 +50,7 @@ async function fixture(t) {
     return { user, peer, rooms };
   });
   const intent = { schemaVersion: 2, environment: 'qa', requestId: accountDeletionId('qa', state.user), actorUserId: state.user,
-    targetId: state.user, scope: 'ACCOUNT', roomId: null, subjectGuard: null, requestedAt: (await db.transactions.read(tx => tx.now())).toISOString() };
+    targetId: state.user, scope: 'ACCOUNT', roomId: null, subjectGuard: null, requestedAt: new Date((await db.transactions.read(tx => tx.now())).getTime() - 11 * 60000).toISOString() };
   const admit = async () => {
     await context.get(DeletionApplyService).apply(await ledger.ensureIntent(intent));
     await db.transactions.write(tx => context.get(JobsCoreService).enqueue(tx, { purpose: 'PURGE', resourceId: intent.requestId, dedupeKey: purgeDedupe(intent.requestId) }));
@@ -72,7 +73,7 @@ async function fixture(t) {
   const asset = async (owner = state.user, room = state.rooms[0].id, count = 1, unknown = false) => db.transactions.write(async tx => {
     const id = randomUUID(); await tx.prisma.media_assets.create({ data: { id, owner_user_id: owner, room_id: room,
       kind: room ? 'PHOTO' : 'AVATAR', content_type: 'image/png', state: 'READY', declared_bytes: 1n, reserved_bytes: BigInt(count), expires_at: new Date(Date.now() + 86400000) } });
-    await tx.prisma.media_budget.upsert({ where: { id: 'global' }, create: { id: 'global', limit_bytes: 1000000n, reserved_bytes: BigInt(count) }, update: { reserved_bytes: { increment: BigInt(count) } } });
+    await tx.prisma.media_budget.upsert({ where: { id: 'global' }, create: { id: 'global', limit_bytes: 10n * 1024n * 1024n * 1024n, reserved_bytes: BigInt(count) }, update: { reserved_bytes: { increment: BigInt(count) } } });
     await tx.prisma.media_objects.createMany({ data: Array.from({ length: count }, (_, i) => ({ id: randomUUID(), asset_id: id, attempt_id: randomUUID(), variant: 'image',
       object_key: `test/${id}/${i}`, state: unknown && i === 0 ? 'ALLOCATED' : 'READY', byte_length: unknown && i === 0 ? null : 1n, sha256: unknown && i === 0 ? null : 'a'.repeat(64) })) }); return id;
   });
@@ -225,4 +226,27 @@ test('restart reopens restored owned rows and scrubs orphan receipts using origi
   assert.equal(replayed.requested_at.getTime(), original.requested_at.getTime()); assert.deepEqual(replayed.ledger_sha256, original.ledger_sha256);
   assert.ok(replayed.rows_purged_at >= original.rows_purged_at);
   assert.equal(await f.db.transactions.read(tx => tx.prisma.messages.count({ where: { id: root } })), 0);
+});
+
+test('actual late writer acknowledgement reopens legacy deleted asset until an ordered delete', { timeout: 30000 }, async t => {
+  const f = await fixture(t), assetId = await f.asset(f.user, null, 1, true);
+  const object = await f.db.transactions.read(tx => tx.prisma.media_objects.findFirstOrThrow({ where: { asset_id: assetId } }));
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.media_assets.update({ where: { id: assetId }, data: { state: 'DELETED', reserved_bytes: 0n, deleted_at: await tx.now() } });
+    await tx.prisma.media_budget.update({ where: { id: 'global' }, data: { reserved_bytes: { decrement: 1n } } });
+    await tx.prisma.media_objects.update({ where: { id: object.id }, data: { state: 'DELETED' } });
+  });
+  const before = await f.db.transactions.read(tx => tx.prisma.media_budget.findUniqueOrThrow({ where: { id: 'global' } }));
+  await f.db.transactions.write(tx => new MediaWriteProofRepository().acknowledge(tx, assetId, object.id, object.object_key));
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.media_assets.findUniqueOrThrow({ where: { id: assetId } }))).state, 'DELETING');
+  let removes = 0;
+  const worker = new MediaWorkerService(f.db.transactions, { async remove(key) { assert.equal(key, object.object_key); removes++; } }, {}, 'test', new MediaWorkerRepository(), f.core(), {}, { async invalidateRevokedSticker() { return false; } });
+  await f.db.transactions.write(tx => worker.recoverMedia(tx));
+  assert.equal(await worker.processMedia(await f.lease('MEDIA', assetId)), 'completed');
+  await f.db.transactions.read(async tx => {
+    const asset = await tx.prisma.media_assets.findUniqueOrThrow({ where: { id: assetId } }); assert.equal(asset.state, 'DELETED'); assert.equal(asset.reserved_bytes, 0n);
+    assert.equal((await tx.prisma.media_budget.findUniqueOrThrow({ where: { id: 'global' } })).reserved_bytes, before.reserved_bytes);
+    const proof = await tx.prisma.media_cleanup_attempts.findUniqueOrThrow({ where: { object_id: object.id } }); assert.equal(proof.writer_acknowledged, true); assert.ok(proof.delete_observed_at);
+  });
+  assert.equal(removes, 1);
 });

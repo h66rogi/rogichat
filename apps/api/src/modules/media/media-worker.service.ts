@@ -46,10 +46,11 @@ export class MediaWorkerService {
     const { asset, owner } = await this.assetLock(tx, lease.resourceId);
     if (asset.state === 'DELETED') {
       const objects = await this.repository.currentObjects(tx, asset.id);
-      if (objects.length > 500 || objects.some(row => !acknowledgedWrite(row))) {
+      if (objects.length > 500 || objects.some(row => row.state !== 'DELETED' || !acknowledgedWrite(row) || (row.cleanup_proof_id && !row.delete_observed_at))) {
         // Old cleanup may have refunded quota without writer termination proof.
         // Recover the key obligation; never invent the lost historical charge.
         await this.repository.block(tx, asset.id);
+        if (!(await this.repository.fence(tx, lease)).length) throw new StaleMediaLease();
         return 'cleanup';
       }
       await this.finish(tx, lease); return 'completed';
@@ -65,6 +66,7 @@ export class MediaWorkerService {
     }
     if (!allowed || asset.deleted_at || asset.state === 'DELETING') {
       await this.repository.block(tx, asset.id);
+      if (!(await this.repository.fence(tx, lease)).length) throw new StaleMediaLease();
       return 'cleanup';
     }
     if (asset.state !== 'PROCESSING') throw new JobFailure('SOURCE_UNAVAILABLE');
@@ -119,8 +121,10 @@ export class MediaWorkerService {
       if (asset.state !== 'DELETING') throw new JobFailure('SOURCE_UNAVAILABLE');
       const closed = await this.repository.finishPage(tx, String(asset.id), plan);
       if (!closed) { await this.jobs.continueMedia(tx, lease, plan.length > 0); return plan.length ? 'progress' as const : 'deferred' as const; }
-      const changed = await this.repository.releaseBudget(tx, asset.reserved_bytes, asset.reserved_bytes);
-      if (changed.affectedRows !== 1) throw new JobFailure('INVALID_RESOURCE', true);
+      if (BigInt(String(asset.reserved_bytes)) > 0n) {
+        const changed = await this.repository.releaseBudget(tx, asset.reserved_bytes, asset.reserved_bytes);
+        if (changed.affectedRows !== 1) throw new JobFailure('INVALID_RESOURCE', true);
+      }
       await this.repository.deleteAsset(tx, asset.id);
       await this.finish(tx, lease);
       return 'completed' as const;

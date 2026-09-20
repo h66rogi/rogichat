@@ -75,10 +75,10 @@ async function fixture(t) {
   const request = id => txs.write(tx => core.requestPublication(tx, room, owner.id, id));
   const status = id => txs.read(tx => core.publicationStatus(tx, room, owner.id, id));
   const claim = (publicationId, purpose = 'PUBLICATION') => txs.write(async tx => {
-    const job = await tx.prisma.jobs.findFirst({ where: { purpose, resource_id: publicationId, state: { in: ['PENDING', 'RUNNING'] } }, orderBy: { created_at: 'asc' }, select: { id: true, generation: true, attempts: true, max_attempts: true } });
+    const job = await tx.prisma.jobs.findFirst({ where: { purpose, resource_id: publicationId, state: { in: ['PENDING', 'RUNNING'] } }, orderBy: { created_at: 'asc' }, select: { id: true, room_id: true, generation: true, attempts: true, max_attempts: true } });
     assert.ok(job); const generation = job.generation + 1n, leaseOwner = randomUUID(), leaseToken = randomUUID();
     await tx.prisma.jobs.update({ where: { id: job.id }, data: { state: 'RUNNING', generation, lease_owner: leaseOwner, lease_token: leaseToken, lease_until: new Date((await tx.now()).getTime() + 300000), attempts: { increment: 1 } }, select: { id: true } });
-    return { id: job.id, purpose, roomId: room, resourceId: publicationId, generation, leaseOwner, leaseToken, attempts: job.attempts + 1, maxAttempts: job.max_attempts };
+    return { id: job.id, purpose, roomId: job.room_id, resourceId: publicationId, generation, leaseOwner, leaseToken, attempts: job.attempts + 1, maxAttempts: job.max_attempts };
   });
   const expire = lease => txs.write(async tx => tx.prisma.jobs.update({ where: { id: lease.id }, data: { lease_until: new Date((await tx.now()).getTime() - 1000) }, select: { id: true } }));
   const inspect = publicationId => txs.read(async tx => ({
@@ -133,7 +133,7 @@ test('PHOTO publication HTTP and anonymous DTO use independent keys, and every d
   assert.ok(state.copies.every(copy => copy.destination.state === 'READY' && copy.destination.objects[0].state === 'READY'));
 });
 
-test('source deletion during PUT revokes publication and retains unresolved cleanup reservation', async t => {
+test('source deletion during PUT revokes publication and actual writer acknowledgement enables ordered cleanup', async t => {
   const f = await fixture(t), source = await f.source(), publication = await f.request(source.messageId), lease = await f.claim(publication.publicationId);
   f.hooks.put = () => f.remove(source.messageId);
   assert.equal(await f.worker.processPublication(lease), 'completed');
@@ -141,12 +141,11 @@ test('source deletion during PUT revokes publication and retains unresolved clea
   const state = await f.inspect(publication.publicationId), copy = state.copies[0];
   assert.equal(copy.destination.state, 'DELETING'); assert.equal(copy.destination.objects[0].state, 'ALLOCATED');
   assert.equal(await f.cleanup(copy.destination_asset_id), 'completed');
-  assert.equal((await f.inspect(publication.publicationId)).budget, state.budget); assert.equal(f.removes.length, 0);
-  await f.age(copy.destination_asset_id); assert.equal(await f.cleanup(copy.destination_asset_id), 'completed');
   const reconciled = await f.inspect(publication.publicationId);
-  assert.equal(reconciled.budget, state.budget);
-  assert.equal(reconciled.copies[0].destination.state, 'DELETING');
-  assert.equal(reconciled.copies[0].destination.objects[0].state, 'ALLOCATED');
+  assert.equal(reconciled.budget, state.budget - BigInt(bytes.length));
+  assert.equal(reconciled.copies[0].destination.state, 'DELETED');
+  assert.equal(reconciled.copies[0].destination.objects[0].state, 'DELETED');
+  assert.equal(f.removes.length, 1);
   assert.ok(!f.objects.has(copy.destination.objects[0].object_key));
 });
 
@@ -169,7 +168,7 @@ test('owner, membership, SOOP, original revision, source asset and moderation ch
   }
 });
 
-test('expired generation after PUT rolls back READY; retry uses a new destination and retains unresolved orphan reservation', async t => {
+test('expired generation after PUT rolls back READY; retry uses a new destination and acknowledged orphan is cleaned', async t => {
   const f = await fixture(t), source = await f.source(), publication = await f.request(source.messageId), first = await f.claim(publication.publicationId);
   const baseline = await f.inspect(publication.publicationId);
   f.hooks.put = () => f.expire(first); assert.equal(await f.worker.processPublication(first), 'lease_lost');
@@ -179,9 +178,9 @@ test('expired generation after PUT rolls back READY; retry uses a new destinatio
   const current = (await f.inspect(publication.publicationId)).copies[0]; assert.notEqual(old.destination_asset_id, current.destination_asset_id);
   assert.notEqual(f.puts[0], f.puts[1]); assert.equal(await f.worker.processPublication(first), 'lease_lost');
   await f.age(old.destination_asset_id); await f.cleanup(old.destination_asset_id);
-  assert.equal((await f.inspect(publication.publicationId)).budget - baseline.budget, 2n * BigInt(bytes.length));
+  assert.equal((await f.inspect(publication.publicationId)).budget - baseline.budget, BigInt(bytes.length));
   const retained = await f.txs.read(tx => tx.prisma.media_assets.findUnique({ where: { id: old.destination_asset_id }, select: { state: true, reserved_bytes: true } }));
-  assert.equal(retained.state, 'DELETING'); assert.equal(retained.reserved_bytes, BigInt(bytes.length));
+  assert.equal(retained.state, 'DELETED'); assert.equal(retained.reserved_bytes, 0n);
   assert.ok(f.objects.has(current.destination.objects[0].object_key));
   const original = await f.txs.read(tx => tx.prisma.media_assets.findUnique({ where: { id: source.assets[0] }, select: { state: true, deleted_at: true } }));
   assert.deepEqual(original, { state: 'READY', deleted_at: null });
@@ -285,7 +284,7 @@ test('copy cleanup never waits on room membership after acquiring owner and asse
   await locked.wait;
   let timer;
   try {
-    assert.equal(await Promise.race([f.cleanup(assetId), new Promise(resolve => { timer = setTimeout(() => resolve('room-lock-inversion'), 1500); })]), 'completed');
+    assert.equal(await Promise.race([f.cleanup(assetId), new Promise(resolve => { timer = setTimeout(() => resolve('room-lock-inversion'), 1500); })]), 'progress');
   } finally { clearTimeout(timer); unlock.release(); await holder; }
 });
 
