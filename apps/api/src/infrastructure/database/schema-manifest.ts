@@ -21,4 +21,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920095340_m10_purge_runtime_discovery', checksum: '4d8b2c9be35b665942e1f4dccc396b0ec3ac8e45574ab03b88adb88aa7bbb978' },
   { name: '20260920104110_m10_account_content_media', checksum: '8e26e053d3245ed96d253759a6bfb4488ab5297d0f0c4e2ee9bf1df103ee7aca' },
   { name: '20260920105633_apple_identity_lifecycle', checksum: 'de0799c31a68a38512194da77ecd2aaa94b43940e595a6f78e888540321e3ba8' },
+  { name: '20260920111123_moderation_report_block', checksum: '37cf4a1bc473baf2165b5f3477efa7e64ae358b9483d1da2dd9c7e1f0d33c0ea' },
 ];
