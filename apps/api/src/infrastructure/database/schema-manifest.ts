@@ -11,4 +11,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920000246_m08_media_policy_avatar', checksum: 'b3392dd2d016799d1acbaf2d8ff405297eb3daab873d1f191eb6be4af69a1bcc' },
   { name: '20260920005953_m08_stickers_publication_media', checksum: '95517a068895e4b1322dafe3ae89c9f44e399bb37fe89a4da5e3697a1d100d33' },
   { name: '20260920010031_m08_sticker_audit', checksum: '2952d64e7bdc08b5f82b02bcd56d23cb06d2158ddf67059e175a60bbb4aeda39' },
+  { name: '20260920040620_native_session_transport', checksum: 'd81fbb42616dc0a43373a0adfe8a04c1e7960780b8006aaa979f9f4047f764f5' },
 ];

@@ -18,8 +18,9 @@ export class AuthController {
   @Post('logout')
   async logout(@Req() request: Request, @Res() response: Response): Promise<void> {
     object(request.body, []);
-    await this.auth.logout(readCommandCredentials(request, this.config));
-    response.clearCookie(cookieName(this.config, 'session'), options(this.config));
+    const credentials = readCommandCredentials(request, this.config);
+    await this.auth.logout(credentials);
+    if (credentials.transport !== 'NATIVE') response.clearCookie(cookieName(this.config, 'session'), options(this.config));
     response.status(204).end();
   }
 
