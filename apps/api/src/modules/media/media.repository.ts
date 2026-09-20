@@ -78,6 +78,9 @@ export class MediaRepository {
   copies(tx: Transaction, assetId: string) {
     return tx.prisma.publication_media.findMany({ where: { destination_asset_id: assetId }, select: { id: true } });
   }
+  catalogReference(tx: Transaction, assetId: string) {
+    return tx.prisma.sticker_catalog.findUnique({ where: { asset_id: assetId }, select: { id: true } });
+  }
   object(tx: Transaction, assetId: string, variant: string) {
     return tx.prisma.media_objects.findMany({ where: { asset_id: assetId, variant, state: 'READY' }, select: { object_key: true } });
   }

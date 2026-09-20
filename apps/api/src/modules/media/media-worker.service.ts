@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { MediaWorkerRepository } from './media-worker.repository.js';
 import { JobsCoreService } from '../jobs/jobs-core.service.js';
 import { AccessService } from '../access/access.service.js';
+import { MessagesCoreService } from '../messages/messages-core.service.js';
 import { MEDIA_STORE, MEDIA_PREFIX, MEDIA_DECODER } from './media.tokens.js';
 import { randomUUID } from 'node:crypto';
 import { Transactions } from '../../infrastructure/database/transactions.js';
@@ -21,7 +22,7 @@ interface TransformAttempt { assetId: string; objectId: string; key: string; inp
 
 @Injectable()
 export class MediaWorkerService {
-  constructor(@Inject(Transactions) private readonly transactions: Transactions, @Inject(MEDIA_STORE) private readonly store: MediaStore, @Inject(MEDIA_DECODER) private readonly decoder: ImageDecoder, @Inject(MEDIA_PREFIX) private readonly prefix: string, @Inject(MediaWorkerRepository) private readonly repository: MediaWorkerRepository, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(AccessService) private readonly access: AccessService) {}
+  constructor(@Inject(Transactions) private readonly transactions: Transactions, @Inject(MEDIA_STORE) private readonly store: MediaStore, @Inject(MEDIA_DECODER) private readonly decoder: ImageDecoder, @Inject(MEDIA_PREFIX) private readonly prefix: string, @Inject(MediaWorkerRepository) private readonly repository: MediaWorkerRepository, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(AccessService) private readonly access: AccessService, @Inject(MessagesCoreService) private readonly messages: MessagesCoreService) {}
   private async finish(tx: Transaction, lease: JobLease): Promise<void> { if (!await this.jobs.complete(tx, lease)) throw new StaleMediaLease(); }
   private async assetLock(tx: Transaction, assetId: string) {
     const [reference] = await this.repository.reference(tx, assetId);
@@ -105,6 +106,18 @@ export class MediaWorkerService {
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 240000);
     let decoded: DecodedMedia | undefined;
     try {
+      if (lease.purpose !== 'MEDIA' || !lease.resourceId) throw new JobFailure('INVALID_RESOURCE', true);
+      // Run before asset-owner locks and before the DELETED early return. Large
+      // revocations fan out in durable, fenced one-room batches without an asset
+      // -> room lock inversion or relying on a live worker's memory.
+      const invalidated = await this.transactions.write(async tx => {
+        const progress = await this.messages.invalidateRevokedSticker(tx, lease.resourceId!);
+        if (!progress) return false;
+        await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: lease.resourceId!, dedupeKey: digest(`sticker-invalidation:${lease.resourceId}:${progress}`) });
+        await this.finish(tx, lease);
+        return true;
+      });
+      if (invalidated) return 'completed';
       const attempt = await this.transactions.write(tx => this.prepareMedia(tx, lease));
       if (attempt === 'completed') return 'completed';
       if (attempt === 'cleanup') { await this.cleanupMedia(lease, controller.signal); return 'completed'; }

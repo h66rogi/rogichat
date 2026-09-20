@@ -5,12 +5,13 @@
 **제1원칙: meloming-ios/android에서 가능한 구현을 최대한 가져와 재사용한다.**
 화면·기능 흐름·공통 기반까지 적용하며, 멜로밍 채팅 UX는 제외한다.
 사용자의 최신 보정에 따라 QA에도 **실제 출시용 MVP와 같은 제품 구성**을 사용한다.
-즉시 목표는 기존 미리보기 중심 구성을 이 원칙으로 교체하는 것이며, 실제 서비스의 첫
-통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
+이 원칙을 적용한 실제 코드·검증 범위는 [제품 구성 교체 기록](mobile-product-progress.md)에 있다.
+실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
 > [공통 기반 기록](mobile-common-foundation-progress.md)은 이전 구현의 증거다.
-> 그 안의 QA 미리보기 배포 허용·샘플 계정 선택 정책은 폐기한다. 앱 코드의 교체는 아직 남아 있다.
+> 그 안의 QA 미리보기 배포 허용·샘플 계정 선택 정책은 폐기했고 해당 제품 진입 코드를 제거했다.
+> 네이티브 인증·통신 연결과 실기기 사용성 검증은 아직 남아 있다.
 > 실행 정책은 이 통합 계획을 따른다. 재사용 파일/심볼 근거는
 > [공통 기반 조사](mobile-reuse-audit.md), 다관점 판정은 [리뷰 기록](mobile-implementation-review.md)에 있다.
 
@@ -23,13 +24,13 @@
 
 | 영역 | 조사 시점 증거 | 계획에서의 취급 |
 |---|---|---|
-| 네이티브 앱 | `4e222de`까지 QA 미리보기·역할 선택, prod SignedOut 고정 shell 구현 | 일부 공통 코드만 유지 후보. 제품 구성은 교체 대상이며 MB02 완료로 간주하지 않음. 실제 세션/저장/통신은 미구현 |
+| 네이티브 앱 | [제품 구성 교체](mobile-product-progress.md): 멜로밍 화면·탐색·상태 구현 재사용, QA/prod 공통 진입, 합성 UI 제거 | MB02a–c 코드/OS 작업 진행. 실제 native 인증·영속 저장·통신과 실기기 gate가 남아 MB02 전체 완료로 간주하지 않음 |
 | 빌드/배포 | QA/prod 분리, 서명 도구, Firebase/TestFlight 시험과 테스터 그룹 연결 | 기존 [배포 절차](mobile-test-distribution.md) 재사용 |
 | M03 인증 | 웹 쿠키/Origin/CSRF, `/auth/session`, SOOP start/callback | 네이티브 handoff·Apple 인증은 미구현 |
 | M04–M07 | 방·프로필·텍스트·삭제·sync·힌트·공개·반응과 합성 fixture | HTTP 계약을 확인하며 활용; live 성공과 구별 |
 | 계약 패키지 | health JSON, JS sync/interaction 참조 구현 | OpenAPI·Kotlin/Swift 생성 DTO·실제 SQLite adapter는 아직 없음 |
 | M08 | 미디어 관련 파일·migration·기존 DTO가 작업트리에서 수정 중 | 미커밋 형태를 확정 API로 생성하거나 복사하지 않음 |
-| 백엔드 구조 | 평면 소스와 수동 조립을 feature module/DTO/projector로 보정하는 동시 작업 | 공개 HTTP 동작 보존과 구조 보정 완료를 서버 변경의 선행 확인 사항으로 둠 |
+| 백엔드 구조 | QA `0429d71`에 feature module/DTO/projector 보정 병합 | 이 기준의 인증·프로필 DTO를 읽어 앱 경계를 맞춤. 네이티브 인증 API 완료나 실제 운영 반영을 의미하지 않음 |
 
 근거: [M03](backend-m03-implementation.md), [M04](backend-m04-implementation.md),
 [M05](backend-m05-implementation.md), [M06](backend-m06-implementation.md),
@@ -409,12 +410,14 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 | MB02c — OS 알림·링크·lifecycle | 원본 알림 설정·권한·앱 복귀 흐름과 테스트를 재사용하고 기존 결함을 보정. 안전한 parser/pending intent, 실제 OS 상태와 서버 선호/등록 분리 | MB02b; OS 설정 복귀, cold/warm/중복/TTL/환경/계정 변경 시험. 합성 provider는 테스트 전용. 실제 등록/푸시 성공은 MB07까지 보류 | 서버 계약 없이 가능한 실제 OS 동작 완성; 제품 UI에 서버 미연동/provider 진단 행을 추가하지 않음 |
 | MB02d — 서비스 adapter·영속 기반 | 원본 APIClient/오류·보호 저장의 적용 가능한 코드를 수정 재사용. C01/07/08에 맞춘 SessionManager와 계정별 저장소, Room/GRDB migration | 확정된 MB01 계약만 연결. 재작성 부분은 원본과 계약 불일치 근거 기록. 원본 refresh/WebView token/민감 logging 금지. 실제 SQLite·secure store 오류·취소·generation 시험 | 미확정 adapter는 port/fixture만, 다른 제품 코드 진행 |
 
-현재 `4e222de`에는 일부 공통 UI 추출·shell·OS 조회·route queue와 QA 미리보기가 있다.
-[기존 기록](mobile-common-foundation-progress.md)의 구현 사실은 남기되, 사용자 보정에 따라
-**제품 구성과 재사용 범위에 대한 MB02 완료 판정은 다시 검증한다.** QA 상태 선택기를 더
-확장하거나 미리보기 화면의 문구만 교체하는 작업으로 이 보정을 완료하지 않는다.
+`4e222de`까지의 [기존 기록](mobile-common-foundation-progress.md)은 이력으로 보존한다.
+후속 [제품 구성 교체](mobile-product-progress.md)는 공통 제품 진입, 실제 NavHost/MainTab,
+More/MyPage·프로필·알림 화면 재사용, 세션별 작업 폐기와 양 환경 fixture 제외 검사를 반영했다.
+실제 이식과 신규 작성 사유는 [ledger R09–R22](mobile-reuse-audit.md)에 기록한다.
+**MB02 전체 완료에는 native adapter·영속 기반·실기기 gate가 여전히 필요하다.**
 
-다음 순서로 기존 MB02를 보정한다. 별도의 경쟁 계획이나 단계 번호를 만들지 않는다.
+다음 순서로 기존 MB02를 보정한다. 1–3의 코드 반영과 빌드/상태 검사는 위 진행 기록을
+따르며, 3의 실기기 접근성 및 4의 실제 서비스 연결을 계속한다. 별도의 경쟁 단계 번호를 만들지 않는다.
 
 1. **원본과 대상 대응 확정:** audit의 화면/기능별로 원본 View·상태 모델·라우팅·OS 연결·
    테스트를 함께 읽는다. 재사용/수정/제외/신규 사유와 대상 파일을 기록한다. 원본이 가진
@@ -430,8 +433,8 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
    MB03에 연결한다. 필수 인증이 막혔다면 실제 이용 가능한 MVP 완료/로그인 성공으로
    보고하지 않는다. 채팅은 별도 설계로 MB04 이후 이어간다.
 
-각 항목은 실제 코드 검증과 배포 경계 교체가 끝나야 완료다. **이번 원칙/계획 수정만으로
-기존 설치 앱이 수정되거나 새 버전이 배포된 것은 아니다.**
+각 항목은 실제 코드 검증과 배포 경계 교체가 끝나야 완료다. 배포 여부는 문서나 빌드 성공만으로
+판정하지 않고 해당 source SHA의 TestFlight/Firebase 처리 및 승인된 테스터 접근을 확인한다.
 표의 gate는 **단계 최종 완료 기준**이다. MB02a의 코드·컴파일·상태/격리 검사를 통과한
 단위는 실기기 접근성 검사가 남아도 MB02b/c 조립을 계속할 수 있다. 미확인 기기·스크린리더
 항목은 ledger에 남기고 사용성/기능 QA 완료나 공개 출시 완료로 보고하지 않는다. 제한을

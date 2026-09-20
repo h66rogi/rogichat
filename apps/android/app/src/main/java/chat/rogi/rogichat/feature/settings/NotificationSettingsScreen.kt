@@ -1,11 +1,19 @@
 package chat.rogi.rogichat.feature.settings
 
 import android.content.ActivityNotFoundException
-import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import chat.rogi.rogichat.core.design.*
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.Bell
 
+// NotificationSettingsScreen's system settings action, separators and error handling reused.
+// Server preference toggle is omitted until it has an implemented repository; OS state stays factual.
 @Composable
 fun NotificationSettingsScreen() {
     val context = LocalContext.current
@@ -19,32 +27,34 @@ fun NotificationSettingsScreen() {
         try { state = state.finish(ticket, system.read()) }
         catch (_: SecurityException) { state = state.fail(ticket) }
     }
-    LaunchedEffect(epoch) { if (state.observing) refresh() }
+    LaunchedEffect(epoch) { refresh() }
     DisposableEffect(Unit) { onDispose { state = state.cancel() } }
     NotificationSettingsContent(state, openFailure, onRead = refresh, onOpen = {
-        refresh()
         try { system.openSettings(); openFailure = null }
-        catch (_: ActivityNotFoundException) { openFailure = "시스템 설정을 열지 못했어요. 기기 설정에서 로기챗을 찾아주세요." }
-        catch (_: SecurityException) { openFailure = "기기에서 설정 화면 접근을 허용하지 않았어요." }
+        catch (_: ActivityNotFoundException) { openFailure = "설정을 열지 못했어요. 기기 설정에서 로기챗을 선택해 주세요." }
+        catch (_: SecurityException) { openFailure = "기기에서 설정 화면을 열 수 없어요." }
     })
 }
 
 @Composable
 fun NotificationSettingsContent(state: NotificationReadState, openFailure: String? = null,
                                 onRead: (() -> Unit)? = null, onOpen: (() -> Unit)? = null) {
-    val status = when {
-        state.reading -> "알림 상태를 확인하는 중이에요"
-        state.failed -> "기기 알림 상태를 확인하지 못했어요. 다시 확인해 주세요."
-        else -> state.snapshot?.description ?: "아직 확인하지 않았어요"
+    Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Icon(PhosphorIcons.Regular.Bell, null, Modifier.size(32.dp), MaterialTheme.colorScheme.primary)
+        Text("이 기기의 알림", style = MaterialTheme.typography.titleLarge)
+        if (state.reading) CircularProgressIndicator(Modifier.size(24.dp))
+        else Text(if (state.failed) "알림 상태를 확인하지 못했어요." else when (state.snapshot?.authorization) {
+            NotificationAuthorization.ALLOWED -> "기기에서 로기챗 알림을 허용하고 있어요."
+            NotificationAuthorization.DENIED -> "기기에서 로기챗 알림이 꺼져 있어요."
+            else -> "기기 설정에서 알림 허용 상태를 확인할 수 있어요."
+        }, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val blocked = state.snapshot?.blockedChannels ?: 0
+        if (blocked > 0) Text("일부 알림 유형이 꺼져 있어요. 기기 설정에서 확인해 주세요.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (state.failed && onRead != null) TextButton(onClick = onRead) { Text("다시 확인") }
     }
-    SettingsSection("이 기기의 OS 설정") {
-        SettingsRow("알림 권한 확인", status, enabled = onRead != null && !state.reading, onClick = onRead)
-        SettingsRow("시스템 알림 설정 열기", "기기 설정을 직접 확인해요", enabled = onOpen != null, onClick = onOpen)
-    }
-    if (openFailure != null) Text(openFailure)
-    SettingsSection("서비스 연결") {
-        SettingsRow("알림 선호 설정", "서버 미연동 · 저장되지 않아요", enabled = false)
-        SettingsRow("기기 등록", "푸시 제공자 미연동 · 등록되지 않았어요", enabled = false)
-    }
-    Text("권한을 확인해도 푸시 수신이 활성화되지는 않아요. 권한 요청이나 기기 등록을 자동 실행하지 않아요.")
+    SettingsDivider()
+    if (onOpen != null) SettingsRow("기기 알림 설정", "이 기기에서 제공하는 로기챗 알림 설정을 확인해요.", onClick = onOpen)
+    if (openFailure != null) Text(openFailure, color = MaterialTheme.colorScheme.error,
+        modifier = Modifier.padding(20.dp))
 }
