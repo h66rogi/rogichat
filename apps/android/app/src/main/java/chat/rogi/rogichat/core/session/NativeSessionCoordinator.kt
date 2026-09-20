@@ -1,6 +1,8 @@
 package chat.rogi.rogichat.core.session
 
 import chat.rogi.rogichat.core.auth.*
+import chat.rogi.rogichat.core.rooms.*
+import chat.rogi.rogichat.feature.rooms.RoomsRepository
 import chat.rogi.rogichat.core.navigation.ShellAccess
 import chat.rogi.rogichat.core.network.*
 import chat.rogi.rogichat.feature.settings.*
@@ -26,7 +28,8 @@ import kotlinx.coroutines.sync.withLock
  */
 class NativeSessionCoordinator(private val store: CredentialStore, private val api: NativeApi,
                                private val clock: Clock = Clock.systemUTC(),
-                               private val auth: SoopAuthSupport? = null) : SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository {
+                               private val auth: SoopAuthSupport? = null,
+                               private val roomsStore: RoomsStore? = null) : SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, RoomsRepository {
     private val lock = Mutex()
     private val mutable = MutableStateFlow(SessionSnapshot(access = ShellAccess.RESTORING))
     val session = mutable.asStateFlow()
@@ -38,6 +41,9 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     private var activeRefresh: Long? = null
     private var serverGeneration: String? = null
     private var profileRevision = 0L
+    private var accountPartition: AccountPartition? = null
+    private var roomRevision = 0L
+    private var roomIdentity: RoomSyncIdentity? = null
     private val mutableAuth = MutableStateFlow(AuthUiState())
     override val authState = mutableAuth.asStateFlow()
     private val mutableLaunch = MutableStateFlow<BrowserLaunch?>(null)
@@ -58,12 +64,13 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     override suspend fun linkSoop() = beginAuthentication(AuthIntent.LINK)
     override suspend fun closeAccount() = unavailable()
     private fun unavailable(): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
-    fun services() = ProductServices(session, this, this, auth = this.takeIf { auth != null }, notificationPreferences = this)
+    fun services() = ProductServices(session, this, this, auth = this.takeIf { auth != null }, notificationPreferences = this, rooms = this.takeIf { roomsStore != null })
 
     private class Ticket(val epoch: Long, val credential: NativeCredential, val accountId: String?, val profileRevision: Long)
     private fun current(ticket: Ticket) = epoch == ticket.epoch && credential?.token == ticket.credential.token
     private fun publish(access: ShellAccess, account: AccountSummary? = null, notice: String? = null, storageFailure: Boolean = false) {
-        mutable.value = SessionSnapshot(access, account, epoch, notice, expiresAt = credential?.expiresAt.takeIf { account != null }, storageFailure = storageFailure)
+        mutable.value = SessionSnapshot(access, account, epoch, notice, expiresAt = credential?.expiresAt.takeIf { account != null }, storageFailure = storageFailure,
+            accountPartition = accountPartition.takeIf { account != null })
     }
     private suspend fun clearLocked() {
         epoch++
@@ -71,6 +78,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         credential = null
         loaded = true
         serverGeneration = null
+        accountPartition = null
         removalPending = true
         publish(ShellAccess.RESTORING)
         withContext(NonCancellable) {
@@ -78,12 +86,13 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 // Credential clear changes its durable stamp even if pending erase fails.
                 var pendingFailure: Exception? = null
                 try { invalidateAuthLocked() } catch (failure: Exception) { pendingFailure = failure }
+                try { purgeRoomsLocked() } catch (failure: Exception) { pendingFailure = failure }
                 store.clear()
                 pendingFailure?.let { throw it }
                 removalPending = false
                 publish(ShellAccess.SIGNED_OUT)
             } catch (failure: Exception) {
-                publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = failure is CredentialStoreException)
+                publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = failure is CredentialStoreException || failure is RoomsStorageException)
                 throw failure
             }
         }
@@ -97,10 +106,10 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
             if (removalPending) { clearLocked(); return@outcome }
             if (!loaded) {
                 try { credential = store.read(); loaded = true }
-                catch (failure: Exception) { publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = failure is CredentialStoreException); throw failure }
+                catch (failure: Exception) { publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = failure is CredentialStoreException || failure is RoomsStorageException); throw failure }
             }
             val saved = credential
-            if (saved == null) { publish(ShellAccess.SIGNED_OUT); return@outcome }
+            if (saved == null) { purgeRoomsLocked(); publish(ShellAccess.SIGNED_OUT); return@outcome }
             if (!saved.expiresAt.isAfter(clock.instant())) { clearLocked(); return@outcome }
             requestId = ++refreshId
             activeRefresh = requestId
@@ -123,14 +132,17 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                         avatarAssetId = mutable.value.account?.avatarAssetId)
                 } else projection.account
                 if (serverGeneration != projection.serverGeneration || mutable.value.account?.id != projection.account.id ||
-                    mutable.value.access != projection.access) epoch++
+                    mutable.value.access != projection.access || accountPartition != projection.accountPartition) {
+                    epoch++; publish(ShellAccess.RESTORING); purgeRoomsLocked()
+                }
                 credential = updated
                 serverGeneration = projection.serverGeneration
+                accountPartition = projection.accountPartition
                 publish(projection.access, account)
             }
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) { lock.withLock {
-                if (current(ticket) && mutable.value.access == ShellAccess.RESTORING) { epoch++; publish(ShellAccess.RETRYABLE_FAILURE) }
+                if (current(ticket) && mutable.value.access == ShellAccess.RESTORING) { epoch++; publish(ShellAccess.RETRYABLE_FAILURE); purgeRoomsLocked() }
             } }
             throw cancelled
         }
@@ -143,7 +155,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                         (failure is IOException || failure is ApiException && failure.statusCode in setOf(408, 429, 500, 502, 503, 504))) {
                         mutable.value = mutable.value.copy(notice = "계정 확인을 완료하지 못했어요. 연결을 확인하고 다시 시도해 주세요.", validationNeedsRetry = true)
                     }
-                    else { epoch++; publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = failure is CredentialStoreException) }
+                    else { epoch++; publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = failure is CredentialStoreException || failure is RoomsStorageException); purgeRoomsLocked() }
                 }
             }
             throw failure
@@ -251,8 +263,9 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 if (current(ticket)) {
                     if (failure.statusCode == 401) clearLocked()
                     else if (failure.statusCode == 403 && failure.code == "SOOP_LINK_REQUIRED") {
-                        epoch++
-                        mutable.value.account?.let { publish(ShellAccess.LINK_REQUIRED, it.copy(soopConnected = false)) }
+                        val own = mutable.value.account
+                        epoch++; publish(ShellAccess.RESTORING); purgeRoomsLocked()
+                        own?.let { publish(ShellAccess.LINK_REQUIRED, it.copy(soopConnected = false)) }
                         refresh = true
                     }
                 }
@@ -267,6 +280,93 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
             clearLocked()
         }
     }
+
+    private suspend fun purgeRoomsLocked() {
+        roomRevision++; roomIdentity = null
+        try { withContext(NonCancellable) { roomsStore?.clear() } }
+        catch (failure: Exception) { publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = true); throw failure }
+    }
+    private fun checkRoomTicket(ticket: Ticket, scope: RoomsAccountScope, revision: Long) {
+        if (!current(ticket) || epoch != scope.localEpoch || mutable.value.account?.id != scope.accountId ||
+            mutable.value.access != ShellAccess.READY || accountPartition != scope.partition || roomRevision != revision)
+            throw CancellationException("room_scope_changed")
+        if (!ticket.credential.expiresAt.isAfter(clock.instant())) throw CancellationException("session_expired")
+    }
+    override suspend fun refreshRooms(scope: RoomsAccountScope): Result<RoomDirectory> = roomOperation(scope, start = true) { ticket, revision ->
+        val storage = requireNotNull(roomsStore)
+        var resets = 0
+        var complete = false
+        var cursor: SyncCursor? = null
+        var identity = roomCommit(ticket, scope, revision) { validate -> storage.begin(scope, validate).also { roomIdentity = it } }
+        var pages = 0
+        while (!complete) {
+            if (++pages > 101) throw InvalidResponse()
+            lock.withLock { checkRoomTicket(ticket, scope, revision) }
+            currentCoroutineContext().ensureActive()
+            val page = RoomsApi(api).manifest(ticket.credential.token, ManifestRequest(identity.deviceId, identity.cacheId, cursor))
+            roomCommit(ticket, scope, revision) { validate -> storage.manifest(scope, identity, cursor, page, validate) }
+            when (page) {
+                MembershipPage.Reset -> {
+                    if (++resets > 1) throw RoomsResetRequired()
+                    identity = roomCommit(ticket, scope, revision) { validate -> storage.begin(scope, validate).also { roomIdentity = it } }
+                    cursor = null
+                }
+                is MembershipPage.Success -> { complete = page.complete; cursor = page.next }
+            }
+        }
+        lock.withLock { checkRoomTicket(ticket, scope, revision) }
+        currentCoroutineContext().ensureActive()
+        val page = RoomsApi(api).discover(ticket.credential.token, null)
+        roomCommit(ticket, scope, revision) { validate -> storage.discovery(scope, identity, null, page, validate) }
+    }
+    override suspend fun moreRooms(scope: RoomsAccountScope, continuation: DiscoveryContinuation): Result<RoomDirectory> =
+        roomOperation(scope, start = false) { ticket, revision ->
+            val identity = lock.withLock {
+                checkRoomTicket(ticket, scope, revision)
+                roomIdentity?.takeIf { it.cacheId == continuation.cacheId } ?: throw CancellationException("room_cycle_changed")
+            }
+            currentCoroutineContext().ensureActive()
+            val page = RoomsApi(api).discover(ticket.credential.token, continuation.after)
+            roomCommit(ticket, scope, revision) { validate ->
+                requireNotNull(roomsStore).discovery(scope, identity, continuation.after, page, validate)
+            }
+        }
+    private suspend fun <T> roomCommit(ticket: Ticket, scope: RoomsAccountScope, revision: Long,
+                                       action: suspend (() -> Unit) -> T): T = lock.withLock {
+        checkRoomTicket(ticket, scope, revision)
+        // Keep the lifecycle mutex through SQLite COMMIT. Logout/credential rotation linearizes after it.
+        val result = action { checkRoomTicket(ticket, scope, revision) }
+        if (!ticket.credential.expiresAt.isAfter(clock.instant())) { clearLocked(); throw CancellationException("session_expired") }
+        checkRoomTicket(ticket, scope, revision)
+        result
+    }
+    private suspend fun <T> roomOperation(scope: RoomsAccountScope, start: Boolean,
+                                          operation: suspend (Ticket, Long) -> T): Result<T> = outcome {
+        currentCoroutineContext().ensureActive()
+        val (ticket, revision) = lock.withLock {
+            val saved = credential ?: throw CancellationException("room_scope_changed")
+            if (!saved.expiresAt.isAfter(clock.instant())) { clearLocked(); throw CancellationException("session_expired") }
+            val ticket = Ticket(epoch, saved, scope.accountId, profileRevision)
+            checkRoomTicket(ticket, scope, roomRevision)
+            if (start) roomRevision++
+            ticket to roomRevision
+        }
+        try { operation(ticket, revision) }
+        catch (failure: Exception) {
+            withContext(NonCancellable) { lock.withLock {
+                if (current(ticket) && roomRevision == revision) {
+                    if (!ticket.credential.expiresAt.isAfter(clock.instant()) || failure is ApiException && failure.statusCode == 401) clearLocked()
+                    else if (failure is ApiException && failure.statusCode == 403 && failure.code == "SOOP_LINK_REQUIRED") {
+                        val own = mutable.value.account
+                        epoch++; publish(ShellAccess.RESTORING); purgeRoomsLocked()
+                        own?.let { publish(ShellAccess.LINK_REQUIRED, it.copy(soopConnected = false)) }
+                    }
+                }
+            } }
+            throw failure
+        }
+    }
+
     private suspend fun invalidateAuthLocked(problem: AuthProblem? = null) {
         authRevision++
         attempt = null; pending = null; pendingLoaded = true; mutableLaunch.value = null
@@ -299,8 +399,9 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
             }
             try { invalidateAuthLocked() }
             catch (failure: Exception) { mutableAuth.value = AuthUiState(error = AuthProblem.STORAGE); throw failure }
-            epoch++
-            mutable.value = mutable.value.copy(generation = epoch)
+            val priorScope = mutable.value
+            epoch++; publish(ShellAccess.RESTORING); purgeRoomsLocked()
+            mutable.value = priorScope.copy(generation = epoch)
             val proof = support.createProof()
             val stamp = try { store.clearStamp() }
                 catch (failure: Exception) { mutableAuth.value = AuthUiState(error = AuthProblem.STORAGE); throw failure }
@@ -445,6 +546,8 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 require(!response.credential.expiresAt.isAfter(clock.instant().plusSeconds(604_860)))
                 if (ticket.intent == AuthIntent.LINK) require(response.session.account.id == ticket.accountId)
                 withContext(NonCancellable) {
+                    // Purge can fail. Complete it before installing the newly issued credential.
+                    publish(ShellAccess.RESTORING); purgeRoomsLocked()
                     try { store.write(response.credential) }
                     catch (failure: Exception) {
                         try { clearLocked() } catch (_: Exception) { /* Durable failure remains retryable. */ }
@@ -457,6 +560,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                     }
                     credential = response.credential; loaded = true; removalPending = false
                     serverGeneration = response.session.serverGeneration; epoch++; profileRevision++
+                    accountPartition = response.session.accountPartition
                     attempt = null; authRevision++; mutableAuth.value = AuthUiState()
                     publish(response.session.access, response.session.account)
                     installed = true
@@ -466,7 +570,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         catch (failure: Exception) {
             authFailure(ticket, when (failure) {
                 is ApiException -> SoopAuthContract.problem(failure.code, failure.statusCode)
-                is CredentialStoreException -> AuthProblem.STORAGE
+                is CredentialStoreException, is RoomsStorageException -> AuthProblem.STORAGE
                 else -> AuthProblem.LOST_RESPONSE
             })
             if (ticket.intent == AuthIntent.LINK && failure is ApiException && failure.code == "LINK_SESSION_CHANGED") {

@@ -1,4 +1,6 @@
 plugins {
+    alias(libs.plugins.ksp)
+    alias(libs.plugins.room)
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
@@ -90,7 +92,11 @@ dependencyLocking {
     lockAllConfigurations()
     lockMode = LockMode.STRICT
 }
+room { schemaDirectory("$projectDir/src/androidTest/schemas") }
+
 dependencies {
+    implementation(libs.room.runtime)
+    ksp(libs.room.compiler)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)

@@ -28,6 +28,8 @@ enum class ApiRoute(val path: String) { SESSION("auth/session"), LOGOUT("auth/lo
 class ApiException(val statusCode: Int, val code: String?) : Exception("api_request_failed")
 class InvalidResponse : Exception("invalid_response")
 interface NativeApi {
+    suspend fun getRooms(token: String, after: RoomId?): String = throw IllegalStateException("operation_unavailable")
+    suspend fun getManifest(token: String, query: ManifestRequest): String = throw IllegalStateException("operation_unavailable")
     suspend fun put(route: ApiRoute, token: String, body: String): String = throw IllegalStateException("operation_unavailable")
     suspend fun getReadState(room: ReadStateId, token: String): String = throw IllegalStateException("operation_unavailable")
     suspend fun putReadState(room: ReadStateId, token: String, body: String): String = throw IllegalStateException("operation_unavailable")
@@ -46,6 +48,11 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         followRedirects = false
         install(HttpTimeout) { requestTimeoutMillis = 20_000; connectTimeoutMillis = 10_000; socketTimeoutMillis = 20_000 }
     }
+    override suspend fun getRooms(token: String, after: RoomId?): String = call(HttpMethod.Get, "rooms", token,
+        query = after?.let { mapOf("after" to it.value) }.orEmpty())
+    override suspend fun getManifest(token: String, query: ManifestRequest): String = call(HttpMethod.Get, "sync", token,
+        query = buildMap { put("deviceId", query.deviceId.value); put("cacheId", query.cacheId.value); put("limit", "100")
+            query.cursor?.let { put("cursor", it.value) } })
     override suspend fun get(route: ApiRoute, token: String): String = call(HttpMethod.Get, route.path, token)
     override suspend fun patch(route: ApiRoute, token: String, body: String): String = call(HttpMethod.Patch, route.path, token, body)
     override suspend fun put(route: ApiRoute, token: String, body: String): String {
@@ -61,10 +68,11 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         require(route in setOf(ApiRoute.SOOP_START, ApiRoute.SOOP_EXCHANGE))
         return call(HttpMethod.Post, route.path, token, body, authEndpoint = true)
     }
-    private suspend fun call(method: HttpMethod, path: String, token: String?, body: String? = null, empty: Boolean = false, authEndpoint: Boolean = false): String {
+    private suspend fun call(method: HttpMethod, path: String, token: String?, body: String? = null, empty: Boolean = false, authEndpoint: Boolean = false, query: Map<String, String> = emptyMap()): String {
         require(token == null && authEndpoint || token != null && token.matches(Regex("[A-Za-z0-9_-]{43}")))
         return client.prepareRequest(baseUrl + path) {
             this.method = method
+            url { query.forEach { (key, value) -> parameters.append(key, value) } }
             if (token != null) headers.append(HttpHeaders.Authorization, "Bearer $token")
             headers.append("X-Rogi-Client", "android")
             headers.append(HttpHeaders.Accept, "application/json")

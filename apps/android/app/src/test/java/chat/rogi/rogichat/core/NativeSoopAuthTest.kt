@@ -78,13 +78,14 @@ private class AuthApi : NativeApi {
     override suspend fun postWithoutResponse(route: ApiRoute, token: String, body: String) { assertEquals(ApiRoute.LOGOUT, route); revoked.add(token) }
 }
 private class AuthFixture(val store: AuthStore = AuthStore(), val pending: AuthPendingStore = AuthPendingStore(),
-                          val api: AuthApi = AuthApi(), val clock: AuthClock = AuthClock()) {
+                          val api: AuthApi = AuthApi(), val clock: AuthClock = AuthClock(),
+                          val rooms: chat.rogi.rogichat.core.rooms.RoomsStore? = null) {
     var proofs = 0
     val model = coordinator()
     fun coordinator() = NativeSessionCoordinator(store, api, clock, SoopAuthSupport(SoopAuthContract("qa"), pending) {
         val ordinal = ++proofs
         AuthProof(fingerprint("verifier-$ordinal"), fingerprint("state-$ordinal"))
-    })
+    }, rooms)
     suspend fun login(): String {
         model.restore(); assertTrue(model.startLogin(CURRENT_TERMS).isSuccess)
         return requireNotNull(pending.value).proof.state
@@ -96,6 +97,17 @@ private class AuthFixture(val store: AuthStore = AuthStore(), val pending: AuthP
 }
 
 class NativeSoopAuthTest {
+    @Test fun roomsPurgeFailureBeforeCredentialInstallEndsAuthAndRevokesOnlyNewToken() = runTest {
+        val db = RoomTestStore(); val fixture = AuthFixture(rooms = db)
+        val state = fixture.login(); db.failClear = true
+        assertTrue(fixture.model.handleCallback(callback(state)).isFailure)
+        assertNull(fixture.store.value)
+        assertFalse(fixture.model.authState.value.active)
+        assertEquals(AuthProblem.STORAGE, fixture.model.authState.value.error)
+        assertEquals(ShellAccess.RETRYABLE_FAILURE, fixture.model.session.value.access)
+        assertEquals(listOf(NEW_TOKEN), fixture.api.revoked)
+        assertTrue(fixture.pending.marked)
+    }
     @Test fun proofUsesIndependentRandom32ByteValuesAndS256() {
         val all = mutableSetOf<String>()
         repeat(20) {

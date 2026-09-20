@@ -9,6 +9,8 @@ import kotlinx.coroutines.launch
 import java.time.Instant
 import chat.rogi.rogichat.BuildConfig
 import chat.rogi.rogichat.core.network.ApiClient
+import chat.rogi.rogichat.core.network.AccountPartition
+import chat.rogi.rogichat.core.rooms.AndroidRoomsStore
 
 import chat.rogi.rogichat.core.navigation.ShellAccess
 import chat.rogi.rogichat.feature.settings.ProfileRepository
@@ -29,6 +31,7 @@ data class SessionSnapshot(
     val validationNeedsRetry: Boolean = false,
     val expiresAt: Instant? = null,
     val storageFailure: Boolean = false,
+    val accountPartition: AccountPartition? = null,
 ) {
     init {
         require(access !in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) || account != null)
@@ -80,6 +83,7 @@ class ProductServices(
             installedServices ?: NativeSessionCoordinator(
                 androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 ApiClient(BuildConfig.API_BASE_URL),
+                roomsStore = AndroidRoomsStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 auth = SoopAuthSupport(SoopAuthContract(BuildConfig.ENVIRONMENT), androidPendingAuthStore(context.applicationContext, BuildConfig.ENVIRONMENT)),
             ).services().also { installedServices = it }
         }

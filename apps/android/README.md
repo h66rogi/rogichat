@@ -34,7 +34,7 @@ claiming server logout or deleting the server account.
 The broker is still activation-gated. Actual signed App Links association and
 provider/device round trips remain external release gates; neither the manifest
 nor mocked tests establish deployment or provider success. Server 404/503/offline
-failures are displayed honestly. Apple, account deletion, rooms and chat adapters
+failures are displayed honestly. Apple, account deletion and message/chat adapters
 remain unavailable. A fresh installation has no credential entry screen or
 fixture adapter. Authoritative session 401 removes only the current session;
 LINK errors never clear a newer account. Offline logout removes the local
@@ -84,3 +84,33 @@ admission, request inversion, single-flight disable, conflict/lost-response read
 expiry and account teardown. Preferences stay in their account's feature state;
 they are not persisted in shared device preferences. Unit tests do not establish
 hosted M11 deployment, native push-provider availability or device delivery.
+
+
+MB04a room discovery and schema-v2 membership manifests use the real native API.
+The session retains the optional canonical `accountPartition`; without it, durable
+room access stays closed and never falls back to `account.userId`. Discovery pages
+are separate from membership authority: only all pages of one complete manifest
+generation replace the account's membership set. Reset, duplicate/loop cursors,
+unknown schema, stale credentials and partial/error responses cannot manufacture
+an empty or joined state. Directory rows have no unimplemented open/join action.
+
+Room 2.8.5 with KSP 2.3.12 provides an actual on-disk, no-backup database per environment
+and account partition. Staging/effects/checkpoint changes commit in one transaction
+under the session lifecycle mutex, with expiry checks before and after commit.
+Credential or partition changes hide private state before durable cleanup, and a
+failed cleanup marker prevents a cold open from reviving old authority. A fresh
+manifest is required after process restart. DB failures remain errors; no destructive
+migration fallback is configured. Versioned schema exports and isolated SQLite
+rollback/reopen tests live under `src/androidTest`. There are no message/profile,
+outbox/draft, receipt, timeline, join/leave or socket implementations in this slice.
+Source contract tests do not establish hosted schema-v2 rollout or live account success.
+
+
+The sync `deviceId` is a random installation/environment UUID created only when an
+authorized room sync begins. Its 36-byte AtomicFile under `rooms-{environment}`
+survives logout/account-cache cleanup; uninstall or app-data clearing resets it.
+It is sent in the authenticated `/v1/sync` query to bind server cursors, while
+`cacheId` rotates for every fresh manifest cycle/reset. It is not a hardware,
+advertising or push identifier. Store privacy disclosures must account for this
+identifier's off-device transmission and authenticated association; the mobile
+implementation alone does not establish server retention or ephemeral processing.
