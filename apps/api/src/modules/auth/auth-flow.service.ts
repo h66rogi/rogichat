@@ -63,6 +63,7 @@ export class AuthFlow {
           return await this.transactions.write(async tx => {
             const active = await this.repository.processing(tx, claim.id);
             if (!active) throw new ApiError('AUTH_FAILED', 400);
+            await this.identities.check(tx, identity);
             let linkUser: string | undefined;
             if (claim.intent === 'link') {
               const principal = await this.sessions.require(tx, token);

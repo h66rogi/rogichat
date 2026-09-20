@@ -6,6 +6,8 @@ import { AppModule } from '../../dist/app.module.js';
 import { WorkerModule } from '../../dist/worker.module.js';
 import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
 import { DeletionModule } from '../../dist/modules/deletion/deletion.module.js';
+import { AccountDeletionModule } from '../../dist/modules/deletion/account-deletion.module.js';
+import { IdentityGuardModule } from '../../dist/modules/auth/identity-guard.module.js';
 import { DeletionLedger } from '../../dist/modules/deletion/deletion-ledger.js';
 import { DeletionReconciler } from '../../dist/modules/deletion/deletion-reconciler.js';
 import { MessagesModule } from '../../dist/modules/messages/messages.module.js';
@@ -24,6 +26,9 @@ test('API composition keeps explicit push and deletion options distinct', () => 
   const deletion = child(child(module, MessagesModule), DeletionModule);
   assert.equal(provider(deletion, DeletionLedger).useValue, ledger);
   assert.equal(provider(deletion, DeletionReconciler), undefined);
+  const account = child(module, AccountDeletionModule);
+  assert.ok(account.imports.includes(IdentityGuardModule));
+  assert.equal(provider(child(account, DeletionModule), DeletionLedger).useValue, ledger);
   const transport = child(child(module, NotificationsModule), PushTransportModule);
   assert.equal(provider(transport, PushTransport).useFactory({}).config, push);
 });
@@ -34,6 +39,7 @@ test('worker preserves independent deletion replay alongside push handlers', () 
   const module = WorkerModule.production({ config: { environment: 'test' }, push, deletion: { ledger } });
   const deletion = child(module, DeletionModule);
   assert.equal(provider(deletion, DeletionLedger).useValue, ledger);
+  assert.ok(deletion.imports.includes(IdentityGuardModule));
   assert.deepEqual(provider(deletion, DeletionReconciler).inject.map(token => token.name), ['DeletionLedger', 'DeletionApplyService']);
   const transport = child(child(module, PushModule), PushTransportModule);
   assert.equal(provider(transport, PushTransport).useFactory({}).config, push);

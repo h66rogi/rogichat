@@ -1,3 +1,5 @@
+import { IdentityGuardRepository } from '../../dist/modules/auth/identity-guard.repository.js';
+import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.service.js';
 import { createUser } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
@@ -69,7 +71,7 @@ async function fixture(t, withHttp = false, secure = false) {
   };
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const broker = new FixtureBroker(config.broker.clientId);
-  const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), new IdentityService(new IdentityRepository()));
+  const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), new IdentityService(new IdentityRepository(), config, new IdentityGuardService(new IdentityGuardRepository())));
   let logs = '';
   if (withHttp) {
     app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { sessions, flow, config });
@@ -186,7 +188,7 @@ test('state/browser/audience binding and one-time callback claims reject tamperi
   await assert.rejects(f.flow.callback(started.request.state, code, secret()), errorCode('AUTH_FAILED', 400));
   const otherConfig = { ...f.config, audience: 'rogi-other-environment' };
   const otherSessions = new SessionService(new SessionRepository(), otherConfig.audience, otherConfig.key);
-  const otherFlow = new AuthFlow(otherSessions, f.db.transactions, otherConfig, f.broker, new LoginRepository(), new IdentityService(new IdentityRepository()));
+  const otherFlow = new AuthFlow(otherSessions, f.db.transactions, otherConfig, f.broker, new LoginRepository(), new IdentityService(new IdentityRepository(), otherConfig, new IdentityGuardService(new IdentityGuardRepository())));
   await assert.rejects(otherFlow.callback(started.request.state, code, started.browser), errorCode('AUTH_FAILED', 400));
   assert.equal(f.broker.exchanges, 0);
   const results = await Promise.allSettled([

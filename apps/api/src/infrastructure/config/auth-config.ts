@@ -8,6 +8,7 @@ export interface AuthConfig {
   readonly callback: string;
   readonly secure: boolean;
   readonly key: Buffer;
+  readonly identityGuardKey?: Buffer;
   readonly broker: { baseUrl: string; clientId: string; clientSecret: string } | undefined;
 }
 export function readAuthConfig(config: Config, env: NodeJS.ProcessEnv = process.env): AuthConfig {
@@ -19,7 +20,8 @@ export function readAuthConfig(config: Config, env: NodeJS.ProcessEnv = process.
     const data: unknown = JSON.parse(readFileSync(env.AUTH_SECRET_FILE, 'utf8'));
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error();
     const record = data as Record<string, unknown>;
-    if (Object.keys(record).some(k => !['key', 'broker'].includes(k)) || typeof record.key !== 'string' || !/^[a-f0-9]{64}$/.test(record.key)) throw new Error();
+    if (Object.keys(record).some(k => !['key', 'broker', 'identityGuardKey'].includes(k)) || typeof record.key !== 'string' || !/^[a-f0-9]{64}$/.test(record.key)) throw new Error();
+    if (record.identityGuardKey !== undefined && (typeof record.identityGuardKey !== 'string' || !/^[a-f0-9]{64}$/.test(record.identityGuardKey) || record.identityGuardKey === record.key)) throw new Error();
     let broker: AuthConfig['broker'];
     if (record.broker !== undefined) {
       if (!record.broker || typeof record.broker !== 'object' || Array.isArray(record.broker)) throw new Error();
@@ -29,6 +31,6 @@ export function readAuthConfig(config: Config, env: NodeJS.ProcessEnv = process.
       if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error();
       broker = { baseUrl: url.origin, clientId: b.clientId, clientSecret: b.clientSecret };
     }
-    return Object.freeze({ audience: `rogi-${config.environment}`, origin, callback, secure: hosted, key: Buffer.from(record.key, 'hex'), broker });
+    return Object.freeze({ audience: `rogi-${config.environment}`, origin, callback, secure: hosted, key: Buffer.from(record.key, 'hex'), ...(typeof record.identityGuardKey === 'string' ? { identityGuardKey: Buffer.from(record.identityGuardKey, 'hex') } : {}), broker });
   } catch { throw new ConfigurationError('AUTH_SECRET_FILE'); }
 }

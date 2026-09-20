@@ -1,3 +1,6 @@
+import { AccountDeletionRepository } from '../../dist/modules/deletion/account-deletion.repository.js';
+import { IdentityGuardRepository } from '../../dist/modules/auth/identity-guard.repository.js';
+import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.service.js';
 import { DeletionRepository } from '../../dist/modules/deletion/deletion.repository.js';
 import { deletionFixture } from './deletion-fixture.mjs';
 import { DeletionApplyService } from '../../dist/modules/deletion/deletion-apply.service.js';
@@ -40,7 +43,7 @@ export async function deleteMessage(transactions, room, actor, message, authoriz
   const core = context.get(MessagesCoreService);
   const { ledger } = deletionFixture();
   const intent = await transactions.write(async tx => { await authorize(tx); return core.authorizeDeletion(tx, room, actor, message, 'qa'); });
-  return new DeletionApplyService(transactions, core, new DeletionRepository()).apply(await ledger.ensureIntent(intent));
+  return new DeletionApplyService(transactions, core, new DeletionRepository(), new AccountDeletionRepository(), new IdentityGuardService(new IdentityGuardRepository())).apply(await ledger.ensureIntent(intent));
 }
 export const loadMessage = bind(MessagesCoreService, 'load');
 export const readable = bind(MessagesCoreService, 'readable');

@@ -327,3 +327,14 @@ bound-value SQL is limited to these cases:
 
 No external provider or DNS I/O occurs under those locks. M10 callers must fence
 the account before invoking the exported bounded cleanup services.
+
+### M10 ACCOUNT admission locking exceptions
+
+`AccountDeletionRepository` takes bounded current locks on one SOOP identity, one
+account and one independent obligation. `IdentityGuardRepository` takes a shared
+current key-policy lock, one current subject-guard lock and an indexed first
+unresolved-coverage registration barrier. Guard/request/status projections are
+returned with the lock itself to defeat older repeatable-read snapshots. All
+creates, updates, bounded binding cleanup and ordinary lookup operations use
+Prisma; external ledger I/O remains outside transactions. See
+[ACCOUNT admission](backend-account-deletion-admission.md) for ordering and limits.

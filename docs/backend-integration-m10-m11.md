@@ -11,6 +11,14 @@ This source integration is not a QA release or a completed M10 purge.
   18 e2e, 16 contract and 228 disposable-MySQL tests passed, including image safety.
 - MESSAGE admission/replay `31d3e79` (PR 42): exact-head hosted 251 unit,
   18 e2e, 11 contract and 184 disposable-MySQL tests passed, including image safety.
+- ACCOUNT admission/identity guards `b251b9a` (PR 53): exact-head Backend CI
+  `35498584176` passed tests, disposable MySQL and image safety. The replay keeps
+  completed-key progress across tick deadlines, and all production services use
+  injected dependencies rather than manually constructed fallback repositories.
+- Departed-owner send fence `cd7af58` (PR 54): Backend CI `35498447425` passed
+  324 unit, 18 e2e, 18 contract and 255 MySQL tests, including 11 owner races and
+  receipt/read/deletion regressions. Existing receipts remain reconcilable;
+  new sends require the current room owner and membership to remain eligible.
 
 These input results do not substitute for final composed-tree validation.
 
@@ -18,6 +26,9 @@ These input results do not substitute for final composed-tree validation.
 
 Keep push and deletion options separate in API and worker Nest registration.
 API command reconciliation and viewer-specific projections remain registered.
+ACCOUNT and MESSAGE admission receive the same configured external ledger without
+replacing notification/read-state registration. The replay worker imports the
+identity-guard port without requiring raw provider subjects or auth secrets.
 Worker deletion replay is independent of the job loop; publication, both push
 handlers and optional media handlers remain installed. Test helpers perform
 external ledger I/O outside their database transaction, including read-state
@@ -25,22 +36,31 @@ deletion races. Preserve all added OpenAPI and actual HTTP response contracts.
 
 Both independently generated migrations are retained byte-for-byte, ordered
 `20260920060633_m10_deletion_intents` then
-`20260920061207_m11_notifications_read_state`. This candidate has **15** migrations;
+`20260920061207_m11_notifications_read_state`, followed by the original generated
+`20260920074544_account_deletion_admission` (SHA-256
+`1e3d298e965c15500e83d96f4ebae5e2ce3336c154ce67d369a207058bff85fb`).
+This candidate has **16** migrations;
 the earlier reviewed native-login QA candidate has **13**, and the observed live
 QA runtime has **12**. Approval for one is not approval for another. No SQL was
 hand-edited, no shared database was changed, and no production promotion occurred.
 
-The local resource gate defers new heavy suites. The final integration needs its
+The earlier MESSAGE/push integration `46bca35` passed all required hosted gates,
+including Backend CI `35498258627`. That result does not cover this subsequent
+ACCOUNT/owner composition. The local resource gate defers new heavy suites.
+The final integration needs its
 own hosted build, generated-client/schema, unit, HTTP/OpenAPI, real-MySQL and image
 checks before acceptance. The existing source tests are retained and explicit
 API/worker push-plus-deletion composition regressions were added.
 
 ## Still outstanding
 
-ACCOUNT admission/identity guards, physical message/account purge, late-provider
+Physical message/account purge, late-provider
 write/orphan closure, backup expiry and isolated restore release are not completed
 by MESSAGE blocking. Actual R2/VAPID secrets and least-privilege mounts must be
 commissioned separately. Missing provider configuration remains unavailable.
 No real login, push delivery, media lifecycle or M12 operational claim follows
 from a successful source build. Schema-v2 membership scope (C06) remains a separate
 coordinated web/native cutover, not silently included in this additive batch.
+ACCOUNT admission additionally needs a dedicated file-only identity guard key;
+missing configuration returns unavailable rather than acknowledging deletion.
+No key has been generated or installed by this source integration.
