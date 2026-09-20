@@ -19,7 +19,7 @@ fun ActorBlocksPanel(token: BlockViewToken, blocks: List<BlockedActor>, complete
         if (complete && blocks.isEmpty()) Text("차단한 사용자가 없어요.")
         if (unknownActors.isNotEmpty()) Text("이전 요청의 처리 결과는 확인하지 못했어요. 목록은 현재 확인된 차단 상태예요.")
         blocks.forEach { actor ->
-            Text("차단된 사용자 · ${actor.blockedAt.take(10)}")
+            Text("${actor.displayLabel} · ${actor.blockedAt.take(10)}")
             TextButton(enabled = complete && !busy, onClick = { selected = actor.actorId }) { Text("차단 해제") }
         }
         if (!complete && blocks.isNotEmpty()) TextButton(enabled = !busy, onClick = onMore) { Text("더 보기") }

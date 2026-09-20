@@ -7,7 +7,11 @@ struct BlockScope: Codable, Equatable, Sendable {
     var valid: Bool { ["qa", "prod"].contains(environment) && [accountId, sessionEpoch, roomId, viewEpoch].allSatisfy(actionID) }
     var partition: [String] { [environment, accountId, roomId] }
 }
-struct BlockedActor: Equatable, Sendable { let actorId: String; let blockedAt: String }
+/// Current own-block GET projection only; never enrich from message/profile/history caches.
+struct BlockedActor: Equatable, Sendable {
+    let actorId: String; let blockedAt: String; let displayName: String?
+    var displayLabel: String { displayName ?? "이름을 확인할 수 없는 사용자" }
+}
 struct BlockPage: Equatable, Sendable { let blocks: [BlockedActor]; let next: String? }
 enum UnblockOutcome: String, Codable, Sendable { case unknown, acknowledged, rejected }
 struct UnblockRecord: Codable, Equatable, Sendable {
@@ -124,9 +128,10 @@ enum ActorBlocksWire {
         let root = try ActionJSON.object(data)
         guard Set(root.keys) == ["blocks", "next"], let rows = root["blocks"] as? [[String: Any]], rows.count <= 50 else { throw MessageActionError.invalidResponse }
         let blocks = try rows.map { row -> BlockedActor in
-            guard Set(row.keys) == ["actorId", "blockedAt"], let id = row["actorId"] as? String, actionID(id),
+            guard Set(row.keys) == ["actorId", "blockedAt", "displayName"], let id = row["actorId"] as? String, actionID(id),
                   let date = row["blockedAt"] as? String, validDate(date) else { throw MessageActionError.invalidResponse }
-            return BlockedActor(actorId: id, blockedAt: date)
+            guard row["displayName"] is NSNull || row["displayName"] is String else { throw MessageActionError.invalidResponse }
+            return BlockedActor(actorId: id, blockedAt: date, displayName: row["displayName"] as? String)
         }
         let next = root["next"] as? String
         guard root["next"] is NSNull || next.map(actionID) == true else { throw MessageActionError.invalidResponse }

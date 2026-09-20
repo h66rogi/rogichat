@@ -128,7 +128,7 @@ import Foundation
         let blockScope = BlockScope(environment: "qa", accountId: a, sessionEpoch: b, roomId: c, viewEpoch: d)
         try manager.select(blockScope); let page = try manager.refresh()!
         check(try ActorBlocksWire.list(page).path == "rooms/\(c)/blocks")
-        let rows = try ActorBlocksWire.page(data("{\"blocks\":[{\"actorId\":\"\(b)\",\"blockedAt\":\"2026-09-20T00:00:00.000Z\"}],\"next\":null}"))
+        let rows = try ActorBlocksWire.page(data("{\"blocks\":[{\"actorId\":\"\(b)\",\"blockedAt\":\"2026-09-20T00:00:00.000Z\",\"displayName\":\"현재 이름 🌱\"}],\"next\":null}"))
         check(try manager.accept(page, page: rows) == BlockReset(scope: blockScope))
         check(try journal.records().last?.phase == .unknown && journal.records().last?.observedBlocked == true)
         let oldView = manager.capture()!; let unblock = try manager.unblock(oldView, actorId: b); try unblock.claim()
@@ -153,12 +153,38 @@ import Foundation
         let staleList = try manager.refresh()!
         var oldBlock = try journal.records().first { $0.action == .blockActor }!
         oldBlock.phase = .actorBlocked; try journal.put(oldBlock)
-        check(try manager.accept(staleList, page: rows) == nil && manager.failed && !manager.complete)
+        check(try manager.accept(staleList, page: rows) == nil && manager.failed && !manager.complete && manager.blocks.isEmpty)
         let partial = try manager.refresh()!
         check(try manager.accept(partial, page: BlockPage(blocks: rows.blocks, next: b)) == nil && !manager.complete)
         let continuation = manager.more()!
         check(try ActorBlocksWire.list(continuation).query == ["after": b] && !ActorBlocksWire.list(continuation).path.contains("?"))
         check(try manager.accept(continuation, page: BlockPage(blocks: [], next: nil)) == BlockReset(scope: blockScope))
+        // Current GET labels are replaced wholesale, including explicit unavailability.
+        let namedBody = "{\"blocks\":[{\"actorId\":\"\(b)\",\"blockedAt\":\"2026-09-20T00:00:00.000Z\",\"displayName\":\"현재 이름 🌱\"}],\"next\":null}"
+        let unnamed = try ActorBlocksWire.page(data(namedBody.replacingOccurrences(of: "\"현재 이름 🌱\"", with: "null")))
+        check(rows.blocks.first?.displayLabel == "현재 이름 🌱")
+        check(unnamed.blocks.first?.displayName == nil && unnamed.blocks.first?.displayLabel == "이름을 확인할 수 없는 사용자")
+        check(try ActorBlocksWire.page(data(namedBody.replacingOccurrences(of: "\"현재 이름 🌱\"", with: "\"\""))).blocks.first?.displayName == "")
+        for invalid in ["42", "true", "false", "[]", "{}"] {
+            rejects { _ = try ActorBlocksWire.page(data(namedBody.replacingOccurrences(of: "\"현재 이름 🌱\"", with: invalid))) }
+        }
+        rejects { _ = try ActorBlocksWire.page(data(namedBody.replacingOccurrences(of: ",\"displayName\":\"현재 이름 🌱\"", with: ""))) }
+        rejects { _ = try ActorBlocksWire.page(data(namedBody.replacingOccurrences(of: "\"displayName\":", with: "\"userId\":"))) }
+        rejects { _ = try ActorBlocksWire.page(data(namedBody.replacingOccurrences(of: "\"displayName\":", with: "\"displayName\":null,\"displayName\":"))) }
+        check(manager.blocks.first?.displayLabel == "현재 이름 🌱")
+        let superseded = try manager.refresh()!; check(manager.blocks.isEmpty)
+        let latest = try manager.refresh()!
+        check(try manager.accept(superseded, page: rows) == nil && manager.blocks.isEmpty)
+        _ = try manager.accept(latest, page: unnamed)
+        check(manager.blocks.first?.displayLabel == "이름을 확인할 수 없는 사용자")
+        let failedRefresh = try manager.refresh()!; manager.fail(failedRefresh)
+        check(manager.failed && manager.blocks.isEmpty)
+        check(try manager.accept(failedRefresh, page: rows) == nil && manager.blocks.isEmpty)
+        let renamed = try manager.refresh()!; _ = try manager.accept(renamed, page: rows)
+        try manager.select(BlockScope(environment: "qa", accountId: a, sessionEpoch: b, roomId: c, viewEpoch: a))
+        check(manager.blocks.isEmpty)
+        try manager.select(blockScope)
+        check(try manager.accept(renamed, page: rows) == nil && manager.blocks.isEmpty)
         try state.deleted(scope, messageId: b)
         check(try journal.records().first { $0.action == .report }?.phase == .unknown)
         print("MessageActionChecks: \(checks) checks passed (contract/state/disk-journal reconstruction/viewport)")

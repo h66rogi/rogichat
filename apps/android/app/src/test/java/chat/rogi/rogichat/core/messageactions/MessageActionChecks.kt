@@ -141,7 +141,7 @@ class MessageActionChecks {
                 val blockScope = BlockScope("qa", a, b, c, d); manager.select(blockScope)
                 val page = manager.refresh()!!
                 verify(ActorBlocksWire.list(page).path == "rooms/$c/blocks")
-                val rows = ActorBlocksWire.page("""{"blocks":[{"actorId":"$b","blockedAt":"2026-09-20T00:00:00.000Z"}],"next":null}""")
+                val rows = ActorBlocksWire.page("""{"blocks":[{"actorId":"$b","blockedAt":"2026-09-20T00:00:00.000Z","displayName":"현재 이름 🌱"}],"next":null}""")
                 verify(manager.accept(page, rows) == BlockReset(blockScope))
                 verify(journal.records().last().phase == ActionPhase.UNKNOWN && journal.records().last().observedBlocked == true)
                 val oldView = manager.capture()!!; val unblock = manager.unblock(oldView, b); unblock.claim()
@@ -166,12 +166,36 @@ class MessageActionChecks {
                 val staleList = manager.refresh()!!
                 val oldBlock = journal.records().single { it.action == MessageAction.BLOCK_ACTOR }
                 journal.put(oldBlock.copy(phase = ActionPhase.ACTOR_BLOCKED)) // A late block receipt overtakes GET.
-                verify(manager.accept(staleList, rows) == null && manager.failed && !manager.complete)
+                verify(manager.accept(staleList, rows) == null && manager.failed && !manager.complete && manager.blocks.isEmpty())
                 val partial = manager.refresh()!!
                 verify(manager.accept(partial, rows.copy(next = b)) == null && !manager.complete)
                 val continuation = manager.more()!!
                 verify(ActorBlocksWire.list(continuation).query == mapOf("after" to b) && !ActorBlocksWire.list(continuation).path.contains("?"))
                 verify(manager.accept(continuation, BlockPage(emptyList(), null)) == BlockReset(blockScope))
+                // Current GET labels are replaced wholesale, including explicit unavailability.
+                val namedBody = """{"blocks":[{"actorId":"$b","blockedAt":"2026-09-20T00:00:00.000Z","displayName":"현재 이름 🌱"}],"next":null}"""
+                val unnamed = ActorBlocksWire.page(namedBody.replace("\"현재 이름 🌱\"", "null"))
+                verify(rows.blocks.single().displayLabel == "현재 이름 🌱")
+                verify(unnamed.blocks.single().displayName == null && unnamed.blocks.single().displayLabel == "이름을 확인할 수 없는 사용자")
+                verify(ActorBlocksWire.page(namedBody.replace("\"현재 이름 🌱\"", "\"\"")).blocks.single().displayName == "")
+                listOf("42", "true", "false", "[]", "{}").forEach { invalid ->
+                    rejects { ActorBlocksWire.page(namedBody.replace("\"현재 이름 🌱\"", invalid)) }
+                }
+                rejects { ActorBlocksWire.page(namedBody.replace(",\"displayName\":\"현재 이름 🌱\"", "")) }
+                rejects { ActorBlocksWire.page(namedBody.replace("\"displayName\":", "\"userId\":")) }
+                rejects { ActorBlocksWire.page(namedBody.replace("\"displayName\":", "\"displayName\":null,\"displayName\":")) }
+                verify(manager.blocks.single().displayLabel == "현재 이름 🌱")
+                val superseded = manager.refresh()!!; verify(manager.blocks.isEmpty())
+                val latest = manager.refresh()!!
+                verify(manager.accept(superseded, rows) == null && manager.blocks.isEmpty())
+                manager.accept(latest, unnamed)
+                verify(manager.blocks.single().displayLabel == "이름을 확인할 수 없는 사용자")
+                val failedRefresh = manager.refresh()!!; manager.fail(failedRefresh)
+                verify(manager.failed && manager.blocks.isEmpty())
+                verify(manager.accept(failedRefresh, rows) == null && manager.blocks.isEmpty())
+                val renamed = manager.refresh()!!; manager.accept(renamed, rows)
+                manager.select(blockScope.copy(viewEpoch = a)); verify(manager.blocks.isEmpty())
+                manager.select(blockScope); verify(manager.accept(renamed, rows) == null && manager.blocks.isEmpty())
                 state.deleted(scope, b)
                 verify(journal.records().single { it.action == MessageAction.REPORT }.phase == ActionPhase.UNKNOWN)
                 println("MessageActionChecks: $count checks passed (contract/state/disk-journal reconstruction/viewport)")

@@ -10,7 +10,10 @@ data class BlockScope(val environment: String, val accountId: String, val sessio
     init { require(environment in setOf("qa", "prod")); listOf(accountId, sessionEpoch, roomId, viewEpoch).forEach(::actionId) }
     val partition get() = listOf(environment, accountId, roomId)
 }
-data class BlockedActor(val actorId: String, val blockedAt: String)
+/** Current own-block GET projection only; never enrich from message/profile/history caches. */
+data class BlockedActor(val actorId: String, val blockedAt: String, val displayName: String?) {
+    val displayLabel: String get() = displayName ?: "이름을 확인할 수 없는 사용자"
+}
 data class BlockPage(val blocks: List<BlockedActor>, val next: String?)
 enum class UnblockOutcome { UNKNOWN, ACKNOWLEDGED, REJECTED }
 data class UnblockRecord(val id: String, val scope: BlockScope, val actorId: String,
@@ -113,8 +116,9 @@ object ActorBlocksWire {
     fun page(body: String): BlockPage {
         val root = StrictAuthJson.objectValue(body); require(root.keys == setOf("blocks", "next"))
         val rows = root.getValue("blocks").jsonArray.map { raw ->
-            val row = raw.jsonObject; require(row.keys == setOf("actorId", "blockedAt"))
-            BlockedActor(row.text("actorId").also(::actionId), row.text("blockedAt").also { Instant.parse(it) })
+            val row = raw.jsonObject; require(row.keys == setOf("actorId", "blockedAt", "displayName"))
+            BlockedActor(row.text("actorId").also(::actionId), row.text("blockedAt").also { Instant.parse(it) },
+                if (row.getValue("displayName") == JsonNull) null else row.text("displayName"))
         }
         require(rows.size <= 50)
         return BlockPage(rows, if (root.getValue("next") == JsonNull) null else root.text("next").also(::actionId))

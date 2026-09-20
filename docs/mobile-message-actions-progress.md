@@ -78,7 +78,7 @@ Checkpoint `afd1629` is published. Followup admission uses `blockedActions(token
 
 `unblock(capturedToken,actorId)` stores a new UNKNOWN record before returning a one-shot permit. The parent shared transport checks its original credential/session then claims at HTTP admission and sends DELETE `rooms/{roomId}/blocks/{actorId}` with **no body**. `ActorBlocksWire.result` requires matching actorId, blocked=false and resetRequired=true; network/5xx/malformed/mismatched receipts stay UNKNOWN. `finish` returns `BlockReset` only for current-scoped receipt acceptance. Clear affected room cache/resnapshot A while preserving SEND M. A failed or interrupted operation never automatically repeats.
 
-Current-state recovery is deliberately separate from command outcome: full GET list may set `observedBlocked` on earlier records, but their original UNKNOWN outcome is unchanged. An explicit user may choose a new unblock from the newly observed list; that is a new intent, not automatic replay or a claim that the old request succeeded. The UI states that the old result remains unconfirmed. Parent must serialize record writes/reads for the original account; never let a late response overwrite the new UI or infer a global user identity. List rows expose only room actor IDs and block timestamps; no hidden author/name lookup is invented.
+Current-state recovery is deliberately separate from command outcome: full GET list may set `observedBlocked` on earlier records, but their original UNKNOWN outcome is unchanged. An explicit user may choose a new unblock from the newly observed list; that is a new intent, not automatic replay or a claim that the old request succeeded. The UI states that the old result remains unconfirmed. Parent must serialize record writes/reads for the original account; never let a late response overwrite the new UI or infer a global user identity. List rows originally exposed only room actor IDs and block timestamps; the additive current-label contract below supersedes that row shape without adding any hidden author/name lookup.
 
 UUID field audit: pinned backend `common/validation/identifier.ts` and current `RoomsWire.uuid` both accept UUIDv4 only for route/resource IDs. Report keys and moderation actor paths call that validator. Delete receipt requestId explicitly accepts v4/v5; both parsers already honor that separate contract, with a v5 receipt regression added. Broadening route IDs to server-rejected UUID variants would be incorrect.
 
@@ -89,3 +89,43 @@ A content tombstone removes visible-actor/privacy fields and disables message ac
 Followup executed results: **Swift 81 checks passed**, **Kotlin 78 checks passed**, and host strict core + SwiftUI typecheck passed. These include independent UNKNOWN→report→block admission, inverse-reaction fence, own-block GET pagination, explicit unblock wire parity, UUIDv5 delete receipts, old A→B→A list/permit discard, block mutation overtaking a list query, retained UNKNOWN recovery observations, and tombstone privacy without rewriting operation outcomes. Parent Room/GRDB adapter, iOS-target/Android full builds and real backend/device flow remain central integration gates.
 
 Transport detail: `ActionRequest.query` is a separate immutable map. For block-list continuation it contains `after`; `path` never includes `?`. The shared Android client must add query entries through URL parameters and the Swift client through `URLComponents.queryItems`, after appending the relative path. Do not pass an embedded query to `appendingPathComponent`, which would encode it as path content.
+
+
+## Bounded current own-block display-name correction
+
+Backend source: `e3f813c90929e4553f1e57b1bf6c0055db4b2499`,
+`moderation.openapi.ts` and `docs/backend-moderation-contract.md`.
+Both parsers now require exactly `{actorId,blockedAt,displayName:string|null}`
+per row. Strings are retained exactly; null renders “이름을 확인할 수 없는 사용자”.
+Both panels display that current GET label and the existing block date. There is
+no message/profile/previous-name cache fallback, global user ID lookup, hidden FAN
+lookup, anonymous-author inference or persistence of the label in operation journals.
+
+Existing refresh, query generation, view/scope and concurrent block-record fences
+continue to discard old rows and late responses. A null projection replaces the
+previous name completely. Afterleave management, separate `after` query parameters,
+pagination, original membership/authorization handling and UNKNOWN operation
+outcomes remain unchanged. Parent composition must continue to reset this state
+on current scope/authorization changes; the feature does not infer server policy
+or independently obtain profile data.
+
+This extends the previously audited own-block model and existing native panels;
+no additional reference code or assets were copied. Existing reuse provenance
+above remains unchanged. The new nullable field is a Rogichat-specific backend
+contract correction with no matching reference DTO to transplant.
+
+Preserved accepted branch `dokdo2013/mobile-message-actions` at
+`874cb11ee27b9758cbfa3b130a3ba9d59872bd53`; new task branch
+`dokdo2013/mobile-block-display-name` normally merges approved QA
+`c5c75d433e1da9a46d8a2fa4b66c405ab6e4a0c5` at a clean boundary.
+
+Executed focused checks: Kotlin **97**, Swift **100**, and host strict core +
+SwiftUI typecheck passed. Added string/null/empty-string, non-string values,
+missing/duplicate/incorrect keys, refresh failure, stale response, scope
+replacement and name invalidation regressions; existing pagination and UNKNOWN
+checks still pass. Public security `all` passed; normal commit/push hooks are
+required for publication. No full Gradle/Xcode matrix, install, emulator,
+dependency, network, DB or app-composition change was performed. Independent
+parent review and integration into both OS author branches feed aggregate PR 74;
+aggregate current-QA checks and real app/device/deployment evidence remain with
+the parent writers.

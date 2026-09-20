@@ -23,7 +23,7 @@ struct ActorBlocksPanel: View {
             if complete, blocks.isEmpty { Text("차단한 사용자가 없어요.") }
             if !unknownActors.isEmpty { Text("이전 요청의 처리 결과는 확인하지 못했어요. 목록은 현재 확인된 차단 상태예요.") }
             ForEach(blocks, id: \.actorId) { actor in
-                Text("차단된 사용자 · \(actor.blockedAt.prefix(10))")
+                Text("\(actor.displayLabel) · \(actor.blockedAt.prefix(10))")
                 Button("차단 해제") { selected = Selection(token: token, actorId: actor.actorId) }.disabled(!complete || busy)
             }
             if !complete, !blocks.isEmpty { Button("더 보기", action: onMore).disabled(busy) }
