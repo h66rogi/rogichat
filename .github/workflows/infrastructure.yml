@@ -29,7 +29,12 @@ jobs:
             root="infrastructure/environments/$target"
             .tools/terraform -chdir="$root" init -backend=false -input=false -lockfile=readonly
             .tools/terraform -chdir="$root" validate
-            .tools/terraform -chdir="$root" test -no-color
+            if test "$target" = management/worker; then
+              .tools/terraform -chdir="$root" test -json -verbose > "$RUNNER_TEMP/worker-mock-tests.jsonl"
+              python3 "$root/test_ledger_copy_policy.py" "$RUNNER_TEMP/worker-mock-tests.jsonl"
+            else
+              .tools/terraform -chdir="$root" test -no-color
+            fi
           done
       - name: Validate Caddy and Compose without contacting ACME
         run: |
