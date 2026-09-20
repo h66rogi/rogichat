@@ -6,6 +6,11 @@ Neither scan runs an image or receives a cloud/runtime credential. A parse error
 missing/wrong scanner, unsupported compression, limit breach or unreviewed finding
 blocks publication. No raw finding or archive-controlled name reaches CI output.
 
+Failures expose only a fixed category such as `content_findings`, `resource_limit`
+or `image_integrity`. Unknown exceptions receive a fixed fallback label; their
+text, filenames, content hashes and finding values never enter public output.
+Categories aid diagnosis without changing any rejection rule or resource limit.
+
 The scanner checks every layer separately, so a later deletion/whiteout cannot
 hide a lower-layer secret. It includes config/environment/history, filenames,
 links and PAX metadata, verifies OCI blob and rootfs digests, and rejects unexpected

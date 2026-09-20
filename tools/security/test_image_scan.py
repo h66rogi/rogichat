@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise real scanner and image boundary failures using ephemeral fake secrets."""
 import gzip
+from contextlib import redirect_stderr
 import io
 import json
 from pathlib import Path
@@ -10,6 +11,7 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 import zipfile
 
 import image_scan as scan
@@ -102,6 +104,27 @@ class ImageScanTests(unittest.TestCase):
             result = subprocess.run([sys.executable, str(Path(scan.__file__)), str(path)], capture_output=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertNotIn(token, result.stdout + result.stderr)
+
+    def test_public_failure_categories_never_echo_exception_details(self):
+        token = self.token().decode()
+        cases = [
+            (scan.Blocked('secret findings require review'), 'content_findings'),
+            (scan.Blocked('forbidden file in image'), 'content_policy'),
+            (scan.Blocked('expanded content limit exceeded'), 'resource_limit'),
+            (scan.Blocked('OCI blob digest mismatch'), 'image_integrity'),
+            (scan.Blocked('secret scanner failed'), 'scanner_failure'),
+            (scan.Blocked(token), 'archive_or_policy_validation'),
+            (ValueError(token), 'scanner_or_parser_failure'),
+        ]
+        for error, expected in cases:
+            worker = Mock()
+            worker.image.side_effect = error
+            output = io.StringIO()
+            with self.subTest(category=expected), patch.object(scan, 'Scanner', return_value=worker), \
+                    patch.object(sys, 'argv', ['image_scan.py', '-']), redirect_stderr(output):
+                self.assertEqual(scan.main(), 1)
+            self.assertEqual(output.getvalue(), f'Image scan blocked: {expected}. Review privately.\n')
+            self.assertNotIn(token, output.getvalue())
 
     def test_empty_layer_is_valid(self):
         self.assertEqual(self.run_scan(image([b'\x00' * 1024])).layers, 1)
