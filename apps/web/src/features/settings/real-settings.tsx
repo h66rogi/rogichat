@@ -12,7 +12,7 @@ import { AvatarEditor } from '@/features/media/AvatarEditor';
 import { cleanupBinding, eraseSessionOutbox } from '@/features/auth/outbox-cleanup';
 import { forgetChatMemory } from '@/features/chat/chat-memory';
 import { revokeChatOutboxes } from '@/features/chat/chat-controller';
-import { AccountDeletionControl, BlockedActorsControl, ReportRecovery } from '@/features/privacy';
+import { AccountDeletionControl, BlockedRoomsControl, ReportRecovery } from '@/features/privacy';
 import { SessionMediaProvider } from '@/features/media/session-ui';
 import type { SettingsProfilePatch, SettingsViewModel } from './types';
 export function RealSettings() {
@@ -96,6 +96,6 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
   };
   return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLeaveRoom={leave} onToggleNotifications={push.toggle} onRetryNotifications={push.refresh}
     accountControls={<AccountDeletionControl origin={api.origin} session={session} generation={generation} cleanupBinding={current => cleanupBinding(api.origin, current)} onPrepare={current => eraseSessionOutbox(api.origin, current)} onBlocked={current => { revokeChatOutboxes(current.accountPartition, current.csrfToken); forgetChatMemory(); invalidateSession(); }} />}
-    privacyControls={<><ReportRecovery origin={api.origin} session={session} generation={generation} />{room.kind === 'ready' && <BlockedActorsControl origin={api.origin} session={session} generation={generation} roomId={room.room.roomId} onReset={refresh} />}</>}
+    privacyControls={<><ReportRecovery origin={api.origin} session={session} generation={generation} /><BlockedRoomsControl origin={api.origin} session={session} generation={generation} onReset={refresh} /></>}
     avatarEditor={<AvatarEditor assetId={profile.avatar?.assetId ?? null} busy={busy} save={assetId => save({ avatarAssetId: assetId })} />} /></SessionMediaProvider>;
 }

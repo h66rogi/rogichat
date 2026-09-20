@@ -1,5 +1,6 @@
 import { ApiError, type Session } from '../../core/api/client';
 import { exact, token, uuid } from '../chat/contract';
+import { blockedRoomPage } from './blocked-rooms';
 import { blockPage, blockReceipt, reportInput, reportReceipt, type ReportInput } from './moderation-contract';
 
 export interface DeletionReceipt { requestId: string; status: 'blocked' }
@@ -26,7 +27,7 @@ export class PrivacyClient {
     if (!['https://api.qa.rogi.chat', 'https://api.rogi.chat'].includes(origin)) throw new Error('Unapproved API origin');
     this.origin = origin; this.transport = (input, init) => transport(input, init);
   }
-  private async request(path: string, status: number, signal: AbortSignal, method?: 'POST' | 'PUT' | 'DELETE', csrf?: string, body: unknown = {}): Promise<unknown> {
+  private async request(path: string, status: number, signal: AbortSignal, method?: 'POST' | 'PUT' | 'DELETE', csrf?: string, body: unknown = {}, maxBytes = 8192): Promise<unknown> {
     signal.throwIfAborted();
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (method) {
@@ -44,13 +45,13 @@ export class PrivacyClient {
       requestSignal.throwIfAborted();
       if (!reader || response.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new ApiError(response.ok ? 502 : response.status, 'REQUEST_FAILED');
       const length = response.headers.get('content-length');
-      if (length !== null && (!/^\d+$/.test(length) || Number(length) > 8192)) throw new ApiError(502, 'INVALID_RESPONSE');
+      if (length !== null && (!/^\d+$/.test(length) || Number(length) > maxBytes)) throw new ApiError(502, 'INVALID_RESPONSE');
       const chunks: Uint8Array[] = []; let size = 0;
       for (;;) {
         const part = await reader.read(); requestSignal.throwIfAborted();
         if (part.done) break;
         size += part.value.byteLength;
-        if (size > 8192) throw new ApiError(502, 'INVALID_RESPONSE');
+        if (size > maxBytes) throw new ApiError(502, 'INVALID_RESPONSE');
         chunks.push(part.value);
       }
       const bytes = new Uint8Array(size); let offset = 0;
@@ -67,6 +68,7 @@ export class PrivacyClient {
       try {
         const error = exact(exact(value, ['error']).error, ['code']);
         if (response.status === 403 && error.code === 'RECENT_AUTH_REQUIRED') code = 'RECENT_AUTH_REQUIRED';
+        if (response.status === 400 && path.startsWith('/v1/blocked-rooms') && error.code === 'INVALID_CURSOR') code = 'INVALID_CURSOR';
       } catch { /* Opaque error. */ }
       throw new ApiError(response.status, code);
     }
@@ -82,7 +84,8 @@ export class PrivacyClient {
   async publication(room: string, id: string, signal: AbortSignal) { return publicationReceipt(await this.request(`/v1/rooms/${uuid(room)}/publications/${uuid(id)}`, 200, signal), id); }
   async report(room: string, message: string, input: ReportInput, csrf: string, signal: AbortSignal) { return reportReceipt(await this.request(`/v1/rooms/${uuid(room)}/messages/${uuid(message)}/reports`, 200, signal, 'POST', csrf, reportInput(input))); }
   async reportByKey(key: string, signal: AbortSignal) { return reportReceipt(await this.request(`/v1/report-receipts/${uuid(key)}`, 200, signal)); }
-  async blocks(room: string, after: string | null, signal: AbortSignal) { return blockPage(await this.request(`/v1/rooms/${uuid(room)}/blocks${after === null ? '' : `?after=${uuid(after)}`}`, 200, signal)); }
+  async blockedRooms(cursor: string | null, signal: AbortSignal) { return blockedRoomPage(await this.request('/v1/blocked-rooms' + (cursor === null ? '' : `?cursor=${encodeURIComponent(cursor)}`), 200, signal, undefined, undefined, {}, 32768)); }
+  async blocks(room: string, after: string | null, signal: AbortSignal) { return blockPage(await this.request(`/v1/rooms/${uuid(room)}/blocks${after === null ? '' : `?after=${uuid(after)}`}`, 200, signal, undefined, undefined, {}, 32768)); }
   async block(room: string, actor: string, blocked: boolean, csrf: string, signal: AbortSignal) { return blockReceipt(await this.request(`/v1/rooms/${uuid(room)}/blocks/${uuid(actor)}`, 200, signal, blocked ? 'PUT' : 'DELETE', csrf, blocked ? {} : null), actor, blocked); }
   async login(signal: AbortSignal): Promise<string> {
     const data = exact(await this.request('/v1/auth/soop/start', 200, signal, 'POST', undefined, { intent: 'login', termsVersion: '2026-09-20' }), ['authorizeUrl']);

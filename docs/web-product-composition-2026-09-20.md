@@ -13,6 +13,7 @@ PR59 task branch is preserved. The coordinator owns paired rollout and acceptanc
 - Native durable outbox and erasure APIs: `7a28d4a` (includes original-signal adapter fences).
 - Full VIDEO range/codec/expiry resource: `446e34c`, mounted in `788a2a3`.
 - Deletion, publication, reporting and blocking: `9e6d723`, mounted with cleanup in `b4bf6d9`.
+- Own-block room discovery: backend `0d75c977244b43c2882b6f0fcbce8bc50664e25f`, independent of active memberships, bounded opaque cursor2200 and current nullable room labels.
 - Own-block current nullable label contract: backend `e3f813c`; strict parser and left-room recovery UI.
 - Push enrollment, per-page wake binding and stale-cleanup rejection: `724a2dc`.
 
@@ -59,9 +60,11 @@ browser job installs ffmpeg; product containers receive no fixture or codec tool
 
 ## Verification and runtime boundary
 
-The assembled pre-push source passes 337 focused unit tests and TypeScript. Dedicated
-production-route browser cases cover media, cold outbox recovery and privacy;
-aggregate production build/browser/container/security results are still pending.
+The current amendment passes 345 unit tests, TypeScript, focused ESLint and the
+public-repository security check. Its 36 focused desktop/mobile privacy and discovery
+route cases pass against the production artifact. The full desktop/mobile suite
+passes 236 cases with two skips in two minutes against that same artifact;
+current-head hosted build/container/security checks remain pending.
 Leaf-only native IndexedDB and codec tests are bounded evidence, not product rollout.
 
 The actual QA login button was observed reaching the SOOP credential screen after
@@ -94,3 +97,30 @@ Retained-dependency production builds used a 3 GiB heap cap: initial 23.88 secon
 1.25 GB peak footprint, no swaps; necessary incremental source-fix build 0.40 GB
 peak. No dependencies were installed and no concurrent build ran. These tests use
 isolated HTTP fixtures and establish client behavior, not real-account acceptance.
+
+
+Own-block discovery uses only `/v1/blocked-rooms` server results, with independent
+settings UI even when the active-room directory is empty. Empty scanned middle
+pages continue until a result or null; an empty final page is described only as
+no further results. Expired cursors restart once from the first page; duplicate
+cursors, session changes and failed reloads clear prior labels. Current nullable
+labels fall back to neutral item numbers/dates, never UUIDs or cached identities.
+
+
+The second hosted aggregate (`35509513572`, source `d15b1c2`) passed unit, lint,
+type, production build and container checks, with 225 browser passes, two skips
+and one cold-receipt test race. That regression now holds the actual receipt GET
+before reload and releases it explicitly, asserting one SEND, the original ID,
+and a fresh message read; six repeated desktop/mobile cases pass. It does not
+force-click a disappearing recovery button or change runtime lease ownership.
+
+The discovery amendment also raises only the two bounded list response limits
+to 32 KiB: a valid 50-row block page with Unicode display names exceeds the former
+8 KiB cap. Actual-client tests cover that valid page and reject responses over
+32 KiB. Other metadata endpoints keep their existing 8 KiB limit. Failed hosted
+browser runs retain only isolated test-results and the Playwright report for
+three days, with no deployment consumption.
+
+The final necessary source rebuild used retained dependencies, a 3 GiB heap cap,
+4.61 seconds and 543 MB peak resident memory with zero swaps. It ran without a
+concurrent build or dependency installation.

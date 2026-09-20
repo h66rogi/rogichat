@@ -106,11 +106,18 @@ async function privacyChat(page: Page) {
     if (path.endsWith(`/messages/${sourceId}/reports`)) { state.reports++; state.reportKey = (route.request().postDataJSON() as { idempotencyKey: string }).idempotencyKey; if (state.reportLost) return route.abort('failed'); return json(route, { reportId: requestId, status: 'received', createdAt: '2026-09-20T00:00:00.000Z' }); }
     if (path === `/v1/report-receipts/${state.reportKey}`) return json(route, { reportId: requestId, status: 'received', createdAt: '2026-09-20T00:00:00.000Z' });
     if (path.endsWith(`/blocks/${fanId}`)) { state.blocked = method === 'PUT'; state.revision = (state.blocked ? 'D' : 'E').repeat(42) + 'A'; return json(route, { actorId: fanId, blocked: state.blocked, resetRequired: true }); }
+    if (path === '/v1/blocked-rooms') return json(route, { rooms: state.blocked ? [{ roomId: TEST_ROOM_ID, displayName: '현재 차단 방' }] : [], nextCursor: null });
     if (path.endsWith('/blocks') && state.blockReadStatus !== 200) return json(route, {}, state.blockReadStatus);
     if (path.endsWith('/blocks')) return json(route, { blocks: state.blocked ? [{ actorId: fanId, blockedAt: '2026-09-20T00:00:00.000Z', displayName: state.blockDisplayName }] : [], next: null });
     return route.fallback();
   });
   return state;
+}
+
+async function openOwnedBlocks(page: Page) {
+  await page.getByRole('button', { name: '차단한 방 찾기', exact: true }).click();
+  await page.getByRole('button', { name: '차단 목록 열기: 현재 차단 방', exact: true }).click();
+  await page.getByRole('button', { name: '차단 목록 확인', exact: true }).click();
 }
 
 test('PRIVATE TEXT publication requires disclosure, 202 is preparing and published refreshes sync', async ({ page }) => {
@@ -149,8 +156,8 @@ test('visible actor block requires confirmation and settings can explicitly unbl
   await expect(page.getByRole('button', { name: '사용자 차단', exact: true })).toBeDisabled();
   await page.getByLabel('이 방에서 해당 사용자를 차단합니다.').check();
   await page.getByRole('button', { name: '사용자 차단', exact: true }).click(); await expect.poll(() => state.blocked).toBe(true);
-  await page.goto('/settings'); await page.getByRole('button', { name: '차단 목록 확인' }).click();
-  await expect(page.getByText(/현재 차단 표시 이름 · 식별 정보/)).toBeVisible();
+  await page.goto('/settings'); await openOwnedBlocks(page);
+  await expect(page.getByText(/현재 차단 표시 이름 · 차단 항목/)).toBeVisible();
   await page.getByRole('button', { name: '차단 항목 1 해제', exact: true }).click();
   expect(state.blocked).toBe(true); await page.getByRole('button', { name: '차단 해제 확인', exact: true }).click();
   await expect.poll(() => state.blocked).toBe(false);
@@ -182,25 +189,27 @@ test('unlinked authenticated settings permits deletion without a fabricated prof
 
 test('left room keeps own block recovery and null label never falls back to profile cache', async ({ page }) => {
   const state = await privacyChat(page); state.blocked = true; state.blockDisplayName = null;
-  await page.route('**/v1/rooms', route => json(route, { rooms: [{ roomId: TEST_ROOM_ID, name: '후로기', mode: 'FAN', joined: false }], next: null }));
-  await page.goto('/settings'); await page.getByRole('button', { name: '차단 목록 확인' }).click();
-  await expect(page.getByText(new RegExp(`표시 이름을 확인할 수 없음 · 식별 정보 ${fanId}`))).toBeVisible();
+  await page.route('**/v1/rooms', route => json(route, { rooms: [], next: null }));
+  await page.goto('/settings'); await openOwnedBlocks(page);
+  await expect(page.getByText(/표시 이름을 확인할 수 없음 · 차단 항목 1/)).toBeVisible();
   await expect(page.getByText('격리 테스트 팬', { exact: true })).toHaveCount(0);
+  await expect(page.getByText(fanId, { exact: false })).toHaveCount(0);
   await page.getByRole('button', { name: '차단 항목 1 해제', exact: true }).click();
   await page.getByRole('button', { name: '차단 해제 확인', exact: true }).click();
   await expect.poll(() => state.blocked).toBe(false);
-  await expect(page.getByTestId('settings-room-membership')).toHaveText('나감');
+  await expect(page.getByRole('region', { name: '채팅방 참여', exact: true }).getByText('이용 불가', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '채팅방 나가기', exact: true })).toHaveCount(0);
 });
 
 
 for (const failure of ['authorization', 'list'] as const) test(`block reload clears current labels when ${failure} fails`, async ({ page }) => {
   const state = await privacyChat(page); state.blocked = true;
-  await page.goto('/settings'); await page.getByRole('button', { name: '차단 목록 확인' }).click();
-  await expect(page.getByText(/현재 차단 표시 이름 · 식별 정보/)).toBeVisible();
+  await page.goto('/settings'); await openOwnedBlocks(page);
+  await expect(page.getByText(/현재 차단 표시 이름 · 차단 항목/)).toBeVisible();
   if (failure === 'authorization') state.sessionStatus = 403;
   else state.blockReadStatus = 503;
   await page.getByRole('button', { name: '차단 목록 확인' }).click();
   await expect(page.getByText('차단 목록을 확인하지 못했습니다. 다시 시도해 주세요.')).toBeVisible();
-  await expect(page.getByText(/현재 차단 표시 이름 · 식별 정보/)).toHaveCount(0);
+  await expect(page.getByText(/현재 차단 표시 이름 · 차단 항목/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '차단 항목 1 해제', exact: true })).toHaveCount(0);
 });

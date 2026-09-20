@@ -59,7 +59,7 @@ async function unknownSend(page: Page, body: string) {
 // A real navigation may abort the old document's best-effort IDB lease release.
 // Exercise bounded expiry with the browser clock, without rewriting ownership or
 // bypassing fresh authorization. Payloads and IDs must remain intact meanwhile.
-async function recoveredLookup(page: Page, expectedId: unknown) {
+async function recoveredLookup(page: Page, expectedId: unknown, waitUntilIdle = true) {
   const lookup = page.getByRole('button', { name: '전송 1 결과 조회', exact: true });
   const reconnect = page.getByRole('button', { name: '전송 저장소 다시 연결', exact: true });
   await expect.poll(async () => await lookup.count() + await reconnect.count()).toBeGreaterThan(0);
@@ -77,7 +77,9 @@ async function recoveredLookup(page: Page, expectedId: unknown) {
     await page.clock.setFixedTime(persisted.leaseUntil + 1);
     await reconnect.click();
   }
-  await expect(lookup).toBeEnabled(); return lookup;
+  await expect(lookup).toBeVisible();
+  if (waitUntilIdle) await expect(lookup).toBeEnabled();
+  return lookup;
 }
 
 test('production outbox reload is receipt-first and explicit retry preserves frozen command', async ({ page }) => {
@@ -101,12 +103,17 @@ test('production outbox reload is receipt-first and explicit retry preserves fro
 test('production cold receipt recovery performs fresh message read without another SEND', async ({ page }) => {
   const { state } = await recoveryApi(page);
   await unknownSend(page, '유실된 ACK는 조회로 복구');
-  await page.reload();
-  expect(state.posts).toHaveLength(1);
-  const lookup = await recoveredLookup(page, state.posts[0]?.clientMessageId);
-  state.commitOnLookup = true;
-  await lookup.click();
-  await expect(page.getByText('유실된 ACK는 조회로 복구', { exact: true })).toBeVisible();
+  const id = state.posts[0]?.clientMessageId, snapshots = state.snapshots;
+  let release!: () => void;
+  state.commitOnLookup = true; state.holdLookup = new Promise<void>(resolve => { release = resolve; });
+  await page.reload(); expect(state.posts).toHaveLength(1);
+  const lookup = await recoveredLookup(page, id, false);
+  await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
+  await expect(lookup).toBeDisabled(); expect(state.posts).toHaveLength(1);
+  state.holdLookup = null; release();
+  await expect(page.getByRole('region', { name: '후로기 메시지', exact: true }).getByText('유실된 ACK는 조회로 복구', { exact: true })).toBeVisible();
+  await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
+  expect(state.lookups.every(value => value === id)).toBe(true);
   await expect(lookup).toHaveCount(0); expect(state.posts).toHaveLength(1);
 });
 

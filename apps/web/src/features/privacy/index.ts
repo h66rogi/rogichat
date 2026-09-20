@@ -4,3 +4,5 @@ export { ACCOUNT_DELETION_PENDING, PRIVACY_CHANGED, isAccountDeletionPending, re
 export type { DeletionMarker, DeletionPreparation } from './deletion';
 export { MessageModerationControl, BlockedActorsControl, ReportRecovery } from './moderation-components';
 export type { MessageModerationControlProps, BlockedActorsControlProps, ReportRecoveryProps } from './moderation-components';
+
+export { BlockedRoomsControl } from './BlockedRoomsControl';

@@ -74,9 +74,20 @@ jobs:
           sudo apt-get install --no-install-recommends --yes ffmpeg
           ffmpeg -hide_banner -version
       - name: Browser tests against the production artifact
+        id: browser
         run: |
           pnpm --filter @rogichat/web exec playwright install --with-deps chromium
           pnpm web:test
+      - name: Retain failed browser evidence
+        if: failure() && steps.browser.outcome == 'failure'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: failed-web-browser-evidence
+          path: |
+            apps/web/test-results
+            apps/web/playwright-report
+          retention-days: 3
+          if-no-files-found: ignore
       - run: git diff --exit-code
 
   container:

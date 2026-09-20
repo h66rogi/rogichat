@@ -2,7 +2,7 @@
 
 Frontend base: `cd34c5c2733df61fa0e9a72a704f6ad6b79be547` (schema 2).
 Account/publication backend: `f9197a31d61b7c34256e92f0bcb73ee255275d40`.
-Moderation backend: `e3f813c90929e4553f1e57b1bf6c0055db4b2499` (required nullable current `displayName` in own block rows; no profile-cache fallback).
+Moderation backend: `0d75c977244b43c2882b6f0fcbce8bc50664e25f` (required nullable current `displayName` in own block rows; no profile-cache fallback).
 Reviewed controllers, services, auth flow, publication core and OpenAPI, together
 with FW05/FW07 and backend product policy. These are source changes, not release
 or live account verification. No real SOOP login was attempted.
