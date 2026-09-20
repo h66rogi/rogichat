@@ -65,6 +65,24 @@ class ProdReleaseTests(unittest.TestCase):
         with patch.dict(prod.os.environ, env, clear=True):
             self.assertEqual(prod.environment(), {key: env[key] for key in ("PATH", "HOME", "DEVELOPER_DIR")})
 
+    def test_archive_profile_is_scoped_to_app_without_disabling_bundle_signing(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(prod, "source"), \
+                patch.object(prod, "inspect_product_sources"), patch.object(prod, "inspect_ios_dependencies"), \
+                patch.object(prod, "unlock"), patch.object(prod, "output", return_value=Path(root)), \
+                patch.object(prod, "command", return_value="Xcode 26.6\nBuild version 17F113"), \
+                patch.object(prod, "run", side_effect=RuntimeError("stop before SDK")) as run:
+            with self.assertRaisesRegex(RuntimeError, "stop before SDK"):
+                prod.ios_archive(self.config(root), 15, "0.1.0", SHA)
+        command = run.call_args.args[0]
+        self.assertIn("ROGICHAT_PROVISIONING_PROFILE=" + prod.PROFILE_NAME, command)
+        self.assertFalse(any(arg.startswith(("PROVISIONING_PROFILE=", "PROVISIONING_PROFILE_SPECIFIER=")) for arg in command))
+        self.assertNotIn("CODE_SIGNING_ALLOWED=NO", command)
+        self.assertIn("CODE_SIGN_STYLE=Manual", command)
+        self.assertIn("CODE_SIGN_IDENTITY=" + self.config(root)["ios"]["signing_certificate"], command)
+        self.assertIn("Release-Prod", command)
+        for flag in prod.XCODE_RESOLVED_FLAGS:
+            self.assertIn(flag, command)
+
     def test_qa_config_blocks_before_any_sdk_or_private_material_access(self):
         cfg = self.config("/tmp/test"); cfg["environment"] = "qa"
         with patch.object(prod, "command") as command, patch.object(prod, "android_certificate") as certificate:

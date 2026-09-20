@@ -54,6 +54,9 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # The release CLI selects the app profile without applying it to SwiftPM
+        # resource bundles, which cannot accept provisioning profiles.
+        PROVISIONING_PROFILE_SPECIFIER: "$(ROGICHAT_PROVISIONING_PROFILE)"
     dependencies:
       - package: SocketIO
         product: SocketIO

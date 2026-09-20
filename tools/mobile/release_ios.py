@@ -102,7 +102,7 @@ def archive(cfg, number, version):
          "-packageCachePath", str(directory / "PackageCache"),
          "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=" + cfg["ios"]["team_id"],
          "CODE_SIGN_IDENTITY=" + cfg["ios"]["signing_certificate"],
-         "PROVISIONING_PROFILE_SPECIFIER=" + cfg["ios"]["provisioning_profile"],
+         "ROGICHAT_PROVISIONING_PROFILE=" + cfg["ios"]["provisioning_profile"],
          "CURRENT_PROJECT_VERSION=" + str(number), "MARKETING_VERSION=" + version, "archive"], directory / "archive.log")
     executable = inspect_archive(path, number, version, cfg)
     manifest_path = save_manifest(directory, "ios", number, version,
