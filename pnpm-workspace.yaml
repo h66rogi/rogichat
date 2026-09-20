@@ -12,6 +12,7 @@ allowBuilds:
   prisma@7.10.0: true
   '@prisma/engines@7.10.0': true
   '*': false
+  '@scarf/scarf@1.4.0': false # Swagger UI install telemetry is unnecessary.
 
 # Reviewed: hard-close timed-out transport without a second KILL connection.
 patchedDependencies:

@@ -1,6 +1,6 @@
 # 로기챗 Swagger / OpenAPI 설계와 구현계획
 
-상태: 구현 승인 후 설계 리뷰 반영 · 2026-09-20 · 이번 변경은 문서만 보완한다.
+상태: 승인된 설계와 리뷰를 구현에 반영 · 2026-09-20 · QA 배포 검증은 PR 완료 조건이다.
 최초 검토: QA `8aa0ccaf03e61fe52c6e5c9b9ec138ba20a3b05c`. 리뷰 시 최신 QA `8ece99d`를 반영했다.
 
 ## 목적과 범위
@@ -84,7 +84,7 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
   ACL에 따른 404와 입력 오류, 일시적 503을 성공 응답으로 통합하지 않는다.
   `@Res()`를 사용하는 auth의 303 redirect·Location·Set-Cookie·204는 수동 명시한다.
   미디어 content 업로드는 JSON/multipart가 아닌 `application/octet-stream` binary body이며,
-  Content-Length와 encoding 제한 및 202 응답을 명시한다.
+  Content-Length는 선택 사항이며 제공 시 예약한 크기와 일치해야 한다. 실제 전송 바이트 수와 encoding 제한 및 202 응답을 명시한다.
 - 스키마에 담기 어려운 바이트 길이·정규화·교차 필드 조건은 설명과 기존 계약 시험으로 보완한다.
   예시는 테스트 전용 합성 값으로 작성하며 실제 운영 응답을 캡처해 공개하지 않는다.
 
@@ -128,7 +128,12 @@ ops 배포 경로에 반영하고 실제 적용 여부를 확인한다. producti
 
 서브에이전트 읽기 전용 리뷰에서 제시한 export lifecycle/DI, 중간 기능 구성, binary 업로드,
 메시지 요청·응답 분리와 금지 필드 4건을 반영했다. 별도 코드 대조로 local/test 환경 정책,
-로그인 인증 예외와 redirect 응답도 보완했다. 구현과 실제 배포 검증은 아직 수행하지 않았다.
+로그인 인증 예외와 redirect 응답도 보완했다. 구현은 아래 검증을 포함한다. 실제 배포 상태는 PR과 원격 릴리스 증거로 확인한다.
+
+- health/auth/full 세 구성에서 실제 REST route와 고유 operationId를 대조하고 OpenAPI 3.0 표준을 검사한다.
+- 메시지 parser 및 공개 projection과 schema를 비교하며, 기존 MySQL HTTP 통합 테스트의 응답도 schema로 검증한다.
+- local/qa UI·JSON·자산 노출, test/production 404, Helmet·no-store와 실행 비활성을 검사한다.
+- offline export는 lifecycle/I/O 호출 없이 종료하며 CI artifact를 생성한다.
 
 ## 근거 문서
 

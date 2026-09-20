@@ -18,7 +18,8 @@
     "test:unit": "pnpm build && node --test test/unit/*.test.mjs",
     "test:e2e": "pnpm build && node --test test/e2e/*.test.mjs",
     "test:integration": "pnpm build && node test/run-mysql.mjs",
-    "contracts:check": "pnpm build && node --test test/contracts/*.test.mjs"
+    "contracts:check": "pnpm build && node --test test/contracts/*.test.mjs",
+    "openapi:export": "pnpm build && node tools/export-openapi.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1135.0",
@@ -26,6 +27,7 @@
     "@nestjs/common": "12.0.3",
     "@nestjs/core": "12.0.3",
     "@nestjs/platform-express": "12.0.3",
+    "@nestjs/swagger": "12.0.1",
     "@prisma/adapter-mariadb": "7.10.0",
     "@prisma/client": "7.10.0",
     "emoji-regex": "11.0.0",
@@ -38,9 +40,12 @@
     "socket.io": "4.8.3"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "13.0.0",
     "@eslint/js": "10.0.1",
     "@types/express": "5.0.6",
     "@types/node": "24.13.5",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "eslint": "10.10.0",
     "mysql2": "3.24.4",
     "prisma": "7.10.0",
