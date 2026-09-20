@@ -264,7 +264,7 @@ test('link requires CSRF/recent session, rotates successful sessions, rejects ac
   await assert.rejects(f.principal(local.token), errorCode('UNAUTHENTICATED', 401));
   const old = await f.localSession();
   await f.db.transactions.write(tx => tx.execute('UPDATE auth_sessions SET created_at=TIMESTAMPADD(MINUTE,-16,UTC_TIMESTAMP(3)) WHERE token_digest=?', [digest(old.token)]));
-  await assert.rejects(f.begin('link', secret(), old), errorCode('FORBIDDEN', 403));
+  await assert.rejects(f.begin('link', secret(), old), errorCode('RECENT_AUTH_REQUIRED', 403));
   const revoking = await f.localSession();
   started = await f.begin('link', secret(), revoking);
   code = f.broker.code(started.request);
@@ -296,7 +296,7 @@ test('two concurrent first logins share one canonical identity and a link cannot
   assert.equal(mappings.length, 1);
   const other = await f.localSession();
   const link = await f.begin('link', secret(), other);
-  await assert.rejects(f.flow.callback(link.request.state, f.broker.code(link.request, subject), link.browser, other.token), errorCode('AUTH_FAILED', 400));
+  await assert.rejects(f.flow.callback(link.request.state, f.broker.code(link.request, subject), link.browser, other.token), errorCode('SOOP_LINK_CONFLICT', 409));
   assert.equal((await f.principal(other.token)).soopLinked, false);
   assert.equal((await f.principal(sessions[0].token)).userId, mappings[0].user_id);
 });

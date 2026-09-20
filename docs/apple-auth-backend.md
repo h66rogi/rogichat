@@ -150,7 +150,9 @@ fresh replay evidence are above.
 
 [PR 72](https://github.com/h66rogi/rogichat/pull/72) owns hosted MySQL integration,
 process lifecycle, full contracts and required build/security checks against QA.
-The local process E2E had 16 passes and two five-second cold-start wait timeouts
-under concurrent workstation load; no timeout or product behavior was relaxed.
-Hosted checks are the merge gate. No live Apple developer registration, mounted
+The hosted run passes all 396 unit tests, 18 process E2E tests and 19 contracts;
+the earlier local cold-start waits do not reproduce there. Apple native/Services
+ID HTTP, replay/conflict/revocation/deletion and restore quarantine integration
+cases also pass against the real disposable MySQL fixture. The complete required
+PR checks remain the merge gate. No live Apple developer registration, mounted
 production key, real QA device evidence or deployment is claimed.
