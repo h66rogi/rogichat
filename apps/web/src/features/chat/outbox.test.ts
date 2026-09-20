@@ -62,3 +62,11 @@ void test('media payload retains only wire references and freezes independent as
   assert.throws(() => normalizePayload({ ...payload, content: { type: 'VIDEO', assetIds: [id, roomId] } }));
   assert.deepEqual(normalizePayload({ ...payload, content: { type: 'STICKER', stickerId: id } }).content, { type: 'STICKER', stickerId: id });
 });
+void test('scope and session scrubbing preserve irreversible deleted receipt tombstones', () => {
+  const state = seeded(), record = state.records[0]!;
+  applyReceipt(record, { clientMessageId: id, status: 'deleted' });
+  applyAuthority(state, { ...authority, sessionKey: 'b'.repeat(64) }, 101);
+  applyAuthority(state, authority, 102);
+  applyReceipt(record, { clientMessageId: id, status: 'committed', messageId: roomId, version: '2' });
+  assert.deepEqual(record.result, { clientMessageId: id, status: 'deleted' });
+});

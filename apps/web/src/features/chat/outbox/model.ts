@@ -59,7 +59,7 @@ export function permitted(record: OutboxRecord, authority: OutboxAuthority): boo
 export function applyAuthority(state: OutboxState, authority: OutboxAuthority, now: number) {
   expire(state, now);
   // Destructive scrubbing is irreversible even when observed scopes cycle A -> B -> A.
-  for (const record of state.records) if (!permitted(record, authority)) { delete record.payload; delete record.result; }
+  for (const record of state.records) if (!permitted(record, authority)) { delete record.payload; if (record.result?.status !== 'deleted') delete record.result; }
   state.authority = authority;
 }
 export function insert(state: OutboxState, roomId: string, payload: OutboxPayload, now: number): OutboxRecord {

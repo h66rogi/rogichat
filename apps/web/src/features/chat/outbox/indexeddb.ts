@@ -89,7 +89,7 @@ export class DurableOutbox {
   private guard(state: OutboxState) {
     if (!this.authority || this.fence === null) throw new OutboxError('LOCKED');
     if (state.owner !== this.owner || state.fence !== this.fence || state.leaseUntil <= Date.now() || JSON.stringify(state.authority) !== JSON.stringify(this.authority)) {
-      this.operationAbort.abort(); throw new OutboxError('LEASE_LOST');
+      this.operationAbort.abort(); this.authority = null; this.fence = null; this.lookup404.clear(); throw new OutboxError('LEASE_LOST');
     }
     expire(state, Date.now());
     state.leaseUntil = Date.now() + OUTBOX_LIMITS.leaseMs;
@@ -125,7 +125,7 @@ export class DurableOutbox {
       return state.records.filter(record => record.roomId === roomId && record.accountPartition === this.authority!.accountPartition)
         .map(record => {
           const safe = { ...record };
-          if (!permitted(record, this.authority!)) { delete safe.payload; delete safe.result; }
+          if (!permitted(record, this.authority!)) { delete safe.payload; if (safe.result?.status !== 'deleted') delete safe.result; }
           return safe;
         });
     });
@@ -162,7 +162,7 @@ export class DurableOutbox {
   async quarantine(ids?: readonly string[]): Promise<void> {
     await this.transaction(state => {
       this.guard(state);
-      for (const record of state.records) if (!ids || ids.includes(record.clientMessageId)) { delete record.payload; delete record.result; }
+      for (const record of state.records) if (!ids || ids.includes(record.clientMessageId)) { delete record.payload; if (record.result?.status !== 'deleted') delete record.result; }
     });
   }
   suspend(): void {
@@ -189,15 +189,15 @@ export class DurableOutbox {
   /** Confirmed account/session loss. Fence every tab before erasing all persisted content. */
   async revoke(): Promise<void> {
     const grant = this.lastGrant;
-    this.lastGrant = null;
     this.suspend();
     await this.transaction(state => {
       // A stale logout completion cannot erase a successor session's new input.
       if (!grant || state.fence !== grant.fence || JSON.stringify(state.authority) !== JSON.stringify(grant.authority)) return;
       if (state.fence >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
       state.fence++; state.owner = null; state.leaseUntil = 0; state.authority = null;
-      for (const record of state.records) { delete record.payload; delete record.result; }
+      for (const record of state.records) { delete record.payload; if (record.result?.status !== 'deleted') delete record.result; }
     });
+    if (this.lastGrant === grant) this.lastGrant = null;
   }
   close(): void {
     if (this.stopped) return;
