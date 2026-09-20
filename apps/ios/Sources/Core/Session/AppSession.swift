@@ -37,6 +37,8 @@ struct SessionSnapshot: Sendable {
     var expiresAt: Date? = nil
     var notice: String? = nil
     var publication: SessionPublication? = nil
+    // Opaque local service epoch, unrelated to server generation/partition.
+    var clientScope: UUID? = nil
     static let signedOut = SessionSnapshot(access: .signedOut, account: nil)
 }
 enum SignInMethod: String, Sendable { case apple, soop }
@@ -117,6 +119,7 @@ final class AppSession {
     private var savingProfile = false
     private(set) var revalidating = false
     private var profileRevision: UInt64 = 0
+    private var clientScope: UUID?
     private var deferredAuthCallback: URL?
     private var authAttempt: SessionAttempt?
     @ObservationIgnored private var expirationTask: Task<Void, Never>?
@@ -137,6 +140,7 @@ final class AppSession {
         generation &+= 1
         let ticket = generation
         account = nil
+        clientScope = nil
         serverGeneration = nil
         expiresAt = nil
         access = .restoring
@@ -155,6 +159,7 @@ final class AppSession {
             generation &+= 1
             busy = false
             account = nil
+            clientScope = nil
             serverGeneration = nil
             expiresAt = nil
             access = .retryableFailure
@@ -257,13 +262,13 @@ final class AppSession {
             if let snapshot { apply(snapshot) }; errorMessage = nil
         } catch {
             guard ticket == generation else { return }
-            account = nil; serverGeneration = nil; expiresAt = nil; access = .retryableFailure
+            account = nil; clientScope = nil; serverGeneration = nil; expiresAt = nil; access = .retryableFailure
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "취소를 확인하지 못했어요. 다시 시도해 주세요."
         }
     }
     func resetLocalSession() async {
         authAttempt?.cancel(); authAttempt = nil
-        generation &+= 1; account = nil; serverGeneration = nil; expiresAt = nil; busy = true; deferredAuthCallback = nil
+        generation &+= 1; account = nil; clientScope = nil; serverGeneration = nil; expiresAt = nil; busy = true; deferredAuthCallback = nil
         let ticket = generation
         do {
             try await service.resetLocalSession()
@@ -272,6 +277,25 @@ final class AppSession {
         } catch {
             guard ticket == generation else { return }
             busy = false; access = .retryableFailure; errorMessage = ProductError.secureStorage.errorDescription
+        }
+    }
+    func loadNotificationPreferences(scope: UInt64) async throws -> AccountNotificationPreferences {
+        try await notificationPreferences(scope: scope) { try await $0.loadNotificationPreferences(scope: $1) }
+    }
+    func disableAccountNotifications(expected: PreferenceGeneration, scope: UInt64) async throws -> AccountNotificationPreferences {
+        try await notificationPreferences(scope: scope) { try await $0.disableAccountNotifications(expected: expected, scope: $1) }
+    }
+    private func notificationPreferences(scope: UInt64, operation: (any AccountNotificationsServing, UUID) async throws -> AccountNotificationPreferences) async throws -> AccountNotificationPreferences {
+        guard scope == generation, account != nil, access == .ready || access == .linkRequired else { throw ProductError.sessionChanged }
+        guard !busy, let clientScope, let preferences = service as? any AccountNotificationsServing else { throw ProductError.unavailable }
+        let ticket = generation
+        do {
+            let value = try await operation(preferences, clientScope)
+            guard ticket == generation, !Task.isCancelled else { throw ProductError.sessionChanged }
+            return value
+        } catch {
+            await handleAccountError(error, ticket: ticket)
+            throw error
         }
     }
     func loadProfile() async throws -> AccountProfile {
@@ -311,7 +335,7 @@ final class AppSession {
         if error as? ProductError == .unauthenticated { reset() }
         else if error as? ProductError == .linkRequired { await restore() }
         else if error as? ProductError == .secureStorage || error as? ProductError == .sessionChanged {
-            generation &+= 1; account = nil; serverGeneration = nil; expiresAt = nil
+            generation &+= 1; account = nil; clientScope = nil; serverGeneration = nil; expiresAt = nil
             access = .retryableFailure; errorMessage = (error as? ProductError)?.errorDescription
         }
     }
@@ -328,6 +352,7 @@ final class AppSession {
         generation &+= 1
         let ticket = generation
         account = nil
+        clientScope = nil
         serverGeneration = nil
         expiresAt = nil
         access = .restoring
@@ -352,6 +377,7 @@ final class AppSession {
     private func reset() {
         generation &+= 1
         account = nil
+        clientScope = nil
         serverGeneration = nil
         expiresAt = nil
         access = .signedOut
@@ -366,6 +392,7 @@ final class AppSession {
               snapshot.access != .ready || snapshot.account?.soopConnected == true else {
             generation &+= 1
             account = nil
+            clientScope = nil
             serverGeneration = nil
             expiresAt = nil
             access = .retryableFailure
@@ -373,7 +400,8 @@ final class AppSession {
             errorMessage = "계정 정보를 확인하지 못했어요. 다시 시도해 주세요."
             return
         }
-        if account?.id != snapshot.account?.id || access != snapshot.access || serverGeneration != snapshot.serverGeneration { generation &+= 1 }
+        if account?.id != snapshot.account?.id || access != snapshot.access || serverGeneration != snapshot.serverGeneration || clientScope != snapshot.clientScope { generation &+= 1 }
+        clientScope = needsAccount ? snapshot.clientScope : nil
         account = needsAccount ? snapshot.account : nil
         serverGeneration = needsAccount ? snapshot.serverGeneration : nil
         expiresAt = needsAccount ? snapshot.expiresAt : nil

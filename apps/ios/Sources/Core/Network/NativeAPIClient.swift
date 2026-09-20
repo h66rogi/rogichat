@@ -52,7 +52,7 @@ final class NativeSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         } else { completionHandler(.cancelAuthenticationChallenge, nil) }
     }
 }
-actor NativeAPIClient: NativeRequesting, SOOPRequesting {
+actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting {
     private let environment: NativeEnvironment
     private let session: URLSession
     init(environment: NativeEnvironment) {
@@ -102,6 +102,26 @@ actor NativeAPIClient: NativeRequesting, SOOPRequesting {
             guard response.statusCode == 200 else { throw SOOPAuthError.response(data, status: response.statusCode) }
             return data
         } catch let error as SOOPAuthError { throw error }
+        catch let error as ProductError { throw error }
+        catch {
+            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw ProductError.connection
+        }
+    }
+    func performM11(_ endpoint: M11Endpoint, credential: NativeCredential) async throws -> Data {
+        let request = try endpoint.request(environment: environment, credential: credential)
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            try Task.checkCancellation()
+            guard let response = response as? HTTPURLResponse, response.url == request.url else { throw ProductError.invalidResponse }
+            if response.statusCode == 401 { throw ProductError.unauthenticated }
+            guard response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ProductError.invalidResponse }
+            let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
+            try Task.checkCancellation()
+            guard response.statusCode == 200 else { throw M11Error.response(data, status: response.statusCode) }
+            return data
+        } catch let error as M11Error { throw error }
         catch let error as ProductError { throw error }
         catch {
             if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }

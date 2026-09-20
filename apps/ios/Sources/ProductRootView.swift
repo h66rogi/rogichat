@@ -69,7 +69,11 @@ struct ProductRootView: View {
         case .settings:
             SettingsScreen(account: session.account, capabilities: session.capabilities, onOpen: { navigation.open($0) }, onSignIn: { navigation.selectTab(.talks) })
         case .appearance: AppearanceScreen()
-        case .notifications: NotificationSettingsScreen()
+        case .notifications:
+            let scope = session.generation
+            NotificationSettingsScreen(accountScope: session.account == nil ? nil : scope,
+                                       fetchPreferences: { try await session.loadNotificationPreferences(scope: scope) },
+                                       disablePreferences: { try await session.disableAccountNotifications(expected: $0, scope: scope) })
         case .about: AboutScreen()
         case .profile:
             if session.account != nil, session.capabilities.canEditProfile {
