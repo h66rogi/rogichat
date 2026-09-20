@@ -1,3 +1,4 @@
+import { IdentityGuardRepository } from '../../dist/modules/auth/identity-guard.repository.js';
 import { createApi } from '../../dist/application.js';
 import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 import { responseContract } from '../support/openapi-response.mjs';
@@ -35,7 +36,7 @@ async function fixture(t, linked = true) {
     secure: true, key: randomBytes(32), identityGuardKey: guardKey,
     broker: { baseUrl: 'https://broker.example.invalid', clientId: 'fixture-client', clientSecret: secret() } };
   const sessionsRepo = new SessionRepository(); const sessions = new SessionService(sessionsRepo, config.audience, config.key);
-  const guards = new IdentityGuardService(); const accounts = new AccountDeletionRepository(); const checkpoints = new DeletionRepository();
+  const guards = new IdentityGuardService(new IdentityGuardRepository()); const accounts = new AccountDeletionRepository(); const checkpoints = new DeletionRepository();
   const identities = new IdentityService(new IdentityRepository(), config, guards);
   const { ledger, store } = deletionFixture(); const apply = new DeletionApplyService(db.transactions, undefined, checkpoints, accounts, guards);
   const auth = new AuthService(sessions, undefined, db.transactions, sessionsRepo, config);

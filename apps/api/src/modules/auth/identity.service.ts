@@ -13,8 +13,8 @@ export interface VerifiedIdentity {
 @Injectable()
 export class IdentityService {
   constructor(@Inject(IdentityRepository) private readonly repository: IdentityRepository,
-    @Inject(AUTH_CONFIG) private readonly config?: AuthConfig,
-    @Inject(IdentityGuardService) private readonly guards: IdentityGuardService = new IdentityGuardService()) {}
+    @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
+    @Inject(IdentityGuardService) private readonly guards: IdentityGuardService) {}
   async check(tx: Transaction, identity: VerifiedIdentity): Promise<void> {
     const subject = Buffer.from(identity.subject, 'utf8');
     if (!subject.length || subject.length > 191) throw new ApiError('AUTH_FAILED', 400);

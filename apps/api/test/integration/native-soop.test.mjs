@@ -1,3 +1,5 @@
+import { IdentityGuardRepository } from '../../dist/modules/auth/identity-guard.repository.js';
+import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.service.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -56,7 +58,7 @@ async function fixture(t, overrides = {}) {
   const config = { audience: 'rogi-qa', origin: 'https://qa.rogi.chat', callback: 'https://api.qa.rogi.chat/v1/auth/soop/callback',
     secure: false, key: randomBytes(32), broker: { baseUrl: 'https://broker.example.invalid', clientId: 'fixture-client', clientSecret: secret() }, ...overrides };
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
-  const broker = new FixtureBroker(); const identities = new IdentityService(new IdentityRepository());
+  const broker = new FixtureBroker(); const identities = new IdentityService(new IdentityRepository(), config, new IdentityGuardService(new IdentityGuardRepository()));
   const nativeFlow = new NativeAuthService(sessions, db.transactions, config, broker, new NativeAuthRepository(), identities, new LoginRepository());
   const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), identities);
   app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config, sessions, flow, nativeFlow });

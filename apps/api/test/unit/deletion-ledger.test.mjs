@@ -227,3 +227,38 @@ test('ACCOUNT v2 is canonical opaque evidence, preserves immutable retry evidenc
   const ledger = new DeletionLedger(new Store(), 'qa'); const first = await ledger.ensureIntent(value);
   assert.deepEqual(await ledger.ensureIntent({ ...value, subjectGuard: null, requestedAt: '2026-09-21T00:00:00.000Z' }), first);
 });
+
+test('replay retains completed page progress across aborts and reaches later pages; restart safely repeats prefix', async () => {
+  const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
+  const records = Array.from({ length: 4 }, () => intent());
+  const keys = records.map(value => deletionIntentKey('qa', value.requestId));
+  const cursors = [], applied = []; const abort = new globalThis.AbortController();
+  const store = { close() {}, putIfAbsent: async () => {},
+    list: async cursor => { cursors.push(cursor); return cursor === null ? { keys: keys.slice(0, 3), cursor: 'second-page' } : { keys: [keys[3]], cursor: null }; },
+    read: async key => encodeDeletionIntent(records[keys.indexOf(key)]) };
+  const apply = { apply: async receipt => { applied.push(receipt.intent.requestId); if (applied.length === 1) abort.abort(); } };
+  const ledger = new DeletionLedger(store, 'qa'), replay = new DeletionReconciler(ledger, apply);
+  await assert.rejects(replay.tick(abort.signal));
+  assert.deepEqual(applied, [records[0].requestId]);
+  assert.deepEqual(await replay.tick(), { scanned: 2, passFinished: false });
+  assert.deepEqual(await replay.tick(), { scanned: 1, passFinished: true });
+  assert.deepEqual(applied, records.map(value => value.requestId));
+  assert.deepEqual(cursors, [null, 'second-page']);
+  const restarted = new DeletionReconciler(ledger, apply);
+  assert.deepEqual(await restarted.tick(), { scanned: 3, passFinished: false });
+  assert.deepEqual(applied.slice(4), records.slice(0, 3).map(value => value.requestId));
+  assert.deepEqual(cursors, [null, 'second-page', null]);
+});
+
+test('failed ACCOUNT scrub retains the same receipt before advancing the pending page', async () => {
+  const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
+  const value = intent(); const account = { ...value, scope: 'ACCOUNT', targetId: value.actorUserId, roomId: null };
+  const key = deletionIntentKey('qa', value.requestId); let lists = 0, applied = 0, scrubs = 0;
+  const store = { close() {}, putIfAbsent: async () => {}, list: async () => { lists++; return { keys: [key], cursor: null }; }, read: async () => encodeDeletionIntent(account) };
+  const replay = new DeletionReconciler(new DeletionLedger(store, 'qa'), {
+    apply: async () => { applied++; }, scrubBindings: async () => { if (++scrubs === 1) throw new Error('synthetic_scrub_failure'); },
+  });
+  await assert.rejects(replay.tick(), /synthetic_scrub_failure/);
+  assert.deepEqual(await replay.tick(), { scanned: 1, passFinished: true });
+  assert.equal(lists, 1); assert.equal(applied, 2); assert.equal(scrubs, 2);
+});

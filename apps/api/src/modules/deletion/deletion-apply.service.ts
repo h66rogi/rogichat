@@ -14,8 +14,8 @@ export class DeletionApplyService {
   constructor(@Inject(Transactions) private readonly transactions: Transactions,
     @Inject(MessagesCoreService) private readonly messages: MessagesCoreService,
     @Inject(DeletionRepository) private readonly repository: DeletionRepository,
-    @Inject(AccountDeletionRepository) private readonly accounts: AccountDeletionRepository = new AccountDeletionRepository(),
-    @Inject(IdentityGuardService) private readonly guards: IdentityGuardService = new IdentityGuardService()) {}
+    @Inject(AccountDeletionRepository) private readonly accounts: AccountDeletionRepository,
+    @Inject(IdentityGuardService) private readonly guards: IdentityGuardService) {}
   apply(receipt: DeletionReceipt) {
     const intent = checkedDeletionIntent(receipt.intent, receipt.intent.environment);
     if (createHash('sha256').update(encodeDeletionIntent(intent)).digest('hex') !== receipt.sha256) throw new Error('invalid_deletion_receipt');

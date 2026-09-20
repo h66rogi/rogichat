@@ -10,7 +10,7 @@ export const MAX_AUTH_TRANSACTION_MS = 600000;
 /** Internal guard port. No cleanup/completion operation exists in admission. */
 @Injectable()
 export class IdentityGuardService {
-  constructor(@Inject(IdentityGuardRepository) private readonly repository: IdentityGuardRepository = new IdentityGuardRepository()) {}
+  constructor(@Inject(IdentityGuardRepository) private readonly repository: IdentityGuardRepository) {}
   async requireRegistration(tx: Transaction) {
     // Legacy/missing evidence cannot identify which absent subject was deleted.
     // Until reconciled, deny creation instead of guessing a new account is safe.

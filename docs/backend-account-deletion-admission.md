@@ -89,7 +89,10 @@ authority. No account recreation is implemented in this admission slice.
 ## Bounded replay and composition
 
 The independent ledger reconciler visits ACCOUNT and MESSAGE records without a
-pre-existing DB job or original session. Each completed scan restarts from the
+pre-existing DB job or original session. A bounded pending page and completed-key
+index survive tick deadlines in memory, so a slow page does not starve later
+keys. The index advances only after apply and any auth scrub succeed; failures
+retry the same key. Restart deliberately replays the prefix. Each completed scan restarts from the
 prefix, so no wall-clock watermark skips old intents. Account auth cleanup occurs
 in a separate transaction with at most 100 bound login rows and 100 session rows
 per visit. It clears pending/processing verifier, launch and identity payloads and
@@ -126,6 +129,8 @@ legacy receipts, bounded cleanup, and old RR snapshots. Web/native unbound and l
 callback tests exercise the same identity guard port used in production. HTTP and
 OpenAPI tests require exact receipt/denial shapes and reject caller target fields.
 Local build, lint, 27 focused unit checks, 53 initial MySQL checks, the expanded
-11-test account matrix, and 19 final contract/auth-module checks passed. Hosted CI
+11-test account matrix, and 19 contract/auth-module checks passed. The replay
+continuation correction and strict injected constructors additionally passed 43
+focused architecture/ledger/auth-module/contract checks. Hosted CI
 evidence is recorded in the PR; full physical purge,
 provider storage behavior, real QA login and deployment remain unexecuted here.
