@@ -6,7 +6,7 @@ import { Inject, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AuthModule } from '../../dist/modules/auth/auth.module.js';
 import { AuthService } from '../../dist/modules/auth/auth.service.js';
-import { AuthController } from '../../dist/modules/auth/auth.controller.js';
+import { RecoveryAuthController } from '../../dist/modules/auth/recovery-auth.controller.js';
 import { AUTH_CONFIG } from '../../dist/modules/auth/auth.tokens.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
@@ -54,7 +54,7 @@ async function fixture(t) {
     deny: async (...args) => { calls.push(['deny', ...args]); },
   };
   const settings = config();
-  const module = AuthModule.register(infrastructure(transactions), { config: settings, sessions, flow });
+  const module = AuthModule.register(infrastructure(transactions), { config: settings, sessions, flow, nativeFlow: { handles: async () => false } });
   const app = await NestFactory.createApplicationContext(module, { logger: false, abortOnError: false });
   t.after(() => app.close());
   return { calls, principal, tx, module, transactions, settings, flow, service: app.get(AuthService), revoke: () => { revoked = true; }, used: () => used, setUsed: value => { used = value; } };
@@ -63,7 +63,7 @@ async function fixture(t) {
 test('AuthModule exports a narrow service/config boundary, with private session/flow/transaction providers', async t => {
   const f = await fixture(t);
   assert.deepEqual(f.module.exports, [AuthService, AUTH_CONFIG]);
-  assert.deepEqual(f.module.controllers, [AuthController]);
+  assert.deepEqual(f.module.controllers, [RecoveryAuthController]);
   for (const name of ['sessions', 'transactions', 'flow']) assert.equal(name in f.service, false);
   for (const dependency of [AuthFlow, Transactions, SessionRepository, SessionService]) {
     class InvalidConsumer { constructor(value) { this.value = value; } }

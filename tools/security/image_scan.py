@@ -37,6 +37,12 @@ useDefault = true
 id = "image-public-key"
 description = "Public SSH and PEM key material is not publishable"
 regex = '(?m)(?:ssh-(?:rsa|ed25519|dss)(?:-cert-v01@openssh\\.com)?|ecdsa-sha2-nistp[0-9]+(?:-cert-v01@openssh\\.com)?|sk-ssh-ed25519@openssh\\.com|sk-ecdsa-sha2-nistp256@openssh\\.com)[ \\t]+[A-Za-z0-9+/=]{20,}|-----BEGIN (?:RSA |EC )?PUBLIC KEY-----(?:\\r?\\n|\\\\n)[A-Za-z0-9+/=]{20,}|---- BEGIN SSH2 PUBLIC KEY ----(?:\\r?\\n|\\\\n)'
+[[rules]]
+id = "rogichat-github-installation-token"
+description = "GitHub installation tokens including variable-length formats"
+regex = '\\bghs_[A-Za-z0-9._-]{36,}'
+keywords = ["ghs_"]
+
 '''
 
 

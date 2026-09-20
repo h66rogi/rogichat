@@ -49,6 +49,10 @@ timeline 페이지 크기는 20이며 기존 1 MiB 응답 상한을 유지한다
 - 최종 iOS 고정 소스에서 실제 GRDB 27개가 모두 통과했다. A-only pending 보존과
   receipt/current-message version 차이의 추가 DB 회귀 두 개도 실제로 실행했다.
   화면 모델·transport 검사는 페이지 제한과 오류 분류 보강까지 통과했다.
+- 통합 커밋 `5a5e423a962ed8b92599a9b5df55d6f20571b7c4`에서 strict Swift 10개
+  시험 묶음, 실제 GRDB 27개와 세션/SQLite 복구 harness를 모두 다시 실행해 통과했다.
+  Python 배포 도구 122개도 통과했으며 실제 일회용 Keychain의 로컬 opt-in 1개만 생략됐다.
+  [통합 PR #74](https://github.com/h66rogi/rogichat/pull/74)의 원격 전체 검사는 별도로 진행한다.
 - Android 고정 소스는 QA JVM 197개(실패·오류·skip 0), lint와 앱·androidTest Kotlin
   컴파일을 통과했다. 신규 저장소 8개를 포함한 실제 Room/Keystore 27개 실행, Prod/R8와
   전체 variant 검사는 통합 원격 검사에서 별도로 확인한다.
