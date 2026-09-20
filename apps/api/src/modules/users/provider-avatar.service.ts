@@ -11,6 +11,7 @@ import type { CommandCredentials } from '../auth/auth-context.js';
 import { canonicalProfileId } from '../auth/soop-profile.contract.js';
 import { UsersCoreService } from './users-core.service.js';
 import { ProviderAvatarReader } from './provider-avatar-reader.js';
+import { providerAvatarContentType } from './provider-avatar-format.js';
 
 interface AvatarTicket { userId: string; roomId?: string; actorId?: string; expires: number; sourceHash: string }
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -38,9 +39,9 @@ export function openAvatarTicket(value: unknown, key: Buffer, now = Date.now()):
 
 export async function fetchProviderAvatar(url: string, fetcher: typeof fetch = fetch): Promise<{ bytes: Buffer; contentType: string }> {
   if (!canonicalProfileId(url)) throw new ApiError('NOT_FOUND', 404);
-  const response = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(5000), headers: { accept: 'image/jpeg,image/webp' } });
+  const response = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(5000), headers: { accept: 'image/jpeg,image/webp,image/gif' } });
   const limit = 2 * 1024 * 1024, contentType = response.headers.get('content-type')?.split(';')[0]?.trim();
-  if (!response.ok || !response.body || !['image/jpeg', 'image/webp'].includes(contentType ?? '') || Number(response.headers.get('content-length') ?? 0) > limit) {
+  if (!response.ok || !response.body || !['image/jpeg', 'image/webp', 'image/gif'].includes(contentType ?? '') || Number(response.headers.get('content-length') ?? 0) > limit) {
     await response.body?.cancel(); throw new ApiError('MEDIA_UNAVAILABLE', 503);
   }
   const reader = response.body.getReader(), chunks: Uint8Array[] = []; let length = 0;
@@ -49,9 +50,9 @@ export async function fetchProviderAvatar(url: string, fetcher: typeof fetch = f
       if (length > limit) throw new ApiError('MEDIA_UNAVAILABLE', 503); chunks.push(part.value); }
   } finally { await reader.cancel(); }
   const bytes = Buffer.concat(chunks);
-  if (contentType === 'image/jpeg' ? bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255 :
-    bytes.length < 12 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WEBP') throw new ApiError('MEDIA_UNAVAILABLE', 503);
-  return { bytes, contentType: contentType! };
+  const verifiedType = providerAvatarContentType(bytes);
+  if (!verifiedType) throw new ApiError('MEDIA_UNAVAILABLE', 503);
+  return { bytes, contentType: verifiedType };
 }
 
 @Injectable()
