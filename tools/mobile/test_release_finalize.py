@@ -214,6 +214,18 @@ class FinalizationTests(unittest.TestCase):
         self.assertEqual(len(api.mutations), 2)
         self.assertEqual(self.journal("ios")["steps"]["verification"]["state"], "verified")
 
+    def test_ios_signed_capability_rejection_blocks_remote_notes_and_group_mutations(self):
+        path, value = self.release("ios")
+        api = AppleFake()
+        with patch("release_finalize.inspect_archive") as archive, \
+                patch("release_finalize.inspect_ipa", side_effect=ValueError("missing actual Apple permission")) as ipa:
+            with self.assertRaisesRegex(ValueError, "actual Apple"):
+                ios(self.cfg, path, self.notes_file, client=api)
+            archive.assert_called_once_with(Path(value["archive_path"]), 8, "0.1.0", self.cfg)
+            ipa.assert_called_once_with(Path(value["artifacts"]["ipa"]["path"]), 8, "0.1.0", self.cfg)
+        self.assertEqual(api.mutations, [])
+        self.assertNotEqual(self.journal("ios")["steps"]["verification"]["state"], "verified")
+
     def test_ios_absent_uncertain_or_wrong_upload_receipt_blocks_all_writes(self):
         path, value = self.release("ios")
         receipt = path.parent / "testflight-upload-attempt.json"

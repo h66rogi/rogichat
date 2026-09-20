@@ -191,8 +191,8 @@ def ios(cfg, manifest_path, notes_file, wait_seconds=0, *, client=None, clock=ti
               "upload_receipt_sha256": digest(upload_record)}
     with finalization_lock(cfg, manifest_path, value, inputs) as journal:
         journal.record("verification", "checking")
-        inspect_archive(external(value["archive_path"]), value["build_number"], value["version"])
-        inspect_ipa(external(value["artifacts"]["ipa"]["path"]), value["build_number"], value["version"])
+        inspect_archive(external(value["archive_path"]), value["build_number"], value["version"], cfg)
+        inspect_ipa(external(value["artifacts"]["ipa"]["path"]), value["build_number"], value["version"], cfg)
         api = client or AppStoreConnect(cfg)
         deadline = clock() + wait_seconds
         while True:

@@ -183,3 +183,28 @@ python3 -m unittest discover -s tools/mobile -p 'test_prod_*.py' -v
 
 These preparation changes have not yet executed a signed Prod build or store
 validation. The parent integration owns the actual build and resulting evidence.
+
+## Current QA batch signature gate
+
+The current `release_ios.py` path also requires the exact QA Capabilities v2
+App Store profile, pinned team and distribution certificate. New QA archives use
+manual App Store signing from the start. Archive/export/upload/finalization all
+inspect the actual signature, Apple `Default`, `aps-environment: production`,
+disabled debug entitlement and exact QA callback domains. IPA verification also
+checks the full signed app and sealed resources in an isolated extraction directory.
+Upload rechecks both archive and IPA before creating an attempt marker or sending
+the binary; finalization rejects a bad signature before notes/group mutations.
+QA export and upload use separate, non-overwriting `ExportWorking.xcarchive` and
+`UploadWorking.xcarchive` copies. Export rechecks the canonical archive hash after
+Xcode returns and before Apple validation or writing a verified IPA receipt.
+
+There is no automatic development-profile fallback, legacy skip flag or
+manifest-policy field that can bypass these checks. Historical QA artifacts and
+receipts, including build 14, are unchanged. Revalidate a historical artifact with
+the release CLI from its frozen source commit and the original verification
+context; the new feature batch's stricter signature requirements do not rewrite
+the historical release result. `ios-status` remains a read-only remote status query.
+
+This change is verified with injected metadata and SDK commands. A real signed
+archive/export of the combined Apple/push feature batch remains the parent
+integration's validation step; no SDK build or upload ran in this guard task.

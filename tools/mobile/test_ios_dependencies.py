@@ -130,21 +130,26 @@ class IOSDependenciesTests(unittest.TestCase):
         self.assertIn("CODE_SIGNING_ALLOWED=NO", commands[0])
 
     def test_signed_archive_command_keeps_existing_signing_and_resolution_guards(self):
+        from ios_associations import QA_PROFILE
+        cfg = {"ios": {"team_id": "TESTTEAM00", "provisioning_profile": QA_PROFILE, "signing_certificate": "A" * 40}}
         with patch.object(release_ios, "ROOT", self.root), patch.object(release_ios, "inspect_product_sources"), \
                 patch.object(release_ios, "unlock_signing"), patch.object(release_ios, "AppStoreConnect") as apple, \
                 patch.object(release_ios, "new_output", return_value=self.root / "output"), \
                 patch.object(release_ios, "run", side_effect=StopBeforeSDK()) as run:
             apple.return_value.signing_args.return_value = ["-allowProvisioningUpdates"]
             with self.assertRaises(StopBeforeSDK):
-                release_ios.archive({"ios": {"team_id": "test-team"}}, 12, "0.1.0")
+                release_ios.archive(cfg, 12, "0.1.0")
             apple.return_value.bundle.assert_called_once_with()
         command = run.call_args.args[0]
         for flag in XCODE_RESOLVED_FLAGS:
             self.assertIn(flag, command)
         self.assertIn("Rogichat-QA", command)
         self.assertIn("Release-QA", command)
-        self.assertIn("DEVELOPMENT_TEAM=test-team", command)
-        self.assertIn("-allowProvisioningUpdates", command)
+        self.assertIn("DEVELOPMENT_TEAM=TESTTEAM00", command)
+        self.assertIn("CODE_SIGN_STYLE=Manual", command)
+        self.assertIn("CODE_SIGN_IDENTITY=" + "A" * 40, command)
+        self.assertIn("PROVISIONING_PROFILE_SPECIFIER=" + QA_PROFILE, command)
+        self.assertNotIn("-allowProvisioningUpdates", command)
         self.assertEqual(command[-1], "archive")
 
 
