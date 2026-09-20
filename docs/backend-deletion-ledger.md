@@ -86,7 +86,8 @@ API and worker `readRuntimeSettings` load `DELETION_LEDGER_SECRET_FILE` when pre
 The JSON file has exactly `accountId`, `bucket`, `accessKeyId`, `secretAccessKey`,
 and `environment`; the environment must match QA/production. It is limited to
 4096 bytes and must be a regular, single-link file owned by the process user or
-root with no group/other permissions. The loader opens with `O_NOFOLLOW`, compares
+root with no group/other permissions (0400/0600; a root:GID 0440 mount is
+rejected and needs a separately reviewed mount change). The loader opens with `O_NOFOLLOW`, compares
 file identity, bounds reads and emits only a fixed configuration error. No inline
 credential fallback exists. Missing configuration keeps other features bootable
 and deletion admission unavailable.
@@ -134,3 +135,10 @@ Official references: [R2 S3 API compatibility](https://developers.cloudflare.com
 [conditional requests](https://developers.cloudflare.com/r2/api/s3/extensions/),
 [bucket-scoped credentials](https://developers.cloudflare.com/r2/api/tokens/), and
 [bucket locks](https://developers.cloudflare.com/r2/buckets/bucket-locks/).
+
+Final local verification on the normally merged QA base `397d2f0`: 280
+unit/e2e/contract checks and 184 disposable MySQL integration checks passed;
+build, typecheck, lint and public-repository security scan passed. The final
+secret-parser hardening is covered by the full unit/e2e/contract rerun, including
+actual API/worker runtime-loader subprocess tests. Remote CI is inspected after
+publishing the draft; this local evidence is not deployment evidence.

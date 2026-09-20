@@ -20,11 +20,23 @@ export function readDeletionConfig(environment: string, media: MediaConfig | und
     do { read = readSync(fd, bytes, length, bytes.length - length, null); length += read; } while (read > 0 && length < bytes.length);
     if (length !== file.size || length > 4096) throw new Error();
     const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, length));
-    // Flat, fixed ASCII keys: reject duplicates and escaped-key aliases before JSON normalization.
-    if ((text.match(/"(?:accessKeyId|accountId|bucket|environment|secretAccessKey)"\s*:/g) ?? []).length !== 5) throw new Error();
-    const value: unknown = JSON.parse(text);
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
-    const v = value as Record<string, unknown>;
+    JSON.parse(text); // Also enforce JSON whitespace/escape grammar; token inspection below detects duplicates.
+    // Parse exactly five flat string pairs. Keys must be literal canonical tokens;
+    // JSON.parse alone would normalize duplicate/escaped aliases before inspection.
+    const start = /^\s*\{/.exec(text);
+    if (!start) throw new Error();
+    let cursor = start[0].length;
+    const pair = /\s*"(accessKeyId|accountId|bucket|environment|secretAccessKey)"\s*:\s*("(?:[^"\\]|\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4}))*")\s*/y;
+    const v: Record<string, string> = {};
+    for (let index = 0; index < 5; index++) {
+      pair.lastIndex = cursor;
+      const match = pair.exec(text);
+      if (!match || Object.hasOwn(v, match[1]!)) throw new Error();
+      v[match[1]!] = JSON.parse(match[2]!) as string;
+      cursor = pair.lastIndex;
+      if (index < 4) { if (text[cursor++] !== ',') throw new Error(); }
+      else if (text[cursor] !== '}' || text.slice(cursor + 1).trim() !== '') throw new Error();
+    }
     if (Object.keys(v).sort().join(',') !== 'accessKeyId,accountId,bucket,environment,secretAccessKey' ||
         v.environment !== environment || typeof v.accountId !== 'string' || !/^[a-f0-9]{32}$/.test(v.accountId) || v.accountId !== media.accountId ||
         typeof v.bucket !== 'string' || !/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(v.bucket) || v.bucket === media.bucket ||
