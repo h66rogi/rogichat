@@ -40,8 +40,8 @@ async function run(command, args, env, timeoutMs = 60000) {
 }
 
 try {
-  if ((process.argv.includes('--quality') || process.argv.includes('--soak')) && (!process.env.TEST_MYSQL_PORT || process.env.ROGICHAT_TEST_MYSQL !== 'disposable')) {
-    throw new Error('quality suite requires an explicitly disposable MySQL service; local datadir fallback forbidden');
+  if (['--quality', '--soak', '--restore'].some(flag => process.argv.includes(flag)) && (!process.env.TEST_MYSQL_PORT || process.env.ROGICHAT_TEST_MYSQL !== 'disposable')) {
+    throw new Error('specialized suite requires an explicitly disposable MySQL service; local datadir fallback forbidden');
   }
   let port;
   let password;
@@ -98,7 +98,7 @@ try {
   } else {
   stage = 'tests';
   // Discover committed test names so newly added regressions cannot silently miss CI.
-  const suite = process.argv.includes('--soak') ? 'soak' : process.argv.includes('--quality') ? 'quality' : 'integration';
+  const suite = process.argv.includes('--restore') ? 'restore' : process.argv.includes('--soak') ? 'soak' : process.argv.includes('--quality') ? 'quality' : 'integration';
   let integrationFiles = (await readdir(new URL(`./${suite}/`, import.meta.url)))
     .filter(name => name.endsWith('.test.mjs')).sort().map(name => join('test', suite, name));
   const requested = process.argv.filter(arg => arg.startsWith('--test-file=')).map(arg => arg.slice('--test-file='.length));
@@ -114,6 +114,13 @@ try {
       M12_EVIDENCE_DIR: process.env.M12_EVIDENCE_DIR ?? '',
       M12_SOURCE_SHA: process.env.M12_SOURCE_SHA ?? '',
       M12_PREFLIGHT_ONLY: process.env.M12_PREFLIGHT_ONLY ?? '',
+      ...(suite === 'restore' ? {
+        GITHUB_ACTIONS: process.env.GITHUB_ACTIONS ?? '',
+        RUNNER_ENVIRONMENT: process.env.RUNNER_ENVIRONMENT ?? '',
+        RUNNER_OS: process.env.RUNNER_OS ?? '',
+        GITHUB_SERVER_URL: process.env.GITHUB_SERVER_URL ?? '',
+        GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? '',
+      } : {}),
     },
   });
   const [code] = await once(testProcess, 'exit');

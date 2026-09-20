@@ -95,6 +95,21 @@ QA/main merge, live host/database/provider configuration, immutable-image
 activation and user-route verification remain with the infrastructure executor.
 No synthetic account or conversation is added to serving runtime.
 
+### First QA schema-13 to schema-24 rollout
+
+There is no previously healthy schema-24-compatible fallback for this first
+rollout. After DDL, a failed candidate must leave the edge at 503 and API/worker
+stopped while preserving the database and archives. The executor must use a
+reviewed schema-24 forward repair or a separately controlled fresh physical
+restore with ledger, media and authorization-epoch gates. A schema-13 image or
+archive is a pre-DDL recovery option only: do not downgrade migrations, reset,
+rebootstrap or restart the old image against schema 24.
+
+After the first healthy schema-24 release receipt, retain that immutable digest
+for a future schema-compatible fallback. This boundary authorizes no automatic
+restore or recovery-time promise; real Aurora/R2 restore evidence remains pending,
+and infrastructure owns the rollout and host implementation.
+
 ## Prior accepted source baseline (2026-09-20)
 
 The sections below record earlier integration stages. Their statements about
