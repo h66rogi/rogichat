@@ -176,3 +176,146 @@ for (const hidden of [false, true]) test(`remote deletion clears ${hidden ? 'hid
   await input.fill('결과 미확인 메시지'); await input.press('Enter'); await expect(input).toHaveValue('');
   expect(state.posts).toHaveLength(2); expect(state.posts[0]?.clientMessageId).toBe(state.posts[1]?.clientMessageId);
 });
+
+async function reactionApi(page: Page) {
+  const chat = await chatApi(page);
+  const state = { mine: null as string | null, count: 2, status: 200, calls: [] as string[], hold: null as Promise<void> | null };
+  await page.route('**/reactions{,/me}', async route => {
+    const method = route.request().method();
+    if (method === 'OPTIONS') { await json(route, null, 204); return; }
+    state.calls.push(method);
+    if (method !== 'GET') expect(route.request().headers()['x-csrf-token']).toBe(chat.account.sessionToken);
+    if (state.hold) await state.hold;
+    if (state.status !== 200) { await json(route, { private: 'never-render-error-body' }, state.status); return; }
+    if (method === 'PUT') state.mine = route.request().postDataJSON().emoji;
+    if (method === 'DELETE') state.mine = null;
+    await json(route, { counts: state.mine ? [{ emoji: state.mine, count: state.count }] : [], mine: state.mine });
+  });
+  return { ...chat, reactions: state };
+}
+
+test('reactions use real methods, authoritative counts, keyboard controls and accessible states', async ({ page }) => {
+  const { reactions } = await reactionApi(page);
+  await page.goto('/chat');
+  const toggle = page.getByRole('button', { name: '반응 보기', exact: true });
+  await expect(toggle).toBeVisible(); expect(reactions.calls).toEqual([]);
+  await toggle.focus(); await toggle.press('Enter');
+  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  let release!: () => void; reactions.hold = new Promise(resolve => { release = resolve; });
+  await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
+  await expect(page.getByText('반응을 확인하는 중입니다.')).toBeVisible();
+  await expect(page.getByRole('button', { name: /반응 2개/ })).toHaveCount(0);
+  release(); reactions.hold = null;
+  await expect(page.getByRole('button', { name: '👍 반응 2개, 내 반응 해제' })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: '하트 반응', exact: true }).focus();
+  await page.getByRole('button', { name: '하트 반응', exact: true }).press('Enter');
+  await expect(page.getByRole('button', { name: '❤️ 반응 2개, 내 반응 해제' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '하트 반응', exact: true })).toBeFocused();
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await page.getByRole('button', { name: '내 반응 해제', exact: true }).click();
+  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  expect(reactions.calls).toEqual(['GET', 'PUT', 'PUT', 'DELETE']);
+});
+
+for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides unconfirmed counts and permits safe recovery`, async ({ page }) => {
+  const { reactions, state, account } = await reactionApi(page);
+  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  reactions.status = status;
+  if (status === 401) account.sessionStatus = 401;
+  if (status === 403 || status === 404) state.messages = [];
+  await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
+  if (status === 429 || status === 503) {
+    await expect(page.getByRole('group', { name: '메시지 반응', exact: true }).getByRole('alert')).toContainText(status === 429 ? '30초' : '반응 결과');
+    await expect(page.getByRole('button', { name: '좋아요 반응', exact: true })).toBeDisabled();
+    if (status === 503) { reactions.status = 200; await page.getByRole('button', { name: '반응 다시 조회' }).click(); await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible(); }
+    else { await page.getByRole('button', { name: '반응 다시 조회' }).click(); expect(reactions.calls).toEqual(['GET', 'PUT']); }
+  } else await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
+  await expect(page.getByText('never-render-error-body')).toHaveCount(0);
+  expect(reactions.calls.filter(method => method === 'PUT')).toHaveLength(1);
+});
+
+for (const transition of ['deletion', 'session'] as const) test(`late reaction response after ${transition} cannot repopulate private DOM`, async ({ page }) => {
+  const { reactions, state, account, hint } = await reactionApi(page);
+  await page.goto('/chat'); await expect(page.getByRole('button', { name: '반응 보기', exact: true })).toBeVisible();
+  let release!: () => void; reactions.hold = new Promise(resolve => { release = resolve; }); reactions.mine = '👍'; reactions.count = 99;
+  await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await expect(page.getByText('반응을 확인하는 중입니다.')).toBeVisible();
+  state.messages = [];
+  if (transition === 'deletion') { state.deletedIds = [incoming.id]; hint(); }
+  else { account.sessionToken = 'synthetic-csrf-session-B'; await page.evaluate(() => window.dispatchEvent(new Event('rogichat-session-invalidated'))); }
+  await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
+  release(); reactions.hold = null;
+  await expect(page.getByRole('group', { name: '메시지 반응', exact: true })).toHaveCount(0);
+  await expect(page.getByText('👍 99', { exact: true })).toHaveCount(0);
+});
+
+test('message version hints refresh only opened reaction aggregates', async ({ page }) => {
+  const { reactions, state, hint } = await reactionApi(page);
+  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  reactions.mine = '🎉'; reactions.count = 5; state.messages = [{ ...incoming, version: '2' }]; hint();
+  await expect(page.getByRole('button', { name: '🎉 반응 5개, 내 반응 해제' })).toBeVisible();
+  expect(reactions.calls).toEqual(['GET', 'GET']);
+});
+
+test('anonymous publication reactions expose only aggregate selection without identity or source inference', async ({ page }) => {
+  const { state, reactions } = await reactionApi(page);
+  state.messages = [{ ...incoming, audience: 'SHARED', author: { kind: 'anonymous' } }];
+  reactions.mine = '👍';
+  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await expect(page.getByRole('button', { name: '👍 반응 2개, 내 반응 해제' })).toBeVisible();
+  await expect(page.locator('[data-scope="PUBLICATION"]')).toContainText('보낸 사람 비공개');
+  await expect(page.locator('[data-scope="PUBLICATION"]')).not.toContainText('테스트 스트리머');
+  await expect(page.getByTestId('chat-reply')).toHaveCount(0);
+});
+
+for (const action of ['GET', 'PUT', 'closed'] as const) test(`pending reaction ${action} across version advance never commits stale counts or stalls open control`, async ({ page }) => {
+  const { state, hint } = await reactionApi(page);
+  let calls = 0; let release!: () => void; const held = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/reactions{,/me}', async route => {
+    if (route.request().method() === 'OPTIONS') { await json(route, null, 204); return; }
+    calls++;
+    if (calls === 1) { await json(route, { counts: [], mine: null }); return; }
+    if (calls === 2) { await held; await json(route, { counts: [{ emoji: '👍', count: 99 }], mine: '👍' }); return; }
+    expect(route.request().method()).toBe('GET');
+    await json(route, { counts: [{ emoji: '🎉', count: 5 }], mine: null });
+  });
+  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  await page.getByRole('button', { name: action === 'PUT' ? '좋아요 반응' : '반응 새로고침', exact: true }).click();
+  await expect(page.getByText('반응을 확인하는 중입니다.')).toBeVisible();
+  if (action === 'closed') await page.getByRole('button', { name: '반응 닫기', exact: true }).click();
+  state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '새 버전 메시지' } }]; hint();
+  await expect(page.getByText('새 버전 메시지', { exact: true })).toBeVisible();
+  release();
+  if (action !== 'closed') {
+    await expect(page.getByRole('button', { name: '🎉 반응 5개, 선택' })).toBeVisible();
+    expect(calls).toBe(3);
+  } else {
+    // A subsequent socket sync lets the old request settle without reopening UI.
+    hint(); await page.getByRole('button', { name: '반응 보기', exact: true }).focus();
+    expect(calls).toBe(2);
+  }
+  await expect(page.getByRole('button', { name: /반응 99개/ })).toHaveCount(0);
+});
+
+for (const action of ['refresh', 'aggregate'] as const) test(`reaction keyboard ${action} retains logical focus through a deferred response`, async ({ page }) => {
+  const { reactions } = await reactionApi(page); reactions.mine = '🦊';
+  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  const group = page.getByRole('group', { name: '메시지 반응', exact: true });
+  const refresh = group.getByRole('button', { name: '반응 새로고침', exact: true });
+  await expect(page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' })).toBeVisible();
+  let release!: () => void; reactions.hold = new Promise(resolve => { release = resolve; });
+  const target = action === 'refresh' ? refresh : page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' });
+  await target.focus(); await target.press('Enter');
+  const pendingRefresh = group.getByRole('button', { name: '반응 다시 조회', exact: true });
+  await expect(pendingRefresh).toBeFocused(); await expect(pendingRefresh).toBeDisabled();
+  await expect(page.getByRole('button', { name: /반응 2개/ })).toHaveCount(0);
+  await pendingRefresh.press('Enter'); expect(reactions.calls).toHaveLength(2);
+  release(); reactions.hold = null;
+  await expect(refresh).toBeFocused(); await expect(refresh).toBeEnabled();
+  if (action === 'refresh') await expect(page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' })).toBeVisible();
+  else await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  expect(reactions.calls).toEqual(['GET', action === 'refresh' ? 'GET' : 'DELETE']);
+});

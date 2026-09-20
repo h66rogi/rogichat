@@ -13,7 +13,7 @@
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "node ../../tools/web/check-production.mjs .next",
-    "test:unit": "node --import ./src/features/chat/testing/register-ts.mjs --test src/features/chat/*.test.ts src/core/api/*.test.ts src/core/runtime/*.test.ts src/features/push/*.test.ts",
+    "test:unit": "node --import ./src/features/chat/testing/register-ts.mjs --test src/features/chat/*.test.ts src/core/api/*.test.ts src/core/runtime/*.test.ts src/features/media/*.test.ts src/features/push/*.test.ts",
     "test": "playwright test",
     "test:install": "playwright install chromium"
   },
