@@ -84,9 +84,17 @@ async function fixture(t) {
 test('ACCOUNT runtime owns roots/copies across rooms, not publisher membership, and survives restart', { timeout: 30000 }, async t => {
   const f = await fixture(t), root = await f.message(), copy = await f.message(f.rooms[0], f.user, root), second = await f.message(f.rooms[1]);
   const independent = await f.message(f.rooms[0], f.peer);
+  const reportId = randomUUID();
+  await f.db.transactions.write(tx => tx.prisma.moderation_reports.create({ data: {
+    id: reportId, reporter_user_id: f.peer, idempotency_key: randomUUID(), payload_digest: Buffer.alloc(32),
+    room_id: f.rooms[0].id, message_id: copy, root_message_id: root, content_owner_user_id: f.user,
+    reason: 'other', detail: 'isolated sensitive report detail', detail_expires_at: new Date(Date.now() + 86400000),
+  } }));
   await f.db.transactions.write(tx => tx.prisma.messages.update({ where: { id: independent }, data: { quote_id: root } }));
   const before = await f.db.transactions.read(tx => tx.prisma.rooms.findMany({ where: { id: { in: f.rooms.map(r => r.id) } }, select: { content_epoch: true } }));
   await f.admit(); await f.step(); await f.restart(); await f.drain();
+  const report = await f.db.transactions.read(tx => tx.prisma.moderation_reports.findUniqueOrThrow({ where: { id: reportId } }));
+  assert.equal(report.detail, null); assert.equal(report.status, 'received', 'durable receipt survives account content erasure');
   await f.db.transactions.read(async tx => {
     assert.equal(await tx.prisma.messages.count({ where: { id: { in: [root, copy, second] } } }), 0);
     const other = await tx.prisma.messages.findUniqueOrThrow({ where: { id: independent } }); assert.equal(other.text_content, 'fixture body'); assert.equal(other.quote_id, null);

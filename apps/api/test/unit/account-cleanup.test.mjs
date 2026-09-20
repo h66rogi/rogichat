@@ -9,7 +9,7 @@ import { NotificationsModule } from '../../dist/modules/notifications/notificati
 import { ReadStateCoreModule } from '../../dist/modules/read-state/read-state-core.module.js';
 
 const requestId = '00000000-0000-4000-8000-000000000001';
-function fixture(readResult, pushResult) {
+function fixture(readResult, pushResult, moderation = { changed: 0, done: true }) {
   const calls = []; let inTransaction = false;
   const ledger = { environment: 'qa', async readByKey() {
     assert.equal(inTransaction, false); calls.push('external'); return { intent: { scope: 'ACCOUNT', targetId: 'isolated' } };
@@ -25,7 +25,7 @@ function fixture(readResult, pushResult) {
   };
   const read = { async purgeAccount(_tx, _userId, limit) { assert.equal(limit, 100); calls.push('read'); return readResult; } };
   const push = { async purgeAccount(_tx, _userId, limit) { assert.equal(limit, 100); calls.push('push'); return pushResult; } };
-  return { calls, service: new AccountCleanupService(transactions, ledger, repository, read, push, { async page() { return null; } }, { async page() { return false; } }) };
+  return { calls, service: new AccountCleanupService(transactions, ledger, repository, read, push, { async page() { return null; } }, { async page() { return false; } }, { async clearForAccount() { return moderation; } }) };
 }
 
 test('read-state hasMore and push done are distinct continuation barriers, including zero-deletion passes', async () => {
@@ -50,4 +50,13 @@ test('cleanup module exports only its internal service and consumes existing dom
   assert.ok(module.imports.includes(ReadStateCoreModule)); assert.ok(module.imports.includes(NotificationsModule));
   assert.equal(module.controllers, undefined);
   assert.equal(module.providers.some(provider => /Lifecycle|Reconciler|Worker/.test(provider.name ?? '')), false);
+});
+
+
+test('moderation detail cleanup remains inside the account transaction and zero-change pending work cannot complete', async () => {
+  for (const result of [{ changed: 2, done: true }, { changed: 0, done: false }]) {
+    const f = fixture({ deleted: 0, hasMore: false }, { deleted: 0, done: true }, result);
+    assert.deepEqual(await f.service.step(requestId), { phase: 'moderation', changed: result.changed, hasMore: true });
+    assert.deepEqual(f.calls, ['external', 'authorize', 'private']);
+  }
 });

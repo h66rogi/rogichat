@@ -78,3 +78,48 @@ test('receipt projection never spreads repository row', () => {
   assert.deepEqual(reportReceipt({ id: 'id', created_at: new Date(0), status: 'received', room_id: 'private', detail: 'private', content_owner_user_id: 'private' }),
     { reportId: 'id', createdAt: new Date(0).toISOString(), status: 'received' });
 });
+
+test('blocked message reads stop before content, grant, attachment or sticker lookups', async () => {
+  const { MessagesCoreService } = await import('../../dist/modules/messages/messages-core.service.js');
+  const calls = [];
+  const core = new MessagesCoreService({}, { actorBlocked: async (...args) => { calls.push(args); return true; } });
+  const tx = {}; const viewer = { id: 'viewer' }; const row = { room_id: 'room', sender_member_id: 'publisher', deletion_root_id: 'hidden-source' };
+  assert.equal(await core.readable(tx, viewer, row), false);
+  assert.deepEqual(calls, [[tx, 'room', 'viewer', 'publisher']], 'anonymous publications never resolve or pass their hidden source');
+});
+
+test('retention completion uses current bounded locks rather than stale snapshot absence', async () => {
+  const { ModerationRetentionRepository } = await import('../../dist/modules/moderation/moderation-retention.repository.js');
+  const queries = []; let phase = 0;
+  const tx = { rows: async (sql, values) => { queries.push([sql, values]); return phase++ ? [{ id: 'still-pending' }] : [{ id: 'selected' }]; },
+    prisma: { moderation_reports: { updateMany: async query => { assert.deepEqual(query.where.id.in, ['selected']); return { count: 0 }; } } } };
+  assert.deepEqual(await new ModerationRetentionRepository().clear(tx, { kind: 'message', roomId: 'room', messageId: 'message' }, 3), { changed: 0, done: false });
+  assert.ok(queries.every(([sql]) => sql.endsWith('LIMIT ? FOR UPDATE')));
+  assert.deepEqual(queries.map(([, values]) => values.at(-1)), [3, 1]);
+});
+
+
+test('message dependency drain waits for moderation scrubbing including zero-change pending work', async () => {
+  const { MessageDependenciesService } = await import('../../dist/modules/deletion/message-dependencies.service.js');
+  const tx = {}; const calls = [];
+  const core = new MessageDependenciesService({}, { purgeMessage: async () => { assert.fail('must wait for detail cleanup'); } }, {
+    clearForMessage: async (...args) => { calls.push(args); return { changed: 0, done: false }; },
+  });
+  assert.deepEqual(await core.page(tx, 'room', 'message', 10), { changed: 0, done: false });
+  assert.deepEqual(calls, [[tx, 'room', 'message', 10]]);
+});
+
+
+test('recovery names are scoped to existing owned blocks and keep FAN/afterleave policy without profile grants', async () => {
+  const repo = new ModerationRepository(); const calls = [];
+  const member = { id: 'mine', role: 'FAN', status: 'LEFT', room: { mode: 'FAN', status: 'ACTIVE' }, user: { status: 'ACTIVE', soop: { status: 'VERIFIED' } } };
+  const rows = [{ target_actor_id: 'visible', created_at: new Date(0) }, { target_actor_id: 'unavailable', created_at: new Date(0) }];
+  const tx = { prisma: { room_members: { findFirst: async () => member, findMany: async query => {
+    calls.push(query); return [{ id: 'visible', active_period: { member_id: 'visible' }, user: { profile: { nickname: 'current name' } } }];
+  } }, actor_blocks: { findMany: async query => { assert.equal(query.where.blocker_actor_id, 'mine'); return rows; } } } };
+  assert.deepEqual((await repo.ownBlocks(tx, 'room', 'caller', '')).map(row => row.displayName), ['current name', null]);
+  assert.deepEqual(calls[0].where.id, { in: ['visible', 'unavailable'] }); assert.equal(calls[0].where.role, 'STREAMER');
+  assert.deepEqual(calls[0].select.user, { select: { profile: { select: { nickname: true } } } });
+  member.status = 'BANNED'; assert.ok((await repo.ownBlocks(tx, 'room', 'caller', '')).every(row => row.displayName === null)); assert.equal(calls.length, 1);
+  tx.prisma.room_members.findFirst = async () => null; assert.deepEqual(await repo.ownBlocks(tx, 'room', 'outsider', ''), []); assert.equal(calls.length, 1);
+});

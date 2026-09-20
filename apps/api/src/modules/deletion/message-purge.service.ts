@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 import type { Transaction, Transactions } from '../../infrastructure/database/transactions.js';
 import { leaseValues } from '../jobs/jobs.policy.js';
 import type { JobLease } from '../jobs/jobs.policy.js';
-import { NotificationsCoreService } from '../notifications/notifications-core.service.js';
 import { checkedDeletionIntent, encodeDeletionIntent } from './deletion-ledger.js';
 import type { DeletionReceipt, LedgerEnvironment } from './deletion-ledger.js';
 import { MessageDependenciesService } from './message-dependencies.service.js';
@@ -14,7 +13,6 @@ export type MessagePurgeResult = { status: 'progress' | 'rows_purged' | 'deferre
 @Injectable()
 export class MessagePurgeService {
   constructor(@Inject(MessagePurgeRepository) private readonly repository: MessagePurgeRepository,
-    @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService,
     @Inject(MessageDependenciesService) private readonly dependencies: MessageDependenciesService) {}
 
   // One fresh transaction per bounded step. No external I/O, hidden inherited RR
@@ -60,10 +58,8 @@ export class MessagePurgeService {
         // FK-free metadata and polymorphic jobs can be restored without the
         // content row. Exact proof authorizes only this target's cleanup, not a
         // room/account sweep or a claim about lost historical child provenance.
-        const notifications = await this.notifications.purgeMessage(tx, lease.roomId!, intent.target_id, limit);
-        if (!notifications.done) return finish('progress', notifications.deleted);
-        const scrubbed = await this.repository.scrubReceipts(tx, lease.roomId!, intent.target_id, limit);
-        if (scrubbed) return finish('progress', scrubbed);
+        const dependencies = await this.dependencies.page(tx, lease.roomId!, intent.target_id, limit);
+        if (!dependencies.done) return finish('progress', dependencies.changed);
         return finish('rows_purged');
       }
       if (!intent.blocked_at || !request || request.actor_user_id !== intent.actor_user_id || request.room_id !== intent.room_id ||
