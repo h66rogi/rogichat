@@ -56,6 +56,54 @@ class ValidationTests(unittest.TestCase):
             self.assertEqual(w.validate_compose(config(r), r), config(r))
             w.verify_image(image(r), r)
 
+    def test_compose_normalized_external_network_preserves_input(self):
+        # Sanitized network shape observed with Compose 2.40.3+ds1-0ubuntu1~24.04.1.
+        for env in ('qa', 'production'):
+            for normalized in (False, True):
+                with self.subTest(env=env, normalized=normalized):
+                    r = request(env)
+                    c = config(r)
+                    if normalized:
+                        c['networks']['web']['ipam'] = {}
+                    before = copy.deepcopy(c)
+                    self.assertIs(w.validate_compose(c, r), c)
+                    self.assertEqual(c, before)
+
+    def test_compose_network_normalization_rejects_widening(self):
+        for env in ('qa', 'production'):
+            r = request(env)
+            for key, value in [
+                    ('ipam', None), ('ipam', []), ('ipam', False), ('ipam', ''),
+                    ('ipam', {'driver': 'default'}), ('ipam', {'config': []}),
+                    ('ipam', {'config': [{'subnet': '192.0.2.0/24'}]}),
+                    ('external', False), ('external', None), ('external', 'true'),
+                    ('external', 1), ('external', 1.0), ('external', {}),
+                    ('name', 'unrelated-network'),
+                    ('name', 'rogichat-prod-web' if env == 'qa' else 'rogichat-qa-web'),
+                    ('driver', 'bridge'), ('driver_opts', {}), ('internal', True),
+                    ('attachable', True), ('enable_ipv6', True), ('unknown', {})]:
+                with self.subTest(env=env, key=key, value=value):
+                    c = config(r)
+                    c['networks']['web']['ipam'] = {}
+                    c['networks']['web'][key] = value
+                    with self.assertRaises(w.Rejected):
+                        w.validate_compose(c, r)
+            for location in ('top-level', 'service'):
+                for replacement in (False, True):
+                    with self.subTest(env=env, location=location, replacement=replacement):
+                        c = config(r)
+                        c['networks']['web']['ipam'] = {}
+                        networks = c['networks'] if location == 'top-level' else c['services']['web']['networks']
+                        networks['other'] = networks['web']
+                        if replacement:
+                            del networks['web']
+                        with self.assertRaises(w.Rejected):
+                            w.validate_compose(c, r)
+            c = config(r)
+            del c['networks']['web']['external']
+            with self.assertRaises(w.Rejected):
+                w.validate_compose(c, r)
+
     def test_invalid_requests(self):
         for key, value in [('environment', 'preview'), ('source_sha', '../main'), ('image', 'ghcr.io/h66rogi/rogichat-web:latest'),
                            ('image', 'ghcr.io/attacker/rogichat-web@sha256:' + 'b' * 64),
