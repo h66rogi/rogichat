@@ -161,16 +161,22 @@ test('publication copies purge before source, scoped jobs disappear and unrelate
     await tx.prisma.jobs.createMany({ data: [
       { id: randomUUID(), purpose: 'PUBLICATION', room_id: f.room, resource_id: publicationId },
       { id: randomUUID(), purpose: 'PUSH', room_id: null, resource_id: copyId },
-      { id: unrelatedJob, purpose: 'PUBLICATION', room_id: f.room, resource_id: randomUUID() },
+      { id: unrelatedJob, purpose: 'PUBLICATION', room_id: f.room, resource_id: randomUUID(), available_at: new Date((await tx.now()).getTime() + 3600000) },
     ] });
   });
-  await f.block(); assert.equal((await f.finish(1)).status, 'rows_purged');
-  const remaining = await f.db.transactions.read(async tx => ({
-    copy: await tx.prisma.messages.findUnique({ where: { id: copyId } }),
-    publication: await tx.prisma.message_publications.findUnique({ where: { id: publicationId } }),
-    job: await tx.prisma.jobs.findUnique({ where: { id: unrelatedJob } }),
-  }));
-  assert.equal(remaining.copy, null); assert.equal(remaining.publication, null); assert.ok(remaining.job);
+  try {
+    await f.block(); assert.equal((await f.finish(1)).status, 'rows_purged');
+    const remaining = await f.db.transactions.read(async tx => ({
+      copy: await tx.prisma.messages.findUnique({ where: { id: copyId } }),
+      publication: await tx.prisma.message_publications.findUnique({ where: { id: publicationId } }),
+      job: await tx.prisma.jobs.findUnique({ where: { id: unrelatedJob } }),
+    }));
+    assert.equal(remaining.copy, null); assert.equal(remaining.publication, null); assert.ok(remaining.job);
+  } finally {
+    // Preserve the assertion above without leaking this owned sentinel into
+    // later tests that claim PUBLICATION jobs from the shared disposable queue.
+    await f.db.transactions.write(tx => tx.prisma.jobs.deleteMany({ where: { id: unrelatedJob } }));
+  }
 });
 
 test('approved service sticker asset and catalog survive message-link purge', { timeout: 15000 }, async t => {
