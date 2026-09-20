@@ -45,7 +45,7 @@ export class ChatController {
   private completeRooms: OutboxRoom[] = [];
   private storageMessage(error: unknown): string {
     const code = error instanceof OutboxError ? error.code : 'STORAGE_FAILED';
-    return code === 'BUSY' ? '다른 탭에서 전송을 확인하고 있습니다. 해당 탭을 닫고 저장소를 다시 연결해 주세요.'
+    return code === 'BUSY' ? '다른 탭 또는 이전 페이지의 전송 확인이 끝나지 않았습니다. 다른 탭을 닫거나 최대 30초 뒤 저장소를 다시 연결해 주세요.'
       : code === 'UPDATE_REQUIRED' ? '전송 저장소 버전이 변경되었습니다. 다른 탭을 닫고 페이지를 새로 열어 주세요.'
       : code === 'CAPACITY' ? '미확인 전송 보관 한도에 도달했습니다. 이전 전송 결과를 먼저 확인해 주세요.'
       : '전송 저장소를 확인하지 못했습니다. 입력은 유지됩니다. 저장소를 다시 연결한 뒤 전송해 주세요.';

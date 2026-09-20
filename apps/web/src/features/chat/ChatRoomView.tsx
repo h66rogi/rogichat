@@ -71,6 +71,7 @@ export interface ChatRoomViewProps {
   initialTarget?: ChatComposerTarget | undefined;
   /** Absent means sending is not wired yet; the composer says so instead of pretending. */
   onSubmit?: ((submission: ChatComposerSubmission) => ChatSubmitResult | Promise<ChatSubmitResult>) | undefined;
+  submitBlockedReason?: string | undefined;
   onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   actionNotice?: string | undefined;
   onLoadOlder?: (() => void | Promise<void>) | undefined;
@@ -100,6 +101,7 @@ function ScopedChatRoom({
   streamerRecipients = EMPTY_RECIPIENTS,
   initialTarget,
   onSubmit,
+  submitBlockedReason,
   onLoadOlder,
   onDelete,
   actionNotice,
@@ -262,7 +264,7 @@ function ScopedChatRoom({
   );
 
   const handleSubmit = useCallback(() => {
-    if (!onSubmit || target === null || currentKey === null) return;
+    if (!onSubmit || submitBlockedReason || target === null || currentKey === null) return;
     if (submittingKey !== null) {
       if (submittingKey !== currentKey) setNoticeFor(currentKey, { tone: 'info', text: '다른 메시지를 보내는 중입니다. 끝나면 다시 시도해 주세요.' });
       return;
@@ -315,7 +317,7 @@ function ScopedChatRoom({
         );
       }
     })();
-  }, [onSubmit, target, currentKey, submittingKey, drafts, setNoticeFor]);
+  }, [onSubmit, submitBlockedReason, target, currentKey, submittingKey, drafts, setNoticeFor]);
 
   const canReply = viewerRole === 'FAN' ? permittedFans.length > 0 : streamerRecipients.length > 0;
 
@@ -368,6 +370,7 @@ function ScopedChatRoom({
         notice={notice}
         announcement={announcement}
         disabled={onSubmit === undefined}
+        submitBlockedReason={submitBlockedReason}
       />
       {onSubmit && <div className="border-t border-line px-3 py-2">
         <Button type="button" variant="outline" disabled={!target || !media?.configured || (Object.keys(photoTargets).length >= 2 && !photoTargets[draftKeyFor(target)])} onClick={() => {
@@ -383,13 +386,13 @@ function ScopedChatRoom({
         {!media?.configured && <p className="text-sm text-muted">지금은 사진 첨부를 사용할 수 없습니다.</p>}
       </div>}
       {onSubmit && videoTarget && isAuthorizedTarget(videoTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(videoTarget) !== currentKey}>
-        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} onClose={() => setVideoTarget(null)} />
+        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setVideoTarget(null)} />
       </div>}
       {onSubmit && stickerTarget && isAuthorizedTarget(stickerTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(stickerTarget) !== currentKey}>
-        <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} onClose={() => setStickerTarget(null)} />
+        <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setStickerTarget(null)} />
       </div>}
       {onSubmit && Object.entries(photoTargets).filter(([, value]) => isAuthorizedTarget(value, authorization)).map(([key, value]) => <div key={key} hidden={key !== currentKey} className="max-h-96 overflow-y-auto">
-        <PhotoDraftComposer target={value} onSubmit={onSubmit} onClose={() => setPhotoTargets(previous => {
+        <PhotoDraftComposer target={value} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setPhotoTargets(previous => {
           const next = { ...previous }; delete next[key]; return next;
         })} />
       </div>)}

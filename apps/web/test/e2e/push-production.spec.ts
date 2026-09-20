@@ -25,7 +25,8 @@ test('opening actual settings reads push state without prompting or enrolling', 
   const state = await setup(page); await page.goto('/settings');
   await expect(page.getByTestId('settings-notifications-toggle')).toBeDisabled();
   await expect.poll(() => state.reads).toBeGreaterThan(0);
-  await expect(page.getByText('서버에서 웹 푸시가 아직 준비되지 않았습니다.')).toBeVisible();
+  const denied = await page.evaluate(() => Notification.permission === 'denied');
+  await expect(page.getByText(denied ? '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용해 주세요.' : '서버에서 웹 푸시가 아직 준비되지 않았습니다.')).toBeVisible();
   expect(state.writes).toBe(0);
   expect(await page.evaluate(() => Reflect.get(window, '__notificationPrompts'))).toBe(0);
   expect(await page.evaluate(async () => (await navigator.serviceWorker.getRegistrations()).length)).toBe(0);
@@ -38,7 +39,8 @@ test('push read failure remains unknown and explicit settings retry rereads the 
   state.status = 200; const before = state.reads;
   await page.getByTestId('settings-notifications-retry').click();
   await expect.poll(() => state.reads).toBeGreaterThan(before);
-  await expect(page.getByText('서버에서 웹 푸시가 아직 준비되지 않았습니다.')).toBeVisible();
+  const denied = await page.evaluate(() => Notification.permission === 'denied');
+  await expect(page.getByText(denied ? '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용해 주세요.' : '서버에서 웹 푸시가 아직 준비되지 않았습니다.')).toBeVisible();
   expect(state.writes).toBe(0);
   expect(await page.evaluate(() => Reflect.get(window, '__notificationPrompts'))).toBe(0);
 });

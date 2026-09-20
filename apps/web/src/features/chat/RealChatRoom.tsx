@@ -83,6 +83,8 @@ function ScopedRealChatRoom({ session, accountId, roomId, apiOrigin, csrfToken, 
 
 function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { session: Session; origin: string; controller: ChatController; connected: boolean; csrf: string; roomId: string }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const [reconnecting, setReconnecting] = useState(false);
+  const reconnect = async () => { if (reconnecting) return; setReconnecting(true); try { await controller.reconnectStorage(); } finally { setReconnecting(false); } };
   const lifetime = useMemo(() => controller.mediaLifetime(state.epoch), [controller, state.epoch]);
   if (state.phase === 'loading') return <p className="p-6 text-muted" role="status">채팅을 불러오는 중입니다.</p>;
   if (state.phase === 'error' || !state.room) return (
@@ -95,13 +97,14 @@ function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { se
   const viewer = state.profiles.find(profile => profile.actorId === room.actorId);
   if (!viewer) return <p className="p-6" role="alert">내 참여 정보를 확인하지 못했습니다. 다시 접속해 주세요.</p>;
   const recipients = state.recipients;
-  return <ChatPrivacyContext.Provider value={{ origin, session, controller }}><SessionMediaProvider key={state.epoch} csrf={csrf} lifetime={lifetime} roomId={roomId}><div className="flex h-full min-h-0 flex-col"><section aria-label="전송 저장소" className="shrink-0">{state.storageError && <div className="p-3"><p role="status">{state.storageError}</p><Button variant="outline" onClick={() => { void controller.reconnectStorage(); }}>전송 저장소 다시 연결</Button></div>}</section><section aria-label="전송 결과 확인" className="shrink-0">{state.commands.map((command, index) => <div key={command.id} role="group" aria-label={`결과 미확인 전송 ${index + 1}`} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm"><span>결과 미확인 전송 {index + 1}</span><Button variant="outline" aria-label={`전송 ${index + 1} 결과 조회`} disabled={state.commandBusy} onClick={() => { void controller.reconcile(command.id); }}>결과 조회</Button>{command.canRetry && <Button variant="outline" aria-label={`전송 ${index + 1} 같은 전송 다시 시도`} disabled={state.commandBusy} onClick={() => { void controller.retry(command.id); }}>같은 전송 다시 시도</Button>}</div>)}</section><div className="min-h-0 flex-1"><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
+  return <ChatPrivacyContext.Provider value={{ origin, session, controller }}><SessionMediaProvider key={state.epoch} csrf={csrf} lifetime={lifetime} roomId={roomId}><div className="flex h-full min-h-0 flex-col"><section aria-label="전송 저장소" className="shrink-0">{state.storageError && <div className="p-3"><p role="status">{state.storageError}</p><Button variant="outline" disabled={reconnecting} onClick={() => { void reconnect(); }}>{reconnecting ? '전송 저장소 연결 중' : '전송 저장소 다시 연결'}</Button></div>}</section><section aria-label="전송 결과 확인" className="shrink-0">{state.commands.map((command, index) => <div key={command.id} role="group" aria-label={`결과 미확인 전송 ${index + 1}`} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm"><span>결과 미확인 전송 {index + 1}</span><Button variant="outline" aria-label={`전송 ${index + 1} 결과 조회`} disabled={state.commandBusy} onClick={() => { void controller.reconcile(command.id); }}>결과 조회</Button>{command.canRetry && <Button variant="outline" aria-label={`전송 ${index + 1} 같은 전송 다시 시도`} disabled={state.commandBusy} onClick={() => { void controller.retry(command.id); }}>같은 전송 다시 시도</Button>}</div>)}</section><div className="min-h-0 flex-1"><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
     composerMemory={controller} composerEpoch={state.epoch}
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
     fanRecipients={recipients}
     streamerRecipients={recipients}
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}
+    submitBlockedReason={state.storageError ?? (state.commandBusy || reconnecting ? '이전 전송 결과를 확인하고 있습니다. 입력은 계속 작성할 수 있습니다.' : undefined)}
     onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} isLoadingOlder={state.loadingOlder}
     connectionNotice={connected ? undefined : '실시간 연결을 다시 시도하고 있습니다. 메시지는 주기적으로 확인합니다.'}
   /></ReactionContext.Provider></div></div></SessionMediaProvider></ChatPrivacyContext.Provider>;

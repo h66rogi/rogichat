@@ -68,6 +68,29 @@ The actual QA login button was observed reaching the SOOP credential screen afte
 infrastructure activation. No credentials were entered. A successful callback,
 actual authenticated room and actual user SEND have not been observed. Latest
 coordinator receipt identifies QA API/worker `397d2f0` schema13 and web `129f378`;
-the full feature backend schema17/22 cutover remains separately owned. Default room,
+the paired schema23 backend cutover remains separately owned. Default room,
 media signer origins, storage CORS, push configuration and real-account validation
 must match the running immutable deployment before release completion is claimed.
+
+
+The first assembled hosted run (`35508380629`, source `ac2c646`) passed production
+build/container checks and 199 browser cases, with 17 failures requiring correction.
+Focused production-artifact reproduction confirmed premature busy-button/textarea
+assertions, native headless notification permission policy, and real unload leaving
+its bounded 30-second lease. Cold recovery retains IDs while BUSY and authorizes
+only after lease expiry; isolated tests advance the browser clock to the stored
+lease deadline, never rewrite ownership. The UI now identifies prior-page recovery
+and shows awaited reconnect progress. A held receipt regression fails on the older
+artifact because Send remained enabled: dispatch now stays disabled during recovery
+while the textarea remains editable. Final current-head hosted validation is pending.
+
+
+Correction verification: 28 focused desktop/mobile production-route cases pass
+with one browser worker (21.6 seconds), including the old failing cases, dispatch
+readiness, unlinked deletion and current/null block labels. The held-receipt test
+first failed against the old artifact and passes with the dispatch-only gate.
+The isolated native-controller cold restart also passes with real IndexedDB.
+Retained-dependency production builds used a 3 GiB heap cap: initial 23.88 seconds,
+1.25 GB peak footprint, no swaps; necessary incremental source-fix build 0.40 GB
+peak. No dependencies were installed and no concurrent build ran. These tests use
+isolated HTTP fixtures and establish client behavior, not real-account acceptance.

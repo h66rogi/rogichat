@@ -7,7 +7,7 @@ import { installApi, json, TEST_ACTOR_ID, TEST_ROOM_ID, TEST_SCOPES } from './ap
 const recipientId = '44444444-4444-4444-8444-444444444444';
 async function recoveryApi(page: Page) {
   const account = await installApi(page, true); account.joined = true;
-  const state = { posts: [] as Record<string, unknown>[], lookups: [] as string[], messages: [] as ServerMessage[], failSend: true, commitOnLookup: false, snapshots: 0 };
+  const state = { posts: [] as Record<string, unknown>[], lookups: [] as string[], messages: [] as ServerMessage[], failSend: true, commitOnLookup: false, holdLookup: null as Promise<void> | null, snapshots: 0 };
   const committed = (body: Record<string, unknown>): ServerMessage => ({
     id: String(body.clientMessageId), version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE',
     author: { kind: 'member', actorId: TEST_ACTOR_ID, nickname: '테스트 팬', avatar: null }, counterpart: { actorId: recipientId },
@@ -29,6 +29,7 @@ async function recoveryApi(page: Page) {
     if (path.endsWith('/events')) { await json(route, { ...envelope, events: state.messages.map(message => ({ type: 'message.upsert', message })), nextCursor: 'isolated-events', hasMore: false }); return; }
     if (path.includes('/message-commands/')) {
       const id = path.split('/').at(-1)!; state.lookups.push(id);
+      if (state.holdLookup) await state.holdLookup;
       const body = state.posts.find(post => post.clientMessageId === id);
       if (state.commitOnLookup && body) {
         const message = committed(body); state.messages = [message];
@@ -55,20 +56,45 @@ async function unknownSend(page: Page, body: string) {
   await expect(input).toHaveValue(body);
 }
 
+// A real navigation may abort the old document's best-effort IDB lease release.
+// Exercise bounded expiry with the browser clock, without rewriting ownership or
+// bypassing fresh authorization. Payloads and IDs must remain intact meanwhile.
+async function recoveredLookup(page: Page, expectedId: unknown) {
+  const lookup = page.getByRole('button', { name: '전송 1 결과 조회', exact: true });
+  const reconnect = page.getByRole('button', { name: '전송 저장소 다시 연결', exact: true });
+  await expect.poll(async () => await lookup.count() + await reconnect.count()).toBeGreaterThan(0);
+  if (!await lookup.count()) {
+    const persisted = await page.evaluate(async () => new Promise<{ leaseUntil: number; ids: string[] }>((resolve, reject) => {
+      const request = indexedDB.open('rogichat-outbox-qa', 1);
+      request.onsuccess = () => {
+        const db = request.result, read = db.transaction('state', 'readonly').objectStore('state').get('singleton');
+        read.onsuccess = () => { resolve({ leaseUntil: read.result.leaseUntil, ids: read.result.records.map((record: { clientMessageId: string }) => record.clientMessageId) }); db.close(); };
+        read.onerror = () => reject(Error('read failed'));
+      };
+      request.onerror = () => reject(Error('open failed'));
+    }));
+    expect(persisted.ids).toEqual([expectedId]);
+    await page.clock.setFixedTime(persisted.leaseUntil + 1);
+    await reconnect.click();
+  }
+  await expect(lookup).toBeEnabled(); return lookup;
+}
+
 test('production outbox reload is receipt-first and explicit retry preserves frozen command', async ({ page }) => {
   const { state } = await recoveryApi(page);
   await unknownSend(page, '재시작 후 같은 전송만 재시도');
   const original = structuredClone(state.posts[0]); expect(original).toBeTruthy();
   await page.reload();
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('');
-  const lookup = page.getByRole('button', { name: '전송 1 결과 조회', exact: true }); await expect(lookup).toBeVisible();
+  expect(state.posts).toHaveLength(1);
+  const lookup = await recoveredLookup(page, state.posts[0]?.clientMessageId);
   expect(state.posts).toHaveLength(1);
   await lookup.click(); await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
   expect(state.lookups.every(id => id === original!.clientMessageId)).toBe(true); expect(state.posts).toHaveLength(1);
   state.failSend = false;
   await page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true }).click();
   await expect(page.getByText('재시작 후 같은 전송만 재시도', { exact: true })).toBeVisible();
-  expect(state.posts).toHaveLength(2); expect(state.posts[1]).toEqual(original);
+  await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]).toEqual(original);
   await expect(lookup).toHaveCount(0);
 });
 
@@ -76,7 +102,8 @@ test('production cold receipt recovery performs fresh message read without anoth
   const { state } = await recoveryApi(page);
   await unknownSend(page, '유실된 ACK는 조회로 복구');
   await page.reload();
-  const lookup = page.getByRole('button', { name: '전송 1 결과 조회', exact: true }); await expect(lookup).toBeVisible();
+  expect(state.posts).toHaveLength(1);
+  const lookup = await recoveredLookup(page, state.posts[0]?.clientMessageId);
   state.commitOnLookup = true;
   await lookup.click();
   await expect(page.getByText('유실된 ACK는 조회로 복구', { exact: true })).toBeVisible();
@@ -117,7 +144,7 @@ test('production foreground reauthorizes durable recovery and preserves pending 
   state.failSend = false;
   await page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true }).click();
   await expect(page.getByText('백그라운드에서도 결과 미확인 입력 보존', { exact: true })).toBeVisible();
-  expect(state.posts).toHaveLength(2); expect(state.posts[1]).toEqual(state.posts[0]);
+  await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]).toEqual(state.posts[0]);
 });
 
 // Native lease fault injection is isolated to this browser test. It represents a
@@ -149,11 +176,11 @@ test('production second-tab BUSY preserves input and explicit reconnect restores
   const second = await context.newPage(); const { state } = await recoveryApi(second); await second.goto('/chat');
   const reconnect = second.getByRole('button', { name: '전송 저장소 다시 연결', exact: true }); await expect(reconnect).toBeVisible();
   const input = second.getByTestId('chat-composer-input'); await expect(input).toBeVisible(); await input.fill('다른 탭 사용 중에도 입력 보존');
-  await reconnect.click(); await expect(input).toHaveValue('다른 탭 사용 중에도 입력 보존'); expect(state.posts).toHaveLength(0);
+  await reconnect.click(); await expect(reconnect).toBeEnabled(); await expect(input).toHaveValue('다른 탭 사용 중에도 입력 보존'); expect(state.posts).toHaveLength(0);
   await foreignLease(second, owner, true); await reconnect.click();
   await expect(second.getByTestId('chat-composer-send')).toBeEnabled(); await expect(input).toHaveValue('다른 탭 사용 중에도 입력 보존');
   state.failSend = false; await input.press('Enter');
-  await expect(second.getByText('다른 탭 사용 중에도 입력 보존', { exact: true })).toBeVisible(); expect(state.posts).toHaveLength(1);
+  await expect.poll(() => state.posts.length).toBe(1); await expect(second.getByText('다른 탭 사용 중에도 입력 보존', { exact: true })).toBeVisible();
 });
 
 test('production aborted IDB write preserves composer and never sends unpersisted input', async ({ page }) => {
@@ -195,4 +222,21 @@ test('production settings logout scrubs durable payload after chat controller ha
     request.onerror = () => reject(Error('open failed'));
   }));
   expect(stored).not.toContain(body); expect(stored).not.toContain('synthetic-csrf-session');
+});
+
+
+test('receipt recovery blocks dispatch but keeps the draft editable until the read settles', async ({ page }) => {
+  const { state } = await recoveryApi(page); await unknownSend(page, '보관된 전송');
+  let release!: () => void; state.holdLookup = new Promise<void>(resolve => { release = resolve; });
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect(page.getByTestId('chat-composer-input')).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
+  const input = page.getByTestId('chat-composer-input'); await expect(input).toBeEditable();
+  await input.fill('확인 중 작성한 새 초안'); await input.press('Enter');
+  await expect(input).toHaveValue('확인 중 작성한 새 초안');
+  await expect(page.getByTestId('chat-composer-send')).toBeDisabled(); expect(state.posts).toHaveLength(1);
+  state.holdLookup = null; release();
+  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
+  await expect(input).toHaveValue('확인 중 작성한 새 초안'); expect(state.posts).toHaveLength(1);
 });

@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import ts from 'typescript';
+import type * as ControllerModule from '../../src/features/chat/chat-controller';
+import type * as MemoryModule from '../../src/features/chat/chat-memory';
 import type * as StorageModule from '../../src/features/chat/outbox/indexeddb';
 import type * as TransportModule from '../../src/features/chat/outbox/transport';
 
@@ -10,7 +12,7 @@ test.beforeEach(async ({ page, context }) => {
   await context.route('**/__outbox_test/**', async route => {
     const name = new URL(route.request().url()).pathname.split('/__outbox_test/')[1]!;
     if (name === 'harness') { await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Isolated storage test</title>' }); return; }
-    if (!['outbox/indexeddb', 'outbox/model', 'outbox/transport', 'contract'].includes(name.replace(/\.js$/, ''))) throw new Error('Unexpected isolated module');
+    if (!['outbox/indexeddb', 'outbox/model', 'outbox/transport', 'contract', 'chat-controller', 'chat-memory', 'commands', 'formatters', 'reactions'].includes(name.replace(/\.js$/, ''))) throw new Error('Unexpected isolated module');
     const source = await readFile(new URL('../../src/features/chat/' + name.replace(/\.js$/, '') + '.ts', import.meta.url), 'utf8');
     const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext } }).outputText;
     await route.fulfill({ contentType: 'text/javascript', body: output.replace(/from '([^']+)'/g, "from '$1.js'") });
@@ -249,4 +251,40 @@ test('pending-deletion digest cleanup rejects malformed and successor keys befor
     outbox.close(); return { invalid, retained, fenced, erased };
   });
   expect(result).toEqual({ invalid: true, retained: true, fenced: true, erased: true });
+});
+
+
+test('actual controller recovers an uncertain native record after a cold restart', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const controllerPath = '/__outbox_test/chat-controller.js', memoryPath = '/__outbox_test/chat-memory.js';
+    const { ChatController } = await import(controllerPath) as typeof ControllerModule;
+    const { ChatMemory } = await import(memoryPath) as typeof MemoryModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID(), actorId = crypto.randomUUID();
+    const room = { roomId, actorId, name: 'isolated', mode: 'FAN', role: 'STREAMER', membershipScope: token, authorizationRevision: token };
+    let sends = 0, lookups = 0;
+    const request = async (url: string, options?: { method?: string }) => {
+      const path = url.split('?')[0]!;
+      if (path.endsWith('/session')) return { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: token, accountPartition: token };
+      if (path === '/v1/sync') return { schemaVersion: 2, resetRequired: false, generation: 'manifest', rooms: [room], nextCursor: null, complete: true };
+      const envelope = { schemaVersion: 2, resetRequired: false, membershipScope: token, authorizationRevision: token };
+      if (path.endsWith('/profile-sync')) return { ...envelope, generation: 'profiles', profiles: [{ actorId, role: 'STREAMER', nickname: 'isolated', avatar: null }], nextCursor: null, complete: true };
+      if (path.endsWith('/private-recipients')) return { recipients: [], next: null };
+      if (path.endsWith('/snapshot')) return { ...envelope, messages: [], nextCursor: 'events', historyCursor: null };
+      if (path.endsWith('/events')) return { ...envelope, events: [], nextCursor: 'events', hasMore: false };
+      if (path.includes('/message-commands/')) { lookups++; throw { status: 404 }; }
+      if (path.endsWith('/messages') && options?.method === 'POST') { sends++; throw { status: 503 }; }
+      throw Error(path);
+    };
+    const first = new ChatController(roomId, request, undefined, token, token, new ChatMemory(), 'controller-cold');
+    await first.refresh(); const sent = await first.send({ target: { scope: 'SHARED' }, body: 'durable cold text' });
+    const before = first.getSnapshot(); first.dispose(); await new Promise(resolve => setTimeout(resolve, 30));
+    const second = new ChatController(roomId, request, undefined, token, token, new ChatMemory(), 'controller-cold');
+    await second.refresh(); await new Promise(resolve => setTimeout(resolve, 60));
+    const after = second.getSnapshot(); second.dispose();
+    return { sent, before, after, sends, lookups };
+  });
+  expect(result.sends).toBe(1); expect(result.sent.accepted).toBe(false);
+  expect(result.before.commands).toHaveLength(1);
+  expect(result.after.storageError).toBeNull(); expect(result.after.phase).toBe('ready');
+  expect(result.after.commands).toHaveLength(1); expect(result.lookups).toBeGreaterThan(0);
 });

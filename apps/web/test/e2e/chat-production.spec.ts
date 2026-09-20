@@ -84,7 +84,7 @@ test('READY photo retries the same command, preserves text draft and clears byte
   const image = page.getByRole('img', { name: '대화 사진 1' });
   await expect(image).toBeVisible();
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도로 보낼 글');
-  expect(state.posts).toHaveLength(2); expect(state.posts[0]).toEqual(state.posts[1]);
+  await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[0]).toEqual(state.posts[1]);
   expect(state.posts[0]).toMatchObject({ intent: 'PRIVATE', recipientActorId: streamerId, content: { type: 'PHOTO', assetIds: [MEDIA_ASSET] } });
   expect(media.accesses).toContainEqual({ variant: 'image', roomId: TEST_ROOM_ID, messageId: savedId });
   const blob = await image.getAttribute('src'); expect(blob).toMatch(/^blob:/);
@@ -393,11 +393,14 @@ test('auth-gate pagehide/pageshow unmount preserves same-authority draft quote a
   await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
   for (let i = 0; i < 2; i++) {
+    const before = state.snapshots;
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect.poll(() => state.snapshots).toBeGreaterThan(before);
     await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
   }
+  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
   state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
-  expect(state.posts).toHaveLength(2); expect(state.posts[1]?.clientMessageId).toBe(id);
+  await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]?.clientMessageId).toBe(id);
 });
 
 test('confirmed session loss scrubs parked drafts before same-token account access returns', async ({ page }) => {
@@ -425,8 +428,9 @@ for (const churn of ['profiles', 'manifest', 'events-reset'] as const) test(`${c
   hint(); await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
   await expect(input).toHaveValue('세대 변경에도 같은 초안');
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
+  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
   state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
-  expect(state.posts).toHaveLength(2); expect(state.posts[1]?.clientMessageId).toBe(id);
+  await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]?.clientMessageId).toBe(id);
 });
 
 test('auth-gate resume rebuilds a parked quote from the newly authorized message body', async ({ page }) => {
@@ -451,8 +455,9 @@ test('live redaction refreshes the visible quote while preserving draft and expl
   await expect(page.getByTestId('chat-quote-preview')).toContainText('현재 허가된 인용 본문');
   await expect(page.getByTestId('chat-quote-preview')).not.toContainText(incoming.content.text);
   await expect(input).toHaveValue('본문이 바뀌어도 같은 전송');
+  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
   state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
-  expect(state.posts).toHaveLength(2); expect(state.posts[1]?.clientMessageId).toBe(id);
+  await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]?.clientMessageId).toBe(id);
 });
 
 test('room loss from reaction during held SEND scrubs before late send settles and never restores the draft', async ({ page }) => {
@@ -493,7 +498,7 @@ test('catalog sticker selection sends its exact ID, retains selection on failure
   fail = false; await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
   await expect(page.getByRole('button', { name: '스티커 보내기', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도 글');
-  expect(state.posts).toHaveLength(2); expect(state.posts[0]).toEqual(state.posts[1]);
+  await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[0]).toEqual(state.posts[1]);
   expect(state.posts[0]?.content).toEqual({ type: 'STICKER', stickerId });
   expect(media.accesses).toContainEqual({ variant: 'image', roomId: TEST_ROOM_ID, stickerId });
 });
@@ -528,7 +533,7 @@ test('READY video sends one real asset reference and mounted timeline plays scop
   ready = true; await page.getByRole('button', { name: '이 영상 사용', exact: true }).click();
   await page.getByRole('button', { name: '영상 보내기', exact: true }).click();
   await expect(page.getByRole('button', { name: '영상 보내기', exact: true })).toHaveCount(0);
-  expect(state.posts[0]?.content).toEqual({ type: 'VIDEO', assetIds: [MEDIA_ASSET] });
+  await expect.poll(() => state.posts[0]?.content).toEqual({ type: 'VIDEO', assetIds: [MEDIA_ASSET] });
   await page.getByRole('button', { name: '영상 불러오기', exact: true }).click();
   const video = page.getByLabel('첨부 영상 재생', { exact: true });
   await expect.poll(() => video.evaluate(v => (v as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
