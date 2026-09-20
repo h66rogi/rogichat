@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import uuid
 
 
 def docker(*args, input=None, timeout=300):
@@ -38,19 +39,26 @@ def verify(image):
     print(result)
     assert re.search(r'^# fail 0$', result, re.M) and re.search(r'^# skipped 0$', result, re.M)
     assert re.search(r'^# cancelled 0$', result, re.M)
-    container = docker('run', '-d', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
-                       '--security-opt', 'no-new-privileges', '--pids-limit', '128',
-                       '--memory', '512m', '--cpus', '1',
-                       '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=134217728,uid=10001,gid=10001,mode=0700',
-                       '--tmpfs', '/run/decoder:rw,noexec,nosuid,nodev,size=1048576,uid=10001,gid=10001,mode=0700',
-                       '-e', 'DECODER_ISOLATED=true', image)
+    volume = 'rogichat-decoder-proof-' + uuid.uuid4().hex
+    docker('volume', 'create', '--driver', 'local', '--opt', 'type=tmpfs', '--opt', 'device=tmpfs',
+           '--opt', 'o=size=1048576,uid=10001,gid=10001,mode=0700,noexec,nosuid,nodev', volume)
+    container = ''
     try:
+        container = docker('run', '-d', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
+                           '--security-opt', 'no-new-privileges', '--pids-limit', '128',
+                           '--memory', '512m', '--cpus', '1',
+                           '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=134217728,uid=10001,gid=10001,mode=0700',
+                           '--mount', f'type=volume,src={volume},dst=/run/decoder,volume-nocopy',
+                           '-e', 'DECODER_ISOLATED=true', image)
         state = json.loads(docker('inspect', container))[0]
         host = state['HostConfig']
         assert host['NetworkMode'] == 'none' and host['ReadonlyRootfs']
         assert host['CapDrop'] == ['ALL'] and host['PidsLimit'] == 128
         assert host['Memory'] == 512 * 1024**2 and host['NanoCpus'] == 10**9
         assert not host['Binds'] and not host['Privileged']
+        assert host['Tmpfs']['/tmp'] == 'rw,noexec,nosuid,nodev,size=134217728,uid=10001,gid=10001,mode=0700'
+        socket_mount = next(m for m in state['Mounts'] if m['Destination'] == '/run/decoder')
+        assert socket_mount['Name'] == volume and socket_mount['RW']
         for _ in range(60):
             try:
                 docker('exec', container, 'node', '-e', "if(!require('node:fs').statSync('/run/decoder/image.sock').isSocket())process.exit(1)")
@@ -59,9 +67,17 @@ def verify(image):
                 time.sleep(0.5)
         else:
             raise AssertionError('Decoder socket did not start')
-        result = docker('exec', '-i', container, 'node', '--input-type=module',
-                        input=Path(__file__).with_name('decoder_image_smoke.mjs').read_text())
+        # Worker-equivalent client has its own scratch and a read-only socket
+        # volume: actual cross-container IPC must work with UID 10001 and mode 0600.
+        result = docker('run', '--rm', '-i', '--network', 'none', '--read-only', '--cap-drop', 'ALL',
+                        '--security-opt', 'no-new-privileges', '--pids-limit', '128',
+                        '--memory', '512m', '--cpus', '1',
+                        '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=134217728,uid=10001,gid=10001,mode=0700',
+                        '--mount', f'type=volume,src={volume},dst=/run/decoder,readonly,volume-nocopy',
+                        image, '--input-type=module', input=Path(__file__).with_name('decoder_image_smoke.mjs').read_text())
         print(result)
+        docker('exec', container, 'node', '-e', "if(require('node:fs').readdirSync('/tmp').length)process.exit(1)")
+        print('Read-only shared socket volume: cross-container IPC passed; decoder private scratch empty.')
         # A connected, incomplete request must not prevent graceful SIGTERM.
         docker('exec', '-d', container, 'node', '--input-type=module', '-e', """
           import { connect } from 'node:net';
@@ -86,7 +102,9 @@ def verify(image):
         assert stopped['ExitCode'] == 0 and not stopped['OOMKilled']
         print('Decoder SIGTERM with active IPC request: clean exit 0; no OOM or forced kill.')
     finally:
-        docker('rm', '-f', container)
+        if container:
+            docker('rm', '-f', container)
+        docker('volume', 'rm', volume)
 
 
 if __name__ == '__main__':

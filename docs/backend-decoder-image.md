@@ -26,7 +26,8 @@ separate reviewed changes; image presence does not enable media.
 
 Hosted PR CI builds the real image without package authentication, runs the
 existing native image/video suites with **zero skips**, then verifies its actual
-entrypoint through Unix IPC using PNG/JPEG/WebP and H264/AAC MP4 bytes, a real
+entrypoint through cross-container Unix IPC using a read-only client socket
+volume, PNG/JPEG/WebP and H264/AAC MP4 bytes, a real
 WebP poster, invalid input rejection, metadata stripping and scratch cleanup.
 SIGTERM is tested with an incomplete active IPC request and must exit zero.
 Tests are read-only mounts or stdin input and are absent from released layers.
