@@ -20,6 +20,11 @@ export class DeletionRepository {
       Buffer.from(checkpoint.ledger_sha256).toString('hex') !== receipt.sha256) throw new Error('deletion_checkpoint_conflict');
     return checkpoint;
   }
+  async messageExists(tx: Transaction, roomId: string, messageId: string): Promise<boolean> {
+    // A prior block may survive physical purge, but must not bless a restored
+    // existing row that failed author validation. Check current existence.
+    return (await tx.rows('SELECT id FROM messages WHERE room_id=? AND id=? FOR UPDATE', [roomId, messageId])).length !== 0;
+  }
   async markBlocked(tx: Transaction, requestId: string, blockedAt: Date | null) {
     await tx.prisma.deletion_intents.update({ where: { request_id: requestId }, data: { blocked_at: blockedAt }, select: { request_id: true } });
   }

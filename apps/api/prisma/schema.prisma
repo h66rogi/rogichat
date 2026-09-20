@@ -226,6 +226,7 @@ model rooms {
   history_policy  HistoryPolicy @default(SINCE_JOIN)
   join_policy     JoinPolicy   @default(OPEN_AUTHENTICATED)
   owner_member_id String?      @db.Char(36)
+  content_epoch   BigInt       @default(1) @db.UnsignedBigInt
   created_at      DateTime     @default(now()) @db.DateTime(3)
   owner           room_members? @relation("room_owner", fields: [id, owner_member_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
   members         room_members[] @relation("room_members")
@@ -377,8 +378,6 @@ model messages {
   publication_requests  message_publications[] @relation("publication_source")
   published_as          message_publications[] @relation("publication_result")
   reactions             message_reactions[]
-  receipts              command_receipts[]
-  deletion_requests     deletion_requests[]
   attachments           message_attachments[]
   sticker               message_stickers?
   push_deliveries       push_deliveries[]
@@ -571,8 +570,8 @@ model command_receipts {
   deleted           Boolean @default(false)
   created_at        DateTime @default(now()) @db.DateTime(3)
   actor             room_members @relation(fields: [room_id, actor_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
-  message           messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
   @@unique([room_id, actor_id, client_message_id])
+  @@index([room_id, message_id])
 }
 
 model room_events {
@@ -597,8 +596,8 @@ model deletion_requests {
   state         DeletionState @default(BLOCKED)
   requested_at  DateTime @default(now()) @db.DateTime(3)
   actor         users @relation(fields: [actor_user_id], references: [id], onDelete: Restrict)
-  message       messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
   @@unique([actor_user_id, message_id])
+  @@index([room_id, message_id])
 }
 
 // No body/token/URL payload: consumers resolve an authorized current resource.
@@ -733,4 +732,18 @@ model identity_subject_guards {
   auth_not_before DateTime? @db.DateTime(3)
   live_purged_at DateTime? @db.DateTime(3)
   @@index([request_id])
+}
+
+// Exact immutable MESSAGE identity plus atomic physical-row proof. No content FK:
+// both this proof and opaque receipts survive row removal and restore replay.
+// This is NOT proof of storage, account or backup deletion.
+model message_purge_checkpoints {
+  request_id String @id @db.Char(36)
+  environment String @db.VarChar(10)
+  actor_user_id String @db.Char(36)
+  room_id String @db.Char(36)
+  target_id String @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  rows_purged_at DateTime @db.DateTime(3)
 }

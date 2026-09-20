@@ -22,7 +22,11 @@ export class DeletionApplyService {
     return this.transactions.write(async tx => {
       const checkpoint = await this.repository.checkpoint(tx, receipt);
       if (intent.scope === 'ACCOUNT') await this.guards.block(tx, intent);
-      const blocked = intent.scope === 'ACCOUNT' ? await this.accounts.block(tx, intent) : await this.messages.remove(tx, intent);
+      const applied = intent.scope === 'ACCOUNT' ? await this.accounts.block(tx, intent) : await this.messages.remove(tx, intent);
+      // A MESSAGE root may have been physically purged. Retain the original
+      // verified block checkpoint; absence neither undoes it nor proves purge.
+      const blocked = applied || (intent.scope === 'MESSAGE' && checkpoint.blocked_at !== null &&
+        !await this.repository.messageExists(tx, intent.roomId!, intent.targetId));
       // Null is an unresolved obligation, not evidence of purge or restore safety.
       await this.repository.markBlocked(tx, intent.requestId, blocked ? checkpoint.blocked_at ?? await tx.now() : null);
       return { requestId: intent.requestId, status: blocked ? 'blocked' as const : 'pending' as const };

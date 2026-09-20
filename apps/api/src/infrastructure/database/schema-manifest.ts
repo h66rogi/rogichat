@@ -16,4 +16,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920060633_m10_deletion_intents', checksum: '76d75fcb107076d476ea62f59d5b111355d53c2c5616d842b826ace78324017f' },
   { name: '20260920061207_m11_notifications_read_state', checksum: '759241f53ea3c007439d7498142b0ec285ced3e83642c26d7d9c2cd39fd6d372' },
   { name: '20260920074544_account_deletion_admission', checksum: '1e3d298e965c15500e83d96f4ebae5e2ce3336c154ce67d369a207058bff85fb' },
+  { name: '20260920084358_m10_message_row_purge', checksum: '9f55555af7708656e7a4db09b1196b819b58e859d3aad95c23c96c2d52a2dc7a' },
 ];
