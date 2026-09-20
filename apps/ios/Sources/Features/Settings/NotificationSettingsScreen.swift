@@ -4,6 +4,8 @@ import SwiftUI
 // Account preferences are a separate credential-scoped section; OS reads never save them.
 struct NotificationSettingsScreen: View {
     let accountScope: UInt64?
+    let session: AppSession
+    @State private var preferenceRevision = 0
     let fetchPreferences: () async throws -> AccountNotificationPreferences
     let disablePreferences: (PreferenceGeneration) async throws -> AccountNotificationPreferences
     @Environment(\.foregroundEpoch) private var epoch
@@ -15,7 +17,8 @@ struct NotificationSettingsScreen: View {
     var body: some View {
         List {
             if let accountScope {
-                AccountNotificationSection(fetch: fetchPreferences, disable: disablePreferences).id(accountScope)
+                AccountNotificationSection(fetch: fetchPreferences, disable: disablePreferences).id(String(accountScope) + ":" + String(preferenceRevision))
+                if session.access == .ready { NativePushSection(scope: accountScope, session: session, onChanged: { preferenceRevision += 1 }) }
             }
             Section {
                 HStack(spacing: 14) {

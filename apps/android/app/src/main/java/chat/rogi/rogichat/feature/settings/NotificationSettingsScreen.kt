@@ -15,13 +15,13 @@ import com.adamglin.phosphoricons.regular.Bell
 
 // NotificationSettingsScreen's system settings action, separators and error handling reused.
 @Composable
-fun NotificationSettingsScreen(model: NotificationSettingsViewModel? = null) {
+fun NotificationSettingsScreen(model: NotificationSettingsViewModel? = null, push: chat.rogi.rogichat.core.push.NativePushCoordinator? = null, pushAccount: NotificationAccountScope? = null) {
     val context = LocalContext.current
     val system = remember(context) { NotificationSystem(context) }
     val epoch = LocalForegroundEpoch.current
     var lastAccountRefresh by remember(model) { mutableLongStateOf(epoch) }
     LaunchedEffect(model, epoch) {
-        if (lastAccountRefresh != epoch) { lastAccountRefresh = epoch; model?.loadPreferences() }
+        if (lastAccountRefresh != epoch) { lastAccountRefresh = epoch; model?.loadPreferences(); pushAccount?.let { push?.refresh(it) } }
     }
     var state by remember { mutableStateOf(NotificationReadState()) }
     var openFailure by remember { mutableStateOf<String?>(null) }
@@ -36,6 +36,10 @@ fun NotificationSettingsScreen(model: NotificationSettingsViewModel? = null) {
     if (model != null) {
         val account by model.uiState.collectAsStateWithLifecycle()
         AccountNotificationSettings(account, model::loadPreferences, model::disablePush)
+        SettingsDivider()
+    }
+    if (push != null && pushAccount != null) {
+        DevicePushSection(push, pushAccount) { model?.loadPreferences() }
         SettingsDivider()
     }
     NotificationSettingsContent(state, openFailure, onRead = refresh, onOpen = {

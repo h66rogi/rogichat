@@ -1,9 +1,9 @@
-import { sendInput } from '../support/domain-fixture.mjs';
+import { sendInput } from '../../dist/modules/messages/dto/send-message.dto.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 
-const input = () => ({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 메시지' } });
+const input = () => ({ membershipScope: 'A'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 메시지' } });
 test('sticker sends require one catalog UUID, never caller-supplied assets or mixed content', () => {
   const body = input(), stickerId = randomUUID();
   assert.deepEqual(sendInput({ ...body, content: { type: 'STICKER', stickerId } }).content, { type: 'STICKER', stickerId });

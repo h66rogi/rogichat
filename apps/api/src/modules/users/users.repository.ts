@@ -59,11 +59,13 @@ export class UsersRepository {
       user: { select: { profile: { select: { avatar: { select: { id: true, owner_user_id: true, kind: true, room_id: true, state: true, deleted_at: true } } } } } },
     } });
   }
-  manifestCandidates(tx: Transaction, roomId: string, after: string) {
-    return tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { gt: after }, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } } }, orderBy: { id: 'asc' }, take: 51, select: { id: true } });
+  async manifestCandidates(tx: Transaction, roomId: string, actorId: string, after: string) {
+    const blocks = await tx.prisma.actor_blocks.findMany({ where: { room_id: roomId, blocker_actor_id: actorId }, select: { target_actor_id: true } });
+    return tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { gt: after, notIn: blocks.map(row => row.target_actor_id) }, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } } }, orderBy: { id: 'asc' }, take: 51, select: { id: true } });
   }
   async syncProfiles(tx: Transaction, role: string, birthdayRole: string, roomId: string, mode: string, visibilityRole: string, actorId: string) {
-    const rows = await tx.prisma.room_members.findMany({ where: { room_id: roomId, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } }, profile: { isNot: null } }, ...(mode === 'GROUP' || visibilityRole === 'STREAMER' ? {} : { OR: [{ role: 'STREAMER' as const }, { id: actorId }] }) }, orderBy: { id: 'asc' }, take: 10001, select: { id: true, role: true, user: { select: { profile: { select: profileSelect } } } } });
+    const blocks = await tx.prisma.actor_blocks.findMany({ where: { room_id: roomId, blocker_actor_id: actorId }, select: { target_actor_id: true } });
+    const rows = await tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { notIn: blocks.map(row => row.target_actor_id) }, status: 'ACTIVE', active_period: { is: { left_at: null } }, user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } }, profile: { isNot: null } }, ...(mode === 'GROUP' || visibilityRole === 'STREAMER' ? {} : { OR: [{ role: 'STREAMER' as const }, { id: actorId }] }) }, orderBy: { id: 'asc' }, take: 10001, select: { id: true, role: true, user: { select: { profile: { select: profileSelect } } } } });
     return rows.map(row => { const profile = projectProfile(row.user.profile!); return { id: row.id, role: row.role, nickname: profile.nickname, avatar_id: profile.visible_avatar_id, month: role === 'STREAMER' && profile.birthday_visible_to_streamers === 1 ? profile.birthday_month : null, day: birthdayRole === 'STREAMER' && profile.birthday_visible_to_streamers === 1 ? profile.birthday_day : null }; });
   }
 

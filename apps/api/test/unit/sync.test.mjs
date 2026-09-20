@@ -11,5 +11,5 @@ test('sync query uses exact fields, UUID device/cache bindings and bounded decim
     { ...input, cacheId: 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA' }, { ...input, cursor: [] }, { ...input, cursor: 'x'.repeat(4097) },
     ...['0', '101', '-1', '01', '1.0', '1e1', ' 1', 1, ['1']].map(limit => ({ ...input, limit })),
   ]) assert.throws(() => syncInput(bad), { code: 'INVALID_REQUEST' });
-  assert.deepEqual(resetSync(), { schemaVersion: 1, resetRequired: true, events: [], nextCursor: null, hasMore: false });
+  assert.deepEqual(resetSync(), { schemaVersion: 2, resetRequired: true, membershipScope: null, authorizationRevision: null, events: [], nextCursor: null, hasMore: false });
 });

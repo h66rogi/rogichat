@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { setImmediate } from 'node:timers';
-import { DeletionLedger, checkedDeletionIntent, encodeDeletionIntent, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
+import { DeletionLedger, accountDeletionId, messageDeletionId, checkedDeletionIntent, encodeDeletionIntent, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
 import { R2DeletionLedgerStore } from '../../dist/modules/deletion/adapters/r2-deletion-ledger.js';
 
 const intent = () => ({ schemaVersion: 1, environment: 'qa', requestId: randomUUID(), actorUserId: randomUUID(),
@@ -37,7 +37,7 @@ test('deletion intent is minimal canonical UUID metadata, with strict environmen
   }
   const account = { ...value, scope: 'ACCOUNT', roomId: null, targetId: value.actorUserId };
   assert.deepEqual(decodeDeletionIntent(encodeDeletionIntent(account), 'qa'), account);
-  for (const data of [Buffer.alloc(1025), Buffer.from([0xff]), Buffer.from(encoded.toString() + ' '),
+  for (const data of [Buffer.alloc(4097), Buffer.from([0xff]), Buffer.from(encoded.toString() + ' '),
     Buffer.from(encoded.toString().replace('{', '{"schemaVersion":1,'))]) {
     assert.throws(() => decodeDeletionIntent(data, 'qa'), { code: 'INVALID_LEDGER_INTENT' });
   }
@@ -103,7 +103,7 @@ test('R2 ledger GET treats only NoSuchKey/404 as absent; bounds streamed bytes a
     Object.assign(new Error('private'), { name: 'NoSuchKey', $metadata: { httpStatusCode: 403 } })]) {
     response = error; await assert.rejects(store.read(key, signal()), { code: 'LEDGER_UNAVAILABLE' });
   }
-  for (const bad of [{ ContentLength: 1025 }, { ContentLength: bytes.length - 1 }, { ContentType: 'text/html' }, { Body: Readable.from([Buffer.alloc(1025)]) }]) {
+  for (const bad of [{ ContentLength: 4097 }, { ContentLength: bytes.length - 1 }, { ContentType: 'text/html' }, { Body: Readable.from([Buffer.alloc(4097)]) }]) {
     response = { Body: Readable.from([bytes]), ContentLength: bytes.length, ContentType: 'application/json', ...bad };
     await assert.rejects(store.read(key, signal()), { code: 'LEDGER_UNAVAILABLE' }); assert.equal(response.Body.destroyed, true);
   }
@@ -139,4 +139,107 @@ test('Nest ledger module owns real adapter shutdown without creating any externa
   t.mock.method(store.client, 'destroy', () => { closed++; });
   assert.ok(app.get(DeletionLedger) instanceof DeletionLedger);
   await app.close(); assert.equal(closed, 1);
+});
+
+test('bounded R2 inventory fixes environment prefix and validates every key, size and continuation', async () => {
+  const cfg = config(); const store = new R2DeletionLedgerStore(cfg); const value = intent(); const key = deletionIntentKey('qa', value.requestId);
+  let response = { IsTruncated: true, Contents: [{ Key: key, Size: 400 }], NextContinuationToken: 'next' };
+  const commands = [];
+  store.client.send = async command => { commands.push(command); return response; };
+  try {
+    assert.deepEqual(await store.list(null, 5, signal()), { keys: [key], sizes: [400], cursor: 'next' });
+    assert.equal(commands[0].constructor.name, 'ListObjectsV2Command');
+    assert.deepEqual(commands[0].input, { Bucket: cfg.bucket, Prefix: 'qa/', MaxKeys: 5 });
+    await store.list('prior', 5, signal()); assert.equal(commands[1].input.ContinuationToken, 'prior');
+    for (const invalid of [0, 101, 1.5]) await assert.rejects(store.list(null, invalid, signal()));
+    for (const page of [
+      { IsTruncated: true }, { IsTruncated: true, NextContinuationToken: 'prior' },
+      { IsTruncated: false, NextContinuationToken: 'hidden' },
+      { IsTruncated: false, Contents: [{ Key: 'production/' + value.requestId + '/intent.json', Size: 400 }] },
+      { IsTruncated: false, Contents: [{ Key: key, Size: 400 }, { Key: key, Size: 400 }] },
+    ]) { response = page; await assert.rejects(store.list('prior', 5, signal()), { code: 'INVALID_LEDGER_INTENT' }); }
+  } finally { store.close(); }
+});
+
+test('inventory read-by-key refuses body/key mismatch and does not turn missing objects into success', async () => {
+  const value = intent(), store = new Store(), ledger = new DeletionLedger(store, 'qa');
+  const key = deletionIntentKey('qa', value.requestId);
+  await assert.rejects(ledger.readByKey(key), { code: 'LEDGER_UNAVAILABLE' });
+  store.rows.set(key, encodeDeletionIntent({ ...value, requestId: randomUUID() }));
+  await assert.rejects(ledger.readByKey(key), { code: 'LEDGER_CONFLICT' });
+  store.rows.set(key, encodeDeletionIntent(value));
+  assert.equal((await ledger.readByKey(key)).intent.requestId, value.requestId);
+});
+
+test('message deletion IDs are standard UUIDv5 scoped to environment and immutable target, independent of time/device', () => {
+  const actor = '11111111-1111-4111-8111-111111111111', room = '22222222-2222-4222-8222-222222222222', target = '33333333-3333-4333-8333-333333333333';
+  // Independently computed with Python uuid.uuid5 and the documented fixed namespace.
+  assert.equal(messageDeletionId('qa', actor, room, target), 'b74685d3-0c46-558e-8b2d-12512b102949');
+  assert.notEqual(messageDeletionId('qa', actor, room, target), messageDeletionId('production', actor, room, target));
+});
+
+test('already-aborted inventory/read never calls storage', async () => {
+  let calls = 0;
+  const value = intent(), key = deletionIntentKey('qa', value.requestId);
+  const store = { close() {}, putIfAbsent: async () => {},
+    list: async () => { calls++; return { keys: [key], cursor: null }; },
+    read: async () => { calls++; return encodeDeletionIntent(value); } };
+  const ledger = new DeletionLedger(store, 'qa'), abort = new globalThis.AbortController(); abort.abort();
+  await assert.rejects(ledger.inventory(null, 50, abort.signal));
+  await assert.rejects(ledger.readByKey(key, abort.signal));
+  assert.equal(calls, 0);
+});
+
+test('ACCOUNT v2 is canonical opaque evidence, preserves immutable retry evidence and stable UUID', async () => {
+  const actor = randomUUID(); const requestId = accountDeletionId('qa', actor);
+  assert.equal(accountDeletionId('qa', actor), requestId);
+  assert.notEqual(accountDeletionId('production', actor), requestId);
+  assert.match(requestId, /^[a-f0-9-]{14}5/);
+  const value = { schemaVersion: 2, environment: 'qa', requestId, actorUserId: actor, scope: 'ACCOUNT', targetId: actor,
+    roomId: null, requestedAt: '2026-09-20T00:00:00.000Z', subjectGuard: { version: 1, identityId: randomUUID(),
+      keyFingerprint: randomBytes(32).toString('hex'), subjectHmac: randomBytes(32).toString('hex') } };
+  assert.deepEqual(decodeDeletionIntent(encodeDeletionIntent(value), 'qa'), value);
+  assert.ok(encodeDeletionIntent(value).length <= 1024);
+  for (const subjectGuard of [{ ...value.subjectGuard, subject: 'raw-provider-value' }, { ...value.subjectGuard, version: 2 },
+    { ...value.subjectGuard, subjectHmac: 'short' }, { ...value.subjectGuard, identityId: 'not-a-uuid' }]) {
+    assert.throws(() => checkedDeletionIntent({ ...value, subjectGuard }, 'qa'), { code: 'INVALID_LEDGER_INTENT' });
+  }
+  const ledger = new DeletionLedger(new Store(), 'qa'); const first = await ledger.ensureIntent(value);
+  assert.deepEqual(await ledger.ensureIntent({ ...value, subjectGuard: null, requestedAt: '2026-09-21T00:00:00.000Z' }), first);
+});
+
+test('R2 storage binding survives credential rotation and isolates provider account/bucket/environment changes', () => {
+  const cfg = config(); const stores = [cfg, { ...cfg, accessKeyId: randomBytes(16).toString('hex'), secretAccessKey: randomBytes(32).toString('hex') },
+    { ...cfg, bucket: 'fixture-other' }, { ...cfg, accountId: randomBytes(16).toString('hex') }, { ...cfg, environment: 'production' }].map(value => new R2DeletionLedgerStore(value));
+  try {
+    assert.equal(stores[0].sourceId, stores[1].sourceId);
+    for (const store of stores.slice(2)) assert.notEqual(store.sourceId, stores[0].sourceId);
+  } finally { for (const store of stores) store.close(); }
+});
+
+test('R2 invalid size is private inventory evidence but strict inventory still refuses it', async () => {
+  const store = new R2DeletionLedgerStore(config()); const key = deletionIntentKey('qa', randomUUID());
+  store.client.send = async () => ({ IsTruncated: false, Contents: [{ Key: key, Size: 4097 }] });
+  const ledger = new DeletionLedger(store, 'qa');
+  try {
+    const page = await ledger.discover(); assert.equal(page.items[0].classification, 'INVALID_SIZE'); assert.equal(page.items[0].key, null);
+    await assert.rejects(ledger.inventory(), { code: 'INVALID_LEDGER_INTENT' });
+  } finally { store.close(); }
+});
+
+
+test('ACCOUNT v3 canonical multi-provider guards preserve v2 bytes and reject duplicates/ordering/raw subjects', () => {
+  const actor = randomUUID();
+  const base = { schemaVersion: 2, environment: 'qa', requestId: randomUUID(), actorUserId: actor, scope: 'ACCOUNT', targetId: actor,
+    roomId: null, requestedAt: '2026-09-20T00:00:00.000Z', subjectGuard: { version: 1, identityId: randomUUID(), keyFingerprint: 'a'.repeat(64), subjectHmac: 'b'.repeat(64) } };
+  const oldBytes = encodeDeletionIntent(base);
+  assert.equal(encodeDeletionIntent(decodeDeletionIntent(oldBytes, 'qa')).toString(), oldBytes.toString());
+  const { subjectGuard, ...rest } = base;
+  const value = { ...rest, schemaVersion: 3, subjectGuards: [{ ...subjectGuard, provider: 'soop' },
+    { ...subjectGuard, identityId: randomUUID(), subjectHmac: 'c'.repeat(64), provider: 'apple' }] };
+  assert.deepEqual(decodeDeletionIntent(encodeDeletionIntent(value), 'qa'), value);
+  for (const subjectGuards of [[...value.subjectGuards].reverse(), [value.subjectGuards[0], value.subjectGuards[0]],
+    [{ ...value.subjectGuards[0], subject: 'raw' }], Array(9).fill(value.subjectGuards[0])]) {
+    assert.throws(() => checkedDeletionIntent({ ...value, subjectGuards }, 'qa'), { code: 'INVALID_LEDGER_INTENT' });
+  }
 });

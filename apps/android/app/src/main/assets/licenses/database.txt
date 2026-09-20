@@ -1,0 +1,5 @@
+AndroidX Room and AndroidX SQLite
+Copyright The Android Open Source Project
+Licensed under the Apache License, Version 2.0 (included in apache-2.0.txt).
+https://developer.android.com/jetpack/androidx/releases/room
+https://developer.android.com/jetpack/androidx/releases/sqlite

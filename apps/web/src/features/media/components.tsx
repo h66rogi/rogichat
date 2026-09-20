@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/shared/ui/button';
-import type { ImageContext, ImageKind, MediaLifetime } from './contracts';
+import type { ImageContext, MediaKind, MediaLifetime } from './contracts';
 import { imageReferenceKey } from './contracts';
 import type { MediaImageResource } from './image-resource';
 import type { MediaUpload } from './upload';
@@ -16,7 +16,7 @@ const labels = {
 
 /** Caller owns one upload/lifetime per draft. onReady only hands off an ID; it never sends a message. */
 export function MediaUploadPanel({ upload, lifetime, kind, roomId, onReady }: {
-  upload: MediaUpload; lifetime: MediaLifetime; kind: ImageKind; roomId?: string;
+  upload: MediaUpload; lifetime: MediaLifetime; kind: MediaKind; roomId?: string;
   onReady: (assetId: string) => void;
 }) {
   const state = useSyncExternalStore(upload.subscribe, upload.getSnapshot, upload.getSnapshot);
@@ -26,9 +26,9 @@ export function MediaUploadPanel({ upload, lifetime, kind, roomId, onReady }: {
   const authorized = upload.lifetime === lifetime && !lifetime.signal.aborted && lifetime.isCurrent();
   if (!authorized) return null;
   const busy = ['reserving', 'uploading', 'checking'].includes(state.phase);
-  return <section aria-label={kind === 'AVATAR' ? '프로필 이미지 업로드' : '이미지 업로드'} className="space-y-3">
-    <label htmlFor={id} className="block font-semibold">이미지 선택</label>
-    <input id={id} type="file" accept={kind === 'STICKER' ? 'image/png,image/webp' : 'image/jpeg,image/png,image/webp'}
+  return <section aria-label={kind === 'AVATAR' ? '프로필 이미지 업로드' : kind === 'VIDEO' ? '영상 업로드' : '이미지 업로드'} className="space-y-3">
+    <label htmlFor={id} className="block font-semibold">{kind === 'VIDEO' ? '영상 선택' : '이미지 선택'}</label>
+    <input id={id} type="file" accept={kind === 'VIDEO' ? 'video/mp4,video/quicktime' : kind === 'STICKER' ? 'image/png,image/webp' : 'image/jpeg,image/png,image/webp'}
       disabled={state.phase !== 'empty'} aria-describedby={`${id}-status`} className="min-h-11 max-w-full"
       onChange={event => {
         const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
@@ -36,14 +36,14 @@ export function MediaUploadPanel({ upload, lifetime, kind, roomId, onReady }: {
         setInvalid(false);
         void upload.start(kind, file, roomId).catch(() => setInvalid(true));
       }} />
-    <p id={`${id}-status`} role="status">{invalid ? '파일 형식과 크기를 확인해 주세요.' : labels[state.phase]}</p>
-    <p className="text-sm text-ink-muted">{kind === 'STICKER' ? 'PNG·WebP, 최대 1MB' : 'JPEG·PNG·WebP, 최대 10MB'}</p>
+    <p id={`${id}-status`} role="status">{invalid ? '파일 형식과 크기를 확인해 주세요.' : kind === 'VIDEO' ? labels[state.phase].replaceAll('이미지', '영상') : labels[state.phase]}</p>
+    <p className="text-sm text-ink-muted">{kind === 'VIDEO' ? 'MP4·MOV, 최대 50MB·60초. 서버 처리가 완료된 영상만 보낼 수 있습니다.' : kind === 'STICKER' ? 'PNG·WebP, 최대 1MB' : 'JPEG·PNG·WebP, 최대 10MB'}</p>
     {['pending', 'uncertain'].includes(state.phase) && state.receipt &&
       <Button type="button" variant="outline" onClick={() => { void upload.refresh().catch(() => setInvalid(true)); }}>상태 다시 확인</Button>}
-    {state.phase === 'ready' && <Button type="button" onClick={() => { onReady(upload.readyAsset()); }}>이 이미지 사용</Button>}
+    {state.phase === 'ready' && <Button type="button" onClick={() => { onReady(upload.readyAsset()); }}>{kind === 'VIDEO' ? '이 영상 사용' : '이 이미지 사용'}</Button>}
     {state.phase !== 'empty' && <Button type="button" variant="outline" onClick={() => {
       if (window.confirm('이 업로드를 화면에서 버릴까요? 서버의 처리나 삭제가 취소되는 것은 아닙니다.')) { upload.clear(); setInvalid(false); }
-    }}>{busy ? '업로드 화면에서 버리기' : '이미지 선택 해제'}</Button>}
+    }}>{busy ? '업로드 화면에서 버리기' : kind === 'VIDEO' ? '영상 선택 해제' : '이미지 선택 해제'}</Button>}
   </section>;
 }
 

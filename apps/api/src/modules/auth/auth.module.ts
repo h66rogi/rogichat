@@ -1,3 +1,11 @@
+import { AppleController } from './apple/apple.controller.js';
+import { AppleService } from './apple/apple.service.js';
+import { AppleRepository } from './apple/apple.repository.js';
+import { AppleProvider } from './apple/apple-provider.js';
+import { AppleLifecycleModule } from './apple/apple-lifecycle.module.js';
+import { IdentityGuardService } from './identity-guard.service.js';
+import { authorizationKey } from '../../infrastructure/config/authorization-epoch.js';
+import { IdentityGuardModule } from './identity-guard.module.js';
 import { IdentityService } from './identity.service.js';
 import { IdentityRepository } from './identity.repository.js';
 import { LoginRepository } from './login.repository.js';
@@ -11,7 +19,8 @@ import { AuthService } from './auth.service.js';
 import { AUTH_CONFIG } from './auth.tokens.js';
 import { SessionRepository } from './session.repository.js';
 import { SessionService } from './session.service.js';
-import { RecoveryAuthController } from './recovery-auth.controller.js';
+import { AuthController } from './auth.controller.js';
+import { NativeAuthController } from './native-auth.controller.js';
 import { NativeAuthRepository } from './native-auth.repository.js';
 import { NativeAuthService } from './native-auth.service.js';
 
@@ -21,6 +30,7 @@ export interface AuthModuleOptions {
   readonly sessions?: SessionService;
   readonly flow?: AuthFlow;
   readonly nativeFlow?: NativeAuthService;
+  readonly appleProvider?: AppleProvider;
 }
 
 @Module({})
@@ -28,12 +38,15 @@ export class AuthModule {
   static register(infrastructure: DynamicModule, options: AuthModuleOptions): DynamicModule {
     return {
       module: AuthModule,
-      imports: [infrastructure],
-      controllers: [RecoveryAuthController],
+      imports: [IdentityGuardModule, infrastructure, AppleLifecycleModule.register(infrastructure, options.config, options.appleProvider)],
+      controllers: [AuthController, NativeAuthController, AppleController],
       providers: [
+        AppleRepository,
+        { provide: AppleService, inject: [AUTH_CONFIG, Transactions, AppleRepository, AppleProvider, SessionService, LoginRepository, IdentityGuardService],
+          useFactory: (config: AuthConfig, transactions: Transactions, repository: AppleRepository, provider: AppleProvider, sessions: SessionService, logins: LoginRepository, guards: IdentityGuardService) => new AppleService(config, transactions, repository, provider, sessions, logins, guards) },
         { provide: AUTH_CONFIG, useValue: options.config },
         options.sessions === undefined ? { provide: SessionService, inject: [SessionRepository, AUTH_CONFIG],
-          useFactory: (repository: SessionRepository, config: AuthConfig) => new SessionService(repository, config.audience, config.key) } : { provide: SessionService, useValue: options.sessions },
+          useFactory: (repository: SessionRepository, config: AuthConfig) => new SessionService(repository, config.audience, authorizationKey(config), config.authorizationEpoch) } : { provide: SessionService, useValue: options.sessions },
         { provide: HttpBroker, inject: [AUTH_CONFIG], useFactory: (config: AuthConfig) => new HttpBroker(config) },
         options.flow === undefined ? {
           provide: AuthFlow, inject: [SessionService, Transactions, AUTH_CONFIG, HttpBroker, LoginRepository, IdentityService],

@@ -1,3 +1,6 @@
+import { deletionFixture } from '../support/deletion-fixture.mjs';
+
+import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
 import { responseContract } from '../support/openapi-response.mjs';
 import { createUser, createRoom, joinRoom, Jobs, publishText } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
@@ -13,7 +16,7 @@ import { reactionRefreshTargets } from '../../../../packages/contracts/interacti
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
-  const db = new MysqlDatabase(readConfig('api')); let app;
+  const db = new MysqlDatabase(readConfig('api')); const deletion = deletionFixture(); let app;
   t.after(async () => { try { await app?.close(); } finally { await db.close(); } });
   const config = { audience: `http-${randomBytes(8).toString('hex')}`, origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
@@ -30,10 +33,11 @@ async function fixture(t) {
     await tx.execute('UPDATE rooms SET owner_member_id=? WHERE id=?', [owner.actor, id]);
     return id;
   });
-  app = await createApi(db, new SafeLogger('api', () => {}), undefined, { config, sessions });
+  app = await createApi(db, new SafeLogger('api', () => {}), undefined, { config, sessions }, undefined, 'test', deletion);
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const validateResponse = responseContract(app, config);
   const call = async (person, method, path, body, headers = {}) => {
+    await scopeNewHttpIntent(db, config, person.id, method, path, body);
     const response = await fetch(`${base}/v1${path}`, { method, headers: { Origin: config.origin, Cookie: `rogi_session=${person.token}`,
       'X-CSRF-Token': person.csrf, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });

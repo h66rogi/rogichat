@@ -17,6 +17,8 @@ export interface MessageReadModel {
     readonly type: 'PHOTO' | 'VIDEO';
     readonly attachments: readonly MessageAttachmentReadModel[];
   } | { readonly type: 'STICKER'; readonly stickerId: string; readonly assetId: string; readonly width: number; readonly height: number };
+  counterpart: { readonly actorId: string } | null;
+  allowedActions: { reply: boolean; publish: boolean; delete: boolean };
   readonly quote: { readonly id: string; readonly content: { readonly type: 'TEXT'; readonly text: string } } | null;
 }
 
@@ -26,6 +28,8 @@ export interface MessageDto {
   content: { type: 'TEXT'; text: string | null } | {
     type: 'PHOTO' | 'VIDEO'; attachments: { assetId: string; width: number; height: number; variant: string }[];
   } | { type: 'STICKER'; stickerId: string; assetId: string; width: number; height: number };
+  counterpart: { actorId: string } | null;
+  allowedActions: { reply: boolean; publish: boolean; delete: boolean };
   quote: { id: string; content: { type: 'TEXT'; text: string } } | null;
 }
 
@@ -51,5 +55,7 @@ export function projectMessageDto(model: MessageReadModel): MessageDto {
   } else throw new Error('invalid_message_read_model');
 
   return { id: model.id, version: String(model.version), createdAt: model.createdAt.toISOString(), audience: model.audience,
+    counterpart: model.counterpart === null ? null : { actorId: model.counterpart.actorId },
+    allowedActions: { reply: model.allowedActions.reply, publish: model.allowedActions.publish, delete: model.allowedActions.delete },
     author, content, quote: model.quote === null ? null : { id: model.quote.id, content: { type: 'TEXT', text: model.quote.content.text } } };
 }

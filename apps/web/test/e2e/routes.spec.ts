@@ -69,7 +69,11 @@ test.describe('service worker and manifest', () => {
     expect(response.headers()['content-type']).toContain('javascript');
     expect(response.headers()['cache-control']).toMatch(/no-cache|must-revalidate/);
     const body = await response.text();
-    expect(body).not.toMatch(/addEventListener\('(fetch|push|notificationclick)'/);
+    // The worker handles wakes and nothing else: no request interception, no private caching.
+    expect(body).toMatch(/addEventListener\('push'/);
+    expect(body).toMatch(/addEventListener\('notificationclick'/);
+    expect(body).not.toMatch(/addEventListener\('fetch'/);
+    expect(body).not.toContain('caches');
   });
 
   test('/manifest.webmanifest names 로기챗', async ({ request }) => {

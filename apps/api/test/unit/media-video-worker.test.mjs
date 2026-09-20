@@ -26,7 +26,7 @@ function fixture() {
     assert.equal(stream, source); assert.equal(intent.kind, 'VIDEO'); signal = currentSignal;
     await hooks.decode?.(currentSignal); return result;
   } };
-  const worker = new MediaWorkerService(transactions, store, decoder, 'test', repository, {}, {}, { async invalidateRevokedSticker() { return false; } });
+  const worker = new MediaWorkerService(transactions, store, decoder, 'test', repository, {}, {}, { async invalidateRevokedSticker() { return false; } }, { async acknowledge() {} });
   worker.prepareMedia = async () => ({ assetId: 'asset', objectId: 'video', key: 'video', inputKey: 'input',
     input: { kind: 'VIDEO', contentType: 'video/mp4', byteLength: 128 }, poster: { objectId: 'poster', key: 'poster' } });
   worker.finalizeMedia = async () => { calls.ready++; };

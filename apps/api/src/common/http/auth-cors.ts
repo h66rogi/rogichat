@@ -5,6 +5,9 @@ export function authCors(server: Express, config: AuthConfig): void {
     response.setHeader('Referrer-Policy', 'no-referrer');
     if (!request.path.startsWith('/v1/')) { next(); return; }
     const origin = request.headers.origin;
+    // Apple Services ID sends a cross-site form POST; only this exact provider
+    // callback bypasses browser CORS admission, and its state/code/nonce verify later.
+    if (request.method === 'POST' && request.path === '/v1/auth/apple/callback' && (origin === undefined || origin === 'https://appleid.apple.com')) { next(); return; }
     if (origin !== undefined && origin !== config.origin) { response.status(403).json({ error: { code: 'FORBIDDEN' } }); return; }
     if (origin === config.origin) {
       response.setHeader('Access-Control-Allow-Origin', config.origin);

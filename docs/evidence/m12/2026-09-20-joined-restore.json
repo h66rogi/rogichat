@@ -1,0 +1,133 @@
+{
+  "runUrl": "https://github.com/h66rogi/rogichat/actions/runs/35512581548",
+  "runId": 35512581548,
+  "runAttempt": 1,
+  "outcome": "success",
+  "harnessHead": "29d9e0515427fef66edb8c36e58e5fb3aa1f93a2",
+  "executedHarnessMerge": "390bc723e63048be92e834c46e51bd21d32125a0",
+  "runtimeCommit": "7b559b645ef2b71fc5492d79895142745d0d6ead",
+  "artifactId": 10606078063,
+  "artifactSha256": "9481d1c6fd011adbfd67c78ef5242b235e03ef3ff0ee8e9b300925b4071a3b6f",
+  "measurementFileSha256": "2228ea2499982215470d036d912e89f733532fe72ede7cee5ce2284601c7f5cf",
+  "tests": {
+    "passed": 1,
+    "failed": 0,
+    "durationMs": 17464.668424
+  },
+  "notes": [
+    "sourceSha in the original measurement is the pinned runtime, not the harness PR merge",
+    "timingsMs are cumulative per verb across positive and negative probes, including concurrent calls; not latency percentiles",
+    "This execution proves the pinned leaf runtime only, not later aggregate runtime changes",
+    "No live Aurora PITR, R2 custody, provider revocation ACK, deployment or serving activation is claimed"
+  ],
+  "measurements": {
+    "schemaVersion": 1,
+    "sourceSha": "7b559b645ef2b71fc5492d79895142745d0d6ead",
+    "timestamp": "2026-09-20T13:09:11.893Z",
+    "node": "v24.21.0",
+    "outcome": "passed",
+    "phase": "complete",
+    "rejected": [
+      "kernel-write-denied",
+      "kernel-chmod-denied",
+      "kernel-rename-denied",
+      "prior-runtime-existing-writer-drained",
+      "prior-runtime-credential-reconnect-denied",
+      "foreign-index-only-principal",
+      "compiled-artifact-mismatch",
+      "source-checkout-mismatch",
+      "missing-ledger-receipt",
+      "corrupt-ledger-receipt",
+      "unavailable-ledger",
+      "pending-admission",
+      "changed-media-bytes",
+      "missing-and-orphan-media",
+      "permission-drift-before-consume",
+      "wrong-observation-release",
+      "consumed-nonce-replay",
+      "actual-mysql-custody-loss"
+    ],
+    "timingsMs": {
+      "prepare": 3536.7900170000007,
+      "observe": 1780.1713720000007,
+      "consume": 4050.6499540000004,
+      "recover": 1118.857023999999
+    },
+    "restoredOldSessionAcceptedBeforeQuarantine": true,
+    "gate": {
+      "ready": true,
+      "violations": {
+        "sessions": 0,
+        "loginTransactions": 0,
+        "appleTransactions": 0,
+        "pushBindings": 0,
+        "members": 0,
+        "periods": 0,
+        "owners": 0,
+        "grants": 0,
+        "admins": 0,
+        "creators": 0,
+        "birthdays": 0,
+        "unappliedDeletion": 0,
+        "uncoveredAccounts": 0
+      },
+      "apple": {
+        "quarantined": true,
+        "identitiesPending": false,
+        "transactionsPending": false,
+        "credentialsPending": false,
+        "upstreamRevocationPending": true,
+        "providerConfigured": false
+      },
+      "media": {
+        "version": 1,
+        "status": "verified",
+        "snapshotSha256": "ce70efc29baf938b88c805d8ee6d5a06cec3bdc06b9774a450b0a8ab70048600",
+        "manifestSha256": "bbf38eb4eb799675ea694061fe335144ebabc4b41ecc0ffd0a592ca5f9ca5d62",
+        "storageScopeSha256": "9af01d5c8ca8d35ca95e56d1259c2e7095137905223532ce889eda8a96b917da",
+        "counts": {
+          "retained": 3,
+          "missing": 0,
+          "changed": 0,
+          "orphan": 0,
+          "deletionObligations": 0
+        },
+        "reasons": []
+      }
+    },
+    "deletionReceiptsReplayed": 2,
+    "appleTokenRetainedDecryptable": true,
+    "nonce": {
+      "contenders": 2,
+      "committed": 1,
+      "rejected": 1,
+      "replayRejected": true,
+      "independentReceiptRecovery": true
+    },
+    "oldWebNativeTokensDenied": 6,
+    "restoredOwnerAdminAndPrivateRightsDenied": true,
+    "epochABA": {
+      "sameSessionId": true,
+      "sameMembershipPeriod": true,
+      "sameNumericCounters": true,
+      "oldCursorReset": true,
+      "oldMembershipScopeRejected": true,
+      "newScopeCommandAccepted": true,
+      "authorizationRevisionChanged": true,
+      "accountPartitionChanged": true,
+      "nativeGenerationChanged": true
+    },
+    "freshOwnerPeriodRetainsPrivateGrantDenial": true,
+    "runtimeBuildSha256": "5c711fee7fc14edd42f121c9b8c38757ab3113a6633417919ee5e32f4c2a6057",
+    "schemaSha256": "2cbf555506488c8a6a337e2564e358b1905041b6bb5dac081af2286036b23a57",
+    "backupTables": 61,
+    "backupBytes": 79463,
+    "snapshotSha256": "6eec4df8253dc7469e6c6f67597fbe76f6dbf43c9fe7b96fdd3de877fd33eacb",
+    "elapsedMs": 16696.591332,
+    "limitations": [
+      "disposable logical MySQL backup, not Aurora PITR",
+      "kernel-custodied local media bytes, not live R2 custody",
+      "synthetic adversarial permission/session-row resurrection only inside isolated fixture"
+    ]
+  }
+}

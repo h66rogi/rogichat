@@ -25,7 +25,7 @@ async function fixture(t, options = {}) {
   const principal = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true };
   const roomId = randomUUID(), messageId = randomUUID();
   const credentials = Object.freeze({ token: 'a'.repeat(43), csrf: 'b'.repeat(43) });
-  const input = sendInput({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 모듈 메시지' } });
+  const input = sendInput({ membershipScope: 'A'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 모듈 메시지' } });
   const run = async (writable, operation) => {
     let pendingCharges = 0;
     const tx = { writable, id: handles.length + 1,
@@ -135,15 +135,15 @@ test('first authentication or rate denial never begins a command; domain failure
   }
 });
 
-test('get requires SOOP on its read handle while author removal uses its write handle without SOOP admission', async t => {
+test('get requires SOOP; unconfigured deletion truthfully fails without content mutation', async t => {
   const f = await fixture(t);
   assert.deepEqual(await f.service.get(f.credentials, f.roomId, f.messageId), { id: f.messageId });
-  assert.deepEqual(await f.service.remove(f.credentials, f.roomId, f.messageId), { requestId: 'synthetic-request', status: 'blocked' });
+  await assert.rejects(f.service.remove(f.credentials, f.roomId, f.messageId), error => error.getStatus() === 503);
   assert.deepEqual(f.handles.map(tx => tx.writable), [false, true]);
   const checks = f.calls.filter(call => call.kind === 'require');
   assert.deepEqual(checks.map(call => call.requireSoop), [true, false]);
   assert.equal(f.calls.find(call => call.kind === 'get').tx, checks[0].tx);
-  assert.equal(f.calls.find(call => call.kind === 'remove').tx, checks[1].tx);
+  assert.equal(f.calls.some(call => call.kind === 'remove'), false);
   assert.equal(f.calls.some(call => ['rows', 'execute', 'prisma.createMany', 'prisma.updateMany', 'prisma.findMany'].includes(call.kind)), false);
 });
 
@@ -152,7 +152,7 @@ test('application commands reject missing or malformed CSRF before opening any t
   for (const csrf of [undefined, '', 'invalid', ['b'.repeat(43)]]) {
     const credentials = { token: f.credentials.token, csrf };
     await assert.rejects(f.service.send(credentials, f.roomId, f.input), { code: 'INVALID_REQUEST' });
-    assert.throws(() => f.service.remove(credentials, f.roomId, f.messageId), { code: 'INVALID_REQUEST' });
+    await assert.rejects(f.service.remove(credentials, f.roomId, f.messageId), { code: 'INVALID_REQUEST' });
   }
   assert.equal(f.handles.length, 0); assert.deepEqual(f.calls, []);
 });
@@ -163,7 +163,7 @@ test('real controller maps cookies and CSRF into explicit credentials without ac
   f.service.get = async (...args) => { received.push(['get', ...args]); return { id: f.messageId }; };
   f.service.remove = async (...args) => { received.push(['remove', ...args]); return { status: 'blocked' }; };
   const headers = { cookie: `rogi_session=${f.credentials.token}`, origin: f.settings.origin, 'x-csrf-token': f.credentials.csrf };
-  const body = { clientMessageId: f.input.clientMessageId, intent: 'SHARED', content: { type: 'TEXT', text: '합성 모듈 메시지' } };
+  const body = { membershipScope: f.input.membershipScope, clientMessageId: f.input.clientMessageId, intent: 'SHARED', content: { type: 'TEXT', text: '합성 모듈 메시지' } };
   await f.controller.send({ headers, body }, f.roomId);
   await f.controller.get({ headers: { cookie: headers.cookie } }, f.roomId, f.messageId);
   await f.controller.remove({ headers, body: {} }, f.roomId, f.messageId);

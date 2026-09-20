@@ -1,10 +1,13 @@
+import { deletionFixture } from '../support/deletion-fixture.mjs';
+
+import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
 import { responseContract } from '../support/openapi-response.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { io } from 'socket.io-client';
-import { createUser, createRoom, joinRoom, sendMessage, Jobs, publishText } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, assignRoomOwner, joinRoom, sendMessage, Jobs, publishText } from '../support/domain-fixture.mjs';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { createApi } from '../../dist/application.js';
@@ -30,14 +33,14 @@ async function fixture(t, http = false) {
   const web = await db.transactions.write(tx => sessions.issue(tx, userId));
   let logs = '';
   if (http) {
-    app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config });
+    app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config }, undefined, 'test', deletionFixture());
     await app.listen(0, '127.0.0.1');
   }
   const base = app ? await app.getUrl() : undefined;
   const credentials = { transport: 'NATIVE', token: native.token, clientId: 'ios' };
   const headers = { Authorization: `Bearer ${native.token}`, 'X-Rogi-Client': 'ios' };
   const validateResponse = app ? responseContract(app, config) : undefined;
-  const call = async (method, path, body, extra = {}) => { const response = await fetch(`${base}${path}`, { method, headers: { ...headers,
+  const call = async (method, path, body, extra = {}) => { await scopeNewHttpIntent(db, config, userId, method, path, body); const response = await fetch(`${base}${path}`, { method, headers: { ...headers,
     ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     validateResponse(method, path, response.status, response.headers.get('content-type')?.includes('application/json') ? await response.clone().json() : undefined);
     return response;
@@ -98,7 +101,7 @@ test('native HTTP session projects only own account, preserves web response and 
   let response = await f.call('GET', '/v1/auth/session');
   assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
   const before = await response.json();
-  assert.deepEqual(Object.keys(before).sort(), ['account', 'accountGeneration', 'authenticated', 'capabilities', 'expiresAt', 'onboardingState', 'soopLinkStatus']);
+  assert.deepEqual(Object.keys(before).sort(), ['account', 'accountGeneration', 'accountPartition', 'authenticated', 'capabilities', 'expiresAt', 'onboardingState', 'soopLinkStatus']);
   assert.deepEqual(before.account, { userId: f.userId, nickname: '네이티브 합성 사용자', avatarAssetId: null });
   assert.deepEqual(before.capabilities, { chat: false }); assert.equal(before.onboardingState, 'SOOP_LINK_REQUIRED');
   assert.equal(before.soopLinkStatus, 'REQUIRED'); assert.equal(before.expiresAt, f.native.expiresAt); assert.match(before.accountGeneration, /^[A-Za-z0-9_-]{43}$/);
@@ -109,8 +112,11 @@ test('native HTTP session projects only own account, preserves web response and 
   const after = await (await f.call('GET', '/v1/auth/session')).json();
   assert.equal(after.account.nickname, '내 프로필 수정'); assert.equal(after.onboardingState, 'READY'); assert.deepEqual(after.capabilities, { chat: true });
   assert.notEqual(after.accountGeneration, before.accountGeneration);
+  assert.match(before.accountPartition, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(after.accountPartition, before.accountPartition);
   const another = await f.issue('ios');
   assert.equal((await f.auth.session({ ...f.credentials, token: another.token })).accountGeneration, after.accountGeneration);
+  assert.equal((await f.auth.session({ ...f.credentials, token: another.token })).accountPartition, before.accountPartition);
   for (const extra of [{ Cookie: `rogi_session=${f.web.token}` }, { 'X-CSRF-Token': f.web.csrf }, { 'X-Rogi-Client': 'web' }, { Authorization: `Bearer ${f.native.token}, Bearer ${f.native.token}` }]) {
     assert.equal((await f.call('GET', '/v1/auth/session', undefined, extra)).status, 400);
   }
@@ -124,7 +130,7 @@ test('native HTTP session projects only own account, preserves web response and 
   assert.equal(duplicated, 400);
   const webHeaders = { Cookie: `rogi_session=${f.web.token}`, Origin: f.config.origin };
   response = await fetch(`${f.base}/v1/auth/session`, { headers: webHeaders });
-  assert.deepEqual(await response.json(), { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: f.web.csrf });
+  assert.deepEqual(await response.json(), { authenticated: true, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true }, csrfToken: f.web.csrf, accountPartition: before.accountPartition });
   response = await fetch(`${f.base}/v1/auth/logout`, { method: 'POST', headers: { ...webHeaders, 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(response.status, 400);
   assert.equal((await f.call('POST', '/v1/auth/logout', { csrf: 'no' })).status, 400);
@@ -147,7 +153,7 @@ test('native session fails closed for an ACTIVE account with missing profile ins
 
 test('native shared message/reaction/delete commands use current same-transaction session authorization without CSRF', { timeout: 20000 }, async t => {
   const f = await fixture(t, true); await f.link();
-  const roomId = await f.db.transactions.write(async tx => { const id = await createRoom(tx, '네이티브 명령 합성방', 'GROUP'); await joinRoom(tx, id, f.userId); return id; });
+  const roomId = await f.db.transactions.write(async tx => { const id = await createRoom(tx, '네이티브 명령 합성방', 'GROUP'); await assignRoomOwner(tx, id, await joinRoom(tx, id, f.userId)); return id; });
   const path = `/v1/rooms/${roomId}/messages`;
   let response = await f.call('POST', path, { clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '네이티브 합성 메시지' } });
   assert.equal(response.status, 200); const sent = await response.json();

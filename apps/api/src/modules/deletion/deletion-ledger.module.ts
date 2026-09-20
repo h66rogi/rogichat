@@ -9,7 +9,7 @@ class LedgerLifecycle implements OnApplicationShutdown {
   constructor(@Inject(R2DeletionLedgerStore) private readonly store: R2DeletionLedgerStore) {}
   onApplicationShutdown(): void { this.store.close(); }
 }
-/** Opt-in composition only; deliberately not registered by API or worker yet. */
+/** Activated only by validated private configuration; shared real API/worker adapter. */
 @Module({})
 export class DeletionLedgerModule {
   static register(config: DeletionLedgerConfig): DynamicModule {

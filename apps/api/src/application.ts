@@ -1,3 +1,4 @@
+import type { DeletionOptions } from './modules/deletion/deletion.module.js';
 import type { Config } from './infrastructure/config/config.js';
 import { configureOpenApi } from './infrastructure/openapi/openapi.js';
 import type { AuthConfig } from './infrastructure/config/auth-config.js';
@@ -5,6 +6,7 @@ import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
 import type { DynamicModule } from '@nestjs/common';
 import { SafeExceptionFilter } from './common/http/safe-exception.filter.js';
+import { HTTP_CONNECTION_LIMIT } from './common/http/connection-budget.js';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import express from 'express';
@@ -20,8 +22,8 @@ import type { MediaOptions } from './modules/media/media.module.js';
 import { AppModule } from './app.module.js';
 import { WorkerModule } from './worker.module.js';
 
-export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthModuleOptions, media?: MediaOptions, environment: Config['environment'] = 'test'): Promise<NestExpressApplication> {
-  return createConfiguredApi(AppModule.register(database, lifecycle, auth, media), logger, lifecycle, auth?.config, Boolean(media), environment);
+export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthModuleOptions, media?: MediaOptions, environment: Config['environment'] = 'test', deletion?: DeletionOptions): Promise<NestExpressApplication> {
+  return createConfiguredApi(AppModule.register(database, lifecycle, auth, media, undefined, deletion), logger, lifecycle, auth?.config, Boolean(media), environment);
 }
 export async function createConfiguredApi(module: DynamicModule, logger: SafeLogger, suppliedLifecycle?: LifecycleState, auth?: AuthConfig, media = false, environment: Config['environment'] = 'test'): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(module, { logger: false, abortOnError: false, bodyParser: false });
@@ -44,6 +46,7 @@ export async function createConfiguredApi(module: DynamicModule, logger: SafeLog
     next();
   });
   if (auth) authCors(server, auth);
+  server.use('/v1/auth/apple/callback', express.urlencoded({ extended: false, limit: '32kb', parameterLimit: 4, inflate: false }));
   const json = express.json({ limit: '64kb', strict: true, inflate: false });
   server.use((request: Request, response: Response, next: NextFunction) => {
     if (request.method === 'POST' && /^\/v1\/media\/upload-intents\/[^/]+\/content$/.test(request.path)) { next(); return; }
@@ -51,13 +54,13 @@ export async function createConfiguredApi(module: DynamicModule, logger: SafeLog
   });
   // Documentation routes never change product authentication or controller validation.
   configureOpenApi(app, environment, auth);
-  app.useGlobalFilters(new SafeExceptionFilter());
+  app.useGlobalFilters(new SafeExceptionFilter(logger));
   const http: Server = app.getHttpServer();
   http.requestTimeout = media ? 310000 : 15000;
   http.headersTimeout = 10000;
   http.keepAliveTimeout = 5000;
   http.maxRequestsPerSocket = 1000;
-  http.maxConnections = 1000;
+  http.maxConnections = HTTP_CONNECTION_LIMIT;
   return app;
 }
 

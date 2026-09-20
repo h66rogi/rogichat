@@ -8,11 +8,16 @@ from pathlib import Path
 import plistlib
 import re
 import zipfile
+from ios_dependencies import SDK_RESOURCE_PATHS, inspect_sdk_resources
 
 ROOT = Path(__file__).resolve().parents[2]
 
 # Native profile writes transmit a screen name and optional birthday/preferences
-# to the account's server record. Appearance remains app-private UserDefaults.
+# to the account's server record. Sync also transmits an installation UUID bound
+# to the authenticated account; do not assume an unverified ephemeral exemption.
+# Native TEXT commands also send account-linked message bodies and recipients.
+# Media uploads send account-linked photos and videos for app functionality.
+# Appearance remains app-private UserDefaults.
 # New data flows or required-reason APIs must update declaration and policy together.
 EXPECTED_IOS_PRIVACY = {
     "NSPrivacyTracking": False,
@@ -24,7 +29,9 @@ EXPECTED_IOS_PRIVACY = {
             "NSPrivacyCollectedDataTypeTracking": False,
             "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"],
         }
-        for category in ("NSPrivacyCollectedDataTypeUserID", "NSPrivacyCollectedDataTypeOtherDataTypes")
+        for category in ("NSPrivacyCollectedDataTypeUserID", "NSPrivacyCollectedDataTypeOtherDataTypes",
+                         "NSPrivacyCollectedDataTypeDeviceID", "NSPrivacyCollectedDataTypeEmailsOrTextMessages",
+                         "NSPrivacyCollectedDataTypePhotosorVideos")
     ],
     "NSPrivacyAccessedAPITypes": [{
         "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
@@ -74,7 +81,7 @@ def inspect_ios_privacy(data: bytes, label: str):
             or any(type(item[key]) is not bool
                    for item in declaration["NSPrivacyCollectedDataTypes"]
                    for key in ("NSPrivacyCollectedDataTypeLinked", "NSPrivacyCollectedDataTypeTracking"))):
-        raise ValueError(f"{label}: iOS privacy manifest must match current profile collection and app-private UserDefaults use")
+        raise ValueError(f"{label}: iOS privacy manifest must match profile/sync/message/media data and app-private UserDefaults use")
 
 
 def inspect_ios_app(app: Path, executable_name: str):
@@ -89,6 +96,10 @@ def inspect_ios_app(app: Path, executable_name: str):
     for path in app.rglob("*"):
         if path.is_file():
             inspect_product_data(path.read_bytes(), f"{app.name}/{path.relative_to(app)}")
+    try:
+        inspect_sdk_resources(lambda path: (app / path).read_bytes())
+    except OSError as error:
+        raise ValueError("iOS bundle must include reviewed SDK privacy and license resources") from error
 
 
 def inspect_ios_package(package: zipfile.ZipFile, app_prefix: str, executable_name: str):
@@ -103,6 +114,10 @@ def inspect_ios_package(package: zipfile.ZipFile, app_prefix: str, executable_na
     for name in package.namelist():
         if name.startswith(app_prefix) and not name.endswith("/"):
             inspect_product_data(package.read(name), name)
+    for relative in SDK_RESOURCE_PATHS:
+        if package.namelist().count(app_prefix + relative) != 1:
+            raise ValueError("IPA must contain exactly one of each reviewed SDK privacy and license resource")
+    inspect_sdk_resources(lambda path: package.read(app_prefix + path))
 
 
 def _inspect_android_sources(root: Path):
@@ -128,7 +143,12 @@ def _inspect_ios_sources(root: Path):
         raise ValueError("iOS must have one shared RogichatApp entry point")
     if re.search(r"^\s*#(?:if|elseif)\b[^\n]*\bROGICHAT_QA\b", entry.read_text(), re.MULTILINE):
         raise ValueError("iOS QA and prod must use the same product composition")
-    for directory in (ios / "Sources", ios / "Resources"):
+    # Local Swift packages are product code too. Scan their declared Sources
+    # trees, including bundled resources, without pulling isolated Tests or
+    # downloaded .build checkouts into the product-source check.
+    directories = [ios / "Sources", ios / "Resources"]
+    directories.extend(sorted((ios / "Packages").glob("*/Sources")))
+    for directory in directories:
         for path in directory.rglob("*"):
             if path.is_file():
                 inspect_product_data(path.read_bytes(), str(path.relative_to(root)))

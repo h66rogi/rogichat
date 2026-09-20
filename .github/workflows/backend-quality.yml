@@ -1,0 +1,70 @@
+name: Backend M12 isolated quality
+on:
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - '.github/workflows/backend-quality.yml'
+      - 'pnpm-lock.yaml'
+      - 'docs/backend-m12-quality-evidence.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-m12-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  isolated-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0.44@sha256:9c3380eac945af0736031b200027f581925927c81e010056214a4bd6b6693714
+        env:
+          # Disposable hosted runner fixture, never a service credential.
+          MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --silent"
+          --health-interval=5s --health-timeout=3s --health-retries=30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install locked dependencies and build test target
+        run: |
+          npm install --global pnpm@12.4.2 --ignore-scripts
+          pnpm install --frozen-lockfile
+          pnpm --filter @rogichat/api build
+          pnpm --filter @rogichat/api lint
+      - name: Execute real isolated load, restart, worker failure and restore drills
+        env:
+          ROGICHAT_TEST_MYSQL: disposable
+          TEST_MYSQL_PORT: ${{ job.services.mysql.ports[3306] }}
+          TEST_MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
+          M12_EVIDENCE_DIR: ${{ runner.temp }}/m12-evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$M12_EVIDENCE_DIR"
+          export M12_SOURCE_SHA="$(git rev-parse HEAD)"
+          cd apps/api
+          node test/run-mysql.mjs --quality 2>&1 | tee "$M12_EVIDENCE_DIR/execution.log"
+      - name: Publish isolated evidence even when assertions fail
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: m12-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/m12-evidence/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Confirm generated migrations and tracked files unchanged
+        run: git diff --exit-code

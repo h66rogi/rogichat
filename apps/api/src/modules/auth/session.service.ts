@@ -11,9 +11,25 @@ import type { NativeClientId } from './auth-context.js';
 // Session policy only: no driver access, implicit transaction, or cached principal.
 @Injectable()
 export class SessionService {
-  constructor(private readonly repository: SessionRepository, private readonly audience: string, private readonly key: Buffer) {}
+  constructor(private readonly repository: SessionRepository, private readonly audience: string, private readonly key: Buffer, private readonly authorizationEpoch?: string) {
+    if (authorizationEpoch !== undefined && !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(authorizationEpoch)) throw new Error('authorization_epoch_invalid');
+  }
+
+  private tokenDigest(token: string): Buffer {
+    if (this.authorizationEpoch === undefined) return digest(token);
+    return createHmac('sha256', this.key).update('session-token:v1:')
+      .update(JSON.stringify([this.audience, this.authorizationEpoch, token])).digest();
+  }
 
   csrf(token: string): string { return createHmac('sha256', this.key).update(`csrf:${this.audience}:${token}`).digest('base64url'); }
+
+  // Local persistence namespace only: never accept this value as authorization.
+  // Stable across transports, relogin and revocation generations; rotating the
+  // configured key invalidates old namespaces instead of mixing account data.
+  accountPartition(userId: string): string {
+    return createHmac('sha256', this.key).update('account-partition:v1:')
+      .update(JSON.stringify([this.audience, userId])).digest('base64url');
+  }
 
   async nativeBinding(tx: Transaction, sessionId: string, clientId: NativeClientId) {
     const row = await this.repository.boundNative(tx, sessionId, this.audience, clientId);
@@ -34,12 +50,12 @@ export class SessionService {
     const accountGeneration = createHmac('sha256', this.key).update('native-account:v1:').update(JSON.stringify([this.audience, principal.userId, String(account.user.membership_generation), principal.soopLinked])).digest('base64url');
     return { authenticated: true, account: { userId: principal.userId, nickname: profile.nickname, avatarAssetId },
       soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED', onboardingState: principal.soopLinked ? 'READY' : 'SOOP_LINK_REQUIRED',
-      expiresAt: account.expires_at.toISOString(), accountGeneration, capabilities: { chat: principal.soopLinked } };
+      expiresAt: account.expires_at.toISOString(), accountGeneration, accountPartition: this.accountPartition(principal.userId), capabilities: { chat: principal.soopLinked } };
   }
 
   async issue(tx: Transaction, userId: string): Promise<{ token: string; csrf: string }> {
     const token = secret(); const csrf = this.csrf(token);
-    await this.repository.insert(tx, { id: randomUUID(), userId, tokenDigest: digest(token), csrfDigest: digest(csrf), audience: this.audience });
+    await this.repository.insert(tx, { id: randomUUID(), userId, tokenDigest: this.tokenDigest(token), csrfDigest: digest(csrf), audience: this.audience });
     return { token, csrf };
   }
 
@@ -48,7 +64,7 @@ export class SessionService {
   async issueNative(tx: Transaction, userId: string, clientId: NativeClientId): Promise<{ token: string; expiresAt: string }> {
     nativeClientId(clientId);
     const token = secret();
-    const expiresAt = await this.repository.insert(tx, { id: randomUUID(), userId, tokenDigest: digest(token), csrfDigest: digest(secret()), audience: this.audience }, { transport: 'NATIVE', clientId });
+    const expiresAt = await this.repository.insert(tx, { id: randomUUID(), userId, tokenDigest: this.tokenDigest(token), csrfDigest: digest(secret()), audience: this.audience }, { transport: 'NATIVE', clientId });
     return { token, expiresAt: expiresAt.toISOString() };
   }
 
@@ -59,7 +75,7 @@ export class SessionService {
       nativeClientId(binding.clientId);
       if (csrf !== undefined) throw new ApiError('INVALID_REQUEST', 400);
     } else if (binding.transport !== 'WEB' || binding.clientId !== undefined) throw new ApiError('INVALID_REQUEST', 400);
-    const session = await this.repository.findCurrent(tx, digest(token), this.audience, binding);
+    const session = await this.repository.findCurrent(tx, this.tokenDigest(token), this.audience, binding);
     if (!session || session.status !== 'ACTIVE') throw new ApiError('UNAUTHENTICATED', 401);
     if (csrf !== undefined && !equalDigest(csrf, session.csrf_digest)) throw new ApiError('FORBIDDEN', 403);
     const soopLinked = session.soop_status === 'VERIFIED';

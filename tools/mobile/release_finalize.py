@@ -6,7 +6,7 @@ import time
 import urllib.parse
 
 from release_common import AppStoreConnect, external, manifest, required
-from release_android import verify_apk
+from release_android import verify_apk, verify_firebase_apk
 from release_ios import inspect_archive, inspect_ipa
 from release_journal import finalization_lock, private_text
 from release_firebase import Firebase
@@ -45,6 +45,7 @@ def android(cfg, manifest_path, testers_file, *, client=None):
         journal.record("verification", "checking")
         apk = external(value["artifacts"]["apk"]["path"])
         verify_apk(apk, value["build_number"], value["version"])
+        sdk_state = verify_firebase_apk(apk, cfg)
         api = client or Firebase(cfg)
         matches = [item for item in api.collection(api.app + "/releases", "releases")
                    if item.get("buildVersion") == str(value["build_number"])
@@ -70,7 +71,8 @@ def android(cfg, manifest_path, testers_file, *, client=None):
         if not set(emails).issubset(registered):
             raise Pending("Distribution was acknowledged, but project tester registration readback is incomplete")
         journal.record("verification", "verified", remote_apk_sha256=remote_hash,
-                       project_testers_registered=len(emails), distribution_acknowledged=True)
+                       project_testers_registered=len(emails), distribution_acknowledged=True,
+                       firebase_sdk_state=sdk_state)
     print("Android: remote APK hash verified; distribution acknowledged; approved project testers registered. Receipt saved privately.")
 
 
@@ -191,8 +193,8 @@ def ios(cfg, manifest_path, notes_file, wait_seconds=0, *, client=None, clock=ti
               "upload_receipt_sha256": digest(upload_record)}
     with finalization_lock(cfg, manifest_path, value, inputs) as journal:
         journal.record("verification", "checking")
-        inspect_archive(external(value["archive_path"]), value["build_number"], value["version"])
-        inspect_ipa(external(value["artifacts"]["ipa"]["path"]), value["build_number"], value["version"])
+        inspect_archive(external(value["archive_path"]), value["build_number"], value["version"], cfg)
+        inspect_ipa(external(value["artifacts"]["ipa"]["path"]), value["build_number"], value["version"], cfg)
         api = client or AppStoreConnect(cfg)
         deadline = clock() + wait_seconds
         while True:

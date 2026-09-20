@@ -1,3 +1,14 @@
+import { MediaWriteProofService } from '../../dist/modules/media/media-write-proof.service.js';
+import { MediaWriteProofModule } from '../../dist/modules/media/media-write-proof.module.js';
+import { AccountDeletionRepository } from '../../dist/modules/deletion/account-deletion.repository.js';
+import { IdentityGuardRepository } from '../../dist/modules/auth/identity-guard.repository.js';
+import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.service.js';
+import { DeletionRepository } from '../../dist/modules/deletion/deletion.repository.js';
+import { deletionFixture } from './deletion-fixture.mjs';
+import { DeletionApplyService } from '../../dist/modules/deletion/deletion-apply.service.js';
+
+import { newIntentScope } from './membership-scope-fixture.mjs';
+import { sendInput as parseSendInput } from '../../dist/modules/messages/dto/send-message.dto.js';
 // Fixtures use the real Nest domain graph. No alternative domain implementation lives here.
 import 'reflect-metadata';
 import { after } from 'node:test';
@@ -27,13 +38,22 @@ import { MediaWorkerService } from '../../dist/modules/media/media-worker.servic
 import { StickersCoreModule } from '../../dist/modules/stickers/stickers-core.module.js';
 import { StickersCoreService } from '../../dist/modules/stickers/stickers-core.service.js';
 class DomainFixtureModule {}
-Module({ imports: [MessagesCoreModule, UsersCoreModule, RoomStateModule, ReactionsCoreModule, PublicationsCoreModule, MediaCoreModule, JobsCoreModule, StickersCoreModule], providers: [MediaWorkerRepository] })(DomainFixtureModule);
+Module({ imports: [MediaWriteProofModule, MessagesCoreModule, UsersCoreModule, RoomStateModule, ReactionsCoreModule, PublicationsCoreModule, MediaCoreModule, JobsCoreModule, StickersCoreModule], providers: [MediaWorkerRepository] })(DomainFixtureModule);
 const context = await NestFactory.createApplicationContext(DomainFixtureModule, { logger: false, abortOnError: false });
 after(() => context.close());
 const bind = (token, name) => context.get(token)[name].bind(context.get(token));
-export const sendMessage = bind(MessagesCoreService, 'send');
+export const sendMessageScoped = bind(MessagesCoreService, 'send');
+export const sendMessage = async (tx, roomId, userId, input, key) => {
+  const scoped = { ...input, membershipScope: await newIntentScope(tx, key, 'domain-fixture', userId, roomId) };
+  return context.get(MessagesCoreService).send(tx, roomId, userId, scoped, key, 'domain-fixture');
+};
 export const getMessage = bind(MessagesCoreService, 'get');
-export const deleteMessage = bind(MessagesCoreService, 'remove');
+export async function deleteMessage(transactions, room, actor, message, authorize = async () => {}) {
+  const core = context.get(MessagesCoreService);
+  const { ledger } = deletionFixture();
+  const intent = await transactions.write(async tx => { await authorize(tx); return core.authorizeDeletion(tx, room, actor, message, 'qa'); });
+  return new DeletionApplyService(transactions, core, new DeletionRepository(), new AccountDeletionRepository(), new IdentityGuardService(new IdentityGuardRepository())).apply(await ledger.ensureIntent(intent));
+}
 export const loadMessage = bind(MessagesCoreService, 'load');
 export const readable = bind(MessagesCoreService, 'readable');
 export const recordMessageEvent = bind(MessagesCoreService, 'recordEvent');
@@ -42,7 +62,13 @@ export const updateProfile = bind(UsersCoreService, 'updateProfile');
 export const roomProfile = bind(UsersCoreService, 'roomProfile');
 export const profileManifest = bind(UsersCoreService, 'profileManifest');
 export const activeMember = bind(AccessService, 'requireActiveMember');
+export const actorBlocked = bind(AccessService, 'actorBlocked');
 export const createRoom = bind(RoomStateService, 'createRoom');
+// Explicit isolated provisioning: callers choose an existing member, never send admission.
+export async function assignRoomOwner(tx, roomId, actorId) {
+  await tx.prisma.room_members.update({ where: { id: actorId }, data: { role: 'STREAMER' }, select: { id: true } });
+  await tx.prisma.rooms.update({ where: { id: roomId }, data: { owner_member_id: actorId }, select: { id: true } });
+}
 export const joinRoom = bind(RoomStateService, 'joinRoom');
 export const leaveRoom = bind(RoomStateService, 'leaveRoom');
 export const lockRoom = bind(RoomStateService, 'lockRoom');
@@ -55,6 +81,7 @@ export const publishText = bind(PublicationsCoreService, 'publishText');
 export const reserveMedia = bind(MediaCoreService, 'reserveMedia');
 export const mediaStatus = bind(MediaCoreService, 'mediaStatus');
 export const beginUpload = bind(MediaCoreService, 'beginUpload');
+export const acknowledgeMediaWrite = bind(MediaWriteProofService, 'acknowledge');
 export const finishUpload = bind(MediaCoreService, 'finishUpload');
 export const failUpload = bind(MediaCoreService, 'failUpload');
 export const authorizedMediaObject = bind(MediaCoreService, 'authorizedMediaObject');
@@ -66,7 +93,7 @@ export const completeJob = bind(JobsCoreService, 'complete');
 export const users = context.get(UsersCoreService);
 export const stickers = context.get(StickersCoreService);
 export function Jobs(transactions, consumer, ownerId) { return new Queue(transactions, consumer, context.get(JobsRepository), context.get(JobsCoreService), ownerId); }
-const worker = (transactions, store, decoder, prefix) => new MediaWorkerService(transactions, store, decoder, prefix, context.get(MediaWorkerRepository), context.get(JobsCoreService), context.get(AccessService), context.get(MessagesCoreService));
+const worker = (transactions, store, decoder, prefix) => new MediaWorkerService(transactions, store, decoder, prefix, context.get(MediaWorkerRepository), context.get(JobsCoreService), context.get(AccessService), context.get(MessagesCoreService), context.get(MediaWriteProofService));
 export const processMedia = (transactions, store, decoder, prefix, lease) => worker(transactions, store, decoder, prefix).processMedia(lease);
 export const prepareMedia = (tx, lease, prefix) => worker(undefined, undefined, undefined, prefix).prepareMedia(tx, lease);
 export const recoverMedia = tx => worker().recoverMedia(tx);
@@ -78,7 +105,7 @@ export async function createUser(tx, nickname) {
 }
 export { consumeRate, collectExpiredRates } from '../../dist/infrastructure/rate-limit/rate-limit.repository.js';
 export { uuid, identifier } from '../../dist/common/validation/identifier.js';
-export { sendInput } from '../../dist/modules/messages/dto/send-message.dto.js';
+export const sendInput = body => parseSendInput({ membershipScope: 'A'.repeat(43), ...body });
 export { reactionEmoji } from '../../dist/modules/reactions/dto/reaction.dto.js';
 export { syncInput } from '../../dist/modules/sync/dto/sync.dto.js';
 export { resetSync } from '../../dist/modules/sync/sync-core.service.js';

@@ -14,7 +14,7 @@ export class PrismaDatabase implements Database {
   readonly transactions: Transactions;
   constructor(config: Config) {
     this.runtime = createPrisma(config);
-    this.transactions = new Transactions(this.runtime.client, this.runtime.context);
+    this.transactions = new Transactions(this.runtime.client, this.runtime.context, config.database.poolSize * 5);
   }
   check(): Promise<Readiness> {
     if (this.closed) return Promise.resolve({ ready: false, reason: 'database_unavailable' });

@@ -16,7 +16,10 @@ test('auth secret config is strict, host-only origins are environment-bound, cre
   assert.equal(qa.secure, true); assert.equal(qa.origin, 'https://qa.rogi.chat');
   assert.equal(qa.broker, undefined); assert.equal(qa.audience, 'rogi-qa');
   assert.equal(readAuthConfig({ environment: 'production' }, { AUTH_SECRET_FILE: file }).origin, 'https://rogi.chat');
-  for (const data of [{ key, extra: 'no' }, { key: 'short' }, { key, broker: { baseUrl: 'http://broker.invalid/', clientId: 'fixture', clientSecret: secret() } }]) {
+  const identityGuardKey = randomBytes(32).toString('hex');
+  await writeFile(file, JSON.stringify({ key, identityGuardKey }));
+  assert.equal(readAuthConfig({ environment: 'qa' }, { AUTH_SECRET_FILE: file }).identityGuardKey.toString('hex'), identityGuardKey);
+  for (const data of [{ key, extra: 'no' }, { key: 'short' }, { key, identityGuardKey: key }, { key, identityGuardKey: 'short' }, { key, broker: { baseUrl: 'http://broker.invalid/', clientId: 'fixture', clientSecret: secret() } }]) {
     await writeFile(file, JSON.stringify(data));
     assert.throws(() => readAuthConfig({ environment: 'qa' }, { AUTH_SECRET_FILE: file }), error => {
       assert.equal(error.message, 'Invalid configuration: AUTH_SECRET_FILE'); assert.ok(!String(error).includes(key)); return true;

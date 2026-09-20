@@ -1,3 +1,8 @@
+import { MessageEligibilityService } from './message-eligibility.service.js';
+import { messageDeletionId } from '../deletion/deletion-ledger.js';
+import type { DeletionIntent, LedgerEnvironment } from '../deletion/deletion-ledger.js';
+
+import { membershipScope } from '../membership-scope/membership-scope.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
@@ -21,11 +26,14 @@ import type { MessageReadModel } from './message-projection.js';
 @Injectable()
 export class MessagesCoreService {
   constructor(@Inject(MessagesRepository) private readonly repository: MessagesRepository,
-    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService, @Inject(StickersCoreService) private readonly stickers: StickersCoreService) {}
+    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService, @Inject(StickersCoreService) private readonly stickers: StickersCoreService, @Inject(MessageEligibilityService) private readonly eligibility: MessageEligibilityService) {}
 
   load(tx: Transaction, roomId: string, messageId: string) { return this.repository.load(tx, roomId, messageId); }
 
   async readable(tx: Transaction, viewer: ActiveMember, row: MessageRow): Promise<boolean> {
+    // Publication authors are anonymous: never resolve the private source fan.
+    // The publisher actor remains the policy subject without exposing it in DTOs.
+    if (await this.access.actorBlocked(tx, row.room_id, viewer.id, row.sender_member_id)) return false;
     const grant = row.stream_kind === 'RESTRICTED' ? await this.repository.grant(tx, row.room_id, row.stream_id, viewer.id) : undefined;
     const allowed = canReadMessage({ accountActive: true, soopLinked: true, roomId: viewer.room_id, memberRoomId: viewer.room_id,
       roomActive: true, memberId: viewer.id, memberActive: true, periodActive: true,
@@ -56,7 +64,8 @@ export class MessagesCoreService {
       const attachments = await this.repository.attachments(tx, row.room_id, row.id);
       content = { type: row.content_kind, attachments: attachments.map(a => ({ assetId: String(a.id), width: Number(a.width), height: Number(a.height), variant: String(a.variant) })) };
     } else throw new ApiError('NOT_FOUND', 404);
-    return projectMessageDto({ id: row.id, version: String(row.version), createdAt: row.created_at,
+    const hints = (await this.eligibility.project(tx, viewer, [row.id])).get(row.id)!;
+    return projectMessageDto({ ...hints, id: row.id, version: String(row.version), createdAt: row.created_at,
       audience: row.stream_kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
       author: row.deletion_root_id ? { kind: 'anonymous' } : { kind: 'member', actorId: row.sender_member_id, nickname: row.nickname ?? '사용자', avatar: row.avatar_id ? { assetId: row.avatar_id } : null }, content, quote });
   }
@@ -79,6 +88,7 @@ export class MessagesCoreService {
     const target = await this.repository.target(tx, viewer.room_id, input.recipientActorId!);
     if (!target) throw new ApiError('NOT_FOUND', 404);
     if (viewer.mode === 'FAN' && !((viewer.role === 'FAN' && target.role === 'STREAMER') || (viewer.role === 'STREAMER' && target.role === 'FAN'))) throw new ApiError('FORBIDDEN', 403);
+    if (await this.access.actorBlocked(tx, viewer.room_id, viewer.id, target.id, true)) throw new ApiError('NOT_FOUND', 404);
     const members = [viewer.id, input.recipientActorId!].sort() as [string, string];
     const pair = await this.repository.pair(tx, viewer.room_id, members);
     const streamId = pair ? String(pair.stream_id) : randomUUID();
@@ -92,25 +102,34 @@ export class MessagesCoreService {
   async recordEvent(tx: Transaction, row: { id: string; room_id: string; stream_id: string }, version: string, order: bigint, kind: 'MESSAGE_CREATED' | 'MESSAGE_DELETED' | 'MESSAGE_UPDATED') {
     const id = await this.repository.event(tx, row, version, order, kind);
     await this.jobs.enqueue(tx, { purpose: 'REALTIME_HINT', roomId: row.room_id, resourceId: id, dedupeKey: digest(`hint:${id}`) });
+    // Body-free fanout intent; recipient discovery stays out of the message tx.
+    // NULL room distinguishes it from PUSH delivery intents (which carry a room).
+    if (kind === 'MESSAGE_CREATED') await this.jobs.enqueue(tx, { purpose: 'PUSH', resourceId: row.id, dedupeKey: digest(`push-fanout:${row.id}`) });
   }
 
   // Caller revalidates the current session/account/SOOP on this SAME transaction handle.
-  async send(tx: Transaction, roomId: string, userId: string, input: SendInput, key: Buffer) {
-    const room = await this.repository.room(tx, identifier(roomId));
+  async send(tx: Transaction, roomId: string, userId: string, input: SendInput, key: Buffer, audience: string) {
+    const owner = await this.access.lockRoomSendOwner(tx, identifier(roomId));
+    const room = await this.repository.room(tx, roomId);
     if (!room) throw new ApiError('NOT_FOUND', 404);
     const member = await this.repository.member(tx, roomId, userId);
     if (!member) throw new ApiError('NOT_FOUND', 404);
-    const hash = createHmac('sha256', key).update('message-command:v1:').update(JSON.stringify(input)).digest();
-    const receipt = await this.repository.receipt(tx, roomId, String(member.id), input.clientMessageId);
-    if (receipt && Number(receipt.deleted) === 1) return { clientMessageId: input.clientMessageId, messageId: String(receipt.message_id), status: 'deleted' as const };
     if (room.status !== 'ACTIVE') throw new ApiError('NOT_FOUND', 404);
     const viewer = await this.access.requireActiveMember(tx, roomId, userId);
+    if (input.membershipScope !== membershipScope(key, audience, userId, roomId, viewer.active_period_id)) throw new ApiError('MEMBERSHIP_SCOPE_MISMATCH', 409);
+    // Preserve the exact v1 digest field order and null normalization across membership periods.
+    const payload = { clientMessageId: input.clientMessageId, intent: input.intent, recipientActorId: input.recipientActorId, quoteId: input.quoteId, content: input.content };
+    const hash = createHmac('sha256', key).update('message-command:v1:').update(JSON.stringify(payload)).digest();
+    const receipt = await this.repository.receipt(tx, roomId, String(member.id), input.clientMessageId);
+    if (receipt && Number(receipt.deleted) === 1) return { clientMessageId: input.clientMessageId, messageId: String(receipt.message_id), status: 'deleted' as const };
     if (receipt) {
       if (Number(receipt.digest_version) !== 1 || !Buffer.isBuffer(receipt.payload_digest) || receipt.payload_digest.length !== 32 || !timingSafeEqual(hash, receipt.payload_digest)) throw new ApiError('CONFLICT', 409);
       const previous = await this.load(tx, roomId, String(receipt.message_id));
       if (!previous || !await this.readable(tx, viewer, previous)) throw new ApiError('NOT_FOUND', 404);
       return { clientMessageId: input.clientMessageId, messageId: previous.id, status: 'committed' as const, version: String(previous.version) };
     }
+    // Existing receipts reconcile history; only a new commit requires a live owner.
+    await this.access.requireRoomSendOwner(tx, roomId, room.owner_member_id, owner);
     const streamId = await this.sendStream(tx, viewer, input);
     if (input.quoteId) {
       const quote = await this.load(tx, roomId, input.quoteId);
@@ -132,23 +151,39 @@ export class MessagesCoreService {
     return { clientMessageId: input.clientMessageId, messageId: id, status: 'committed' as const, version: '1' };
   }
 
-  async remove(tx: Transaction, roomId: string, userId: string, messageId: string) {
-    // Ownership-only deletion intentionally does not require an ACTIVE room/member or SOOP link.
+  async authorizeDeletion(tx: Transaction, roomId: string, userId: string, messageId: string, environment: LedgerEnvironment): Promise<DeletionIntent> {
+    // Ownership survives leaving/closed rooms; fresh session validation is the caller's responsibility.
     if (!await this.repository.room(tx, identifier(roomId))) throw new ApiError('NOT_FOUND', 404);
     const row = await this.repository.ownedMessage(tx, roomId, identifier(messageId), userId);
     if (!row) throw new ApiError('NOT_FOUND', 404);
     const prior = await this.repository.deletionRequest(tx, userId, messageId);
-    if (prior) return { requestId: String(prior.id), status: 'blocked' as const };
-    const requestId = randomUUID();
-    await this.repository.blockMessageAndCopies(tx, roomId, messageId, userId, requestId);
-    for (const asset of await this.repository.attachedAssets(tx, roomId, messageId)) {
-      await this.repository.blockAsset(tx, String(asset.id));
-      await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: String(asset.id), dedupeKey: digest(`media-message-delete:${asset.id}:${requestId}`) });
+    return { schemaVersion: 1, environment, actorUserId: userId, scope: 'MESSAGE', roomId, targetId: row.id,
+      requestId: prior?.id ?? messageDeletionId(environment, userId, roomId, row.id),
+      requestedAt: (prior?.requested_at ?? await tx.now()).toISOString() };
+  }
+
+  // Trusted durable-intent port, shared by admission and independent replay. No mutable session/member reauthorization.
+  async remove(tx: Transaction, intent: DeletionIntent): Promise<boolean> {
+    const { roomId, targetId: messageId, actorUserId: userId, requestId } = intent;
+    if (intent.scope !== 'MESSAGE' || !roomId) throw new Error('unsupported_deletion_scope');
+    if (!await this.repository.room(tx, roomId)) return false;
+    const row = await this.repository.ownedMessage(tx, roomId, messageId, userId);
+    if (!row) return false; // Restored target/actor may be absent. The opaque checkpoint remains an obligation.
+    const prior = await this.repository.deletionRequest(tx, userId, messageId);
+    if (prior) {
+      if (prior.id !== requestId || prior.requested_at.toISOString() !== intent.requestedAt) throw new Error('deletion_receipt_conflict');
     }
-    const order = await this.repository.nextDeletionOrder(tx, roomId);
-    await this.recordEvent(tx, { id: messageId, room_id: roomId, stream_id: String(row.stream_id) }, (BigInt(row.version as string) + 1n).toString(), order, 'MESSAGE_DELETED');
+    await this.repository.blockMessageAndCopies(tx, roomId, messageId, userId, requestId, new Date(intent.requestedAt), Boolean(prior));
+    const assets = await this.repository.attachedAssets(tx, roomId, messageId);
+    // All domain rows are locked/mutated before the first job lock.
+    for (const asset of assets) await this.repository.blockAsset(tx, String(asset.id));
+    if (!row.deleted_at) {
+      const order = await this.repository.nextDeletionOrder(tx, roomId);
+      await this.recordEvent(tx, { id: messageId, room_id: roomId, stream_id: String(row.stream_id) }, (BigInt(row.version as string) + 1n).toString(), order, 'MESSAGE_DELETED');
+    }
+    for (const asset of assets) await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: String(asset.id), dedupeKey: digest(`media-message-delete:${asset.id}:${requestId}`) });
     await this.jobs.enqueue(tx, { purpose: 'PURGE', roomId, resourceId: requestId, dedupeKey: digest(`purge:${requestId}`) });
-    return { requestId, status: 'blocked' as const };
+    return true;
   }
 
   // Trusted worker port. Caller must fence its lease and continuation atomically

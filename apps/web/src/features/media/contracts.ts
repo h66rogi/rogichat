@@ -1,8 +1,9 @@
 // Wire contract pinned in docs/web-media-integration.md. No runtime fixtures.
 export type ImageKind = 'PHOTO' | 'AVATAR' | 'STICKER';
+export type MediaKind = ImageKind | 'VIDEO';
 export type MediaStatus = 'reserved' | 'uploading' | 'processing' | 'ready' | 'deleting' | 'deleted';
 export interface Receipt { readonly assetId: string; readonly status: MediaStatus }
-export interface UploadInput { readonly kind: ImageKind; readonly contentType: string; readonly byteLength: number; readonly roomId?: string }
+export interface UploadInput { readonly kind: MediaKind; readonly contentType: string; readonly byteLength: number; readonly roomId?: string }
 export type ImageContext =
   | { readonly variant: 'image'; readonly roomId?: never; readonly messageId?: never; readonly actorId?: never; readonly stickerId?: never }
   | { readonly variant: 'image'; readonly roomId: string; readonly messageId: string; readonly actorId?: never; readonly stickerId?: string }
@@ -35,10 +36,10 @@ export function receipt(value: unknown, expectedId?: string): Receipt {
   if ((expectedId !== undefined && expectedId !== assetId) || typeof row.status !== 'string' || !['reserved', 'uploading', 'processing', 'ready', 'deleting', 'deleted'].includes(row.status)) throw new MediaError('INVALID_RESPONSE');
   return Object.freeze({ assetId, status: row.status as MediaStatus });
 }
-export function uploadInput(kind: ImageKind, file: Blob, roomId?: string): UploadInput {
-  const allowed = kind === 'STICKER' ? ['image/png', 'image/webp'] : ['image/jpeg', 'image/png', 'image/webp'];
-  if (!['PHOTO', 'AVATAR', 'STICKER'].includes(kind) || !allowed.includes(file.type) || file.size < 1 || file.size > (kind === 'STICKER' ? 1 : 10) * 1024 * 1024) throw new MediaError('INVALID_FILE');
-  if (kind === 'PHOTO') return Object.freeze({ kind, contentType: file.type, byteLength: file.size, roomId: uuid(roomId) });
+export function uploadInput(kind: MediaKind, file: Blob, roomId?: string): UploadInput {
+  const allowed = kind === 'VIDEO' ? ['video/mp4', 'video/quicktime'] : kind === 'STICKER' ? ['image/png', 'image/webp'] : ['image/jpeg', 'image/png', 'image/webp'];
+  if (!['PHOTO', 'AVATAR', 'STICKER', 'VIDEO'].includes(kind) || !allowed.includes(file.type) || file.size < 1 || file.size > (kind === 'VIDEO' ? 50 : kind === 'STICKER' ? 1 : 10) * 1024 * 1024) throw new MediaError('INVALID_FILE');
+  if (kind === 'PHOTO' || kind === 'VIDEO') return Object.freeze({ kind, contentType: file.type, byteLength: file.size, roomId: uuid(roomId) });
   if (roomId !== undefined) throw new MediaError('INVALID_CONTEXT');
   return Object.freeze({ kind, contentType: file.type, byteLength: file.size });
 }

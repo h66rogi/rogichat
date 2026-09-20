@@ -37,7 +37,7 @@ struct WelcomeScreen: View {
                 .background(AppTheme.surface, in: RoundedRectangle(cornerRadius: 24))
 
                 VStack(spacing: 12) {
-                    if methods.contains(.soop) {
+                    if !methods.isEmpty {
                         Toggle(isOn: $consent) {
                             VStack(alignment: .leading, spacing: 6) {
                                 Link("이용 안내", destination: rulesURL).underline()
@@ -57,7 +57,7 @@ struct WelcomeScreen: View {
                             .foregroundStyle(method == .apple ? (colorScheme == .dark ? Color.black : .white) : .white)
                             .background(method == .apple ? (colorScheme == .dark ? Color.white : .black) : AppTheme.brand,
                                         in: RoundedRectangle(cornerRadius: 14))
-                        }.disabled(busy || (method == .soop && !consent))
+                        }.disabled(busy || !consent)
                     }
                     if busy {
                         ProgressView("로그인하는 중").padding(.vertical, 8)

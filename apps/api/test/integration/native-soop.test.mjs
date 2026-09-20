@@ -1,3 +1,5 @@
+import { IdentityGuardRepository } from '../../dist/modules/auth/identity-guard.repository.js';
+import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.service.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
@@ -6,11 +8,7 @@ import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
-import { createConfiguredApi } from '../../dist/application.js';
-import { AppModule } from '../../dist/app.module.js';
-import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
-import { AuthController } from '../../dist/modules/auth/auth.controller.js';
-import { NativeAuthController } from '../../dist/modules/auth/native-auth.controller.js';
+import { createApi } from '../../dist/application.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { IdentityRepository } from '../../dist/modules/auth/identity.repository.js';
@@ -60,14 +58,10 @@ async function fixture(t, overrides = {}) {
   const config = { audience: 'rogi-qa', origin: 'https://qa.rogi.chat', callback: 'https://api.qa.rogi.chat/v1/auth/soop/callback',
     secure: false, key: randomBytes(32), broker: { baseUrl: 'https://broker.example.invalid', clientId: 'fixture-client', clientSecret: secret() }, ...overrides };
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
-  const broker = new FixtureBroker(); const identities = new IdentityService(new IdentityRepository());
+  const broker = new FixtureBroker(); const identities = new IdentityService(new IdentityRepository(), config, new IdentityGuardService(new IdentityGuardRepository()));
   const nativeFlow = new NativeAuthService(sessions, db.transactions, config, broker, new NativeAuthRepository(), identities, new LoginRepository());
   const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), identities);
-  // Explicit isolated registration retains security coverage for the unshipped feature.
-  const lifecycle = new LifecycleState();
-  const module = AppModule.register(db, lifecycle, { config, sessions, flow, nativeFlow });
-  module.imports.find(entry => entry.module?.name === 'AuthModule').controllers = [AuthController, NativeAuthController];
-  app = await createConfiguredApi(module, new SafeLogger('api', line => { logs += line; }), lifecycle, config);
+  app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config, sessions, flow, nativeFlow });
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const verify = responseContract(app, config);
   const checked = async (method, path, options) => {
@@ -135,6 +129,7 @@ test('native SOOP HTTP login returns the exact nested session DTO, opaque seven-
   const headers = { Authorization: `Bearer ${body.accessToken}`, 'X-Rogi-Client': 'ios' };
   const session = await fetch(`${f.base}/v1/auth/session`, { headers }); assert.deepEqual(await session.json(), body.session);
   const saved = await f.db.transactions.read(tx => tx.prisma.auth_sessions.findUnique({ where: { token_digest: digest(body.accessToken) } }));
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.login_transactions.findUniqueOrThrow({ where: { id: started.transactionId } }))).user_id, saved.user_id);
   assert.equal(saved.transport, 'NATIVE'); assert.equal(saved.client_id, 'ios'); assert.ok(Math.abs(saved.expires_at - saved.created_at - 604800000) < 1000);
   assert.equal((await f.exchange(started)).status, 400); // Lost ACK cannot recover a credential.
   for (const value of [started.request.state, started.state, started.verifier, started.providerCode, started.code, body.accessToken, f.config.broker.clientSecret]) assert.ok(!f.logs().includes(value));

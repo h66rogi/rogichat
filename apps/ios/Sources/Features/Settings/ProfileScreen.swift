@@ -11,13 +11,15 @@ struct ProfileScreen: View {
     @State private var saveTask: Task<Void, Never>?
     @FocusState private var editingName: Bool
     let onSave: (ProfileUpdate) async throws -> Void
+    let avatar: AnyView?
 
-    init(profile: AccountProfile, onSave: @escaping (ProfileUpdate) async throws -> Void) {
+    init(profile: AccountProfile, onSave: @escaping (ProfileUpdate) async throws -> Void, avatar: AnyView? = nil) {
         _draft = State(initialValue: ProfileDraft(profile: profile))
-        self.onSave = onSave
+        self.onSave = onSave; self.avatar = avatar
     }
     var body: some View {
         Form {
+            if let avatar { avatar }
             Section {
                 TextField("표시 이름", text: Binding(get: { draft.name.draft }, set: { draft.name.edit($0) }))
                     .focused($editingName).textContentType(.nickname).submitLabel(.done)
@@ -96,13 +98,14 @@ struct ProfileScreen: View {
 struct ProfileLoader: View {
     let onLoad: () async throws -> AccountProfile
     let onSave: (ProfileUpdate) async throws -> Void
+    var avatar: (AccountProfile) -> AnyView? = { _ in nil }
     @State private var state: Loadable<AccountProfile> = .idle
     @State private var attempt = 0
     var body: some View {
         LoadableView(state: state) {
             ScreenStatus(title: "프로필을 불러오는 중", message: "", loading: true)
         } loaded: { profile in
-            ProfileScreen(profile: profile, onSave: onSave)
+            ProfileScreen(profile: profile, onSave: onSave, avatar: avatar(profile))
         } failed: { error in
             ScreenStatus(title: "프로필을 불러오지 못했어요",
                          message: (error as? ProductError)?.errorDescription ?? "연결을 확인하고 다시 시도해 주세요.",

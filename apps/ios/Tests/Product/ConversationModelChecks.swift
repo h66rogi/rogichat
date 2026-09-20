@@ -1,0 +1,94 @@
+import Foundation
+
+private actor ModelConversation: ConversationCoordinating {
+    nonisolated let scope: ConversationScope
+    var value: ConversationListing
+    private var pending: CheckedContinuation<ConversationListing, any Error>?
+    private var waiting: CheckedContinuation<Void, Never>?
+    private var command: TextCommand?
+    private var prewriteFailure = false
+    private var readFailure = false
+    private(set) var sends = 0
+    init(scope: ConversationScope, value: ConversationListing) { self.scope = scope; self.value = value }
+    func refresh() async throws -> ConversationListing { if readFailure { throw ConversationError.unavailable }; return value }
+    func poll() async throws -> ConversationListing { try await refresh() }
+    func history() async throws -> ConversationListing { value }
+    func recipients(after: String?) async throws -> PrivateRecipients { try JSONDecoder().decode(PrivateRecipients.self, from: Data(#"{"recipients":[],"next":null}"#.utf8)) }
+    func send(_ command: TextCommand) async throws -> ConversationListing {
+        guard !prewriteFailure else { throw ConversationError.persistence }
+        sends += 1; self.command = command
+        return try await withCheckedThrowingContinuation { pending = $0; waiting?.resume(); waiting = nil }
+    }
+    func reconcile() async throws -> ConversationListing { value }
+    func containsCommand(_ id: String) async throws -> Bool { command?.id == id }
+    func listing() async throws -> ConversationListing { try scope.check(); return value }
+    func wait() async { if pending != nil { return }; await withCheckedContinuation { waiting = $0 } }
+    func failPrewrite(_ value: Bool) { prewriteFailure = value }
+    func failRead() { readFailure = true }
+    func lastCommand() -> TextCommand? { command }
+    func complete(_ phase: TextCommandPhase) {
+        guard let command else { return }
+        value = ConversationListing(messages: value.messages, commands: [StoredTextCommand(id: command.id, phase: phase, command: command, messageID: nil, version: nil)], profiles: [], eventCursor: "events", historyCursor: nil, ready: true, profilesComplete: true, profileCursor: nil)
+        pending?.resume(returning: value); pending = nil
+    }
+    func replace(_ value: ConversationListing) { self.value = value }
+}
+@main struct ConversationModelChecks {
+    static let roomID = "00000000-0000-4000-8000-000000000001"
+    static let actorID = "00000000-0000-4000-8000-000000000002"
+    static let peerID = "00000000-0000-4000-8000-000000000003"
+    static let messageID = "00000000-0000-4000-8000-000000000004"
+    static func token(_ byte: UInt8) -> String { Data(repeating: byte, count: 32).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "") }
+    static func scope() throws -> ConversationScope {
+        let object: [String: Any] = ["roomId": roomID, "name": "대화", "mode": "GROUP", "actorId": actorID, "role": "MEMBER", "membershipScope": token(1), "authorizationRevision": token(2)]
+        let room = try JSONDecoder().decode(MembershipRoom.self, from: JSONSerialization.data(withJSONObject: object))
+        let account = try RoomsScope(partition: token(3), clientScope: UUID(), expiresAt: Date().addingTimeInterval(3600))
+        return ConversationScope(account: account, room: room, deviceID: roomID, cycle: UUID().uuidString)
+    }
+    static func message(reply: Bool = true, text: String = "답장할 메시지") throws -> ConversationMessage {
+        let object: [String: Any] = ["id": messageID, "version": "1", "createdAt": "2026-09-20T01:02:03.004Z", "audience": "SHARED", "author": ["kind": "member", "actorId": peerID, "nickname": "다른 사용자", "avatar": NSNull()], "content": ["type": "TEXT", "text": text], "quote": NSNull(), "counterpart": NSNull(), "allowedActions": ["reply": reply, "publish": false, "delete": false]]
+        return try JSONDecoder().decode(ConversationMessage.self, from: JSONSerialization.data(withJSONObject: object))
+    }
+    static func listing(_ messages: [ConversationMessage] = []) -> ConversationListing { ConversationListing(messages: messages, commands: [], profiles: [], eventCursor: "events", historyCursor: nil, ready: true, profilesComplete: true, profileCursor: nil) }
+    static func check(_ value: Bool) { precondition(value) }
+    @MainActor static func finish(_ model: ConversationScreenModel) async throws {
+        let deadline = Date().addingTimeInterval(3)
+        while model.sending { precondition(Date() < deadline); try await Task.sleep(for: .milliseconds(1)) }
+    }
+    @MainActor static func main() async throws {
+        let scope = try scope(); let original = try message()
+        let remote = ModelConversation(scope: scope, value: listing([original])); let model = ConversationScreenModel(coordinator: remote)
+        await model.load(); model.draft = "  원문  "
+        await remote.failPrewrite(true); model.send(); try await finish(model)
+        check(model.draft == "  원문  " && model.error != nil)
+        check(await remote.sends == 0)
+        await remote.failPrewrite(false)
+        model.reply(to: original); check(model.privateTarget == peerID && model.quote?.id == messageID)
+        model.send(); check(model.sending && !model.canSend)
+        await remote.wait()
+        check(await remote.lastCommand()?.intent == "PRIVATE")
+        check(await remote.lastCommand()?.quoteID == messageID)
+        model.send(); check(await remote.sends == 1)
+        await remote.complete(.unknown); try await finish(model)
+        check(model.draft.isEmpty && model.quote == nil && model.listing?.commands.first?.phase == .unknown)
+        await remote.failRead(); await model.refresh()
+        check(model.listing?.commands.first?.phase == .unknown && model.error != nil)
+        // A new draft typed while the owned command awaits must never be erased.
+        let second = ModelConversation(scope: scope, value: listing([original])); let other = ConversationScreenModel(coordinator: second)
+        await other.load(); other.draft = "첫 메시지"; other.send(); await second.wait()
+        other.draft = "다음 메시지"; await second.complete(.unknown); try await finish(other)
+        check(other.draft == "다음 메시지")
+        other.reply(to: original)
+        let replacement = try message(text: "권한에 맞게 바뀐 내용")
+        await second.replace(listing([replacement])); await other.refresh()
+        check(other.quote == replacement) // Equal version and same recipient must replace the full quote.
+        let changed = try message(reply: false)
+        await second.replace(listing([changed])); await other.refresh(); other.reply(to: original)
+        check(other.quote == nil) // Old row closure cannot grant an action on a changed equal-version projection.
+        other.draft = "늦은 응답"; other.send(); await second.wait()
+        scope.invalidate(); await second.complete(.committed); try await finish(other)
+        check(!other.active && other.listing == nil && other.draft.isEmpty && !other.canSend)
+        check(await second.sends == 2)
+        print("iOS conversation model: pre-write draft preservation, owned single send, unknown outcome, edited draft, GROUP private quote, stale row and scope invalidation passed")
+    }
+}

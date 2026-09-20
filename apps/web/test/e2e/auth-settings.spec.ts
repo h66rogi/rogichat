@@ -4,8 +4,10 @@ import { installApi, json } from './api-fixture';
 test('profile edits use CSRF and are restored from persisted server response', async ({ page }) => {
   const state = await installApi(page, true);
   await page.goto('/settings');
-  await expect(page.getByText('현재 웹에서는 새 메시지 알림을 제공하지 않습니다.')).toBeVisible();
-  await expect(page.getByTestId('settings-notifications-toggle')).toHaveCount(0);
+  // Unavailable capabilities remain an explained, disabled control. Opening settings never prompts.
+  const notifications = page.getByTestId('settings-notifications-toggle');
+  await expect(notifications).toBeVisible();
+  await expect(notifications).toBeDisabled();
   await page.getByLabel('닉네임', { exact: true }).fill('저장된 이름');
   await page.getByRole('button', { name: '변경 내용 저장' }).click();
   await expect(page.getByText('프로필을 저장했습니다.')).toBeVisible();
@@ -92,7 +94,7 @@ test('page restoration discards old private content before fresh authorization',
 });
 test('SOOP-link required state never fabricates a profile', async ({ page }) => {
   await installApi(page, true);
-  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, csrfToken: 'synthetic-csrf-session-A', soopLinkStatus: 'REQUIRED' }));
+  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, accountPartition: 'C'.repeat(42) + 'A', csrfToken: 'synthetic-csrf-session-A', soopLinkStatus: 'REQUIRED' }));
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: 'SOOP 계정 연결이 필요해요' })).toBeVisible();
   await expect(page.getByTestId('settings-view')).toHaveCount(0);
@@ -132,7 +134,7 @@ test('a cookie changing between session and profile reads stays private until a 
   let unstable = true;
   await page.route('**/v1/auth/session', route => {
     reads++;
-    return json(route, { authenticated: true, csrfToken: unstable ? `synthetic-csrf-session-${reads}` : 'synthetic-csrf-stable', soopLinkStatus: 'VERIFIED' });
+    return json(route, { authenticated: true, accountPartition: 'C'.repeat(42) + 'A', csrfToken: unstable ? `synthetic-csrf-session-${reads}` : 'synthetic-csrf-stable', soopLinkStatus: 'VERIFIED' });
   });
   await page.goto('/settings');
   await expect.poll(() => reads).toBeGreaterThanOrEqual(4);

@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   const config = runtimeConfig();
   return (
     <html lang="ko">
-      <body><RuntimeProvider apiOrigin={config.apiOrigin} defaultRoomId={config.defaultRoomId}>{children}</RuntimeProvider></body>
+      <body><RuntimeProvider apiOrigin={config.apiOrigin} defaultRoomId={config.defaultRoomId} mediaStorageOrigins={config.mediaStorageOrigins}>{children}</RuntimeProvider></body>
     </html>
   );
 }

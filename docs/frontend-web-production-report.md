@@ -71,3 +71,10 @@ This establishes publication and manual export, not host activation or automatic
 export completion. Actual QA web activation remains pending the infrastructure
 owner's running-artifact, health and route evidence. Production promotion remains
 a separate reviewed change.
+
+## Pending source-only v2 follow-up
+
+The [command and sync v2 slice](web-command-sync-v2.md) is a draft coordinated-cutover
+change based on frozen QA `049a197`, integrating accepted PR33. It does not change
+the deployed schema 1 evidence above. Backend C04+C05+C06 and web/native consumers
+must cut over and roll back together; this web branch must not activate alone.

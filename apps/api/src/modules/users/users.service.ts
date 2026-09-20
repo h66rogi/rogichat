@@ -1,3 +1,4 @@
+import { authorizationKey } from '../../infrastructure/config/authorization-epoch.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import { AuthService } from '../auth/auth.service.js';
@@ -16,7 +17,8 @@ export class UsersService {
   self(credentials: SessionCredentials) {
     return this.transactions.read(async tx => {
       const actor = await this.auth.require(tx, credentials);
-      return this.users.selfProfile(tx, actor.userId);
+      return { ...await this.users.selfProfile(tx, actor.userId), soopLinkStatus: actor.soopLinked ? 'VERIFIED' : 'REQUIRED',
+        onboardingState: actor.soopLinked ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: actor.soopLinked } };
     });
   }
   update(credentials: CommandCredentials, input: UpdateProfileDto) {
@@ -28,13 +30,13 @@ export class UsersService {
   profile(credentials: SessionCredentials, roomId: string, actorId: string) {
     return this.transactions.read(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
-      return { replace: true, profile: await this.users.roomProfile(tx, roomId, actor.userId, actorId, this.config.key) };
+      return { replace: true, profile: await this.users.roomProfile(tx, roomId, actor.userId, actorId, authorizationKey(this.config)) };
     });
   }
   revisions(credentials: SessionCredentials, roomId: string, after?: string) {
     return this.transactions.read(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
-      return this.users.profileManifest(tx, roomId, actor.userId, this.config.key, after);
+      return this.users.profileManifest(tx, roomId, actor.userId, authorizationKey(this.config), after);
     });
   }
 }

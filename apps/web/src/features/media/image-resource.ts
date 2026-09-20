@@ -12,6 +12,7 @@ export class MediaImageResource {
   private operation: AbortController | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
+  private releaseLease: (() => void) | undefined;
   private readonly client: MediaClient;
   constructor(client: MediaClient) {
     this.client = client;
@@ -24,6 +25,7 @@ export class MediaImageResource {
     ++this.generation; this.operation?.abort(); this.operation = undefined;
     clearTimeout(this.timer); this.timer = undefined;
     if (this.state.objectUrl) URL.revokeObjectURL(this.state.objectUrl);
+    this.releaseLease?.(); this.releaseLease = undefined;
     this.set(empty);
   };
   dispose = (): void => { this.clear(); this.client.lifetime.signal.removeEventListener('abort', this.clear); this.listeners.clear(); };
@@ -35,16 +37,20 @@ export class MediaImageResource {
     try {
       current(this.client.lifetime); this.set({ phase: 'loading' });
       const lease = await this.client.image(assetId, context, signal);
-      current(this.client.lifetime); signal.throwIfAborted();
-      if (generation !== this.generation) return;
-      const remaining = lease.expiresAt - Date.now();
-      if (remaining <= 0) { this.set({ phase: 'expired' }); return; }
-      const objectUrl = URL.createObjectURL(lease.blob);
-      this.set({ phase: 'ready', objectUrl, referenceKey: imageReferenceKey(assetId, context) });
-      this.timer = setTimeout(() => {
+      let retained = false;
+      try {
+        current(this.client.lifetime); signal.throwIfAborted();
         if (generation !== this.generation) return;
-        this.clear(); this.set({ phase: 'expired' });
-      }, remaining);
+        const remaining = lease.expiresAt - Date.now();
+        if (remaining <= 0) { this.set({ phase: 'expired' }); return; }
+        const objectUrl = URL.createObjectURL(lease.blob);
+        this.releaseLease = lease.release; retained = true;
+        this.set({ phase: 'ready', objectUrl, referenceKey: imageReferenceKey(assetId, context) });
+        this.timer = setTimeout(() => {
+          if (generation !== this.generation) return;
+          this.clear(); this.set({ phase: 'expired' });
+        }, remaining);
+      } finally { if (!retained) lease.release?.(); }
     } catch {
       if (generation !== this.generation) return;
       if (signal.aborted || this.client.lifetime.signal.aborted || !this.client.lifetime.isCurrent()) { this.clear(); return; }

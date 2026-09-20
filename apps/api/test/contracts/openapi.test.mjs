@@ -1,7 +1,7 @@
 import SwaggerParser from '@apidevtools/swagger-parser';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, randomBytes } from 'node:crypto';
 import { RequestMethod } from '@nestjs/common';
 import { PATH_METADATA, METHOD_METADATA } from '@nestjs/common/constants';
 import { ModulesContainer } from '@nestjs/core';
@@ -10,7 +10,7 @@ import addFormats from 'ajv-formats';
 import { openApiFixture } from '../support/openapi-fixture.mjs';
 import { createOpenApiDocument } from '../../dist/infrastructure/openapi/openapi.js';
 import { sendInput } from '../../dist/modules/messages/dto/send-message.dto.js';
-import { sendRequest } from '../../dist/modules/messages/dto/message.openapi.js';
+import { sendRequest, deletionReceipt } from '../../dist/modules/messages/dto/message.openapi.js';
 import { projectMessageDto } from '../../dist/modules/messages/message-projection.js';
 import { projectActorProfileDto } from '../../dist/modules/users/profile-projection.js';
 import { reactionEmoji } from '../../dist/modules/reactions/dto/reaction.dto.js';
@@ -19,6 +19,26 @@ import { nativeStartRequest, nativeExchangeRequest } from '../../dist/modules/au
 const ajv = new Ajv({ strict: false, allErrors: true });
 addFormats(ajv);
 const check = (schema, value, valid = true) => { const validate = ajv.compile(schema); assert.equal(validate(value), valid, JSON.stringify(validate.errors)); };
+test('native push OpenAPI declares exact provider union, secret proofs and owner-free recovery', async t => {
+  const { app, config } = await openApiFixture(); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config), path = '/v1/me/native-push-subscriptions';
+  const register = doc.paths[path].post, recover = doc.paths[`${path}/resolve`].post;
+  const schema = register.requestBody.content['application/json'].schema;
+  const base = { provider: 'APNS', token: randomBytes(32).toString('hex'), installationId: randomUUID(), bindingSecret: randomBytes(32).toString('base64url') };
+  check(schema, base); check(schema, { ...base, generation: '18446744073709551615' });
+  check(schema, { ...base, provider: 'FCM', token: 'isolated:token_0123456789' });
+  for (const patch of [{ provider: 'WEB' }, { token: 'https://example.com/token' }, { bindingSecret: 'a'.repeat(42) + '_' },
+    { generation: '01' }, { generation: '18446744073709551616' }, { userId: randomUUID() }, { endpoint: 'https://example.com' }]) check(schema, { ...base, ...patch }, false);
+  for (const operation of [register, recover, doc.paths[`${path}/{id}`].delete, doc.paths['/v1/me/native-push-capabilities'].get]) {
+    assert.deepEqual(operation.security, [{ nativeBearer: [], nativeClient: [] }]);
+    assert.ok(operation.responses['503']);
+  }
+  const response = recover.responses['200'].content['application/json'].schema;
+  check(response, { binding: null });
+  const binding = { id: randomUUID(), generation: '1', revoked: false };
+  check(response, { binding }); check(response, { binding: { ...binding, userId: randomUUID() } }, false);
+  assert.equal(doc.paths[`${path}/{id}`].delete.responses['204'].content, undefined);
+});
 function inventory(app) {
   const routes = [];
   for (const module of app.get(ModulesContainer).values()) for (const wrapper of module.controllers.values()) {
@@ -63,7 +83,7 @@ for (const shape of ['health', 'auth', 'full']) test(`OpenAPI matches the actual
 });
 
 test('request schemas agree with parsers on message union, forbidden fields and null semantics', () => {
-  const base = { clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '안녕하세요' } };
+  const base = { membershipScope: 'A'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '안녕하세요' } };
   for (const body of [base, { ...base, content: { type: 'STICKER', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE', recipientActorId: randomUUID() }, { ...base, content: { type: 'PHOTO', assetIds: [randomUUID()] } }, { ...base, quoteId: null }]) {
     check(sendRequest, body); assert.doesNotThrow(() => sendInput(body));
   }
@@ -82,7 +102,7 @@ test('native issuance contract preserves conditional consent, strict proofs and 
   const exchange = { clientId: 'android', transactionId: randomUUID(), code: proof, codeVerifier: 'v'.repeat(128) };
   check(nativeExchangeRequest, exchange);
   for (const body of [{ ...exchange, codeVerifier: 'v'.repeat(129) }, { ...exchange, codeVerifier: 'short' }, { ...exchange, code: null }, { ...exchange, clientId: 'web' }, { ...exchange, subject: 'injected' }]) check(nativeExchangeRequest, body, false);
-  const { app, config } = await openApiFixture('native-feature'); t.after(() => app.close());
+  const { app, config } = await openApiFixture('auth'); t.after(() => app.close());
   const doc = createOpenApiDocument(app, config);
   for (const path of ['/v1/auth/native/soop/transactions', '/v1/auth/native/completions/exchange']) {
     const operation = doc.paths[path].post;
@@ -97,7 +117,7 @@ test('native issuance contract preserves conditional consent, strict proofs and 
   assert.equal(launch.responses['303'].content, undefined);
   const issued = { tokenType: 'Bearer', accessToken: proof, expiresAt: new Date().toISOString(), session: {
     authenticated: true, account: { userId: randomUUID(), nickname: '사용자', avatarAssetId: null }, soopLinkStatus: 'VERIFIED',
-    onboardingState: 'READY', expiresAt: new Date().toISOString(), accountGeneration: proof, capabilities: { chat: true },
+    onboardingState: 'READY', expiresAt: new Date().toISOString(), accountGeneration: proof, accountPartition: proof, capabilities: { chat: true },
   } };
   const schema = doc.paths['/v1/auth/native/completions/exchange'].post.responses['200'].content['application/json'].schema;
   check(schema, issued);
@@ -109,7 +129,7 @@ test('OpenAPI describes real projections, auth alternatives, binary transport an
   const doc = createOpenApiDocument(app, config);
   const response = (path, verb = 'get', status = '200') => doc.paths[path][verb].responses[status].content['application/json'].schema;
   const id = randomUUID();
-  const dto = projectMessageDto({ id, version: 1n, createdAt: new Date(), audience: 'SHARED', author: { kind: 'anonymous' }, content: { type: 'STICKER', stickerId: randomUUID(), assetId: randomUUID(), width: 128, height: 128 }, quote: null });
+  const dto = projectMessageDto({ counterpart: null, allowedActions: { reply: false, publish: false, delete: false }, id, version: 1n, createdAt: new Date(), audience: 'SHARED', author: { kind: 'anonymous' }, content: { type: 'STICKER', stickerId: randomUUID(), assetId: randomUUID(), width: 128, height: 128 }, quote: null });
   check(response('/v1/rooms/{roomId}/messages/{messageId}'), dto);
   check(response('/v1/rooms/{roomId}/messages/{messageId}'), { ...dto, author: { kind: 'anonymous', actorId: id } }, false);
   const profile = projectActorProfileDto({ actorId: id, nickname: '사용자', avatar: null, role: 'FAN' });
@@ -119,7 +139,7 @@ test('OpenAPI describes real projections, auth alternatives, binary transport an
   assert.deepEqual(doc.paths['/v1/rooms/{roomId}/messages'].post.security, [{ browserSession: [], csrf: [] }, { nativeBearer: [], nativeClient: [] }]);
   assert.equal(doc.paths['/v1/rooms/{roomId}/messages'].post.parameters.find(x => x.name === 'Origin').required, false);
   assert.equal(doc.components.securitySchemes.nativeClient.name, 'X-Rogi-Client');
-  check(response('/v1/auth/session'), { authenticated: true, account: { userId: id, nickname: '사용자', avatarAssetId: null }, soopLinkStatus: 'REQUIRED', onboardingState: 'SOOP_LINK_REQUIRED', expiresAt: new Date().toISOString(), accountGeneration: 'a'.repeat(43), capabilities: { chat: false } });
+  check(response('/v1/auth/session'), { authenticated: true, account: { userId: id, nickname: '사용자', avatarAssetId: null }, soopLinkStatus: 'REQUIRED', onboardingState: 'SOOP_LINK_REQUIRED', expiresAt: new Date().toISOString(), accountGeneration: 'a'.repeat(43), accountPartition: 'b'.repeat(43), capabilities: { chat: false } });
   assert.deepEqual(doc.paths['/v1/auth/soop/start'].post.security, []);
   assert.equal(doc.components.securitySchemes.browserSession.name, '__Host-rogi_session');
   assert.ok(doc.paths['/v1/auth/soop/callback'].get.responses['303'].headers.Location);
@@ -135,4 +155,87 @@ test('OpenAPI describes real projections, auth alternatives, binary transport an
   assert.equal(syncInput(sync).limit, 100);
   assert.ok(doc.paths['/v1/rooms/{roomId}/history'].get.parameters.find(x => x.name === 'cursor').required);
   assert.ok(!doc.paths['/v1/rooms/{roomId}/snapshot'].get.parameters.some(x => x.name === 'cursor'));
+});
+
+test('own command and account partition contracts reject widened or incomplete projections', async t => {
+  const { app, config } = await openApiFixture('auth'); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config);
+  const operation = doc.paths['/v1/rooms/{roomId}/message-commands/{clientMessageId}'].get;
+  assert.equal(operation.requestBody, undefined);
+  assert.deepEqual(operation.security, [{ browserSession: [] }, { nativeBearer: [], nativeClient: [] }]);
+  const schema = operation.responses['200'].content['application/json'].schema;
+  const id = randomUUID();
+  check(schema, { clientMessageId: id, status: 'committed', messageId: randomUUID(), version: '2' });
+  check(schema, { clientMessageId: id, status: 'deleted' });
+  for (const value of [
+    { clientMessageId: id, status: 'deleted', messageId: randomUUID() },
+    { clientMessageId: id, status: 'deleted', text: 'hidden' },
+    { clientMessageId: id, status: 'committed', messageId: randomUUID(), version: 2 },
+    { clientMessageId: id, status: 'committed', messageId: randomUUID() },
+  ]) check(schema, value, false);
+  const session = doc.paths['/v1/auth/session'].get.responses['200'].content['application/json'].schema;
+  const web = { authenticated: true, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true }, csrfToken: 'a'.repeat(43), accountPartition: 'b'.repeat(43) };
+  check(session, web);
+  check(session, { ...web, accountPartition: undefined }, false);
+  check(session, { ...web, accountPartition: id }, false);
+  check(session, { ...web, userId: id }, false);
+});
+
+test('C05 shared fixtures require minimal action fields only on complete live DTOs, never tombstones', async t => {
+  const { readFile } = await import('node:fs/promises');
+  const fixtures = JSON.parse(await readFile(new URL('../fixtures/message-projection.json', import.meta.url), 'utf8'));
+  const { app, config } = await openApiFixture(); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config);
+  const schema = doc.paths['/v1/rooms/{roomId}/messages/{messageId}'].get.responses['200'].content['application/json'].schema;
+  for (const value of [fixtures.privateOutgoing, fixtures.anonymousPublisher, fixtures.stalePrivateOutgoing]) {
+    check(schema, value);
+    for (const field of ['counterpart', 'allowedActions']) {
+      const missing = { ...value }; delete missing[field]; check(schema, missing, false);
+    }
+  }
+  check(schema, { ...fixtures.privateOutgoing, counterpart: { actorId: fixtures.privateOutgoing.counterpart.actorId, peerStatus: 'ACTIVE' } }, false);
+  check(schema, { ...fixtures.privateOutgoing, counterpart: { actorId: 'AAAAAAAA-0000-4000-8000-000000000003' } }, false);
+  check(schema, { ...fixtures.privateOutgoing, allowedActions: { ...fixtures.privateOutgoing.allowedActions, sourceActorId: randomUUID() } }, false);
+  for (const counterpart of [{}, { actorId: null }, { actorId: 'not-a-uuid' }, []]) check(schema, { ...fixtures.privateOutgoing, counterpart }, false);
+  for (const allowedActions of [null, {}, { reply: true, publish: false }, { reply: 'true', publish: false, delete: false },
+    { reply: null, publish: false, delete: false }]) check(schema, { ...fixtures.privateOutgoing, allowedActions }, false);
+  const event = doc.paths['/v1/rooms/{roomId}/events'].get.responses['200'].content['application/json'].schema.oneOf[0].properties.events.items;
+  check(event, fixtures.tombstone);
+  check(event, { ...fixtures.tombstone, allowedActions: fixtures.privateOutgoing.allowedActions }, false);
+  assert.equal(fixtures.privateOutgoing.version, fixtures.stalePrivateOutgoing.version);
+  assert.notDeepEqual(fixtures.privateOutgoing.allowedActions, fixtures.stalePrivateOutgoing.allowedActions);
+});
+
+test('deletion receipt alone permits legacy UUIDv4 or deterministic UUIDv5 and stays minimal', () => {
+  const v5 = 'b74685d3-0c46-558e-8b2d-12512b102949';
+  for (const requestId of [randomUUID(), v5]) check(deletionReceipt, { requestId, status: 'blocked' });
+  for (const requestId of [v5.toUpperCase(), v5.replace('-558e-', '-758e-'), 'invalid']) check(deletionReceipt, { requestId, status: 'blocked' }, false);
+  check(deletionReceipt, { requestId: v5, status: 'purged' }, false);
+  check(deletionReceipt, { requestId: v5, status: 'blocked', actorUserId: randomUUID() }, false);
+
+});
+
+test('C06 v2 envelopes encode exact scope/reset/discovery shapes and canonical SEND token bits', async t => {
+  const { app, config } = await openApiFixture(); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config);
+  const response = (path, method = 'get') => doc.paths[path][method].responses['200'].content['application/json'].schema;
+  const tokens = { membershipScope: 'A'.repeat(43), authorizationRevision: 'E'.repeat(42) + 'A' };
+  const base = { schemaVersion: 2, resetRequired: false, ...tokens };
+  check(response('/v1/rooms/{roomId}/snapshot'), { ...base, messages: [], nextCursor: 'opaque', historyCursor: null });
+  check(response('/v1/rooms/{roomId}/snapshot'), { ...base, membershipScope: null, messages: [], nextCursor: 'opaque', historyCursor: null }, false);
+  for (const [path, field, extra] of [['events', 'events', { hasMore: false }], ['history', 'messages', {}], ['profile-sync', 'profiles', { generation: null, complete: false }]]) {
+    const reset = { schemaVersion: 2, resetRequired: true, membershipScope: null, authorizationRevision: null, [field]: [], nextCursor: null, ...extra };
+    const schema = response(`/v1/rooms/{roomId}/${path}`);
+    check(schema, reset); check(schema, { ...reset, membershipScope: tokens.membershipScope }, false); check(schema, { ...reset, [field]: [{}] }, false);
+  }
+  const manifest = { schemaVersion: 2, resetRequired: false, generation: 'g', complete: true, nextCursor: null, rooms: [{ roomId: randomUUID(), actorId: randomUUID(), name: 'fixture', mode: 'GROUP', role: 'MEMBER', ...tokens }] };
+  check(response('/v1/sync'), manifest); check(response('/v1/sync'), { ...manifest, membershipScope: null }, false);
+  check(response('/v1/sync'), { schemaVersion: 2, resetRequired: true, generation: null, complete: false, nextCursor: null, rooms: [] });
+  const room = { roomId: randomUUID(), name: 'fixture', mode: 'GROUP', joined: false };
+  check(response('/v1/rooms'), { rooms: [room], next: null });
+  check(response('/v1/rooms'), { rooms: [{ ...room, ...tokens }], next: null }, false);
+  check(response('/v1/rooms'), { rooms: [{ ...room, joined: true, actorId: randomUUID(), ...tokens }], next: null });
+  check(response('/v1/rooms'), { rooms: [{ ...room, joined: true, actorId: randomUUID() }], next: null }, false);
+  const body = { membershipScope: 'x'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: 'fixture' } };
+  check(sendRequest, body, false); assert.throws(() => sendInput(body));
 });

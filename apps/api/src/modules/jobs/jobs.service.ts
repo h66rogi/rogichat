@@ -23,14 +23,18 @@ export class Jobs {
       const leases: JobLease[] = [];
       for (const row of rows) {
         const generation = BigInt(row.generation) + 1n;
-        if (row.attempts >= row.max_attempts) {
+        const durablePurge = await this.repository.durablePurge(tx, row);
+        if (row.attempts >= row.max_attempts && !durablePurge) {
           await this.repository.exhaust(tx, [generation.toString(), row.id]);
           continue;
         }
+        // Recovery can re-admit an exhausted durable purge without erasing its
+        // failure count. Saturate its counter, never wrap or reset ordinary jobs.
+        const attempts = durablePurge ? Math.max(row.attempts, Math.min(row.attempts + 1, row.max_attempts)) : row.attempts + 1;
         const token = randomUUID();
-        await this.repository.lease(tx, [generation.toString(), this.ownerId, token, leaseMs * 1000, row.id]);
+        await this.repository.lease(tx, [generation.toString(), this.ownerId, token, leaseMs * 1000, row.id], attempts);
         leases.push(Object.freeze({ id: row.id, purpose: row.purpose, roomId: row.room_id, resourceId: row.resource_id,
-          generation, leaseOwner: this.ownerId, leaseToken: token, attempts: row.attempts + 1, maxAttempts: row.max_attempts }));
+          generation, leaseOwner: this.ownerId, leaseToken: token, attempts, maxAttempts: row.max_attempts }));
       }
       return leases;
     });

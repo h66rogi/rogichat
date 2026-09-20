@@ -121,6 +121,8 @@ model users {
   registered_stickers   sticker_catalog[] @relation("sticker_registrar")
   approved_stickers     sticker_catalog[] @relation("sticker_approver")
   sticker_audit         sticker_audit_events[]
+  notification_preferences notification_preferences?
+  push_subscriptions    push_subscriptions[]
 }
 
 model user_profiles {
@@ -152,7 +154,10 @@ model auth_identities {
   subject    Bytes      @db.VarBinary(191)
   status     LinkStatus @default(VERIFIED)
   user       users      @relation(fields: [user_id], references: [id], onDelete: Restrict)
-  @@unique([provider, issuer, subject])
+  scope      String     @default("") @db.VarChar(64)
+  verified_at DateTime? @db.DateTime(3)
+  revoked_at DateTime? @db.DateTime(3)
+  @@unique([provider, issuer, scope, subject])
 }
 
 model auth_sessions {
@@ -167,6 +172,8 @@ model auth_sessions {
   expires_at   DateTime  @db.DateTime(3)
   revoked_at   DateTime? @db.DateTime(3)
   user         users     @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  push_subscriptions push_subscriptions[]
+  @@unique([id, user_id])
   @@index([user_id, revoked_at])
   @@index([expires_at])
 }
@@ -196,6 +203,7 @@ model login_transactions {
   identity_payload Bytes?    @db.Blob
   bound_generation BigInt?   @db.UnsignedBigInt
   @@index([expires_at])
+  @@index([user_id, status, id])
 }
 
 model creator_accounts {
@@ -221,6 +229,7 @@ model rooms {
   history_policy  HistoryPolicy @default(SINCE_JOIN)
   join_policy     JoinPolicy   @default(OPEN_AUTHENTICATED)
   owner_member_id String?      @db.Char(36)
+  content_epoch   BigInt       @default(1) @db.UnsignedBigInt
   created_at      DateTime     @default(now()) @db.DateTime(3)
   owner           room_members? @relation("room_owner", fields: [id, owner_member_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
   members         room_members[] @relation("room_members")
@@ -283,6 +292,7 @@ model membership_periods {
   left_at            DateTime?     @db.DateTime(3)
   member             room_members  @relation("period_member", fields: [room_id, member_id], references: [room_id, id], onDelete: Restrict)
   active_for         room_members? @relation("active_period")
+  read_states        own_read_states[]
   @@unique([room_id, member_id, id])
 }
 
@@ -294,6 +304,7 @@ model message_streams {
   grants  stream_grants[]
   messages messages[]
   pair     stream_pairs?
+  read_states own_read_states[]
   @@unique([room_id, id])
 }
 
@@ -370,10 +381,9 @@ model messages {
   publication_requests  message_publications[] @relation("publication_source")
   published_as          message_publications[] @relation("publication_result")
   reactions             message_reactions[]
-  receipts              command_receipts[]
-  deletion_requests     deletion_requests[]
   attachments           message_attachments[]
   sticker               message_stickers?
+  push_deliveries       push_deliveries[]
   @@unique([room_id, id])
   @@unique([room_id, stream_id, id])
   @@index([room_id, stream_id, created_order])
@@ -563,8 +573,8 @@ model command_receipts {
   deleted           Boolean @default(false)
   created_at        DateTime @default(now()) @db.DateTime(3)
   actor             room_members @relation(fields: [room_id, actor_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
-  message           messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
   @@unique([room_id, actor_id, client_message_id])
+  @@index([room_id, message_id])
 }
 
 model room_events {
@@ -589,8 +599,8 @@ model deletion_requests {
   state         DeletionState @default(BLOCKED)
   requested_at  DateTime @default(now()) @db.DateTime(3)
   actor         users @relation(fields: [actor_user_id], references: [id], onDelete: Restrict)
-  message       messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
   @@unique([actor_user_id, message_id])
+  @@index([room_id, message_id])
 }
 
 // No body/token/URL payload: consumers resolve an authorized current resource.
@@ -614,4 +624,370 @@ model jobs {
   @@unique([purpose, dedupe_key])
   @@index([purpose, state, available_at, id])
   @@index([purpose, state, lease_until, id])
+}
+
+// Own per-stream display progress, never a transport/sync cursor or public receipt.
+// The period FK binds room and member; the service resets progress on rejoin.
+model own_read_states {
+  member_id       String @db.Char(36)
+  stream_id       String @db.Char(36)
+  room_id         String @db.Char(36)
+  period_id       String @db.Char(36)
+  last_read_order BigInt @db.UnsignedBigInt
+  updated_at      DateTime @default(now()) @updatedAt @db.DateTime(3)
+  period          membership_periods @relation(fields: [room_id, member_id, period_id], references: [room_id, member_id, id], onDelete: Restrict, onUpdate: Restrict)
+  stream          message_streams @relation(fields: [room_id, stream_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([member_id, stream_id])
+}
+
+// Opt in explicitly. Every setting change invalidates pending delivery snapshots.
+model notification_preferences {
+  user_id      String @id @db.Char(36)
+  push_enabled Boolean @default(false)
+  generation   BigInt @default(1) @db.UnsignedBigInt
+  updated_at   DateTime @default(now()) @updatedAt @db.DateTime(3)
+  user         users @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+}
+
+enum PushProvider {
+  WEB
+  APNS
+  FCM
+}
+
+// Private provider credentials. Never select these into an HTTP response or log.
+// Unique digest allows an atomic endpoint rebind without two account owners.
+model push_subscriptions {
+  id                 String @id @db.Char(36)
+  user_id            String @db.Char(36)
+  session_id         String @db.Char(36)
+  audience           String @db.VarChar(32)
+  provider           PushProvider @default(WEB)
+  native_client_id   String? @db.VarChar(16)
+  installation_id   String? @unique @db.Char(36)
+  binding_digest    Bytes? @db.Binary(32)
+  native_token      Bytes? @db.Blob
+  endpoint           String? @db.VarChar(2048)
+  endpoint_digest    Bytes @unique @db.Binary(32)
+  p256dh             String? @db.VarChar(128)
+  auth_secret        String? @db.VarChar(64)
+  generation         BigInt @default(1) @db.UnsignedBigInt
+  account_generation BigInt @db.UnsignedBigInt
+  revoked_at         DateTime? @db.DateTime(3)
+  created_at         DateTime @default(now()) @db.DateTime(3)
+  updated_at         DateTime @default(now()) @updatedAt @db.DateTime(3)
+  user               users @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  session            auth_sessions @relation(fields: [session_id, user_id], references: [id, user_id], onDelete: Restrict, onUpdate: Restrict)
+  deliveries         push_deliveries[]
+  @@index([user_id, revoked_at])
+  @@index([session_id, user_id])
+}
+
+// Non-null-room jobs.PUSH.resource_id references this generation-bound intent.
+// Null-room PUSH jobs reference a message UUID for bounded body-free fan-out.
+// The jobs table intentionally has no polymorphic resource FK; purge jobs first.
+model push_deliveries {
+  id                      String @id @db.Char(36)
+  subscription_id         String @db.Char(36)
+  room_id                 String @db.Char(36)
+  message_id              String @db.Char(36)
+  subscription_generation BigInt @db.UnsignedBigInt
+  account_generation      BigInt @db.UnsignedBigInt
+  preference_generation   BigInt @db.UnsignedBigInt
+  created_at              DateTime @default(now()) @db.DateTime(3)
+  subscription            push_subscriptions @relation(fields: [subscription_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  message                 messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([subscription_id, message_id, subscription_generation, preference_generation], map: "push_deliveries_intent_key")
+  @@index([room_id, message_id])
+}
+
+// External receipts survive restored/missing parent rows. No synthetic parents or purge claims.
+model deletion_intents {
+  request_id String @id @db.Char(36)
+  environment String @db.VarChar(10)
+  actor_user_id String @db.Char(36)
+  scope String @db.VarChar(7)
+  target_id String @db.Char(36)
+  room_id String? @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  blocked_at DateTime? @db.DateTime(3)
+  @@index([environment, scope, target_id, requested_at, request_id])
+}
+
+// Independent obligation: no FK to a live or restored account, no completion default.
+model account_deletion_obligations {
+  user_id String @id @db.Char(36)
+  request_id String @unique @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  blocked_at DateTime? @db.DateTime(3)
+  auth_not_before DateTime @db.DateTime(3)
+  guard_coverage Boolean @default(false)
+  state DeletionState @default(BLOCKED)
+  live_purged_at DateTime? @db.DateTime(3)
+  @@index([guard_coverage, user_id])
+}
+
+// Version 1 is pinned when the first durable account receipt is applied.
+// A different key fails closed; rotation needs a separately reviewed migration.
+model identity_guard_keys {
+  version Int @id @db.UnsignedInt
+  fingerprint Bytes @db.Binary(32)
+}
+
+// A null request is a serialization sentinel, not a deletion or an expiry.
+model identity_subject_guards {
+  subject_hmac Bytes @id @db.Binary(32)
+  key_version Int @db.UnsignedInt
+  key_fingerprint Bytes @db.Binary(32)
+  request_id String? @db.Char(36)
+  user_id String? @db.Char(36)
+  requested_at DateTime? @db.DateTime(3)
+  auth_not_before DateTime? @db.DateTime(3)
+  live_purged_at DateTime? @db.DateTime(3)
+  @@index([request_id])
+}
+
+// Exact immutable MESSAGE identity plus atomic physical-row proof. No content FK:
+// both this proof and opaque receipts survive row removal and restore replay.
+// This is NOT proof of storage, account or backup deletion.
+model message_purge_checkpoints {
+  request_id String @id @db.Char(36)
+  environment String @db.VarChar(10)
+  actor_user_id String @db.Char(36)
+  room_id String @db.Char(36)
+  target_id String @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  rows_purged_at DateTime @db.DateTime(3)
+}
+
+// Private source-bound replay discovery; never a restore or physical-purge release gate.
+model deletion_replay_sources {
+  source_id            String @id @db.Char(64)
+  environment          String @db.VarChar(10)
+  cursor               String? @db.VarChar(2048)
+  generation           BigInt @default(1) @db.UnsignedBigInt
+  discovery_token      String? @db.Char(36)
+  discovery_epoch      BigInt @default(0) @db.UnsignedBigInt
+  discovery_until      DateTime? @db.DateTime(3)
+  next_lane            String @default("NEW") @db.VarChar(5)
+  current_failure_code String? @db.VarChar(32)
+  last_failure_code    String? @db.VarChar(32)
+  first_failure_at     DateTime? @db.DateTime(3)
+  last_failure_at      DateTime? @db.DateTime(3)
+  entries              deletion_replay_entries[]
+}
+
+// Immutable object identity / invalid metadata evidence, with bounded leased replay.
+// No relation to restored domain parents, no receipt bodies and no expiry of evidence.
+model deletion_replay_entries {
+  source_id             String @db.Char(64)
+  key_sha256            String @db.Char(64)
+  object_key            String? @db.VarChar(1024)
+  classification        String @db.VarChar(16)
+  phase                 String @default("APPLY") @db.VarChar(5)
+  state                 String @default("READY") @db.VarChar(8)
+  evidence_conflict     Boolean @default(false)
+  receipt_sha256        String? @db.Char(64)
+  discovered_generation BigInt @db.UnsignedBigInt
+  processed_generation  BigInt? @db.UnsignedBigInt
+  next_attempt_at       DateTime @db.DateTime(3)
+  first_failure_at      DateTime? @db.DateTime(3)
+  last_failure_at       DateTime? @db.DateTime(3)
+  last_failure_code     String? @db.VarChar(32)
+  attempt_count         BigInt @default(0) @db.UnsignedBigInt
+  claim_token           String? @db.Char(36)
+  claim_epoch           BigInt @default(0) @db.UnsignedBigInt
+  claim_until           DateTime? @db.DateTime(3)
+  created_at            DateTime @default(now()) @db.DateTime(3)
+  updated_at            DateTime @default(now()) @updatedAt @db.DateTime(3)
+  source                deletion_replay_sources @relation(fields: [source_id], references: [source_id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([source_id, key_sha256])
+  @@index([source_id, state, next_attempt_at, key_sha256], map: "deletion_replay_due")
+}
+
+// Personal room policy is reversible and independent of membership/grant revocation.
+model actor_blocks {
+  room_id String @db.Char(36)
+  blocker_actor_id String @db.Char(36)
+  target_actor_id String @db.Char(36)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  @@id([room_id, blocker_actor_id, target_actor_id])
+  @@index([room_id, target_actor_id, blocker_actor_id])
+}
+
+// No FK to message: the body-free receipt survives physical content erasure.
+// Internal identities never enter report DTOs; detail is separately expiring user content.
+model moderation_reports {
+  id String @id @db.Char(36)
+  reporter_user_id String @db.Char(36)
+  idempotency_key String @db.Char(36)
+  payload_digest Bytes @db.Binary(32)
+  room_id String @db.Char(36)
+  message_id String @db.Char(36)
+  root_message_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  reason String @db.VarChar(16)
+  detail String? @db.VarChar(1000)
+  detail_expires_at DateTime @db.DateTime(3)
+  status String @default("received") @db.VarChar(16)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  resolved_at DateTime? @db.DateTime(3)
+  @@unique([reporter_user_id, idempotency_key])
+  @@index([status, id])
+  @@index([detail_expires_at, id])
+  @@index([room_id, root_message_id])
+  @@index([content_owner_user_id])
+}
+
+model moderation_audit {
+  id String @id @db.Char(36)
+  operator_user_id String @db.Char(36)
+  report_id String? @db.Char(36)
+  room_id String? @db.Char(36)
+  target_actor_id String? @db.Char(36)
+  action String @db.VarChar(32)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  @@index([report_id, created_at])
+  @@index([room_id, created_at])
+}
+
+// Bounded recovery discovery only. Never a physical-purge proof or deadline.
+model deletion_purge_discovery {
+  source_id String @db.Char(64)
+  environment String @db.VarChar(10)
+  cursor String? @db.Char(36)
+  next_scan_at DateTime @default(now()) @db.DateTime(3)
+  @@id([source_id, environment])
+}
+
+// ACCOUNT authority/provenance survives content removal and restored children.
+// UUIDs deliberately have no FK to live domain rows.
+model account_content_checkpoints {
+  request_id String @db.Char(36)
+  message_id String @db.Char(36)
+  room_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  deletion_root_id String? @db.Char(36)
+  environment String @db.VarChar(10)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  rows_purged_at DateTime? @db.DateTime(3)
+  @@id([request_id, message_id])
+  @@index([room_id, message_id])
+}
+
+// Each detached reference retains its ownership basis, including unpublished copies.
+model account_media_provenance {
+  request_id String @db.Char(36)
+  reference_kind String @db.VarChar(16)
+  reference_id String @db.Char(36)
+  asset_id String @db.Char(36)
+  content_owner_user_id String @db.Char(36)
+  asset_owner_user_id String @db.Char(36)
+  room_id String? @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  disposition String @db.VarChar(16)
+  @@id([request_id, reference_kind, reference_id, asset_id])
+  @@index([asset_id])
+}
+
+// A stable asset continuation with bounded object enumeration, independent of leases.
+model media_cleanup_checkpoints {
+  asset_id String @id @db.Char(36)
+  object_cursor String? @db.Char(36)
+}
+
+// Captured BEFORE storage DELETE; ALLOCATED remains unresolved after DELETE/404.
+model media_cleanup_attempts {
+  object_id String @id @db.Char(36)
+  asset_id String @db.Char(36)
+  attempt_id String @db.Char(36)
+  object_key String @db.VarChar(191)
+  writer_acknowledged Boolean @default(false)
+  delete_observed_at DateTime? @db.DateTime(3)
+  @@index([asset_id, object_id])
+}
+
+model account_media_scans {
+  request_id String @id @db.Char(36)
+  asset_cursor String? @db.Char(36)
+}
+
+// Apple stages are separate from the SOOP broker protocol.
+model apple_auth_transactions {
+  id String @id @db.Char(36)
+  audience String @db.VarChar(32)
+  client_id String @db.VarChar(16)
+  intent String @db.VarChar(16)
+  state_digest Bytes @unique @db.Binary(32)
+  nonce String @db.VarChar(43)
+  code_challenge String @db.VarChar(43)
+  return_state String @db.VarChar(43)
+  user_id String? @db.Char(36)
+  session_id String? @db.Char(36)
+  bound_generation BigInt? @db.UnsignedBigInt
+  terms_version String? @db.VarChar(32)
+  status LoginStatus @default(PENDING)
+  created_at DateTime @default(now()) @db.DateTime(3)
+  expires_at DateTime @db.DateTime(3)
+  code_digest Bytes? @unique @db.Binary(32)
+  completion_digest Bytes? @unique @db.Binary(32)
+  completion_expires DateTime? @db.DateTime(3)
+  proof Bytes? @db.Blob
+  @@index([expires_at])
+  @@index([user_id, status])
+}
+
+// Encrypted token obligation exists before account admission, including abandoned proofs.
+model apple_provider_credentials {
+  id String @id @db.Char(36)
+  transaction_id String @unique @db.Char(36)
+  lease_token String? @db.Char(36)
+  identity_id String? @db.Char(36)
+  user_id String? @db.Char(36)
+  audience String @db.VarChar(191)
+  token Bytes? @db.Blob
+  status String @default("PENDING") @db.VarChar(24)
+  expires_at DateTime @db.DateTime(3)
+  available_at DateTime @default(now()) @db.DateTime(3)
+  attempts Int @default(0) @db.UnsignedInt
+  @@index([status, available_at])
+  @@index([user_id, status])
+}
+
+model apple_notification_receipts {
+  digest Bytes @id @db.Binary(32)
+  received_at DateTime @default(now()) @db.DateTime(3)
+}
+
+// A notification before first login must invalidate a proof already in flight.
+model apple_identity_events {
+  scope String @db.VarChar(64)
+  subject Bytes @db.VarBinary(191)
+  revoked_at DateTime @db.DateTime(3)
+  @@id([scope, subject])
+}
+
+// Operator-only restore checkpoint. External isolation/admission custody and
+// independent signed completeness evidence are prerequisites, never inferred here.
+// A release receipt authorizes the private custodian; it does not open HTTP.
+model restore_gate_checkpoints {
+  run_id              String @id @db.VarChar(256)
+  target_id           String @unique @db.VarChar(256)
+  context_sha256      String @db.Char(64)
+  boundary_sha256     String @db.Char(64)
+  boundary_issuer     String @db.Char(64)
+  epoch               String @db.Char(36)
+  phase               String @default("NEW") @db.VarChar(32)
+  provider_phase      String @default("identities") @db.VarChar(16)
+  provider_after_id   String? @db.Char(36)
+  observation_sha256  String? @db.Char(64)
+  release_nonce       String? @unique @db.Char(32)
+  release_sha256      String? @db.Char(64)
+  created_at          DateTime @default(now()) @db.DateTime(3)
+  quarantined_at      DateTime? @db.DateTime(3)
+  consumed_at         DateTime? @db.DateTime(3)
 }

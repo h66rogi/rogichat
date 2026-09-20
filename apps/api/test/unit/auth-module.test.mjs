@@ -1,3 +1,4 @@
+import { AppleController } from '../../dist/modules/auth/apple/apple.controller.js';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,7 +7,8 @@ import { Inject, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AuthModule } from '../../dist/modules/auth/auth.module.js';
 import { AuthService } from '../../dist/modules/auth/auth.service.js';
-import { RecoveryAuthController } from '../../dist/modules/auth/recovery-auth.controller.js';
+import { AuthController } from '../../dist/modules/auth/auth.controller.js';
+import { NativeAuthController } from '../../dist/modules/auth/native-auth.controller.js';
 import { AUTH_CONFIG } from '../../dist/modules/auth/auth.tokens.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
@@ -47,6 +49,7 @@ async function fixture(t) {
   const sessions = {
     require: async (...args) => { calls.push(['require', ...args]); if (revoked) throw new ApiError('UNAUTHENTICATED', 401); return { ...principal }; },
     csrf: value => `derived:${value}`,
+    accountPartition: () => 'p'.repeat(43),
   };
   const flow = {
     start: async (...args) => { calls.push(['start', ...args]); return { url: 'https://example.invalid/authorize', state: 'state' }; },
@@ -63,7 +66,7 @@ async function fixture(t) {
 test('AuthModule exports a narrow service/config boundary, with private session/flow/transaction providers', async t => {
   const f = await fixture(t);
   assert.deepEqual(f.module.exports, [AuthService, AUTH_CONFIG]);
-  assert.deepEqual(f.module.controllers, [RecoveryAuthController]);
+  assert.deepEqual(f.module.controllers, [AuthController, NativeAuthController, AppleController]);
   for (const name of ['sessions', 'transactions', 'flow']) assert.equal(name in f.service, false);
   for (const dependency of [AuthFlow, Transactions, SessionRepository, SessionService]) {
     class InvalidConsumer { constructor(value) { this.value = value; } }
@@ -87,7 +90,7 @@ test('require preserves the exact caller transaction and revalidates every call 
 test('session projection and logout own bounded read/write transactions with mandatory logout proof', async t => {
   const f = await fixture(t);
   const session = await f.service.session({ token });
-  assert.deepEqual(session, { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: `derived:${token}` });
+  assert.deepEqual(session, { authenticated: true, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true }, csrfToken: `derived:${token}`, accountPartition: 'p'.repeat(43) });
   assert.equal(f.calls[0][0], 'read'); assert.equal(f.calls[1][1].writable, false); assert.equal(f.calls[1][4], false);
   f.principal.soopLinked = false;
   assert.equal((await f.service.session({ token })).soopLinkStatus, 'REQUIRED');
@@ -191,7 +194,7 @@ test('module-owned HTTP controller preserves session/logout, login/link and call
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   let response = await call('GET', '/session'); assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: `derived:${token}` });
+  assert.deepEqual(await response.json(), { authenticated: true, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true }, csrfToken: `derived:${token}`, accountPartition: 'p'.repeat(43) });
   response = await call('POST', '/logout', {}); assert.equal(response.status, 204);
   assert.match(response.headers.get('set-cookie'), /^rogi_session=;/); assert.match(response.headers.get('set-cookie'), /HttpOnly; SameSite=Lax/);
   response = await call('POST', '/logout', {}, { 'X-CSRF-Token': '' }); assert.equal(response.status, 400);

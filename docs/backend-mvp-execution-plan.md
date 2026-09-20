@@ -1,6 +1,8 @@
 # 저비용 MVP 백엔드 실행 계획
 
-2026-09-20. **M01–M06 내부 구현/검증. 실제 QA 앱 배포와 실제 SOOP 로그인은 각각 별도 gate다.**
+2026-09-20. **M01–M11 기능과 M12 검증·복구 작업을 통합 중이며, 실제 QA 배포·provider 연동·복구 증거는 별도 gate다.**
+최신 immutable source와 hosted 검증 결과는 [통합 기록](backend-integration-m10-m11.md)을 따른다.
+아래 단계별 기록은 구현 당시의 순서와 수락 기준이며, 옛 테스트 수를 현재 전체 결과로 해석하지 않는다.
 사용자 최신 결정: 초기 1명 수준 사용, 상시 비용 최소화, 구조상 확장성 유지.
 제품 정책은 [백엔드 설계](backend-design.md), 동시성·sync 상세는
 [기술 구현 계획](backend-implementation-plan.md), 이번 재검토는 [MVP 리뷰](backend-mvp-review.md)를 따른다.
@@ -79,12 +81,12 @@ bucket 시계는 DB UTC이며 key lock 순서를 통일하고 GC는 활성 bucke
 
 ## 4. 코드 위치·계약과 공통 검증 도구
 
-구현 교정 gate: 현재 flat source/단일 RuntimeModule은 아래 목표와 불일치한다.
-기능 확장 전에 [NestJS 구조 교정 계획](backend-nestjs-architecture-correction.md)의
-모듈·DI·Service/Repository·DTO/projection 경계와 회귀 검증을 완료한다.
+현재 구현은 [NestJS 구조 교정 계획](backend-nestjs-architecture-correction.md)의
+domain module·DI·Service/Repository·DTO/projection 경계로 분리되어 있다.
+Prisma CRUD와 transaction deadline, 현재 ACL 및 최소 출력 DTO는 후속 통합에서도 유지한다.
 
-아래는 목표 구조다. M01의 실제 경로/명령은 [API README](../apps/api/README.md)에 있고,
-domain modules·Prisma schema·OpenAPI 등 후속 산출물이 이미 있다고 가정하지 않는다.
+아래는 코드 책임별 안내다. 실제 실행 명령과 생성 OpenAPI 계약은 [API README](../apps/api/README.md)에 있다.
+domain modules·Prisma schema·단계별 migration과 OpenAPI export는 현재 소스에 포함된다.
 
 | 위치 | 책임 |
 |---|---|
@@ -98,11 +100,11 @@ domain modules·Prisma schema·OpenAPI 등 후속 산출물이 이미 있다고 
 
 Nest REST DTO에서 OpenAPI를 생성하고 sync/socket schema는 별도 versioned 계약으로 관리한다.
 입력 validation의 unknown field 거부와 출력 projection allowlist를 따로 시험한다.
-Prisma/UUID 컬럼/명시 SQL은 최소 spike로 확인한 뒤 schema를 고정한다. private ref repo에서
+Prisma/UUID 컬럼/명시 SQL의 실제 MySQL 회귀와 migration manifest 검사를 유지한다. private ref repo에서
 전체 migration·로그·환경 파일·Git history를 복사하지 않는다.
 
-scaffold에서 `lint`, `typecheck`, `test:unit`, `test:integration`, `test:e2e`, `contracts:check`를
-package script로 만든다. 그 뒤에만 `pnpm --filter @rogichat/api <script>`를 실행한다.
+`lint`, `typecheck`, `test:unit`, `test:integration`, `test:e2e`, `contracts:check`는
+현재 package script다. `pnpm --filter @rogichat/api <script>`로 실행한다.
 PR별 unit/integration + `git diff --check` + public scanner를 수행하고 자기 파일만 commit/push한다.
 실행 안 한 테스트는 체크하지 않는다. M01은 API/worker build와 단위·HTTP·프로세스·MySQL
 fixture 검증을 제공하며 제품 기능·실제 QA 배포 검증과 구분한다.
@@ -258,6 +260,9 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
 
 ### M08 — 사진·avatar·스티커
 
+상태: 업로드·검사·권한별 다운로드·avatar·스티커 구현이 통합되었다. 격리 저장소/decoder
+검증과 실제 R2 접근·삭제 운영 증거는 구분한다.
+
 - 의존: M07. 변경: upload intent/quota reservation, quarantine/READY asset, attachment/variant,
   R2 adapter, 검증 worker, 60초 access endpoint, 운영자 sticker 등록 command.
 - intent 생성/업로드/첨부에 현재 권한 재확인. `POST /v1/media/upload-intents/:id/content`에서
@@ -281,6 +286,9 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
 
 ### M09 — 제한된 영상 처리
 
+상태: 제한된 영상 처리와 worker 복구 구현이 통합되었다. 실제 배포 image와 기기 재생,
+장시간 미디어·채팅 동시 부하는 별도 검증 항목이다.
+
 - 의존: M08. 변경: 영상 검사/단일 rendition/poster, 작업 timeout·메모리/scratch 제한.
 - 동시 변환 1개, 같은 호스트라도 별도 제한된 프로세스. API event loop에서 디코딩 금지.
 - 50 MiB/60초/1080p 입력 이내에서도 잘못된 container/codec/변환 폭탄을 거부. metadata만 신뢰하지 않음.
@@ -289,6 +297,9 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
   삭제와 변환 완료 경쟁, 브라우저/네이티브의 지원 codec fixture. 무제한 원본 저장 fallback 금지.
 
 ### M10 — 계정 탈퇴·24시간 purge·백업/삭제 원장
+
+상태: 탈퇴·content/media purge·원장 연계와 Apple revocation 구현이 통합되었다.
+실제 외부 삭제·백업 inventory·복구 후 재삭제 및 보존 기한 준수 증거는 운영 gate다.
 
 - 의존: M09. 기존 M05의 즉시 접근 차단을 유지하면서 삭제 완료까지 닫는다.
 - 외부 write-ahead intent 뒤 `deletion_requests`와 item checkpoint는 `BLOCKED → PURGING →
@@ -310,6 +321,9 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
 
 ### M11 — 최소 정보 push·내 읽음·클라이언트 계약
 
+상태: 읽음·알림 설정·WEB 및 네이티브 provider 경로가 통합되었다. hosted fixture 통과는
+실제 APNs/FCM/Web Push 전달이나 foreground/background 실기기 복귀 증거가 아니다.
+
 - 의존: M10. 변경: device subscription, 내 read-state, `PUSH` job, notification preferences.
 - 웹 SW 요구 유지. endpoint SSRF/redirect/내부 IP 방어, QA/prod VAPID 분리, 404/410 정리.
 - 기본 알림에는 본문·fan identity·Signed URL 없음. 발송 직전 현재 권한/계정/설정 재검사.
@@ -318,6 +332,9 @@ QA migration·앱 image 배포 및 원격 CI는 별도 실행 검증으로 추�
   클라이언트 처리, foreground/background 실기기 복귀 sync. worker ACK를 실제 알림 전달로 표시하지 않음.
 
 ### M12 — 저비용 MVP 출시 증거
+
+상태: credential 없는 검증과 복구 구현을 진행한다. 아래 항목은 수락 기준이며 실행 결과가 아니다.
+짧은 preflight와 source-23 soak는 미래 source-24의 전체 성능·복구 수락을 대신하지 않는다.
 
 - 의존: M01–M11. 상시 자원 증설 없이 승인된 환경에서 설정·schema·image digest·실제 route를 확인.
   실제 Aurora restore drill의 일시 자원/비용/정리는 별도 승인된 운영 계획에 의존한다.
@@ -444,6 +461,29 @@ sync/lease는 교체하지 않고 adapter와 배치만 확장할 수 있게 만�
 R2 credential/backup expiry/실제 비용과 복구 증거는 개발·운영 검증 항목이다.
 계정 탈퇴 시 sole owner인 방의 보존/운영자 재지정은 새 메시지 차단 상태로 안전하게 처리하며
 임의 팬을 owner로 승격시키지 않는다. 재지정은 운영 command로 별도 감사한다.
+
+새 메시지 admission은 room owner를 Prisma로 한 건 발견한 뒤 해당 account PK를 current
+`FOR UPDATE`로 잠그고, 기존 room lock 아래 owner pointer와 동일 방의 STREAMER/활성
+membership·period를 다시 검증한다. 발견 snapshot과 현재 pointer가 다르면 CONFLICT로
+종료하며 stale snapshot으로 새 owner를 반복 탐색하지 않는다. owner 없음/부적격 또는
+DELETING/DELETED는 NOT_FOUND로 새 발송을 차단한다. SUSPENDED는 방 폐쇄/탈퇴로
+간주하지 않으며 기존 recipient/session 정책은 그대로 적용한다.
+
+owner account lock은 room/member/counter/message/job보다 먼저 얻고 commit까지 유지한다.
+계정 탈퇴 admission이 방 전체를 잠그거나 scan할 필요가 없다. 기존 actor session/account
+lock과 cross-account 경합은 기존 confirmed-rollback bounded retry와 8초 transaction 예산을
+유지한다. owner fence는 기존 committed/deleted receipt 처리 뒤 NEW command에만 적용한다.
+과거 receipt의 payload conflict·현재 read ACL 검증, 독립 작성 콘텐츠 조회·작성자 삭제는
+그대로 유지하고 room status/owner/role을 자동 변경하지 않는다.
+
+publication은 authenticated publisher/current account lock과 현재 room owner 검증을 이미
+수행하며 worker도 publisher account → room → publication/source 순서로 재검증한다.
+미디어 upload/변환 자체는 이 send fence의 대상이 아니지만 PHOTO/VIDEO/STICKER를 포함한
+모든 새 send는 attachment/counter 생성 전에 같은 fence를 통과한다. 소유자 탈퇴가 독립
+작성자의 기존 미디어/메시지 read ACL을 일괄 차단하지 않는다.
+검증은 `room-owner-send-fence.test.mjs`의 실제 MySQL 두 connection 양방향 경합,
+RR stale snapshot, FAN/GROUP, receipt·조회·삭제·SUSPENDED·invalid owner 회귀로 수행한다.
+이 코드 검증은 QA 배포나 계정 탈퇴 전체 구현 완료를 의미하지 않는다.
 
 제품 완료란 M01–M12의 코드·tests·실제 QA evidence가 갖춰진 상태다. M01 완료는 개발 골격과
 격리 테스트·CI까지이며 인증·채팅 기능이나 운영 배포 완료와 구분한다.

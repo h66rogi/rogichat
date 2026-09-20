@@ -6,12 +6,14 @@ import plistlib
 import subprocess
 import xml.etree.ElementTree as ET
 from product_guards import inspect_ios_app, inspect_product_sources
+from ios_dependencies import inspect_ios_dependencies, XCODE_RESOLVED_FLAGS
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
     inspect_product_sources(platforms=("ios",))
+    inspect_ios_dependencies(ROOT)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--derived-data", type=Path, default=ROOT / ".build/ios")
     args = parser.parse_args()
@@ -34,9 +36,11 @@ def main():
             log = destination / (configuration + ".log")
             command = [
                 "xcodebuild", "-project", str(ROOT / "apps/ios/Rogichat.xcodeproj"),
-                "-target", "Rogichat", "-configuration", configuration, "-sdk", "iphoneos",
-                "SYMROOT=" + str(destination / "Build/Products"),
-                "OBJROOT=" + str(destination / "Build/Intermediates.noindex"),
+                *XCODE_RESOLVED_FLAGS,
+                "-scheme", "Rogichat-" + suffix, "-configuration", configuration,
+                "-destination", "generic/platform=iOS", "-derivedDataPath", str(destination),
+                "-clonedSourcePackagesDirPath", str(destination / "SourcePackages"),
+                "-packageCachePath", str(destination / "PackageCache"),
                 "-jobs", "2", "CODE_SIGNING_ALLOWED=NO", "CODE_SIGNING_REQUIRED=NO", "build",
             ]
             with log.open("w") as output:
