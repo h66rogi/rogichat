@@ -25,7 +25,11 @@ for environment in qa production; do
   port=$(docker port "$id" 3000/tcp | cut -d: -f2)
   if ! node tools/web/check-runtime.mjs "http://127.0.0.1:$port" "$environment"; then docker logs "$id"; exit 1; fi
   docker stop --time 15 "$id" >/dev/null
-  test "$(docker inspect --format '{{.State.ExitCode}}' "$id")" = 0
+  # Next 16.3.5 drains connections, then deliberately exits 128 + SIGTERM.
+  exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$id")
+  printf 'Next SIGTERM exit code: %s\n' "$exit_code"
+  test "$exit_code" = 143
+  test "$(docker inspect --format '{{.State.OOMKilled}}' "$id")" = false
   docker rm "$id" >/dev/null
   id=''
 done
