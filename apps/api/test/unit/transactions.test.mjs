@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Transactions } from '../../dist/infrastructure/database/transactions.js';
+import { DatabaseUnavailableError } from '../../dist/infrastructure/database/database-unavailable.js';
 
 function harness(overrides = {}) {
   const context = new AsyncLocalStorage();
@@ -30,7 +31,7 @@ function harness(overrides = {}) {
       }
     },
   };
-  return { transactions: new Transactions(client, context), counts };
+  return { transactions: new Transactions(client, context, overrides.maxPending ?? 25), counts };
 }
 function shortDeadline(t) {
   const schedule = globalThis.setTimeout;
@@ -119,4 +120,36 @@ test('short readiness budget includes cold startup and suppresses its late callb
   resume(); await turn();
   assert.equal(called, false); assert.equal(counts.committed, 0); assert.equal(counts.queries, 0);
   for (const budget of [0, -1, 8001, Infinity]) assert.throws(() => transactions.read(async () => {}, budget), /invalid_transaction_deadline/);
+});
+
+test('admission bounds driver work and recovers after both success and failure', async () => {
+  let resume;
+  const { transactions, counts } = harness({ maxPending: 1 });
+  const pending = transactions.read(() => new Promise(resolve => { resume = resolve; }));
+  await turn();
+  await assert.rejects(transactions.write(async () => assert.fail('must not execute')), error => error instanceof DatabaseUnavailableError && error.reason === 'database_admission');
+  assert.equal(counts.acquired, 1);
+  resume(); await pending;
+  await assert.rejects(transactions.write(async () => { throw new Error('ordinary'); }), /ordinary/);
+  assert.equal(await transactions.read(async () => 'recovered'), 'recovered');
+});
+
+test('timed out checkout retains admission until driver settlement and cannot execute late', async () => {
+  let resume, called = false;
+  const { transactions, counts } = harness({ maxPending: 1, acquire: () => new Promise(resolve => { resume = resolve; }) });
+  await assert.rejects(transactions.read(async () => { called = true; }, 20), /transaction_timeout/);
+  await assert.rejects(transactions.read(async () => {}), /database_admission/);
+  assert.equal(counts.acquired, 1);
+  resume(); await turn();
+  assert.equal(called, false);
+  const next = transactions.read(async () => 'recovered');
+  await turn(); resume(); assert.equal(await next, 'recovered');
+});
+
+test('pre-callback acquisition failures are unavailable without replay; callback P2028 remains unchanged', async () => {
+  for (const code of ['P2024', 'P2028']) {
+    const { transactions, counts } = harness({ acquire: async () => { throw Object.assign(new Error('private-marker'), { code }); } });
+    await assert.rejects(transactions.write(async () => assert.fail('must not execute')), error => error instanceof DatabaseUnavailableError && error.reason === 'database_acquisition');
+    assert.equal(counts.acquired, 1);
+  }
 });
