@@ -203,8 +203,9 @@ The fixed transport is
 `/opt/rogichat/releases/<source_sha>/web-export/export.zip`, including on production.
 It is the exact `web-<source_sha>-<export_run>-<export_attempt>` artifact produced
 by the trusted `web-export.yml` workflow dispatch on QA. The archive contains
-exactly `descriptor.json`, `runtime.tar`, `runtime.manifest.json`. This is separate
-from the publisher's long-lived `web-publication-proof-*` artifact.
+exactly `descriptor.json`, `runtime.tar`, `runtime.manifest.json`, and
+`publication-proof.zip`, preserving the publisher's original exact-attempt
+`web-publication-proof-*` artifact ZIP bytes.
 
 The existing web archive wrapper verifies ZIP hashes and bounded members, config
 and layer hashes, raw original GHCR manifest, exact source verification runs,
@@ -227,3 +228,12 @@ QA evidence continues to bind the original registry image digest, so production
 cannot substitute a different image by changing archive transport. A transport
 schema mismatch, missing manifest/descriptor, or unexpected Docker identity is a
 rejection requiring review, never a reason to skip verification.
+
+Archive transport requires exactly four members: `descriptor.json`, `runtime.tar`,
+`runtime.manifest.json`, and `publication-proof.zip`. The final member preserves
+original GitHub publication artifact ZIP bytes, bounded to 1 MiB and fetched only
+by the trusted exporter with its existing credential. The host passes these
+bytes through `publication_proof` to the reviewed validator and fetches public
+metadata anonymously to bind the original ZIP digest, publication attempt,
+source, image, config, five checks and pre-export cutoff. No host credential or
+artifact ZIP download is needed; missing proof and old archives fail closed.

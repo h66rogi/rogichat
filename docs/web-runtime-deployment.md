@@ -105,8 +105,14 @@ replaced after the export attempt began. Descriptor version 1 stays unchanged.
 Every exported layer is scanned before a one-day Actions artifact is uploaded.
 
 The `web-<source>-<run>-<attempt>` artifact contains exactly `descriptor.json`,
-`runtime.tar` and `runtime.manifest.json`. Descriptor version 1 identifies the
-producer SHA/run/attempt, six verification runs, and one `images.runtime` object
+`runtime.tar`, `runtime.manifest.json` and `publication-proof.zip`. The fourth
+member is the original GitHub publication artifact ZIP (at most 1 MiB), fetched
+with the producer credential off host and transported without reserialization.
+Hosts pass its bounded bytes explicitly as `publication_proof` to provenance
+verification; only public metadata is fetched on host, never a proof ZIP or token.
+Its original SHA-256 must match immutable GitHub artifact metadata. Missing,
+extra or malformed members and old three-member archives fail closed.
+Descriptor version 1 identifies the producer SHA/run/attempt, six verification runs, and one `images.runtime` object
 with `image`, `config_id` and `archive_sha256`. The raw manifest hash must match
 the published digest; its config must match the archive config and every rootfs
 layer. OCI archive manifest identity is verified separately from the registry

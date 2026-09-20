@@ -24,7 +24,10 @@ core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 core.WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml', 'web-publish.yml'}
 core.ROLES = {'runtime': 'rogichat-web'}
-core.FILES = {'descriptor.json', 'runtime.tar', 'runtime.manifest.json'}
+IMAGE_FILES = {'descriptor.json', 'runtime.tar', 'runtime.manifest.json'}
+PROOF_FILE = 'publication-proof.zip'
+PROOF_LIMIT = 1024**2
+core.FILES = IMAGE_FILES | {PROOF_FILE}
 
 _original_validate_config = core.validate_config
 
@@ -42,14 +45,42 @@ def validate_config(config, source):
 
 core.validate_config = validate_config
 # Consumers can verify immutable manifest, config, archive and OCI identities offline.
-validate_directory = core.validate_directory
-validate_zip = core.validate_zip
+_validate_directory = core.validate_directory
 validate_descriptor = core.validate_descriptor
 verify_tar = core.verify_tar
 require = core.require
 
 
-def verify_provenance(descriptor, approval, token=None):
+def read_proof(directory):
+    path = directory / PROOF_FILE
+    require(path.is_file() and not path.is_symlink() and path.stat().st_size <= PROOF_LIMIT)
+    with path.open('rb') as source:
+        data = source.read(PROOF_LIMIT + 1)
+    parse_proof_zip(data)
+    return data
+
+
+def validate_directory(directory):
+    read_proof(directory)
+    return _validate_directory(directory)
+
+
+# The isolated backend instance resolves this adapter after safe ZIP extraction.
+core.validate_directory = validate_directory
+
+
+def validate_zip(path, expected_digest, directory):
+    try:
+        with zipfile.ZipFile(path) as zipped:
+            entries = [item for item in zipped.infolist() if item.filename == PROOF_FILE]
+            require(len(entries) == 1 and entries[0].file_size <= PROOF_LIMIT)
+    except zipfile.BadZipFile as error:
+        raise ValueError('Invalid web export ZIP') from error
+    return core.validate_zip(path, expected_digest, directory)
+
+
+def verify_provenance(descriptor, approval, token=None, *, publication_proof=None):
+    require(type(publication_proof) is bytes and len(publication_proof) <= PROOF_LIMIT)
     producer = descriptor['producer']
     require(producer['sha'] == approval['export_sha'] and producer['run_id'] == approval['export_run']
             and producer['run_attempt'] == approval['export_attempt'])
@@ -62,7 +93,7 @@ def verify_provenance(descriptor, approval, token=None):
             and artifact['workflow_run']['head_sha'] == producer['sha']
             and artifact['name'] == f"web-{descriptor['source_sha']}-{producer['run_id']}-{producer['run_attempt']}")
     core.verify_source(descriptor['source_sha'], descriptor['verification_runs'], token)
-    verify_publication_proof(descriptor, token)
+    verify_publication_proof(descriptor, token, publication_proof=publication_proof)
     compare = core.api(f"compare/{descriptor['source_sha']}...{producer['sha']}", token)
     require(compare['status'] in ('ahead', 'identical') and compare['merge_base_commit']['sha'] == descriptor['source_sha'])
 
@@ -81,7 +112,7 @@ def download(args):
                                 stdout=output, stderr=subprocess.PIPE, timeout=1800)
         require(result.returncode == 0)
     descriptor, configs = validate_zip(path, approval['artifact_sha256'], args.output / 'verified')
-    verify_provenance(descriptor, approval, token)
+    verify_provenance(descriptor, approval, token, publication_proof=read_proof(args.output / 'verified'))
     archive_manifest = configs['runtime']['_archive_manifest']
     (args.output / 'archive-approval.json').write_text(json.dumps({**approval,
         'runtime_config_id': descriptor['images']['runtime']['config_id'],
@@ -100,19 +131,28 @@ class SafeRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def proof_zip(data, expected_digest):
-    require(len(data) <= 1024**2 and 'sha256:' + core.sha256(data) == expected_digest)
+    require(type(data) is bytes and len(data) <= PROOF_LIMIT
+            and 'sha256:' + core.sha256(data) == expected_digest)
+    return parse_proof_zip(data)
+
+
+def parse_proof_zip(data):
+    require(type(data) is bytes and len(data) <= PROOF_LIMIT)
     with zipfile.ZipFile(io.BytesIO(data)) as zipped:
         entries = zipped.infolist()
         require(len(entries) == 1)
         entry = entries[0]
         require(entry.filename == 'web-publication-proof.json' and not entry.is_dir()
-                and not entry.flag_bits & 1 and not stat.S_ISLNK(entry.external_attr >> 16) and entry.file_size <= 65536)
+                and not entry.flag_bits & 1 and not stat.S_ISLNK(entry.external_attr >> 16)
+                and (not stat.S_IFMT(entry.external_attr >> 16) or stat.S_ISREG(entry.external_attr >> 16))
+                and entry.file_size <= 65536)
         value = json.loads(zipped.read(entry))
     require(type(value) is dict)
     return value
 
 
 def download_proof(artifact, token):
+    require(type(token) is str and bool(token))
     artifact_id = artifact['id']
     require(type(artifact_id) is int and artifact_id > 0)
     headers = {'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'}
@@ -123,7 +163,8 @@ def download_proof(artifact, token):
         if response.headers.get('Content-Length'):
             require(int(response.headers['Content-Length']) <= 1024**2)
         data = response.read(1024**2 + 1)
-    return proof_zip(data, artifact['digest'])
+    proof_zip(data, artifact['digest'])
+    return data
 
 
 def timestamp(value):
@@ -132,7 +173,7 @@ def timestamp(value):
     return result
 
 
-def verify_publication_proof(descriptor, token=None):
+def publication_artifact(descriptor, token=None):
     source = descriptor['source_sha']
     publication_id = descriptor['verification_runs']['web-publish.yml']
     run = core.api(f'actions/runs/{publication_id}', token)
@@ -160,7 +201,15 @@ def verify_publication_proof(descriptor, token=None):
     # proof to the approved export attempt. Later publisher attempts/replacement
     # uploads cannot silently replace evidence after this export began.
     require(timestamp(run['run_started_at']) <= cutoff and timestamp(artifact['created_at']) <= cutoff)
-    proof = download_proof(artifact, token)
+    return artifact, attempt
+
+
+def verify_publication_proof(descriptor, token=None, *, publication_proof=None):
+    require(type(publication_proof) is bytes and len(publication_proof) <= PROOF_LIMIT)
+    artifact, attempt = publication_artifact(descriptor, token)
+    proof = proof_zip(publication_proof, artifact['digest'])
+    source = descriptor['source_sha']
+    publication_id = descriptor['verification_runs']['web-publish.yml']
     image = descriptor['images']['runtime']
     require(proof['schemaVersion'] == 1 and proof['repository'] == core.REPOSITORY
             and proof['sourceSha'] == source and proof['image'] == image['image']
@@ -179,10 +228,24 @@ def produce():
     # The GitHub token stays in memory; core removes it from subprocess env and
     # destroys its isolated registry config before saving the archive.
     token = os.environ['GITHUB_TOKEN']
-    core.produce()
+    # A separate producer instance validates its image-only intermediate. The
+    # four-member consumer policy is never relaxed, even during production.
+    producer_spec = importlib.util.spec_from_file_location('rogichat_web_image_producer', spec.origin)
+    producer_core = importlib.util.module_from_spec(producer_spec)
+    producer_spec.loader.exec_module(producer_core)
+    producer_core.WORKFLOWS = core.WORKFLOWS.copy()
+    producer_core.ROLES = core.ROLES.copy()
+    producer_core.FILES = IMAGE_FILES.copy()
+    producer_core.validate_config = validate_config
+    producer_core.produce()
     directory = Path(os.environ['RUNNER_TEMP']) / 'rogichat-export'
-    descriptor, _ = validate_directory(directory)
-    verify_publication_proof(descriptor, token)
+    descriptor = validate_descriptor(json.loads((directory / 'descriptor.json').read_bytes()))
+    artifact, _ = publication_artifact(descriptor, token)
+    publication_proof = download_proof(artifact, token)
+    verify_publication_proof(descriptor, token, publication_proof=publication_proof)
+    with (directory / PROOF_FILE).open('xb') as output:
+        output.write(publication_proof)
+    validate_directory(directory)
     del token
     print('Archive digest and config match the exact pre-existing trusted publication proof.')
 

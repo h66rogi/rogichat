@@ -174,12 +174,9 @@ class ArchiveTests(unittest.TestCase):
         from types import SimpleNamespace
         # Isolated instance of the real reused archive core, configured like the
         # publisher. Provenance I/O is mocked; archive bytes/config/layers are real.
-        spec = importlib.util.spec_from_file_location('test_web_archive_core', Path(w.__file__).parent / 'backend_archive.py')
+        spec = importlib.util.spec_from_file_location('test_web_archive_core', Path(w.__file__).parent.parent / 'web/archive.py')
         validator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(validator)
-        validator.ROLES = {'runtime': 'rogichat-web'}
-        validator.FILES = {'descriptor.json', 'runtime.tar', 'runtime.manifest.json'}
-        validator.WORKFLOWS = w.WORKFLOWS
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             r = request()
@@ -188,6 +185,8 @@ class ArchiveTests(unittest.TestCase):
             folder = root / r['source_sha'] / 'web-export'
             folder.mkdir(parents=True)
             d = image(r)
+            d['Config'].update(WorkingDir='/app/apps/web', ExposedPorts={'3000/tcp': {}},
+                               Env=['NODE_ENV=production', 'PORT=3000', 'HOSTNAME=0.0.0.0'])
             layer = b'synthetic layer'
             c = {'architecture': 'amd64', 'os': 'linux', 'config': d['Config'],
                  'rootfs': {'type': 'layers', 'diff_ids': ['sha256:' + w.digest(layer)]}}
@@ -210,20 +209,23 @@ class ArchiveTests(unittest.TestCase):
                                        'event': 'workflow_dispatch', 'ref': 'refs/heads/qa'},
                           'verification_runs': r['verification_runs'], 'images': {'runtime': {
                               'image': r['image'], 'config_id': a['config_id'],
-                              'archive_sha256': validator.file_hash(folder / 'runtime.tar')}}}
+                              'archive_sha256': validator.core.file_hash(folder / 'runtime.tar')}}}
             (folder / 'descriptor.json').write_text(json.dumps(descriptor))
             a['descriptor_sha256'] = w.digest((folder / 'descriptor.json').read_bytes())
+            with zipfile.ZipFile(folder / 'publication-proof.zip', 'w') as proof:
+                proof.writestr('web-publication-proof.json', '{}')
+            proof_bytes = (folder / 'publication-proof.zip').read_bytes()
             with zipfile.ZipFile(folder / 'export.zip', 'w') as bundle:
-                for filename in validator.FILES:
+                for filename in validator.core.FILES:
                     bundle.write(folder / filename, filename)
-            a['artifact_sha256'] = 'sha256:' + validator.file_hash(folder / 'export.zip')
+            a['artifact_sha256'] = 'sha256:' + validator.core.file_hash(folder / 'export.zip')
             d.update(Id=a['execution_id'], RepoDigests=[], RootFS={'Layers': c['rootfs']['diff_ids']})
             def read(path, mode=None, directory=False, read=True):
                 return path.read_bytes() if read else None
-            module = SimpleNamespace(validate_zip=validator.validate_zip, verify_provenance=unittest.mock.Mock())
+            module = SimpleNamespace(validate_zip=validator.validate_zip, read_proof=validator.read_proof, verify_provenance=unittest.mock.Mock())
             with patch.object(w, 'RELEASES', root), patch.object(w, 'protected', side_effect=read), patch.object(w, 'load_archive_validator', return_value=module):
                 w.verify_archive(r, d)
-                module.verify_provenance.assert_called_once_with(descriptor, a)
+                module.verify_provenance.assert_called_once_with(descriptor, a, publication_proof=proof_bytes)
                 (folder / 'export.zip').write_bytes(b'tampered')
                 with self.assertRaises(ValueError):
                     w.verify_archive(r, d)
