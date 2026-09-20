@@ -69,8 +69,8 @@ Mac 키체인에 준비한다. 현재 로컬 QA 환경은 별도 배포 인증�
 외부 설정의 선택 항목 `ios.keychain`, `ios.keychain_password_file`을 지정하면 해당
 키체인만 빌드/export 전에 잠금 해제한다. 비밀번호 파일은 mode 600이어야 한다.
 키체인은 사용자 검색 목록에 등록해야 하며 인증서 만료 전에 갱신한다.
-현재 서명 경로는 archive부터 `ios.provisioning_profile`(설치한 Capabilities v2 App Store
-profile UUID)과 `ios.signing_certificate`(배포 인증서 SHA-1)를 함께 요구한다. Profile은
+현재 서명 경로는 archive부터 `ios.provisioning_profile`(설치한 profile의 정확한 이름
+`Rogichat QA App Store Capabilities v2`)과 `ios.signing_certificate`(배포 인증서 SHA-1)를 함께 요구한다. Profile은
 정확한 QA Bundle ID/team/인증서 및 Apple 로그인·푸시·Associated Domains에 연결한다. 다른 앱의
 인증서를 폐기해서 자리를 만들지 않는다. 키와 키체인 비밀번호는 비공개 백업 대상이다.
 
