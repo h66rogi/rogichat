@@ -1,10 +1,12 @@
 # Infrastructure
 
 Terraform 코드는 이 저장소에서 소유한다. 환경은 qa/prod, AWS 기본 리전은
-`ap-northeast-2`. 초기 단계에는 실행 가능한 resource root를 두지 않는다.
+`ap-northeast-2`. 실제 적용 상태와 고정 source SHA는 private ops에서 관리한다.
 
-- `environments/qa`: AWS·Cloudflare별 독립 root/state를 구현할 위치.
-- `environments/prod`: QA 검증 이후 별도 root/state로 준비할 위치.
+- `environments/qa`: 구현된 AWS·Cloudflare root와 격리 복원 시험.
+- `environments/prod`: 별도 EC2·Aurora root와 기본 비활성 DNS.
+  [운영 사전 준비와 활성화 조건](environments/prod/README.md)을 따른다.
+  코드 게시와 실제 운영 자원 생성·서비스 공개는 별개다.
 - `modules`: provider별 모듈. Terraform CLI/provider 및 module source 버전을 고정한다.
 - `atlantis`: 자격증명 보유 실행기의 신뢰 경계.
 - `runtime`: Docker Compose와 host 배포 계약.
