@@ -38,7 +38,7 @@ ENTRYPOINT ["node"]
 # An approved job supplies the CLI path/arguments after reading its separate secret.
 CMD ["--version"]
 
-FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime-base
 RUN groupadd --gid 10001 rogichat && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin rogichat
 WORKDIR /app/apps/api
 ENV NODE_ENV=production
@@ -51,3 +51,22 @@ EXPOSE 3000
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["node"]
 CMD ["dist/main.js"]
+
+# Decoder uses the same pinned Node base, lockfile and native sharp dependency tree.
+# Snapshot pins ffmpeg and every transitive apt dependency; apt signature checks stay on.
+FROM runtime-base AS decoder
+USER root
+RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
+    && printf '%s\n' \
+      'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://snapshot.debian.org/archive/debian/20260920T000000Z bookworm main' \
+      'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://snapshot.debian.org/archive/debian-security/20260920T000000Z bookworm-security main' \
+      > /etc/apt/sources.list.d/decoder.list \
+    && apt-get update \
+    && apt-get install --no-install-recommends --yes ffmpeg=7:5.1.9-0+deb12u1 \
+    && rm -rf /var/lib/apt/lists/* \
+    && install -d -o 10001 -g 10001 -m 0700 /run/decoder
+USER 10001:10001
+CMD ["dist/media-decoder-main.js"]
+
+# Keep the default build target and runtime artifact unchanged.
+FROM runtime-base AS runtime

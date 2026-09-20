@@ -15,20 +15,23 @@ import backend_release as release
 from test_backend_release import fixture as request_fixture
 
 
-def build(directory):
+def build(directory, version=1, decoder_settings=None):
     directory.mkdir()
     source = 'a' * 40
     layer = b'synthetic layer bytes'
-    descriptor = {'version': 1, 'repository': archive.REPOSITORY, 'source_sha': source,
+    descriptor = {'version': version, 'repository': archive.REPOSITORY, 'source_sha': source,
                   'producer': {'sha': 'd' * 40, 'run_id': 10, 'run_attempt': 1,
                                'event': 'workflow_dispatch', 'ref': 'refs/heads/qa'},
                   'verification_runs': {workflow: i + 1 for i, workflow in enumerate(sorted(archive.WORKFLOWS))},
                   'images': {}}
-    for role, repo in archive.ROLES.items():
+    for role, repo in archive.descriptor_roles(descriptor).items():
         config = {'architecture': 'amd64', 'os': 'linux', 'config': {'User': '10001:10001',
                   'Entrypoint': ['node'], 'Labels': {'org.opencontainers.image.source': archive.SOURCE,
                   'org.opencontainers.image.revision': source}, 'Env': ['NODE_ENV=production']},
                   'rootfs': {'type': 'layers', 'diff_ids': ['sha256:' + archive.sha256(layer)]}}
+        if role == 'decoder':
+            config['config'].update({'Cmd': ['dist/media-decoder-main.js'], 'WorkingDir': '/app/apps/api'})
+            config['config'].update(decoder_settings or {})
         raw = json.dumps(config).encode()
         identity = archive.sha256(raw)
         docker_manifest = json.dumps([{'Config': identity + '.json', 'RepoTags': None, 'Layers': ['layer/layer.tar']}]).encode()
@@ -87,6 +90,53 @@ def oci_tar(root, descriptor, *, mutate=None):
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_v2_decoder_full_chain_and_closed_roles(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            descriptor = build(root / 'input', version=2)
+            digest = zip_directory(root / 'input', root / 'export.zip')
+            actual, configs = archive.validate_zip(root / 'export.zip', digest, root / 'verified')
+            self.assertEqual(actual, descriptor)
+            self.assertEqual(set(configs), {'runtime', 'migration', 'decoder'})
+            self.assertEqual(len(archive.descriptor_files(descriptor)), 7)
+            for version in [1, True, 3, '2']:
+                with self.subTest(version=version), self.assertRaises(ValueError):
+                    archive.validate_descriptor({**descriptor, 'version': version})
+            for role in ['runtime', 'migration', 'decoder']:
+                bad = copy.deepcopy(descriptor)
+                del bad['images'][role]
+                with self.assertRaises(ValueError):
+                    archive.validate_descriptor(bad)
+            bad = copy.deepcopy(descriptor)
+            bad['images']['decoder']['image'] = bad['images']['runtime']['image']
+            with self.assertRaises(ValueError):
+                archive.validate_descriptor(bad)
+
+    def test_decoder_tar_manifest_missing_extra_and_execution_contract_rejected(self):
+        for attack in ['tar', 'manifest', 'missing', 'extra', 'cmd', 'directory', 'env']:
+            with self.subTest(attack=attack), tempfile.TemporaryDirectory() as temp:
+                root = Path(temp) / 'input'
+                settings = {'cmd': {'Cmd': ['dist/worker.js']}, 'directory': {'WorkingDir': '/workspace'},
+                            'env': {'Env': ['DATABASE_URL=fixture']}}.get(attack)
+                build(root, version=2, decoder_settings=settings)
+                if attack in ('tar', 'manifest'):
+                    target = root / ('decoder.tar' if attack == 'tar' else 'decoder.manifest.json')
+                    target.write_bytes(target.read_bytes() + b'changed')
+                elif attack == 'missing':
+                    (root / 'decoder.tar').unlink()
+                elif attack == 'extra':
+                    (root / 'other.tar').write_bytes(b'extra')
+                with self.assertRaises(ValueError):
+                    archive.validate_directory(root)
+
+    def test_web_override_remains_v1_with_exact_custom_files(self):
+        with patch.object(archive, 'ROLES', {'runtime': 'rogichat-web'}), \
+                patch.object(archive, 'FILES', {'descriptor.json', 'runtime.tar', 'runtime.manifest.json', 'publication-proof.zip'}):
+            self.assertEqual(archive.descriptor_roles({'version': 1}), {'runtime': 'rogichat-web'})
+            self.assertEqual(archive.descriptor_files({'version': 1}), archive.FILES)
+            with self.assertRaises(ValueError):
+                archive.descriptor_roles({'version': 2})
+
     def test_backend_defaults_remain_manual_only(self):
         with tempfile.TemporaryDirectory() as temp:
             descriptor = build(Path(temp) / 'archive')

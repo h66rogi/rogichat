@@ -1,16 +1,41 @@
 name: Backend image publication
 
 on:
+  pull_request:
   push:
     branches: [qa]
 
 permissions: {}
 
 concurrency:
-  group: backend-publish-qa
+  group: backend-publish-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  decoder-image:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Public source guard before image build
+        run: |
+          python3 tools/security/install.py
+          python3 tools/security/check.py all
+      - name: Build decoder without registry or service credentials
+        run: docker build --platform linux/amd64 --file apps/api/Dockerfile --target decoder --tag rogichat-decoder-check .
+      - name: Real native codecs, isolated IPC and graceful stop
+        run: python3 tools/operations/test_decoder_image.py rogichat-decoder-check
+      - name: Scan all decoder image layers and metadata
+        run: |
+          set -euo pipefail
+          image_id=$(docker image inspect --format '{{.Id}}' rogichat-decoder-check)
+          docker image save "$image_id" | python3 tools/security/image_scan.py -
+
   verified-source:
     if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
     runs-on: ubuntu-24.04
@@ -63,7 +88,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - name: Build runtime and separate migration artifact without registry credentials
+      - name: Public source guard before build and package authentication
+        run: |
+          python3 tools/security/install.py
+          python3 tools/security/check.py all
+      - name: Build runtime, migration and isolated decoder without registry credentials
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: |
@@ -77,6 +106,14 @@ jobs:
             --label org.opencontainers.image.source=https://github.com/h66rogi/rogichat \
             --label org.opencontainers.image.revision="$SOURCE_SHA" \
             --tag "ghcr.io/h66rogi/rogichat-api-migration:qa-$SOURCE_SHA" .
+          docker build --platform linux/amd64 --file apps/api/Dockerfile --target decoder \
+            --label org.opencontainers.image.source=https://github.com/h66rogi/rogichat \
+            --label org.opencontainers.image.revision="$SOURCE_SHA" \
+            --tag "ghcr.io/h66rogi/rogichat-media-decoder:qa-$SOURCE_SHA" .
+      - name: Verify actual isolated decoder before registry authentication
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: python3 tools/operations/test_decoder_image.py "ghcr.io/h66rogi/rogichat-media-decoder:qa-$SOURCE_SHA"
       - name: Verify image isolation, entrypoints and graceful shutdown
         env:
           SOURCE_SHA: ${{ github.sha }}
@@ -159,7 +196,7 @@ jobs:
           set -euo pipefail
           python3 tools/security/install.py
           python3 tools/security/test_image_scan.py
-          for repository in rogichat-api rogichat-api-migration; do
+          for repository in rogichat-api rogichat-api-migration rogichat-media-decoder; do
             image_id=$(docker image inspect --format '{{.Id}}' "ghcr.io/h66rogi/$repository:qa-$SOURCE_SHA")
             [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
             docker image save "$image_id" | python3 tools/security/image_scan.py -
@@ -178,7 +215,7 @@ jobs:
           trap cleanup EXIT
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
           unset GHCR_TOKEN
-          for repository in rogichat-api rogichat-api-migration; do
+          for repository in rogichat-api rogichat-api-migration rogichat-media-decoder; do
             image="ghcr.io/h66rogi/$repository:qa-$SOURCE_SHA"
             checked_id=$(cat "$RUNNER_TEMP/$repository.checked-id")
             [[ "$checked_id" =~ ^sha256:[a-f0-9]{64}$ ]]
