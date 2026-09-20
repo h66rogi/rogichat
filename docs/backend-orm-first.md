@@ -306,3 +306,14 @@ barrier observes the new ORM owner-reference read while retaining the original
 concurrency assertion. Other unit fixture adapters and moved imports are coordinated
 with the Nest worker. This ownership list does not transfer unrelated source,
 mobile, infrastructure or security edits to the ORM worker.
+
+### M10 ACCOUNT admission locking exceptions
+
+`AccountDeletionRepository` takes bounded current locks on one SOOP identity, one
+account and one independent obligation. `IdentityGuardRepository` takes a shared
+current key-policy lock, one current subject-guard lock and an indexed first
+unresolved-coverage registration barrier. Guard/request/status projections are
+returned with the lock itself to defeat older repeatable-read snapshots. All
+creates, updates, bounded binding cleanup and ordinary lookup operations use
+Prisma; external ledger I/O remains outside transactions. See
+[ACCOUNT admission](backend-account-deletion-admission.md) for ordering and limits.

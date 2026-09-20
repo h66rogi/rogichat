@@ -16,8 +16,8 @@ export class DeletionReconciler {
         bounded.throwIfAborted();
         const receipt = await this.ledger.readByKey(key, bounded);
         bounded.throwIfAborted();
-        if (receipt.intent.scope !== 'MESSAGE') throw new Error('unsupported_deletion_scope');
         await this.apply.apply(receipt);
+        if (receipt.intent.scope === 'ACCOUNT') await this.apply.scrubBindings(receipt);
       }
       // Advance only after the whole bounded page is applied. No timestamp watermark.
       bounded.throwIfAborted();

@@ -1,3 +1,4 @@
+import { AccountDeletionModule } from './modules/deletion/account-deletion.module.js';
 import type { DeletionOptions } from './modules/deletion/deletion.module.js';
 import type { RuntimeSettings, MediaSettings } from './infrastructure/config/runtime-settings.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
@@ -32,7 +33,7 @@ export class AppModule {
     const authentication = auth ? AuthModule.register(infrastructure, auth) : undefined;
     return {
       module: AppModule,
-      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, MessagesModule.register(infrastructure, authentication, deletion), UsersModule.register(infrastructure, authentication), RoomsModule.register(infrastructure, authentication), SyncModule.register(infrastructure, authentication), ReactionsModule.register(infrastructure, authentication), PublicationsModule.register(infrastructure, authentication), RealtimeModule.register(infrastructure, authentication, true), ...(media ? [MediaModule.register(infrastructure, authentication, media)] : [])] : [])],
+      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, AccountDeletionModule.register(infrastructure, authentication, deletion), MessagesModule.register(infrastructure, authentication, deletion), UsersModule.register(infrastructure, authentication), RoomsModule.register(infrastructure, authentication), SyncModule.register(infrastructure, authentication), ReactionsModule.register(infrastructure, authentication), PublicationsModule.register(infrastructure, authentication), RealtimeModule.register(infrastructure, authentication, true), ...(media ? [MediaModule.register(infrastructure, authentication, media)] : [])] : [])],
     };
   }
 }

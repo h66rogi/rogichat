@@ -1,3 +1,4 @@
+import { IdentityGuardModule } from './identity-guard.module.js';
 import { IdentityService } from './identity.service.js';
 import { IdentityRepository } from './identity.repository.js';
 import { LoginRepository } from './login.repository.js';
@@ -29,7 +30,7 @@ export class AuthModule {
   static register(infrastructure: DynamicModule, options: AuthModuleOptions): DynamicModule {
     return {
       module: AuthModule,
-      imports: [infrastructure],
+      imports: [IdentityGuardModule, infrastructure],
       controllers: [AuthController, NativeAuthController],
       providers: [
         { provide: AUTH_CONFIG, useValue: options.config },

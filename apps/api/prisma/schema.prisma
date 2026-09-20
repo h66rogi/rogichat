@@ -196,6 +196,7 @@ model login_transactions {
   identity_payload Bytes?    @db.Blob
   bound_generation BigInt?   @db.UnsignedBigInt
   @@index([expires_at])
+  @@index([user_id, status, id])
 }
 
 model creator_accounts {
@@ -627,4 +628,38 @@ model deletion_intents {
   requested_at DateTime @db.DateTime(3)
   ledger_sha256 Bytes @db.Binary(32)
   blocked_at DateTime? @db.DateTime(3)
+  @@index([environment, scope, target_id, requested_at, request_id])
+}
+
+// Independent obligation: no FK to a live or restored account, no completion default.
+model account_deletion_obligations {
+  user_id String @id @db.Char(36)
+  request_id String @unique @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  blocked_at DateTime? @db.DateTime(3)
+  auth_not_before DateTime @db.DateTime(3)
+  guard_coverage Boolean @default(false)
+  state DeletionState @default(BLOCKED)
+  live_purged_at DateTime? @db.DateTime(3)
+  @@index([guard_coverage, user_id])
+}
+
+// Version 1 is pinned when the first durable account receipt is applied.
+// A different key fails closed; rotation needs a separately reviewed migration.
+model identity_guard_keys {
+  version Int @id @db.UnsignedInt
+  fingerprint Bytes @db.Binary(32)
+}
+
+// A null request is a serialization sentinel, not a deletion or an expiry.
+model identity_subject_guards {
+  subject_hmac Bytes @id @db.Binary(32)
+  key_version Int @db.UnsignedInt
+  key_fingerprint Bytes @db.Binary(32)
+  request_id String? @db.Char(36)
+  user_id String? @db.Char(36)
+  requested_at DateTime? @db.DateTime(3)
+  auth_not_before DateTime? @db.DateTime(3)
+  live_purged_at DateTime? @db.DateTime(3)
+  @@index([request_id])
 }

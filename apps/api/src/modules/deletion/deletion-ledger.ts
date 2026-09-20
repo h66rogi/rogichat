@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 export type LedgerEnvironment = 'qa' | 'production';
-export interface DeletionIntent {
+interface LegacyDeletionIntent {
   readonly schemaVersion: 1;
   readonly environment: LedgerEnvironment;
   readonly requestId: string;
@@ -11,6 +11,18 @@ export interface DeletionIntent {
   readonly roomId: string | null;
   readonly requestedAt: string;
 }
+export interface AccountSubjectGuard {
+  readonly version: 1;
+  readonly keyFingerprint: string;
+  readonly subjectHmac: string;
+  readonly identityId: string;
+}
+export type DeletionIntent = LegacyDeletionIntent | (Omit<LegacyDeletionIntent, 'schemaVersion' | 'scope' | 'roomId'> & {
+  readonly schemaVersion: 2;
+  readonly scope: 'ACCOUNT';
+  readonly roomId: null;
+  readonly subjectGuard: Readonly<AccountSubjectGuard> | null;
+});
 export interface DeletionLedgerStore {
   /** Atomic create only. Existing bytes must never be overwritten. */
   putIfAbsent(key: string, bytes: Uint8Array, signal: AbortSignal): Promise<void>;
@@ -29,15 +41,28 @@ export function checkedDeletionIntent(value: unknown, environment: LedgerEnviron
   const invalid = () => { throw new DeletionLedgerError('INVALID_LEDGER_INTENT'); };
   if (!['qa', 'production'].includes(environment) || !value || typeof value !== 'object' || Array.isArray(value)) return invalid();
   const v = value as Record<string, unknown>;
-  if (Object.keys(v).sort().join(',') !== 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,targetId' ||
-      v.schemaVersion !== 1 || v.environment !== environment ||
+  const version2 = v.schemaVersion === 2;
+  const expectedKeys = version2 ? 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,subjectGuard,targetId' : 'actorUserId,environment,requestId,requestedAt,roomId,schemaVersion,scope,targetId';
+  if (Object.keys(v).sort().join(',') !== expectedKeys ||
+      (!version2 && v.schemaVersion !== 1) || (version2 && v.scope !== 'ACCOUNT') || v.environment !== environment ||
       ![v.requestId, v.actorUserId, v.targetId].every(id => typeof id === 'string' && uuid.test(id)) ||
       typeof v.scope !== 'string' || !['MESSAGE', 'ACCOUNT'].includes(v.scope) || typeof v.requestedAt !== 'string' ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(v.requestedAt) ||
       !Number.isFinite(Date.parse(v.requestedAt)) || new Date(v.requestedAt).toISOString() !== v.requestedAt ||
       (v.scope === 'ACCOUNT' ? v.roomId !== null || v.targetId !== v.actorUserId : typeof v.roomId !== 'string' || !uuid.test(v.roomId))) return invalid();
-  return Object.freeze({ schemaVersion: 1, environment, requestId: v.requestId as string, actorUserId: v.actorUserId as string,
-    scope: v.scope as DeletionIntent['scope'], targetId: v.targetId as string, roomId: v.roomId as string | null, requestedAt: v.requestedAt });
+  const base: LegacyDeletionIntent = { schemaVersion: 1, environment, requestId: v.requestId as string, actorUserId: v.actorUserId as string,
+    scope: v.scope as DeletionIntent['scope'], targetId: v.targetId as string, roomId: v.roomId as string | null, requestedAt: v.requestedAt };
+  if (!version2) return Object.freeze(base);
+  let subjectGuard: Readonly<AccountSubjectGuard> | null = null;
+  if (v.subjectGuard !== null) {
+    if (!v.subjectGuard || typeof v.subjectGuard !== 'object' || Array.isArray(v.subjectGuard)) return invalid();
+    const guard = v.subjectGuard as Record<string, unknown>;
+    if (Object.keys(guard).sort().join(',') !== 'identityId,keyFingerprint,subjectHmac,version' || guard.version !== 1 ||
+        typeof guard.identityId !== 'string' || !uuid.test(guard.identityId) ||
+        ![guard.keyFingerprint, guard.subjectHmac].every(value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value))) return invalid();
+    subjectGuard = Object.freeze({ version: 1, keyFingerprint: guard.keyFingerprint as string, subjectHmac: guard.subjectHmac as string, identityId: guard.identityId });
+  }
+  return Object.freeze({ ...base, schemaVersion: 2, scope: 'ACCOUNT', roomId: null, subjectGuard });
 }
 export function deletionIntentKey(environment: LedgerEnvironment, requestId: string): string {
   if (!['qa', 'production'].includes(environment) || !uuid.test(requestId)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
@@ -122,6 +147,8 @@ export class DeletionLedger {
       for (const field of ['requestId', 'actorUserId', 'scope', 'targetId', 'roomId'] as const) {
         if (durable[field] !== intended[field]) throw new DeletionLedgerError('LEDGER_CONFLICT');
       }
+      // Account retries reuse immutable guard evidence, including legacy receipts.
+      // New evidence never overwrites the original externally authorized command.
       return Object.freeze({ intent: durable, sha256: createHash('sha256').update(bytes).digest('hex') });
     } catch (error) {
       if (error instanceof DeletionLedgerError) throw error;
@@ -135,6 +162,16 @@ export type DeletionReceipt = Awaited<ReturnType<DeletionLedger['ensureIntent']>
 const MESSAGE_NAMESPACE_V1 = Buffer.from('c905df9b942b53e8a72659c955726fcc', 'hex');
 export function messageDeletionId(environment: LedgerEnvironment, actor: string, room: string, message: string): string {
   const bytes = createHash('sha1').update(MESSAGE_NAMESPACE_V1).update(JSON.stringify([environment, actor, 'MESSAGE', room, message])).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+const ACCOUNT_NAMESPACE_V1 = Buffer.from('a29017d181de5f7baaf7af234a5cebe4', 'hex');
+export function accountDeletionId(environment: LedgerEnvironment, userId: string): string {
+  if (!['qa', 'production'].includes(environment) || !uuid.test(userId)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+  const bytes = createHash('sha1').update(ACCOUNT_NAMESPACE_V1).update(JSON.stringify([environment, userId, 'ACCOUNT'])).digest().subarray(0, 16);
   bytes[6] = (bytes[6]! & 0x0f) | 0x50;
   bytes[8] = (bytes[8]! & 0x3f) | 0x80;
   const hex = bytes.toString('hex');

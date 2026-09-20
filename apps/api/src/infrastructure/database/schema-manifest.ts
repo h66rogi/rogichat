@@ -14,4 +14,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920040620_native_session_transport', checksum: 'd81fbb42616dc0a43373a0adfe8a04c1e7960780b8006aaa979f9f4047f764f5' },
   { name: '20260920044559_native_soop_transactions', checksum: '2745e58fc8f95fe15792d4b8b6e74b3c9eb937316331f79240e7c99e924edd21' },
   { name: '20260920060633_m10_deletion_intents', checksum: '76d75fcb107076d476ea62f59d5b111355d53c2c5616d842b826ace78324017f' },
+  { name: '20260920074544_account_deletion_admission', checksum: '1e3d298e965c15500e83d96f4ebae5e2ce3336c154ce67d369a207058bff85fb' },
 ];

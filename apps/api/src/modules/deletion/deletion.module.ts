@@ -1,3 +1,5 @@
+import { IdentityGuardModule } from '../auth/identity-guard.module.js';
+import { AccountDeletionRepository } from './account-deletion.repository.js';
 import { DeletionRepository } from './deletion.repository.js';
 import { Inject, Injectable, Module } from '@nestjs/common';
 import type { DynamicModule, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
@@ -30,9 +32,9 @@ class ReplayLifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
 @Module({})
 export class DeletionModule {
   static register(infrastructure: DynamicModule, options?: DeletionOptions, replay = false): DynamicModule {
-    return { module: DeletionModule, imports: [infrastructure, MessagesCoreModule,
+    return { module: DeletionModule, imports: [IdentityGuardModule, infrastructure, MessagesCoreModule,
       ...(options && 'config' in options ? [DeletionLedgerModule.register(options.config)] : [])],
-    providers: [DeletionRepository, DeletionApplyService,
+    providers: [DeletionRepository, AccountDeletionRepository, DeletionApplyService,
       ...(!options || 'ledger' in options ? [{ provide: DeletionLedger, useValue: options?.ledger ?? null }] : []),
       ...(replay && options ? [{ provide: DeletionReconciler, inject: [DeletionLedger, DeletionApplyService],
         useFactory: (ledger: DeletionLedger, apply: DeletionApplyService) => new DeletionReconciler(ledger, apply) }, ReplayLifecycle] : [])],

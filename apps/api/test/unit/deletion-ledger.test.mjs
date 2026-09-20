@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { setImmediate } from 'node:timers';
-import { DeletionLedger, messageDeletionId, checkedDeletionIntent, encodeDeletionIntent, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
+import { DeletionLedger, accountDeletionId, messageDeletionId, checkedDeletionIntent, encodeDeletionIntent, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
 import { R2DeletionLedgerStore } from '../../dist/modules/deletion/adapters/r2-deletion-ledger.js';
 
 const intent = () => ({ schemaVersion: 1, environment: 'qa', requestId: randomUUID(), actorUserId: randomUUID(),
@@ -196,15 +196,34 @@ test('already-aborted inventory/read never calls storage, and replay never start
   assert.equal(applied, 0);
 });
 
-test('unsupported ACCOUNT and malformed records stop replay safely without advancing its page', async () => {
+test('ACCOUNT replay routes through admission and malformed records stop without skipping the page', async () => {
   const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
   const value = intent(); const account = { ...value, scope: 'ACCOUNT', targetId: value.actorUserId, roomId: null };
   const key = deletionIntentKey('qa', value.requestId); let applied = 0; const cursors = [];
   const store = { close() {}, putIfAbsent: async () => {}, list: async cursor => { cursors.push(cursor); return { keys: [key], cursor: 'next' }; },
     read: async () => encodeDeletionIntent(account) };
-  const replay = new DeletionReconciler(new DeletionLedger(store, 'qa'), { apply: async () => { applied++; } });
-  await assert.rejects(replay.tick(), /unsupported_deletion_scope/);
+  const replay = new DeletionReconciler(new DeletionLedger(store, 'qa'), { apply: async () => { applied++; }, scrubBindings: async () => {} });
+  await replay.tick();
   store.read = async () => Buffer.from('private malformed data');
   await assert.rejects(replay.tick(), { message: 'INVALID_LEDGER_INTENT' });
-  assert.equal(applied, 0); assert.deepEqual(cursors, [null, null]);
+  assert.equal(applied, 1); assert.deepEqual(cursors, [null, 'next']);
+});
+
+
+test('ACCOUNT v2 is canonical opaque evidence, preserves immutable retry evidence and stable UUID', async () => {
+  const actor = randomUUID(); const requestId = accountDeletionId('qa', actor);
+  assert.equal(accountDeletionId('qa', actor), requestId);
+  assert.notEqual(accountDeletionId('production', actor), requestId);
+  assert.match(requestId, /^[a-f0-9-]{14}5/);
+  const value = { schemaVersion: 2, environment: 'qa', requestId, actorUserId: actor, scope: 'ACCOUNT', targetId: actor,
+    roomId: null, requestedAt: '2026-09-20T00:00:00.000Z', subjectGuard: { version: 1, identityId: randomUUID(),
+      keyFingerprint: randomBytes(32).toString('hex'), subjectHmac: randomBytes(32).toString('hex') } };
+  assert.deepEqual(decodeDeletionIntent(encodeDeletionIntent(value), 'qa'), value);
+  assert.ok(encodeDeletionIntent(value).length <= 1024);
+  for (const subjectGuard of [{ ...value.subjectGuard, subject: 'raw-provider-value' }, { ...value.subjectGuard, version: 2 },
+    { ...value.subjectGuard, subjectHmac: 'short' }, { ...value.subjectGuard, identityId: 'not-a-uuid' }]) {
+    assert.throws(() => checkedDeletionIntent({ ...value, subjectGuard }, 'qa'), { code: 'INVALID_LEDGER_INTENT' });
+  }
+  const ledger = new DeletionLedger(new Store(), 'qa'); const first = await ledger.ensureIntent(value);
+  assert.deepEqual(await ledger.ensureIntent({ ...value, subjectGuard: null, requestedAt: '2026-09-21T00:00:00.000Z' }), first);
 });

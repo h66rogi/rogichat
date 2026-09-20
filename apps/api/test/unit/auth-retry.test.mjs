@@ -23,7 +23,7 @@ for (const rollbackFails of [false, true]) {
     const flow = new AuthFlow({ issue: async () => ({ token: 'issued', csrf: 'csrf' }) }, transactions, config, {
       request: async () => 'https://broker.example',
       exchange: async () => { exchanges++; return { schemaVersion: 1, provider: 'soop', transactionId: claim.id, clientId: 'fixture', authenticatedAt: new Date().toISOString() }; },
-    }, repository, { resolve: async () => { if (++resolves === 1) throw Object.assign(new Error('unique'), { code: 'P2002' }); return 'user'; } });
+    }, repository, { check: async () => {}, resolve: async () => { if (++resolves === 1) throw Object.assign(new Error('unique'), { code: 'P2002' }); return 'user'; } });
     const browser = secret(); const { state } = await flow.start('login', browser);
     if (rollbackFails) await assert.rejects(flow.callback(state, secret(), browser), { code: 'AUTH_FAILED' });
     else assert.equal((await flow.callback(state, secret(), browser)).token, 'issued');
