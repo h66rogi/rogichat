@@ -1,7 +1,7 @@
 # 로기챗 Swagger / OpenAPI 설계와 구현계획
 
-상태: 제안 · 2026-09-20 · 이번 변경은 문서만 작성한다.
-검토 기준: QA `8aa0ccaf03e61fe52c6e5c9b9ec138ba20a3b05c`.
+상태: 구현 승인 후 설계 리뷰 반영 · 2026-09-20 · 이번 변경은 문서만 보완한다.
+최초 검토: QA `8aa0ccaf03e61fe52c6e5c9b9ec138ba20a3b05c`. 리뷰 시 최신 QA `8ece99d`를 반영했다.
 
 ## 목적과 범위
 
@@ -31,7 +31,8 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
 ### 문서 제공과 인증
 
 - API 프로세스에서 `/docs` 및 `/docs/openapi.json`을 제공한다. UI 제목은 `로기챗 API`.
-  QA와 development에서 활성화하고 production에서는 UI·JSON·YAML·정적 자산 경로를 모두 등록하지 않는다.
+  `Config.environment`가 `qa` 또는 `local`일 때 활성화한다. `test`는 기본 미노출로 두고
+  문서 시험에서만 같은 구성 함수를 명시적으로 호출한다. production에서는 UI·JSON·YAML·정적 자산 경로를 모두 등록하지 않는다.
   판별은 기존 `Config.environment`를 사용한다. 이미지의 `NODE_ENV=production`을 QA 판별에 쓰지 않는다.
 - QA 문서는 익명 조회 가능한 개발 계약으로 취급한다. 실제 계정·메시지·미디어 URL·토큰은 포함하지 않는다.
   관리자 REST도 단일 문서에 별도 태그와 권한 조건을 표시한다. 문서 노출이 실행 권한을 부여하지 않는다.
@@ -39,8 +40,10 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
 - 첫 적용에서는 `swaggerOptions.supportedSubmitMethods: []`로 **Try it out을 비활성화**한다.
   `tryItOutEnabled: false`만으로 실행을 막았다고 간주하지 않는다. 인증 저장은 끄고,
   외부 validator·CDN·외부 favicon을 사용하지 않는다. 검색·태그 접기·deep link만 제공한다.
-- 쿠키 인증과 쓰기 요청의 CSRF 헤더·허용 Origin을 문서화한다. 쿠키와 CSRF는 쓰기 요청에서
-  동시에 필요한 조건이다. security requirement를 OR로 잘못 표현하지 않는다.
+- 쿠키 인증과 보호된 쓰기 요청의 CSRF 헤더·허용 Origin을 문서화한다. 쿠키와 CSRF는
+  해당 요청에서 동시에 필요한 조건이다. security requirement를 OR로 잘못 표현하지 않는다.
+  인증 조건은 작업별로 지정한다. health에는 인증이 없고 SOOP start의 login/link는 조건이 다르다.
+  login 시작에 기존 세션을 요구하거나 callback에 일반 쓰기 인증을 일괄 적용하지 않는다.
   현재 별도 백엔드 대화에서 변경 중인 네이티브 인증은 최신 QA에 병합된 구현에 맞춰 기술한다.
   아직 없는 Bearer/JWT 지원을 문서에서 먼저 약속하지 않는다.
 - 브라우저는 임의 Cookie/Origin 헤더 설정에 제한이 있고 현재 API 호스트의 문서 Origin은
@@ -60,8 +63,10 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
   DTO class 전환이나 기존 parser/validator 교체 없이 문서 메타데이터를 추가한다.
 - 실제 메서드·경로에서 자동 수집하며 operationId는 작업별 명시적 고유 이름으로 고정한다.
   수동으로 별도 paths 목록을 유지하지 않는다. 누락 방지는 route inventory와 생성 결과 비교로 확인한다.
-- 첫 배포에 등록된 모든 공개 HTTP 컨트롤러를 포함한다: health, auth/terms/account,
+- 첫 배포에 등록된 모든 공개 HTTP 컨트롤러를 포함한다: health, auth,
   users, rooms, messages, sync, reactions, publications, 활성화된 media/stickers.
+  현재 별도 terms/account 컨트롤러는 없다. 약관 동의는 기존 auth 요청으로 설명하며,
+  계정 관련 신규 endpoint는 QA에 실제 등록된 뒤 포함한다.
   동적 기능이 비활성 상태라면 실행 중인 문서에 해당 route가 나타나지 않아야 한다.
 - 응답은 Prisma 모델이 아니라 viewer별 공개 projection을 기준으로 명시한다.
   생일 비공개 조건, 팬 비공개 메시지와 스트리머 열람 범위, 관리자에게 없는 대화 권한,
@@ -69,10 +74,17 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
 - 요청의 생략과 null을 구분한다. 예: SHARED 발송은 `recipientActorId`를 **생략**해야 하며
   내부 `SendInput`의 정규화 결과인 null을 요청 예제로 쓰면 현재 parser에서 거부된다.
   TEXT/PHOTO/VIDEO/STICKER는 `oneOf`로 표현하고 개수·필수 필드·금지 조합을 기록한다.
+  최신 QA에서 STICKER는 `stickerId`, PHOTO/VIDEO는 `assetIds`를 사용한다. 이전 스티커 assetIds 예제는 허용하지 않는다.
+  요청/응답 schema는 분리한다. STICKER 응답에는 공개 projection의 `assetId`·크기 등이 추가된다.
+  요청의 각 oneOf 분기에 허용 필드·required·`additionalProperties: false`를 명시해
+  알 수 없는 속성과 다른 content 종류의 필드를 거부하는 parser 동작을 반영한다.
 - `clientMessageId` 재시도/멱등성, cursor와 재동기화, 200 저장 완료와 상대 전달·읽음의 차이,
   publication 202와 후속 처리, leave 204의 빈 body를 실제 구현에 맞춰 기술한다.
   오류는 `{ error: { code } }` 형태와 endpoint별 실제 상태코드로 작성한다.
   ACL에 따른 404와 입력 오류, 일시적 503을 성공 응답으로 통합하지 않는다.
+  `@Res()`를 사용하는 auth의 303 redirect·Location·Set-Cookie·204는 수동 명시한다.
+  미디어 content 업로드는 JSON/multipart가 아닌 `application/octet-stream` binary body이며,
+  Content-Length와 encoding 제한 및 202 응답을 명시한다.
 - 스키마에 담기 어려운 바이트 길이·정규화·교차 필드 조건은 설명과 기존 계약 시험으로 보완한다.
   예시는 테스트 전용 합성 값으로 작성하며 실제 운영 응답을 캡처해 공개하지 않는다.
 
@@ -80,7 +92,16 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
 
 실행 중 문서는 실제 Nest 모듈 구성을 반영한다. CI export는 동일 feature graph에 테스트 전용
 provider override를 사용해 DB·broker·storage·socket background 작업 없이 메타데이터만 생성한다.
-별도 controller 복제본이나 가짜 성공 API를 배포하지 않는다. 전체 기능/최소 기능 구성을 모두 시험한다.
+운영 bootstrap/config reader는 호출하지 않고 합성 설정으로 동일 `AppModule.register`를 구성한다.
+`NestFactory.create` → `SwaggerModule.createDocument` → `finally app.close` 순서로 구성하며,
+export에서는 `app.init`, `listen`, `createApplicationContext`를 호출하지 않는다.
+`RealtimeGateway.onApplicationBootstrap`가 소켓과 job timer를 시작하기 때문이다.
+전체 기능 fixture에는 `database.transactions`와 auth/media 주입값이 필요하다.
+health 시험의 최소 DB stub만 재사용하면 Transactions DI가 실패한다. 테스트 전용 provider는
+의도하지 않은 DB·broker·storage 작업에 즉시 실패하도록 하고, 외부 I/O 없이 export 종료를 검증한다.
+별도 controller 복제본이나 가짜 성공 API를 배포하지 않는다. route inventory는
+**health만 / auth 활성·media 비활성 / auth·media 활성** 세 구성을 시험한다.
+소켓 transport는 HTTP route 비교 대상에서 제외한다.
 정렬된 OpenAPI JSON은 build/CI artifact로 제공하고 생성 파일을 Git에 수동 관리하지 않는다.
 스키마의 required/nullable/enum/oneOf를 대표 실제 응답 및 기존 parser 사례와 검증한다.
 문서가 다시 자기 자신만 검사하는 snapshot 하나로 계약 일치를 주장하지 않는다.
@@ -89,9 +110,9 @@ provider override를 사용해 DB·broker·storage·socket background 작업 없
 
 | 순서 | 작업·파일 범위 | 완료 조건 |
 |---|---|---|
-| 1 | 최신 QA 반영, `apps/api/package.json`, lockfile, `infrastructure/openapi/`, application/config 연결 | 고정 dependency 호환·clean build 성공, QA/dev만 UI와 JSON 제공, prod/worker 미노출 |
+| 1 | 최신 QA 반영, `apps/api/package.json`, lockfile, `infrastructure/openapi/`, application/config 연결 | 고정 dependency 호환·clean build 성공, QA/local만 UI와 JSON 제공, prod/worker 미노출 |
 | 2 | 기능별 controller 및 `dto/*.openapi.ts`, 공통 오류 schema | 실제 route 전수 포함, 안정적 operationId, 인증·권한·입출력·오류 문서화, 신규 인증/수신자 계약 반영 |
-| 3 | `test/contracts/`, `test/e2e/`, export script, API README | 전체/최소 구성 route 비교, schema 유효성·대표 응답·SHARED/null 등 검증, `/docs` 기존 시험 갱신, 브라우저 CSP·자산·실행 비활성 확인 |
+| 3 | `test/contracts/`, `test/e2e/`, export script, API README | 세 구성 route 비교, schema 유효성·대표 응답·SHARED/null·STICKER 금지 필드 검증, `/docs` 기존 시험 갱신, 브라우저 CSP·자산·실행 비활성 확인 |
 | 4 | QA 대상 PR → 필수 CI → 병합 → 기존 digest 배포 경로 | 배포 SHA와 이미지 확인, 실제 `/docs`·JSON·자산 확인, `/live`·`/ready` 및 무인증 API 거부 회귀 확인 |
 
 문서 노출만으로 DB migration은 필요하지 않다. Caddy의 기존 API catch-all proxy를 활용하며
@@ -102,6 +123,12 @@ ops 배포 경로에 반영하고 실제 적용 여부를 확인한다. producti
 백엔드 대화에는 중복 가능성을 사전 고지했다. 별도 체크아웃에서 작업하고 병합 전 최신 QA를
 반영한다. 충돌 가능 파일은 controller/DTO, application/config, package/lock, 계약 시험이다.
 이 설계 PR 시점에 완료 알림을 보내지 않는다. 구현·QA 배포·실제 검증까지 끝난 뒤 한 번 알린다.
+
+## 리뷰 반영
+
+서브에이전트 읽기 전용 리뷰에서 제시한 export lifecycle/DI, 중간 기능 구성, binary 업로드,
+메시지 요청·응답 분리와 금지 필드 4건을 반영했다. 별도 코드 대조로 local/test 환경 정책,
+로그인 인증 예외와 redirect 응답도 보완했다. 구현과 실제 배포 검증은 아직 수행하지 않았다.
 
 ## 근거 문서
 
