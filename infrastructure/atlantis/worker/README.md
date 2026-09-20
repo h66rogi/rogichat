@@ -1,7 +1,10 @@
 # Disposable worker isolation canary
 
-Status: implemented and locally validated; **not applied**. Atlantis remains in
-connectivity-only mode. This first worker runs fixed diagnostics, never Terraform,
+Status: **applied and live canary verified on 2026-09-20**. All 25 additions
+completed with no existing resource changes/deletions; the post-apply plan is empty.
+All 12 diagnostic checks passed on one disposable EC2, and termination, root-disk
+deletion and absence of remaining worker network interfaces were verified.
+Atlantis remains in connectivity-only mode. This worker runs fixed diagnostics, never Terraform,
 repository code, provisioners, hooks or downloaded executables.
 
 The source lives here and in
@@ -11,9 +14,9 @@ template ID, numeric version and complete configuration digest. The operator-onl
 private `tools/run_worker_canary.py` requires a clean, approved ops commit. Neither
 a public PR nor a private merge launches a worker.
 
-## Planned resources
+## Applied resources
 
-The reviewed full plan has 25 additions and no modifications/deletions:
+The approved and applied full plan had 25 additions and no modifications/deletions:
 
 | Purpose | Resources |
 | --- | ---: |
@@ -38,7 +41,9 @@ launching, IAM, SSH, application or database permissions.
 
 An additional guest timer powers off after 15 minutes; EC2 shutdown terminates
 the instance. The operator launcher also cleans up in `finally` and verifies
-termination. The AWS reaper remains effective if the guest never boots or the
+termination. The live canary completed and shut down before the guest deadline;
+the scheduled reaper was invoked successfully with zero expired instances. A
+forced guest-failure/expired-instance cleanup drill has not yet been performed. The AWS reaper remains effective if the guest never boots or the
 operator disconnects. The typical fallback window is 20–25 minutes; AWS scheduler
 or service failures can delay this, so this is not a guaranteed spending cap.
 
