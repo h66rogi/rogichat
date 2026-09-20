@@ -5,9 +5,13 @@
 [Apple 로그인과 SOOP 필수 연결](mobile-authentication.md)을 함께 따른다.
 
 상태(2026-09-20 갱신): 로기챗 웹 endpoint·DB transaction·세션 구현과 QA foundation
-가동은 완료했다. 실제 broker 등록/배포와 공급자 canonical subject 검증은 미완료이며
-현재 QA의 로그인 시작은 `503 AUTH_UNAVAILABLE`로 닫힌다. 아래 외부 중계·모바일
-계약에는 아직 구현/등록되지 않은 부분이 있다. 네이티브 상세 구현 순서는
+가동은 완료했다. 외부 broker 소스에는 authorization code로 교환한 token을
+`/validate/live/status`에 검증하고 응답의 정확한 `data.user_id`를 subject로 쓰는
+구현과 회귀 테스트가 준비됐다. 이는 구현 상태이며 현재 배포·등록이나 실제 시청자
+로그인 성공을 뜻하지 않는다. 배포는 별도 CI/운영 검증 대상이고, 설정 누락·공급자 장애·
+지원하지 않는 응답은 오류로 처리한다. 과거 QA의 `503 AUTH_UNAVAILABLE` 관측을
+모든 이후 배포의 고정 동작으로 간주하지 않는다. 아래 외부 중계·모바일
+계약에는 아직 실환경 검증이 필요한 부분이 있다. 네이티브 상세 구현 순서는
 [native 인증 계약](backend-native-auth-contract.md)을 따른다.
 QA 웹 `https://qa.rogi.chat`, QA API `https://api.qa.rogi.chat`.
 운영 웹 `https://rogi.chat`, 운영 API `https://api.rogi.chat`은 대응되는 제안이다.
@@ -56,10 +60,13 @@ user/platform_soop를 관리한다. 근거는 `platform-verification.controller.
 동시에 연결되지 않게 한다. 초기에는 `user_id`도 unique로 두어 한 사용자에 SOOP
 계정 하나를 허용하는 안을 제안한다. 다중 연결이 필요하면 명시적으로 변경한다.
 SOOP nickname·이미지 URL·표시 handle을 신뢰 가능한 고유 subject 대신 쓰지 않는다.
-공급자가 보장하는 안정적인 식별자를 실제 문서/응답에서 확인해 하나로 고정하고,
-응답마다 station number와 handle을 번갈아 subject로 선택하지 않는다.
-일반 시청자 계정에도 식별자가 제공되는지 확인해야 한다. 검증된 subject가 없으면
-로그인을 실패시키며 프로필 이미지 경로에서 추측해 계정을 생성하지 않는다.
+현재 broker 구현은 token에 결합된 `/validate/live/status` 응답의 `data.user_id`만
+사용하며 대소문자를 포함한 원문을 보존한다. station number·handle·nickname·이미지
+경로로 대체하거나 별칭을 자동 병합하지 않는다. 로기챗 내부 PK는 계속 UUID이며
+기존 transaction·browser·redirect·client·S256 결합과 계정 연결 충돌 방어를 유지한다.
+이 모델은 공급자의 계정 ID 할당을 신뢰하며, 문서화되지 않은 평생 비재할당을
+보장하지 않는다. 외부 ID 재할당은 조건부 공급자 신뢰 위험으로 남는다. 실제 일반
+시청자·스트리머 로그인은 아직 실증 대상이며, 검증된 응답이 없으면 로그인에 실패한다.
 
 `login`: 이미 연결됐으면 user 상태 검증 후 로그인, 없으면 로기챗 약관 동의를 거쳐
 user와 platform_soop를 하나의 transaction에서 생성한다. 동시 가입은 unique 충돌을
@@ -184,5 +191,7 @@ SOOP 동의 화면의 앱 이름은 기존 OAuth 앱 등록에 따라 기존 브
 5. 실제 QA 웹·Android·iOS 로그인과 기존 소비자 로그인이 성공한 후 출시한다.
 
 최초 조사는 read-only였으며 이후 별도 승인으로 외부 broker 소스를 준비했다.
-실제 외부 배포·등록, 공급자 응답의 안정적 subject 및 전체 로그인 성공은 아직
-별도 증거가 필요하다. QA health 성공이나 합성 broker 시험으로 이를 대체하지 않는다.
+현재 token-bound subject 구현은 외부 broker의
+`src/platform/rogichat-soop-identity.service.ts`와
+`src/platform/rogichat-soop-provider.client.ts`에서 확인했다. 실제 외부 배포·등록,
+일반 시청자·스트리머의 공급자 응답과 전체 로그인 성공은 아직 별도 증거가 필요하다. QA health 성공이나 합성 broker 시험으로 이를 대체하지 않는다.
