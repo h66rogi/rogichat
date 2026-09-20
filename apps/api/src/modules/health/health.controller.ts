@@ -1,5 +1,5 @@
 import { Controller, Get, Inject, ServiceUnavailableException } from '@nestjs/common';
-import type { Database } from '../../database.js';
+import type { Database } from '../../infrastructure/database/database.js';
 import { DATABASE } from '../../infrastructure/database/database.tokens.js';
 import { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
 

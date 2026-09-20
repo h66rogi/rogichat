@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApi } from '../../dist/application.js';
-import { SafeLogger } from '../../dist/logging.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 
 test('checked-in health contract matches live controller output exactly', async (t) => {
   const contract = JSON.parse(await readFile(new URL('../../../../packages/contracts/health.json', import.meta.url), 'utf8'));

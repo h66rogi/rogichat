@@ -47,6 +47,14 @@ Node 24.21.0 공식 bookworm/build와 bookworm-slim/runtime manifest digest를 D
 기본 build target은 `runtime`; migration tooling은 runtime image에 복사하지 않는다.
 Prisma engine은 migration target build 때 설치하고 network-disabled image smoke로 존재를 검사한다.
 
+Nest/Prisma 구조 전환 릴리스는 image만 교체하지 않는다. worker Compose healthcheck,
+서버에 설치한 `backend_release.py`의 인증 사전 검사, `migrate_entry.mjs`의 manifest import를
+같은 검토된 릴리스에 맞춘다. 현재 경로는 각각 `dist/infrastructure/database/database.js`,
+`dist/infrastructure/config/auth-config.js`, `dist/infrastructure/database/schema-manifest.js`다.
+옛 flat `dist` 파일을 호환용으로 남겨 성공시키지 않으며, clean build의 runtime-import 계약
+시험을 통과한 뒤 서버 helper도 검토·설치한다. MariaDB timeout 보완 패치는 frozen lockfile과
+함께 image install 단계에 포함되어야 한다. 상세 조건은 [ORM 결정](../backend-orm-first.md)을 따른다.
+
 ## 2. 배포 전 호스트 확인
 
 1. private ops의 승인된 QA 대상과 pinned host key를 사용한다. 검증되지 않은 host key를 자동
@@ -139,7 +147,8 @@ CSRF 재발급·IP rate-limit 식별의 연속성이 깨질 수 있다. 자동 k
    DSN/암호를 Docker CLI 인자, `docker -e DATABASE_URL=...`, image, Compose, artifact, 로그에 넣지 않는다.
    비밀을 container 설정 환경에 넣으면 docker inspect에 남으므로 파일 mount 후 내부 조합한다.
 4. 해당 Prisma 버전의 MySQL TLS/CA·hostname 검증 설정을 실제 QA에서 검증한다. runtime
-   mysql2의 TLS 성공이 Prisma CLI의 TLS 설정 검증을 대신하지 않는다. 검증 해제 옵션은 금지한다.
+   Prisma Client/driver adapter의 TLS 성공이 Prisma CLI의 TLS 설정 검증을 대신하지 않는다.
+   검증 해제 옵션은 금지한다.
 5. wrapper는 CLI의 `migrate deploy`로 고정하며 임의 인자를 받지 않는다. QA DB allowlist·한 번
    실행·실행시간 상한·실패 시 후속 rollout 중단·비밀 오류 redaction을 검증한다.
 6. 적용 결과를 migration 이름/checksum/성공 상태로 확인하고 임시 secret과 job container를 정리한다.

@@ -11,10 +11,10 @@ import { AUTH_CONFIG } from '../../dist/modules/auth/auth.tokens.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { cookie, cookieName, oauthCookieName, csrf, readSessionCredentials, readCommandCredentials } from '../../dist/modules/auth/auth-context.js';
-import { Sessions, ApiError, digest } from '../../dist/auth-core.js';
-import { AuthFlow } from '../../dist/auth-flow.js';
-import { Transactions } from '../../dist/transactions.js';
-import { authCors, AuthController as CompatibilityController } from '../../dist/auth-http.js';
+import { ApiError, digest } from '../../dist/modules/auth/auth-primitives.js';
+import { AuthFlow } from '../../dist/modules/auth/auth-flow.service.js';
+import { Transactions } from '../../dist/infrastructure/database/transactions.js';
+import { authCors } from '../../dist/common/http/auth-cors.js';
 
 const token = 'a'.repeat(43); const proof = 'b'.repeat(43);
 const config = () => ({ audience: 'auth-module-test', origin: 'http://localhost:3001',
@@ -30,6 +30,14 @@ async function fixture(t) {
   const tx = { writable: true,
     rows: async (...args) => { calls.push(['rows', ...args]); return [{ used, expired: 0 }]; },
     execute: async (...args) => { calls.push(['execute', ...args]); if (args[0].startsWith('UPDATE rate_buckets SET used=used+1')) used++; return { affectedRows: 1 }; },
+  };
+  tx.now = async () => new Date('2026-09-20T00:00:00Z');
+  tx.prisma = {
+    auth_sessions: { updateMany: async input => { calls.push(['revoke', input]); return { count: 1 }; } },
+    rate_buckets: {
+      createMany: async input => { calls.push(['rate.create', input]); return { count: 1 }; },
+      updateMany: async input => { calls.push(['rate.update', input]); if (input.data.used?.increment === 1) used++; return { count: 1 }; },
+    },
   };
   const transactions = {
     read: async run => { calls.push(['read']); return run({ ...tx, writable: false }); },
@@ -55,9 +63,9 @@ async function fixture(t) {
 test('AuthModule exports a narrow service/config boundary, with private session/flow/transaction providers', async t => {
   const f = await fixture(t);
   assert.deepEqual(f.module.exports, [AuthService, AUTH_CONFIG]);
-  assert.deepEqual(f.module.controllers, [AuthController]); assert.equal(CompatibilityController, AuthController);
+  assert.deepEqual(f.module.controllers, [AuthController]);
   for (const name of ['sessions', 'transactions', 'flow']) assert.equal(name in f.service, false);
-  for (const dependency of [Sessions, AuthFlow, Transactions, SessionRepository, SessionService]) {
+  for (const dependency of [AuthFlow, Transactions, SessionRepository, SessionService]) {
     class InvalidConsumer { constructor(value) { this.value = value; } }
     Inject(dependency)(InvalidConsumer, undefined, 0);
     class ConsumerModule {}
@@ -86,11 +94,11 @@ test('session projection and logout own bounded read/write transactions with man
   f.calls.length = 0;
   await assert.rejects(f.service.logout({ token }), { code: 'INVALID_REQUEST' }); assert.deepEqual(f.calls, []);
   await f.service.logout({ token, csrf: proof });
-  assert.deepEqual(f.calls.map(call => call[0]), ['write', 'require', 'execute']);
-  assert.deepEqual(f.calls[2].slice(1), ['UPDATE auth_sessions SET revoked_at=UTC_TIMESTAMP(3) WHERE id=?', [f.principal.sessionId]]);
+  assert.deepEqual(f.calls.map(call => call[0]), ['write', 'require', 'revoke']);
+  assert.deepEqual(f.calls[2][1], { where: { id: f.principal.sessionId }, data: { revoked_at: await f.tx.now() } });
   f.calls.length = 0; f.revoke();
   await assert.rejects(f.service.logout({ token, csrf: proof }), { code: 'UNAUTHENTICATED' });
-  assert.equal(f.calls.some(call => call[0] === 'execute'), false);
+  assert.equal(f.calls.some(call => call[0] === 'revoke'), false);
 });
 
 test('AuthService delegates OAuth start/callback/denial without introducing an outer transaction', async t => {
@@ -101,12 +109,20 @@ test('AuthService delegates OAuth start/callback/denial without introducing an o
   assert.deepEqual(f.calls, [['start', 'link', 'browser', token, proof], ['callback', 'state', 'code', 'browser', token], ['deny', 'state', 'browser']]);
 });
 
-test('Nest default factories build real Sessions/AuthFlow/HttpBroker and retain fail-closed missing broker config', async t => {
+test('Nest default factories build real SessionService/AuthFlow/HttpBroker and retain fail-closed missing broker config', async t => {
   const settings = config(); const id = randomUUID(); const sql = [];
   const tx = {
     writable: false,
     rows: async (query, params) => { sql.push([query, params]); return [{ id, user_id: randomUUID(), csrf_digest: digest(proof), status: 'ACTIVE', soop_status: 'VERIFIED' }]; },
     execute: async (query, params) => { sql.push([query, params]); return { affectedRows: 1 }; },
+  };
+  tx.now = async () => new Date('2026-09-20T00:00:00Z');
+  tx.prisma = {
+    auth_sessions: { findFirst: async input => { sql.push(['auth_sessions.findFirst', input]); return { id, user_id: randomUUID(), csrf_digest: digest(proof), user: { status: 'ACTIVE', soop: { status: 'VERIFIED' } } }; } },
+    login_transactions: {
+      create: async input => { sql.push(['login.create', input]); return { id: input.data.id }; },
+      updateMany: async input => { sql.push(['login.update', input]); return { count: 1 }; },
+    },
   };
   const transactions = { read: run => run(tx), write: run => run({ ...tx, writable: true }) };
   const registered = AuthModule.register(infrastructure(transactions), { config: settings });
@@ -118,10 +134,10 @@ test('Nest default factories build real Sessions/AuthFlow/HttpBroker and retain 
   const expected = createHmac('sha256', settings.key).update(`csrf:${settings.audience}:${token}`).digest('base64url');
   assert.equal(service.csrf(token), expected); assert.equal((await service.session({ token })).csrfToken, expected);
   assert.equal(calls.length, 1); assert.equal(calls[0][0], tx);
-  assert.equal(sql[0][1][1], settings.audience);
+  assert.equal(sql[0][1].where.audience, settings.audience);
   await assert.rejects(service.start('login', 'c'.repeat(43)), { code: 'AUTH_UNAVAILABLE' });
-  assert.equal(sql.filter(([query]) => query.startsWith('INSERT INTO login_transactions')).length, 1);
-  assert.equal(sql.filter(([query]) => query.startsWith('UPDATE login_transactions')).length, 1);
+  assert.equal(sql.filter(([query]) => query === 'login.create').length, 1);
+  assert.equal(sql.filter(([query]) => query === 'login.update').length, 1);
 });
 
 test('transport contexts preserve exact Origin/CSRF/cookie behavior without retaining Express requests', () => {
@@ -153,6 +169,7 @@ test('auth IP limits commit before OAuth failures, preserve HMAC scopes and enfo
   const firstWrite = f.calls.find(call => call[0] === 'execute');
   const expected = createHmac('sha256', f.settings.key).update('start:127.0.0.1').digest();
   assert.deepEqual(firstWrite[2], [expected, 60]);
+  assert.match(firstWrite[1], /ON DUPLICATE KEY UPDATE key_digest=key_digest$/);
   await assert.rejects(f.service.start('login', 'browser'), { code: 'AUTH_UNAVAILABLE' });
   assert.equal(f.used(), 1);
   f.setUsed(10); await assert.rejects(f.service.charge('start', '127.0.0.1'), { code: 'RATE_LIMITED' }); assert.equal(f.used(), 10);

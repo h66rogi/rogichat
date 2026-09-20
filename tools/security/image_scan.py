@@ -44,6 +44,27 @@ class Blocked(Exception):
     pass
 
 
+def public_failure_category(error):
+    """Return only a fixed label, never exception text or archive-controlled data."""
+    if not isinstance(error, Blocked):
+        return 'scanner_or_parser_failure'
+    reason = str(error)
+    if reason == 'secret findings require review':
+        return 'content_findings'
+    if reason in {'forbidden file in image', 'Terraform state or plan content', 'malformed Terraform state or plan content'}:
+        return 'content_policy'
+    if reason in {'tar header size limit exceeded', 'PAX metadata limit exceeded', 'GNU name limit exceeded',
+                  'archive stream byte limit exceeded', 'member limit exceeded', 'expanded content limit exceeded',
+                  'ZIP directory limit exceeded', 'archive depth exceeded', 'scanner report limit exceeded',
+                  'outer member limit exceeded', 'oversized image metadata'}:
+        return 'resource_limit'
+    if reason in {'OCI blob digest mismatch', 'image config or rootfs digest mismatch', 'truncated archive member'}:
+        return 'image_integrity'
+    if reason in {'unexpected scanner version', 'secret scanner failed', 'invalid scanner result', 'invalid scanner finding'}:
+        return 'scanner_failure'
+    return 'archive_or_policy_validation'
+
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -369,7 +390,7 @@ def main():
                     json.dump({'reason': str(error) if isinstance(error, Blocked) else type(error).__name__, 'layers': scanner.layers, 'entries': scanner.members, 'failures': scanner.failures}, destination)
             except OSError:
                 pass
-        print('Image scan blocked: content, integrity, scanner or resource-limit validation failed. Review privately.', file=sys.stderr)
+        print(f'Image scan blocked: {public_failure_category(error)}. Review privately.', file=sys.stderr)
         return 1
     return 0
 

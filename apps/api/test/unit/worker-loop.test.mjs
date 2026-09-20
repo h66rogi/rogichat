@@ -1,8 +1,8 @@
+import { JobFailure } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { WorkerLoop } from '../../dist/worker-loop.js';
-import { JobFailure } from '../../dist/jobs.js';
+import { WorkerLoop } from '../../dist/modules/jobs/worker-loop.js';
 
 const barrier = () => { let release; return { wait: new Promise(resolve => { release = resolve; }), release: value => release(value) }; };
 const lease = (purpose = 'PUBLICATION', patch = {}) => ({ id: randomUUID(), purpose, roomId: randomUUID(), resourceId: randomUUID(),

@@ -1,45 +1,35 @@
+import type { AuthConfig } from './infrastructure/config/auth-config.js';
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
-import { Catch, HttpException } from '@nestjs/common';
-import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
+import type { DynamicModule } from '@nestjs/common';
+import { SafeExceptionFilter } from './common/http/safe-exception.filter.js';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import express from 'express';
 import type { Express, Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import type { Server } from 'node:http';
-import type { Database } from './database.js';
+import type { Database } from './infrastructure/database/database.js';
 import { LifecycleState } from './common/lifecycle/lifecycle-state.js';
-import type { SafeLogger } from './logging.js';
-import { ApiError } from './auth-core.js';
-import { authCors } from './auth-http.js';
-import type { AuthRuntime } from './auth-http.js';
+import type { SafeLogger } from './infrastructure/observability/logging.js';
+import { authCors } from './common/http/auth-cors.js';
+import type { AuthModuleOptions } from './modules/auth/auth.module.js';
+import type { MediaOptions } from './modules/media/media.module.js';
 import { AppModule } from './app.module.js';
 import { WorkerModule } from './worker.module.js';
 
-@Catch()
-class SafeExceptionFilter implements ExceptionFilter {
-  catch(error: unknown, host: ArgumentsHost): void {
-    const response = host.switchToHttp().getResponse<Response>();
-    const status = error instanceof HttpException ? error.getStatus() :
-      (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large' ? 413 :
-        (error instanceof SyntaxError ? 400 : 500));
-    const code = error instanceof ApiError ? error.code : status === 503 ? 'UNAVAILABLE' : status === 404 ? 'NOT_FOUND' :
-      status === 413 ? 'PAYLOAD_TOO_LARGE' : status < 500 ? 'BAD_REQUEST' : 'INTERNAL_ERROR';
-    response.status(status).json({ error: { code } });
-  }
+export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthModuleOptions, media?: MediaOptions): Promise<NestExpressApplication> {
+  return createConfiguredApi(AppModule.register(database, lifecycle, auth, media), logger, lifecycle, auth?.config, Boolean(media));
 }
-
-export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthRuntime): Promise<NestExpressApplication> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule.register(database, lifecycle, auth), {
-    logger: false, abortOnError: false, bodyParser: false,
-  });
+export async function createConfiguredApi(module: DynamicModule, logger: SafeLogger, suppliedLifecycle?: LifecycleState, auth?: AuthConfig, media = false): Promise<NestExpressApplication> {
+  const app = await NestFactory.create<NestExpressApplication>(module, { logger: false, abortOnError: false, bodyParser: false });
+  const lifecycle = suppliedLifecycle ?? app.get<LifecycleState>(LifecycleState);
   const server: Express = app.getHttpAdapter().getInstance();
   server.disable('x-powered-by');
   server.disable('etag');
   // Hosted API is reachable only through one Caddy hop which overwrites X-Forwarded-For.
   // Do not enable on direct local/test listeners or expand to arbitrary proxy chains.
-  server.set('trust proxy', auth?.config.secure ? 1 : false);
+  server.set('trust proxy', auth?.secure ? 1 : false);
   server.use(helmet({ strictTransportSecurity: false }));
   server.use((request: Request, response: Response, next: NextFunction) => {
     const started = performance.now();
@@ -51,12 +41,16 @@ export async function createApi(database: Database, logger: SafeLogger, lifecycl
     if (lifecycle.draining && request.path !== '/live') { response.status(503).json({ error: { code: 'UNAVAILABLE' } }); return; }
     next();
   });
-  if (auth) authCors(server, auth.config);
-  server.use(express.json({ limit: '64kb', strict: true, inflate: false }));
+  if (auth) authCors(server, auth);
+  const json = express.json({ limit: '64kb', strict: true, inflate: false });
+  server.use((request: Request, response: Response, next: NextFunction) => {
+    if (request.method === 'POST' && /^\/v1\/media\/upload-intents\/[^/]+\/content$/.test(request.path)) { next(); return; }
+    json(request, response, next);
+  });
   // No static serving, Swagger UI, debug or test-auth routes.
   app.useGlobalFilters(new SafeExceptionFilter());
   const http: Server = app.getHttpServer();
-  http.requestTimeout = 15000;
+  http.requestTimeout = media ? 310000 : 15000;
   http.headersTimeout = 10000;
   http.keepAliveTimeout = 5000;
   http.maxRequestsPerSocket = 1000;

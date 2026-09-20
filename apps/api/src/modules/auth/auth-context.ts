@@ -1,10 +1,10 @@
 import type { Request } from 'express';
-import type { AuthConfig } from '../../auth-config.js';
-import { ApiError, digest, opaque } from '../../auth-core.js';
+import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
+import { ApiError, digest, opaque } from '../../modules/auth/auth-primitives.js';
 
 // Request-scoped values are passed explicitly, never retained on singleton services or logged.
 // Guard admission is not authorization for a later command: revalidate inside its transaction.
-export interface SessionCredentials { readonly token?: string; readonly csrf?: string }
+export interface SessionCredentials { readonly token?: string | undefined; readonly csrf?: string }
 export interface CommandCredentials extends SessionCredentials { readonly csrf: string }
 
 export function cookie(request: Request, name: string): string | undefined {

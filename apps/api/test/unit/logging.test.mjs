@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SafeLogger } from '../../dist/logging.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 
 test('structured logs discard secrets, errors, headers, URLs and untrusted context', () => {
   let output = '';

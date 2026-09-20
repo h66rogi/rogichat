@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 
-const lifecycleUrl = new URL('../../dist/lifecycle.js', import.meta.url).href;
-const loggingUrl = new URL('../../dist/logging.js', import.meta.url).href;
+const lifecycleUrl = new URL('../../dist/infrastructure/observability/lifecycle.js', import.meta.url).href;
+const loggingUrl = new URL('../../dist/infrastructure/observability/logging.js', import.meta.url).href;
 
 async function fixture(t, body, timeout = 3000) {
   const source = `import { installShutdown } from ${JSON.stringify(lifecycleUrl)};

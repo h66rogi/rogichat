@@ -1,14 +1,13 @@
+import { createUser, createRoom, joinRoom, Jobs, publishText } from '../support/domain-fixture.mjs';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { Sessions } from '../../dist/auth-core.js';
-import { createUser, createRoom, joinRoom } from '../../dist/repositories.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { createApi } from '../../dist/application.js';
-import { SafeLogger } from '../../dist/logging.js';
-import { Jobs } from '../../dist/jobs.js';
-import { publishText } from '../../dist/publications.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 import { reactionRefreshTargets } from '../../../../packages/contracts/interactions-client.mjs';
 
 async function fixture(t) {
@@ -16,7 +15,7 @@ async function fixture(t) {
   const db = new MysqlDatabase(readConfig('api')); let app;
   t.after(async () => { try { await app?.close(); } finally { await db.close(); } });
   const config = { audience: `http-${randomBytes(8).toString('hex')}`, origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
-  const sessions = new Sessions(db.transactions, config.audience, config.key);
+  const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const user = name => db.transactions.write(async tx => {
     const id = await createUser(tx, name);
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), id, Buffer.from(`fixture-http-${randomUUID()}`)]);

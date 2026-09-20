@@ -1,12 +1,13 @@
+import { createUser, createRoom, joinRoom, nextOrder } from '../support/domain-fixture.mjs';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { Sessions } from '../../dist/auth-core.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { createApi } from '../../dist/application.js';
-import { SafeLogger } from '../../dist/logging.js';
-import { createUser, createRoom, joinRoom, nextOrder } from '../../dist/repositories.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
@@ -14,7 +15,7 @@ async function fixture(t) {
   let app;
   t.after(async () => { try { await app?.close(); } finally { await db.close(); } });
   const config = { audience: 'community-fixture', origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
-  const sessions = new Sessions(db.transactions, config.audience, config.key);
+  const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   // Only this test process can issue fixture sessions; no production auth bypass route.
   const user = (name, { creator = false, admin = false, linked = true } = {}) => db.transactions.write(async tx => {
     const id = await createUser(tx, name);

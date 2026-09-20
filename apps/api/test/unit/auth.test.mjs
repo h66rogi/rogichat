@@ -4,9 +4,9 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readAuthConfig } from '../../dist/auth-config.js';
-import { HttpBroker } from '../../dist/broker.js';
-import { secret } from '../../dist/auth-core.js';
+import { readAuthConfig } from '../../dist/infrastructure/config/auth-config.js';
+import { HttpBroker } from '../../dist/modules/auth/broker.adapter.js';
+import { secret } from '../../dist/modules/auth/auth-primitives.js';
 
 test('auth secret config is strict, host-only origins are environment-bound, credentials never enter errors', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'rogi-auth-config-')); t.after(() => rm(directory, { recursive: true }));

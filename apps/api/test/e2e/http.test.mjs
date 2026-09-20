@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApi } from '../../dist/application.js';
-import { LifecycleState } from '../../dist/health.js';
-import { SafeLogger } from '../../dist/logging.js';
+import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 import { waitFor } from '../helpers.mjs';
 
 test('minimal HTTP contract, security headers, safe errors and current readiness', async (t) => {

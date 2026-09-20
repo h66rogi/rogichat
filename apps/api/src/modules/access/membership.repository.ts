@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import type { RowDataPacket } from 'mysql2';
-import type { Transaction } from '../../transactions.js';
+import type { Transaction } from '../../infrastructure/database/transactions.js';
 
-export interface ActiveMember extends RowDataPacket {
+export interface ActiveMember {
   id: string; room_id: string; user_id: string; role: 'FAN' | 'MEMBER' | 'STREAMER';
   mode: 'FAN' | 'GROUP'; active_period_id: string; visible_from_order: string;
 }
@@ -10,7 +9,9 @@ export interface ActiveMember extends RowDataPacket {
 @Injectable()
 export class MembershipRepository {
   async findActive(tx: Transaction, roomId: string, userId: string): Promise<ActiveMember | undefined> {
-    const [member] = await tx.rows<ActiveMember>(`SELECT m.id,m.room_id,m.user_id,m.role,m.active_period_id,r.mode,p.visible_from_order FROM room_members m JOIN rooms r ON r.id=m.room_id JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id WHERE m.room_id=? AND m.user_id=? AND m.status='ACTIVE' AND r.status='ACTIVE' AND p.left_at IS NULL${tx.writable ? ' FOR UPDATE' : ''}`, [roomId, userId]);
-    return member;
+    if (tx.writable) return (await tx.rows<ActiveMember>(`SELECT m.id,m.room_id,m.user_id,m.role,m.active_period_id,r.mode,p.visible_from_order FROM room_members m JOIN rooms r ON r.id=m.room_id JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id WHERE m.room_id=? AND m.user_id=? AND m.status='ACTIVE' AND r.status='ACTIVE' AND p.left_at IS NULL FOR UPDATE`, [roomId, userId]))[0];
+    const member = await tx.prisma.room_members.findFirst({ where: { room_id: roomId, user_id: userId, status: 'ACTIVE', room: { status: 'ACTIVE' }, active_period: { is: { left_at: null } } }, select: { id: true, room_id: true, user_id: true, role: true, active_period_id: true, room: { select: { mode: true } }, active_period: { select: { visible_from_order: true } } } });
+    return member?.active_period && member.active_period_id ? { id: member.id, room_id: member.room_id, user_id: member.user_id, role: member.role, active_period_id: member.active_period_id, mode: member.room.mode, visible_from_order: String(member.active_period.visible_from_order) } : undefined;
   }
+
 }

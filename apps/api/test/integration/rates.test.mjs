@@ -1,10 +1,10 @@
+import { createRoom, createUser, joinRoom, collectExpiredRates } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { createRoom, createUser, joinRoom, collectExpiredRates } from '../../dist/repositories.js';
-import { roomCommandRate } from '../../dist/rates.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { roomCommandRate } from '../../dist/infrastructure/rate-limit/room-command-rate.js';
 
 test('two DB pools share burst/minute command limits and GC cannot refund a live bucket', async t => {
   const first = new MysqlDatabase(readConfig('api')); const second = new MysqlDatabase(readConfig('api'));

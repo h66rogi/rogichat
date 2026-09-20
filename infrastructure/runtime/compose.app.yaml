@@ -91,7 +91,7 @@ services:
     # The current worker has no HTTP listener. This verifies its mounted runtime
     # configuration/DB schema, not job progress; check worker logs/backlog separately.
     healthcheck:
-      test: [CMD, node, --input-type=module, -e, "import {readConfig} from './dist/config.js';import {MysqlDatabase} from './dist/database.js';const db=new MysqlDatabase(readConfig('worker'));try{const r=await db.check();await db.close();process.exit(r.ready?0:1)}catch{process.exit(1)}"]
+      test: [CMD, node, --input-type=module, -e, "import {readConfig} from './dist/infrastructure/config/config.js';import {PrismaDatabase} from './dist/infrastructure/database/database.js';const db=new PrismaDatabase(readConfig('worker'));try{const r=await db.check();process.exitCode=r.ready?0:1}catch{process.exitCode=1}finally{await db.close()}"]
       interval: 30s
       timeout: 5s
       retries: 3

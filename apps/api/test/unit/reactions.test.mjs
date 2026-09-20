@@ -1,6 +1,6 @@
+import { reactionEmoji } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { reactionEmoji } from '../../dist/reactions.js';
 
 test('reaction accepts exactly one Unicode emoji including flag/ZWJ/modifier sequences, or null removal', () => {
   assert.equal(reactionEmoji(null), null);

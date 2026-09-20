@@ -86,10 +86,27 @@ jobs:
           migration_image="ghcr.io/h66rogi/rogichat-api-migration:qa-$SOURCE_SHA"
           test "$(docker image inspect --format '{{.Config.User}}' "$image")" = '10001:10001'
           test "$(docker image inspect --format '{{.Architecture}}' "$image")" = 'amd64'
-          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$image" \
-            --input-type=module -e "import fs from 'node:fs';import mysql from 'mysql2';if(process.getuid()!==10001||fs.existsSync('node_modules/prisma')||fs.existsSync('/run/secrets/database.json')||fs.existsSync('/app/.git'))process.exit(1);if(!mysql.createPool)process.exit(1)"
+          docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$image" \
+            --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import { createRequire } from 'node:module';
+          import { PrismaClient } from './dist/generated/prisma/client.js';
+          import { PrismaDatabase } from './dist/infrastructure/database/database.js';
+          import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+          assert.equal(process.getuid(), 10001);
+          for (const path of ['node_modules/prisma', 'node_modules/mysql2', '/run/secrets/database.json', '/app/.git']) assert.equal(fs.existsSync(path), false);
+          for (const entry of [PrismaClient, PrismaDatabase, PrismaMariaDb]) assert.equal(typeof entry, 'function');
+          const require = createRequire(import.meta.url);
+          const adapterRequire = createRequire(require.resolve('@prisma/adapter-mariadb'));
+          const driverRequire = createRequire(adapterRequire.resolve('mariadb/package.json'));
+          assert.equal(driverRequire('./package.json').version, '3.4.5');
+          const destroy = driverRequire('./lib/connection.js').prototype.destroy.toString();
+          assert.match(destroy, /this\.fatalError\(err, true\)/);
+          assert.doesNotMatch(destroy, /new Connection|new Quit|killCon/);
+          JS
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$migration_image" \
-            -e "const fs=require('node:fs');const path=require('node:path');const p=require('prisma/package.json');const engine=path.dirname(require.resolve('@prisma/engines/package.json',{paths:[require.resolve('prisma/package.json')]}));if(p.version!=='7.10.0'||!fs.existsSync(path.join(engine,'schema-engine-debian-openssl-3.0.x')))process.exit(1)"
+            -e "const fs=require('node:fs');const path=require('node:path');const p=require('prisma/package.json');const engine=path.dirname(require.resolve('@prisma/engines/package.json',{paths:[require.resolve('prisma/package.json')]}));if(p.version!=='7.10.0'||!fs.existsSync(path.join(engine,'schema-engine-debian-openssl-3.0.x'))||typeof require('mysql2/promise').createConnection!=='function')process.exit(1)"
           # Synthetic unreachable loopback DB only. No QA secret/network is used.
           fixture_password=$(openssl rand -hex 16)
           fixture_url="mysql://fixture:$fixture_password@127.0.0.1:3306/fixture"

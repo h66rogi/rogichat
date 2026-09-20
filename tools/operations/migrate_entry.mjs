@@ -111,7 +111,7 @@ export async function main() {
   const migrator = validateCredential(JSON.parse(fs.readFileSync(`${ROOT}/migrator.json`, 'utf8')),
     'rogichat_migrator', approval.database_host_sha256);
   if (runtime.host !== migrator.host) fail();
-  const {migrationManifest} = await import(pathToFileURL('/workspace/apps/api/dist/schema-manifest.js'));
+  const {migrationManifest} = await import(pathToFileURL('/workspace/apps/api/dist/infrastructure/database/schema-manifest.js'));
   if (JSON.stringify(migrationManifest) !== JSON.stringify(approval.migrations)) fail();
   const runtimeConnection = await connect(runtime);
   let migratorConnection;

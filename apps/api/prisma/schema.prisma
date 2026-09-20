@@ -1,3 +1,10 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
 datasource db {
   provider = "mysql"
 }
@@ -104,6 +111,11 @@ model users {
   admin                 admin_capabilities?
   owned_messages        messages[]
   deletions             deletion_requests[]
+  media                 media_assets[]
+  media_usage           media_daily_usage[]
+  registered_stickers   sticker_catalog[] @relation("sticker_registrar")
+  approved_stickers     sticker_catalog[] @relation("sticker_approver")
+  sticker_audit         sticker_audit_events[]
 }
 
 model user_profiles {
@@ -113,6 +125,8 @@ model user_profiles {
   birthday_day                  Int?    @db.UnsignedTinyInt
   birthday_visible_to_streamers Boolean @default(false)
   revision                      BigInt  @default(1) @db.UnsignedBigInt
+  avatar_asset_id               String? @unique @db.Char(36)
+  avatar                        media_assets? @relation(fields: [avatar_asset_id], references: [id], onDelete: Restrict)
   user                          users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
 }
 
@@ -175,6 +189,7 @@ model admin_capabilities {
   user_id      String  @id @db.Char(36)
   manage_rooms Boolean @default(false)
   manage_users Boolean @default(false)
+  manage_stickers Boolean @default(false)
   user         users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
 }
 
@@ -193,6 +208,8 @@ model rooms {
   counter         room_counters?
   streams         message_streams[]
   jobs            jobs[]
+  media           media_assets[]
+  media_policy    room_media_policy?
 }
 
 model room_counters {
@@ -336,6 +353,8 @@ model messages {
   reactions             message_reactions[]
   receipts              command_receipts[]
   deletion_requests     deletion_requests[]
+  attachments           message_attachments[]
+  sticker               message_stickers?
   @@unique([room_id, id])
   @@unique([room_id, stream_id, id])
   @@index([room_id, stream_id, created_order])
@@ -355,8 +374,151 @@ model message_publications {
   source                messages @relation("publication_source", fields: [room_id, source_message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
   result                messages? @relation("publication_result", fields: [room_id, published_message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
   publisher             room_members @relation(fields: [room_id, publisher_member_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  media                 publication_media[]
   @@unique([room_id, source_message_id, source_version])
   @@unique([room_id, id])
+}
+
+// Storage reservation includes input, every derived object and in-flight attempts.
+model media_budget {
+  id             String @id @db.VarChar(16)
+  reserved_bytes BigInt @default(0) @db.UnsignedBigInt
+  limit_bytes    BigInt @default(10737418240) @db.UnsignedBigInt
+}
+
+model media_daily_usage {
+  user_id     String @db.Char(36)
+  day         DateTime @db.Date
+  input_bytes BigInt @default(0) @db.UnsignedBigInt
+  user        users @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  @@id([user_id, day])
+}
+
+model media_assets {
+  id                 String @id @db.Char(36)
+  owner_user_id      String @db.Char(36)
+  room_id            String? @db.Char(36)
+  kind               String @db.VarChar(16)
+  content_type       String @db.VarChar(64)
+  state              String @default("RESERVED") @db.VarChar(16)
+  declared_bytes     BigInt @db.UnsignedBigInt
+  reserved_bytes     BigInt @db.UnsignedBigInt
+  upload_token       String? @db.Char(36)
+  upload_until       DateTime? @db.DateTime(3)
+  expires_at         DateTime @db.DateTime(3)
+  created_at         DateTime @default(now()) @db.DateTime(3)
+  deleted_at         DateTime? @db.DateTime(3)
+  owner              users @relation(fields: [owner_user_id], references: [id], onDelete: Restrict)
+  room               rooms? @relation(fields: [room_id], references: [id], onDelete: Restrict)
+  objects            media_objects[]
+  attachments        message_attachments[]
+  avatar_profile     user_profiles?
+  catalog_entry      sticker_catalog?
+  publication_sources publication_media[] @relation("publication_media_source")
+  publication_copy    publication_media? @relation("publication_media_destination")
+  @@unique([room_id, id])
+  @@index([owner_user_id, state, expires_at])
+  @@index([state, upload_until])
+}
+
+model media_objects {
+  id          String @id @db.Char(36)
+  asset_id    String @db.Char(36)
+  attempt_id  String @db.Char(36)
+  variant     String @db.VarChar(16)
+  object_key  String @unique @db.VarChar(191)
+  state       String @default("ALLOCATED") @db.VarChar(16)
+  byte_length BigInt? @db.UnsignedBigInt
+  sha256      String? @db.Char(64)
+  width       Int? @db.UnsignedInt
+  height      Int? @db.UnsignedInt
+  duration_ms Int? @db.UnsignedInt
+  created_at  DateTime @default(now()) @db.DateTime(3)
+  asset       media_assets @relation(fields: [asset_id], references: [id], onDelete: Restrict)
+  publication_sources publication_media[]
+  @@unique([asset_id, id])
+  @@unique([asset_id, attempt_id, variant])
+}
+
+model message_attachments {
+  id         String @id @db.Char(36)
+  room_id    String @db.Char(36)
+  message_id String @db.Char(36)
+  asset_id   String @db.Char(36)
+  position   Int @db.UnsignedTinyInt
+  message    messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  asset      media_assets @relation(fields: [room_id, asset_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([room_id, message_id, position])
+  @@index([asset_id])
+}
+
+model room_media_policy {
+  room_id       String @id @db.Char(36)
+  photo_enabled Boolean @default(true)
+  video_enabled Boolean @default(true)
+  sticker_enabled Boolean @default(true)
+  photo_max_bytes Int @default(10485760) @db.UnsignedInt
+  video_max_bytes Int @default(52428800) @db.UnsignedInt
+  room          rooms @relation(fields: [room_id], references: [id], onDelete: Restrict)
+}
+
+// Curated static stickers are reusable service assets, not user message uploads.
+// DRAFT expires normally; approved catalog references survive registrar account deletion.
+model sticker_catalog {
+  id                    String @id @db.Char(36)
+  asset_id              String @unique @db.Char(36)
+  status                String @default("DRAFT") @db.VarChar(16)
+  label                 String @db.VarChar(64)
+  registered_by_user_id String @db.Char(36)
+  approved_by_user_id   String? @db.Char(36)
+  approved_at           DateTime? @db.DateTime(3)
+  created_at            DateTime @default(now()) @db.DateTime(3)
+  asset                 media_assets @relation(fields: [asset_id], references: [id], onDelete: Restrict)
+  registrar             users @relation("sticker_registrar", fields: [registered_by_user_id], references: [id], onDelete: Restrict)
+  approver              users? @relation("sticker_approver", fields: [approved_by_user_id], references: [id], onDelete: Restrict)
+  messages              message_stickers[]
+  audit                 sticker_audit_events[]
+  @@index([status, id])
+}
+
+// Separate from room-owned PHOTO/VIDEO attachments: never weaken their scoped FK.
+model message_stickers {
+  room_id    String @db.Char(36)
+  message_id String @db.Char(36)
+  sticker_id String @db.Char(36)
+  message    messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  sticker    sticker_catalog @relation(fields: [sticker_id], references: [id], onDelete: Restrict)
+  @@id([room_id, message_id])
+}
+
+// Global catalog operations cannot use room-scoped audit_events or invent a room identifier.
+model sticker_audit_events {
+  id            String @id @db.Char(36)
+  sticker_id    String @db.Char(36)
+  actor_user_id String @db.Char(36)
+  action        String @db.VarChar(32)
+  created_at    DateTime @default(now()) @db.DateTime(3)
+  sticker       sticker_catalog @relation(fields: [sticker_id], references: [id], onDelete: Restrict)
+  actor         users @relation(fields: [actor_user_id], references: [id], onDelete: Restrict)
+  @@index([sticker_id, created_at])
+}
+
+// Durable provenance exists BEFORE any external copy, including before a public message exists.
+model publication_media {
+  id                   String @id @db.Char(36)
+  room_id              String @db.Char(36)
+  publication_id       String @db.Char(36)
+  position             Int @db.UnsignedTinyInt
+  source_asset_id      String @db.Char(36)
+  source_object_id     String @db.Char(36)
+  destination_asset_id String @unique @db.Char(36)
+  created_at           DateTime @default(now()) @db.DateTime(3)
+  publication          message_publications @relation(fields: [room_id, publication_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  source               media_assets @relation("publication_media_source", fields: [room_id, source_asset_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  source_object        media_objects @relation(fields: [source_asset_id, source_object_id], references: [asset_id, id], onDelete: Restrict, onUpdate: Restrict)
+  destination          media_assets @relation("publication_media_destination", fields: [room_id, destination_asset_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@unique([publication_id, position])
+  @@unique([room_id, destination_asset_id])
 }
 
 model message_reactions {

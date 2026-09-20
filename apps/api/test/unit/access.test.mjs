@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canReadMessage, canPublishSource, validBirthday, nickname } from '../../dist/access.js';
+import { canReadMessage, canPublishSource, validBirthday, nickname } from '../../dist/modules/access/access.policy.js';
 
 const actor = {
   accountActive: true, soopLinked: true, roomId: 'room-a', roomActive: true,

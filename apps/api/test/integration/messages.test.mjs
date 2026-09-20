@@ -1,20 +1,20 @@
+import { createUser, createRoom, joinRoom, nextOrder, sendInput, sendMessage } from '../support/domain-fixture.mjs';
+import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
-import { readConfig } from '../../dist/config.js';
-import { MysqlDatabase } from '../../dist/database.js';
-import { Sessions } from '../../dist/auth-core.js';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
+import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { createApi } from '../../dist/application.js';
-import { SafeLogger } from '../../dist/logging.js';
-import { createUser, createRoom, joinRoom, nextOrder } from '../../dist/repositories.js';
-import { sendInput, sendMessage } from '../../dist/messages.js';
+import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 
 async function fixture(t, mode = 'FAN') {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
   const db = new MysqlDatabase(readConfig('api')); let app;
   t.after(async () => { try { await app?.close(); } finally { await db.close(); } });
   const config = { audience: 'messages-fixture', origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
-  const sessions = new Sessions(db.transactions, config.audience, config.key);
+  const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const user = name => db.transactions.write(async tx => {
     const id = await createUser(tx, name);
     await tx.execute('INSERT INTO platform_soop (id,user_id,provider_subject,verified_at) VALUES (?,?,?,UTC_TIMESTAMP(3))', [randomUUID(), id, Buffer.from(`fixture-${randomUUID()}`)]);
@@ -219,9 +219,9 @@ test('message HTTP protects CSRF, exact input fields and room-scoped foreign-key
   assert.equal((await f.call(f.owner, 'GET', `/rooms/${other}/messages/${sent.body.messageId}`)).status, 404);
   const [source] = await f.db.transactions.read(tx => tx.rows('SELECT stream_id FROM messages WHERE id=?', [sent.body.messageId]));
   await assert.rejects(f.db.transactions.write(tx => tx.execute('INSERT INTO messages (id,room_id,stream_id,sender_member_id,content_owner_user_id,text_content,created_order) VALUES (?,?,?,?,?,?,?)',
-    [randomUUID(), other, source.stream_id, f.owner.actor, f.owner.id, 'cross-room forbidden', '1'])), error => [1452, 1216].includes(error.errno));
+    [randomUUID(), other, source.stream_id, f.owner.actor, f.owner.id, 'cross-room forbidden', '1'])), error => error.code === 'P2003' || error.meta?.driverAdapterError?.cause?.kind === 'ForeignKeyConstraintViolation' || [1452, 1216].includes(error.meta?.driverAdapterError?.cause?.code));
   await assert.rejects(f.db.transactions.write(tx => tx.execute('INSERT INTO command_receipts (id,room_id,actor_id,client_message_id,message_id) VALUES (?,?,?,?,?)',
-    [randomUUID(), other, f.owner.actor, randomUUID(), sent.body.messageId])), error => [1452, 1216].includes(error.errno));
+    [randomUUID(), other, f.owner.actor, randomUUID(), sent.body.messageId])), error => error.code === 'P2003' || error.meta?.driverAdapterError?.cause?.kind === 'ForeignKeyConstraintViolation' || [1452, 1216].includes(error.meta?.driverAdapterError?.cause?.code));
 });
 
 test('random missing room UUIDs consume a fixed account budget without creating attacker-controlled bucket cardinality', { timeout: 20000 }, async t => {

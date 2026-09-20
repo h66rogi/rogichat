@@ -5,7 +5,7 @@ import { Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DatabaseModule } from '../../dist/infrastructure/database/database.module.js';
 import { DATABASE } from '../../dist/infrastructure/database/database.tokens.js';
-import { Transactions } from '../../dist/transactions.js';
+import { Transactions } from '../../dist/infrastructure/database/transactions.js';
 import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
 
 test('database module shares explicit UnitOfWork and owns connection shutdown through Nest lifecycle', async () => {

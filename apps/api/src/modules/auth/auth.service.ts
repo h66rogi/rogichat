@@ -1,22 +1,23 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
-import { Sessions, ApiError, opaque } from '../../auth-core.js';
-import type { AuthConfig } from '../../auth-config.js';
-import type { Principal } from '../../auth-core.js';
-import { AuthFlow } from '../../auth-flow.js';
-import { Transactions } from '../../transactions.js';
-import type { Transaction } from '../../transactions.js';
+import { ApiError, opaque } from './auth-primitives.js';
+import { SessionService } from './session.service.js';
+import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
+import type { Principal } from '../../modules/auth/auth-primitives.js';
+import { AuthFlow } from './auth-flow.service.js';
+import { Transactions } from '../../infrastructure/database/transactions.js';
+import type { Transaction } from '../../infrastructure/database/transactions.js';
 import type { SessionCredentials } from './auth-context.js';
 import { SessionRepository } from './session.repository.js';
 import { AUTH_CONFIG } from './auth.tokens.js';
 
-/** Application boundary. Sessions is a compatibility adapter; AuthFlow repository extraction remains pending.
+/** Application boundary for session and OAuth use cases.
  * No dependency bag, public transaction accessor, request storage, or guard-result cache.
  */
 @Injectable()
 export class AuthService {
   constructor(
-    @Inject(Sessions) private readonly sessionStore: Sessions,
+    @Inject(SessionService) private readonly sessionStore: SessionService,
     @Inject(AuthFlow) private readonly oauth: AuthFlow,
     @Inject(Transactions) private readonly unitOfWork: Transactions,
     @Inject(SessionRepository) private readonly sessionRepository: SessionRepository,

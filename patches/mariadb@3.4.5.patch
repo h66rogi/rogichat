@@ -1,0 +1,83 @@
+diff --git a/lib/connection.js b/lib/connection.js
+--- a/lib/connection.js
++++ b/lib/connection.js
+@@ -715,69 +715,15 @@
+    * Force connection termination by closing the underlying socket and killing server process if any.
+    */
+   destroy() {
+-    this.addCommand = this.addCommandDisabled;
++    // Rogichat: bounded local transport teardown, without an auxiliary KILL
++    // connection or QUIT queued behind an active statement. Server execution
++    // cancellation is not guaranteed by TCP close; callers never replay COMMIT.
+     clearTimeout(this.timeout);
+-    if (this.status < Status.CLOSING) {
+-      this.status = Status.CLOSING;
+-      this.sendQueue.clear();
+-      if (this.receiveQueue.length > 0) {
+-        //socket is closed, but server may still be processing a huge select
+-        //only possibility is to kill process by another thread
+-        //TODO reuse a pool connection to avoid connection creation
+-        const self = this;
+-
+-        // relying on IP in place of DNS to ensure using same server
+-        const remoteAddress = this.socket.remoteAddress;
+-        const connOption = remoteAddress ? Object.assign({}, this.opts, { host: remoteAddress }) : this.opts;
+-
+-        const killCon = new Connection(connOption);
+-        killCon
+-          .connect()
+-          .then(() => {
+-            //*************************************************
+-            //kill connection
+-            //*************************************************
+-            new Promise(killCon.query.bind(killCon, { sql: `KILL ${self.info.threadId}` })).finally((err) => {
+-              const destroyError = Errors.createFatalError(
+-                'Connection destroyed, command was killed',
+-                Errors.ER_CMD_NOT_EXECUTED_DESTROYED,
+-                self.info
+-              );
+-              if (self.opts.logger.error) self.opts.logger.error(destroyError);
+-              self.socketErrorDispatchToQueries(destroyError);
+-              if (self.socket) {
+-                const sok = self.socket;
+-                process.nextTick(() => {
+-                  sok.destroy();
+-                });
+-              }
+-              self.status = Status.CLOSED;
+-              self.clear();
+-              new Promise(killCon.end.bind(killCon)).catch(() => {});
+-            });
+-          })
+-          .catch(() => {
+-            //*************************************************
+-            //failing to create a kill connection, end normally
+-            //*************************************************
+-            const ended = () => {
+-              let sock = self.socket;
+-              self.clear();
+-              self.status = Status.CLOSED;
+-              sock.destroy();
+-              self.receiveQueue.clear();
+-            };
+-            const quitCmd = new Quit(ended, ended);
+-            self.sendQueue.push(quitCmd);
+-            self.receiveQueue.push(quitCmd);
+-            if (self.sendQueue.length === 1) {
+-              process.nextTick(self.nextSendCmd.bind(self));
+-            }
+-          });
+-      } else {
+-        this.status = Status.CLOSED;
+-        this.socket.destroy();
+-        this.clear();
+-      }
+-    }
++    if (this.status >= Status.CLOSING) return;
++    const err = Errors.createFatalError(
++      'Connection destroyed by application deadline',
++      Errors.ER_CMD_NOT_EXECUTED_DESTROYED,
++      this.info
++    );
++    this.fatalError(err, true);
+   }

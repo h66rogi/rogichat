@@ -1,7 +1,7 @@
+import { sendInput } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { sendInput } from '../../dist/messages.js';
 
 const input = () => ({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 메시지' } });
 test('message input canonicalizes typed text, enforces code-point bounds, and rejects actor/audience injection', () => {

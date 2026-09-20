@@ -11,3 +11,7 @@ allowBuilds:
   prisma@7.10.0: true
   '@prisma/engines@7.10.0': true
   '*': false
+
+# Reviewed: hard-close timed-out transport without a second KILL connection.
+patchedDependencies:
+  mariadb@3.4.5: patches/mariadb@3.4.5.patch

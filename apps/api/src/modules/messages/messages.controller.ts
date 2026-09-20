@@ -1,6 +1,6 @@
 import { Controller, Get, HttpCode, Inject, Param, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
-import type { AuthConfig } from '../../auth-config.js';
+import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { object } from '../auth/auth-primitives.js';
 import { identifier } from '../../common/validation/identifier.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';

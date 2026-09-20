@@ -1,24 +1,25 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import type { Transaction } from '../../transactions.js';
+import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { ApiError, digest } from '../auth/auth-primitives.js';
 import { AccessService } from '../access/access.service.js';
-import type { ActiveMember } from '../access/membership.repository.js';
+import type { ActiveMember } from '../access/access.types.js';
 import { identifier } from '../../common/validation/identifier.js';
-import { nextOrder } from '../../repositories.js';
-import { canReadMessage } from '../../access.js';
-import { enqueueJob } from '../../jobs.js';
+import { RoomStateService } from '../rooms/room-state.service.js';
+import { canReadMessage } from '../access/access.policy.js';
+import { JobsCoreService } from '../jobs/jobs-core.service.js';
 import { MessagesRepository } from './messages.repository.js';
 import type { MessageRow } from './message.types.js';
 import type { SendInput } from './dto/send-message.dto.js';
 import { projectMessageDto } from './message-projection.js';
+import { RoomMediaCoreService } from '../media/room-media-core.service.js';
 
 // Transaction-scoped domain operations. Does not own a pool, session, request, or transaction.
 // HTTP admission belongs to MessagesService; workers use explicit trusted transaction ports.
 @Injectable()
 export class MessagesCoreService {
   constructor(@Inject(MessagesRepository) private readonly repository: MessagesRepository,
-    @Inject(AccessService) private readonly access: AccessService) {}
+    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService) {}
 
   load(tx: Transaction, roomId: string, messageId: string) { return this.repository.load(tx, roomId, messageId); }
 
@@ -84,7 +85,7 @@ export class MessagesCoreService {
 
   async recordEvent(tx: Transaction, row: { id: string; room_id: string; stream_id: string }, version: string, order: bigint, kind: 'MESSAGE_CREATED' | 'MESSAGE_DELETED' | 'MESSAGE_UPDATED') {
     const id = await this.repository.event(tx, row, version, order, kind);
-    await enqueueJob(tx, { purpose: 'REALTIME_HINT', roomId: row.room_id, resourceId: id, dedupeKey: digest(`hint:${id}`) });
+    await this.jobs.enqueue(tx, { purpose: 'REALTIME_HINT', roomId: row.room_id, resourceId: id, dedupeKey: digest(`hint:${id}`) });
   }
 
   // Caller revalidates the current session/account/SOOP on this SAME transaction handle.
@@ -109,10 +110,12 @@ export class MessagesCoreService {
       const quote = await this.load(tx, roomId, input.quoteId);
       if (!quote || !await this.readable(tx, viewer, quote) || (quote.stream_kind !== 'ROOM_SHARED' && quote.stream_id !== streamId)) throw new ApiError('NOT_FOUND', 404);
     }
-    const id = randomUUID(); const order = await nextOrder(tx, roomId);
+    const id = randomUUID(); const order = await this.roomState.nextOrder(tx, roomId);
     if (input.content.type !== 'TEXT') {
       for (const assetId of [...input.content.assetIds].sort()) {
-        if (!await this.repository.requireAsset(tx, roomId, userId, input.content.type, assetId)) throw new ApiError('NOT_FOUND', 404);
+        const asset = await this.repository.requireAsset(tx, roomId, userId, input.content.type, assetId);
+        if (!asset) throw new ApiError('NOT_FOUND', 404);
+        await this.roomMedia.requireRoomMedia(tx, roomId, input.content.type, asset.declaredBytes);
       }
     }
     await this.repository.insertMessage(tx, { id, roomId, streamId, actorId: viewer.id, userId, quoteId: input.quoteId, content: input.content, order });
@@ -130,9 +133,13 @@ export class MessagesCoreService {
     if (prior) return { requestId: String(prior.id), status: 'blocked' as const };
     const requestId = randomUUID();
     await this.repository.blockMessageAndCopies(tx, roomId, messageId, userId, requestId);
+    for (const asset of await this.repository.attachedAssets(tx, roomId, messageId)) {
+      await this.repository.blockAsset(tx, String(asset.id));
+      await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: String(asset.id), dedupeKey: digest(`media-message-delete:${asset.id}:${requestId}`) });
+    }
     const order = await this.repository.nextDeletionOrder(tx, roomId);
     await this.recordEvent(tx, { id: messageId, room_id: roomId, stream_id: String(row.stream_id) }, (BigInt(row.version as string) + 1n).toString(), order, 'MESSAGE_DELETED');
-    await enqueueJob(tx, { purpose: 'PURGE', roomId, resourceId: requestId, dedupeKey: digest(`purge:${requestId}`) });
+    await this.jobs.enqueue(tx, { purpose: 'PURGE', roomId, resourceId: requestId, dedupeKey: digest(`purge:${requestId}`) });
     return { requestId, status: 'blocked' as const };
   }
 }

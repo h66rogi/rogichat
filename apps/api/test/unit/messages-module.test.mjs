@@ -1,3 +1,4 @@
+import { MessagesQueryService } from '../../dist/modules/messages/messages-query.service.js';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -6,8 +7,8 @@ import { readFile } from 'node:fs/promises';
 import { Inject, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import ts from 'typescript';
-import { ApiError, Sessions } from '../../dist/auth-core.js';
-import { Transactions } from '../../dist/transactions.js';
+import { ApiError } from '../../dist/modules/auth/auth-primitives.js';
+import { Transactions } from '../../dist/infrastructure/database/transactions.js';
 import { AuthService } from '../../dist/modules/auth/auth.service.js';
 import { AUTH_CONFIG } from '../../dist/modules/auth/auth.tokens.js';
 import { MessagesCoreModule } from '../../dist/modules/messages/messages-core.module.js';
@@ -41,6 +42,11 @@ async function fixture(t, options = {}) {
         return { affectedRows: 1 };
       },
     };
+    tx.now = async () => new Date('2026-09-20T00:00:00Z');
+    tx.prisma = { room_members: { findMany: async input => { calls.push({ kind: 'prisma.findMany', tx, input }); return [{ id: randomUUID() }]; } }, rate_buckets: {
+      createMany: async input => { calls.push({ kind: 'prisma.createMany', tx, input }); return { count: 1 }; },
+      updateMany: async input => { calls.push({ kind: 'prisma.updateMany', tx, input }); if (input.data.used?.increment === 1) pendingCharges++; return { count: 1 }; },
+    } };
     handles.push(tx); calls.push({ kind: writable ? 'write.begin' : 'read.begin', tx });
     try {
       const result = await operation(tx);
@@ -81,9 +87,9 @@ test('MessagesCoreModule boots standalone without auth, HTTP or UnitOfWork provi
   const app = await NestFactory.createApplicationContext(MessagesCoreModule, { logger: false, abortOnError: false });
   t.after(() => app.close());
   assert.ok(app.get(MessagesCoreService) instanceof MessagesCoreService);
-  assert.deepEqual(Reflect.getMetadata('exports', MessagesCoreModule), [MessagesCoreService]);
+  assert.deepEqual(Reflect.getMetadata('exports', MessagesCoreModule), [MessagesCoreService, MessagesQueryService]);
   assert.deepEqual(Reflect.getMetadata('controllers', MessagesCoreModule) ?? [], []);
-  for (const token of [AuthService, AUTH_CONFIG, Sessions, Transactions, MessagesService, MessagesController]) assert.throws(() => app.get(token));
+  for (const token of [AuthService, AUTH_CONFIG, Transactions, MessagesService, MessagesController]) assert.throws(() => app.get(token));
   class InvalidConsumer { constructor(repository) { this.repository = repository; } }
   Inject(MessagesRepository)(InvalidConsumer, undefined, 0);
   class ConsumerModule {}
@@ -103,7 +109,7 @@ test('MessagesService send independently commits rate charge then reauthenticate
   const sent = f.calls.find(call => call.kind === 'send'); assert.equal(sent.tx, checks[1].tx);
   assert.equal(sent.userId, f.principal.userId); assert.equal(sent.content, f.input); assert.equal(sent.key, f.settings.key);
   assert.ok(f.calls.findIndex(call => call.kind === 'commit' && call.tx === f.handles[0]) < f.calls.findIndex(call => call.kind === 'write.begin' && call.tx === f.handles[1]));
-  assert.ok(f.calls.filter(call => ['rows', 'execute'].includes(call.kind)).every(call => call.tx === f.handles[0]));
+  assert.ok(f.calls.filter(call => ['rows', 'execute', 'prisma.createMany', 'prisma.updateMany', 'prisma.findMany'].includes(call.kind)).every(call => call.tx === f.handles[0]));
 });
 
 test('a revoked second authentication prevents the command without refunding the committed rate charge', async t => {
@@ -125,7 +131,7 @@ test('first authentication or rate denial never begins a command; domain failure
     await assert.rejects(f.service.send(f.credentials, f.roomId, f.input), { code });
     assert.equal(f.handles.length, transactions); assert.equal(f.charges(), charges);
     assert.equal(f.calls.filter(call => call.kind === 'send').length, options.commandDenied ? 1 : 0);
-    if (options.authDenied) assert.equal(f.calls.some(call => ['rows', 'execute'].includes(call.kind)), false);
+    if (options.authDenied) assert.equal(f.calls.some(call => ['rows', 'execute', 'prisma.createMany', 'prisma.updateMany', 'prisma.findMany'].includes(call.kind)), false);
   }
 });
 
@@ -138,7 +144,7 @@ test('get requires SOOP on its read handle while author removal uses its write h
   assert.deepEqual(checks.map(call => call.requireSoop), [true, false]);
   assert.equal(f.calls.find(call => call.kind === 'get').tx, checks[0].tx);
   assert.equal(f.calls.find(call => call.kind === 'remove').tx, checks[1].tx);
-  assert.equal(f.calls.some(call => ['rows', 'execute'].includes(call.kind)), false);
+  assert.equal(f.calls.some(call => ['rows', 'execute', 'prisma.createMany', 'prisma.updateMany', 'prisma.findMany'].includes(call.kind)), false);
 });
 
 test('application commands reject missing or malformed CSRF before opening any transaction', async t => {
