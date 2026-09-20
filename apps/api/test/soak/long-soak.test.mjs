@@ -11,7 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { io } from 'socket.io-client';
 import sharp from 'sharp';
 import { ReferenceRoomCache, syncPolicy } from '../../../../packages/contracts/sync-client.mjs';
-import { createUser, createRoom, joinRoom, assignRoomOwner, reserveMedia, beginUpload, finishUpload } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, joinRoom, assignRoomOwner, reserveMedia, beginUpload, finishUpload, acknowledgeMediaWrite } from '../support/domain-fixture.mjs';
 import { newIntentScope } from '../support/membership-scope-fixture.mjs';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
@@ -98,12 +98,34 @@ test('MVP: ten clients, thirty minutes at one message/sec with real video and pr
     const intent = await db.transactions.write(tx => reserveMedia(tx, people[0].id, room, { kind: 'VIDEO', contentType: 'video/mp4', byteLength: bytes }));
     const attempt = await db.transactions.write(tx => beginUpload(tx, people[0].id, intent.assetId, 'test'));
     await store.put(attempt.key, input, bytes, 'video/mp4', AbortSignal.timeout(10000));
-    await db.transactions.write(tx => finishUpload(tx, people[0].id, attempt, bytes, hash));
+    await db.transactions.write(tx => acknowledgeMediaWrite(tx, attempt.assetId, attempt.objectId, attempt.key));
+    const finalized = await db.transactions.write(tx => finishUpload(tx, people[0].id, attempt, bytes, hash));
+    assert.deepEqual(finalized, { assetId: attempt.assetId, status: 'processing' });
     videoAssets.push(attempt.assetId); return attempt.assetId;
   }
   async function readyVideo(id) { return db.transactions.read(async tx => (await tx.prisma.media_assets.findUnique({ where: { id }, select: { state: true } }))?.state === 'READY'); }
   // Fail early on decoder/storage/worker wiring; never spend thirty minutes before detecting a bad fixture.
-  const preflight = await video(); await waitFor(() => readyVideo(preflight), 90000);
+  const preflightStarted = performance.now();
+  try {
+    const preflight = await video(); await waitFor(() => readyVideo(preflight), 90000);
+    const outputs = await db.transactions.read(tx => tx.prisma.media_objects.findMany({ where: { asset_id: preflight, state: 'READY', variant: { in: ['video', 'poster'] } }, select: { object_key: true, variant: true } }));
+    assert.equal(outputs.length, 2);
+    for (const output of outputs) {
+      if (output.variant === 'video') {
+        const { stdout } = await exec('/usr/bin/ffprobe', ['-v', 'error', '-show_streams', '-of', 'json', store.path(output.object_key)], { maxBuffer: 65536 });
+        assert.deepEqual(JSON.parse(stdout).streams.map(stream => stream.codec_name), ['h264', 'aac']);
+      } else assert.equal((await sharp(store.path(output.object_key)).metadata()).format, 'webp');
+    }
+    await evidence('video-preflight', { outcome: 'passed', elapsedMs: performance.now() - preflightStarted, workerFrames: frames, inputBytes: bytes, realPutAcknowledged: true, canonicalOutputs: 2, timedWorkloadStarted: false });
+  } catch (error) {
+    const state = await db.transactions.read(async tx => ({
+      assets: await tx.prisma.media_assets.findMany({ where: { id: { in: videoAssets } }, select: { state: true } }),
+      jobs: await tx.prisma.jobs.findMany({ where: { resource_id: { in: videoAssets } }, select: { state: true, generation: true, attempts: true, last_error_code: true } }),
+    }));
+    await evidence('video-preflight', { outcome: 'failed', elapsedMs: performance.now() - preflightStarted, workerFrames: frames, errors, state: JSON.parse(JSON.stringify(state, (_key, value) => typeof value === 'bigint' ? String(value) : value)), timedWorkloadStarted: false });
+    throw error;
+  }
+  if (process.env.M12_PREFLIGHT_ONLY === 'true') return;
   const headers = p => ({ Origin: 'http://localhost:3001', Cookie: `rogi_session=${p.token}`, 'X-CSRF-Token': p.csrf, 'Content-Type': 'application/json' });
   async function sync(p) {
     if (stopping) return;
@@ -141,6 +163,7 @@ test('MVP: ten clients, thirty minutes at one message/sec with real video and pr
   await waitFor(() => people.every(p => p.socket.connected), 15000);
   intervals.push(setInterval(() => { for (const p of people) void sync(p); }, syncPolicy.foregroundMs));
   const start = performance.now(); crashArmed = true;
+  await evidence('timed-workload-start', { outcome: 'started', connections: 10, durationMs: DURATION, commands: COMMANDS });
   async function restart() {
     restarting = true; restartAt = performance.now(); api.proc.kill('SIGKILL'); await api.exited;
     api = await startApi(); restarting = false;

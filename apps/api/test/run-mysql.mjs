@@ -105,6 +105,7 @@ try {
       DATABASE_URL: runtimeUrl, TEST_ADMIN_URL: adminUrl, ROGICHAT_TEST_MYSQL: 'disposable',
       M12_EVIDENCE_DIR: process.env.M12_EVIDENCE_DIR ?? '',
       M12_SOURCE_SHA: process.env.M12_SOURCE_SHA ?? '',
+      M12_PREFLIGHT_ONLY: process.env.M12_PREFLIGHT_ONLY ?? '',
     },
   });
   const [code] = await once(testProcess, 'exit');

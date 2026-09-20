@@ -1,4 +1,7 @@
 import 'reflect-metadata';
+import { Module } from '@nestjs/common';
+import { MediaWriteProofModule } from '../../dist/modules/media/media-write-proof.module.js';
+import { MediaWriteProofService } from '../../dist/modules/media/media-write-proof.service.js';
 import { NestFactory } from '@nestjs/core';
 import { MessagesCoreModule } from '../../dist/modules/messages/messages-core.module.js';
 import { MessagesCoreService } from '../../dist/modules/messages/messages-core.service.js';
@@ -18,12 +21,14 @@ import { DiskStore } from './disk-store.mjs';
 isolated();
 const [directory, socket, objects] = process.argv.slice(2);
 const db = new MysqlDatabase(readConfig('worker'));
-const context = await NestFactory.createApplicationContext(MessagesCoreModule, { logger: false, abortOnError: false });
+class SoakWorkerModule {}
+Module({ imports: [MessagesCoreModule, MediaWriteProofModule] })(SoakWorkerModule);
+const context = await NestFactory.createApplicationContext(SoakWorkerModule, { logger: false, abortOnError: false });
 const repository = new JobsRepository(), core = new JobsCoreService(repository);
 const jobs = new Jobs(db.transactions, 'worker', repository, core);
 const client = new UnixImageDecoder(socket, new MediaSpooler({ directory, maxConcurrent: 1, capacityBytes: 64 * 1024 * 1024 }));
 const decoder = { decodeVideo(...args) { process.send({ type: 'decode-start' }); return client.decodeVideo(...args); } };
-const service = new MediaWorkerService(db.transactions, new DiskStore(objects), decoder, 'test', new MediaWorkerRepository(), core, context.get(AccessService), context.get(MessagesCoreService));
+const service = new MediaWorkerService(db.transactions, new DiskStore(objects), decoder, 'test', new MediaWorkerRepository(), core, context.get(AccessService), context.get(MessagesCoreService), context.get(MediaWriteProofService));
 const lifecycle = { draining: false };
 const loop = new WorkerLoop(jobs, lifecycle, { MEDIA: async lease => {
   process.send({ type: 'start', assetId: lease.resourceId, generation: String(lease.generation) });

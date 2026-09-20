@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   mvp-soak:
-    if: github.event.label.name == 'm12-soak'
+    if: github.event.label.name == 'm12-soak' || github.event.label.name == 'm12-video-preflight'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     services:
@@ -50,9 +50,10 @@ jobs:
           sudo apt-get install --yes --no-install-recommends ffmpeg 2>&1 | tee -a "$RUNNER_TEMP/m12-soak-evidence/native-install.log"
           ffmpeg -version | tee "$RUNNER_TEMP/m12-soak-evidence/ffmpeg-version.log"
           ffprobe -version | tee "$RUNNER_TEMP/m12-soak-evidence/ffprobe-version.log"
-      - name: Execute 30-minute text and real video overlap with process failures
+      - name: Execute bounded video preflight or full 30-minute soak
         env:
           ROGICHAT_TEST_MYSQL: disposable
+          M12_PREFLIGHT_ONLY: ${{ github.event.label.name == 'm12-video-preflight' && 'true' || 'false' }}
           TEST_MYSQL_PORT: ${{ job.services.mysql.ports[3306] }}
           TEST_MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
           M12_EVIDENCE_DIR: ${{ runner.temp }}/m12-soak-evidence

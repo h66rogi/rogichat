@@ -81,6 +81,7 @@ export const publishText = bind(PublicationsCoreService, 'publishText');
 export const reserveMedia = bind(MediaCoreService, 'reserveMedia');
 export const mediaStatus = bind(MediaCoreService, 'mediaStatus');
 export const beginUpload = bind(MediaCoreService, 'beginUpload');
+export const acknowledgeMediaWrite = bind(MediaWriteProofService, 'acknowledge');
 export const finishUpload = bind(MediaCoreService, 'finishUpload');
 export const failUpload = bind(MediaCoreService, 'failUpload');
 export const authorizedMediaObject = bind(MediaCoreService, 'authorizedMediaObject');
