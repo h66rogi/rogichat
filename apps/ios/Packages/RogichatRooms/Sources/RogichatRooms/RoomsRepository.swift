@@ -12,10 +12,11 @@ public extension RoomsFetching {
 }
 // Retained for an account scope by the product composition. Screen cancellation
 // only removes an observer; it cannot release the command ticket or replay HTTP.
-public actor RoomsRepository: RoomsCoordinating {
+public actor RoomsRepository: RoomsCoordinating, RoomsConversationOpening {
     private let remote: any RoomsFetching
     private let storage: RoomsStorage
     private let scope: RoomsScope
+    private var conversations: [String: RoomConversationCoordinator] = [:]
     private var busy = false
     private var revision = UUID()
     private var discoveryRevision: String?
@@ -26,6 +27,7 @@ public actor RoomsRepository: RoomsCoordinating {
     }
     public func refresh() async throws -> RoomsListing {
         guard commandTask == nil else { throw RoomCommandError.inProgress }
+        closeConversations()
         // A refresh supersedes previous read IO, never an owned command.
         revision = UUID(); let ticket = revision; busy = true; authorityCycle = nil
         defer { if ticket == revision { busy = false } }
@@ -58,6 +60,7 @@ public actor RoomsRepository: RoomsCoordinating {
         guard commandTask == nil, !busy else { throw RoomCommandError.inProgress }
         guard intent.scope === scope, authorityCycle == intent.cycle else { throw RoomCommandError.confirmationChanged }
         try scope.check()
+        closeConversations()
         revision = UUID(); let ticket = revision; busy = true; authorityCycle = nil
         let db: RoomsDatabase
         let request: ManifestRequest
@@ -106,6 +109,20 @@ public actor RoomsRepository: RoomsCoordinating {
             guard let next = try db.manifestPage(page, request: request) else { return }
             request = next
         }
+    }
+    public func openConversation(roomID: String, cycle: String) throws -> any ConversationCoordinating {
+        guard !busy, commandTask == nil, authorityCycle == cycle, let remote = remote as? any ConversationFetching else { throw ConversationError.staleScope }
+        try scope.check()
+        if let existing = conversations[roomID], (try? existing.scope.check()) != nil { return existing }
+        let database = try storage.open(scope: scope)
+        let context = try database.beginConversation(roomID: roomID, cycle: cycle)
+        let coordinator = RoomConversationCoordinator(scope: context, remote: remote, database: database)
+        conversations[roomID] = coordinator
+        return coordinator
+    }
+    private func closeConversations() {
+        conversations.values.forEach { $0.scope.invalidate() }
+        conversations = [:]
     }
     private func current(_ ticket: UUID) throws {
         try scope.check()

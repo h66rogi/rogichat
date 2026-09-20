@@ -6,7 +6,7 @@ import GRDB
 public final class RoomsDatabase: @unchecked Sendable {
     private let queue: DatabaseQueue
     public let scope: RoomsScope
-    private let deviceID: String
+    let deviceID: String
     private var closed = false
     private let lock = NSRecursiveLock()
     let beforeCommit: @Sendable (Database) throws -> Void
@@ -30,6 +30,14 @@ public final class RoomsDatabase: @unchecked Sendable {
             try db.execute(sql: "CREATE TABLE staging (id TEXT PRIMARY KEY NOT NULL, value BLOB NOT NULL)")
             try db.execute(sql: "CREATE TABLE visited_cursors (value TEXT PRIMARY KEY NOT NULL)")
         }
+        migrator.registerMigration("conversation-v1") { db in
+            try db.execute(sql: "CREATE TABLE conversation (room TEXT PRIMARY KEY NOT NULL, cache TEXT NOT NULL, profileCache TEXT NOT NULL, membership TEXT NOT NULL, authority TEXT NOT NULL, cycle TEXT NOT NULL, ready INTEGER NOT NULL DEFAULT 0, eventCursor TEXT, historyCursor TEXT, profileGeneration TEXT, profileNext TEXT, profileComplete INTEGER NOT NULL DEFAULT 0)")
+            try db.execute(sql: "CREATE TABLE timeline (room TEXT NOT NULL, id TEXT NOT NULL, version TEXT NOT NULL, createdAt TEXT, deleted INTEGER NOT NULL CHECK(deleted IN (0,1)), hidden INTEGER NOT NULL DEFAULT 0 CHECK(hidden IN (0,1)), value BLOB, PRIMARY KEY(room,id), CHECK((deleted=1 AND value IS NULL) OR (deleted=0 AND ((hidden=1 AND value IS NULL) OR (hidden=0 AND value IS NOT NULL AND createdAt IS NOT NULL)))))")
+            try db.execute(sql: "CREATE TABLE conversation_profiles (room TEXT NOT NULL, actor TEXT NOT NULL, value BLOB NOT NULL, PRIMARY KEY(room,actor))")
+            try db.execute(sql: "CREATE TABLE profile_staging (room TEXT NOT NULL, actor TEXT NOT NULL, value BLOB NOT NULL, PRIMARY KEY(room,actor))")
+            try db.execute(sql: "CREATE TABLE conversation_cursors (room TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(room,kind,value))")
+            try db.execute(sql: "CREATE TABLE text_commands (room TEXT NOT NULL, id TEXT NOT NULL, membership TEXT NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('queued','sending','unknown','committed','deleted','rejected','blocked','settled')), payload BLOB, message TEXT, version TEXT, ordinal INTEGER NOT NULL, PRIMARY KEY(room,id))")
+        }
         try migrator.migrate(queue)
         try scope.withCurrent {
             try queue.write { db in
@@ -52,20 +60,25 @@ public final class RoomsDatabase: @unchecked Sendable {
         }
         #endif
     }
-    private func write<T>(_ operation: (Database) throws -> T) throws -> T {
+    func write<T>(conversation: ConversationScope? = nil, _ operation: (Database) throws -> T) throws -> T {
         try lock.withLock {
             guard !closed else { throw RoomsError.staleScope }
             return try queue.writeWithoutTransaction { db in
                 try scope.withCurrent {
-                    var output: T?
-                    try db.inTransaction {
-                        try verify(db)
-                        output = try operation(db)
-                        try beforeCommit(db)
-                        try scope.check()
-                        return .commit
+                    func transaction() throws -> T {
+                        var output: T?
+                        try db.inTransaction {
+                            try self.verify(db)
+                            if let conversation { try self.verifyConversation(db, conversation) }
+                            output = try operation(db)
+                            try self.beforeCommit(db)
+                            try self.scope.check()
+                            return .commit
+                        }
+                        return output!
                     }
-                    return output!
+                    if let conversation { return try conversation.withCurrent(transaction) }
+                    return try transaction()
                 }
             }
         }
@@ -135,6 +148,7 @@ public final class RoomsDatabase: @unchecked Sendable {
             try db.execute(sql: "UPDATE manifest SET generation=?,next=?", arguments: [page.generation, page.nextCursor])
             if page.complete {
                 try db.execute(sql: "DELETE FROM memberships; INSERT INTO memberships SELECT * FROM staging; DELETE FROM staging")
+                try reconcileConversationAuthority(db)
                 try db.execute(sql: "UPDATE metadata SET confirmed=1; UPDATE manifest SET complete=1")
                 return nil
             }

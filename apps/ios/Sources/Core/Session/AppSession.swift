@@ -75,6 +75,10 @@ enum ProductError: Error, LocalizedError, Equatable {
     }
 }
 
+protocol ConversationAuthorizing: Sendable {
+    func conversationData(_ endpoint: ConversationRequest, scope: ConversationScope) async throws -> Data
+}
+
 protocol RoomsAuthorizing: Sendable {
     func roomsData(_ endpoint: RoomsQuery, scope: RoomsScope) async throws -> Data
     func roomsCommand(_ intent: RoomCommandIntent) async throws -> Data
@@ -315,6 +319,19 @@ final class AppSession {
             guard ticket == generation else { return }
             deferredAuthCallback = nil
             busy = false; access = .retryableFailure; errorMessage = ProductError.secureStorage.errorDescription
+        }
+    }
+    func conversationData(_ endpoint: ConversationRequest, scope: ConversationScope) async throws -> Data {
+        guard !busy, access == .ready, roomsScope === scope.account, let service = service as? any ConversationAuthorizing else { throw ConversationError.staleScope }
+        let ticket = generation
+        do {
+            try scope.check()
+            let data = try await service.conversationData(endpoint, scope: scope)
+            guard ticket == generation, roomsScope === scope.account else { throw ConversationError.staleScope }
+            try scope.check(); return data
+        } catch {
+            await handleAccountError(error, ticket: ticket)
+            throw error
         }
     }
     func roomsData(_ endpoint: RoomsQuery, scope: RoomsScope) async throws -> Data {

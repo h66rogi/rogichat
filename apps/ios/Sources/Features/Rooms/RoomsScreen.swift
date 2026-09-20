@@ -3,10 +3,12 @@ import RogichatRooms
 
 struct RoomsScreen: View {
     @State private var model: RoomsScreenModel
+    let onOpenConversation: () -> Void
+    @State private var visible = false
     @State private var query = ""
     @State private var leaving: RoomCommandIntent?
     @Environment(\.scenePhase) private var scenePhase
-    init(model: RoomsScreenModel) { _model = State(initialValue: model) }
+    init(model: RoomsScreenModel, onOpenConversation: @escaping () -> Void) { _model = State(initialValue: model); self.onOpenConversation = onOpenConversation }
     var body: some View {
         Group {
             if let listing = model.listing {
@@ -24,7 +26,9 @@ struct RoomsScreen: View {
                             Text(query.isEmpty ? "참여한 대화방이 없어요." : "검색한 대화방이 없어요.").foregroundStyle(.secondary)
                         }
                         ForEach(joined) { room in
-                            roomRow(name: room.name, mode: room.mode) {
+                            roomRow(name: room.name, mode: room.mode, open: {
+                                Task { if await model.openConversation(roomID: room.id, displayedCycle: listing.cycle) { onOpenConversation() } }
+                            }) {
                                 Button("나가기", role: .destructive) {
                                     leaving = model.selection(roomID: room.id, roomName: room.name, displayedCycle: listing.cycle, action: .leave, membership: room.membershipScope)
                                 }.buttonStyle(.borderless).disabled(!model.canAct).accessibilityLabel("\(room.name)에서 나가기")
@@ -59,8 +63,10 @@ struct RoomsScreen: View {
         }
         .searchable(text: $query, prompt: "불러온 대화방 검색")
         .task { await model.refreshIfNeeded() }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active, model.listing != nil { Task { await model.refresh() } }
+            if phase == .active, visible, model.listing != nil { Task { await model.refresh() } }
         }
         .refreshable { await model.refresh() }
         // Selected-row presenting alert adapted from Meloming MyReviewsView.
@@ -72,9 +78,17 @@ struct RoomsScreen: View {
         }
     }
     private func matches(_ name: String) -> Bool { query.isEmpty || name.localizedCaseInsensitiveContains(query) }
-    private func roomRow<Action: View>(name: String, mode: String, @ViewBuilder action: () -> Action) -> some View {
+    private func roomRow<Action: View>(name: String, mode: String, open: (() -> Void)? = nil, @ViewBuilder action: () -> Action) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 14) {
+            if let open {
+                Button(action: open) { roomIdentity(name: name, mode: mode) }.buttonStyle(.plain).disabled(!model.canAct)
+                    .accessibilityLabel("\(name) 대화 열기")
+            } else { roomIdentity(name: name, mode: mode) }
+            action().frame(maxWidth: .infinity, alignment: .trailing)
+        }.padding(.vertical, 5).accessibilityElement(children: .contain)
+    }
+    private func roomIdentity(name: String, mode: String) -> some View {
+        HStack(spacing: 14) {
                 Image(systemName: mode == "FAN" ? "bubble.left.and.bubble.right" : "person.2")
                     .font(.title3).foregroundStyle(AppTheme.accent)
                     .frame(width: 48, height: 48).background(AppTheme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
@@ -84,8 +98,6 @@ struct RoomsScreen: View {
                     Text(mode == "FAN" ? "팬 대화" : "그룹 대화").font(.subheadline).foregroundStyle(.secondary)
                 }
             }
-            action().frame(maxWidth: .infinity, alignment: .trailing)
-        }.padding(.vertical, 5).accessibilityElement(children: .contain)
     }
     private func errorRow(_ message: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {

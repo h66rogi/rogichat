@@ -4,7 +4,7 @@ import RogichatRooms
 #endif
 
 // Real native transport and one-shot provider completion; no bootstrap credentials.
-actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAuthorizing, AccountDeletionServing {
+actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAuthorizing, AccountDeletionServing, ConversationAuthorizing {
     nonisolated let capabilities: SessionCapabilities
     private let auth: (any SOOPAuthenticating)?
     private var deletionTask: Task<AccountDeletionUpdate, any Error>?
@@ -15,10 +15,11 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
     private let api: any NativeRequesting
     private let store: any NativeCredentialStoring
     private let now: @Sendable () -> Date
+    private var admittedText: Set<String> = []
     private var clientScope = UUID()
     private var roomsScope: RoomsScope?
     private let purgeRooms: @Sendable () throws -> Void
-    private var epoch: UInt64 = 0 { didSet { roomsScope?.invalidate(); roomsScope = nil; clientScope = UUID() } }
+    private var epoch: UInt64 = 0 { didSet { admittedText = []; roomsScope?.invalidate(); roomsScope = nil; clientScope = UUID() } }
     private var validated: SessionSnapshot?
     private var activeCredential: NativeCredential?
     private var writingProfile = false
@@ -150,6 +151,28 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
             if roomsScope == nil { roomsScope = try RoomsScope(partition: partition, clientScope: clientScope, expiresAt: expiry, now: now) }
             snapshot.roomsScope = roomsScope
         } else { roomsScope?.invalidate(); roomsScope = nil; snapshot.roomsScope = nil }
+    }
+    func conversationData(_ endpoint: ConversationEndpoint, scope: ConversationScope) async throws -> Data {
+        guard scope.account === roomsScope, scope.account.clientScope == clientScope, scope.account.partition == validated?.accountPartition,
+              validated?.access == .ready, let credential = activeCredential, let api = api as? any ConversationRequesting else { throw ConversationError.staleScope }
+        try scope.check()
+        let ticket = epoch
+        try requireCurrent(ticket, credential)
+        if case .send(let command) = endpoint {
+            guard admittedText.insert(command.roomID + ":" + command.id).inserted else { throw ConversationError.busy }
+        }
+        do {
+            let data = try await api.performConversation(endpoint, credential: credential, scope: scope)
+            try requireCurrent(ticket, credential); try scope.check()
+            guard scope.account === roomsScope else { throw ConversationError.staleScope }
+            return data
+        } catch {
+            guard ticket == epoch, scope.account === roomsScope else { throw ConversationError.staleScope }
+            try requireCurrent(ticket, credential); try scope.check()
+            if error as? ProductError == .unauthenticated { try clear(credential) }
+            if error as? ProductError == .linkRequired { roomsScope?.invalidate(); roomsScope = nil; validated = nil; try purgeRoomStorage() }
+            throw error
+        }
     }
     func roomsData(_ endpoint: RoomsEndpoint, scope: RoomsScope) async throws -> Data {
         guard scope === roomsScope, scope.clientScope == clientScope, scope.partition == validated?.accountPartition,
