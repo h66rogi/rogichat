@@ -13,4 +13,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920010031_m08_sticker_audit', checksum: '2952d64e7bdc08b5f82b02bcd56d23cb06d2158ddf67059e175a60bbb4aeda39' },
   { name: '20260920040620_native_session_transport', checksum: 'd81fbb42616dc0a43373a0adfe8a04c1e7960780b8006aaa979f9f4047f764f5' },
   { name: '20260920044559_native_soop_transactions', checksum: '2745e58fc8f95fe15792d4b8b6e74b3c9eb937316331f79240e7c99e924edd21' },
+  { name: '20260920061207_m11_notifications_read_state', checksum: '759241f53ea3c007439d7498142b0ec285ced3e83642c26d7d9c2cd39fd6d372' },
 ];

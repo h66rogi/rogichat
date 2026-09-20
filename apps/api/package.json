@@ -35,12 +35,14 @@
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2",
     "sharp": "0.35.4",
-    "socket.io": "4.8.3"
+    "socket.io": "4.8.3",
+    "web-push": "3.6.7"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
     "@types/express": "5.0.6",
     "@types/node": "24.13.5",
+    "@types/web-push": "3.6.4",
     "eslint": "10.10.0",
     "mysql2": "3.24.4",
     "prisma": "7.10.0",
