@@ -95,8 +95,10 @@ export class MediaWorkerService {
     const plan = await this.transactions.write(async tx => {
       const { asset } = await this.assetLock(tx, lease.resourceId!);
       if (asset.state !== 'DELETING') throw new JobFailure('SOURCE_UNAVAILABLE');
-      // Wait beyond both the upload lease and every transform attempt's hard timeout.
-      // This prevents a late timed-out PUT from recreating an object after quota was released.
+      // Defer while upload leases or recent transform attempts remain visible.
+      // Age/abort alone cannot prove provider-side writes stopped. The adapter's
+      // absence check is point-in-time; LIVE_PURGED additionally needs writer
+      // termination and durable orphan reconciliation.
       const uploading = await this.repository.uploading(tx, asset.id);
       const recent = await this.repository.recentAttempts(tx, asset.id);
       if (uploading.length || recent.length) {
