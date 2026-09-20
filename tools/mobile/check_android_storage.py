@@ -21,6 +21,7 @@ TEST_TIMEOUT = 900
 REQUIRED_CLASSES = {
     "chat.rogi.rogichat.core.session.AndroidCredentialStoreTest",
     "chat.rogi.rogichat.core.session.AndroidPendingAuthStoreTest",
+    "chat.rogi.rogichat.core.session.AndroidAccountDeletionStoreTest",
     "chat.rogi.rogichat.core.rooms.AndroidRoomsStoreTest",
 }
 
@@ -92,7 +93,7 @@ def inspect_results(directory):
         except (OSError, ET.ParseError, ValueError) as error:
             raise ValueError("Storage instrumentation requires complete passing results with zero skips") from error
     if not REQUIRED_CLASSES.issubset({name for name, _ in seen}):
-        raise ValueError("Storage instrumentation did not run every Keystore, pending-auth and Room suite")
+        raise ValueError("Storage instrumentation did not run every Keystore, pending-auth, account-deletion and Room suite")
     return len(seen)
 
 

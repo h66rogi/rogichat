@@ -298,3 +298,14 @@ GRDB host 시험과 Xcode 앱의 서로 다른 resolved 파일이 같은 revisio
 | R44 | Android `feature/more/.../MoreScreen.kt` logout AlertDialog, `feature/reviews/.../MyReviewsScreen.kt` deleteTarget, `MfaSecuritySettingsScreen.kt` MfaEnrollmentDialog | `feature/rooms/RoomsScreen.kt` | **수정 재사용**: 선택 대상 native 확인창·destructive/cancel·스크롤 본문·진행/버튼 렌더링. 실제 방 이름·원본 scope/cycle/M에 결합. 원본 review 삭제 즉시 filter·성공 toast·MFA business는 제외 |
 | R45 | iOS `Meloming/Presentation/Reviews/MyReviewsView.swift` reviewPendingDelete/presenting alert, `More/MyPageView.swift` logout alert, `MfaSecuritySettingsView.swift` ProgressView/disabled | `Sources/Features/Rooms/RoomsScreen.swift`, `Sources/Core/Rooms/RoomsScreenModel.swift`의 model·owner | **수정 재사용**: 선택 대상 확인·cancel/destructive·진행 표시, 기존 Loadable/List. source의 view-local flag를 명령 소유권으로 쓰거나 낙관적 history 삭제를 가져오지 않음 |
 | R46 | R39/R41의 기존 typed HTTP/repository와 원본 review command/refresh 책임 대조 | 양 OS room command DTO·service/coordinator·실제 DB invalidation 및 재확인 | **기존 추출 확장 + 신규**: closed POST adapter는 기존 구현을 확장. strict UInt32/200/204, 원본 선택·scope fence, view보다 긴 one-shot 소유권, COMMIT-before-POST·전체 manifest 조정은 원본에 대응 계약이 없어 새 구현. 단순 refreshAfterMutation 참고를 내구성 구현 이식으로 집계하지 않음 |
+
+## 실제 추출 기록 — 계정 탈퇴 접수
+
+원본 SHA는 R39–R43과 같다. [구현 기록](mobile-account-deletion-progress.md)은 최종 동결
+소스와 실제 실행 범위를 구분한다. 원본의 웹 탈퇴와 신규 native transaction을 혼동하지 않는다.
+
+| ID | source 파일·심볼 | 대상 | 실제 수정 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R47 | Android `feature/more/.../{ProfileSettingsScreen,MoreNavigation,MoreScreen}.kt`의 onNavigateToWithdrawal·getWithdrawalUrl·destructive confirm; iOS `Meloming/Presentation/More/{MoreView,MyPageView}.swift`의 설정 section·withdrawal entry·logout alert | 양 OS AccountScreen과 기존 ConfirmationPrompt/native alert, 탈퇴 결과 화면 | **부분 수정 재사용**: 설정 위치·선택 대상·cancel/destructive·진행/오류 UI. 원본 탈퇴는 authenticated WebView 진입이다. URL·cookie/token bridge나 웹 business는 이식하지 않음 |
+| R48 | Android `core/network/.../api/ApiClient.kt`, `auth/TokenStorage.kt`의 TokenStorage/StoredMfaChallengeRecordCodec; iOS `Core/Network/APIClient.swift`, `Core/Auth/KeychainService.swift` | 기존 closed HTTP·Android credential/pending·iOS credential envelope와 DB purge 경계 | **기존 추출 확장**: typed DELETE 경로와 보호 저장 primitive·주입·직렬화 경계를 재사용. 기존 원본의 refresh·운영 주소·analytics는 가져오지 않음 |
+| R49 | 원본 웹 탈퇴와 native 저장소 책임 대조 | 양 OS AccountDeletion contract/journal/state, NativeSessionCoordinator/NativeSessionService의 admission·owned request·복구 | **신규**: strict blocked receipt·unknown·최근 인증, 원래 scope CAS, 보호 admission과 DB 정리, crash no-replay·ACK 보존·기록과 표시 분리는 원본에 대응 구현이 없음. 원본을 읽은 사실을 native transaction 재사용으로 집계하지 않음 |

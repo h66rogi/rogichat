@@ -29,7 +29,7 @@ class AndroidStorageChecks(unittest.TestCase):
         self.results = self.root / "results"; self.results.mkdir()
 
     def report(self):
-        suite = ET.Element("testsuite", tests="3", failures="0", errors="0", skipped="0")
+        suite = ET.Element("testsuite", tests=str(len(storage.REQUIRED_CLASSES)), failures="0", errors="0", skipped="0")
         for name in sorted(storage.REQUIRED_CLASSES):
             ET.SubElement(suite, "testcase", classname=name, name="storageRegression")
         return suite
@@ -68,7 +68,7 @@ class AndroidStorageChecks(unittest.TestCase):
 
     def test_all_required_real_storage_suites_must_pass_without_skips(self):
         self.save_report(self.report())
-        self.assertEqual(storage.inspect_results(self.results), 3)
+        self.assertEqual(storage.inspect_results(self.results), len(storage.REQUIRED_CLASSES))
 
     def test_failures_skips_missing_suites_and_stale_duplicate_reports_are_rejected(self):
         with self.assertRaises(ValueError):
@@ -81,7 +81,7 @@ class AndroidStorageChecks(unittest.TestCase):
             suite = self.report(); ET.SubElement(suite[0], child); self.save_report(suite)
             with self.subTest(child=child), self.assertRaises(ValueError):
                 storage.inspect_results(self.results)
-        suite = self.report(); suite.remove(suite[-1]); suite.set("tests", "2"); self.save_report(suite)
+        suite = self.report(); suite.remove(suite[-1]); suite.set("tests", str(len(storage.REQUIRED_CLASSES) - 1)); self.save_report(suite)
         with self.assertRaisesRegex(ValueError, "every"):
             storage.inspect_results(self.results)
         self.save_report(self.report())
@@ -90,7 +90,7 @@ class AndroidStorageChecks(unittest.TestCase):
             storage.inspect_results(self.results)
 
     def test_incomplete_malformed_or_empty_test_results_are_rejected(self):
-        for count in ("0", "4", "-1", "bad"):
+        for count in ("0", str(len(storage.REQUIRED_CLASSES) + 1), "-1", "bad"):
             suite = self.report(); suite.set("tests", count); self.save_report(suite)
             with self.subTest(count=count), self.assertRaises(ValueError):
                 storage.inspect_results(self.results)

@@ -61,8 +61,19 @@ iOS 앱 고정 소스 `d2e132e35cae1526ac41bc33a414d9b8150cfc94`는 strict Swift
 RoomsScreenModel/RoomsFeatureOwner를 직접 실행하며 보존한 이전 목록의 동작 권한 차단,
 재연결·옛 행·결과 불명·조회 오류를 확인한다. 통합 후 Android QA/Prod의 네 구성 빌드·lint·
 Release R8·실제 APK guard, iOS 일곱 실행 시험·GRDB 16개·네 기기 SDK 구성과 패키지 검사를
-모두 통과했다. XcodeGen 재생성 diff는 0이다. hosted CI와 이 단계의 서명 배포는 아직
-대기 중이며 완료 후 증거를 기록한다.
+모두 통과했다. XcodeGen 재생성 diff는 0이다.
+
+고정 통합 소스 `649c02c847e7065c6dd62dc6c8ee47372cda3717`의 PR #64 hosted CI도
+모든 적용 항목을 통과했다. Android 실제 기기 저장소 16개는 skip 0, iOS strict 실행 일곱 종·
+GRDB 16개·도구 108개·네 SDK 구성을 확인했다. iOS 빌드 14는 실제 서명·Apple validation 후
+한 번 업로드했고 `VALID / IN_BETA_TESTING`·한국어 안내·기존 내부 그룹을 재조회했다.
+IPA SHA-256은 `5c902d7965da7ddab311085b3a63124ce7e35fe82056151351fadfc6de6885c0`이다.
+
+Android 빌드 14의 서명 APK/AAB도 검증했다. APK SHA-256은
+`bcd25d39f423a105f7bee2a54d4a02e351f205fc5348bcf65e6e957828c9a88c`이다. Firebase 인증이
+무효화되어 업로드 전 앱 목록 조회에서 중단됐으며 아직 배포 완료가 아니다. 서명 산출물은 보존하고
+재인증 후 업로드·승인 테스터 분배·원격 해시 확인을 이어간다. PR #58/#64의 workflow trust
+검토 대기는 내부 앱 배포와 별개로 유지한다.
 
 DEV의 별도 Git 저장소 54개에서 새 command/owner 참조를 읽기 전용으로 검색했고 직접 참조는
 없었다. 같은 저장소의 API·웹과는 고정 C06 계약을 대조한다. 서버 필드·DB schema·라이브러리·

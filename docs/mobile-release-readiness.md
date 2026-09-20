@@ -48,6 +48,16 @@ PR #58의 필수 CI와 새 Android hosted 기기 저장소 시험 16개가 통�
 원격 APK 해시·승인 테스터 응답과 TestFlight의 `VALID / IN_BETA_TESTING`·한국어 안내·
 내부 그룹을 확인했다. 이 빌드는 방 참여/나가기·메시지 전송 완료를 뜻하지 않는다.
 
+방 참여·나가기는 고정 소스 `649c02c`의 전체 hosted CI를 통과했다. iOS 빌드 14는
+Apple validation·`VALID / IN_BETA_TESTING`·한국어 안내·기존 내부 그룹까지 확인했다.
+Android 빌드 14는 서명 APK/AAB 검증을 마쳤지만 Firebase 인증 만료로 업로드 전 조회에서
+중단돼 재인증을 기다린다. 이를 Android 배포 완료로 집계하지 않는다.
+
+인증 PR #41과 알림 PR #51은 일반 병합으로 QA `cf54f2438971fd82227c0f044659bd80993cd9e2`에
+통합됐고 원격 ref 및 QA push의 모바일·백엔드·보안·인프라·웹 필수 검사를 확인했다.
+기존 서명 앱 소스는 바뀌지 않아 중복 업로드하지 않았다. 방 저장소/명령의 PR #58/#64는
+별도 workflow trust 검토 대상이며 이 병합으로 서버 schema 2가 활성화되지 않는다.
+
 현재 로컬 도구의 실제 사용 절차는 [테스트 배포](mobile-test-distribution.md),
 서명 비밀 취급은 [키체인 보호](mobile-signing-security.md)를 따른다.
 UserDefaults 선언 근거는 [Apple required-reason API 문서](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype)다.
@@ -57,7 +67,7 @@ UserDefaults 선언 근거는 [Apple required-reason API 문서](https://develop
 | 항목 | 확인된 준비 | 남은 준비·검증 |
 |---|---|---|
 | Android | `chat.rogi.rogichat` prodRelease, Prod API origin, min29/target37, R8 및 패키지 검사 통과 | 의도적으로 unsigned. 전용 Prod/upload key, Play 앱·Play App Signing 및 업로드 권한, 별도 외부 Prod 설정의 검증 증거 없음 |
-| iOS 앱 구성 | `Rogichat-Prod` Release-Prod, `chat.rogi.rogichat`, iPhone 전용·Prod API origin 검사 통과 | 현재 인증 계정에서 정확히 일치하는 Prod Bundle ID/App Store Connect 앱 조회 결과 0개 |
+| iOS 앱 구성 | `Rogichat-Prod` Release-Prod, `chat.rogi.rogichat`, iPhone 전용·Prod API origin 검사 통과 | 2026-09-20 18:37 KST 읽기 전용 재조회에서 정확히 일치하는 Prod Bundle ID/App Store Connect 앱 각각 0개 |
 | iOS 서명 | 기존 배포 인증서와 대응 로컬 개인 키가 사용 가능하며 2027-09-19 UTC까지 유효 | Prod Bundle ID에 연결된 provisioning profile·외부 Prod 설정 없음. 새 인증서 발급 자체가 필수라고 판단하지 않음 |
 | Apple 권한 | QA Bundle ID의 Associated Domains capability 추가와 새 IOS_APP_STORE profile 생성·재조회까지 성공 | 이 권한을 모든 Production 리소스의 생성·변경 권한으로 확대 해석하지 않음. Production 리소스를 쓰기 시험으로 생성하지 않음 |
 | native 기능 등록 | QA Associated Domains와 새 profile 설치, 빌드 10 실제 archive/IPA의 두 callback entitlement, 공개 AASA/assetlinks와 실제 QA 서명 식별 일치 검증 | 실제 기기/provider 복귀는 후속 검증. Apple 로그인, Services ID, APNs 및 Prod capability/profile은 별도 준비 |

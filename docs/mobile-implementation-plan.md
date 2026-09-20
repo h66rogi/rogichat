@@ -11,7 +11,8 @@
 실제 방 목록·계정별 SQLite의 구현 및 검증은 [방 저장소 기록](mobile-rooms-progress.md)에 기록한다.
 그 후속인 실제 참여·나가기는 [방 명령 기록](mobile-room-mutations-progress.md)에 기록한다.
 MB07의 서버 탈퇴 접수는 [후속 구현 계획](mobile-account-deletion-plan.md)으로 구체화했으며
-코드·실제 접수·물리 삭제 완료를 뜻하지 않는다.
+동결된 양 OS 소스와 검증 경계는 [구현 기록](mobile-account-deletion-progress.md)에 있다.
+이를 실제 접수·물리 삭제 완료로 집계하지 않는다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
@@ -363,9 +364,18 @@ C06의 `membershipScope`(M)를 사용하며 `authorizationRevision`(A)과 구분
   별도 결정한다. `deleted`이면 낙관 표시·본문을 지우고 최소 종료 표식만 남긴다.
   결과 확인 권한이 사라지면 미전송으로 단정하지 않고 송신 종료·해당 scope 정리를 적용한다.
   재입장 후 새 M을 오래된 command에 끼워 넣거나 같은 내용을 새 ID로 자동 생성하지 않는다.
-- 명시적 400/409는 자동 반복하지 않는다. 429는 서버 재시도 정보가 있으면 따르고,
-  없으면 bounded exponential backoff+jitter를 적용한다. 네트워크/5xx는 같은 명령으로
-  제한된 재시도와 수동 재시도를 제공한다. 실패 메시지를 새 명령으로 몰래 다시 보내지 않는다.
+- 명시적 400/409는 자동 반복하지 않는다. SEND의 timeout·연결 유실·5xx와 콜드 시작의
+  sending은 결과 불명으로 보존하고 GET receipt만 수행한다. GET의 404도 자동 POST를
+  허용하지 않는다. 첫 통합 구현은 결과 불명 명령의 자동 SEND 재시도를 제공하지 않는다.
+  향후 명시적 재시도를 붙일 때도 실제 현재 권한·원래 M과 불변 ID/payload를 별도 검사한다.
+  429의 대기 정보나 GET용 bounded backoff+jitter를 SEND 재실행 정책으로 공유하지 않는다.
+  서버가 보낸 메시지 projection에는 clientMessageId가 없으므로 본문·시각 추정으로 pending을
+  합치지 않고 실제 receipt의 serverMessageId만 사용한다.
+
+같은 accountPartition의 콜드 복원은 인증·manifest를 재확인할 때까지 표시·전송 권한을 닫되,
+결과 불명 명령의 불변 ID/payload/M을 먼저 삭제하지 않는다. 일시적인 미검증 상태와 실제
+logout/401/partition 변경·확정된 접근 상실의 파괴적 정리를 분리한다. 실제 세션 restore와
+DB close/reopen을 거친 시험에서 POST 0회·GET receipt 우선 복구를 검증한다.
 
 | 사건 | 표시/저장 정책 | 재개 |
 |---|---|---|
@@ -445,6 +455,13 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 | MB08 — 내부 기능 검증 | MB03–05, 서버 실데이터 gate | QA 서명 빌드와 승인된 실제 QA 계정 시나리오, 지원 OS 실기기 결과; 합성 상태는 별도 테스트 | 설치 성공과 기능 성공 분리, 알려진 제한 기록, 출시 기능은 MB06/07 포함 후 별도 승인 |
 
 ### MB04의 첫 구현 경계 — 교차 OS 리뷰 반영
+
+후속 구현은 C04/C05/C06이 함께 들어 있는 서버 고정 소스
+`f9197a31d61b7c34256e92f0bcb73ee255275d40`과 그 OpenAPI를 기준으로 한다.
+개별 계약 브랜치는 변경 이력이며 DTO를 조합하는 구현 기준이 아니다. 이 소스는 공개 PR의
+원격 SHA까지 확인했지만 아직 live 활성화 증거가 아니다. schema 2 서버·웹·양 OS의 호환성은
+같은 활성화 계획에서 확인한다. `authorizationRevision`에 추가된 content_epoch도 불투명 값으로
+처리하고 클라이언트가 M/A를 계산하지 않는다.
 
 C06 `691aff80bbcc96903ffe11d76b2a7561859ddb02`의 schemaVersion 2와 C05 `492f2f7`,
 C04 `4002329`를 기준으로 양 OS 설계를 독립 검토했다. C06 terminal tombstone은 같은

@@ -47,6 +47,7 @@ def main():
             "Sources/Features/Settings/ProfileDraft.swift",
             "Sources/Core/Notifications/M11Contract.swift",
             "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
+            "Sources/Core/AccountDeletion/AccountDeletionState.swift",
             "Sources/Core/Session/AppSession.swift",
             "Tests/Product/ProductStateChecks.swift",
         ])
@@ -58,7 +59,9 @@ def main():
             "Sources/Core/Notifications/M11Endpoint.swift",
             "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
             "Sources/Core/Rooms/RoomsEndpoint.swift",
+            "Sources/Core/AccountDeletion/AccountDeletionState.swift",
             "Sources/Core/Session/AppSession.swift",
+            "Sources/Core/AccountDeletion/AccountDeletionContract.swift",
             "Sources/Core/Network/NativeAPIClient.swift",
             "Sources/Core/Session/NativeCredentialStore.swift",
             "Sources/Core/Session/NativeSessionDTO.swift",
@@ -81,12 +84,16 @@ def main():
         run_checks(sdk, Path(temporary), "rooms-transport-checks", [
             *native_sources, "Tests/Product/RoomsTransportChecks.swift",
         ])
+        run_checks(sdk, Path(temporary), "account-deletion-checks", [
+            *native_sources, "Tests/Product/AccountDeletionChecks.swift",
+        ])
         run_checks(sdk, Path(temporary), "rooms-model-checks", [
             "Sources/Core/Navigation/ShellNavigation.swift",
             "Sources/Features/Settings/ProfileEditor.swift",
             "Sources/Features/Settings/ProfileDraft.swift",
             "Sources/Core/Notifications/M11Contract.swift",
             "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
+            "Sources/Core/AccountDeletion/AccountDeletionState.swift",
             "Sources/Core/Session/AppSession.swift",
             "Sources/Core/State/Loadable.swift",
             "Sources/Core/Rooms/RoomsScreenModel.swift",
