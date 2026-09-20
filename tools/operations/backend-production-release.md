@@ -5,6 +5,9 @@ public repository holds code only. No production resources, DNS, SQL, secrets or
 running services are changed by publishing this implementation. Merge the task PR
 to `qa` only after its required checks, then separately review promotion to `main`.
 The image is the **exact QA-verified immutable image**, never a production rebuild.
+The operator must verify all required checks on the current reviewed main commit
+before approving the request: the helper validates main identity/ancestry and the
+exact QA source checks, but does not validate main workflow run IDs.
 
 ## Operator prerequisites
 
@@ -157,12 +160,14 @@ sudo /usr/bin/python3 /opt/rogichat/operations/backend_production_release.py --a
 ```
 
 The activation takes the same exclusive `/run/lock/rogichat-deploy.lock` as the
-web releaser and reruns preflight; API and web Caddy mutations cannot overlap. It durably
+web releaser and reruns preflight; API and web Caddy mutations cannot overlap. Hardlinked lock
+files are rejected. Main promotion and host/secret/evidence binding are checked
+again after the slow probes, immediately before any activation mutation. It durably
 consumes the UUID, backs up previous runtime files, drains only API traffic to the
 reviewed bootstrap response, stops owned production units, recreates only stopped
 owned API/worker containers using `--no-build --pull never`, enables their units,
 and verifies running image identity, production environment, network/secret
-isolation and both health checks before exposing API traffic. No SQL is executed.
+isolation and both health checks before exposing API traffic. No migration SQL is executed.
 A verified public `/live`, `/ready`, `/_infra/health` is required after exposure.
 The imported web site is preserved during the API drain.
 

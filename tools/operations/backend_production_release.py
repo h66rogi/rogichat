@@ -352,6 +352,21 @@ def preflight():
     return request,files,container
 
 
+def activation_gate(request):
+    # Slow image/schema probes may outlive the reviewed main head or binding.
+    # Recheck authorization under the common host lock immediately before drain.
+    verify_promotion(request)
+    verify_binding(request)
+    require(time.time() < request['expires_at']
+            and json.loads(protected(REQUEST,mode=0o600)) == request
+            and digest(protected(CADDY)) == request['previous_caddy_sha256'])
+
+
+def validate_lock(metadata):
+    require(metadata.st_uid == 0 and stat.S_ISREG(metadata.st_mode)
+            and stat.S_IMODE(metadata.st_mode) == 0o600 and metadata.st_nlink == 1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply',action='store_true')
@@ -361,15 +376,13 @@ def main():
     fd = os.open(LOCK,os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
     with os.fdopen(fd,'w') as lock:
         metadata = os.fstat(lock.fileno())
-        require(metadata.st_uid == 0 and stat.S_ISREG(metadata.st_mode) and stat.S_IMODE(metadata.st_mode) == 0o600)
+        validate_lock(metadata)
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         request,files,container = preflight()
         if not args.apply:
             print('Production preflight passed; no application/configuration changes or migrations executed.')
             return
-        require(time.time() < request['expires_at']
-                and json.loads(protected(REQUEST,mode=0o600)) == request
-                and digest(protected(CADDY)) == request['previous_caddy_sha256'])
+        activation_gate(request)
         def interrupt(*_):
             raise ValueError('interrupted')
         for sig in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP):

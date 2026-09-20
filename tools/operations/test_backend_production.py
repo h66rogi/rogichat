@@ -70,12 +70,32 @@ class ProductionBoundaries(unittest.TestCase):
     def test_default_mode_never_activates(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(prod,'LOCK',Path(tmp)/'lock'),patch.object(prod.os,'geteuid',return_value=0), \
-                 patch.object(prod.os,'fstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFREG|0o600)), \
+                 patch.object(prod.os,'fstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFREG|0o600,st_nlink=1)), \
                  patch.object(prod,'protected'),patch.object(prod,'preflight',return_value=(request(),{},'edge')) as preflight, \
                  patch.object(prod,'deploy') as deploy,patch.object(prod.sys,'argv',['release']):
                 prod.main()
                 preflight.assert_called_once()
                 deploy.assert_not_called()
+
+    def test_lock_rejects_hardlinked_or_unlinked_inode(self):
+        for links in (0,2):
+            with self.subTest(links=links),self.assertRaises(ValueError):
+                prod.validate_lock(SimpleNamespace(st_uid=0,st_mode=stat.S_IFREG|0o600,st_nlink=links))
+        prod.validate_lock(SimpleNamespace(st_uid=0,st_mode=stat.S_IFREG|0o600,st_nlink=1))
+
+    def test_apply_rechecks_promotion_and_binding_after_preflight(self):
+        for failing_gate in ('verify_promotion','verify_binding'):
+            with self.subTest(gate=failing_gate),tempfile.TemporaryDirectory() as tmp:
+                with patch.object(prod,'LOCK',Path(tmp)/'lock'),patch.object(prod.os,'geteuid',return_value=0), \
+                     patch.object(prod.os,'fstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFREG|0o600,st_nlink=1)), \
+                     patch.object(prod,'protected'),patch.object(prod,'preflight',return_value=(request(),{},'edge')), \
+                     patch.object(prod,'verify_promotion') as promotion,patch.object(prod,'verify_binding') as binding, \
+                     patch.object(prod,'deploy') as deploy,patch.object(prod.sys,'argv',['release','--apply']):
+                    (promotion if failing_gate=='verify_promotion' else binding).side_effect=ValueError('changed approval')
+                    with self.assertRaises(ValueError): prod.main()
+                    promotion.assert_called_once()
+                    if failing_gate=='verify_binding': binding.assert_called_once()
+                    deploy.assert_not_called()
 
     def test_qa_deployer_remains_qa_only(self):
         with self.assertRaises(ValueError): prod.shared.validate_request(request())
