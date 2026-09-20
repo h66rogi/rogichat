@@ -23,8 +23,8 @@ QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 �
   확인한다. TestFlight는 `VALID` 처리, 기존 내부 그룹의 빌드 접근, 한국어 테스트 내용을 확인한다.
   개인 식별자가 있는 manifest/영수증/스크린샷은 Git 밖에 둔다.
 
-빌드 8은 Android 승인 테스터 분배·원격 APK 해시 일치와 iOS `VALID`·기존 내부 그룹의
-`IN_BETA_TESTING`까지 확인했다. 설치·실제 로그인 성공을 의미하지 않는다.
+빌드 8·9는 Android 승인 테스터 분배·원격 APK 해시 일치와 iOS `VALID`·기존 내부 그룹의
+`IN_BETA_TESTING`까지 확인했다. 테스터 설치·실제 로그인 성공을 의미하지 않는다.
 
 현재 로컬 도구의 실제 사용 절차는 [테스트 배포](mobile-test-distribution.md),
 서명 비밀 취급은 [키체인 보호](mobile-signing-security.md)를 따른다.
@@ -55,7 +55,8 @@ QA APK/AAB는 Production Play 앱에 업로드하지 않는다. QA iOS export는
 release worker가 등록돼 있지 않았다. 인프라 조정자는 우선 명시적 로컬 운영자 경로를
 유지하기로 했다. 로컬 서명 성공을 무인 CI 배포 준비 완료로 간주하지 않는다.
 
-별도 PR #22의 `android-finalize`·`ios-finalize`는 기존 업로드 후 분배/해시 확인과
+PR #22의 `android-finalize`·`ios-finalize`는 PR #20과 함께 QA `90a73e1`에 병합됐다.
+기존 업로드 후 분배/해시 확인과
 TestFlight 처리/그룹/한국어 안내 확인을 자동화한다. 빌드별 배타 잠금과 fsync journal,
 불변 입력으로 중복 변경을 막고, 불확실한 업로드·분배는 맹목적으로 반복하지 않는다.
 실제 빌드 8의 완료 확인 뒤 재실행이 원격 읽기만 수행하는 것도 검증했다.

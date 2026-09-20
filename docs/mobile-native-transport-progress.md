@@ -64,7 +64,8 @@ native session DTO다. 이는 후속 계약이며 이 단계에서 구현되지 
 재인증·약관 동의로 안내하기로 했다. 계정을 몰래 전환하거나 기존 동의를 덮어쓰지 않는다.
 이 결정은 예정 발급 흐름의 입력이며, 현재 앱에서 발급 API가 동작한다는 뜻이 아니다.
 
-후속 서버 후보는 PR #23의 `106d93c6e113769955ab12e93f6647ebe7e87d3e`다.
+후속 서버 후보는 PR #23의 `de02c6aa73d549edc56e38d726f0f85bc928c27b`다.
+최초 계약 후보 `106d93c6` 이후 동시 첫 로그인 DB 처리 보정이 반영됐고 HTTP 계약은 유지됐다.
 `backend-native-soop.md`와 `backend-native-auth-contract.md`에 start/launch/S256/exchange와
 오류가 구체화됐지만 검토·CI·QA 배포는 별도다. 앱의 후속 client 구현은 이 계약을 검토해
 진행할 수 있다. 실제 인증의 외부 차단 조건은 운영 broker가 아직 공식 canonical immutable
@@ -100,9 +101,25 @@ Apple의 screen name/handle에 해당하는 User ID로, 생일 월/일·공개 �
   계측 키·파일은 별도 namespace이며 제품 credential은 비어 있는 상태를 확인했다.
 - Android 화면 유지 중 만료는 네트워크 없이 현재 generation·expiry를 대조해 삭제한다.
   이전 scope의 늦은 타이머가 새 계정을 종료하지 않는 회귀 시험을 포함했다.
-- 공통 도구 Python 테스트 43개는 disposable keychain 검증을 포함해 통과했다(skip 0).
+- 공통 도구는 finalizer `ea83a5b` 통합 후 Python 테스트 74개를 disposable keychain
+  검증을 포함해 통과했다(skip 0).
   공개 저장소 검사와 생성된 Xcode 프로젝트 일치, 문서 상대 링크 검사도 통과했다.
-- 서명 빌드 9·실제 배포 증거는 서명·업로드·원격 확인을 마친 뒤 추가한다.
+- 서명 빌드 9는 clean 커밋 `d4be7bdc226fe7de54d2c91073a4d336129ee4b5`에서 생성했다.
+  Android APK/AAB 서명·패키지 검사와 iOS Archive/IPA 및 Apple validation을 통과했다.
+- 동일 SHA의 PR #26 원격 필수 검사도 모두 통과했다. Android·iOS CI는
+  [Mobile foundation 35491167249](https://github.com/h66rogi/rogichat/actions/runs/35491167249)다.
+- 원본 서명 R8 APK를 별도 테스트 에뮬레이터에 설치해 설치 파일의 전체 SHA-256 일치를
+  확인했다. 버전 9·non-debuggable·탭/뒤로가기/설정·다크 모드 강제 종료 후 복원·실제 OS
+  알림 설정 왕복·추가 라이선스 표시/스크롤을 통과했고 앱 crash 0건이었다. 제품 계정/데이터를
+  주입하지 않았다. 테스트 후 해당 에뮬레이터는 스냅샷을 저장하지 않고 종료했다.
+- 빌드 9 Firebase 업로드 후 승인된 테스터 1명에 대한 분배 응답과 등록을 확인했다.
+  원격 APK의 SHA-256은 로컬 원본
+  `652582663176a3e389b220ad3059e2536f61c41775dcc15e392aad1d70890787`와 일치한다.
+- 빌드 9 TestFlight는 `VALID / IN_BETA_TESTING`, 기존 승인 내부 그룹의 빌드 연결·테스터
+  존재·정확한 한국어 테스트 안내를 확인했다. Xcode 업로드 후에도 canonical archive
+  전체 해시는 원래 manifest와 같고, 업로드 메타데이터는 독립 작업 복사본에만 추가됐다.
+  양 플랫폼의 private `finalization.json` 및 서명·검증·화면 증거는 Git 밖에 보존했다.
+  이는 테스터의 실제 설치·로그인 성공 또는 iOS 실기기 실행의 증거가 아니다.
 
 실제 발급 credential이 없는 상태에서 테스트 대역의 성공을 사용자 로그인 성공이나
 QA 인증 API 왕복으로 보고하지 않는다. 합성 credential·계정·응답은 배포 APK/IPA에 포함하지 않는다.

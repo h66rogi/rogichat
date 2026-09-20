@@ -196,7 +196,7 @@ Distribution 사용을 runtime FCM 선택/설정 완료로 해석하지 않는�
 | ID | 현재 계약의 공백 | 구현안·완료 조건 | 담당 경계 |
 |---|---|---|---|
 | C01 | `ac69ca2`에 native REST/socket transport 계약 확정, 앱 연결·배포 검증은 후속 | 정확한 Bearer/client pair, web/native·환경 혼용 거부, 같은 DB 인가를 사용. 실제 credential 발급과 통합 왕복까지 확인 | 서버 Auth/Realtime + 앱 Session |
-| C02 | SOOP 발급 후보 `106d93c6`에 start/launch/S256/exchange·오류 명시. 앱 복귀·Apple identity 처리는 후속 | 후보 계약 검토·QA 배포와 별개로 native client 구현 가능. broker canonical subject/운영 등록·실제 사용자 증거 필요. Apple native/web client별 audience와 callback allowlist, 재전송·취소·충돌 시험 | 서버 Auth + 앱 Auth |
+| C02 | SOOP 발급 후보 `de02c6a`에 start/launch/S256/exchange·오류 명시. 앱 복귀·Apple identity 처리는 후속 | 후보 계약 검토·QA 배포와 별개로 native client 구현 가능. broker canonical subject/운영 등록·실제 사용자 증거 필요. Apple native/web client별 audience와 callback allowlist, 재전송·취소·충돌 시험 | 서버 Auth + 앱 Auth |
 | C03 | native `/auth/session` 계정 요약·SOOP 상태·만료·opaque generation 확정. 방/동기화 scope 연결은 남음 | 요약과 전체 프로필을 분리하고 제공자를 추정하지 않음. room의 joined/mode/actorId/next 보존, 방별 인가·scope 확인. capabilities는 서버 인가 대체 불가 | 서버 Auth/Rooms/Access |
 | C04 | receipt에만 clientMessageId 있고 sync message에는 없음 | **작성자 본인에게만** clientMessageId를 direct GET/sync에 동일하게 projection하는 안을 우선 검증. 타 기기·ACK 유실에서도 하나로 합치며 공개본/타 사용자에는 제외. 명령 결과 조회 방식으로 바꾸면 동등한 중복 방지 fixture 필수 | 서버 Messages/Sync + 앱 Outbox |
 | C05 | PRIVATE 응답에 답장 상대와 허용 동작이 충분하지 않음 | 현재 viewer에게 허용된 counterpart actor 및 reply/publish/delete 가능 여부를 명시. 본인이 보낸 개인답장의 상대 복원, 익명 공개본에서 원 작성자/원본 연결 미노출 시험 | 서버 projector + 앱 Composer |
