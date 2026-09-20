@@ -12,20 +12,26 @@ export class NotificationsRepository {
   }
   // Current-row locking is necessary for worker admission and logout/account races.
   // HTTP mutations already hold these locks through AuthService on this handle.
-  async binding(tx: Transaction, userId: string, sessionId: string) {
-    const [row] = await tx.rows<{ audience: string; membership_generation: string; soop_status: string | null }>(`SELECT s.audience,u.membership_generation,p.status AS soop_status FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN platform_soop p ON p.user_id=u.id WHERE s.id=? AND s.user_id=? AND s.transport='WEB' AND s.client_id IS NULL AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP(3) AND u.status='ACTIVE' FOR UPDATE`, [sessionId, userId]);
+  async binding(tx: Transaction, userId: string, sessionId: string, client?: string) {
+    const predicate = client ? "s.transport='NATIVE' AND s.client_id=?" : "s.transport='WEB' AND s.client_id IS NULL";
+    const [row] = await tx.rows<{ audience: string; membership_generation: string; soop_status: string | null }>(`SELECT s.audience,u.membership_generation,p.status AS soop_status FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN platform_soop p ON p.user_id=u.id WHERE s.id=? AND s.user_id=? AND ${predicate} AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP(3) AND u.status='ACTIVE' FOR UPDATE`, [sessionId, userId, ...(client ? [client] : [])]);
     return row;
   }
   byEndpoint(tx: Transaction, endpointDigest: Uint8Array) {
     return tx.prisma.push_subscriptions.findUnique({ where: { endpoint_digest: new Uint8Array(endpointDigest) }, select: { id: true } });
   }
+  nativeEnrollment(tx: Transaction, userId: string, sessionId: string, audience: string, client: 'ios' | 'android', generation: bigint) {
+    return tx.prisma.push_subscriptions.findFirst({ where: { user_id: userId, session_id: sessionId, audience,
+      provider: client === 'ios' ? 'APNS' : 'FCM', native_client_id: client, revoked_at: null, native_token: { not: null }, account_generation: generation },
+    orderBy: { id: 'asc' }, select: { id: true } });
+  }
   byId(tx: Transaction, id: string) {
-    return tx.prisma.push_subscriptions.findUnique({ where: { id }, select: { id: true, user_id: true, session_id: true } });
+    return tx.prisma.push_subscriptions.findUnique({ where: { id }, select: { id: true, user_id: true, session_id: true, provider: true, native_client_id: true } });
   }
   // The initial hint locates the account/session lock; this current read must be
   // used afterwards so a concurrent rebind cannot authorize snapshot credentials.
   async lockSubscription(tx: Transaction, id: string) {
-    const [row] = await tx.rows<{ id: string; user_id: string; session_id: string; audience: string; endpoint: string; p256dh: string; auth_secret: string; generation: string; account_generation: string; revoked_at: Date | null }>('SELECT id,user_id,session_id,audience,endpoint,p256dh,auth_secret,generation,account_generation,revoked_at FROM push_subscriptions WHERE id=? FOR UPDATE', [id]);
+    const [row] = await tx.rows<{ id: string; user_id: string; session_id: string; audience: string; endpoint: string | null; p256dh: string | null; auth_secret: string | null; generation: string; account_generation: string; revoked_at: Date | null; provider: 'WEB' | 'APNS' | 'FCM'; native_client_id: string | null; native_token: Buffer | null }>('SELECT id,user_id,session_id,audience,endpoint,p256dh,auth_secret,generation,account_generation,revoked_at,provider,native_client_id,native_token FROM push_subscriptions WHERE id=? FOR UPDATE', [id]);
     return row;
   }
   async lockPreferences(tx: Transaction, userId: string) {

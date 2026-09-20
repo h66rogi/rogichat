@@ -1,3 +1,4 @@
+import { ModerationRetentionModule } from './modules/moderation/moderation-retention.module.js';
 import { PurgeWorkerModule } from './modules/deletion/purge-worker.module.js';
 import { PurgeWorkerService } from './modules/deletion/purge-worker.service.js';
 import { DeletionModule } from './modules/deletion/deletion.module.js';
@@ -33,7 +34,7 @@ export class WorkerModule {
     const infrastructure = DatabaseModule.register({ config: settings.config });
     const push = settings.push ?? { audience: `rogi-${settings.config.environment}`, vapid: null };
     const transport = PushTransportModule.register(push);
-    return { module: WorkerModule, imports: [infrastructure, JobsModule.register(infrastructure, 'worker'), PublicationsCoreModule, DeletionModule.register(infrastructure, settings.deletion, true),
+    return { module: WorkerModule, imports: [infrastructure, ModerationRetentionModule, JobsModule.register(infrastructure, 'worker'), PublicationsCoreModule, DeletionModule.register(infrastructure, settings.deletion, true),
       PushModule.register(infrastructure, NotificationsModule, transport), NotificationFanoutModule.register(infrastructure, push.audience),
       ...(settings.deletion ? [PurgeWorkerModule.register(infrastructure, settings.deletion)] : []),
       ...(settings.media ? [MediaWorkerModule.register(infrastructure, settings.media)] : [])], providers: [

@@ -84,8 +84,9 @@ Unknown request fields are rejected. The subscription parser validates an HTTPS
 URL and unpadded canonical base64url P-256 public key (65 bytes, uncompressed) and
 auth secret (16 bytes). Cryptographic point validity and destination authorization
 remain sender/registration policy responsibilities; URL parsing alone is not SSRF
-protection. Native FCM/APNs registration is not implemented by accepting these Web
-Push fields. Native push needs a real separate provider adapter and remains disabled.
+protection. Native FCM/APNs registration never accepts these Web Push fields;
+the separate [native contract](backend-native-push.md) defines its provider
+adapter and proof. Without native provider configuration it is unavailable.
 
 | Condition | Public error |
 | --- | --- |
@@ -105,8 +106,9 @@ session is reported as 401. The error table is not an ordering guarantee.
 Preference PUT requires the latest GET generation. Do not replay a stale desired
 value after 409; read current state and ask for a new user choice. An unchanged
 value with matching generation does not increment the generation. Native clients
-may read preferences and disable push, but enabling or managing Web Push
-subscriptions returns 503 `AUTH_UNAVAILABLE` until a native provider exists.
+may read preferences and disable push. Native enable requires verified SOOP and
+the configured client-specific provider. Managing Web Push subscriptions from a
+native session remains 503 `AUTH_UNAVAILABLE`; use the separate native routes.
 
 Registration locks the owning account/session and endpoint binding, then stores
 its current account generation and audience. A same-owner update requires the
@@ -187,8 +189,8 @@ Existing `users.membership_generation` is the account snapshot, distinct from
 access, not inferred solely from that account counter.
 
 Before each provider attempt, under existing transaction deadlines and lock order,
-validate ACTIVE account, unchanged generations, unrevoked/unexpired bound WEB
-session and matching audience, enabled preference, unrevoked subscription, current
+validate ACTIVE account, unchanged generations, unrevoked/unexpired bound session
+with matching provider/client/transport and audience, enabled preference, unrevoked subscription, current
 room/membership/grants/history and readable live message/source. Suppress obsolete
 intents without payload reconstruction. Enqueue and final job completion use the
 existing `JobsCoreService` transaction ports; external network I/O stays outside

@@ -46,8 +46,10 @@ test('registered M11 routes expose web/native proof alternatives and honest avai
     for (const status of ['400', '401', '503']) check(responseSchema(operation, status), { error: { code: status === '503' ? 'AUTH_UNAVAILABLE' : 'INVALID_REQUEST' } });
   }
   assert.equal(doc.components.securitySchemes.nativeClient.name, 'X-Rogi-Client');
-  assert.match(doc.paths[prefs].put.description, /Native enable returns 503 AUTH_UNAVAILABLE/);
-  assert.match(doc.paths[prefs].put.description, /Disabling remains available to web and native/);
+  assert.match(doc.paths[prefs].put.description, /Native enable requires verified SOOP\/current terms, a configured provider/);
+  assert.match(doc.paths[prefs].put.description, /current native subscription bound to this session and account generation/);
+  assert.match(doc.paths[prefs].put.description, /Provider unavailable returns 503 for web or native/);
+  assert.match(doc.paths[prefs].put.description, /Disable remains available without Push configuration/);
   assert.match(doc.paths[subscriptions].post.description, /Cross-account endpoints return 404 NOT_FOUND even after revoke/);
   assert.match(doc.paths[removal].delete.description, /Native returns 503 AUTH_UNAVAILABLE/);
   assert.match(doc.paths[removal].delete.description, /without Web Push configuration/);

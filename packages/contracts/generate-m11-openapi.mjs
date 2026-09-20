@@ -7,7 +7,7 @@ import { notificationsOpenApi } from '../../apps/api/dist/modules/notifications/
 export const m11OpenApi = {
   openapi: '3.0.3',
   info: { title: '로기챗 own read state and notifications', version: '1.0.0',
-    description: 'Own-state endpoints. WEB mutations require the existing same-origin Origin and x-csrf-token proof with session cookie. Native Bearer requests require X-Rogi-Client ios or android and forbid cookies and CSRF headers. Malformed or mixed credentials return 400; Origin checks may precede session checks. Native preference read/disable and read-state are supported; native push enable/registration/removal return 503 until a native provider exists. Queue ACK is not notification receipt or read proof.' },
+    description: 'Own-state endpoints. WEB mutations require the existing same-origin Origin and x-csrf-token proof with session cookie. Native Bearer requests require X-Rogi-Client ios or android and forbid cookies, Origin and CSRF headers. Malformed or mixed credentials return 400; Origin checks may precede session checks. Native preference read/disable and read-state are supported. Native enable requires a configured provider and current session-bound native enrollment; separate native-push endpoints are documented in the full runtime OpenAPI. These Web Push registration/removal endpoints remain WEB-only. Queue ACK is not notification receipt or read proof.' },
   security: [{ WebSession: [] }, { NativeBearer: [], NativeClient: [] }],
   paths: { ...readStateOpenApi.paths, ...notificationsOpenApi.paths },
   components: {

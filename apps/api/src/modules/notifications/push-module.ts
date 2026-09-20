@@ -8,11 +8,14 @@ import type { PushConfig } from './push-transport.js';
 import { NotificationsModule } from './notifications.module.js';
 import { PushDeliveryService } from './push-delivery.service.js';
 import { PushDeliveryRepository } from './push-delivery.repository.js';
+import { NativePushTransport } from './native-push-transport.js';
 
 @Module({})
 export class PushTransportModule {
   static register(config: PushConfig): DynamicModule {
-    return { module: PushTransportModule, providers: [PushEndpointPolicy, { provide: PushTransport, inject: [PushEndpointPolicy], useFactory: (policy: PushEndpointPolicy) => new PushTransport(config, policy) }], exports: [PushEndpointPolicy, PushTransport] };
+    return { module: PushTransportModule, providers: [PushEndpointPolicy,
+      { provide: NativePushTransport, useFactory: () => new NativePushTransport(config.native) },
+      { provide: PushTransport, inject: [PushEndpointPolicy], useFactory: (policy: PushEndpointPolicy) => new PushTransport(config, policy) }], exports: [PushEndpointPolicy, PushTransport, NativePushTransport] };
   }
 }
 @Module({})

@@ -364,3 +364,12 @@ for grants, receipts and projections. Its only raw statements lock the global
 bootstrap receipt and exact identity/account/capability/room targets; shared
 targets use `FOR UPDATE NOWAIT` to avoid inverse-order waits with API commands.
 See `backend-genuine-owner-bootstrap.md` for the transaction and custody review.
+
+### Native push current-lock exceptions
+
+`NativePushRepository` locks current session/account/installation state in the
+calling transaction. Cross-account registration takes the prior account NOWAIT
+to avoid inverse A→B/B→A cycles. Hint lookup, uniqueness, count and conditional
+writes use generated Prisma. Existing push enqueue locking predicates now match
+provider/client/session for WEB, APNS and FCM; they do not introduce a second pool
+or external network I/O under a database lock. See [native push](backend-native-push.md).

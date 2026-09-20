@@ -1,8 +1,10 @@
 import { createECDH } from 'node:crypto';
 import { constants, openSync, closeSync, fstatSync, readSync, realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
+import { readNativePushConfig } from './native-push-config.js';
+import type { NativePushConfig } from './native-push-config.js';
 
-export interface PushConfig { audience: string; vapid: { subject: string; publicKey: string; privateKey: string } | null }
+export interface PushConfig { audience: string; vapid: { subject: string; publicKey: string; privateKey: string } | null; native?: NativePushConfig }
 const fields = ['environment', 'subject', 'publicKey', 'privateKey'];
 const maximumBytes = 4096;
 
@@ -56,6 +58,8 @@ export function readPushConfig(env: NodeJS.ProcessEnv = process.env): PushConfig
   const environment = env.APP_ENV;
   if (!['local', 'test', 'qa', 'production'].includes(environment ?? '')) throw new Error('invalid_push_environment');
   const audience = `rogi-${environment}`;
+  const native = readNativePushConfig(env);
+  const nativeConfig = native ? { native } : {};
   const prefix = `PUSH_${environment!.toUpperCase()}_`;
   const inline = ['VAPID_SUBJECT', 'VAPID_PUBLIC_KEY', 'VAPID_PRIVATE_KEY'].map(key => env[prefix + key]);
   try {
@@ -63,7 +67,7 @@ export function readPushConfig(env: NodeJS.ProcessEnv = process.env): PushConfig
     const hosted = environment === 'qa' || environment === 'production';
     if ((hosted || file !== undefined) && inline.some(value => value !== undefined)) throw new Error();
     if (['PUSH_VAPID_SUBJECT', 'PUSH_VAPID_PUBLIC_KEY', 'PUSH_VAPID_PRIVATE_KEY'].some(key => env[key] !== undefined)) throw new Error();
-    if (file === undefined && inline.every(value => value === undefined)) return { audience, vapid: null };
+    if (file === undefined && inline.every(value => value === undefined)) return { audience, vapid: null, ...nativeConfig };
     let [subject, publicKey, privateKey] = inline;
     if (file !== undefined) {
       const secret = readSecret(file);
@@ -77,6 +81,6 @@ export function readPushConfig(env: NodeJS.ProcessEnv = process.env): PushConfig
     if (privateBytes.length !== 32 || privateBytes.toString('base64url') !== privateKey) throw new Error();
     const key = createECDH('prime256v1'); key.setPrivateKey(privateBytes);
     if (key.getPublicKey().toString('base64url') !== publicKey) throw new Error();
-    return { audience, vapid: { subject, publicKey, privateKey } };
+    return { audience, vapid: { subject, publicKey, privateKey }, ...nativeConfig };
   } catch { throw new Error('invalid_push_vapid'); }
 }

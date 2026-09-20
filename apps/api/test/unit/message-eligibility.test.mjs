@@ -16,9 +16,9 @@ function fixture() {
   ];
   const message = { id: randomUUID(), room_id: room, sender_member_id: own, sender: { user_id: viewer.user_id }, deletion_root_id: null,
     content_kind: 'TEXT', text_content: '본문', stream: { id: stream, room_id: room, kind: 'RESTRICTED', pair } };
-  const state = { messages: [message], members, pairs: [pair], grants: [own, peer].map(member_id => ({ stream_id: stream, member_id, can_read: true, can_send: true })) };
+  const state = { blocks: [], messages: [message], members, pairs: [pair], grants: [own, peer].map(member_id => ({ stream_id: stream, member_id, can_read: true, can_send: true })) };
   const calls = [];
-  const repository = Object.fromEntries(['messages', 'members', 'pairs', 'grants'].map(method => [method, async (handle, roomId, ...args) => {
+  const repository = Object.fromEntries(['blocks', 'messages', 'members', 'pairs', 'grants'].map(method => [method, async (handle, roomId, ...args) => {
     assert.equal(handle, tx); assert.equal(roomId, room); calls.push([method, ...args]); return state[method];
   }]));
   const service = new MessageEligibilityService(repository);
