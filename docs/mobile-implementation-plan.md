@@ -9,6 +9,9 @@
 후속 세션·프로필 연결과 구체적 발급/기기 블로커는 [네이티브 연결 기록](mobile-native-transport-progress.md)에 분리한다.
 진행 중인 SOOP 클라이언트와 서명 준비는 [네이티브 인증 기록](mobile-native-auth-progress.md)에 기록한다.
 실제 방 목록·계정별 SQLite의 구현 및 검증은 [방 저장소 기록](mobile-rooms-progress.md)에 기록한다.
+그 후속인 실제 참여·나가기는 [방 명령 기록](mobile-room-mutations-progress.md)에 기록한다.
+MB07의 서버 탈퇴 접수는 [후속 구현 계획](mobile-account-deletion-plan.md)으로 구체화했으며
+코드·실제 접수·물리 삭제 완료를 뜻하지 않는다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
@@ -473,12 +476,19 @@ MB03의 실제 provider/기기 gate는 유지하면서 위 코드·격리 검증
 schema 2의 QA 활성화는 web/Android/iOS 소비자와 backend의 정확한 통합 SHA 및 동시
 전환/rollback 계획을 조율한 뒤 수행한다. 코드 존재를 실제 계정·호스팅 왕복으로 대체하지 않는다.
 
+MB04a의 후속 참여·나가기는 고정 C06의 `{}` POST만 한 번 전송하고 fresh complete
+manifest로 전체 참여 상태를 재확인한다. 표시한 원본 scope/cycle/M을 coordinator admission과
+실제 DB COMMIT까지 보존하며 화면 재생성이 전송·재확인을 중복 실행하지 못하게 한다.
+GET의 현재 상태는 이전 POST 종료나 실패의 증거가 아니다. 결과 불명 안내는 조회 오류와
+분리하고 old row callback·A→B→A·late response·DB 실패 회귀로 검증한다. 이 후속을 별도
+메시지 단계로 바꾸지 않으며 MB04b/c의 cache/outbox/SEND 범위와 gate는 유지한다.
+
 ### MB02 실행 분할과 현재 우선순위
 
 | 순서 | 구체적인 산출물 | 선행/통과 gate | 막힐 때 계속할 일 |
 |---|---|---|---|
 | MB02a — 재사용 단위·공통 UI | 원본 theme·navigation·settings·공통 상태의 구조와 유용한 구현을 수정 재사용. R01–R08도 원본 화면 맥락과 다시 비교하고 지나친 축소를 보정 | MB00 기준 SHA, 파일별 권리/의존 확인. 재작성 사유와 실제 추출 구분. 양 OS light/dark/긴 한글/큰 글자/스크린리더 확인 | 불명확 코드 단위만 보류; 독립된 화면/기능 재사용 계속 |
-| MB02b — shell·설정 조립 | 원본 NavHost/MainTab/AppRouter, More/MyPage·프로필 흐름을 적용 가능한 범위에서 재사용. 대화/설정 루트, 계정 gate, back/tab 복원. QA/prod 동일 제품 조립부 | MB02a. 합성 선택기/preview 진입을 배포 target에서 제거. SignedOut/LinkRequired/Ready/Blocked, 방 하나 자동 진입·설정 복귀, Activity 재생성/stack dismiss 시험 | 정책 URL/API 미확정 부분은 블로커 기록; 화면 상태·입력·복원은 개발 preview/테스트로 검증 |
+| MB02b — shell·설정 조립 | 원본 NavHost/MainTab/AppRouter, More/MyPage·프로필 흐름을 적용 가능한 범위에서 재사용. 대화/설정 루트, 계정 gate, back/tab 복원. QA/prod 동일 제품 조립부 | MB02a. 합성 선택기/preview 진입을 배포 target에서 제거. SignedOut/LinkRequired/Ready/Blocked, 방 하나 자동 진입·설정 복귀, Activity 재생성/stack dismiss 시험 | 정책 URL/API 미확정 부분은 블로커 기록; 화면 상태·입력·복원은 격리된 자동 테스트로 검증 |
 | MB02c — OS 알림·링크·lifecycle | 원본 알림 설정·권한·앱 복귀 흐름과 테스트를 재사용하고 기존 결함을 보정. 안전한 parser/pending intent, 실제 OS 상태와 서버 선호/등록 분리 | MB02b; OS 설정 복귀, cold/warm/중복/TTL/환경/계정 변경 시험. 합성 provider는 테스트 전용. 실제 등록/푸시 성공은 MB07까지 보류 | 서버 계약 없이 가능한 실제 OS 동작 완성; 제품 UI에 서버 미연동/provider 진단 행을 추가하지 않음 |
 | MB02d — 서비스 adapter·영속 기반 | 원본 APIClient/오류·보호 저장의 적용 가능한 코드를 수정 재사용. C01/07/08에 맞춘 SessionManager와 계정별 저장소, Room/GRDB migration | 확정된 MB01 계약만 연결. 재작성 부분은 원본과 계약 불일치 근거 기록. 원본 refresh/WebView token/민감 logging 금지. 실제 SQLite·secure store 오류·취소·generation 시험 | 미확정 adapter는 port/fixture만, 다른 제품 코드 진행 |
 
@@ -495,8 +505,8 @@ More/MyPage·프로필·알림 화면 재사용, 세션별 작업 폐기와 양 
    테스트를 함께 읽는다. 재사용/수정/제외/신규 사유와 대상 파일을 기록한다. 원본이 가진
    화면 완성도와 상태 처리를 일부 row 추출만으로 대체하지 않았는지 대조한다.
 2. **제품 조립부와 배포 경계 교체:** Android QA/prod `AppEntry`, iOS `RogichatApp`의
-   QA `WireframeHost` 분기를 공통 제품 조립부로 통합한다. 합성 시나리오는 테스트/개발
-   preview target으로 이동한다. `check_android.py`·`build_ios.py`의 **QA fixture 포함 필수**
+   QA `WireframeHost` 분기를 공통 제품 조립부로 통합한다. 합성 시나리오는 격리된 자동
+   테스트로 이동한다. `check_android.py`·`build_ios.py`의 **QA fixture 포함 필수**
    검사를 **양 배포 환경 fixture 제외** 검사로 바꾸고 실제 APK/실행 파일을 검사한다.
 3. **설정·탐색·OS 기능 재사용 완성:** 원본의 적용 가능한 전체 화면 흐름을 MB02a–c에
    반영한다. 상태 소유권·복귀·실제 시스템 설정 이동과 접근성을 검증한다. 프로필 저장·탈퇴·

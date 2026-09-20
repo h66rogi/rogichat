@@ -4,7 +4,7 @@
 [네이티브 세션·프로필 연결](mobile-native-transport-progress.md)의 준비 상태다.
 후속 [SOOP 인증 구현](mobile-native-auth-progress.md)의 서명·도메인 준비도 함께 추적한다.
 실제 [계정 알림 설정](mobile-notification-preferences-progress.md)은 빌드 12로 배포했다.
-이어지는 [방 저장소 단계](mobile-rooms-progress.md)는 별도 검증 기록을 따른다.
+이어지는 [방 저장소 단계](mobile-rooms-progress.md)는 빌드 13으로 내부 배포했다.
 QA·Prod는 같은 제품 소스를 사용하고 환경·식별자·서명만 분리한다. 테스트 배포 완료,
 서버 기능 완료, Production 스토어 출시를 서로 대신하는 증거로 사용하지 않는다.
 
@@ -42,6 +42,11 @@ iOS 빌드 10(`80940d4`, iOS 앱 소스는 `fe07bcf`와 동일)의 `VALID`·기�
 원격 APK 해시와 승인 테스터 배포 응답, iOS의 Apple validation·`VALID / IN_BETA_TESTING`·
 한국어 안내·기존 내부 그룹을 확인했다. 해당 PR의 필수 CI도 통과했다. 실제 provider가 발급한
 계정의 설정 영속 왕복이나 native push 등록/전달 성공을 의미하지 않는다.
+
+방 목록·계정별 SQLite는 양 OS 빌드 13(`d458f43`)의 실제 서명·내부 배포를 마쳤다.
+PR #58의 필수 CI와 새 Android hosted 기기 저장소 시험 16개가 통과했고, Firebase의
+원격 APK 해시·승인 테스터 응답과 TestFlight의 `VALID / IN_BETA_TESTING`·한국어 안내·
+내부 그룹을 확인했다. 이 빌드는 방 참여/나가기·메시지 전송 완료를 뜻하지 않는다.
 
 현재 로컬 도구의 실제 사용 절차는 [테스트 배포](mobile-test-distribution.md),
 서명 비밀 취급은 [키체인 보호](mobile-signing-security.md)를 따른다.

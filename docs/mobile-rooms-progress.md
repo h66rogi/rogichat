@@ -74,7 +74,8 @@ WAL/FULL, 부분 페이지·원자 교체·실패 rollback/reopen, actual SQLite
 stale handle·cold purge 실패 복구를 확인했다. QA/Prod의 Debug/Release 네 기기 SDK 구성도
 두 resolved-only 옵션으로 빌드했고 실제 GRDB privacy bundle·MIT·앱 DeviceID 선언을
 검사했다. XcodeGen 재생성 diff는 0이며 배포·패키지 도구 시험 108개를 통과했다.
-원격 CI와 이 단계의 서명 빌드 13 배포는 아직 완료하지 않았다. 실제 결과는 실행 후 기록한다.
+PR #58의 고정 소스 `d458f43d436ab07f5d7806be806d2d89e6291f04`에서 필수 hosted CI도 모두
+통과했다. 원격 iOS의 GRDB 8개·도구 108개·네 기기 SDK 구성 검증 결과를 별도로 확인했다.
 
 iOS의 로컬 Swift package도 제품 소스 검사에 포함한다. package Tests의 합성 fixture는
 독립 실행하며, 앱/IPA에는 포함하지 않는다. 실제 GRDB 시험은 macOS host에서 실행하고
@@ -83,8 +84,19 @@ iOS는 기기 SDK로 컴파일한다. iOS Simulator/GUI는 사용하지 않는�
 Android 실제 저장소 시험은 GitHub-hosted의 별도 필수 CI에도 연결한다. 고정 API 36 이미지의
 revision·ABI를 검사하고 자체 임시 AVD·adb 서버만 사용하며, 실패·skip·누락 suite를 성공으로
 처리하지 않는다. 타임아웃·취소 때 소유 프로세스를 정리한다. 이 CI에는 배포 자격증명이나
-실제 계정이 없으며, instrumentation APK를 배포물로 사용하지 않는다. 이 신규 hosted lane의
-실제 실행은 아직 대기 중이고 위 로컬 기기 검증과 구분한다.
+실제 계정이 없으며, instrumentation APK를 배포물로 사용하지 않는다. 신규 hosted lane도
+실행됐으며 API 36 revision 7에서 실제 저장소 시험 16개·실패/skip 0을 확인했다.
+
+같은 clean 소스로 양 OS **빌드 13**을 서명·배포했다. Android는 실제 APK/AAB의 환경·콜백·
+제품 fixture 제외 검사 후 한 번 업로드했고 원격 APK 해시와 승인 테스터 배포 응답을 확인했다.
+APK SHA-256은 `7ea75c92778f969f4ac348419809421a53aded7d411683ab5a5e2e3189f1167b`,
+AAB는 `237932b0bdc44ada25f8191050e1c504e66d9c0e088080fe1015e13a62f8b429`다.
+
+iOS는 실제 서명 archive/IPA의 권한·privacy·GRDB 고지 검사를 통과했고 Apple validation 후
+한 번 업로드했다. 처리 대기 중에는 상태만 재조회했으며 재업로드하지 않았다. 정확한
+`VALID / IN_BETA_TESTING`과 한국어 노트·기존 내부 그룹 연결을 확인했다. IPA SHA-256은
+`c3735998fc80e104f57ecc82dfbb378af08735f485cc780dc14e687147d59b1b`다. 원본 archive와
+업로드용 복제본을 분리했고 receipt·테스터·서명 자료는 저장소 밖에 보관한다.
 
 변경 symbol의 외부 영향도 읽기 전용으로 확인했다. DEV의 별도 Git 저장소 54개에서 native
 accountPartition/membershipScope·앱 식별자·배포 도구/패키지 참조를 검색했으며 직접 참조는
@@ -93,4 +105,4 @@ accountPartition/membershipScope·앱 식별자·배포 도구/패키지 참조�
 QA API의 schema 2 활성화는 웹·Android·iOS의 준비와 rollback 경로를 조정한 뒤 진행한다.
 SOOP canonical subject·broker 등록과 실제 사용자 발급은 별도 gate이며, 해당 장애를
 테스트 credential이나 성공 화면으로 감추지 않는다. 실제 계정의 방 목록/영속 왕복,
-물리 Android/iPhone 검증과 서명 빌드의 배포 상태는 코드 컴파일과 별도로 기록한다.
+물리 Android/iPhone 검증은 위 내부 배포 성공과 구분한다.

@@ -81,6 +81,17 @@ def main():
         run_checks(sdk, Path(temporary), "rooms-transport-checks", [
             *native_sources, "Tests/Product/RoomsTransportChecks.swift",
         ])
+        run_checks(sdk, Path(temporary), "rooms-model-checks", [
+            "Sources/Core/Navigation/ShellNavigation.swift",
+            "Sources/Features/Settings/ProfileEditor.swift",
+            "Sources/Features/Settings/ProfileDraft.swift",
+            "Sources/Core/Notifications/M11Contract.swift",
+            "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
+            "Sources/Core/Session/AppSession.swift",
+            "Sources/Core/State/Loadable.swift",
+            "Sources/Core/Rooms/RoomsScreenModel.swift",
+            "Tests/Product/RoomsModelChecks.swift",
+        ])
     # Run real on-disk SQLite/GRDB regressions on the macOS host. The device SDK
     # build separately validates iOS packaging; no simulator or app test mode.
     subprocess.run([

@@ -282,7 +282,19 @@ R34–R38은 새 외부 SDK나 의존성을 추가하지 않는다. 실제 비�
 | R43 | Android의 Room 의존 선언과 양 OS 비채팅 DB 코드 검색 | Android `core/rooms/{RoomsDatabase,AndroidRoomsStore}.kt`, iOS local package RoomsDatabase/RoomsStorage/RoomsContract | **신규**: 원본에 실제 DB/DAO/migration/SQLite coordinator가 없어 이식할 구현이 없음. 환경/accountPartition DB, schema 2의 완전 manifest 교체, durable cleanup, 실제 COMMIT fence 및 on-disk 회귀는 로기챗용으로 구현. 원본을 읽은 사실을 DB 재사용으로 집계하지 않음 |
 
 Room/KSP와 GRDB의 exact 버전·lock 및 고지/리소스 검사를 app/IPA 배포 guard에 강제한다.
-이번 rooms 단계의 서명·빌드 13 배포는 아직 대기 중이며 기기 SDK 빌드의 실제 bundle 검사는 통과했다.
+rooms 단계의 실제 bundle·서명 app/IPA 검사와 빌드 13의 양 OS 내부 배포를 통과했다.
 GRDB host 시험과 Xcode 앱의 서로 다른 resolved 파일이 같은 revision을 가리키도록 검사하고
 자동 재해석을 차단한다. 설치 UUID의 생성·전송·개인정보 선언도 새 데이터 흐름에 맞춘
 로기챗 메타데이터다. 원본의 주소·운영 ID·서명·analytics·Talk/TalkV2는 이식하지 않는다.
+
+## 실제 추출 기록 — 방 참여·나가기
+
+원본 SHA는 R39–R43과 같다. 기존 방 목록과 native HTTP 구현을 확장하며 새 라이브러리를
+추가하지 않는다. [명령 진행 기록](mobile-room-mutations-progress.md)은 결과 불명과 실제
+현재 상태, 로컬 선택 검사와 서버의 current-membership 명령을 구분한다.
+
+| ID | source 파일·심볼 | 대상 | 실제 수정 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R44 | Android `feature/more/.../MoreScreen.kt` logout AlertDialog, `feature/reviews/.../MyReviewsScreen.kt` deleteTarget, `MfaSecuritySettingsScreen.kt` MfaEnrollmentDialog | `feature/rooms/RoomsScreen.kt` | **수정 재사용**: 선택 대상 native 확인창·destructive/cancel·스크롤 본문·진행/버튼 렌더링. 실제 방 이름·원본 scope/cycle/M에 결합. 원본 review 삭제 즉시 filter·성공 toast·MFA business는 제외 |
+| R45 | iOS `Meloming/Presentation/Reviews/MyReviewsView.swift` reviewPendingDelete/presenting alert, `More/MyPageView.swift` logout alert, `MfaSecuritySettingsView.swift` ProgressView/disabled | `Sources/Features/Rooms/RoomsScreen.swift`, `Sources/Core/Rooms/RoomsScreenModel.swift`의 model·owner | **수정 재사용**: 선택 대상 확인·cancel/destructive·진행 표시, 기존 Loadable/List. source의 view-local flag를 명령 소유권으로 쓰거나 낙관적 history 삭제를 가져오지 않음 |
+| R46 | R39/R41의 기존 typed HTTP/repository와 원본 review command/refresh 책임 대조 | 양 OS room command DTO·service/coordinator·실제 DB invalidation 및 재확인 | **기존 추출 확장 + 신규**: closed POST adapter는 기존 구현을 확장. strict UInt32/200/204, 원본 선택·scope fence, view보다 긴 one-shot 소유권, COMMIT-before-POST·전체 manifest 조정은 원본에 대응 계약이 없어 새 구현. 단순 refreshAfterMutation 참고를 내구성 구현 이식으로 집계하지 않음 |
