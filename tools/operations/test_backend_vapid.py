@@ -84,7 +84,8 @@ class VapidPreflightTests(unittest.TestCase):
                     mount = mounts['/run/secrets/push-vapid.json']
                     self.assertEqual(mount['source'], prefix + '/push-vapid.json')
                     self.assertTrue(mount['read_only'])
-                    self.assertFalse(mount['bind']['create_host_path'])
+                    # Compose versions may omit this false-valued field in rendered JSON.
+                    self.assertFalse(mount['bind'].get('create_host_path', False))
                     self.assertEqual('/run/secrets/auth.json' in mounts, role == 'api')
 
     def test_live_gate_rejects_missing_wrong_writable_or_disagreeing_keys(self):
