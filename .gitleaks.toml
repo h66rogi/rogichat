@@ -14,3 +14,9 @@ regex = '''(?:ssh-(?:rsa|ed25519|dss)(?:-cert-v01@openssh\.com)?|ecdsa-sha2-nist
 id = "rogichat-public-key-formats"
 description = "PEM and RFC4716 public keys are prohibited"
 regex = '''(?:-----BEGIN (?:RSA |EC )?PUBLIC KEY-----|---- BEGIN SSH2 PUBLIC KEY ----)\r?\n'''
+
+[[rules]]
+id = "rogichat-github-installation-token"
+description = "GitHub installation tokens including variable-length formats"
+regex = '''\bghs_[A-Za-z0-9._-]{36,}'''
+keywords = ["ghs_"]
