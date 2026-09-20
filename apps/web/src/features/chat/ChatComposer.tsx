@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef } from 'react';
+import { useCallback, useId, useLayoutEffect, useRef } from 'react';
 import type { KeyboardEvent, FormEvent } from 'react';
 import { RadioGroup } from 'radix-ui';
 import { CornerUpLeft, Lock, Megaphone, Send, X } from 'lucide-react';
@@ -8,7 +8,7 @@ import { CornerUpLeft, Lock, Megaphone, Send, X } from 'lucide-react';
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/cn';
 
-import { draftKeyFor, isSameTarget, targetLabel } from './drafts';
+import { draftKeyFor, targetLabel } from './drafts';
 import type { ChatComposerTarget, ChatQuotePreview } from './types';
 
 /**
@@ -95,17 +95,6 @@ export function ChatComposer({
     el.style.height = `${next}px`;
     el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden';
   }, [value]);
-
-  // Keep focus on the input when the target changes via the target row.
-  const previousTargetRef = useRef<ChatComposerTarget | null>(target);
-  useEffect(() => {
-    if (!isSameTarget(previousTargetRef.current, target)) {
-      previousTargetRef.current = target;
-      if (target !== null && document.activeElement?.closest('[data-testid="chat-composer-target"]')) {
-        textareaRef.current?.focus();
-      }
-    }
-  }, [target]);
 
   const submit = useCallback(() => {
     if (!canSend) return;

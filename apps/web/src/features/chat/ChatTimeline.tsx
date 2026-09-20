@@ -165,7 +165,7 @@ export function ChatTimeline({
       >
         <ol className="flex min-h-full flex-col py-2">
           {(hasOlder || isLoadingOlder) && (
-            <li className="flex justify-center py-2" role="presentation">
+            <li className="flex justify-center py-2">
               <Button
                 type="button"
                 variant="ghost"
@@ -182,14 +182,14 @@ export function ChatTimeline({
           )}
 
           {items.length === 0 && (
-            <li className="flex flex-1 items-center justify-center px-6 py-16 text-center text-[14px] text-muted" role="presentation">
+            <li className="flex flex-1 items-center justify-center px-6 py-16 text-center text-[14px] text-muted">
               아직 메시지가 없습니다. 첫 메시지를 보내면 여기에 표시됩니다.
             </li>
           )}
 
           {entries.map((entry) =>
             entry.type === 'separator' ? (
-              <li key={entry.key} className="flex items-center gap-3 px-4 py-3" role="presentation">
+              <li key={entry.key} className="flex items-center gap-3 px-4 py-3">
                 <span className="h-px flex-1 bg-line-subtle" aria-hidden="true" />
                 <span className="shrink-0 text-[12px] font-semibold text-muted">{entry.label}</span>
                 <span className="h-px flex-1 bg-line-subtle" aria-hidden="true" />

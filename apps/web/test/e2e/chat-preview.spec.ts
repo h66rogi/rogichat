@@ -1,10 +1,52 @@
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 
 /**
  * Chat presentation wired through the QA preview harness. The composer, targets and drafts belong to the
  * chat feature; the harness supplies synthetic fixtures and an in-memory submit that never reports "saved".
  */
 test.describe('chat preview composer', () => {
+  for (const role of ['fan', 'streamer']) {
+    test(`${role} timeline preserves accessible list semantics`, async ({ page }) => {
+      await page.goto(`/preview/chat/${role}`);
+      await expect(page.getByTestId('chat-room')).toBeVisible();
+      const result = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+      expect(result.violations.filter((issue) => ['serious', 'critical'].includes(issue.impact ?? ''))).toEqual([]);
+    });
+  }
+
+  test('target arrows retain focus through consecutive selections and Tab reaches input', async ({ page }) => {
+    await page.goto('/preview/chat/streamer');
+    const options = page.getByTestId('chat-target-option');
+    await options.nth(0).focus();
+    for (const index of [1, 2, 0]) {
+      // Radix selects on asynchronously moved focus while the arrow remains held.
+      await page.keyboard.press('ArrowRight', { delay: 120 });
+      await expect(options.nth(index)).toBeFocused();
+      await expect(options.nth(index)).toHaveAttribute('aria-checked', 'true');
+    }
+    await page.keyboard.press('Tab');
+    await expect(page.getByTestId('chat-composer-input')).toBeFocused();
+  });
+
+  test('late SHARED acceptance preserves a new PRIVATE draft and quote', async ({ page }) => {
+    await page.goto('/preview/chat/streamer');
+    const input = page.getByTestId('chat-composer-input');
+    await input.fill('[지연] 전체에게 보내는 샘플');
+    await page.getByTestId('chat-composer-send').click();
+    await expect(input).toBeFocused();
+    await expect(input).toHaveAttribute('readonly', '');
+    await page.getByTestId('chat-timeline-item').filter({ hasText: '방송 시작 알림은 어디서 받을 수 있나요?' }).getByTestId('chat-reply').click();
+    await expect(page.getByTestId('chat-quote-preview')).toContainText('방송 시작 알림');
+    await input.fill('팬 B에게만 쓰는 새 초안');
+    const sent = page.getByTestId('chat-timeline-item').filter({ hasText: '[지연] 전체에게 보내는 샘플' });
+    await expect(sent).toHaveCount(1, { timeout: 6000 });
+    await expect(input).toHaveValue('팬 B에게만 쓰는 새 초안');
+    await expect(page.getByTestId('chat-quote-preview')).toContainText('방송 시작 알림');
+    await expect(page.getByTestId('chat-target-option').filter({ hasText: '팬 B' })).toHaveAttribute('aria-checked', 'true');
+    await expect(sent).not.toContainText('저장 완료');
+  });
+
   test('fan composer is locked to a PRIVATE message for the room owner', async ({ page }) => {
     await page.goto('/preview/chat/fan');
     await expect(page.getByTestId('chat-room')).toBeVisible();
