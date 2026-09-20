@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "runtimeCommit": "f237f41d96e3c21a6faa35688dce4868b48a1ed3",
+  "mediaCommit": "ba06a93d97deda4d4e4bdb676d836ba7c9a7d2bc",
+  "environment": "disposable-local-only",
+  "node": "24.21.0",
+  "mysql": "8.0.44",
+  "prisma": "7.10.0",
+  "migrationCount": 24,
+  "migration24": "20260920114316_restore_gate_checkpoint",
+  "migration24Sha256": "3dd778cd72dd206093632bc0153efdcc15b90c20821c5030b83283e628779fbd",
+  "freshReplay": "passed-schema-in-sync",
+  "componentTests": {
+    "passed": 60,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 14617.973667
+  },
+  "operatorCompositionTests": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "actualMysqlFenceTests": {
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 2353.703208,
+    "assertions": [
+      "custody loss during actual account lock wait rolls back user, receipt and obligation",
+      "custody loss between 100-row scrub pages prevents next-page mutation",
+      "fresh target preserves carried checkpoint and consumed nonce; reused target rejects"
+    ]
+  },
+  "build": "clean TypeScript compilation passed",
+  "lint": "full API source and tests passed",
+  "joinedRestore": "not-yet-executed",
+  "limitations": [
+    "No live QA or production data/hosts/storage accessed",
+    "Component tests are not an independent joined restore release",
+    "Old session row resurrection is tested through actual SessionService with a repository fixture; actual HTTP restore proof remains joined-driver work",
+    "Kernel storage custody requires the separate Linux isolated authority; no live R2 custody claim"
+  ]
+}

@@ -4,23 +4,49 @@ This source integration is not a QA release or proof of physical deletion.
 
 ## Whole-batch follow-up (2026-09-20)
 
-Accepted schema-23 checkpoint `9e77390b5efa02a171a5753e109740d95ed44d06`
+Accepted schema-23 checkpoint `7d1bd35df63d7f3aa707934a4473608e7dd6b59d`
 passed every required PR52 check against current QA. Backend
-[run 35509521452](https://github.com/h66rogi/rogichat/actions/runs/35509521452)
-passed 441 unit, 18 end-to-end, 21 contract and 400 actual MySQL/process tests,
+[run 35510008789](https://github.com/h66rogi/rogichat/actions/runs/35510008789)
+passed 443 unit, 18 end-to-end, 21 contract and 402 actual MySQL/process tests,
 including the new populated WEB upgrade, native NOWAIT and pool recovery cases.
 API/decoder image safety, public security, web, infrastructure, mobile-required
 and the existing isolated quality gate also passed. Two obsolete auth error-code
 expectations and one raw scalar type expectation were corrected precisely;
 no runtime assertion was relaxed to accept arbitrary failures.
 
-The next additive input is moderation discovery
+That checkpoint includes moderation discovery
 `0d75c977244b43c2882b6f0fcbce8bc50664e25f`: `GET /v1/blocked-rooms` recovers
 only rooms with the caller's durable blocks, uses session-bound encrypted
-pagination, and returns currently permitted nullable labels. Its local merge
-passes compilation and 14 focused unit/contract checks; it requires its own
-combined hosted acceptance. Restore/schema-24, media reconciliation and approved
-web/mobile source remain separate pending inputs to the final product candidate.
+pagination, and returns currently permitted nullable labels.
+
+Approved WEB `a92ebfc85398d368032195b901f42211b2983f62` was normally merged at
+`609c08f3cef1755c48d244a5a9095293fed92318` without conflicts. Its web source and
+workflow remain byte-identical to that reviewed leaf. Local typechecking and
+security passed. The WEB owner accepted this exact aggregate, including dependency
+closure and compatible moderation/push contracts: web tree
+`62ca9f3b8b1dbbb6b0d9b357ec7569b95fdc4b52`, workflow blob
+`5a83b574ac2f77ea7907522f7fb4ab098eca7ff6`. WEB hosted checks passed; the combined
+quality job hit the setup migration's 60-second harness deadline before TAP.
+Later source changes still require final CI and confirmation that the approved
+web tree and dependency closure are unaffected.
+
+Restore preparation `bd624d573dc53d2db49dd0f18d62f8d01c626a57` normally merges
+generated migration 24, protected authorization epoch configuration and operator
+restore gates, including accepted media reconciliation
+`ba06a93d97deda4d4e4bdb676d836ba7c9a7d2bc`. Integration binds blocked-room cursors
+to the authorization key while retaining stable report/rate and provider-sealing
+keys. Compilation and 17 focused moderation/epoch tests passed. The mandatory
+physical-target identity correction and approved MOBILE source are still pending;
+this checkpoint is preparation, not final restore or release acceptance.
+
+| Evidence boundary | Immutable source / result |
+|---|---|
+| Accepted backend, migrations 1–23 | `7d1bd35df63d7f3aa707934a4473608e7dd6b59d`; backend run above, all required PR checks passed |
+| Approved WEB leaf | `a92ebfc85398d368032195b901f42211b2983f62`; [hosted browser run](https://github.com/h66rogi/rogichat/actions/runs/35510393707), 235 first-pass + 1 retry-pass, 2 opposite-device skips |
+| Combined WEB/backend checkpoint | `609c08f3cef1755c48d244a5a9095293fed92318`; [WEB](https://github.com/h66rogi/rogichat/actions/runs/35510801843) passed, [backend](https://github.com/h66rogi/rogichat/actions/runs/35510801787) passed; [quality](https://github.com/h66rogi/rogichat/actions/runs/35510801733) stopped at the setup deadline |
+| Restore/schema-24 preparation | `bd624d573dc53d2db49dd0f18d62f8d01c626a57`; local integration compile and 17 focused checks passed, final physical-target correction and hosted acceptance pending |
+| Soak and supplementary scale | No accepted 30-minute result recorded here; no 1,000-client capacity claim |
+| External providers, restored service, QA routes | Not established by these credential-free tests; infrastructure/provider execution remains separate |
 
 The follow-up preserves accepted `4216aaaa53cc657a2d15e11cd12e53ce159e3b3b`
 and normally merges these complete source histories:
@@ -39,18 +65,22 @@ and normally merges these complete source histories:
 - Current QA `c5c75d433e1da9a46d8a2fa4b66c405ab6e4a0c5`, including reviewed
   public-history scanner improvements.
 
-Migrations 20–23 are retained without rewriting their bytes. Shared Nest module,
+Migrations 20–24 are retained without rewriting their bytes. Shared Nest module,
 account-cleanup and worker conflicts preserve both moderation retention and Apple
 lifecycle services. The merged cleanup tests retain both continuation contracts:
 pending moderation cannot falsely complete, and provider waits cannot starve
-independent content/media cleanup. The separate M12 restore-epoch/schema-24 work
-is not part of this source checkpoint.
+independent content/media cleanup. Restore operations remain operator-only and
+are not invoked by application startup or a public provisioning endpoint.
 
 Integration-owned changes add [bounded overload admission](backend-overload-admission.md),
 temporary socket transport retry, narrow native NOWAIT contention handling, and
 real-MySQL regressions for acquisition exhaustion, lock contention and populated
 WEB subscription preservation across migration 23. Existing tests are retained;
 crossed native rebinding now rejects arbitrary errors as a passing outcome.
+The disposable harness grants only Prisma migration replay/shadow validation a
+bounded 180-second setup budget; other setup commands retain 60 seconds. It now
+distinguishes sanitized timeout and nonzero-exit reasons. This changes no workload
+assertion, migration SQL, production timeout or fresh-database guard.
 
 Small local checks cover compilation, the focused runtime regressions, architecture,
 syntax/lint and security. Full tests and disposable-MySQL upgrade checks belong

@@ -1,3 +1,4 @@
+import { authorizationKey } from '../../infrastructure/config/authorization-epoch.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
@@ -18,7 +19,7 @@ export class ReadStateService {
   get(credentials: SessionCredentials, roomId: string) {
     return this.transactions.read(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
-      return this.state.get(tx, roomId, actor.userId, { key: this.config.key, audience: this.config.audience, sessionId: actor.sessionId });
+      return this.state.get(tx, roomId, actor.userId, { key: authorizationKey(this.config), audience: this.config.audience, sessionId: actor.sessionId });
     });
   }
 
@@ -26,7 +27,7 @@ export class ReadStateService {
     requireCommandProof(credentials);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
-      return this.state.put(tx, roomId, actor.userId, input, { key: this.config.key, audience: this.config.audience, sessionId: actor.sessionId });
+      return this.state.put(tx, roomId, actor.userId, input, { key: authorizationKey(this.config), audience: this.config.audience, sessionId: actor.sessionId });
     });
   }
 }

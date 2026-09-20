@@ -1,3 +1,4 @@
+import { authorizationKey } from '../../infrastructure/config/authorization-epoch.js';
 import { DeletionLedger, DeletionLedgerError } from '../deletion/deletion-ledger.js';
 import { DeletionApplyService } from '../deletion/deletion-apply.service.js';
 import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
@@ -33,7 +34,7 @@ export class MessagesService {
     if (!allowed) throw new ApiError('RATE_LIMITED', 429);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
-      return this.messages.send(tx, roomId, actor.userId, input, this.config.key, this.config.audience);
+      return this.messages.send(tx, roomId, actor.userId, input, authorizationKey(this.config), this.config.audience);
     });
   }
 

@@ -24,17 +24,23 @@ for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => {
   server?.kill('SIGTERM');
 });
 
-async function run(command, args, env) {
+class FixtureCommandError extends Error {
+  constructor(reason) { super(reason); this.reason = reason; }
+}
+
+async function run(command, args, env, timeoutMs = 60000) {
   const proc = spawn(command, args, { stdio: 'inherit', ...(env ? { env } : {}) });
-  const deadline = setTimeout(() => proc.kill('SIGKILL'), 60000);
+  let timedOut = false;
+  const deadline = setTimeout(() => { timedOut = true; proc.kill('SIGKILL'); }, timeoutMs);
   try {
     const [code] = await once(proc, 'exit');
-    if (code !== 0) throw new Error('fixture command failed');
+    if (timedOut) throw new FixtureCommandError('command_timeout');
+    if (code !== 0) throw new FixtureCommandError('command_exit_failed');
   } finally { clearTimeout(deadline); }
 }
 
 try {
-  if (process.argv.includes('--quality') && (!process.env.TEST_MYSQL_PORT || process.env.ROGICHAT_TEST_MYSQL !== 'disposable')) {
+  if ((process.argv.includes('--quality') || process.argv.includes('--soak')) && (!process.env.TEST_MYSQL_PORT || process.env.ROGICHAT_TEST_MYSQL !== 'disposable')) {
     throw new Error('quality suite requires an explicitly disposable MySQL service; local datadir fallback forbidden');
   }
   let port;
@@ -82,15 +88,17 @@ try {
   // Generated migrations only, on this harness-owned loopback database. Never reads repository .env.
   const migrationName = process.argv.find(x => x.startsWith('--migration-name='))?.split('=')[1] ?? 'schema_update';
   if (!/^[a-z0-9_]{1,64}$/.test(migrationName)) throw new Error('invalid fixture migration name');
+  // Includes migration replay and Prisma shadow/drift validation as the schema grows.
+  // Other setup children retain the existing one-minute limit.
   await run(process.execPath, [createRequire(import.meta.url).resolve('prisma/build/index.js'), 'migrate', 'dev', '--name', migrationName], {
     PATH: process.env.PATH, DATABASE_URL: adminUrl,
-  });
+  }, 180000);
   if (process.argv.includes('--migration-only')) {
     process.exitCode = 0;
   } else {
   stage = 'tests';
   // Discover committed test names so newly added regressions cannot silently miss CI.
-  const suite = process.argv.includes('--quality') ? 'quality' : 'integration';
+  const suite = process.argv.includes('--soak') ? 'soak' : process.argv.includes('--quality') ? 'quality' : 'integration';
   let integrationFiles = (await readdir(new URL(`./${suite}/`, import.meta.url)))
     .filter(name => name.endsWith('.test.mjs')).sort().map(name => join('test', suite, name));
   const requested = process.argv.filter(arg => arg.startsWith('--test-file=')).map(arg => arg.slice('--test-file='.length));
@@ -105,13 +113,15 @@ try {
       DATABASE_URL: runtimeUrl, TEST_ADMIN_URL: adminUrl, ROGICHAT_TEST_MYSQL: 'disposable',
       M12_EVIDENCE_DIR: process.env.M12_EVIDENCE_DIR ?? '',
       M12_SOURCE_SHA: process.env.M12_SOURCE_SHA ?? '',
+      M12_PREFLIGHT_ONLY: process.env.M12_PREFLIGHT_ONLY ?? '',
     },
   });
   const [code] = await once(testProcess, 'exit');
   process.exitCode = code ?? 1;
   }
-} catch {
-  console.error(`Disposable MySQL harness failed at ${stage}; no external database was selected.`);
+} catch (error) {
+  const reason = error instanceof FixtureCommandError ? error.reason : 'setup_failed';
+  console.error(`Disposable MySQL harness failed at ${stage} (${reason}); no external database was selected.`);
   process.exitCode = 1;
 } finally {
   if (admin) {

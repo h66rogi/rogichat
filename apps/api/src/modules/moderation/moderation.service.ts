@@ -5,6 +5,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
+import { authorizationKey } from '../../infrastructure/config/authorization-epoch.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
 import { AuthService } from '../auth/auth.service.js';
 import { requireCommandProof } from '../auth/auth-context.js';
@@ -17,7 +18,7 @@ export class ModerationService {
   constructor(@Inject(Transactions) private readonly transactions: Transactions,
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
-    @Inject(ModerationCoreService) private readonly core: ModerationCoreService) { this.recoveryCursor = new BlockRoomsCursor(config.key, config.audience); }
+    @Inject(ModerationCoreService) private readonly core: ModerationCoreService) { this.recoveryCursor = new BlockRoomsCursor(authorizationKey(config), config.audience); }
   private write<T>(credentials: CommandCredentials, operation: (tx: Transaction, userId: string) => Promise<T>, linked = false) {
     requireCommandProof(credentials);
     return this.transactions.write(async tx => operation(tx, (await this.auth.require(tx, credentials, linked)).userId));

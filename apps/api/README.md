@@ -1,10 +1,10 @@
 # API
 
-M01 구현: Nest API/독립 worker, 검증된 설정, 안전한 로그, health와 종료 처리,
-격리 MySQL fixture, 단위/HTTP/프로세스/DB 시험, credential 없는 hosted CI.
-M02는 Prisma schema/migration과 mysql2 transaction/repository, membership/history/counter/rate
-primitive를 추가한다. [M02 구현 기록](../../docs/backend-m02-implementation.md)을 따른다.
-인증·채팅·Socket.IO·R2 및 실제 QA 앱 배포 완료는 이 문서의 DB 구현과 구분한다.
+현재 소스는 Nest domain modules와 Prisma CRUD/transaction을 기반으로 인증·계정·방 권한,
+채팅·REST sync·Socket.IO hint, worker, 사진·영상·스티커, 삭제·탈퇴, 알림·읽음,
+신고·차단 및 Apple/네이티브 인증·push 경로를 통합한다. 구현과 격리 테스트 증거는
+[통합 기록](../../docs/backend-integration-m10-m11.md)을 따른다.
+실제 SOOP/Apple 로그인, R2·APNs·FCM 전달, 백업 복구와 QA 배포는 각각 별도 운영 증거가 필요하다.
 
 후속 [제품·권한 설계](../../docs/backend-design.md), [독립 리뷰](../../docs/backend-review.md),
 [다중 인스턴스 구현 계획](../../docs/backend-implementation-plan.md)을 따른다.
@@ -70,12 +70,15 @@ pnpm --filter @rogichat/api dev:worker
 | `DATABASE_SECRET_FILE` | URL과 상호 배타적. qa/production 필수. JSON의 host/port/database/username/password만 허용 |
 | `DB_TLS_MODE` | 기본 required. disabled는 local/test의 loopback DB만 허용 |
 | `DB_CA_FILE` | qa/production 필수. 읽기 전용 CA bundle 경로, 인증서 체인+호스트명 검증 |
-| `DB_POOL_SIZE` | 기본 API 5/worker 2, 최대 10. acquisition 대기열 없음 |
+| `DB_POOL_SIZE` | 기본 API 5/worker 2, 최대 10. transaction admission은 pool size의 5배로 제한하며 초과/알려진 획득 실패는 503 |
+| `AUTHORIZATION_EPOCH_FILE` | 선택적 보호 파일의 UUIDv4 authorization epoch. 미설정 시 기존 계약 유지; 설정 시 세션·scope·sync/차단복구 cursor를 별도 키로 묶고 provider sealing 기본 키는 유지 |
 
 파일 credential 구조는 [운영 인계](../../docs/qa-operations-handoff.md)와 맞춘다. 앱은 secret을
 직접 발급/회전하거나 AWS 관리자 자격증명을 받지 않는다. 파일 원자 교체 뒤 app recreate는 후속 배포 계약이다.
 설정 값·URL·SQL·본문·headers·stack을 로그에 기록하지 않는다. 알려진 event/reason/status와
 서버가 생성한 request UUID만 기록한다. 인증·인가 검사는 문서 제공 여부와 무관하게 유지한다.
+복구 operator의 격리·증명·checkpoint 계약은 [restore gate](../../docs/backend-restore-gate.md)를 따른다.
+epoch 파일을 추가하거나 변경하는 실제 운영 작업은 이 소스 통합에서 수행하지 않는다.
 
 ## Health·종료·스키마 경계
 
@@ -84,10 +87,12 @@ pnpm --filter @rogichat/api dev:worker
   503 `{"error":{"code":"UNAVAILABLE"}}`. DB명/버전/실패 원문은 반환하지 않는다.
 - 적용한 migration 이름·SHA-256·완료 상태를 manifest와 비교한다. 빈 schema/미완료/알 수 없는
   active migration은 거부하며 명시적으로 rolled back 처리한 과거 시도만 제외한다. startup DDL은 없다.
-- probe는 fresh query이며 동시 호출만 합친다. 연결 1초/획득 1.2초/query 1초 제한, 실패 연결 정리.
-- worker는 5초 간격으로 겹치지 않게 probe하고 상태 변경만 기록한다. **job 소비는 아직 하지 않는다.**
+- probe는 fresh query이며 동시 호출만 합친다. migration 조회에는 2초 transaction 예산을 적용한다.
+- worker는 lease/fence를 적용해 job을 소비한다. 5초 probe와 함께 rate GC, publication/media 복구,
+  purge 복구, 신고 보존 기한과 Apple revocation을 처리하며 활성 모듈의 설정·서비스 의존성을 따른다.
 - SIGTERM/SIGINT 시 readiness 차단→HTTP/context 종료→DB pool 종료. 10초 초과/실패는 비정상 종료.
-- CORS는 아직 비활성, proxy header는 신뢰하지 않음. 인증 단계에서 검증된 origin/proxy 계약을 추가한다.
+- `/v1/` CORS는 설정된 origin만 허용하며 보호된 웹 쓰기는 세션·CSRF도 검사한다.
+  Apple callback의 제한된 예외는 별도 state/code/nonce 검증을 거친다.
 
 [`health.json`](../../packages/contracts/health.json)은 최소 검증 fixture다. 생성 OpenAPI는 아래 경로에서 확인한다.
 
@@ -96,11 +101,14 @@ pnpm --filter @rogichat/api dev:worker
 [Nest 12 ESM/Node 계약](https://docs.nestjs.com/migration-guide),
 [Node LTS](https://nodejs.org/en/about/previous-releases),
 [Prisma 지원 버전](https://www.prisma.io/docs/orm/release-status)을 확인했다.
-Prisma stable 7.10.0 CLI를 schema/migration에 사용하며 runtime query는 단일 mysql2 pool을 쓴다.
+Prisma 7.10.0 CLI를 schema/migration에 사용하며 runtime CRUD는 Prisma Client와
+단일 mysql2 pool의 driver adapter를 사용한다. lock 등 필요한 raw query 경계와 transaction
+deadline은 [ORM 계약](../../docs/backend-orm-first.md)을 따른다.
 패키지 exact version+lockfile, 최소 release age 24시간을 적용한다. 검토한 Prisma 7.10.0의
 Node 검사와 schema-engine 설치 script만 허용하며 나머지 dependency install script는 차단한다.
 
-Backend CI는 build/test만 하며 image 발행·cloud 접속·DB migration·Caddy 변경·배포는 하지 않는다.
+Backend PR CI는 credential 없는 build/test와 image build·검사를 수행하며 registry 발행,
+cloud 접속·실제 서비스 DB migration·Caddy 변경·배포는 하지 않는다.
 실제 Aurora TLS positive 연결, 앱 image/UID/GID, migration 단일 실행과 public route는 후속 증거다.
 
 ## Swagger / OpenAPI
@@ -113,7 +121,8 @@ QA: <https://api.qa.rogi.chat/docs>. 검색과 태그별 탐색을 지원하며 
 
 웹은 쿠키 세션을 사용하며 보호된 쓰기에는 CSRF 토큰과 허용 Origin도 필요하다.
 네이티브는 Bearer 토큰과 `X-Rogi-Client: ios|android`를 함께 사용하며 웹 인증과 혼용할 수 없다.
-네이티브 토큰 발급용 공개 로그인·refresh endpoint는 아직 제공되지 않는다.
+네이티브 SOOP transaction/launch/completion exchange 및 Apple native completion 경로를 제공한다.
+실제 provider 설정과 기기에서의 로그인 증거는 격리 계약 테스트와 구분하며 refresh endpoint는 제공하지 않는다.
 각 작업에 로그인 예외, 방 권한, 조회 범위와 오류를 표시한다. 문서 조회 권한은 API 실행 권한이 아니다.
 
 ```sh

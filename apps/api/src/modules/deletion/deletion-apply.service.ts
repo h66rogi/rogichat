@@ -24,6 +24,20 @@ export class DeletionApplyService {
     if (createHash('sha256').update(encodeDeletionIntent(intent)).digest('hex') !== receipt.sha256) throw new Error('invalid_deletion_receipt');
     return this.transactions.write(tx => this.applyInTransaction(tx, { intent, sha256: receipt.sha256 }));
   }
+  /** Operator restore seam: caller owns one transaction with custody checks before
+   * and after this call. Never acquires a second connection or performs I/O. */
+  restoreApply(tx: Transaction, receipt: DeletionReceipt) {
+    if (!tx.writable) throw new Error('transaction_not_writable');
+    const intent = checkedDeletionIntent(receipt.intent, receipt.intent.environment);
+    if (createHash('sha256').update(encodeDeletionIntent(intent)).digest('hex') !== receipt.sha256) throw new Error('invalid_deletion_receipt');
+    return this.applyInTransaction(tx, { intent, sha256: receipt.sha256 });
+  }
+  restoreScrubBindings(tx: Transaction, receipt: DeletionReceipt) {
+    if (!tx.writable) throw new Error('transaction_not_writable');
+    const intent = checkedDeletionIntent(receipt.intent, receipt.intent.environment);
+    if (intent.scope !== 'ACCOUNT' || createHash('sha256').update(encodeDeletionIntent(intent)).digest('hex') !== receipt.sha256) throw new Error('invalid_deletion_receipt');
+    return this.accounts.scrubBindings(tx, intent.targetId);
+  }
   private async applyInTransaction(tx: Transaction, receipt: DeletionReceipt) {
     const intent = receipt.intent;
     const checkpoint = await this.repository.checkpoint(tx, receipt);

@@ -6,6 +6,7 @@ import { ModerationCoreService, reportReceipt } from '../../dist/modules/moderat
 import { BlockPolicyRepository } from '../../dist/modules/access/block-policy.repository.js';
 import { ModerationRetentionService } from '../../dist/modules/moderation/moderation-retention.service.js';
 import { ModerationRepository } from '../../dist/modules/moderation/moderation.repository.js';
+import { ModerationService } from '../../dist/modules/moderation/moderation.service.js';
 
 const body = () => ({ idempotencyKey: randomUUID(), reason: 'spam' });
 test('report schema rejects identity injection, unsupported reasons, unbounded details and forged state', () => {
@@ -152,4 +153,32 @@ test('blocked-room cursor hides scan positions and rejects tampering, other acco
   const bytes = Buffer.from(token, 'base64url'); bytes[42] ^= 1;
   assert.throws(() => codec.after(bytes.toString('base64url'), actor, now), { code: 'INVALID_CURSOR' });
   assert.equal(codec.after(undefined, actor, now), ''); assert.equal(codec.next(null, actor, now), null);
+});
+
+test('blocked-room service rejects pre-restore cursors before discovery and resumes only within the current authorization epoch', async () => {
+  const key = randomBytes(32), stableKey = Buffer.from(key), base = { key, audience: 'fixture' };
+  const actor = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true };
+  const roomId = randomUUID(), now = new Date(), positions = [];
+  const transactions = { read: work => work({ now: async () => now }) };
+  const auth = { require: async () => actor };
+  const core = { blockRooms: async (_tx, userId, after, linked) => {
+    assert.equal(userId, actor.userId); assert.equal(linked, true); positions.push(after);
+    return { rooms: [], nextRoomId: after ? null : roomId };
+  } };
+  const service = config => new ModerationService(transactions, auth, config, core);
+  const legacy = service(base), prior = service({ ...base, authorizationEpoch: randomUUID() });
+  const currentConfig = { ...base, authorizationEpoch: randomUUID() }, current = service(currentConfig);
+  const legacyToken = (await legacy.blockRooms({}, undefined)).nextCursor;
+  const priorToken = (await prior.blockRooms({}, undefined)).nextCursor;
+  const before = positions.length;
+  for (const token of [legacyToken, priorToken]) {
+    await assert.rejects(current.blockRooms({}, token), { code: 'INVALID_CURSOR', status: 400 });
+  }
+  assert.equal(positions.length, before);
+  const currentToken = (await current.blockRooms({}, undefined)).nextCursor;
+  assert.deepEqual(await service(currentConfig).blockRooms({}, currentToken), { rooms: [], nextCursor: null });
+  assert.equal(positions.at(-1), roomId);
+  await assert.rejects(prior.blockRooms({}, currentToken), { code: 'INVALID_CURSOR', status: 400 });
+  assert.deepEqual(await service(base).blockRooms({}, legacyToken), { rooms: [], nextCursor: null });
+  assert.deepEqual(key, stableKey);
 });

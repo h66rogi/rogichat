@@ -23,4 +23,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920105633_apple_identity_lifecycle', checksum: 'de0799c31a68a38512194da77ecd2aaa94b43940e595a6f78e888540321e3ba8' },
   { name: '20260920111123_moderation_report_block', checksum: '37cf4a1bc473baf2165b5f3477efa7e64ae358b9483d1da2dd9c7e1f0d33c0ea' },
   { name: '20260920111853_native_push_providers', checksum: '8741bb699f9f0a939ccae9627358734417e389a2461d811e45fffaeaa6ad6094' },
+  { name: '20260920114316_restore_gate_checkpoint', checksum: '3dd778cd72dd206093632bc0153efdcc15b90c20821c5030b83283e628779fbd' },
 ];

@@ -139,3 +139,90 @@ Fault-test durations cover the entire named test, not isolated recovery latency.
 Security hooks and the full-history scanner passed before publication. Required
 PR checks are tracked separately from this quality-run result; this report does
 not assert QA merge, deployment or public-route verification.
+
+
+## Follow-up: exact fanout, automatic recovery and restore quarantine
+
+The first run above is retained as its observed baseline. The subsequent
+`realtime-storm.test.mjs` adds a single-event recipient count per API and the
+latency from send to hint and successful REST projection, without conflating
+periodic polling with cross-node fanout. It SIGKILLs both APIs and measures each
+of 1,000 clients using real Socket.IO automatic backoff (1 s initial, 5 s maximum,
+0.5 randomization). Foreground snapshot requests are immediate and unbatched.
+Every client's successful recovery must meet the unchanged 20 s gate; failures
+and timeouts are written to evidence before the assertion fails. Local hint
+recipient REST projection p95 is compared to the unchanged 1 s target.
+
+A final single-API probe places all 1,000 sockets on the MVP serving topology
+and requires HTTP readiness to remain reachable. This checks REST headroom,
+including the interaction between the configured 1,000 HTTP connection ceiling
+and the configured 1,000 realtime ceiling. It is an isolated characterization,
+not a production capacity claim.
+
+The logical restore drill now also models a post-backup owner transfer, ban,
+private-grant revocation and birthday-visibility withdrawal. Before any serving
+API starts, its test-only operator procedure invalidates sessions, increments
+room/content/ACL/profile/membership epochs, resets birthday visibility OFF,
+and disables all restored memberships, positive grants, owner, creator and
+administrator rights. Only the independently approved current owner receives
+a new membership period. Former-owner login/rejoin/publication, restored admin
+rights, old private grants and pre-restore cursors must remain denied/reset.
+This demonstrates the required procedure on disposable SQL; it still does not
+supply the missing production restore-release orchestrator, independent ledger
+inventory proof, media/orphan reconstruction or Aurora PITR evidence.
+
+Execution results for these follow-up assertions are pending and must not be
+inferred from the passing 33-test baseline.
+
+### Observed supplementary failures, run 35507401036
+
+[Actual hosted run](https://github.com/h66rogi/rogichat/actions/runs/35507401036)
+on PR merge `dc442000b9efb7ab6ab6d04ce34aa883b9a5d132` failed the automatic
+recovery assertion. [Durable sanitized measurements](evidence/m12/2026-09-20-run-35507401036.json)
+preserve failure, source, timestamps and error counts. Strengthened restoration
+quarantined every restored positive membership, grant, owner, admin and creator
+permission, reset birthdays OFF, rejected former-owner access and stale cursors,
+and passed. The earlier paced 1,000-client hot-room test also passed again.
+
+A single event reached **500/1,000 sockets on one API only**. Of 500 simultaneous
+hint-triggered REST projections, **399 returned HTTP 500**; the 101 successful
+projections had p95 **1,947 ms**. Following death of both APIs, only **570/1,000**
+clients recovered their projection, with **430 missing the 20-second deadline**,
+269 REST failures and 1,174 connection errors. The single-API capacity follow-up
+reached only 926 sockets while readiness remained 200: this does **not** isolate
+or prove the proposed HTTP connection-cap collision. Application owners received
+the concrete evidence. No runtime fix or cross-node guarantee is claimed here.
+These are supplementary stress failures, not an inflated replacement for the
+MVP criterion of ten clients, 30 minutes, one message/second and one video worker.
+
+### Thirty-minute MVP execution lane
+
+Apply the `m12-soak` PR label to run `Backend M12 30-minute MVP soak`. It runs once
+per label event (remove/reapply deliberately for a new execution), avoiding a
+30-minute run for every documentation commit. The credential-free Ubuntu runner
+owns ephemeral MySQL, one real API, one actual media queue worker and a decoder
+broker that has no database/auth environment. The 45-minute job bound includes
+native-video preflight, the fixed 30-minute workload and cleanup. No shortened
+mode or live-target configuration is accepted.
+
+`node test/run-mysql.mjs --soak` extends the existing disposable-database runner.
+The suite provisions ten synthetic users and sockets, sends 1,800 real commands
+at one/second, and applies hints/events to the existing executable reference cache.
+The checks require 18,000 unique projections, exact final message sets, ACK p95
+≤500 ms, send-to-cache p95 ≤1,000 ms and every client's restart recovery ≤20 seconds.
+The API receives SIGKILL halfway through; identical command identities survive
+transport retry. Existing separate quality tests cover lost ACK after commit and
+restore deletion obligations.
+
+A real 20-second 720p H.264/AAC fixture goes through the production media service,
+MySQL job fencing, Unix decoder protocol, native per-job FFmpeg and canonical
+video/poster verification. A private disk adapter replaces R2 only in this test.
+One video runs at a time; six jobs overlap the text workload after a preflight job.
+SIGKILL during the first timed decode leaves the genuine five-minute lease to
+expire, after which the replacement worker must reclaim and complete it. There
+is no manual lease expiry, mocked decoder or fabricated READY result. Measurements
+include video-overlap ACK/cache samples, job generations, worker recovery, and
+sampled API/worker/broker RSS high-water marks. Cache commit is not UI rendering,
+disk is not R2, and RSS samples exclude short-lived native decoder children.
+The lane's implementation is present; its observed result must be attached before
+claiming that this MVP acceptance criterion passed.
