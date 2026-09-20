@@ -1,8 +1,44 @@
-# MESSAGE deletion and push integration checkpoint
+# Backend source integration checkpoint
 
-This source integration is not a QA release or a completed M10 purge.
+This source integration is not a QA release or proof of physical deletion.
 
-## Current source baseline (2026-09-20)
+## Whole-batch follow-up (2026-09-20)
+
+The follow-up preserves accepted `4216aaaa53cc657a2d15e11cd12e53ce159e3b3b`
+and normally merges these complete source histories:
+
+- M10 account content/media `a25fb66f3e7345b136bdd810481d2f8f863be053`,
+  including late-write reopening, cleanup fencing and durable cursor regressions.
+- Moderation `d0461ccd778966dff6bbfd165e29fb8492650a7e`, including bounded
+  report retention, reversible actor blocks and privacy-scoped recovery names.
+- Native push `7774ce0634e686a0a66338e4a2619d1ab712eaaa`, including explicit
+  enrollment, encrypted provider tokens, provider-aware enqueue/delivery and
+  generated migration 23.
+- Current QA `c5c75d433e1da9a46d8a2fa4b66c405ab6e4a0c5`, including reviewed
+  public-history scanner improvements.
+
+Migrations 20–23 are retained without rewriting their bytes. Apple lifecycle
+runtime is pending its author's final frozen source; its schema is already an
+ancestor of native push. No intermediate Apple implementation is accepted here.
+
+Integration-owned changes add [bounded overload admission](backend-overload-admission.md),
+temporary socket transport retry, narrow native NOWAIT contention handling, and
+real-MySQL regressions for acquisition exhaustion, lock contention and populated
+WEB subscription preservation across migration 23. Existing tests are retained;
+crossed native rebinding now rejects arbitrary errors as a passing outcome.
+
+Small local checks cover compilation, the focused runtime regressions, architecture,
+syntax/lint and security. Full tests and disposable-MySQL upgrade checks belong
+to exact-head credential-free hosted CI; prior or leaf passes are not combined
+acceptance. The supplementary 1,000-client diagnostic has not passed on this
+runtime. Local hints remain the reviewed single-API behavior, and HTTP 503 alone
+does not establish successful recovery or capacity.
+
+QA/main merge, live host/database/provider configuration, immutable-image
+activation and user-route verification remain with the infrastructure executor.
+No synthetic account or conversation is added to serving runtime.
+
+## Prior accepted source baseline (2026-09-20)
 
 The sections below record earlier integration stages. Their statements about
 18 migrations, an unregistered PURGE handler and a deferred C06 source cutover
