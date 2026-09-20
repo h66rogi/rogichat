@@ -31,7 +31,9 @@ extension RoomsDatabase {
         let members = try Data.fetchAll(db, sql: "SELECT value FROM memberships").map { try JSONDecoder().decode(MembershipRoom.self, from: $0) }
         let current = Dictionary(uniqueKeysWithValues: members.map { ($0.id, $0) })
         try db.execute(sql: "DELETE FROM text_commands WHERE room NOT IN (SELECT id FROM memberships)")
+        try db.execute(sql: "DELETE FROM conversation_features WHERE room NOT IN (SELECT id FROM memberships)")
         for member in members {
+            try db.execute(sql: "DELETE FROM conversation_features WHERE room=? AND membership<>?", arguments: [member.id, member.membershipScope])
             try db.execute(sql: "DELETE FROM text_commands WHERE room=? AND membership<>?", arguments: [member.id, member.membershipScope])
         }
         for row in try Row.fetchAll(db, sql: "SELECT room,membership,authority FROM conversation") {
@@ -57,6 +59,12 @@ extension RoomsDatabase {
             let old = try MessageVersion(row["version"])
             if row["deleted"] as Bool || old > message.version { return }
         }
+        // A late projection cannot reintroduce a quote whose target is already terminal
+        // in this cache generation. A fresh authorized projection without it may replace it.
+        if let quote = message.quote, try Bool.fetchOne(db, sql: "SELECT deleted FROM timeline WHERE room=? AND id=?", arguments: [room, quote.id]) == true {
+            try db.execute(sql: "INSERT OR REPLACE INTO timeline(room,id,version,createdAt,deleted,hidden,value) VALUES(?,?,?,?,0,1,NULL)", arguments: [room, message.id, message.version.rawValue, message.createdAt])
+            return
+        }
         // Whole C05 projection replacement also at equal message version.
         try db.execute(sql: "INSERT OR REPLACE INTO timeline(room,id,version,createdAt,deleted,value) VALUES(?,?,?,?,0,?)", arguments: [room, message.id, message.version.rawValue, message.createdAt, try JSONEncoder().encode(message)])
         try retireProjectedCommands(message, room: room, db: db)
@@ -67,6 +75,7 @@ extension RoomsDatabase {
         let createdAt: String? = row?["createdAt"]
         try db.execute(sql: "INSERT OR REPLACE INTO timeline(room,id,version,createdAt,deleted,value) VALUES(?,?,?,?,1,NULL)", arguments: [room, id, version.rawValue, createdAt])
         try db.execute(sql: "UPDATE text_commands SET phase='deleted',payload=NULL,version=NULL WHERE room=? AND message=?", arguments: [room, id])
+        try hideQuotedCopies(id, room: room, db: db)
     }
     public func applySnapshot(_ page: ConversationSnapshot, scope: ConversationScope) throws {
         try write(conversation: scope) { db in

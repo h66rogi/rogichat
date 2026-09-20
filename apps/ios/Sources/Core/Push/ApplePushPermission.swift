@@ -18,12 +18,10 @@ final class ApplePushPermission {
     func request() async throws -> PushPermission {
         _ = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
         let status = await current()
-        if status == .authorized { UIApplication.shared.registerForRemoteNotifications() }
         return status
     }
     func foreground() async -> PushPermission {
         let status = await current()
-        if status == .authorized { UIApplication.shared.registerForRemoteNotifications() }
         return status
     }
 }

@@ -131,5 +131,6 @@ final class RoomsFeatureOwner {
     }
     var conversation: ConversationScreenModel? { current?.model.conversation }
     func closeConversation() { current?.model.closeConversation() }
+    func refreshCurrent() async { await current?.model.refresh() }
     func clear() { current = nil }
 }

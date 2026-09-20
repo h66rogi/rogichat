@@ -4,7 +4,7 @@ import RogichatRooms
 #endif
 
 // Real native transport and one-shot provider completion; no bootstrap credentials.
-actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAuthorizing, AccountDeletionServing, ConversationAuthorizing {
+actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, NativePushServing, SessionServing, AccountNotificationsServing, RoomsAuthorizing, AccountDeletionServing, ConversationAuthorizing {
     nonisolated let capabilities: SessionCapabilities
     private let auth: (any SOOPAuthenticating)?
     private var deletionTask: Task<AccountDeletionUpdate, any Error>?
@@ -19,7 +19,8 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
     private var clientScope = UUID()
     private var roomsScope: RoomsScope?
     private let purgeRooms: @Sendable () throws -> Void
-    private var epoch: UInt64 = 0 { didSet { admittedText = []; roomsScope?.invalidate(); roomsScope = nil; clientScope = UUID() } }
+    private var requestAttempt = SessionAttempt()
+    private var epoch: UInt64 = 0 { didSet { requestAttempt.cancel(); requestAttempt = SessionAttempt(); admittedText = []; roomsScope?.invalidate(); roomsScope = nil; clientScope = UUID() } }
     private var validated: SessionSnapshot?
     private var activeCredential: NativeCredential?
     private var writingProfile = false
@@ -27,11 +28,12 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
     private var logoutRequested = false
     private var preferenceRevision: UInt64 = 0
     private var roomCommand: (epoch: UInt64, id: UUID)?
+    private var pushWriting: (epoch: UInt64, id: UUID)?
     private var preferenceWrite: (epoch: UInt64, id: UUID)?
     init(environment: NativeEnvironment, api: any NativeRequesting, store: any NativeCredentialStoring,
-         now: @escaping @Sendable () -> Date = { Date() }, auth: (any SOOPAuthenticating)? = nil, purgeRooms: @escaping @Sendable () throws -> Void = {}) {
+         now: @escaping @Sendable () -> Date = { Date() }, auth: (any SOOPAuthenticating)? = nil, appleEnabled: Bool = false, purgeRooms: @escaping @Sendable () throws -> Void = {}) {
         self.environment = environment; self.api = api; self.store = store; self.now = now; self.auth = auth; self.purgeRooms = purgeRooms
-        self.capabilities = SessionCapabilities(signInMethods: auth == nil ? [] : [.soop], canLinkSOOP: auth != nil,
+        self.capabilities = SessionCapabilities(signInMethods: auth == nil ? [] : (appleEnabled ? [.apple, .soop] : [.soop]), canLinkSOOP: auth != nil, canLinkApple: appleEnabled,
                                                canEditProfile: true, canSignOut: true, canDeleteAccount: store is any AccountDeletionStoring && api is any AccountDeletionRequesting, canResetLocalSession: store is any SOOPAuthStoring)
     }
     func restore() async throws -> SessionSnapshot {
@@ -152,6 +154,30 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
             snapshot.roomsScope = roomsScope
         } else { roomsScope?.invalidate(); roomsScope = nil; snapshot.roomsScope = nil }
     }
+    func accountFeatureData(_ input: ConversationFeatureRequest, scope: RoomsScope) async throws -> Data {
+        guard scope === roomsScope, scope.clientScope == clientScope, validated?.access == .ready,
+              let credential = activeCredential, let api = api as? any AccountFeatureRequesting else { throw ProductError.sessionChanged }
+        try scope.check(); let ticket = epoch; try requireCurrent(ticket, credential)
+        let changingAvatar = input.path == "me/profile" && input.method == "PATCH"
+        let accountID = validated?.account?.id
+        if changingAvatar { guard !writingProfile else { throw ProductError.unavailable }; writingProfile = true; profileRevision &+= 1 }
+        defer { if changingAvatar { writingProfile = false } }
+        do {
+            let data = try await api.performAccountFeature(input, credential: credential, scope: scope)
+            try requireCurrent(ticket, credential); try scope.check()
+            if changingAvatar {
+                guard let accountID else { throw ProductError.sessionChanged }
+                let profile = try decode(NativeProfileDTO.self, data).profile(expectedID: accountID)
+                validated?.account?.displayName = profile.displayName; validated?.account?.avatarAssetID = profile.avatarAssetID
+                profileRevision &+= 1
+            }
+            return data
+        } catch {
+            try requireCurrent(ticket, credential); try scope.check()
+            if error as? ProductError == .unauthenticated { try clear(credential) }
+            throw error
+        }
+    }
     func conversationData(_ endpoint: ConversationEndpoint, scope: ConversationScope) async throws -> Data {
         guard scope.account === roomsScope, scope.account.clientScope == clientScope, scope.account.partition == validated?.accountPartition,
               validated?.access == .ready, let credential = activeCredential, let api = api as? any ConversationRequesting else { throw ConversationError.staleScope }
@@ -216,6 +242,62 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
             throw error
         }
     }
+    func realtimeOffer(scope: UUID) throws -> NativeRealtimeOffer {
+        guard scope == clientScope, validated?.access == .ready, let credential = activeCredential,
+              let account = validated?.account, let generation = validated?.serverGeneration,
+              let store = store as? any NativeSessionEpochReading else { throw ProductError.sessionChanged }
+        try requireCurrent(epoch, credential)
+        return NativeRealtimeOffer(scope: RealtimeScope(environment: environment.rawValue, accountID: account.id,
+            accountGeneration: generation, sessionEpoch: try store.sessionEpoch(expected: credential)), bearer: credential.token)
+    }
+    func pushCapabilities(scope: UUID) async throws -> NativePushCapabilities {
+        guard scope == clientScope, validated?.access == .ready, let credential = activeCredential,
+              let api = api as? any NativePushRequesting else { throw ProductError.linkRequired }
+        let ticket = epoch; try requireCurrent(ticket, credential)
+        do {
+            let value = try NativePushContract.capabilities(await api.performNativePush(.capabilities, credential: credential, admission: admission(credential)))
+            try requireCurrent(ticket, credential); return value
+        } catch {
+            try requireCurrent(ticket, credential)
+            if error as? ProductError == .unauthenticated { try clear(credential) }
+            throw error
+        }
+    }
+    func enablePush(token: DevicePushToken, scope: UUID, permission: @escaping @Sendable () async -> PushPermission, original: @escaping @Sendable () throws -> Void = {}) async throws -> AccountNotificationPreferences {
+        try original()
+        guard scope == clientScope, validated?.access == .ready, let credential = activeCredential,
+              let api = api as? any NativePushRequesting, let store = store as? any NativePushStoring,
+              pushWriting?.epoch != epoch, preferenceWrite?.epoch != epoch else { throw ProductError.sessionChanged }
+        let ticket = epoch; try requireCurrent(ticket, credential)
+        let id = UUID(); pushWriting = (ticket, id); preferenceWrite = (ticket, id); preferenceRevision &+= 1
+        defer { if pushWriting?.id == id { pushWriting = nil }; if preferenceWrite?.id == id { preferenceWrite = nil } }
+        do {
+            let capabilities = try NativePushContract.capabilities(await api.performNativePush(.capabilities, credential: credential, admission: admission(credential, original: original)))
+            try requireCurrent(ticket, credential)
+            guard capabilities.available else { throw ProductError.unavailable }
+            var protected = try store.pushInstallation(expected: credential)
+            let installation = try protected.validated()
+            // Always resolve before a new explicit attempt, including cold or unknown registration.
+            let existing = try NativePushContract.binding(await api.performNativePush(.resolve(installation), credential: credential, admission: admission(credential, original: original)))
+            try requireCurrent(ticket, credential)
+            protected.generation = existing?.generation; protected.bindingID = existing?.id; protected.unknown = false
+            try store.updatePushInstallation(protected, expected: credential)
+            protected.unknown = true; try store.updatePushInstallation(protected, expected: credential)
+            let registered = try NativePushContract.registration(await api.performNativePush(.register(installation, token, protected.generation), credential: credential, admission: admission(credential, permission: permission, original: original)))
+            try requireCurrent(ticket, credential)
+            protected.generation = registered.generation; protected.bindingID = registered.id; protected.unknown = false
+            try store.updatePushInstallation(protected, expected: credential)
+            let latest = try await preferences(.notificationPreferences, scope: scope, original: original)
+            try requireCurrent(ticket, credential)
+            let enabled = try await preferences(.enableNotifications(latest.generation), scope: scope, permission: permission, original: original)
+            guard enabled.pushEnabled else { throw ProductError.invalidResponse }
+            return enabled
+        } catch {
+            try requireCurrent(ticket, credential)
+            if error as? ProductError == .unauthenticated { try clear(credential) }
+            throw error // No register or ON replay. A fresh explicit choice begins with resolve/GET.
+        }
+    }
     func loadNotificationPreferences(scope: UUID) async throws -> AccountNotificationPreferences {
         guard scope == clientScope else { throw ProductError.sessionChanged }
         guard preferenceWrite?.epoch != epoch else { throw M11Error.superseded }
@@ -233,8 +315,8 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         defer { if preferenceWrite?.id == id { preferenceWrite = nil } }
         return try await preferences(.disableNotifications(DisableAccountNotifications(expectedGeneration: expected)), scope: scope)
     }
-    private func preferences(_ endpoint: M11Endpoint, scope: UUID) async throws -> AccountNotificationPreferences {
-        let data = try await accountM11(endpoint, scope: scope)
+    private func preferences(_ endpoint: M11Endpoint, scope: UUID, permission: (@Sendable () async -> PushPermission)? = nil, original: @escaping @Sendable () throws -> Void = {}) async throws -> AccountNotificationPreferences {
+        let data = try await accountM11(endpoint, scope: scope, permission: permission, original: original)
         guard scope == clientScope else { throw ProductError.sessionChanged }
         let value = try decode(AccountNotificationPreferences.self, data)
         if case .disableNotifications = endpoint, value.pushEnabled { throw ProductError.invalidResponse }
@@ -250,14 +332,14 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         guard validated?.access == .ready else { throw ProductError.linkRequired }
         return try decode(OwnReadState.self, await accountM11(.reportReadState(room: room, input: input), scope: scope))
     }
-    private func accountM11(_ endpoint: M11Endpoint, scope: UUID) async throws -> Data {
+    private func accountM11(_ endpoint: M11Endpoint, scope: UUID, permission: (@Sendable () async -> PushPermission)? = nil, original: @escaping @Sendable () throws -> Void = {}) async throws -> Data {
         guard scope == clientScope else { throw ProductError.sessionChanged }
         guard validated?.account != nil, let credential = activeCredential else { throw ProductError.unauthenticated }
         guard let api = api as? any M11Requesting else { throw ProductError.unavailable }
         let ticket = epoch
         try requireCurrent(ticket, credential)
         do {
-            let data = try await api.performM11(endpoint, credential: credential)
+            let data = try await api.performM11(endpoint, credential: credential, admission: admission(credential, permission: permission, original: original))
             try requireCurrent(ticket, credential)
             return data
         } catch {
@@ -299,7 +381,11 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
     func linkSOOP() async throws -> SessionSnapshot { try await authenticate(intent: .link, consentVersion: nil) }
     func beginSOOP(consentVersion: String, attempt: SessionAttempt) async throws -> SessionSnapshot { try await authenticate(intent: .login, consentVersion: consentVersion, attempt: attempt) }
     func beginLinkSOOP(attempt: SessionAttempt) async throws -> SessionSnapshot { try await authenticate(intent: .link, consentVersion: nil, attempt: attempt) }
-    private func authenticate(intent: SOOPIntent, consentVersion: String?, attempt: SessionAttempt = SessionAttempt()) async throws -> SessionSnapshot {
+    func beginApple(consentVersion: String?, link: Bool, attempt: SessionAttempt) async throws -> SessionSnapshot {
+        guard capabilities.signInMethods.contains(.apple) else { throw ProductError.unavailable }
+        return try await authenticate(intent: link ? .link : .login, consentVersion: consentVersion, attempt: attempt, apple: true)
+    }
+    private func authenticate(intent: SOOPIntent, consentVersion: String?, attempt: SessionAttempt = SessionAttempt(), apple: Bool = false) async throws -> SessionSnapshot {
         try attempt.check()
         guard deletionTask == nil, !logoutRequested else { throw ProductError.accountDeletionPending }
         guard let auth, !authenticating else { throw ProductError.unavailable }
@@ -313,9 +399,15 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         guard intent == .login ? consentVersion == "2026-09-20" : consentVersion == nil else { throw SOOPAuthError.consentRequired }
         // All cancellation/logout methods share this actor, so reservation and local
         // epoch advance finish without suspension before the coordinator is entered.
-        let pending = try authStore.beginAuth(intent: intent, proof: SOOPProof.generate(), expected: original,
-                                              accountID: intent == .link ? validated?.account?.id : nil,
-                                              serverGeneration: intent == .link ? validated?.serverGeneration : nil, now: now())
+        let pending: SOOPPending
+        if apple {
+            guard let appleStore = authStore as? any AppleAuthStoring else { throw ProductError.secureStorage }
+            pending = try appleStore.beginApple(intent: intent, proof: SOOPProof.generate(), expected: original,
+                accountID: intent == .link ? validated?.account?.id : nil, serverGeneration: intent == .link ? validated?.serverGeneration : nil, now: now())
+        } else {
+            pending = try authStore.beginAuth(intent: intent, proof: SOOPProof.generate(), expected: original,
+                accountID: intent == .link ? validated?.account?.id : nil, serverGeneration: intent == .link ? validated?.serverGeneration : nil, now: now())
+        }
         authenticating = true
         epoch &+= 1; let ticket = epoch
         defer { if ticket == epoch { authenticating = false } }
@@ -412,6 +504,14 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         guard value.expiresAt > now() else { try clear(value); return nil }
         return value
     }
+    private func admission(_ credential: NativeCredential, permission: (@Sendable () async -> PushPermission)? = nil, original: @escaping @Sendable () throws -> Void = {}) -> NativeRequestAdmission {
+        let attempt = requestAttempt, store = store, now = now
+        return NativeRequestAdmission(check: {
+            try original(); try attempt.check()
+            guard try store.read() == credential, !(try store.logoutPending()) else { throw ProductError.sessionChanged }
+            guard credential.expiresAt > now() else { throw ProductError.unauthenticated }
+        }, permission: permission)
+    }
     private func requireCurrent(_ ticket: UInt64, _ credential: NativeCredential) throws {
         try Task.checkCancellation()
         guard ticket == epoch, try store.read() == credential, !(try store.logoutPending()) else { throw ProductError.sessionChanged }
@@ -422,6 +522,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         if current != nil {
             guard current == credential, try store.replace(expected: credential, with: nil) else { throw ProductError.sessionChanged }
         }
+        requestAttempt.cancel(); requestAttempt = SessionAttempt()
         roomsScope?.invalidate(); roomsScope = nil
         activeCredential = nil; validated = nil
         try purgeRoomStorage()

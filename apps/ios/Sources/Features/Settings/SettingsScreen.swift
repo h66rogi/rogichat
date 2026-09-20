@@ -7,6 +7,7 @@ struct SettingsScreen: View {
     let capabilities: SessionCapabilities
     let onOpen: (AppPage) -> Void
     let onSignIn: () -> Void
+    var canManageBlocks = false
     var hasDeletionHistory = false
     var onDeletionHistory: () -> Void = {}
     @AppStorage("appearance") private var appearance = AppAppearance.system.rawValue
@@ -22,6 +23,10 @@ struct SettingsScreen: View {
                             Divider().padding(.leading, 65)
                         }
                         SettingsRow(icon: "lock.shield", title: "계정 관리", subtitle: "SOOP 연결과 로그인 계정", tint: .indigo) { onOpen(.account) }
+                        if canManageBlocks {
+                            Divider().padding(.leading, 65)
+                            SettingsRow(icon: "person.crop.circle.badge.minus", title: "차단 관리", subtitle: "차단된 사용자 확인 및 해제", tint: .orange) { onOpen(.report) }
+                        }
                     }
                 }
                 SettingsSection(title: "앱 설정") {
@@ -91,8 +96,8 @@ struct AppearanceScreen: View {
 }
 
 struct AboutScreen: View {
-    private var grdbLicense: String {
-        guard let url = Bundle.main.url(forResource: "GRDB-LICENSE", withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) else { return "라이선스 정보를 불러오지 못했어요." }
+    private func license(_ name: String) -> String {
+        guard let url = Bundle.main.url(forResource: name + "-LICENSE", withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) else { return "라이선스 정보를 불러오지 못했어요." }
         return text
     }
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—" }
@@ -111,8 +116,10 @@ struct AboutScreen: View {
                 NavigationLink("오픈소스 라이선스") {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
-                            Text("GRDB 7.11.1").font(.headline)
-                            Text(grdbLicense).font(.footnote).textSelection(.enabled)
+                            ForEach(["GRDB 7.11.1", "SocketIO 16.1.1", "Starscream 4.0.8"], id: \.self) { package in
+                                Text(package).font(.headline)
+                                Text(license(String(package.split(separator: " ")[0]))).font(.footnote).textSelection(.enabled)
+                            }
                         }.padding().frame(maxWidth: .infinity, alignment: .leading)
                     }.navigationTitle("오픈소스 라이선스")
                 }

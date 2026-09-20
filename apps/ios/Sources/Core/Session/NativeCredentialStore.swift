@@ -57,7 +57,7 @@ struct KeychainCredentialBytes: CredentialBytesStoring {
 // Adapted KeychainService's access-token read/write/clear boundary. The original
 // refresh/FCM keys and swallowed errors do not satisfy this native contract.
 // Synchronous operations under one lock make compare-and-replace nonreentrant.
-final class NativeCredentialStore: SOOPAuthStoring, AccountDeletionStoring, @unchecked Sendable {
+final class NativeCredentialStore: NativeSessionEpochReading, NativePushStoring, AppleAuthStoring, AccountDeletionStoring, @unchecked Sendable {
     private struct Marker: Codable {
         var schema = 1
         var installation = UUID()
@@ -67,6 +67,7 @@ final class NativeCredentialStore: SOOPAuthStoring, AccountDeletionStoring, @unc
     private struct Envelope: Codable {
         var schema = 3
         var credential: NativeCredential?
+        var pushInstallation: StoredPushInstallation? = nil
         var pending: SOOPPending?
         var authEpoch = UUID()
         var installedByAuth: UUID? = nil
@@ -116,17 +117,28 @@ final class NativeCredentialStore: SOOPAuthStoring, AccountDeletionStoring, @unc
                   records.filter({ $0.cleanupPending || $0.phase != .finished }).count <= 1,
                   records.allSatisfy({ !$0.cleanupPending && $0.phase == .finished }) || (value.credential == nil && value.pending == nil && value.installedByAuth == nil) else { throw ProductError.secureStorage }
             value.schema = 3; value.deletions = records
+            if let push = value.pushInstallation {
+                _ = try push.validated()
+                guard push.installationEpoch == (try marker().installation) else { throw ProductError.secureStorage }
+            }
             guard value.credential.map({ $0.isValid && $0.environment == environment }) ?? true else { throw ProductError.secureStorage }
             if let pending = value.pending {
                 guard pending.id == value.authEpoch, pending.environment == environment, pending.proof.valid,
                       (pending.intent == .login ? pending.originalCredential == nil && pending.accountID == nil && pending.serverGeneration == nil : pending.originalCredential?.isValid == true && pending.originalCredential?.environment == environment && UUID(uuidString: pending.accountID ?? "") != nil && NativeCredential.isOpaque(pending.serverGeneration ?? "")),
-                      pending.createdAt.timeIntervalSince1970.isFinite else { throw ProductError.secureStorage }
+                      (pending.provider == nil || pending.provider == "apple"), pending.createdAt.timeIntervalSince1970.isFinite else { throw ProductError.secureStorage }
                 if pending.phase == .starting {
-                    guard pending.transactionID == nil, pending.authorizeURL == nil else { throw ProductError.secureStorage }
+                    guard pending.transactionID == nil, pending.authorizeURL == nil, pending.nativeNonce == nil, pending.nativeState == nil else { throw ProductError.secureStorage }
                 } else {
-                    guard let transaction = pending.transactionID, let url = pending.authorizeURL else { throw ProductError.secureStorage }
+                    if pending.provider == "apple" {
+                        guard let transaction = pending.transactionID, UUID(uuidString: transaction) != nil,
+                              pending.authorizeURL == nil, pending.nativeNonce.map(NativeCredential.isOpaque) == true,
+                              pending.nativeState.map(NativeCredential.isOpaque) == true else { throw ProductError.secureStorage }
+                    } else {
+                    guard pending.nativeNonce == nil, pending.nativeState == nil,
+                          let transaction = pending.transactionID, let url = pending.authorizeURL else { throw ProductError.secureStorage }
                     do { try SOOPStartResponse(transactionId: transaction, authorizeUrl: url, expiresIn: 600).validate(environment: environment) }
                     catch { throw ProductError.secureStorage }
+                    }
                 }
             }
             guard value.installedByAuth == nil || (value.credential != nil && value.pending == nil) else { throw ProductError.secureStorage }
@@ -154,7 +166,7 @@ final class NativeCredentialStore: SOOPAuthStoring, AccountDeletionStoring, @unc
         try bytes.write(data)
     }
     private func saveSessionCleared(_ state: Envelope) throws {
-        if (state.deletions ?? []).isEmpty { try bytes.remove() }
+        if (state.deletions ?? []).isEmpty && state.pushInstallation == nil { try bytes.remove() }
         else { try saveEnvelope(state) }
     }
     private func admitsSession(_ state: Envelope) -> Bool {
@@ -181,15 +193,48 @@ final class NativeCredentialStore: SOOPAuthStoring, AccountDeletionStoring, @unc
             return true
         }
     }
+    func sessionEpoch(expected: NativeCredential) throws -> UUID {
+        try lock.withLock {
+            let marker = try marker(); let state = try envelope()
+            guard !marker.logoutPending, admitsSession(state), state.credential == expected, state.installedByAuth == nil else { throw ProductError.sessionChanged }
+            return state.authEpoch
+        }
+    }
+    func pushInstallation(expected: NativeCredential) throws -> StoredPushInstallation {
+        try lock.withLock {
+            let marker = try marker(); var state = try envelope()
+            guard !marker.logoutPending, admitsSession(state), state.credential == expected else { throw ProductError.sessionChanged }
+            if let value = state.pushInstallation { _ = try value.validated(); return value }
+            let value = StoredPushInstallation(installationID: UUID().uuidString.lowercased(), bindingSecret: try SOOPProof.generate().verifier, installationEpoch: marker.installation)
+            state.pushInstallation = value; try saveEnvelope(state); return value
+        }
+    }
+    func updatePushInstallation(_ value: StoredPushInstallation, expected: NativeCredential) throws {
+        try lock.withLock {
+            let marker = try marker(); var state = try envelope()
+            _ = try value.validated()
+            guard !marker.logoutPending, admitsSession(state), state.credential == expected,
+                  value.installationEpoch == marker.installation, state.pushInstallation?.installationID == value.installationID,
+                  state.pushInstallation?.bindingSecret == value.bindingSecret else { throw ProductError.sessionChanged }
+            state.pushInstallation = value; try saveEnvelope(state)
+        }
+    }
     func beginAuth(intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending {
+        try beginProviderAuth(provider: nil, intent: intent, proof: proof, expected: expected, accountID: accountID, serverGeneration: serverGeneration, now: now)
+    }
+    func beginApple(intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending {
+        try beginProviderAuth(provider: "apple", intent: intent, proof: proof, expected: expected, accountID: accountID, serverGeneration: serverGeneration, now: now)
+    }
+    private func beginProviderAuth(provider: String?, intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending {
         try lock.withLock {
             let marker = try marker()
             var state = try envelope()
             guard !marker.logoutPending, admitsSession(state), state.installedByAuth == nil, state.credential == expected, proof.valid,
                   intent == .login ? expected == nil && accountID == nil && serverGeneration == nil : expected != nil && accountID != nil && serverGeneration != nil else { throw SOOPAuthError.sessionChanged }
             let id = UUID()
-            let pending = SOOPPending(id: id, installation: marker.installation, environment: environment, intent: intent,
+            var pending = SOOPPending(id: id, installation: marker.installation, environment: environment, intent: intent,
                                       proof: proof, createdAt: now, originalCredential: expected, accountID: accountID, serverGeneration: serverGeneration)
+            pending.provider = provider
             state.pending = pending; state.authEpoch = id
             try saveEnvelope(state)
             return pending
@@ -212,9 +257,19 @@ final class NativeCredentialStore: SOOPAuthStoring, AccountDeletionStoring, @unc
     func finishAuthStart(id: UUID, response: SOOPStartResponse, now: Date) throws -> SOOPPending {
         try lock.withLock {
             var state = try envelope(); var pending = try currentPending(state, now: now)
-            guard pending.id == id, pending.phase == .starting, now.timeIntervalSince(pending.createdAt) < 60 else { throw SOOPAuthError.expired }
+            guard pending.provider == nil, pending.id == id, pending.phase == .starting, now.timeIntervalSince(pending.createdAt) < 60 else { throw SOOPAuthError.expired }
             try response.validate(environment: environment)
             pending.transactionID = response.transactionId; pending.authorizeURL = response.authorizeUrl; pending.phase = .browser
+            state.pending = pending; try saveEnvelope(state); return pending
+        }
+    }
+    func finishAppleStart(id: UUID, transaction: String, nonce: String, state returnedState: String, now: Date) throws -> SOOPPending {
+        try lock.withLock {
+            var state = try envelope(); var pending = try currentPending(state, now: now)
+            guard pending.provider == "apple", pending.id == id, pending.phase == .starting,
+                  now.timeIntervalSince(pending.createdAt) < 60, UUID(uuidString: transaction) != nil,
+                  NativeCredential.isOpaque(nonce), NativeCredential.isOpaque(returnedState) else { throw SOOPAuthError.expired }
+            pending.transactionID = transaction; pending.nativeNonce = nonce; pending.nativeState = returnedState; pending.phase = .browser
             state.pending = pending; try saveEnvelope(state); return pending
         }
     }
@@ -285,7 +340,7 @@ final class NativeCredentialStore: SOOPAuthStoring, AccountDeletionStoring, @unc
                 return SOOPAuthError.exchangeUncertain.errorDescription
             }
             guard let pending = state.pending else { return nil }
-            if !pending.isCurrent(at: now) || pending.phase != .browser {
+            if pending.provider == "apple" || !pending.isCurrent(at: now) || pending.phase != .browser {
                 state.pending = nil; state.authEpoch = UUID(); try saveEnvelope(state)
                 return (pending.isCurrent(at: now) ? SOOPAuthError.exchangeUncertain : .expired).errorDescription
             }
@@ -447,4 +502,8 @@ extension NativeCredentialStore {
             state.deletions![i] = current; try saveEnvelope(state); return current
         }
     }
+}
+
+protocol NativeSessionEpochReading: Sendable {
+    func sessionEpoch(expected: NativeCredential) throws -> UUID
 }

@@ -72,3 +72,8 @@ struct PushLifecycle: Sendable {
         ticket == request && scope == request.scope && permission == .authorized && available
     }
 }
+
+protocol NativePushServing: Sendable {
+    func pushCapabilities(scope: UUID) async throws -> NativePushCapabilities
+    func enablePush(token: DevicePushToken, scope: UUID, permission: @escaping @Sendable () async -> PushPermission, original: @escaping @Sendable () throws -> Void) async throws -> AccountNotificationPreferences
+}

@@ -64,3 +64,18 @@ func purgeMediaScratchAtProcessStart() throws {
         }
     }
 }
+
+// A failed startup purge is retryable before the first media job; successful preparation
+// is process-wide and never repeats while uploads or authorized playback are active.
+final class MediaScratchLifecycle: @unchecked Sendable {
+    static let shared = MediaScratchLifecycle()
+    private let lock = NSLock()
+    private var prepared = false
+    func prepare() throws {
+        try lock.withLock {
+            if prepared { return }
+            try purgeMediaScratchAtProcessStart()
+            prepared = true
+        }
+    }
+}

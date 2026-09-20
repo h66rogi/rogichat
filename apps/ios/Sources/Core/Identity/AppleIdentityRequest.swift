@@ -23,4 +23,11 @@ extension AppleIdentityEndpoint {
 protocol AppleIdentityRequesting: Sendable {
     // No automatic retry of complete/exchange; unknown results require reauthentication.
     func performApple(_ endpoint: AppleIdentityEndpoint, intent: IdentityIntent, originalCredential: NativeCredential?) async throws -> Data
+    func performApple(_ endpoint: AppleIdentityEndpoint, intent: IdentityIntent, originalCredential: NativeCredential?, admit: @escaping @Sendable () throws -> Void) async throws -> Data
+}
+
+extension AppleIdentityRequesting {
+    func performApple(_ endpoint: AppleIdentityEndpoint, intent: IdentityIntent, originalCredential: NativeCredential?, admit: @escaping @Sendable () throws -> Void) async throws -> Data {
+        try admit(); return try await performApple(endpoint, intent: intent, originalCredential: originalCredential)
+    }
 }

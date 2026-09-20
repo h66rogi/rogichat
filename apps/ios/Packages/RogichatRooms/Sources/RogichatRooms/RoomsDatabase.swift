@@ -38,6 +38,12 @@ public final class RoomsDatabase: @unchecked Sendable {
             try db.execute(sql: "CREATE TABLE conversation_cursors (room TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(room,kind,value))")
             try db.execute(sql: "CREATE TABLE text_commands (room TEXT NOT NULL, id TEXT NOT NULL, membership TEXT NOT NULL, phase TEXT NOT NULL CHECK(phase IN ('queued','sending','unknown','committed','deleted','rejected','blocked','settled')), payload BLOB, message TEXT, version TEXT, ordinal INTEGER NOT NULL, PRIMARY KEY(room,id))")
         }
+        migrator.registerMigration("conversation-features-v1") { db in
+            try db.execute(sql: "CREATE TABLE conversation_features(room TEXT NOT NULL,membership TEXT NOT NULL,authority TEXT NOT NULL,kind TEXT NOT NULL,id TEXT NOT NULL,value BLOB NOT NULL,PRIMARY KEY(room,membership,kind,id))")
+        }
+        migrator.registerMigration("account-features-v1") { db in
+            try db.execute(sql: "CREATE TABLE account_features(kind TEXT NOT NULL,room TEXT NOT NULL,id TEXT NOT NULL,value BLOB NOT NULL,PRIMARY KEY(kind,room,id))")
+        }
         try migrator.migrate(queue)
         try scope.withCurrent {
             try queue.write { db in

@@ -36,4 +36,10 @@ protocol NativePushRequesting: Sendable {
     // Must validate HTTP status: register 201, resolve/capabilities 200, delete empty 204.
     // 409/unknown results require resolve + a new scoped intent, never guessed generation.
     func performNativePush(_ endpoint: NativePushEndpoint, credential: NativeCredential) async throws -> Data
+    func performNativePush(_ endpoint: NativePushEndpoint, credential: NativeCredential, admission: NativeRequestAdmission) async throws -> Data
+}
+extension NativePushRequesting {
+    func performNativePush(_ endpoint: NativePushEndpoint, credential: NativeCredential, admission: NativeRequestAdmission) async throws -> Data {
+        try await admission.validate(); return try await performNativePush(endpoint, credential: credential)
+    }
 }

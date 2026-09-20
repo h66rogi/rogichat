@@ -34,7 +34,7 @@ final class AppleAuthorization: NSObject, ASAuthorizationControllerDelegate, ASA
         self.anchor = anchor; expectedState = state
         let appleIDProvider = ASAuthorizationAppleIDProvider()
         let request = appleIDProvider.createRequest()
-        request.requestedScopes = [.fullName, .email]
+        request.requestedScopes = [] // Identity uses the verified subject, never name or email.
         request.nonce = nonce
         request.state = state
         return try await withTaskCancellationHandler {
@@ -87,5 +87,24 @@ final class AppleAuthorization: NSObject, ASAuthorizationControllerDelegate, ASA
         controller = nil; anchor = nil; expectedState = nil; operation = nil
         pending?.resume(with: result)
     }
+}
+#endif
+#if canImport(UIKit)
+@MainActor final class NativeApplePresentation: AppleAuthorizing {
+    private let authorization = AppleAuthorization()
+    private var operation: UUID?
+    func authorize(nonce: String, state: String, operation: UUID, validate: @Sendable () throws -> Void) async throws -> AppleProviderMaterial {
+        try validate()
+        guard let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first(where: { $0.activationState == .foregroundActive }),
+              let window = scene.windows.first(where: \.isKeyWindow) else { throw AppleIdentityProblem.unavailable }
+        self.operation = operation
+        defer { if self.operation == operation { self.operation = nil } }
+        do {
+            let value = try await authorization.authorize(nonce: nonce, state: state, anchor: window)
+            try validate()
+            return AppleProviderMaterial(code: value.authorizationCode, token: value.identityToken, state: value.state)
+        } catch AppleAuthorizationFailure.cancelled { throw CancellationError() }
+    }
+    func cancel(operation: UUID) { guard self.operation == operation else { return }; self.operation = nil; authorization.cancel() }
 }
 #endif

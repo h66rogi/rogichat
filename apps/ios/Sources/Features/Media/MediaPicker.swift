@@ -47,10 +47,12 @@ struct MediaPicker: View {
     var body: some View {
         let isImporting = importing
         return VStack {
-            PhotosPicker(selection: $selection, matching: kind == .video ? .videos : .images, preferredItemEncoding: .current) {
+            PhotosPicker(selection: $selection, matching: kind == .video ? .videos : .images, preferredItemEncoding: .compatible) {
                 if isImporting { ProgressView() }
                 else { Label(kind == .avatar ? "프로필 사진 변경" : kind == .video ? "동영상 선택" : "사진 선택", systemImage: kind == .video ? "video" : "photo") }
             }.disabled(!enabled || importing)
+            Text(kind == .video ? "MP4·MOV · 최대 50MB · 60초" : "JPEG·PNG·WebP · 최대 10MB")
+                .font(.caption).foregroundStyle(.secondary)
             if failed { Text("미디어 작업을 완료하지 못했어요. 다시 시도해 주세요.") }
         }
         .task(id: selection) {
