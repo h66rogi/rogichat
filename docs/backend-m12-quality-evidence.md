@@ -139,3 +139,37 @@ Fault-test durations cover the entire named test, not isolated recovery latency.
 Security hooks and the full-history scanner passed before publication. Required
 PR checks are tracked separately from this quality-run result; this report does
 not assert QA merge, deployment or public-route verification.
+
+
+## Follow-up: exact fanout, automatic recovery and restore quarantine
+
+The first run above is retained as its observed baseline. The subsequent
+`realtime-storm.test.mjs` adds a single-event recipient count per API and the
+latency from send to hint and successful REST projection, without conflating
+periodic polling with cross-node fanout. It SIGKILLs both APIs and measures each
+of 1,000 clients using real Socket.IO automatic backoff (1 s initial, 5 s maximum,
+0.5 randomization). Foreground snapshot requests are immediate and unbatched.
+Every client's successful recovery must meet the unchanged 20 s gate; failures
+and timeouts are written to evidence before the assertion fails. Local hint
+recipient REST projection p95 is compared to the unchanged 1 s target.
+
+A final single-API probe places all 1,000 sockets on the MVP serving topology
+and requires HTTP readiness to remain reachable. This checks REST headroom,
+including the interaction between the configured 1,000 HTTP connection ceiling
+and the configured 1,000 realtime ceiling. It is an isolated characterization,
+not a production capacity claim.
+
+The logical restore drill now also models a post-backup owner transfer, ban,
+private-grant revocation and birthday-visibility withdrawal. Before any serving
+API starts, its test-only operator procedure invalidates sessions, increments
+room/content/ACL/profile/membership epochs, resets birthday visibility OFF,
+and disables all restored memberships, positive grants, owner, creator and
+administrator rights. Only the independently approved current owner receives
+a new membership period. Former-owner login/rejoin/publication, restored admin
+rights, old private grants and pre-restore cursors must remain denied/reset.
+This demonstrates the required procedure on disposable SQL; it still does not
+supply the missing production restore-release orchestrator, independent ledger
+inventory proof, media/orphan reconstruction or Aurora PITR evidence.
+
+Execution results for these follow-up assertions are pending and must not be
+inferred from the passing 33-test baseline.

@@ -63,6 +63,19 @@ test('logical backup restore rejects missing deletion evidence, invalidates sess
     sendInput({ clientMessageId: randomUUID(), intent, ...(target ? { recipientActorId: target.actor } : {}), content: { type: 'TEXT', text } }), config.key));
   const shared = await send(owner, 'SHARED', 'M12 surviving shared');
   const privateMessage = await send(sender, 'PRIVATE', 'M12 deleted private', owner);
+  const revokedPrivate = await send(member, 'PRIVATE', 'M12 old positive grant', owner);
+  await db.transactions.write(async tx => {
+    await tx.prisma.admin_capabilities.create({ data: { user_id: owner.id, manage_rooms: true, manage_users: true, manage_stickers: true } });
+    await tx.prisma.creator_accounts.create({ data: { user_id: owner.id, enabled: true } });
+    await tx.prisma.user_profiles.update({ where: { user_id: member.id }, data: { birthday_month: 1, birthday_day: 2, birthday_visible_to_streamers: true } });
+  });
+  const device = { deviceId: randomUUID(), cacheId: randomUUID() };
+  app = await createApi(db, new SafeLogger('api', () => {}), undefined, { sessions, config });
+  await app.listen(0, '127.0.0.1');
+  const oldSnapshotResponse = await fetch(`${await app.getUrl()}/v1/rooms/${room}/snapshot?${new globalThis.URLSearchParams(device)}`, { headers: { Cookie: `rogi_session=${member.token}`, Origin: config.origin } });
+  assert.equal(oldSnapshotResponse.status, 200); const oldSnapshot = await oldSnapshotResponse.json();
+  assert.ok(oldSnapshot.messages.some(message => message.id === revokedPrivate.messageId));
+  await app.close(); app = undefined;
   // Consistent logical table backup on a quiescent, exclusively owned database.
   const backupStart = performance.now();
   await admin.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
@@ -79,6 +92,16 @@ test('logical backup restore rejects missing deletion evidence, invalidates sess
   const bytes = serialize(dump), backupPath = join(directory, 'synthetic-backup.bin');
   await writeFile(backupPath, bytes, { mode: 0o600 });
   const backupMs = performance.now() - backupStart;
+  // Changes after backup must not be undone by restoring positive permissions.
+  // The fixture retains a separate operator approval only for the current owner.
+  const approvedOwnerUserId = member.id;
+  await db.transactions.write(async tx => {
+    await assignRoomOwner(tx, room, member.actor);
+    await tx.prisma.room_members.update({ where: { id: owner.actor }, data: { role: 'FAN', status: 'BANNED', active_period_id: null } });
+    await tx.prisma.stream_grants.updateMany({ data: { can_read: false, can_send: false, revoked_at: await tx.now() } });
+    await tx.prisma.admin_capabilities.update({ where: { user_id: owner.id }, data: { manage_rooms: false, manage_users: false, manage_stickers: false } });
+    await tx.prisma.user_profiles.update({ where: { user_id: member.id }, data: { birthday_visible_to_streamers: false } });
+  });
   // Immutable external obligations are created AFTER the backup and survive it.
   const deletion = deletionFixture(), guardKey = randomBytes(32);
   const guards = new IdentityGuardService(new IdentityGuardRepository());
@@ -126,35 +149,85 @@ test('logical backup restore rejects missing deletion evidence, invalidates sess
   deletion.store.rows.set(firstKey, Buffer.from('{corrupt')); await assert.rejects(validatedReceipts); deletion.store.rows.set(firstKey, original);
   const replayStart = performance.now();
   for (const receipt of await validatedReceipts()) assert.equal((await apply.apply(receipt)).status, 'blocked');
-  // Operational quarantine step, deliberately in test scaffolding, applies to WEB and NATIVE alike.
-  const invalidated = await restored.transactions.write(tx => tx.prisma.auth_sessions.updateMany({ data: { revoked_at: new Date() } }));
+  // Operational quarantine procedure in test scaffolding. No serving API is
+  // started while restored positive permissions are still trusted. Unknown
+  // memberships stay banned until independent explicit operator reapproval.
+  const invalidated = await restored.transactions.write(async tx => {
+    const now = await tx.now();
+    const sessions = await tx.prisma.auth_sessions.updateMany({ data: { revoked_at: now } });
+    await tx.prisma.rooms.updateMany({ data: { owner_member_id: null, content_epoch: { increment: 1n }, policy_version: { increment: 1 } } });
+    await tx.prisma.room_members.updateMany({ data: { role: 'FAN', status: 'BANNED', active_period_id: null, acl_epoch: { increment: 1n } } });
+    await tx.prisma.membership_periods.updateMany({ data: { left_at: now } });
+    await tx.prisma.stream_grants.updateMany({ data: { can_read: false, can_send: false, revoked_at: now } });
+    await tx.prisma.users.updateMany({ data: { membership_generation: { increment: 1n } } });
+    await tx.prisma.admin_capabilities.updateMany({ data: { manage_rooms: false, manage_users: false, manage_stickers: false } });
+    await tx.prisma.creator_accounts.updateMany({ data: { enabled: false } });
+    await tx.prisma.user_profiles.updateMany({ data: { birthday_visible_to_streamers: false, revision: { increment: 1n } } });
+    return sessions;
+  });
   for (const person of people) {
     await assert.rejects(restored.transactions.read(tx => sessions.require(tx, person.token)), error => error.getStatus?.() === 401);
     await assert.rejects(restored.transactions.read(tx => sessions.require(tx, person.native.token, undefined, false, { transport: 'NATIVE', clientId: 'ios' })), error => error.getStatus?.() === 401);
   }
   // Fresh sessions in test scaffolding; no public mint/auth bypass exists in the serving app.
   for (const person of [owner, member, outsider]) Object.assign(person, await restored.transactions.write(tx => sessions.issue(tx, person.id)));
+  const quarantined = await restored.transactions.read(async tx => ({
+    members: await tx.prisma.room_members.count({ where: { status: 'ACTIVE' } }),
+    owners: await tx.prisma.rooms.count({ where: { owner_member_id: { not: null } } }),
+    grants: await tx.prisma.stream_grants.count({ where: { OR: [{ can_read: true }, { can_send: true }] } }),
+    admins: await tx.prisma.admin_capabilities.count({ where: { OR: [{ manage_rooms: true }, { manage_users: true }, { manage_stickers: true }] } }),
+    creators: await tx.prisma.creator_accounts.count({ where: { enabled: true } }),
+    birthdays: await tx.prisma.user_profiles.count({ where: { birthday_visible_to_streamers: true } }),
+  }));
+  assert.deepEqual(quarantined, { members: 0, owners: 0, grants: 0, admins: 0, creators: 0, birthdays: 0 });
+  // Only independently approved current owner gets a NEW period; old private
+  // grants and administrator capabilities are never copied back from backup.
+  await restored.transactions.write(async tx => {
+    await tx.prisma.room_members.updateMany({ where: { user_id: approvedOwnerUserId, room_id: room }, data: { status: 'LEFT' } });
+    await assignRoomOwner(tx, room, await joinRoom(tx, room, approvedOwnerUserId));
+  });
+  const fresh = await restored.transactions.write(tx => sendMessage(tx, room, member.id,
+    sendInput({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: 'M12 independently approved owner' } }), config.key));
   app = await createApi(restored, new SafeLogger('api', () => {}), undefined, { sessions, config }, undefined, 'test', deletion);
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const snapshot = async person => {
-    const query = new globalThis.URLSearchParams({ deviceId: randomUUID(), cacheId: randomUUID() });
+    const query = new globalThis.URLSearchParams(device);
     const response = await fetch(`${base}/v1/rooms/${room}/snapshot?${query}`, { headers: { Cookie: `rogi_session=${person.token}`, Origin: config.origin } });
     return { status: response.status, body: await response.json() };
   };
-  for (const person of [owner, member]) {
-    const result = await snapshot(person); assert.equal(result.status, 200);
-    assert.ok(result.body.messages.some(message => message.id === shared.messageId));
+  {
+    const result = await snapshot(member); assert.equal(result.status, 200);
+    assert.ok(result.body.messages.some(message => message.id === fresh.messageId));
+    assert.ok(!result.body.messages.some(message => message.id === shared.messageId));
     assert.ok(!JSON.stringify(result.body).includes('M12 deleted private'));
+    assert.ok(!JSON.stringify(result.body).includes('M12 old positive grant'));
     assert.ok(!JSON.stringify(result.body).includes(sender.subject.toString('hex')));
+    assert.notEqual(result.body.authorizationRevision, oldSnapshot.authorizationRevision);
+    assert.notEqual(result.body.membershipScope, oldSnapshot.membershipScope);
   }
+  assert.ok([403, 404].includes((await snapshot(owner)).status), 'restored former owner remains denied after fresh login');
   assert.ok([403, 404].includes((await snapshot(outsider)).status));
   assert.equal((await snapshot(sender)).status, 401);
+  async function request(person, method, path, body) {
+    const response = await fetch(`${base}/v1${path}`, { method, headers: { Cookie: `rogi_session=${person.token}`, Origin: config.origin,
+      'X-CSRF-Token': person.csrf, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { status: response.status, body: await response.json() };
+  }
+  assert.equal((await request(owner, 'POST', `/rooms/${room}/join`, {})).status, 403, 'simple rejoin must not restore unknown prior rights');
+  assert.equal((await request(owner, 'POST', '/admin/rooms', {})).status, 403);
+  assert.ok([403, 404].includes((await request(owner, 'POST', `/rooms/${room}/messages/${revokedPrivate.messageId}/publications`, {})).status));
+  assert.equal((await request(member, 'GET', `/rooms/${room}/messages/${revokedPrivate.messageId}`)).status, 404);
+  const stale = await request(member, 'GET', `/rooms/${room}/events?${new globalThis.URLSearchParams({ ...device, cursor: oldSnapshot.nextCursor })}`);
+  assert.equal(stale.status, 200); assert.equal(stale.body.resetRequired, true); assert.deepEqual(stale.body.events, []);
   const obligations = await restored.transactions.read(tx => tx.prisma.account_deletion_obligations.findUniqueOrThrow({ where: { user_id: sender.id } }));
   assert.equal(obligations.state, 'BLOCKED'); assert.equal(obligations.live_purged_at, null);
   await evidence('restore', { outcome: 'passed', backupTables: dump.length, backupBytes: bytes.length, backupMs, restoreMs,
     replayAndPermissionCheckMs: performance.now() - replayStart, externalObligations: expectedKeys.length,
     rejectedEvidenceCases: ['missing', 'unavailable', 'corrupt'], invalidatedWebAndNativeSessions: invalidated.count,
-    permissionChecks: ['owner shared allowed', 'member shared allowed', 'deleted private body absent', 'outsider denied', 'deleted account denied'],
+    permissionChecks: ['all restored positive memberships/grants/owner/admin/creator capabilities disabled', 'birthday visibility reset OFF',
+      'only independently approved owner receives fresh membership', 'former owner login/rejoin/publication denied', 'revoked private grant stays denied',
+      'old cursor requires reset', 'new membership and authorization revision differ', 'deleted private body absent', 'outsider denied', 'deleted account denied'],
+    quarantineCounts: quarantined,
     quarantineHazardObserved: 'old session accepted before explicit invalidation',
     limitations: ['logical disposable MySQL backup, not Aurora PITR', 'external ledger is an isolated in-memory adapter',
       'release guard is test-only; production restore orchestration unverified', 'BLOCKED is not physical purge completion'] });
