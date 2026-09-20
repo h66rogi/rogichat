@@ -209,6 +209,32 @@ export class PushEnrollment {
   }
 
   /**
+   * What pressing the toggle does right now, or null when it can do nothing.
+   *
+   * This is not `!model().enabled`. A browser whose permission was withdrawn, whose key has
+   * rotated or whose server lost its capability reports `enabled: false` while the server
+   * still holds a subscription and a preference, and there the toggle means clean up, not
+   * enrol. Deriving the action from the displayed value would send that press to `enable()`,
+   * which refuses, and the user could never release what the server holds.
+   */
+  intent(): 'enable' | 'disable' | null {
+    if (toggleBlock(this.state, this.model().enabled) !== null) return null;
+    return this.state.preferenceEnabled === true || this.state.ownsBinding ? 'disable' : 'enable';
+  }
+
+  /**
+   * Runs the action the toggle stands for. Call this directly from the click handler rather
+   * than choosing between `enable` and `disable` from the displayed value: it dispatches
+   * without awaiting first, so the permission prompt stays inside the click's activation.
+   */
+  toggle(): Promise<void> {
+    const intent = this.intent();
+    if (intent === 'enable') return this.enable();
+    if (intent === 'disable') return this.disable();
+    return Promise.resolve();
+  }
+
+  /**
    * Presentation model for the settings screen.
    *
    * `enabled` is true only when every condition a notification actually depends on holds at
@@ -248,7 +274,7 @@ export class PushEnrollment {
     if (current === null) current = await this.scope.run(() => this.browser.subscribe(capabilities.applicationServerKey));
 
     try {
-      return this.remember(await this.registerEndpoint(current, owned));
+      return this.remember(await this.registerEndpoint(current, owned), capabilities.applicationServerKey);
     } catch (error) {
       if (!(error instanceof PushError) || !['not-found', 'conflict'].includes(error.kind)) throw error;
       // The endpoint belongs to another account or to a binding whose generation we do not
@@ -261,7 +287,7 @@ export class PushEnrollment {
         this.set({ subscriptionId: null, ownsBinding: false, notice: '브라우저가 이전과 같은 알림 주소를 다시 발급해 지금은 알림을 켤 수 없습니다. 브라우저의 사이트 알림 권한을 해제한 뒤 다시 시도해 주세요.' });
         return null;
       }
-      return this.remember(await this.registerEndpoint(fresh, null));
+      return this.remember(await this.registerEndpoint(fresh, null), capabilities.applicationServerKey);
     }
   }
 
@@ -283,8 +309,9 @@ export class PushEnrollment {
     }
   }
 
-  private remember(identity: PushSubscriptionIdentity): PushSubscriptionIdentity {
-    rememberBinding(this.storage, this.scope.identity, identity);
+  /** Records the registration together with the key it was made with, as later key evidence. */
+  private remember(identity: PushSubscriptionIdentity, applicationServerKey: string): PushSubscriptionIdentity {
+    rememberBinding(this.storage, this.scope.identity, { ...identity, applicationServerKey });
     return identity;
   }
 
@@ -345,17 +372,22 @@ export class PushEnrollment {
       return;
     }
     const current = await this.scope.run(() => this.browser.current());
-    this.set({ subscriptionId: current !== null && this.matchesCurrentKey(current) ? owned.id : null });
+    this.set({ subscriptionId: current !== null && this.usesCurrentKey(current, owned) ? owned.id : null });
   }
 
   /**
-   * A browser that hides `applicationServerKey` gives nothing to compare, so a rotation cannot
-   * be detected there and the server binding stands; a key that is visible and different is a
-   * rotation and disqualifies the subscription.
+   * Whether this subscription is known to use the server's current application server key.
+   *
+   * The browser's own `applicationServerKey` is the ground truth when it exposes one. When it
+   * hides it, the key recorded at registration is the remaining evidence. With neither, the
+   * key is simply unknown, and an unknown key is not a match: absence of rotation evidence is
+   * not evidence that no rotation happened, and claiming enrollment on it would present a
+   * subscription that may no longer receive anything as working.
    */
-  private matchesCurrentKey(subscription: BrowserSubscription): boolean {
+  private usesCurrentKey(subscription: BrowserSubscription, owned: StoredBinding): boolean {
     const live = this.state.applicationServerKey;
-    return subscription.applicationServerKey === null || live === null || subscription.applicationServerKey === live;
+    const observed = subscription.applicationServerKey ?? owned.applicationServerKey;
+    return live !== null && observed !== null && observed === live;
   }
 
   private async handlePreferenceFailure(error: unknown): Promise<void> {

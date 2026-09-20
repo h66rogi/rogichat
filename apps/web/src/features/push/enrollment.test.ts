@@ -155,7 +155,7 @@ void test('enabling registers the endpoint before the preference is stored', asy
   assert.deepEqual(context.sent[2]?.body, { endpoint: 'https://push.example/a', keys: KEYS }, 'a new endpoint carries no generation');
   assert.deepEqual(context.sent[3]?.body, { pushEnabled: true, expectedGeneration: '2' });
   assert.equal(context.browser.prompts, 0, 'an already granted permission is not asked again');
-  assert.equal(context.values[PUSH_BINDING_KEY], `v1:account-one:session-one:${ID}:1`);
+  assert.equal(context.values[PUSH_BINDING_KEY], `v2:account-one:session-one:${ID}:1:${KEY}`, 'the key it registered with is the later evidence');
   assert.deepEqual(context.enrollment.model(), { support: 'supported', permission: 'granted', enabled: true, toggle: { enabled: true } });
 });
 
@@ -263,7 +263,7 @@ void test('an endpoint the server refuses for this account is replaced by a fres
   assert.equal((posts[0]?.body as { endpoint: string }).endpoint, 'https://push.example/old');
   assert.equal((posts[1]?.body as { endpoint: string }).endpoint, 'https://push.example/new');
   assert.equal(context.browser.unsubscribes, 1, 'the refused endpoint is withdrawn from the push service');
-  assert.equal(context.values[PUSH_BINDING_KEY], `v1:account-one:session-one:${ID}:1`);
+  assert.equal(context.values[PUSH_BINDING_KEY], `v2:account-one:session-one:${ID}:1:${KEY}`, 'the key it registered with is the later evidence');
 });
 
 void test('a push service that re-issues the same endpoint leaves enrollment unavailable', async () => {
@@ -292,7 +292,7 @@ void test('a rotated application server key resubscribes before registering', as
 
 void test('a binding left by another account is released before this account enrolls', async () => {
   const context = harness([available(), preference(false, '1')], {
-    stored: `v1:account-two:session-nine:${OTHER_ID}:4`,
+    stored: `v2:account-two:session-nine:${OTHER_ID}:4:${KEY}`,
     subscription: subscription('https://push.example/previous'),
   });
   await context.enrollment.refresh();
@@ -303,7 +303,7 @@ void test('a binding left by another account is released before this account enr
 });
 
 void test('a stored binding without a live browser subscription is not reported as enrolled', async () => {
-  const context = harness([available(), preference(true, '5')], { stored: `v1:account-one:session-one:${ID}:2` });
+  const context = harness([available(), preference(true, '5')], { stored: `v2:account-one:session-one:${ID}:2:${KEY}` });
   await context.enrollment.refresh();
   assert.equal(context.enrollment.getState().subscriptionId, null);
   assert.equal(context.enrollment.model().enabled, false, 'a server preference alone is not a working browser subscription');
@@ -312,7 +312,7 @@ void test('a stored binding without a live browser subscription is not reported 
 
 void test('a binding from an earlier session of this account is not this session enrollment', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v1:account-one:session-zero:${ID}:2`,
+    stored: `v2:account-one:session-zero:${ID}:2:${KEY}`,
     subscription: subscription('https://push.example/a'),
   });
   await context.enrollment.refresh();
@@ -324,7 +324,7 @@ void test('a binding from an earlier session of this account is not this session
 
 void test('a subscription created with a key the server has rotated away from is not enrolled', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v1:account-one:session-one:${ID}:2`,
+    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
     subscription: subscription('https://push.example/a', ROTATED_KEY),
   });
   await context.enrollment.refresh();
@@ -333,19 +333,50 @@ void test('a subscription created with a key the server has rotated away from is
   assert.deepEqual(context.enrollment.model().toggle, { enabled: true });
 });
 
-void test('a browser that hides the application server key keeps the server binding', async () => {
+void test('a hidden browser key is answered by the key the record kept', async () => {
+  const context = harness([available(), preference(true, '5')], {
+    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+    subscription: subscription('https://push.example/a', null),
+  });
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.getState().subscriptionId, ID, 'this session registered it with the key the server still uses');
+  assert.equal(context.enrollment.model().enabled, true);
+});
+
+void test('a hidden browser key with no recorded key is unknown, so not enrolled', async () => {
   const context = harness([available(), preference(true, '5')], {
     stored: `v1:account-one:session-one:${ID}:2`,
     subscription: subscription('https://push.example/a', null),
   });
   await context.enrollment.refresh();
-  assert.equal(context.enrollment.getState().subscriptionId, ID, 'there is nothing to compare, so no rotation can be claimed');
-  assert.equal(context.enrollment.model().enabled, true);
+  assert.equal(context.enrollment.getState().subscriptionId, null, 'an unknown key is never assumed to be the current one');
+  assert.equal(context.enrollment.model().enabled, false);
+  assert.ok(context.enrollment.getState().ownsBinding);
+  assert.equal(context.enrollment.intent(), 'disable', 'the press must clean up, not enrol');
+});
+
+void test('a hidden browser key whose recorded key the server rotated away from is not enrolled', async () => {
+  const context = harness([available(), preference(true, '5')], {
+    stored: `v2:account-one:session-one:${ID}:2:${ROTATED_KEY}`,
+    subscription: subscription('https://push.example/a', null),
+  });
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.getState().subscriptionId, null, 'the recorded key is not the server current key');
+  assert.equal(context.enrollment.model().enabled, false);
+});
+
+void test('the live browser key outranks the recorded one when they disagree', async () => {
+  const context = harness([available(), preference(true, '5')], {
+    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+    subscription: subscription('https://push.example/a', ROTATED_KEY),
+  });
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.getState().subscriptionId, null, 'the subscription the browser holds is the ground truth');
 });
 
 void test('a permission withdrawn after enrollment reports off and still allows turning it off', async () => {
   const context = harness([available(), preference(true, '5')], {
-    stored: `v1:account-one:session-one:${ID}:2`,
+    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
     subscription: subscription('https://push.example/a'),
     permission: 'denied',
   });
@@ -354,11 +385,12 @@ void test('a permission withdrawn after enrollment reports off and still allows 
   assert.equal(model.enabled, false, 'a blocked permission delivers nothing, whatever the server stored');
   assert.equal(model.permission, 'denied');
   assert.deepEqual(model.toggle, { enabled: true }, 'the user must still be able to release the subscription');
+  assert.equal(context.enrollment.intent(), 'disable', 'pressing it cleans up rather than trying to enrol again');
 });
 
 void test('a server that lost its Web Push capability is not reported as enrolled', async () => {
   const context = harness([unavailable(), preference(true, '5')], {
-    stored: `v1:account-one:session-one:${ID}:2`,
+    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
     subscription: subscription('https://push.example/a'),
   });
   await context.enrollment.refresh();
@@ -369,7 +401,7 @@ void test('a server that lost its Web Push capability is not reported as enrolle
 void test('a session rebinding on the same account sends the current generation', async () => {
   const context = await primed(
     [available(), preference(false, '3'), registered(ID, '5'), preference(true, '4')],
-    { stored: `v1:account-one:session-zero:${ID}:4` },
+    { stored: `v2:account-one:session-zero:${ID}:4:${KEY}` },
   );
   await context.enrollment.enable();
   assert.deepEqual(context.sent[2]?.body, { endpoint: 'https://push.example/a', keys: KEYS, generation: '4' });
@@ -378,7 +410,7 @@ void test('a session rebinding on the same account sends the current generation'
 void test('disabling stops the preference, withdraws the subscription and unsubscribes', async () => {
   const context = harness(
     [available(), preference(true, '6'), preference(false, '7'), { status: 204, json: null }],
-    { stored: `v1:account-one:session-one:${ID}:2`, subscription: subscription('https://push.example/a') },
+    { stored: `v2:account-one:session-one:${ID}:2:${KEY}`, subscription: subscription('https://push.example/a') },
   );
   await context.enrollment.refresh();
   assert.equal(context.enrollment.model().enabled, true);
@@ -395,7 +427,7 @@ void test('disabling stops the preference, withdraws the subscription and unsubs
 void test('a subscription owned by another session is not removed by this one', async () => {
   const context = harness(
     [preference(true, '6'), preference(false, '7')],
-    { stored: `v1:account-one:session-zero:${ID}:2`, subscription: subscription('https://push.example/a') },
+    { stored: `v2:account-one:session-zero:${ID}:2:${KEY}`, subscription: subscription('https://push.example/a') },
   );
   await context.enrollment.disable();
   assert.deepEqual(context.routes(), ['GET /v1/me/notification-preferences', 'PUT /v1/me/notification-preferences'], 'only the owning session may withdraw it');
@@ -407,7 +439,7 @@ void test('a subscription owned by another session is not removed by this one', 
 void test('a server record that already moved on is reported, not presented as a clean removal', async () => {
   const context = harness(
     [preference(true, '6'), preference(false, '7'), failure(409, 'CONFLICT')],
-    { stored: `v1:account-one:session-one:${ID}:2`, subscription: subscription('https://push.example/a') },
+    { stored: `v2:account-one:session-one:${ID}:2:${KEY}`, subscription: subscription('https://push.example/a') },
   );
   await context.enrollment.disable();
   assert.match(context.enrollment.getState().notice, /이미 변경되어/);
@@ -425,7 +457,7 @@ void test('a second action is refused while one is running', async () => {
 
 void test('refresh reports real state without prompting or writing', async () => {
   const context = harness([available(), preference(true, '4')], {
-    stored: `v1:account-one:session-one:${ID}:2`,
+    stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
     subscription: subscription('https://push.example/a'),
   });
   await context.enrollment.refresh();
@@ -433,4 +465,42 @@ void test('refresh reports real state without prompting or writing', async () =>
   assert.equal(context.browser.prompts, 0);
   assert.equal(context.browser.subscribes, 0);
   assert.deepEqual(context.enrollment.model(), { support: 'supported', permission: 'granted', enabled: true, toggle: { enabled: true } });
+});
+
+void test('the toggle action is explicit, so a cleanup press never tries to enrol', async () => {
+  const context = harness(
+    [available(), preference(true, '6'), preference(false, '7'), { status: 204, json: null }],
+    {
+      stored: `v2:account-one:session-one:${ID}:2:${KEY}`,
+      subscription: subscription('https://push.example/a'),
+      permission: 'denied',
+    },
+  );
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.model().enabled, false, 'a blocked permission cannot receive anything');
+  assert.equal(context.enrollment.intent(), 'disable');
+  context.sent.length = 0;
+  await context.enrollment.toggle();
+  assert.deepEqual(context.routes(), ['PUT /v1/me/notification-preferences', `DELETE /v1/me/push-subscriptions/${ID}`], 'the press cleaned up instead of prompting');
+  assert.deepEqual(context.sent[0]?.body, { pushEnabled: false, expectedGeneration: '6' });
+  assert.equal(context.browser.prompts, 0);
+  assert.equal(context.values[PUSH_BINDING_KEY], undefined);
+  // With nothing left to clear and the permission still blocked in browser settings, there is
+  // no action left to offer: enrolling would need a permission this page cannot grant.
+  assert.equal(context.enrollment.intent(), null);
+  assert.deepEqual(context.enrollment.model().toggle, { enabled: false, reason: '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용해 주세요.' });
+});
+
+void test('the toggle enrols when there is nothing stored and does nothing while blocked', async () => {
+  const eligible = await primed([available(), preference(false, '2'), registered(ID, '1'), preference(true, '3')]);
+  assert.equal(eligible.enrollment.intent(), 'enable');
+  await eligible.enrollment.toggle();
+  assert.ok(eligible.routes().includes('POST /v1/me/push-subscriptions'));
+  assert.equal(eligible.enrollment.model().enabled, true);
+
+  const unread = harness([]);
+  assert.equal(unread.enrollment.intent(), null, 'an unread capability offers no action');
+  await unread.enrollment.toggle();
+  assert.deepEqual(unread.routes(), []);
+  assert.equal(unread.browser.prompts, 0);
 });

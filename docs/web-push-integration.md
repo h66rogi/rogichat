@@ -35,7 +35,7 @@ rejected locally, so a bad value fails with a stated reason instead of a generic
 | `api.ts` | The five M11 calls with their exact statuses and response shapes. |
 | `errors.ts` | `PushError` and the status/code classification, including 403 `FORBIDDEN` vs 403 `SOOP_LINK_REQUIRED` and 503 `AUTH_UNAVAILABLE`. |
 | `scope.ts` | Account/session fence: aborts in-flight work and discards late completions. |
-| `binding.ts` | Which server subscription this browser owns: id, generation, opaque account/session. No endpoint or keys. |
+| `binding.ts` | Which server subscription this browser owns: id, generation, the public application server key it was registered with, opaque account/session. No endpoint, no subscription keys. |
 | `browser.ts` | `PushBrowser` port and the production adapter over Service Worker, Push API and Notification permission. |
 | `enrollment.ts` | The lifecycle: `refresh`, `enable`, `disable`, and the settings presentation model. |
 | `wake.ts` | Wake payload validation, generation-fenced wake coalescing, the account binding registry and the generic visible notification for the service worker. |
@@ -80,13 +80,13 @@ const enrollment = new PushEnrollment({ api: new PushApi(http), browser: new Web
 - `enrollment.model()` returns exactly the `SettingsNotificationsModel` shape that
   `NotificationSection` consumes; assign it directly so any drift fails typecheck at the
   wiring site. `enrollment.test.ts` asserts that structural match.
-- `refresh()` on mount. `enable()` and `disable()` are the toggle handlers, and `enable()` must
-  be called directly from the click handler: it is the only path that calls
-  `Notification.requestPermission`, and nothing in the module prompts on load, navigation or
-  refresh. `enable()` starts the prompt before its first `await`, inside the click's transient
-  activation, so do not wrap it in work of your own that awaits first. It also refuses to
-  prompt until `refresh()` has confirmed the server capability, and the toggle stays blocked
-  until then, so the prompt never appears for a capability the server has not confirmed.
+- `refresh()` on mount, then `toggle()` straight from the click. `enable()` is the only path
+  that calls `Notification.requestPermission`, and nothing in the module prompts on load,
+  navigation or refresh. `toggle()` dispatches without awaiting and `enable()` starts the
+  prompt before its first `await`, inside the click's transient activation, so do not wrap
+  either in work of your own that awaits first. `enable()` also refuses to prompt until
+  `refresh()` has confirmed the server capability, and the toggle stays blocked until then, so
+  the prompt never appears for a capability the server has not confirmed.
 - `refresh()` reads existing browser state through `getRegistration`, so opening settings never
   installs the service worker. `enable()` registers `/sw.js`, inside the user action.
 - When `getState().needsDecision` is true a compare-and-set conflict happened. The module has
@@ -95,12 +95,18 @@ const enrollment = new PushEnrollment({ api: new PushApi(http), browser: new Web
 - `NotificationSection` renders `enabled === null` as "알림을 제공하지 않습니다". The module
   reports `null` only while the account preference has not been read in this scope.
 - `model().enabled` is true only while every condition a notification depends on holds: the
-  stored preference is on, this browser session owns a live subscription created with the
-  server's current application server key, the browser still supports Web Push, the permission
-  is still granted and the server still reports the capability. A permission revoked in browser
-  settings, a rotated key, a dropped browser subscription, a record left by an earlier session
-  or a server that lost its configuration all report false. In each of those the toggle stays
-  usable, because the user must still be able to release what the server holds.
+  preference the server keeps is on, this browser session owns a live subscription known to use
+  the server's current application server key, the browser still supports Web Push, the
+  permission is still granted and the server still reports the capability. A permission revoked
+  in browser settings, a rotated key, a key that cannot be established at all, a dropped browser
+  subscription, a record left by an earlier session or a server that lost its configuration all
+  report false.
+- Wire the click to `enrollment.toggle()`, never to `enable()` or `disable()` picked from
+  `model().enabled`. When that value is false while the server still keeps a preference or this
+  browser still keeps a record, the press means clean up rather than enrol, and choosing from
+  the displayed value would route it to `enable()`, which refuses — leaving the user unable to
+  release what the server still keeps. `enrollment.intent()` reports `'enable'`, `'disable'` or
+  `null` for the same decision when the control needs a label.
 
 ## 3. Service worker (`public/sw.js`, core owner)
 
@@ -180,8 +186,12 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
   cycle so a late completion from an abandoned one cannot change a running sync.
 - **Truthful eligibility.** A local record proves only that there is state to clear. It counts
   as an enrollment solely for the session that registered it, with a live browser subscription
-  for the current application server key; a browser that hides that key leaves nothing to
-  compare, so no rotation is claimed and the server binding stands.
+  known to use the server's current application server key. The browser's own
+  `applicationServerKey` decides that when it exposes one; otherwise the key recorded at
+  registration does. With neither, the key is unknown, and an unknown key is not a match:
+  absence of rotation evidence is not evidence that no rotation happened.
+- **Explicit action.** `intent()` and `toggle()` carry what the press does, so a browser that
+  reports not enrolled while server state remains cleans up instead of trying to enrol.
 - **Gesture.** The permission prompt is the first thing `enable()` does, before any `await`,
   and only for a capability `refresh()` already confirmed. The capability is then re-read for
   the current key before anything is registered.
@@ -215,7 +225,7 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 Node 24.21.0, TypeScript 5.9.3 (the repository pin), from `apps/web`:
 
 - `node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts`
-  — 76 tests, 76 pass, 0 fail.
+  — 82 tests, 82 pass, 0 fail.
 - `tsc --noEmit` over `src/features/push/**` with the repository's strict options
   (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`) — clean.
 - ESLint 10.11.0 with the repository's type-aware rule set over the module's 18 files — 0 errors,
