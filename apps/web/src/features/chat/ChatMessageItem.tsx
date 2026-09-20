@@ -5,6 +5,7 @@ import { Ban, Check, CircleAlert, CornerUpLeft, Lock, LoaderCircle, Megaphone, R
 import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
 import { cn } from '@/shared/lib/cn';
 
+import { ReactionControl } from './ReactionControl';
 import { DeleteMessageControl } from './DeleteMessageControl';
 import { formatTimeLabel, parseIsoDate } from './formatters';
 import type {
@@ -118,6 +119,8 @@ function MessageRow({
           )}
         </div>
 
+        {item.status === 'saved' && <ReactionControl messageId={item.id} />}
+
         {item.statusNote && (item.status === 'rejected' || item.status === 'unknown') && (
           <p className={cn('px-1 text-[12px]', item.status === 'rejected' ? 'text-danger' : 'text-muted')}>{item.statusNote}</p>
         )}
@@ -217,6 +220,7 @@ function PublicationRow({ item }: { item: ChatPublicationItemModel }) {
           <time dateTime={item.createdAt}>{timeLabelFor(item.createdAt)}</time>
         </div>
         <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>
+        <ReactionControl messageId={item.id} />
       </div>
     </div>
   );
