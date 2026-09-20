@@ -1,3 +1,4 @@
+import { MediaWriteProofService } from './media-write-proof.service.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import { MediaSpooler } from '../../common/media/media-spool.js';
@@ -14,12 +15,11 @@ export class MediaCopyService {
     @Inject(MEDIA_STORE) private readonly store: MediaStore,
     @Inject(MEDIA_PREFIX) private readonly prefix: string,
     @Inject(MediaSpooler) private readonly spool: MediaSpooler,
-    @Inject(PublicationsCoreService) private readonly publications: PublicationsCoreService) {}
+    @Inject(PublicationsCoreService) private readonly publications: PublicationsCoreService, @Inject(MediaWriteProofService) private readonly writes: MediaWriteProofService) {}
 
   async processPublication(lease: JobLease): Promise<'completed' | 'lease_lost'> {
     const controller = new AbortController();
-    // Shorter than the five-minute worker lease and the existing ten-minute
-    // recent-attempt / twenty-minute deferred cleanup protection.
+    // Bounds this caller below its worker lease; timeout is not writer proof.
     const timeout = setTimeout(() => controller.abort(), 240000);
     try {
       const plan = await this.transactions.write(tx => this.publications.preparePhoto(tx, lease, this.prefix));
@@ -34,6 +34,7 @@ export class MediaCopyService {
           file = await this.spool.receive(source.stream, { id: attempt.objectId, maxBytes: 10 * 1024 * 1024, expectedBytes: source.bytes, signal: controller.signal });
           if (file.sha256 !== attempt.sha256) throw new JobFailure('INVALID_RESOURCE', true);
           await this.store.put(attempt.key, file.path, file.bytes, 'image/webp', controller.signal);
+          await this.transactions.write(tx => this.writes.acknowledge(tx, attempt.destinationId, attempt.objectId, attempt.key));
         } finally { source.stream.destroy(); await file?.dispose(); }
       }
       controller.signal.throwIfAborted();

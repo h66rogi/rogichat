@@ -1,3 +1,4 @@
+import { MediaWriteProofService } from './media-write-proof.service.js';
 import { createHmac } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { Inject, Injectable } from '@nestjs/common';
@@ -22,7 +23,7 @@ const mapped = (error: unknown): never => {
 };
 @Injectable()
 export class MediaService {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(AUTH_CONFIG) private readonly config: AuthConfig, @Inject(Transactions) private readonly transactions: Transactions, @Inject(MEDIA_STORE) private readonly store: MediaStore, @Inject(MEDIA_PREFIX) private readonly prefix: string, @Inject(MediaSpooler) private readonly spool: MediaSpooler, @Inject(MediaCoreService) private readonly core: MediaCoreService) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(AUTH_CONFIG) private readonly config: AuthConfig, @Inject(Transactions) private readonly transactions: Transactions, @Inject(MEDIA_STORE) private readonly store: MediaStore, @Inject(MEDIA_PREFIX) private readonly prefix: string, @Inject(MediaSpooler) private readonly spool: MediaSpooler, @Inject(MediaCoreService) private readonly core: MediaCoreService, @Inject(MediaWriteProofService) private readonly writes: MediaWriteProofService) {}
   async intent(credentials: CommandCredentials, input: unknown) {
     const body = object(input, ['roomId', 'kind', 'contentType', 'byteLength']);
     const roomId = body.roomId === undefined || body.roomId === null ? null : identifier(body.roomId);
@@ -68,6 +69,7 @@ export class MediaService {
         assertMediaSignature(attempt.input, prefix);
       } finally { await file.close(); }
       await this.store.put(attempt.key, spooled.path, spooled.bytes, 'application/octet-stream', controller.signal);
+      await this.transactions.write(tx => this.writes.acknowledge(tx, attempt.assetId, attempt.objectId, attempt.key));
       const content = spooled;
       return await this.transactions.write(async tx => {
         await this.auth.require(tx, credentials, true);

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { affected } from '../../infrastructure/database/transactions.js';
 import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
@@ -24,6 +25,20 @@ export class JobsRepository {
         WHERE purpose IN (${purposes.map(() => '?').join(',')}) AND
           ((state="PENDING" AND available_at<=UTC_TIMESTAMP(3)) OR (state="RUNNING" AND lease_until<=UTC_TIMESTAMP(3)))
         ORDER BY CASE WHEN purpose="PURGE" THEN 0 ELSE 1 END,available_at,id LIMIT ? FOR UPDATE SKIP LOCKED`, [...purposes, limit]); }
+  async continueMedia(tx: Transaction, lease: JobLease, progress: boolean): Promise<boolean> {
+    await tx.rows('SELECT id FROM jobs WHERE id=? FOR UPDATE', [lease.id]);
+    const now = await tx.now();
+    return (await tx.prisma.jobs.updateMany({ where: { id: lease.id, purpose: 'MEDIA', room_id: lease.roomId, resource_id: lease.resourceId,
+      state: 'RUNNING', generation: lease.generation, lease_owner: lease.leaseOwner, lease_token: lease.leaseToken, lease_until: { gt: now } },
+    data: { state: 'PENDING', available_at: new Date(now.getTime() + (progress ? 5000 : 300000)), lease_owner: null, lease_token: null, lease_until: null,
+      last_error_code: progress ? 'MEDIA_CLEANUP_PROGRESS' : 'MEDIA_WRITER_UNPROVEN' } })).count === 1;
+  }
+  async recoverMedia(tx: Transaction, assetId: string) {
+    const key = createHash('sha256').update(`media-cleanup:${assetId}`).digest();
+    await tx.rows('SELECT id FROM jobs WHERE purpose=? AND dedupe_key=? FOR UPDATE', ['MEDIA', key]);
+    await tx.prisma.jobs.updateMany({ where: { purpose: 'MEDIA', resource_id: assetId, dedupe_key: key, state: { in: ['COMPLETED', 'FAILED'] } },
+      data: { state: 'PENDING', available_at: await tx.now(), lease_owner: null, lease_token: null, lease_until: null } });
+  }
   async continuePurge(tx: Transaction, lease: JobLease, outcome: PurgeContinuation): Promise<boolean> {
     await tx.rows('SELECT id FROM jobs WHERE id=? FOR UPDATE', [lease.id]);
     const now = await tx.now(); // Sample after the lock wait.
@@ -38,6 +53,7 @@ export class JobsRepository {
     return updated.count === 1;
   }
   async durablePurge(tx: Transaction, row: JobRow): Promise<boolean> {
+    if (row.purpose === 'MEDIA' && row.resource_id && await tx.prisma.media_cleanup_checkpoints.findUnique({ where: { asset_id: row.resource_id }, select: { asset_id: true } })) return true;
     if (!isDurablePurge(row)) return false;
     // Nonlocking metadata lookup only: no domain locks after queue claim locks.
     // This exception changes scheduling, never grants destructive authority.

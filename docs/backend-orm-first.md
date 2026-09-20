@@ -354,3 +354,12 @@ ACL-before-DISTINCT/LIMIT query for revoked sticker IDs across the selected room
 set. This preserves the exact viewer ACL vector with aggregate 10,001-row bounds
 and no per-room fanout; ordinary reads remain generated Prisma operations. The
 captured DB time is passed to all temporal predicates for response consistency.
+
+ACCOUNT content/media cleanup (migration 20) uses generated Prisma for checkpoints,
+reference provenance, bounded discovery and mutations. Current-row SQL exceptions
+lock the selected room/message after account authorization, one restored physical
+checkpoint, and shared-reference existence after an asset-lock wait (an older RR
+snapshot cannot authorize revocation). MEDIA cleanup uses bounded current locking
+object pages and closure projections around external DELETE, then the final queue
+fence; no storage I/O runs in a DB transaction. These exceptions retain fixed SQL
+identifiers and bound values, with no second database pool.

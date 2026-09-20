@@ -48,6 +48,16 @@ export class MessagePurgeRepository {
       environment: true, actor_user_id: true, room_id: true, target_id: true, requested_at: true, ledger_sha256: true, rows_purged_at: true,
     } });
   }
+  async accountRemovalProof(tx: Transaction, roomId: string, messageId: string) {
+    const proof = await tx.prisma.account_content_checkpoints.findFirst({ where: { room_id: roomId, message_id: messageId, rows_purged_at: { not: null } },
+      select: { request_id: true, content_owner_user_id: true, environment: true, requested_at: true, ledger_sha256: true } });
+    if (!proof) return false;
+    const intent = await tx.prisma.deletion_intents.findUnique({ where: { request_id: proof.request_id }, select: { environment: true, scope: true,
+      target_id: true, actor_user_id: true, room_id: true, requested_at: true, ledger_sha256: true, blocked_at: true } });
+    return Boolean(intent && intent.scope === 'ACCOUNT' && intent.environment === proof.environment && intent.target_id === proof.content_owner_user_id &&
+      intent.actor_user_id === proof.content_owner_user_id && intent.room_id === null && intent.blocked_at &&
+      intent.requested_at.getTime() === proof.requested_at.getTime() && Buffer.from(intent.ledger_sha256).equals(Buffer.from(proof.ledger_sha256)));
+  }
   async recordProof(tx: Transaction, intent: PurgeIntent) {
     await tx.prisma.message_purge_checkpoints.upsert({ where: { request_id: intent.request_id }, create: {
       request_id: intent.request_id, environment: intent.environment, actor_user_id: intent.actor_user_id,
