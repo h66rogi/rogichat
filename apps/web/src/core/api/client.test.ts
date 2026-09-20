@@ -17,6 +17,7 @@ void test('session accepts the current API cookie projection and validates its a
     { ...base, onboardingState: 'READY', capabilities: { chat: 'true' } },
     { ...base, onboardingState: 'READY', capabilities: { chat: true, admin: true } },
     { ...base, unexpected: true },
+    { ...base, soopLinkStatus: ['VERIFIED'] },
     { authenticated: true, csrfToken: base.csrfToken, soopLinkStatus: 'VERIFIED' },
   ]) {
     await assert.rejects(new ApiClient(origin, async () => Response.json(value)).session(), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_SESSION');

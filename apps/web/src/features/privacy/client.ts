@@ -1,4 +1,5 @@
 import { ApiError, type Session } from '../../core/api/client';
+import { parseSession } from '../../core/api/session-contract';
 import { exact, token, uuid } from '../chat/contract';
 import { blockedRoomPage } from './blocked-rooms';
 import { blockPage, blockReceipt, reportInput, reportReceipt, type ReportInput } from './moderation-contract';
@@ -75,9 +76,13 @@ export class PrivacyClient {
     return value;
   }
   async session(signal: AbortSignal): Promise<Session> {
-    const data = exact(await this.request('/v1/auth/session', 200, signal), ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition']);
-    if (data.authenticated !== true || !['VERIFIED', 'REQUIRED'].includes(String(data.soopLinkStatus))) throw new ApiError(502, 'INVALID_SESSION');
-    return { authenticated: true, soopLinkStatus: data.soopLinkStatus as Session['soopLinkStatus'], csrfToken: token(data.csrfToken), accountPartition: token(data.accountPartition) };
+    const value = await this.request('/v1/auth/session', 200, signal);
+    try {
+      const session = parseSession(value);
+      // Privacy mutations retain their canonical CSRF-token requirement.
+      token(session.csrfToken);
+      return session;
+    } catch { throw new ApiError(502, 'INVALID_SESSION'); }
   }
   async deleteAccount(csrf: string, signal: AbortSignal) { return deletionReceipt(await this.request('/v1/me/account', 200, signal, 'DELETE', csrf)); }
   async publish(room: string, message: string, csrf: string, signal: AbortSignal) { return publicationReceipt(await this.request(`/v1/rooms/${uuid(room)}/messages/${uuid(message)}/publications`, 202, signal, 'POST', csrf)); }

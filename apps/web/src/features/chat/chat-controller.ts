@@ -1,4 +1,5 @@
 import { DurableOutbox, OutboxError, outboxSessionKey, type OutboxRoom } from './outbox/indexeddb';
+import { parseSession } from '../../core/api/session-contract';
 import type { MediaLifetime } from '../media/contracts';
 import { ChatMemory, authorityKey, MAX_PARKED_BYTES, MAX_PARKED_DRAFTS } from './chat-memory';
 import type { ChatDrafts } from './drafts';
@@ -190,7 +191,7 @@ export class ChatController {
   private path(action: string) { return `/v1/rooms/${encodeURIComponent(this.roomId)}/${action}`; }
   private async verifySession() {
     const signal = this.abort.signal;
-    const session = exact(await this.request('/v1/auth/session', { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }), ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition']);
+    const session = parseSession(await this.request('/v1/auth/session', { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
     if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError');
     token(session.accountPartition); string(session.csrfToken);
     if (session.authenticated !== true || session.soopLinkStatus !== 'VERIFIED' || (this.sessionBinding !== undefined && session.csrfToken !== this.sessionBinding) || (this.accountPartition !== undefined && session.accountPartition !== this.accountPartition)) throw Object.assign(new Error('SESSION_CHANGED'), { status: 401 });

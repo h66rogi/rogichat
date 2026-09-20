@@ -12,10 +12,12 @@ test.beforeEach(async ({ page, context }) => {
   await context.route('**/__outbox_test/**', async route => {
     const name = new URL(route.request().url()).pathname.split('/__outbox_test/')[1]!;
     if (name === 'harness') { await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Isolated storage test</title>' }); return; }
-    if (!['outbox/indexeddb', 'outbox/model', 'outbox/transport', 'contract', 'chat-controller', 'chat-memory', 'commands', 'formatters', 'reactions'].includes(name.replace(/\.js$/, ''))) throw new Error('Unexpected isolated module');
-    const source = await readFile(new URL('../../src/features/chat/' + name.replace(/\.js$/, '') + '.ts', import.meta.url), 'utf8');
+    if (!['outbox/indexeddb', 'outbox/model', 'outbox/transport', 'contract', 'chat-controller', 'chat-memory', 'commands', 'formatters', 'reactions', 'session-contract'].includes(name.replace(/\.js$/, ''))) throw new Error('Unexpected isolated module');
+    const sourcePath = name === 'session-contract.js' ? '../../src/core/api/session-contract.ts' : '../../src/features/chat/' + name.replace(/\.js$/, '') + '.ts';
+    const source = await readFile(new URL(sourcePath, import.meta.url), 'utf8');
     const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext } }).outputText;
-    await route.fulfill({ contentType: 'text/javascript', body: output.replace(/from '([^']+)'/g, "from '$1.js'") });
+    const imports: Record<string, string> = { '../../core/api/session-contract': '/__outbox_test/session-contract', '../../features/chat/contract': '/__outbox_test/contract' };
+    await route.fulfill({ contentType: 'text/javascript', body: output.replace(/from '([^']+)'/g, (_match, path: string) => `from '${imports[path] ?? path}.js'`) });
   });
   await page.goto('/__outbox_test/harness');
 });

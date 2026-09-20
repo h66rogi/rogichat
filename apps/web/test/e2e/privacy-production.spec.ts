@@ -12,7 +12,7 @@ const fanId = '44444444-4444-4444-8444-444444444444';
 async function deletionApi(page: Page) {
   const account = await installApi(page, true); account.sessionToken = csrf;
   const state = { deletes: 0, status: 200, code: 'RECENT_AUTH_REQUIRED', lost: false, partition: TEST_PARTITION, starts: 0 };
-  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, accountPartition: state.partition, csrfToken: account.sessionToken, soopLinkStatus: 'VERIFIED' }));
+  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, accountPartition: state.partition, csrfToken: account.sessionToken, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true } }));
   await page.route('**/v1/me/account', async route => {
     if (route.request().method() === 'OPTIONS') return json(route, null, 204);
     state.deletes++; expect(route.request().method()).toBe('DELETE'); expect(route.request().postDataJSON()).toEqual({});

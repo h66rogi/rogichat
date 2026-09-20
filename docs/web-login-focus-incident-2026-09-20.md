@@ -37,12 +37,15 @@ At the QA base, the API cookie session producer returns `authenticated`,
 `capabilities`. The candidate web parser rejected the last two fields. The new
 regression failed with `INVALID_SESSION` before the fix and passes afterward.
 
-The parser now deliberately allows the two admission fields together and checks
+All three session consumers (account API client, chat controller and privacy
+client) now use the same parser. The parser deliberately allows the two admission fields together and checks
 that their values agree with verified/link-required status. Unknown fields,
 partial admission fields, invalid capability types and a missing account
 partition still fail closed. No partition is fabricated for the old API.
 Deployment of this candidate requires the corresponding API partition contract.
-The common browser test fixture now matches the actual six-field producer.
+The common browser test fixture and privacy browser projection now match the
+actual six-field producer. A separate chat regression reproduced rejection of
+that response and verifies that a later capability denial clears private chat.
 
 ## Live boundary and limitations
 
@@ -53,17 +56,20 @@ transaction cookie was host-only on the API origin, Secure, HttpOnly, SameSite
 Lax, with path `/`. No cookie values or redirect query parameters were retained.
 
 This proves the continuously focused pre-authentication path can work, not that
-provider login succeeds. No credentials were available or requested; no real
-callback, identity exchange, session issuance or authenticated chat was observed.
+provider login succeeds. In that initial run, no credentials were available or
+requested; no real callback, identity exchange, session issuance or authenticated
+chat was observed. A later attempt with a user-established provider session
+returned the web login failure route; session issuance remained unverified.
 Recent real callback correlation and immutable deployment verification belong
 to the infrastructure incident owner. The provider/native return incident is
 not resolved by this web change.
 
 ## Validation
 
-- All 179 web unit tests; lint and TypeScript passed.
+- All 348 web unit tests; lint and TypeScript passed.
 - Production build and runtime artifact isolation passed.
-- All 32 auth/settings/focus browser tests passed on desktop and mobile Chromium.
+- Full browser suite: 244 passed on desktop and mobile Chromium, with two
+  intentional viewport-specific skips (desktop drawer and mobile sticky aside).
   Delayed session reads verify public controls remain actionable while private
   content disappears; hidden online/restoration verifies consent preservation.
 - Public repository security scanner passed before publication.

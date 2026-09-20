@@ -9,6 +9,17 @@ const origin = 'https://api.qa.rogi.chat';
 const id = '11111111-1111-4111-8111-111111111111';
 const pub = '22222222-2222-4222-8222-222222222222';
 const session = { authenticated: true as const, soopLinkStatus: 'VERIFIED' as const, csrfToken: 'A'.repeat(43), accountPartition: 'B'.repeat(42) + 'A' };
+void test('six-field API session supports privacy reads without weakening admission or CSRF', async () => {
+  for (const linked of [true, false]) {
+    const projected = { ...session, soopLinkStatus: linked ? 'VERIFIED' : 'REQUIRED', onboardingState: linked ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: linked } };
+    assert.equal((await api(() => response(projected)).session(new AbortController().signal)).soopLinkStatus, projected.soopLinkStatus);
+  }
+  for (const projected of [
+    { ...session, onboardingState: 'READY', capabilities: { chat: false } },
+    { ...session, onboardingState: 'READY', capabilities: { chat: true }, csrfToken: 'noncanonical-token' },
+    { ...session, accountPartition: undefined },
+  ]) await assert.rejects(api(() => response(projected)).session(new AbortController().signal), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_SESSION');
+});
 const context: PublicationContext = { session, generation: 1,
   scope: { roomId: id, name: 'test', mode: 'FAN', actorId: pub, role: 'STREAMER', membershipScope: 'A'.repeat(43), authorizationRevision: '1' },
   message: { id, version: '1', createdAt: '2026-09-20T00:00:00.000Z', audience: 'PRIVATE', author: { kind: 'anonymous' }, content: { type: 'TEXT', text: 'isolated test' }, counterpart: null, quote: null, allowedActions: { reply: false, publish: true, delete: false } } };
