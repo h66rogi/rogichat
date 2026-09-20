@@ -177,3 +177,15 @@ exported v3 schema에 실행해 실제 기존 row 보존과 변경된 세 테이
 
 DB v4 적용 후 이전 v3 전용 Android 바이너리로의 단순 downgrade는 지원하지 않는다.
 기존 outbox를 보존하는 forward fix로 복구하며 destructive fallback을 추가하지 않는다.
+
+
+독립 리뷰 후 provider 사진 경계를 보완했다. 설정된 QA/Prod API origin의 정확한
+`/v1/profile-images?ticket=...`만 허용하며 추가 query·인코딩 우회·외부 origin을 거절한다.
+기본 사진은 JPEG/WebP 2 MiB, 일반 업로드 미디어는 기존 형식·크기 계약을 유지한다.
+동일한 원래 scope/actor의 화면들은 조회권·다운로드를 공유하며 전역 동시 전송은 2개,
+대기 한도는 15초다. 마지막 화면 종료, scope 무효화, 만료 때 bytes를 폐기하고 갱신에는
+새 다운로드를 수행한다. 티켓·원본 URL·이미지 bytes를 영속 캐시에 남기지 않는다.
+양 OS의 추가 회귀는 같은 actor 중복 요청, 서로 다른 actor 동시 전송 상한, 대기/전송
+취소, scope 폐기, 갱신 시 새 bytes, 이전 요청의 늦은 완료와 새 구독 분리, 실패 후
+명시적 재시도를 검증한다. Android 실제 Room migration CI도 최초 PR HEAD에서 통과했다.
+BACKEND 최종 독립 리뷰는 중앙 지시에 따라 기존 WEB 담당에게 근거와 남은 조건을 전달했다.

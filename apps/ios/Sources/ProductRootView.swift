@@ -152,7 +152,7 @@ struct ProductRootView: View {
             if session.account != nil, session.capabilities.canEditProfile {
                 ProfileLoader(onLoad: { try await session.loadProfile() }, onSave: { try await session.saveProfile($0) }, avatar: { profile in
                     guard let scope = session.roomsScope else { return nil }
-                    return AnyView(AccountAvatarSection(session: session, storage: roomsStorage, scope: scope, accountID: profile.id, originalAssetID: profile.avatarAssetID, originalProviderAvatarAvailable: profile.providerAvatarURL != nil))
+                    return AnyView(AccountAvatarSection(session: session, storage: roomsStorage, scope: scope, accountID: profile.id, originalAssetID: profile.avatarAssetID, apiBaseURL: nativeEnvironment.baseURL, originalProviderAvatarAvailable: profile.providerAvatarURL != nil))
                 })
                     .id(session.generation)
             }

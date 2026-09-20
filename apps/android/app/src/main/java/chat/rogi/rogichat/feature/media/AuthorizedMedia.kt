@@ -31,7 +31,7 @@ fun AuthorizedMedia(client: MediaClient, assetId: String, access: MediaAccess, m
 }
 
 @Composable
-private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: MediaAccess, modifier: Modifier, avatar: Boolean, provider: Boolean = false) {
+private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: MediaAccess, modifier: Modifier, avatar: Boolean) {
     val context = LocalContext.current
     var retry by remember { mutableIntStateOf(0) }
     var file by remember { mutableStateOf<java.io.File?>(null) }
@@ -41,7 +41,7 @@ private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: M
         failed = false; file = null; bitmap = null
         var scratch: java.io.File? = null
         try {
-            var lease = if (provider) client.providerAvatar(assetId) else client.access(requireNotNull(assetId), access)
+            var lease = client.access(requireNotNull(assetId), access)
             val downloaded = MediaDownload.fetch(lease, client.scope, context.cacheDir)
             scratch = downloaded
             if (access.variant != MediaVariant.video) {
@@ -57,8 +57,6 @@ private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: M
             while (true) {
                 delay(250); lease.checkedURL(client.scope)
                 if (lease.needsRenewal()) {
-                    // Provider content is mutable: acquire and decode fresh bytes, not just a new ticket.
-                    if (provider) { retry++; break }
                     lease = client.renewAccess(requireNotNull(assetId), access, lease)
                 }
             }
@@ -87,6 +85,40 @@ private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: M
 @Composable
 fun AuthorizedProviderAvatar(client: MediaClient, modifier: Modifier = Modifier, actorId: String? = null) {
     key(client.scope.presentationID, actorId, "provider-avatar") {
-        AuthorizedMediaBody(client, actorId, MediaAccess.Preview(MediaVariant.image), modifier, avatar = true, provider = true)
+        val cache = LocalContext.current.cacheDir
+        var bitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+        var failed by remember { mutableStateOf(false) }
+        var retry by remember { mutableIntStateOf(0) }
+        LaunchedEffect(client.scope.presentationID, actorId, retry) {
+            bitmap = null; failed = false
+            try {
+                ProviderAvatarLoads.shared.observe(client.scope, actorId) {
+                    val lease = client.providerAvatar(actorId)
+                    val file = MediaDownload.fetch(lease, client.scope, cache, provider = true)
+                    try { ProviderAvatarState.Ready(file.readBytes(), lease) } finally { file.delete() }
+                }.collect { state ->
+                    bitmap = null; failed = state == ProviderAvatarState.Failed
+                    if (state is ProviderAvatarState.Ready) {
+                        state.lease.checkedURL(client.scope)
+                        val decoded = withContext(Dispatchers.Default) {
+                            val bytes = state.bytes
+                            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+                            require(bounds.outWidth > 0 && bounds.outHeight > 0 && bounds.outWidth.toLong() * bounds.outHeight <= 20_000_000)
+                            val options = BitmapFactory.Options().apply { inSampleSize = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 256) }
+                            requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)).asImageBitmap()
+                        }
+                        state.lease.checkedURL(client.scope); bitmap = decoded
+                    }
+                }
+            } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+            catch (_: Exception) { failed = true }
+            finally { bitmap = null }
+        }
+        Column(modifier) {
+            if (failed) TextButton(onClick = { runCatching { ProviderAvatarLoads.shared.retry(client.scope, actorId) }; retry++ }) { Text("다시 시도") }
+            else if (bitmap == null) CircularProgressIndicator(Modifier.size(24.dp))
+            else Image(requireNotNull(bitmap), contentDescription = "프로필 사진", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        }
     }
 }

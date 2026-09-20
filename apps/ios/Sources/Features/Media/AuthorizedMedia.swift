@@ -18,7 +18,6 @@ private struct AuthorizedMediaBody: View {
     let assetID: String?
     let access: MediaAccess
     let avatar: Bool
-    var provider = false
     @State private var taskID: UUID?
     @State private var player: AVPlayer?
     @State private var image: UIImage?
@@ -45,9 +44,7 @@ private struct AuthorizedMediaBody: View {
                 if let scratch { try? FileManager.default.removeItem(at: scratch) }
             }
             do {
-                var lease: MediaLease
-                if provider { lease = try await client.providerAvatar(actorID: assetID) }
-                else { lease = try await client.access(assetID!, context: access) }
+                var lease = try await client.access(assetID!, context: access)
                 let url = try await MediaDownload.fetch(lease, scope: client.scope); scratch = url
                 _ = try lease.checkedURL(scope: client.scope)
                 if access.variant == .video { player = AVPlayer(url: url) }
@@ -66,8 +63,7 @@ private struct AuthorizedMediaBody: View {
                 while true {
                     try await Task.sleep(for: .milliseconds(250)); _ = try lease.checkedURL(scope: client.scope)
                     if lease.needsRenewal() {
-                        if provider { retry += 1; break }
-                        else { lease = try await client.renewAccess(assetID!, context: access, replacing: lease) }
+                        lease = try await client.renewAccess(assetID!, context: access, replacing: lease)
                     }
                     if player?.currentItem?.status == .failed { throw MediaError.unavailable }
                 }
@@ -79,8 +75,63 @@ struct AuthorizedProviderAvatar: View {
     let client: MediaClient
     var actorID: String? = nil
     var body: some View {
-        AuthorizedMediaBody(client: client, assetID: actorID, access: .preview(.image), avatar: true, provider: true)
+        ProviderAvatarBody(client: client, actorID: actorID)
             .id(client.scope.presentationID + ":provider:" + (actorID ?? "self"))
+    }
+}
+private struct ProviderAvatarBody: View {
+    let client: MediaClient
+    let actorID: String?
+    @State private var image: UIImage?
+    @State private var failed = false
+    @State private var retry = 0
+    @State private var operation: UUID?
+    var body: some View {
+        VStack {
+            if failed { Button("다시 시도") { retry += 1 } }
+            else if let image { Image(uiImage: image).resizable().scaledToFill().accessibilityLabel("프로필 사진") }
+            else { ProgressView() }
+        }
+        .task(id: retry) {
+            let current = UUID(); operation = current
+            image = nil; failed = false
+            var subscription: ProviderAvatarLoads.Subscription?
+            defer {
+                if operation == current { image = nil }
+                if let subscription { Task { await ProviderAvatarLoads.shared.release(subscription) } }
+            }
+            do {
+                if retry > 0 { try await ProviderAvatarLoads.shared.retry(scope: client.scope, actor: actorID) }
+                let active = try await ProviderAvatarLoads.shared.subscribe(scope: client.scope, actor: actorID) {
+                    let lease = try await client.providerAvatar(actorID: actorID)
+                    let url = try await MediaDownload.fetch(lease, scope: client.scope, provider: true)
+                    defer { try? FileManager.default.removeItem(at: url) }
+                    return (try Data(contentsOf: url), lease)
+                }
+                subscription = active
+                for await state in active.states {
+                    try Task.checkCancellation(); try client.scope.check()
+                    guard operation == current else { throw CancellationError() }
+                    image = nil; failed = false
+                    switch state {
+                    case .loading: break
+                    case .failed: failed = true
+                    case .ready(let data, let lease):
+                        _ = try lease.checkedURL(scope: client.scope)
+                        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+                              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+                              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                              width > 0, height > 0, width <= 20_000_000 / height,
+                              let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                kCGImageSourceCreateThumbnailWithTransform: true,
+                                kCGImageSourceThumbnailMaxPixelSize: 256] as CFDictionary) else { throw MediaError.invalid }
+                        _ = try lease.checkedURL(scope: client.scope); image = UIImage(cgImage: decoded)
+                    }
+                }
+            } catch { if !Task.isCancelled && operation == current { failed = true } }
+        }
     }
 }
 #endif

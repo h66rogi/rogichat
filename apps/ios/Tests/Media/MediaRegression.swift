@@ -38,17 +38,36 @@ private func expectFailure(_ body: () throws -> Void) throws {
 @main struct MediaRegression {
     @MainActor static func main() async throws {
         let selfScope = Scope(roomID: nil)
-        let providerReceipt = "{\"url\":\"https://api.qa.rogi.chat/v1/profile-images?ticket=opaque\",\"expiresIn\":60}"
+        let providerReceipt = "{\"url\":\"https://api.qa.rogi.chat/v1/profile-images?ticket=\(String(repeating: "a", count: 64))\",\"expiresIn\":60}"
         let providerTransport = Transport([providerReceipt, providerReceipt])
-        let ownPhoto = try await MediaClient(transport: providerTransport, scope: selfScope).providerAvatar()
+        let ownPhoto = try await MediaClient(transport: providerTransport, scope: selfScope, apiBaseURL: URL(string: "https://api.qa.rogi.chat/v1/")).providerAvatar()
         let selfRequest = await providerTransport.requests[0]
         precondition(selfRequest.path == "me/provider-avatar/access" && selfRequest.method == "POST" && selfRequest.jsonBody == nil)
         _ = try ownPhoto.checkedURL(scope: selfScope)
         selfScope.invalidate()
         try expectFailure { _ = try ownPhoto.checkedURL(scope: selfScope) }
-        _ = try await MediaClient(transport: providerTransport, scope: Scope()).providerAvatar(actorID: asset)
+        _ = try await MediaClient(transport: providerTransport, scope: Scope(), apiBaseURL: URL(string: "https://api.qa.rogi.chat/v1/")).providerAvatar(actorID: asset)
         let actorRequest = await providerTransport.requests[1]
         precondition(actorRequest.path == "rooms/\(room)/actors/\(asset)/provider-avatar/access" && actorRequest.jsonBody == nil)
+        let base = URL(string: "https://api.qa.rogi.chat/v1/")!, ticket = String(repeating: "a", count: 64)
+        try validateProviderAvatarURL(URL(string: "\(base)profile-images?ticket=\(ticket)")!, apiBaseURL: base)
+        for text in ["https://api.rogi.chat/v1/profile-images?ticket=\(ticket)", "https://provider.example/image.jpg",
+                     "\(base)profile-images/extra?ticket=\(ticket)", "\(base)%70rofile-images?ticket=\(ticket)",
+                     "\(base)profile-images?ticket=\(ticket)&ticket=\(ticket)", "\(base)profile-images?ticket=short",
+                     "\(base)profile-images?ticket=\(String(repeating: "a", count: 1025))",
+                     "\(base)profile-images?ticket=%61\(String(repeating: "a", count: 63))",
+                     "\(base)profile-images?ticket=\(ticket)#fragment",
+                     "https://user@api.qa.rogi.chat/v1/profile-images?ticket=\(ticket)",
+                     "https://api.qa.rogi.chat:8443/v1/profile-images?ticket=\(ticket)"] {
+            try expectFailure { try validateProviderAvatarURL(URL(string: text)!, apiBaseURL: base) }
+        }
+        try expectFailure { try validateProviderAvatarURL(URL(string: "\(base)profile-images?ticket=\(ticket)")!, apiBaseURL: nil) }
+        try MediaDownload.validateResponse(variant: .image, status: 200, length: 2 * 1024 * 1024, type: "image/webp", range: nil, encoding: nil, provider: true)
+        try expectFailure { try MediaDownload.validateResponse(variant: .image, status: 200, length: 2 * 1024 * 1024 + 1, type: "image/jpeg", range: nil, encoding: nil, provider: true) }
+        try expectFailure { try MediaDownload.validateResponse(variant: .image, status: 200, length: 1, type: "image/png", range: nil, encoding: nil, provider: true) }
+        try MediaDownload.validateResponse(variant: .image, status: 200, length: 3 * 1024 * 1024, type: "image/png", range: nil, encoding: nil)
+        try await providerSharingRegression()
+        try await providerCancellationRegression()
         let scope = Scope()
         let ready = MediaReceipt(assetId: asset, status: .ready)
         try expectFailure { _ = try JSONEncoder().encode(MediaContent.attachments(.video, [ready, ready])) }
@@ -114,4 +133,102 @@ private func expectFailure(_ body: () throws -> Void) throws {
         if case .failed(let pending) = failureUpload.state { precondition(pending?.assetId == asset) } else { fatalError("lost recovery record") }
         print("Media regression passed: content, expiry, typed requests, upload cleanup, original scope, status-only recovery, avatar null")
     }
+}
+
+private actor ProviderProbe {
+    var started = 0; var active = 0; var peak = 0
+    let renewFirst: Bool
+    init(renewFirst: Bool = false) { self.renewFirst = renewFirst }
+    func load() async throws -> (Data, MediaLease) {
+        started += 1; active += 1; peak = max(peak, active)
+        let n = started
+        defer { active -= 1 }
+        try await Task.sleep(for: .milliseconds(100))
+        let start = renewFirst && n == 1 ? ContinuousClock.now.advanced(by: .milliseconds(-34950)) : .now
+        return (Data([UInt8(n)]), try MediaLease(url: URL(string: "https://example.org/object")!, started: start, variant: .image))
+    }
+}
+private func providerSharingRegression() async throws {
+    let loads = ProviderAvatarLoads(poll: .milliseconds(5)), scope = Scope(), probe = ProviderProbe()
+    var subscriptions: [ProviderAvatarLoads.Subscription] = []
+    for _ in 0..<5 { subscriptions.append(try await loads.subscribe(scope: scope, actor: asset) { try await probe.load() }) }
+    for subscription in subscriptions {
+        var found = false
+        for await state in subscription.states { if case .ready = state { found = true; break } }
+        precondition(found)
+    }
+    let count = await probe.started; precondition(count == 1)
+    await loads.release(subscriptions.removeFirst())
+    for n in 0..<6 { subscriptions.append(try await loads.subscribe(scope: scope, actor: "actor-\(n)") { try await probe.load() }) }
+    for _ in 0..<600 {
+        if await probe.started == 7, await probe.active == 0 { break }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    let total = await probe.started, peak = await probe.peak
+    precondition(total == 7 && peak == 2)
+    for subscription in subscriptions { await loads.release(subscription) }
+    let new = try await loads.subscribe(scope: scope, actor: asset) { try await probe.load() }
+    for _ in 0..<600 { if await probe.started == 8 { break }; try await Task.sleep(for: .milliseconds(5)) }
+    await loads.release(new)
+    for _ in 0..<600 { if await probe.active == 0 { break }; try await Task.sleep(for: .milliseconds(5)) }
+    let restarted = await probe.started, remaining = await probe.active
+    precondition(restarted == 8 && remaining == 0)
+    let renewed = ProviderProbe(renewFirst: true)
+    let subscription = try await loads.subscribe(scope: scope, actor: asset) { try await renewed.load() }
+    var seen: [UInt8] = []
+    for await state in subscription.states {
+        if case .ready(let bytes, _) = state { seen.append(bytes[0]); if bytes[0] == 2 { break } }
+    }
+    precondition(seen == [1, 2])
+    scope.invalidate()
+    var revoked = false
+    for await state in subscription.states { if case .failed = state { revoked = true; break } }
+    precondition(revoked)
+    await loads.release(subscription)
+    let renewals = await renewed.started; precondition(renewals == 2)
+}
+
+private actor ProviderCancellationProbe {
+    var count = 0
+    func blocking() async throws -> (Data, MediaLease) {
+        count += 1; try await Task.sleep(for: .seconds(30)); throw MediaError.invalid
+    }
+    func late() async throws -> (Data, MediaLease) {
+        count += 1; let n = count
+        if n == 1 { try? await Task.sleep(for: .milliseconds(150)) }
+        return (Data([UInt8(n)]), try MediaLease(url: URL(string: "https://example.org/object")!, started: .now, variant: .image))
+    }
+    func failOnce() throws -> (Data, MediaLease) {
+        count += 1
+        if count == 1 { throw MediaError.unavailable }
+        return (Data([UInt8(count)]), try MediaLease(url: URL(string: "https://example.org/object")!, started: .now, variant: .image))
+    }
+}
+private func providerCancellationRegression() async throws {
+    let loads = ProviderAvatarLoads(poll: .milliseconds(5)), scope = Scope(), blocker = ProviderCancellationProbe()
+    let first = try await loads.subscribe(scope: scope, actor: "first") { try await blocker.blocking() }
+    let second = try await loads.subscribe(scope: scope, actor: "second") { try await blocker.blocking() }
+    for _ in 0..<600 { if await blocker.count == 2 { break }; try await Task.sleep(for: .milliseconds(5)) }
+    let queued = try await loads.subscribe(scope: scope, actor: "queued") { try await blocker.blocking() }
+    try await Task.sleep(for: .milliseconds(80))
+    await loads.release(queued); await loads.release(first); await loads.release(second)
+    try await Task.sleep(for: .milliseconds(80))
+    let started = await blocker.count; precondition(started == 2)
+    let late = ProviderCancellationProbe()
+    let old = try await loads.subscribe(scope: scope, actor: asset) { try await late.late() }
+    for _ in 0..<600 { if await late.count == 1 { break }; try await Task.sleep(for: .milliseconds(5)) }
+    await loads.release(old)
+    let next = try await loads.subscribe(scope: scope, actor: asset) { try await late.late() }
+    for await state in next.states { if case .ready(let bytes, _) = state { precondition(bytes == Data([2])); break } }
+    try await Task.sleep(for: .milliseconds(200))
+    let sibling = try await loads.subscribe(scope: scope, actor: asset) { try await late.late() }
+    for await state in sibling.states { if case .ready(let bytes, _) = state { precondition(bytes == Data([2])); break } }
+    let replaced = await late.count; precondition(replaced == 2)
+    await loads.release(next); await loads.release(sibling)
+    let failed = ProviderCancellationProbe()
+    let reader = try await loads.subscribe(scope: scope, actor: asset) { try await failed.failOnce() }
+    for await state in reader.states { if case .failed = state { break } }
+    try await loads.retry(scope: scope, actor: asset)
+    for await state in reader.states { if case .ready(let bytes, _) = state { precondition(bytes == Data([2])); break } }
+    await loads.release(reader)
 }

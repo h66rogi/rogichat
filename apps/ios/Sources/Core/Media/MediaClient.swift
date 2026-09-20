@@ -17,6 +17,7 @@ protocol MediaTransport: Sendable { func perform(_ request: MediaRequest, scope:
 struct MediaClient: Sendable {
     let transport: any MediaTransport
     let scope: any MediaScope
+    var apiBaseURL: URL? = nil
     private func request(_ request: MediaRequest) async throws -> Data {
         try scope.check(); try Task.checkCancellation(); try request.upload?.validate()
         let result = try await transport.perform(request, scope: scope)
@@ -85,17 +86,8 @@ struct MediaClient: Sendable {
         struct Receipt: Decodable { let url: URL; let expiresIn: Int }
         let receipt = try JSONDecoder().decode(Receipt.self, from: data)
         guard receipt.expiresIn == 60 else { throw MediaError.invalid }
+        try validateProviderAvatarURL(receipt.url, apiBaseURL: apiBaseURL)
         return try MediaLease(url: receipt.url, started: started, variant: .image)
-    }
-    func renewProviderAvatar(actorID: String?, replacing: MediaLease) async throws -> MediaLease {
-        _ = try replacing.checkedURL(scope: scope)
-        let budget = replacing.renewalBudget()
-        return try await withThrowingTaskGroup(of: MediaLease.self) { group in
-            group.addTask { let lease = try await providerAvatar(actorID: actorID); _ = try lease.checkedURL(scope: scope); return lease }
-            group.addTask { try await Task.sleep(for: budget); throw MediaError.expired }
-            defer { group.cancelAll() }
-            guard let lease = try await group.next() else { throw MediaError.expired }; return lease
-        }
     }
     func stickers(after: String? = nil) async throws -> MediaStickerPage {
         guard let room = scope.roomID else { throw MediaError.invalid }
@@ -134,4 +126,15 @@ struct MediaClient: Sendable {
         _ = try mediaID(result.id)
         guard result.avatar?.assetId == ready?.assetId else { throw MediaError.invalid }
     }
+}
+
+func validateProviderAvatarURL(_ url: URL, apiBaseURL: URL?) throws {
+    guard let apiBaseURL, let base = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false),
+          let value = URLComponents(url: url, resolvingAgainstBaseURL: false),
+          base.scheme == "https", base.host != nil, base.user == nil, base.password == nil,
+          base.percentEncodedPath == "/v1/", base.query == nil, base.fragment == nil,
+          value.scheme == "https", value.host == base.host, value.port == base.port,
+          value.user == nil, value.password == nil, value.fragment == nil,
+          value.percentEncodedPath == "/v1/profile-images", let query = value.percentEncodedQuery,
+          query.range(of: "^ticket=[A-Za-z0-9_-]{64,1024}$", options: .regularExpression) != nil else { throw MediaError.invalid }
 }

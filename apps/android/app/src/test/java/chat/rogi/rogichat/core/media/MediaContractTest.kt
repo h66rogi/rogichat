@@ -17,23 +17,114 @@ class MediaContractTest {
             chat.rogi.rogichat.core.network.FeatureRoutes.media(request)
             assertEquals("POST", request.method); assertNull(request.jsonBody); assertNull(request.upload)
             path = request.path
-            """{"url":"https://api.qa.rogi.chat/v1/profile-images?ticket=opaque","expiresIn":60}"""
+            """{"url":"https://api.qa.rogi.chat/v1/profile-images?ticket=${"a".repeat(64)}","expiresIn":60}"""
         }
-        val lease = MediaClient(transport, own).providerAvatar()
+        val lease = MediaClient(transport, own, "https://api.qa.rogi.chat/v1/").providerAvatar()
         assertEquals("me/provider-avatar/access", path)
         assertTrue(lease.checkedURL(own).contains("profile-images"))
         own.valid = false
         assertThrows(CancellationException::class.java) { lease.checkedURL(own) }
-        val peer = MediaClient(transport, Scope())
+        val peer = MediaClient(transport, Scope(), "https://api.qa.rogi.chat/v1/")
         peer.providerAvatar(asset)
         assertEquals("rooms/$room/actors/$asset/provider-avatar/access", path)
         try { peer.providerAvatar(); fail("self endpoint admitted from room scope") } catch (_: IllegalArgumentException) { }
+    }
+    @Test fun providerReceiptRejectsOtherOriginsAndNonOpaquePaths() {
+        val base = "https://api.qa.rogi.chat/v1/"; val ticket = "a".repeat(64)
+        validateProviderAvatarURL("${base}profile-images?ticket=$ticket", base)
+        for (url in listOf("https://api.rogi.chat/v1/profile-images?ticket=$ticket", "https://provider.example/image.jpg",
+            "${base}profile-images/extra?ticket=$ticket", "${base}%70rofile-images?ticket=$ticket",
+            "${base}profile-images?ticket=$ticket&ticket=$ticket", "${base}profile-images?ticket=$ticket&other=1",
+            "${base}profile-images?ticket=short", "${base}profile-images?ticket=${"a".repeat(1025)}",
+            "${base}profile-images?ticket=%61${"a".repeat(63)}", "${base}profile-images?ticket=$ticket#fragment",
+            "https://user@api.qa.rogi.chat/v1/profile-images?ticket=$ticket", "https://api.qa.rogi.chat:8443/v1/profile-images?ticket=$ticket")) {
+            assertThrows(IllegalArgumentException::class.java) { validateProviderAvatarURL(url, base) }
+        }
+        assertThrows(IllegalArgumentException::class.java) { validateProviderAvatarURL("${base}profile-images?ticket=$ticket", null) }
+        MediaDownload.validateResponse(MediaVariant.image, 200, 2 * 1024 * 1024, "image/webp", null, null, provider = true)
+        for ((size, type) in listOf(2 * 1024 * 1024 + 1L to "image/jpeg", 1L to "image/png")) {
+            assertThrows(IllegalArgumentException::class.java) { MediaDownload.validateResponse(MediaVariant.image, 200, size, type, null, null, provider = true) }
+        }
+        // General uploaded PNGs retain their original contract.
+        MediaDownload.validateResponse(MediaVariant.image, 200, 3 * 1024 * 1024, "image/png", null, null)
+    }
+    @Test fun providerLoadsDeduplicateBoundTransfersAndRelease() = runBlocking {
+        val loads = ProviderAvatarLoads(10); val scope = Scope()
+        val started = java.util.concurrent.atomic.AtomicInteger(); val active = java.util.concurrent.atomic.AtomicInteger()
+        val peak = java.util.concurrent.atomic.AtomicInteger(); val ready = java.util.concurrent.atomic.AtomicInteger()
+        val load: suspend () -> ProviderAvatarState.Ready = {
+            started.incrementAndGet(); val count = active.incrementAndGet(); peak.updateAndGet { maxOf(it, count) }
+            try { delay(100); ProviderAvatarState.Ready(byteArrayOf(1), MediaLease("https://example.org/object", System.nanoTime() + 55_000_000_000, MediaVariant.image)) }
+            finally { active.decrementAndGet() }
+        }
+        val same = List(5) { launch { loads.observe(scope, asset, load).collect { if (it is ProviderAvatarState.Ready) ready.incrementAndGet() } } }
+        kotlinx.coroutines.withTimeout(3000) { while (ready.get() != 5) delay(5) }
+        assertEquals(1, started.get())
+        same.first().cancelAndJoin(); assertEquals(1, started.get())
+        val distinct = List(6) { index -> launch { loads.observe(scope, "actor-$index", load).collect { } } }
+        kotlinx.coroutines.withTimeout(3000) { while (started.get() < 7 || active.get() != 0) delay(5) }
+        assertEquals(2, peak.get())
+        (same + distinct).forEach { it.cancelAndJoin() }
+        val next = launch { loads.observe(scope, asset, load).collect { } }
+        kotlinx.coroutines.withTimeout(3000) { while (started.get() != 8) delay(5) }
+        next.cancelAndJoin()
+        kotlinx.coroutines.withTimeout(3000) { while (active.get() != 0) delay(5) }
+    }
+    @Test fun providerRenewalFetchesFreshBytesAndScopeCancellationDiscardsWork() = runBlocking {
+        val loads = ProviderAvatarLoads(5); val scope = Scope(); val count = java.util.concurrent.atomic.AtomicInteger()
+        val received = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        val reader = launch {
+            loads.observe(scope, asset) {
+                val n = count.incrementAndGet()
+                ProviderAvatarState.Ready(byteArrayOf(n.toByte()), MediaLease("https://example.org/object", System.nanoTime() +
+                    (if (n == 1) 20_050_000_000 else 55_000_000_000), MediaVariant.image))
+            }.collect { if (it is ProviderAvatarState.Ready) received.add(it.bytes[0].toInt()) }
+        }
+        kotlinx.coroutines.withTimeout(3000) { while (!received.contains(2)) delay(5) }
+        assertTrue(received.contains(1)); assertEquals(2, count.get())
+        scope.valid = false
+        kotlinx.coroutines.withTimeout(3000) { reader.join() }
+        assertEquals(2, count.get())
+    }
+    @Test fun providerQueuedCancellationAndLateOldCompletionCannotAffectReplacement() = runBlocking {
+        val loads = ProviderAvatarLoads(5); val scope = Scope()
+        val entered = java.util.concurrent.atomic.AtomicInteger()
+        val blocking: suspend () -> ProviderAvatarState.Ready = { entered.incrementAndGet(); delay(30000); error("unreachable") }
+        val first = launch { loads.observe(scope, "first", blocking).collect { } }
+        val second = launch { loads.observe(scope, "second", blocking).collect { } }
+        kotlinx.coroutines.withTimeout(3000) { while (entered.get() < 2) delay(5) }
+        val queued = launch { loads.observe(scope, "queued", blocking).collect { } }
+        delay(80); queued.cancelAndJoin(); first.cancelAndJoin(); second.cancelAndJoin()
+        delay(80); assertEquals(2, entered.get())
+        val count = java.util.concurrent.atomic.AtomicInteger(); val seen = java.util.concurrent.CopyOnWriteArrayList<Int>()
+        val late: suspend () -> ProviderAvatarState.Ready = {
+            val n = count.incrementAndGet()
+            if (n == 1) kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { delay(150) }
+            ProviderAvatarState.Ready(byteArrayOf(n.toByte()), MediaLease("https://example.org/object", System.nanoTime() + 55_000_000_000, MediaVariant.image))
+        }
+        val old = launch { loads.observe(scope, asset, late).collect { } }
+        kotlinx.coroutines.withTimeout(3000) { while (count.get() == 0) delay(5) }; old.cancelAndJoin()
+        val replacement = launch { loads.observe(scope, asset, late).collect { if (it is ProviderAvatarState.Ready) seen.add(it.bytes[0].toInt()) } }
+        kotlinx.coroutines.withTimeout(3000) { while (seen.isEmpty()) delay(5) }
+        delay(200); assertEquals(listOf(2), seen.toList()); replacement.cancelAndJoin()
+    }
+    @Test fun providerFailureRetriesSharedWorkWithoutKeepingOldBytes() = runBlocking {
+        val loads = ProviderAvatarLoads(5); val scope = Scope(); val count = java.util.concurrent.atomic.AtomicInteger()
+        val state = java.util.concurrent.atomic.AtomicReference<ProviderAvatarState>()
+        val observer = launch { loads.observe(scope, asset) {
+            if (count.incrementAndGet() == 1) throw MediaFailure(503, null)
+            ProviderAvatarState.Ready(byteArrayOf(2), MediaLease("https://example.org/object", System.nanoTime() + 55_000_000_000, MediaVariant.image))
+        }.collect { state.set(it) } }
+        kotlinx.coroutines.withTimeout(3000) { while (state.get() != ProviderAvatarState.Failed) delay(5) }
+        loads.retry(scope, asset)
+        kotlinx.coroutines.withTimeout(3000) { while (state.get() !is ProviderAvatarState.Ready) delay(5) }
+        assertEquals(2, count.get()); observer.cancelAndJoin()
     }
     private val asset = "10000000-0000-4000-8000-000000000001"
     private val room = "20000000-0000-4000-8000-000000000001"
     private inner class Scope(override val roomId: String? = room) : MediaScope {
         override val presentationID = java.util.UUID.randomUUID().toString()
-        var valid = true
+        @Volatile var valid = true
         override fun check() { if (!valid) throw CancellationException() }
     }
     private fun receipt(status: String) = """{"assetId":"$asset","status":"$status"}"""

@@ -36,6 +36,7 @@ struct AccountAvatarSection: View {
     let scope: RoomsScope
     let accountID: String
     let originalAssetID: String?
+    let apiBaseURL: URL
     var originalProviderAvatarAvailable = false
     @State private var providerAvatarAvailable = false
     @State private var journal: AccountMediaJournal?
@@ -43,7 +44,7 @@ struct AccountAvatarSection: View {
     @State private var pending: [PendingMedia] = []
     @State private var error: String?
     @State private var busy = false
-    private var client: MediaClient { MediaClient(transport: AccountMediaTransport(session: session, original: scope), scope: AccountMediaScope(original: scope)) }
+    private var client: MediaClient { MediaClient(transport: AccountMediaTransport(session: session, original: scope), scope: AccountMediaScope(original: scope), apiBaseURL: apiBaseURL) }
     var body: some View {
         Section {
             if let asset = currentAssetID {

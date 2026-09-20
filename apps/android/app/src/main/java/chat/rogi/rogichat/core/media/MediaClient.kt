@@ -11,7 +11,7 @@ import kotlinx.serialization.json.*
 fun interface MediaTransport { suspend fun perform(request: MediaRequest, scope: MediaScope): String }
 class MediaRequest internal constructor(val method: String, val path: String, val expectedStatus: Int,
                                        val jsonBody: String? = null, val upload: MediaFile? = null)
-class MediaClient(private val transport: MediaTransport, val scope: MediaScope) {
+class MediaClient(private val transport: MediaTransport, val scope: MediaScope, private val apiBaseURL: String? = null) {
     private suspend fun request(method: String, path: String, status: Int, body: String? = null, upload: MediaFile? = null): String {
         scope.check(); upload?.validate()
         val result = transport.perform(MediaRequest(method, path, status, body, upload), scope)
@@ -68,12 +68,8 @@ class MediaClient(private val transport: MediaTransport, val scope: MediaScope) 
         val result = Json.parseToJsonElement(request("POST", path, 200)).jsonObject
         check(result.getValue("expiresIn").jsonPrimitive.int == 60)
         val url = result.getValue("url").jsonPrimitive.content
-        val uri = URI(url); require(uri.scheme == "https" && !uri.host.isNullOrEmpty() && uri.userInfo == null && uri.fragment == null)
+        validateProviderAvatarURL(url, apiBaseURL)
         return MediaLease(url, started + 55_000_000_000L, MediaVariant.image)
-    }
-    suspend fun renewProviderAvatar(actorId: String?, replacing: MediaLease): MediaLease {
-        replacing.checkedURL(scope)
-        return kotlinx.coroutines.withTimeout(replacing.renewalBudgetMillis()) { providerAvatar(actorId).also { it.checkedURL(scope) } }
     }
     suspend fun stickers(after: String? = null): MediaStickerPage {
         val room = mediaId(requireNotNull(scope.roomId))
@@ -94,4 +90,13 @@ class MediaClient(private val transport: MediaTransport, val scope: MediaScope) 
         val avatar = result.getValue("avatar")
         check(if (ready == null) avatar == JsonNull else avatar.jsonObject.getValue("assetId").jsonPrimitive.content == ready.assetId)
     }
+}
+
+/** Provider tickets are API capabilities, never arbitrary storage/provider URLs. */
+internal fun validateProviderAvatarURL(value: String, apiBaseURL: String?) {
+    val base = URI(requireNotNull(apiBaseURL))
+    val uri = URI(value)
+    require(base.scheme == "https" && base.host != null && base.userInfo == null && base.rawPath == "/v1/" && base.rawQuery == null && base.fragment == null)
+    require(uri.scheme == "https" && uri.host == base.host && uri.port == base.port && uri.userInfo == null && uri.fragment == null)
+    require(uri.rawPath == "/v1/profile-images" && Regex("ticket=[A-Za-z0-9_-]{64,1024}").matches(uri.rawQuery ?: ""))
 }

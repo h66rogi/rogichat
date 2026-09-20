@@ -370,3 +370,8 @@ TEXT sender/recipient/body에 맞춘 iOS messages 개인정보 선언과 Android
 추가 API 필드는 이전 배포에서 없거나 self-profile에서 null일 수 있다. 표시 ID는 계정
 subject·partition·권한 키가 아니다. 수동 이름·사진·사진 삭제의 보존은 서버가 결정하며
 클라이언트는 실제 GET/PATCH 결과를 표시한다. 테스트 합성 프로필·방은 test target에만 있다.
+
+
+| ID | 원본·기존 구현 | 대상 | 재사용와 새 계약의 경계 |
+|---|---|---|---|
+| R67 | R55/R64와 같은 원본 이미지 cache·ProfileImage 대조; 기존 MediaClient/MediaDownload 직접 재사용 | provider 전용 URL 검증·ProviderAvatarLoads | **기존 전송 재사용 + 새 권한 수명 처리**: provider 조회권은 설정된 API origin의 `/v1/profile-images`와 단일 opaque ticket만 허용하고 JPEG/WebP 2 MiB로 제한한다. 원본의 URL 전역 cache는 만료되는 계정/방 권한과 맞지 않아 그대로 이식하지 않는다. 계정/방의 원래 scope+actor별 활성 화면에서만 요청·bytes를 공유하고 마지막 화면 종료 때 취소·폐기한다. 동시 전송 2개, 대기 15초, 갱신 시 새 조회권과 bytes를 함께 받는다. 일반 asset의 서명 URL 계약은 유지한다. |
