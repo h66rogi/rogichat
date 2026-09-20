@@ -34,6 +34,10 @@ deletion cleanup. Existing DELETING media, including video, still cleans up.
 Image decoding keeps the newer hardened IPC implementation. Thus this is the
 earlier capability set with mandatory later safety behavior, not byte-identical
 old application code and not a second installation of the newer feature release.
+The candidate has an independent source/artifact identity but shares the database
+driver, hardened decoder and substantial core implementation with the newer
+release. It cannot be claimed to fix regressions in all shared code; deployment
+requires evidence for the actual incident, not a generic rollback-safety promise.
 
 ## Security delta retained
 
