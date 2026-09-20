@@ -13,7 +13,7 @@ export function readDeletionConfig(environment: string, media: MediaConfig | und
     if (!before.isFile() || before.isSymbolicLink()) throw new Error();
     fd = openSync(env.DELETION_LEDGER_SECRET_FILE, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const file = fstatSync(fd);
-    if (!file.isFile() || file.nlink !== 1 || file.size < 1 || file.size > 4096 || (file.mode & 0o077) !== 0 ||
+    if (!file.isFile() || file.nlink !== 1 || file.size < 1 || file.size > 4096 || ![0o400, 0o600].includes(file.mode & 0o7777) ||
         ![0, process.getuid?.()].includes(file.uid) || before.dev !== file.dev || before.ino !== file.ino) throw new Error();
     const bytes = Buffer.alloc(4097);
     let length = 0, read = 0;

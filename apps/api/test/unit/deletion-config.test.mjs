@@ -35,7 +35,9 @@ test('malformed/oversized secrets, unsafe permissions, hardlinks and symlinks fa
   f.write(JSON.stringify(f.value).replace(/}$/, ',"environm\\u0065nt":"qa"}')); denied(() => readDeletionConfig('qa', f.media, f.env));
   f.write({ ...f.value, bucket: '"environment":"qa"' }); denied(() => readDeletionConfig('qa', f.media, f.env));
   f.write({ ...f.value, secretAccessKey: 'value with \\" quoted canonical "environment":"qa" text' }); denied(() => readDeletionConfig('qa', f.media, f.env));
-  f.write(f.value); chmodSync(f.path, 0o640); denied(() => readDeletionConfig('qa', f.media, f.env)); chmodSync(f.path, 0o600);
+  f.write(f.value);
+  for (const mode of [0o640, 0o500, 0o700, 0o4600]) { chmodSync(f.path, mode); denied(() => readDeletionConfig('qa', f.media, f.env)); }
+  for (const mode of [0o400, 0o600]) { chmodSync(f.path, mode); assert.equal(readDeletionConfig('qa', f.media, f.env).environment, 'qa'); }
   const symlink = join(f.directory, 'symlink'); symlinkSync(f.path, symlink);
   denied(() => readDeletionConfig('qa', f.media, { DELETION_LEDGER_SECRET_FILE: symlink }));
   const hardlink = join(f.directory, 'hardlink'); linkSync(f.path, hardlink);
