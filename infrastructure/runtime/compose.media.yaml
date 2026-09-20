@@ -1,0 +1,82 @@
+# Requires real media custody and the separately verified decoder image.
+services:
+  api:
+    environment:
+      MEDIA_ENABLED: "true"
+      MEDIA_SECRET_FILE: /run/secrets/media.json
+      MEDIA_SCRATCH_DIR: /run/media-scratch
+    tmpfs:
+      - /run/media-scratch:rw,noexec,nosuid,nodev,size=268435456,mode=0700,uid=10001,gid=10001
+    volumes:
+      - type: bind
+        source: /etc/rogichat/media.json
+        target: /run/secrets/media.json
+        read_only: true
+        bind:
+          create_host_path: false
+  worker:
+    environment:
+      MEDIA_ENABLED: "true"
+      MEDIA_SECRET_FILE: /run/secrets/media.json
+      MEDIA_SCRATCH_DIR: /run/media-scratch
+      MEDIA_DECODER_SOCKET: /run/decoder/image.sock
+    tmpfs:
+      - /run/media-scratch:rw,noexec,nosuid,nodev,size=268435456,mode=0700,uid=10001,gid=10001
+    volumes:
+      - type: bind
+        source: /etc/rogichat/media.json
+        target: /run/secrets/media.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: volume
+        source: decoder-socket
+        target: /run/decoder
+        read_only: true
+        volume:
+          nocopy: true
+  decoder:
+    image: ${ROGICHAT_DECODER_IMAGE:?Set the approved decoder image digest}
+    container_name: rogichat-qa-decoder
+    command: [dist/media-decoder-main.js]
+    restart: "no"
+    user: "10001:10001"
+    read_only: true
+    init: true
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    stop_signal: SIGTERM
+    stop_grace_period: 20s
+    environment:
+      DECODER_ISOLATED: "true"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=134217728,mode=0700,uid=10001,gid=10001
+    volumes:
+      - type: volume
+        source: decoder-socket
+        target: /run/decoder
+        volume:
+          nocopy: true
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test: [CMD, node, -e, "process.exit(require('node:fs').lstatSync('/run/decoder/image.sock').isSocket()?0:1)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  decoder-socket:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: size=1048576,uid=10001,gid=10001,mode=0700,nosuid,nodev,noexec

@@ -386,6 +386,7 @@ class RequestTests(unittest.TestCase):
 
     def test_failed_caddy_rollback_still_stops_both_roles(self):
         with patch.object(release, 'caddy_config', side_effect=release.Rejected()), \
+                patch.object(release, 'installed_compose', return_value=None), \
                 patch.object(release.Path, 'exists', return_value=True), \
                 patch.object(release, 'run') as run:
             with self.assertRaises(ValueError):

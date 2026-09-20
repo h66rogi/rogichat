@@ -1,0 +1,22 @@
+# Selected only by an explicitly approved release feature.
+services:
+  api:
+    environment:
+      PUSH_NATIVE_SECRET_FILE: /run/secrets/push-native.json
+    volumes:
+      - type: bind
+        source: /etc/rogichat/prod/push-native.json
+        target: /run/secrets/push-native.json
+        read_only: true
+        bind:
+          create_host_path: false
+  worker:
+    environment:
+      PUSH_NATIVE_SECRET_FILE: /run/secrets/push-native.json
+    volumes:
+      - type: bind
+        source: /etc/rogichat/prod/push-native.json
+        target: /run/secrets/push-native.json
+        read_only: true
+        bind:
+          create_host_path: false

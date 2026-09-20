@@ -1,0 +1,22 @@
+# Selected only by an explicitly approved release feature.
+services:
+  api:
+    environment:
+      DELETION_LEDGER_SECRET_FILE: /run/secrets/deletion-ledger.json
+    volumes:
+      - type: bind
+        source: /etc/rogichat/prod/deletion-ledger.json
+        target: /run/secrets/deletion-ledger.json
+        read_only: true
+        bind:
+          create_host_path: false
+  worker:
+    environment:
+      DELETION_LEDGER_SECRET_FILE: /run/secrets/deletion-ledger.json
+    volumes:
+      - type: bind
+        source: /etc/rogichat/prod/deletion-ledger.json
+        target: /run/secrets/deletion-ledger.json
+        read_only: true
+        bind:
+          create_host_path: false

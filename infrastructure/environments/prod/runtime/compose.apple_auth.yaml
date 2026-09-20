@@ -1,0 +1,29 @@
+# Selected only by an explicitly approved release feature.
+services:
+  api:
+    environment:
+      APPLE_AUTH_SECRET_FILE: /run/secrets/apple-auth.json
+    volumes:
+      - type: bind
+        source: /etc/rogichat/prod/apple-auth.json
+        target: /run/secrets/apple-auth.json
+        read_only: true
+        bind:
+          create_host_path: false
+  worker:
+    environment:
+      APPLE_AUTH_SECRET_FILE: /run/secrets/apple-auth.json
+      AUTH_SECRET_FILE: /run/secrets/auth.json
+    volumes:
+      - type: bind
+        source: /etc/rogichat/prod/apple-auth.json
+        target: /run/secrets/apple-auth.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/rogichat/prod/auth.json
+        target: /run/secrets/auth.json
+        read_only: true
+        bind:
+          create_host_path: false

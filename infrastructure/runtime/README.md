@@ -51,3 +51,60 @@ API/worker environment and read-only bind. Older reviewed Compose files without
 the variable retain their previous behavior. Native FCM/APNs custody is separate
 and its absence does not prevent Web Push activation. Deployment still requires
 operator-side provisioning, running image verification and real route checks.
+
+## Explicit optional runtime features
+
+The QA and production release requests may include `features`, a sorted unique
+list from `apple_auth`, `deletion`, `media`, `native_push`. Omission preserves the
+base runtime. Files on disk never enable a feature automatically. A selected
+feature must have real provisioned custody; absence rejects that release rather
+than inventing config or silently enabling only part of it. `deletion` requires
+`media`. No native push provider is required for Web Push.
+
+For each selected name, `artifacts.feature_NAME` pins the corresponding
+`compose.NAME.yaml` alongside that environment's base Compose. Only these
+approved overlays are rendered into the installed `compose.app.yaml` (JSON,
+which Compose accepts as YAML). The existing systemd template then runs the
+selected services, including the isolated `decoder` instance only for media.
+No new imported host helper is required. The automatic QA helper retains its
+existing base-template policy and does not accept these optional feature requests.
+
+| Feature | API and worker file/env | Additional boundary |
+| --- | --- | --- |
+| `native_push` | `push-native.json`, `PUSH_NATIVE_SECRET_FILE` | Existing parser requires at least one real APNs/FCM provider and its encryption key; no VAPID or native key changes are inferred. |
+| `media` | `media.json`, `MEDIA_SECRET_FILE`, `MEDIA_ENABLED=true` | Separate private 256 MiB `/run/media-scratch` tmpfs for each role; only worker gets `MEDIA_DECODER_SOCKET=/run/decoder/image.sock`. |
+| `deletion` | `deletion-ledger.json`, `DELETION_LEDGER_SECRET_FILE` | Exact runtime parser verifies a separate ledger bucket/credential pair against media; API auth must contain a distinct `identityGuardKey`. Actual retention and credential scope remain operator admission requirements. |
+| `apple_auth` | `apple-auth.json`, `APPLE_AUTH_SECRET_FILE` | Worker additionally receives the existing auth file at `AUTH_SECRET_FILE`; compiled auth parser requires `identityGuardKey`. Other releases never give API auth to worker. |
+
+Each feature file's host prefix is `/etc/rogichat` in QA or `/etc/rogichat/prod`
+in production; the mount prefix is `/run/secrets`. All feature files use UID
+10001, mode 0400, single-link regular files and trusted root-owned parents.
+Auth retains its existing root:10001 mode 0440 contract, base key and broker.
+Feature preflight runs only the selected parsers in the immutable runtime image,
+nonroot/read-only/network-none, with a timeout and exact-container cleanup.
+Neither decoder nor migrator receives provider, auth or VAPID secrets; decoder
+also never receives DB credentials.
+
+Media adds `decoder_image` pinned to
+`ghcr.io/h66rogi/rogichat-media-decoder@sha256:...`. Archive requests also require
+`decoder_config_id` and `decoder_execution_id` under `archive`, using the same
+explicit execution-identity mode as runtime/migration. Media admits only archive
+v2 with exactly three image roles; non-media admits legacy v1 and rejects decoder
+fields. Production QA evidence must repeat the exact `features` and
+`decoder_image` fields when present. Production remains schema verify-only.
+
+The decoder has network none, UID 10001, a read-only root filesystem, all
+capabilities dropped, no-new-privileges, 1 CPU, 512 MiB memory, 128 PIDs, private
+128 MiB `/tmp` tmpfs, and 20-second shutdown. Its only shared path is
+`/run/decoder`: a project-scoped `decoder-socket` local tmpfs volume (1 MiB,
+UID/GID 10001, mode 0700, noexec/nosuid/nodev), writable only in decoder and
+mounted read-only in worker. There is no shared media scratch directory. Release
+health verifies the volume's exact driver/options and role mounts/environment.
+Socket-stat health is noninterfering liveness only; actual image/video roundtrip
+commissioning in the decoder image gate must pass before artifact admission.
+
+Removing media stops and disables the old decoder systemd instance, verifies
+container ownership/stopped state, and removes that exact container without
+removing volumes. Recreating API/worker from the newly selected template removes
+unselected provider mounts. Failed activation keeps the Caddy fence and stops
+application roles; it never automatically restarts an incompatible old release.
