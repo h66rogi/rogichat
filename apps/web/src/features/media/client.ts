@@ -11,6 +11,8 @@ export interface MediaClientOptions {
   readonly csrf: () => string;
   readonly lifetime: MediaLifetime;
   readonly transport?: typeof fetch;
+  readonly verifySession?: (signal: AbortSignal) => Promise<void>;
+  readonly onUnauthorized?: () => void;
 }
 export interface ImageLease { readonly blob: Blob; readonly expiresAt: number }
 export class MediaClient {
@@ -19,6 +21,8 @@ export class MediaClient {
   private readonly origins: ReadonlySet<string>;
   private readonly csrf: () => string;
   private readonly transport: typeof fetch;
+  private readonly verifySession: MediaClientOptions['verifySession'];
+  private readonly onUnauthorized: MediaClientOptions['onUnauthorized'];
   constructor(options: MediaClientOptions) {
     if (!['https://api.qa.rogi.chat', 'https://api.rogi.chat'].includes(options.apiOrigin)) throw new MediaError('INVALID_ORIGIN');
     this.origin = options.apiOrigin;
@@ -28,6 +32,7 @@ export class MediaClient {
       return value;
     }));
     this.csrf = options.csrf; this.lifetime = options.lifetime;
+    this.verifySession = options.verifySession; this.onUnauthorized = options.onUnauthorized;
     const transport = options.transport ?? fetch;
     this.transport = (input, init) => transport(input, init);
   }
@@ -52,7 +57,10 @@ export class MediaClient {
     let value: unknown;
     try {
       current(this.lifetime); requestSignal.throwIfAborted();
-      if (response.status !== expectedStatus) throw new MediaError('REQUEST_FAILED', response.status);
+      if (response.status !== expectedStatus) {
+        if (response.status === 401) this.onUnauthorized?.();
+        throw new MediaError('REQUEST_FAILED', response.status);
+      }
       if (!reader || response.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new MediaError('INVALID_RESPONSE');
       const declared = response.headers.get('content-length');
       if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_METADATA_BYTES)) throw new MediaError('INVALID_RESPONSE');
@@ -75,6 +83,8 @@ export class MediaClient {
       await reader?.cancel().catch(() => {});
       reader?.releaseLock();
     }
+    current(this.lifetime); requestSignal.throwIfAborted();
+    await this.verifySession?.(requestSignal);
     current(this.lifetime); requestSignal.throwIfAborted();
     return value;
   }
@@ -128,6 +138,8 @@ export class MediaClient {
         chunks.push(new Uint8Array(part.value));
       }
       if (!size) throw new MediaError('INVALID_RESPONSE');
+      await this.verifySession?.(transferSignal);
+      current(this.lifetime); transferSignal.throwIfAborted();
       return { blob: new Blob(chunks, { type }), expiresAt };
     } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
   }

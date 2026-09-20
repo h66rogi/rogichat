@@ -4,6 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { WifiOff } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { useMediaScope } from '@/features/media/session-ui';
+import { PhotoDraftComposer } from './ChatMedia';
 import { cn } from '@/shared/lib/cn';
 
 import { ChatComposer } from './ChatComposer';
@@ -100,6 +103,8 @@ function ScopedChatRoom({
   connectionNotice,
   className,
 }: ChatRoomViewProps) {
+  const media = useMediaScope();
+  const [photoTargets, setPhotoTargets] = useState<Record<string, ChatComposerTarget>>({});
   const permittedFans = useMemo(() => fanRecipients ?? (fanRecipient ? [fanRecipient] : EMPTY_RECIPIENTS), [fanRecipients, fanRecipient]);
   const authorization = useMemo(
     () => ({ viewerRole, fanRecipient, fanRecipients: permittedFans, streamerRecipients }),
@@ -347,6 +352,17 @@ function ScopedChatRoom({
         announcement={announcement}
         disabled={onSubmit === undefined}
       />
+      {onSubmit && <div className="border-t border-line px-3 py-2">
+        <Button type="button" variant="outline" disabled={!target || !media?.configured} onClick={() => {
+          if (target) { commitTarget(); setPhotoTargets(previous => ({ ...previous, [draftKeyFor(target)]: target })); }
+        }}>사진 첨부</Button>
+        {!media?.configured && <p className="text-sm text-muted">지금은 사진 첨부를 사용할 수 없습니다.</p>}
+      </div>}
+      {onSubmit && Object.entries(photoTargets).filter(([, value]) => isAuthorizedTarget(value, authorization)).map(([key, value]) => <div key={key} hidden={key !== currentKey} className="max-h-96 overflow-y-auto">
+        <PhotoDraftComposer target={value} onSubmit={onSubmit} onClose={() => setPhotoTargets(previous => {
+          const next = { ...previous }; delete next[key]; return next;
+        })} />
+      </div>)}
     </section>
   );
 }

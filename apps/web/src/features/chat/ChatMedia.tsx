@@ -1,0 +1,57 @@
+'use client';
+
+import { useRef, useState, useSyncExternalStore } from 'react';
+import { Button } from '@/shared/ui/button';
+import { MediaUploadPanel } from '@/features/media/components';
+import { ScopedMediaImage, useMediaRoomId, useMediaUpload } from '@/features/media/session-ui';
+import type { MediaUpload } from '@/features/media/upload';
+import { targetLabel } from './drafts';
+import type { ChatComposerSubmission, ChatComposerTarget, ChatImageContent, ChatSubmitResult } from './types';
+
+export function ChatMediaImages({ messageId, media }: { messageId: string; media: ChatImageContent }) {
+  const roomId = useMediaRoomId();
+  if (!roomId) return <p>지금은 이미지를 표시할 수 없습니다.</p>;
+  return <div className="space-y-2">{media.assets.map((asset, index) => <ScopedMediaImage key={asset.assetId} assetId={asset.assetId}
+    context={{ variant: 'image', roomId, messageId, ...(media.stickerId ? { stickerId: media.stickerId } : {}) }}
+    alt={media.type === 'STICKER' ? '대화 스티커' : `대화 사진 ${index + 1}`} />)}</div>;
+}
+
+/** Each visited target keeps its own upload. The room/session epoch owns all of them. */
+export function PhotoDraftComposer(props: { target: ChatComposerTarget; onSubmit: (submission: ChatComposerSubmission) => Promise<ChatSubmitResult> | ChatSubmitResult; onClose: () => void }) {
+  const upload = useMediaUpload(); const roomId = useMediaRoomId();
+  if (!upload || !roomId) return <p role="status">지금은 사진을 보낼 수 없습니다.</p>;
+  return <PhotoDraft upload={upload} roomId={roomId} {...props} />;
+}
+function PhotoDraft({ upload, roomId, target, onSubmit, onClose }: { upload: MediaUpload; roomId: string; target: ChatComposerTarget; onSubmit: (submission: ChatComposerSubmission) => Promise<ChatSubmitResult> | ChatSubmitResult; onClose: () => void }) {
+  const state = useSyncExternalStore(upload.subscribe, upload.getSnapshot, upload.getSnapshot);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false); const pending = useRef(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const ready = selected && state.phase === 'ready' && state.receipt?.assetId === selected;
+  const send = async () => {
+    if (!ready || pending.current) return;
+    pending.current = true; setBusy(true); setError(''); setNotice('');
+    try {
+      const result = await onSubmit({ target, body: '', photo: upload });
+      if (!upload.lifetime.isCurrent()) return;
+      if (result.accepted) {
+        upload.clear(); setSelected(null);
+        if (result.note) setNotice(result.note);
+        else onClose();
+      }
+      else setError(result.reason);
+    } catch { setError('사진 전송을 확인하지 못했습니다. 같은 사진으로 다시 확인해 주세요.'); }
+    finally { pending.current = false; setBusy(false); }
+  };
+  return <section aria-label={`사진 보내기: ${targetLabel(target)}`} className="space-y-3 border-t border-line p-4">
+    <p className="font-semibold">사진 · {targetLabel(target)}</p>
+    <p className="text-sm">사진은 글과 별도로 보냅니다. 사진이 준비된 뒤 전송을 눌러 주세요.</p>
+    <fieldset disabled={busy}><MediaUploadPanel upload={upload} lifetime={upload.lifetime} kind="PHOTO" roomId={roomId} onReady={setSelected} /></fieldset>
+    {ready && <ScopedMediaImage assetId={selected} context={{ variant: 'image' }} alt="보낼 사진 미리보기" />}
+    {error && <p role="alert">{error}</p>}
+    {notice && <p role="status">{notice}</p>}
+    <div className="flex gap-3"><Button disabled={!ready || busy} onClick={() => void send()}>{busy ? '사진 보내는 중' : '사진 보내기'}</Button>
+      <Button variant="outline" disabled={busy} onClick={onClose}>사진 첨부 닫기</Button></div>
+  </section>;
+}

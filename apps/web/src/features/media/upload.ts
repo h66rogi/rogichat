@@ -1,5 +1,5 @@
 import { current, MediaError, uploadInput } from './contracts';
-import type { ImageKind, Receipt } from './contracts';
+import type { ImageKind, Receipt, UploadInput } from './contracts';
 import type { MediaClient } from './client';
 
 export type UploadState = Readonly<{
@@ -23,6 +23,7 @@ export class MediaUpload {
   private operation: AbortController | undefined;
   private generation = 0;
   private busy = false;
+  private intent: UploadInput | undefined;
   private readonly client: MediaClient;
   private readonly interval: number;
   private readonly attempts: number;
@@ -35,7 +36,7 @@ export class MediaUpload {
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private set(state: UploadState): void { this.state = Object.freeze(state); this.listeners.forEach(listener => listener()); }
   clear = (): void => {
-    ++this.generation; this.operation?.abort(); this.operation = undefined; this.busy = false; this.set(empty);
+    ++this.generation; this.operation?.abort(); this.operation = undefined; this.busy = false; this.intent = undefined; this.set(empty);
   };
   dispose = (): void => { this.clear(); this.client.lifetime.signal.removeEventListener('abort', this.clear); this.listeners.clear(); };
   private active(generation: number, signal: AbortSignal): void {
@@ -58,7 +59,7 @@ export class MediaUpload {
   async start(kind: ImageKind, file: Blob, roomId?: string): Promise<void> {
     current(this.client.lifetime);
     if (this.busy || this.state.phase !== 'empty') throw new MediaError('EXPLICIT_CLEAR_REQUIRED');
-    uploadInput(kind, file, roomId);
+    this.intent = uploadInput(kind, file, roomId);
     const generation = ++this.generation;
     this.operation = new AbortController();
     const signal = AbortSignal.any([this.operation.signal, this.client.lifetime.signal]);
@@ -95,8 +96,9 @@ export class MediaUpload {
         ? { phase: 'failed' } : { phase: 'uncertain', ...(this.state.receipt ? { receipt: this.state.receipt } : {}) });
     } finally { if (generation === this.generation) this.busy = false; }
   }
-  readyAsset(): string {
+  readyAsset(kind?: ImageKind, roomId?: string): string {
     current(this.client.lifetime);
+    if (kind && (this.intent?.kind !== kind || this.intent.roomId !== roomId)) throw new MediaError('INVALID_CONTEXT');
     if (this.state.phase !== 'ready' || this.state.receipt?.status !== 'ready') throw new MediaError('NOT_READY');
     return this.state.receipt.assetId;
   }

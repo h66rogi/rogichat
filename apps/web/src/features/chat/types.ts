@@ -6,7 +6,9 @@
  * items and their own PRIVATE conversation; that projection happens before this layer.
  */
 
+import type { MediaUpload } from '../media/upload';
 export type ChatScope = 'SHARED' | 'PRIVATE';
+export interface ChatImageContent { type: 'PHOTO' | 'STICKER'; assets: readonly { assetId: string; width: number; height: number }[]; stickerId?: string }
 
 export type ChatViewerRole = 'FAN' | 'STREAMER';
 
@@ -43,6 +45,7 @@ export interface ChatMessageItemModel {
   recipient?: ChatActorRef;
   isOwn: boolean;
   body: string;
+  media?: ChatImageContent;
   /** ISO 8601 timestamp. */
   createdAt: string;
   status: ChatMessageStatus;
@@ -59,6 +62,7 @@ export interface ChatPublicationItemModel {
   kind: 'publication';
   id: string;
   body: string;
+  media?: ChatImageContent;
   createdAt: string;
 }
 
@@ -78,6 +82,8 @@ export interface ChatComposerSubmission {
   target: ChatComposerTarget;
   body: string;
   quoteMessageId?: string;
+  /** Actual READY upload owned by this draft, never a caller-invented asset ID. */
+  photo?: MediaUpload;
 }
 
 /** Returned by the controller `onSubmit`. On `accepted: false` the composer keeps the draft. */

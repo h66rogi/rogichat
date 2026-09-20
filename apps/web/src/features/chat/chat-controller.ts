@@ -2,6 +2,7 @@ import { reactionSummary, type ReactionState } from './reactions';
 import { actor, cursor, envelope, list, membership, mergeMessages, message, projectMessages, record, string } from './contract';
 import type { ChatRequest, RoomMembership, ServerMessage } from './contract';
 import type { ChatActorRef, ChatComposerSubmission, ChatSubmitResult, ChatTimelineItem } from './types';
+import type { MediaLifetime } from '../media/contracts';
 
 export interface ChatState {
   reactions: Record<string, ReactionState>; reactionRevision: number;
@@ -41,6 +42,10 @@ export class ChatController {
     this.roomId = roomId; this.request = request; this.onInvalidate = onInvalidate; this.csrfToken = csrfToken;
   }
   getSnapshot = (): ChatState => this.state;
+  mediaLifetime = (epoch = this.state.epoch): MediaLifetime => {
+    const signal = this.abort.signal;
+    return { signal, isCurrent: () => !this.dead && !signal.aborted && epoch === this.state.epoch && this.state.phase === 'ready' };
+  };
   subscribe = (listener: () => void): (() => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private publish(patch: Partial<ChatState>) {
     if (this.dead) return;
@@ -284,16 +289,22 @@ export class ChatController {
     const recipient = target.scope === 'PRIVATE' ? this.state.recipients.find(p => p.actorId === target.recipient.actorId && p.actorId !== room.actorId) : null;
     if (target.scope === 'SHARED' ? room.role !== 'STREAMER' : !recipient) return { accepted: false, reason: '이 대상에게 메시지를 보낼 수 없습니다.' };
     const text = submission.body.normalize('NFC');
-    if (!text.trim() || [...text].length > 4000 || new TextEncoder().encode(text).length > 16384 || text.includes('\0')) return { accepted: false, reason: '메시지는 4,000자 이내로 입력해 주세요.' };
+    let photoAsset: string | undefined;
+    if (submission.photo) {
+      try {
+        if (text || submission.quoteMessageId) throw new Error('PHOTO_ONLY');
+        photoAsset = submission.photo.readyAsset('PHOTO', this.roomId);
+      } catch { return { accepted: false, reason: '준비가 완료된 사진만 따로 보낼 수 있습니다.' }; }
+    } else if (!text.trim() || [...text].length > 4000 || new TextEncoder().encode(text).length > 16384 || text.includes('\0')) return { accepted: false, reason: '메시지는 4,000자 이내로 입력해 주세요.' };
     // Only a server-visible source may be quoted. Cross-private recipient quotes are
     // unavailable because the current DTO deliberately omits its recipient/stream ID.
     const quote = submission.quoteMessageId ? this.messages.find(m => m.id === submission.quoteMessageId) : null;
     if (submission.quoteMessageId && (!quote || (quote.audience === 'PRIVATE' && (quote.author.kind !== 'member' || quote.author.actorId !== recipient?.actorId)))) return { accepted: false, reason: '이 대화에서 인용할 수 없는 메시지입니다.' };
-    const body = { intent: target.scope, ...(recipient ? { recipientActorId: recipient.actorId } : {}), ...(quote ? { quoteId: quote.id } : {}), content: { type: 'TEXT', text } };
+    const body = { intent: target.scope, ...(recipient ? { recipientActorId: recipient.actorId } : {}), ...(quote ? { quoteId: quote.id } : {}), content: photoAsset ? { type: 'PHOTO', assetIds: [photoAsset] } : { type: 'TEXT', text } };
     const fingerprint = JSON.stringify(body);
     const clientMessageId = this.attempts.get(fingerprint) ?? crypto.randomUUID();
     this.attempts.set(fingerprint, clientMessageId);
-    const signal = this.abort.signal; this.sending = true;
+    const signal = submission.photo ? AbortSignal.any([this.abort.signal, submission.photo.lifetime.signal]) : this.abort.signal; this.sending = true;
     try {
       const ack = record(await this.request(this.path('messages'), { method: 'POST', body: { ...body, clientMessageId }, signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
       if (signal.aborted || this.dead) return { accepted: false, reason: '접근 권한이 변경되어 전송 결과를 다시 확인해야 합니다.' };

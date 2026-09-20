@@ -1,11 +1,12 @@
 import type { ChatActorRef, ChatTimelineItem } from './types';
+import { uuid } from '../media/contracts';
 
 export type ChatRequest = (path: string, options?: { method?: 'POST' | 'PUT' | 'DELETE'; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
 export interface RoomMembership { roomId: string; name: string; actorId: string; role: 'FAN' | 'STREAMER'; mode: 'FAN' }
 export interface ServerMessage {
   id: string; version: string; createdAt: string; audience: 'SHARED' | 'PRIVATE';
   author: { kind: 'anonymous' } | { kind: 'member'; actorId: string; nickname: string };
-  content: { type: string; text?: string | null };
+  content: { type: string; text?: string | null; attachments?: { assetId: string; width: number; height: number; variant: 'image' }[]; stickerId?: string; assetId?: string; width?: number; height?: number };
   quote: { id: string; content: { type: 'TEXT'; text: string } } | null;
 }
 export function record(value: unknown): Record<string, unknown> {
@@ -44,6 +45,18 @@ export function message(value: unknown): ServerMessage {
   if (author.kind !== 'anonymous' && author.kind !== 'member') throw new Error('INVALID_RESPONSE');
   if (author.kind === 'anonymous' && data.audience !== 'SHARED') throw new Error('INVALID_RESPONSE');
   if (content.type === 'TEXT' && content.text !== null && typeof content.text !== 'string') throw new Error('INVALID_RESPONSE');
+  let imageContent: ServerMessage['content'] | undefined;
+  const dimension = (value: unknown) => { if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > 32768) throw new Error('INVALID_RESPONSE'); return Number(value); };
+  if (content.type === 'PHOTO') {
+    const attachments = list(content.attachments);
+    if (attachments.length > 4) throw new Error('INVALID_RESPONSE');
+    imageContent = { type: 'PHOTO', attachments: attachments.map(value => {
+      const image = record(value);
+      if (image.variant !== 'image') throw new Error('INVALID_RESPONSE');
+      return { assetId: uuid(image.assetId), width: dimension(image.width), height: dimension(image.height), variant: 'image' };
+    }) };
+    if (new Set(imageContent.attachments!.map(item => item.assetId)).size !== attachments.length) throw new Error('INVALID_RESPONSE');
+  } else if (content.type === 'STICKER') imageContent = { type: 'STICKER', stickerId: uuid(content.stickerId), assetId: uuid(content.assetId), width: dimension(content.width), height: dimension(content.height) };
   let quote: ServerMessage['quote'] = null;
   if (data.quote !== null) {
     const source = record(data.quote); const quoted = record(source.content);
@@ -52,15 +65,18 @@ export function message(value: unknown): ServerMessage {
   }
   return { id, version, createdAt, audience: data.audience as 'SHARED' | 'PRIVATE',
     author: author.kind === 'anonymous' ? { kind: 'anonymous' } : { kind: 'member', actorId: string(author.actorId), nickname: string(author.nickname) },
-    content: content.type === 'TEXT' ? { type: 'TEXT', text: content.text as string | null } : { type: string(content.type) }, quote };
+    content: imageContent ?? (content.type === 'TEXT' ? { type: 'TEXT', text: content.text as string | null } : { type: string(content.type) }), quote };
 }
 /** Only server-authorized DTOs enter this projection; missing identities are never guessed. */
 export function projectMessages(messages: readonly ServerMessage[], viewerId: string, profiles: readonly ChatActorRef[]): ChatTimelineItem[] {
   return messages.map((item): ChatTimelineItem => {
-    if (item.content.type !== 'TEXT' || item.content.text === null || item.content.text === undefined) return { kind: 'unsupported', id: item.id, scope: item.audience, createdAt: item.createdAt };
-    if (item.author.kind === 'anonymous') return { kind: 'publication', id: item.id, body: item.content.text, createdAt: item.createdAt };
+    const media = item.content.type === 'PHOTO' && item.content.attachments?.length ? { type: 'PHOTO' as const, assets: item.content.attachments }
+      : item.content.type === 'STICKER' && item.content.assetId && item.content.stickerId ? { type: 'STICKER' as const, assets: [{ assetId: item.content.assetId, width: item.content.width!, height: item.content.height! }], stickerId: item.content.stickerId } : undefined;
+    if (!media && (item.content.type !== 'TEXT' || item.content.text === null || item.content.text === undefined)) return { kind: 'unsupported', id: item.id, scope: item.audience, createdAt: item.createdAt };
+    const body = media ? '' : item.content.text!;
+    if (item.author.kind === 'anonymous') return { kind: 'publication', id: item.id, body, createdAt: item.createdAt, ...(media ? { media } : {}) };
     const author = item.author;
-    return { kind: 'message', id: item.id, scope: item.audience, createdAt: item.createdAt, body: item.content.text,
+    return { kind: 'message', id: item.id, scope: item.audience, createdAt: item.createdAt, body, ...(media ? { media } : {}),
       author: { actorId: author.actorId, displayName: author.nickname, avatarUrl: null, role: profiles.find(p => p.actorId === author.actorId)?.role },
       isOwn: author.actorId === viewerId, status: 'saved',
       ...(item.quote ? { quote: { messageId: item.quote.id, authorName: '인용 메시지', excerpt: item.quote.content.text } } : {}) };

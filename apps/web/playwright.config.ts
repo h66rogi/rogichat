@@ -30,6 +30,8 @@ export default defineConfig({
             ROGICHAT_API_ORIGIN: 'https://api.qa.rogi.chat',
             // Test-only room is served by browser interception, never built into the app.
             ROGICHAT_DEFAULT_ROOM_ID: '11111111-1111-4111-8111-111111111111',
+            // Only this isolated test server trusts the intercepted synthetic signer.
+            ROGICHAT_MEDIA_STORAGE_ORIGINS: '["https://media.test.invalid"]',
           },
           reuseExistingServer: false,
           timeout: 30_000,

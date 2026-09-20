@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { SessionMediaProvider } from '@/features/media/session-ui';
 import { io } from 'socket.io-client';
 import { Button } from '@/shared/ui/button';
 import { ReactionContext } from './ReactionControl';
@@ -54,11 +55,12 @@ function ScopedRealChatRoom({ roomId, apiOrigin, csrfToken, request, onInvalidat
     };
   }, [roomId, apiOrigin, csrfToken, request, onInvalidate]);
   if (!controller) return <p className="p-6 text-muted" role="status">채팅을 불러오는 중입니다.</p>;
-  return <LiveRoom controller={controller} connected={connected} />;
+  return <LiveRoom controller={controller} connected={connected} csrf={csrfToken} roomId={roomId} />;
 }
 
-function LiveRoom({ controller, connected }: { controller: ChatController; connected: boolean }) {
+function LiveRoom({ controller, connected, csrf, roomId }: { controller: ChatController; connected: boolean; csrf: string; roomId: string }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
+  const lifetime = useMemo(() => controller.mediaLifetime(state.epoch), [controller, state.epoch]);
   if (state.phase === 'loading') return <p className="p-6 text-muted" role="status">채팅을 불러오는 중입니다.</p>;
   if (state.phase === 'error' || !state.room) return (
     <section className="flex flex-col items-start gap-4 p-6" aria-label="채팅 연결">
@@ -70,7 +72,7 @@ function LiveRoom({ controller, connected }: { controller: ChatController; conne
   const viewer = state.profiles.find(profile => profile.actorId === room.actorId);
   if (!viewer) return <p className="p-6" role="alert">내 참여 정보를 확인하지 못했습니다. 다시 접속해 주세요.</p>;
   const recipients = state.recipients;
-  return <ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
+  return <SessionMediaProvider key={state.epoch} csrf={csrf} lifetime={lifetime} roomId={roomId}><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
     fanRecipients={recipients}
@@ -78,5 +80,5 @@ function LiveRoom({ controller, connected }: { controller: ChatController; conne
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}
     onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} isLoadingOlder={state.loadingOlder}
     connectionNotice={connected ? undefined : '실시간 연결을 다시 시도하고 있습니다. 메시지는 주기적으로 확인합니다.'}
-  /></ReactionContext.Provider>;
+  /></ReactionContext.Provider></SessionMediaProvider>;
 }
