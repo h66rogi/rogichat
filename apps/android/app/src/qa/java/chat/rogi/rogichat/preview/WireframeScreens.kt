@@ -22,9 +22,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import chat.rogi.rogichat.core.design.WireCard
+import chat.rogi.rogichat.core.design.ScreenStatus
 
 @Composable
-fun LinkWireframe(onPreview: () -> Unit) {
+fun LinkWireframe(onPreview: () -> Unit, onSinglePreview: () -> Unit) {
     WireCard("대화를 시작하기 전") {
         Text("1. 로기챗 계정으로 로그인")
         Text("2. 본인의 SOOP 계정 연결")
@@ -33,6 +34,7 @@ fun LinkWireframe(onPreview: () -> Unit) {
     Text("Apple 로그인만으로는 대화방을 이용할 수 없어요. SOOP 연결을 완료해야 해요.")
     OutlinedButton(onClick = {}, enabled = false) { Text("SOOP 계정 연결 · 준비 중") }
     Button(onClick = onPreview) { Text("연결 이후 화면 미리보기") }
+    OutlinedButton(onClick = onSinglePreview) { Text("방 1개 계정 화면 미리보기") }
     Text("계정이 연결되거나 생성되지 않아요.", style = MaterialTheme.typography.bodySmall)
 }
 
@@ -46,19 +48,17 @@ fun RoomsWireframe(state: WireframeState, onScenario: (ListScenario) -> Unit, on
         }
     }
     when (state.scenario) {
-        ListScenario.CONTENT -> WireframeFixtures.rooms.forEach { room ->
+        ListScenario.CONTENT -> state.visibleRooms.forEach { room ->
             WireCard(room.title) {
                 Text(room.summary)
                 Text("샘플 대화방", style = MaterialTheme.typography.labelSmall)
                 Button(onClick = { onRoom(room.id) }) { Text("대화 보기") }
             }
         }
-        ListScenario.LOADING -> WireCard("대화방을 불러오는 중") { Text("목록과 참여 정보를 확인하는 자리예요. 위 ‘목록’으로 돌아갈 수 있어요.") }
-        ListScenario.EMPTY -> WireCard("아직 참여한 대화방이 없어요") { Text("참여 조건이 확인되면 이곳에 대화방이 표시돼요.") }
-        ListScenario.ERROR -> WireCard("목록을 불러오지 못했어요") {
-            Text("연결 오류 화면 예시예요.")
-            OutlinedButton(onClick = { onScenario(ListScenario.CONTENT) }) { Text("다시 시도 화면 미리보기") }
-        }
+        ListScenario.LOADING -> ScreenStatus("대화방을 불러오는 중", "위 목록 상태를 바꾸면 다른 화면을 볼 수 있어요.", loading = true)
+        ListScenario.EMPTY -> ScreenStatus("아직 참여한 대화방이 없어요", "참여 조건이 확인되면 이곳에 대화방이 표시돼요.")
+        ListScenario.ERROR -> ScreenStatus("목록을 불러오지 못했어요", "연결 오류 화면 예시예요.",
+            onRetry = { onScenario(ListScenario.CONTENT) })
     }
 }
 
@@ -96,17 +96,6 @@ fun ChatWireframe(state: WireframeState, onAudience: (PreviewAudience) -> Unit, 
         Text("첨부·반응·공개 전환은 추후 연결돼요. 실제 메시지가 전송되지 않아요.", style = MaterialTheme.typography.bodySmall)
     }
     TextButton(onClick = onReport) { Text("신고 및 차단 안내") }
-}
-
-@Composable
-fun SettingsWireframe(onOpen: (PreviewPage) -> Unit) {
-    WireCard("샘플 계정") {
-        Text("SOOP 연결 정보가 표시될 자리예요.")
-        OutlinedButton(onClick = { onOpen(PreviewPage.PROFILE) }) { Text("내 프로필") }
-        OutlinedButton(onClick = { onOpen(PreviewPage.ACCOUNT) }) { Text("계정 관리") }
-    }
-    WireCard("알림") { Text("푸시 알림 연동 준비 중 · 시스템 권한을 요청하지 않아요.") }
-    WireCard("로기챗 정보") { Text("이용약관 · 개인정보 처리방침 · 문의 경로 준비 중") }
 }
 
 @Composable
