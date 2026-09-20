@@ -48,6 +48,59 @@ class GuardTests(unittest.TestCase):
     def fake_token(self):
         return "gh" + "p_" + hashlib.sha256(b"rogichat synthetic detector fixture").hexdigest()[:36]
 
+    def installation_token(self, length, structured=False):
+        # Construct only disposable synthetic strings; no token-shaped source literal.
+        prefix = "gh" + "s_"
+        body = ("123456_" + "eyJ" + "hbGciOiJIUzI1NiJ9." if structured else "")
+        alphabet = "aB3dE6gH9jK2mN5pQ8sT1vW4yZ7" + ("._-" if structured else "")
+        return prefix + (body + alphabet * length)[:length - len(prefix)]
+
+    def assert_installation_blocked(self, token, mode="staged"):
+        result = self.check(mode)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("secret", result.stdout + result.stderr)
+        self.assertNotIn(token, result.stdout + result.stderr)
+        self.assertNotIn("Traceback", result.stdout + result.stderr)
+
+    def test_installation_token_formats_in_exact_staged_blob(self):
+        for length in (40, 390, 520, 1024, 4096):
+            for structured in (False, True):
+                for assignment in (False, True):
+                    with self.subTest(length=length, structured=structured, assignment=assignment):
+                        token = self.installation_token(length, structured)
+                        self.stage_file("settings.txt", ("token=" if assignment else "") + token + "\n")
+                        (self.repo / "settings.txt").write_text("clean worktree\n")
+                        self.assert_installation_blocked(token)
+
+    def test_installation_token_short_template_and_boundary(self):
+        for value in ("gh" + "s_APPID_JWT", "gh" + "s_" + "a" * 35):
+            self.stage_file("template.txt", value)
+            self.assertEqual(self.check().returncode, 0)
+        token = "gh" + "s_" + "a" * 36
+        self.stage_file("template.txt", token)
+        self.assert_installation_blocked(token)
+
+    def test_installation_token_deleted_history(self):
+        token = self.installation_token(520, True)
+        self.stage_file("settings.txt", token)
+        self.commit()
+        self.git("rm", "settings.txt")
+        self.commit()
+        self.assertEqual(self.check().returncode, 0)
+        self.assert_installation_blocked(token, "all")
+
+    def test_installation_token_commit_metadata(self):
+        token = self.installation_token(4096, True)
+        self.git("-c", "user.name=Guard Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false",
+                 "commit", "--allow-empty", "-qm", token)
+        self.assert_installation_blocked(token, "all")
+
+    def test_installation_token_filename_without_echo(self):
+        # A filesystem component cannot contain a 390-character token; use legacy length.
+        token = self.installation_token(40)
+        self.stage_file(token + ".txt", "public content")
+        self.assert_installation_blocked(token)
+
     def test_clean_repository_passes(self):
         self.assertEqual(self.check("all").returncode, 0)
 
@@ -243,6 +296,40 @@ class GuardTests(unittest.TestCase):
         oid = self.git("hash-object", "-w", str(payload)).stdout.decode().strip()
         self.git("-c", "tag.gpgsign=false", "tag", "blob-fixture", oid)
         self.assert_blocked("all")
+
+    def test_tag_chain_and_tree_targets_are_scanned(self):
+        # Exercise clean tag-of-tag traversal before making only its target dirty.
+        self.git("-c", "user.name=Guard Test", "-c", "user.email=test@example.invalid",
+                 "-c", "tag.gpgsign=false", "tag", "-a", "inner", "-m", "fixture")
+        self.git("-c", "user.name=Guard Test", "-c", "user.email=test@example.invalid",
+                 "-c", "tag.gpgsign=false", "tag", "-a", "outer", "inner", "-m", "fixture")
+        self.assertEqual(self.check("all").returncode, 0)
+        self.stage_file("payload.txt", self.fake_token())
+        tree = self.git("write-tree").stdout.decode().strip()
+        self.git("-c", "tag.gpgsign=false", "tag", "tree-fixture", tree)
+        self.git("rm", "--cached", "payload.txt")
+        self.assertEqual(self.check().returncode, 0)
+        self.assert_blocked("all")
+
+    def test_refname_secret_is_scanned(self):
+        self.git("branch", self.fake_token())
+        self.assert_blocked("all")
+
+    def test_shared_blob_does_not_exempt_forbidden_historical_path(self):
+        self.stage_file("allowed.txt", "same bytes")
+        self.stage_file(".env", "same bytes")
+        self.commit()
+        self.git("rm", ".env")
+        self.commit()
+        self.assertEqual(self.check().returncode, 0)
+        self.assert_blocked("all")
+
+    def test_scanner_failure_and_wrong_version_fail_closed(self):
+        scanner = self.repo / ".tools/gitleaks"
+        scanner.write_text('#!/bin/sh\nif [ "$1" = version ]; then echo 8.30.1; else exit 2; fi\n')
+        self.assert_blocked()
+        scanner.write_text('#!/bin/sh\necho 0.0.0\n')
+        self.assert_blocked()
 
     def test_secret_in_commit_metadata_blocks_push(self):
         self.git("-c", "user.name=Guard Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false",

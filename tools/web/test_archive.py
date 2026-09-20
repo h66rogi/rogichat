@@ -92,14 +92,14 @@ class WebArchiveTests(unittest.TestCase):
                         'artifact_id': 200, 'artifact_sha256': 'sha256:' + 'c' * 64}
             run = {'head_sha': producer['sha'], 'head_branch': 'qa', 'event': 'workflow_dispatch',
                    'status': 'completed', 'conclusion': 'success', 'repository': {'full_name': archive.core.REPOSITORY},
-                   'head_repository': {'full_name': archive.core.REPOSITORY}, 'path': '.github/workflows/web-export.yml', 'run_attempt': 2}
+                   'head_repository': {'full_name': archive.core.REPOSITORY}, 'path': '.github/workflows/web-export.yml', 'run_attempt': 2, 'id': 100}
             artifact = {'expired': False, 'digest': approval['artifact_sha256'],
                         'workflow_run': {'id': 100, 'head_sha': producer['sha']},
                         'name': f"web-{descriptor['source_sha']}-100-2"}
             compare = {'status': 'ahead', 'merge_base_commit': {'sha': descriptor['source_sha']}}
             with patch.object(archive.core, 'api', side_effect=[run, artifact, compare]), patch.object(archive.core, 'verify_source') as verify, patch.object(archive, 'verify_publication_proof'):
                 archive.verify_provenance(descriptor, approval, publication_proof=zipped_proof({}))
-                verify.assert_called_once()
+                verify.assert_not_called()
             wrong = {**run, 'path': '.github/workflows/backend-export.yml'}
             with patch.object(archive.core, 'api', return_value=wrong):
                 with self.assertRaises(ValueError):
@@ -117,9 +117,9 @@ class PublicationProofTests(unittest.TestCase):
         run = {'head_sha': source, 'head_branch': 'qa', 'event': 'push', 'status': 'completed',
                'conclusion': 'success', 'repository': {'full_name': archive.core.REPOSITORY},
                'head_repository': {'full_name': archive.core.REPOSITORY},
-               'path': '.github/workflows/web-publish.yml', 'run_attempt': 1,
+               'path': '.github/workflows/web-publish.yml', 'run_attempt': 1, 'id': publication_id,
                'run_started_at': '2026-09-20T01:00:00Z'}
-        export = {**run, 'head_sha': descriptor['producer']['sha'], 'event': 'workflow_dispatch',
+        export = {**run, 'id': 100, 'head_sha': descriptor['producer']['sha'], 'event': 'workflow_dispatch',
                   'path': '.github/workflows/web-export.yml', 'run_attempt': 2,
                   'run_started_at': '2026-09-20T02:00:00Z'}
         artifact = {'id': 300, 'name': f'web-publication-proof-{source}-1', 'expired': False,
@@ -130,7 +130,7 @@ class PublicationProofTests(unittest.TestCase):
                  'image': image['image'], 'checkedImageId': image['config_id'], 'platform': 'linux/amd64',
                  'publicationAttempt': 1, 'publicationRun': f'https://github.com/{archive.core.REPOSITORY}/actions/runs/{publication_id}',
                  'runtimeEnvironmentsVerified': ['qa', 'production'],
-                 'verification': [{'workflow': name, 'id': identity, 'sha': source}
+                 'verification': [{'workflow': name, 'id': identity, 'attempt': 1, 'sha': source}
                                   for name, identity in descriptor['verification_runs'].items() if name != 'web-publish.yml']}
         return descriptor, run, export, artifact, proof
 
@@ -138,7 +138,7 @@ class PublicationProofTests(unittest.TestCase):
         data = zipped_proof(proof)
         artifact = {'digest': 'sha256:' + archive.core.sha256(data), **artifact}
         listing = {'total_count': 1, 'artifacts': [artifact]}
-        with patch.object(archive.core, 'api', side_effect=[run, export, listing]) as api, patch.object(archive, 'download_proof', side_effect=AssertionError('host download forbidden')):
+        with patch.object(archive.core, 'api', side_effect=[run, export, listing] + [{**run, 'id': item['id'], 'run_attempt': item.get('attempt', 1), 'path': '.github/workflows/' + item['workflow']} for item in proof['verification']]) as api, patch.object(archive, 'download_proof', side_effect=AssertionError('host download forbidden')):
             archive.verify_publication_proof(descriptor, publication_proof=data)
             self.assertTrue(all(call.args[1] is None for call in api.call_args_list))
 
@@ -264,7 +264,7 @@ class PublicationProofTests(unittest.TestCase):
             (directory / archive.PROOF_FILE).unlink()
             producer = SimpleNamespace(produce=Mock())
             loader = SimpleNamespace(exec_module=lambda module: None)
-            with patch.dict(archive.os.environ, {'GITHUB_TOKEN': 'test-only', 'RUNNER_TEMP': root}), patch.object(archive.importlib.util, 'spec_from_file_location', return_value=SimpleNamespace(loader=loader)), patch.object(archive.importlib.util, 'module_from_spec', return_value=producer), patch.object(archive, 'publication_artifact', return_value=(artifact, 1)), patch.object(archive, 'download_proof', return_value=data), patch.object(archive, 'verify_publication_proof') as verify:
+            with patch.dict(archive.os.environ, {'GITHUB_TOKEN': 'test-only', 'RUNNER_TEMP': root, 'GITHUB_OUTPUT': str(Path(root) / 'output')}), patch.object(archive.importlib.util, 'spec_from_file_location', return_value=SimpleNamespace(loader=loader)), patch.object(archive.importlib.util, 'module_from_spec', return_value=producer), patch.object(archive, 'resolve_publication', return_value=(descriptor, data)), patch.object(archive, 'download_proof', return_value=data), patch.object(archive, 'verify_publication_proof') as verify:
                 archive.produce()
             self.assertEqual((directory / archive.PROOF_FILE).read_bytes(), data)
             self.assertEqual(producer.FILES, archive.IMAGE_FILES)
@@ -278,6 +278,241 @@ class PublicationProofTests(unittest.TestCase):
         self.assertFalse(redirected.has_header('Authorization'))
         with self.assertRaises(ValueError):
             archive.SafeRedirect().redirect_request(request, None, 302, '', {}, 'http://example.invalid/artifact')
+
+
+class AutomaticExportTests(unittest.TestCase):
+    proof_fixture = PublicationProofTests.proof_fixture
+
+    def setup_case(self, root, event='workflow_run'):
+        descriptor, publisher, export, artifact, proof = self.proof_fixture(root)
+        descriptor['producer']['event'] = event
+        export['event'] = event
+        data = zipped_proof(proof)
+        artifact['digest'] = 'sha256:' + archive.core.sha256(data)
+        approval = {'export_sha': export['head_sha'], 'export_run': 100, 'export_attempt': 2,
+                    'artifact_id': 200, 'artifact_sha256': 'sha256:' + 'c' * 64}
+        payload = {'action': 'completed', 'repository': {'full_name': archive.core.REPOSITORY},
+                   'workflow_run': publisher}
+        path = root / 'event.json'
+        path.write_text(json.dumps(payload))
+        env = {'GITHUB_EVENT_NAME': event, 'GITHUB_REPOSITORY': archive.core.REPOSITORY,
+               'GITHUB_REF': 'refs/heads/qa', 'GITHUB_SHA': export['head_sha'], 'GITHUB_RUN_ID': '100',
+               'GITHUB_RUN_ATTEMPT': '2', 'GITHUB_EVENT_PATH': str(path),
+               'EXPORT_SOURCE_SHA': descriptor['source_sha'],
+               'EXPORT_RUNTIME_DIGEST': descriptor['images']['runtime']['image'].split('@sha256:')[1]}
+        metadata = {
+            f"actions/runs/{publisher['id']}/attempts/1": publisher,
+            'actions/runs/100/attempts/2': export,
+            f"actions/runs/{publisher['id']}/artifacts?per_page=100": {'total_count': 1, 'artifacts': [artifact]},
+            f"compare/{descriptor['source_sha']}...{export['head_sha']}": {
+                'status': 'ahead', 'merge_base_commit': {'sha': descriptor['source_sha']}},
+            'actions/artifacts/200': {'expired': False, 'digest': approval['artifact_sha256'],
+                'workflow_run': {'id': 100, 'head_sha': export['head_sha']},
+                'name': f"web-{descriptor['source_sha']}-100-2"},
+            f"actions/workflows/web-publish.yml/runs?branch=qa&event=push&head_sha={descriptor['source_sha']}&per_page=20": {'workflow_runs': [publisher]},
+        }
+        for item in proof['verification']:
+            metadata[f"actions/runs/{item['id']}/attempts/1"] = {
+                **publisher, 'id': item['id'], 'path': '.github/workflows/' + item['workflow']}
+        return descriptor, proof, data, payload, env, metadata, approval
+
+    def test_automatic_and_manual_resolve_original_proof_before_pull(self):
+        for event in ('workflow_run', 'workflow_dispatch'):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as temp:
+                d, proof, data, payload, env, metadata, _ = self.setup_case(Path(temp), event)
+                # Mutable latest attempts and workflow candidates are deliberately newer.
+                publication_id = d['verification_runs']['web-publish.yml']
+                metadata[f'actions/runs/{publication_id}'] = {'id': publication_id, 'run_attempt': 99}
+                listing = metadata[f'actions/runs/{publication_id}/artifacts?per_page=100']
+                listing['artifacts'].append({**listing['artifacts'][0], 'id': 301,
+                    'name': f"web-publication-proof-{d['source_sha']}-99", 'digest': 'sha256:' + 'f' * 64})
+                listing['total_count'] = 2
+                with patch.dict(archive.os.environ, env), patch.object(archive.core, 'api', side_effect=lambda path, token: metadata[path]) as api, patch.object(archive, 'download_proof', return_value=data) as download, patch.object(archive.core, 'command', side_effect=AssertionError('no pull before proof')):
+                    actual, original = archive.resolve_publication('test-only')
+                    self.assertEqual(original, data)
+                    self.assertEqual(actual['verification_runs'], d['verification_runs'])
+                    self.assertEqual(actual['images']['runtime']['image'], proof['image'])
+                    self.assertEqual(actual['images']['runtime']['config_id'], proof['checkedImageId'])
+                    self.assertEqual(archive.os.environ['GITHUB_EVENT_NAME'], event)
+                    download.assert_called_once()
+                    self.assertFalse(any(call.args[0] == f'actions/runs/{publication_id}' for call in api.call_args_list))
+
+    def test_real_producer_preserves_event_four_members_and_tokenfree_save(self):
+        import shutil
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            inputs = root / 'inputs'
+            inputs.mkdir()
+            d, _, data, _, env, metadata, _ = self.setup_case(inputs)
+            env.update(GITHUB_TOKEN='test-only', RUNNER_TEMP=temp, GITHUB_OUTPUT=str(root / 'output'), GITHUB_ACTOR='test-actor')
+            real_spec = archive.importlib.util.spec_from_file_location('test_real_producer', archive.spec.origin)
+            producer = archive.importlib.util.module_from_spec(real_spec)
+            real_spec.loader.exec_module(producer)
+            registry = (inputs / 'runtime.manifest.json').read_bytes()
+            calls = []
+            registry_configs = []
+            def command(args, **kwargs):
+                calls.append(args)
+                self.assertNotIn('GITHUB_TOKEN', archive.os.environ)
+                if kwargs.get('env') is not None:
+                    self.assertNotIn('GITHUB_TOKEN', kwargs['env'])
+                    registry_configs.append(Path(kwargs['env']['DOCKER_CONFIG']))
+                if args[:3] == ['docker', 'image', 'inspect']:
+                    return json.dumps([{'RepoDigests': [d['images']['runtime']['image']], 'Id': d['images']['runtime']['config_id']}]).encode()
+                if args[:2] == ['docker', 'save']:
+                    self.assertTrue(all(not path.exists() for path in registry_configs))
+                    self.assertIsNone(kwargs.get('env'))
+                    shutil.copyfile(inputs / 'runtime.tar', args[3])
+                return b''
+            def registry_http(request, timeout):
+                return io.BytesIO(b'{"token":"isolated-test"}' if '/token?' in request.full_url else registry)
+            # Conservative latest-source checks may reject, but never choose replacement IDs.
+            latest = {f"actions/runs/{identity}": metadata[f"actions/runs/{identity}/attempts/1"]
+                      for identity in d['verification_runs'].values()}
+            def api(path, token):
+                return (latest if path in latest else metadata)[path]
+            fake_spec = SimpleNamespace(loader=SimpleNamespace(exec_module=lambda module: None))
+            with patch.dict(archive.os.environ, env), patch.object(archive.core, 'api', side_effect=api), patch.object(producer, 'api', side_effect=api), patch.object(producer, 'command', side_effect=command), patch.object(producer.urllib.request, 'urlopen', side_effect=registry_http), patch.object(archive, 'download_proof', return_value=data), patch.object(archive.importlib.util, 'spec_from_file_location', return_value=fake_spec), patch.object(archive.importlib.util, 'module_from_spec', return_value=producer):
+                archive.produce()
+                self.assertEqual(archive.os.environ['GITHUB_EVENT_NAME'], 'workflow_run')
+            directory = root / 'rogichat-export'
+            self.assertEqual({path.name for path in directory.iterdir()}, archive.core.FILES)
+            self.assertEqual((directory / archive.PROOF_FILE).read_bytes(), data)
+            self.assertEqual((root / 'output').read_text(), 'source_sha=' + d['source_sha'] + '\n')
+            actual, _ = archive.validate_directory(directory)
+            self.assertEqual(actual, d)
+            self.assertEqual(sum(args[:2] == ['docker', 'pull'] for args in calls), 1)
+            self.assertEqual(sum(args[:2] == ['docker', 'save'] for args in calls), 1)
+            self.assertIs(producer.validate_descriptor, archive.validate_descriptor)
+
+    def test_publisher_payload_and_exact_api_must_both_be_trusted(self):
+        changes = [('repository', {'full_name': 'other/repo'}), ('head_repository', {'full_name': 'fork/repo'}),
+                   ('head_branch', 'main'), ('path', '.github/workflows/backend-publish.yml'),
+                   ('event', 'workflow_dispatch'), ('status', 'in_progress'), ('conclusion', 'failure'),
+                   ('id', True), ('run_attempt', True), ('run_attempt', 2), ('head_sha', 'f' * 40)]
+        for target in ('payload', 'api'):
+            for field, value in changes:
+                with self.subTest(target=target, field=field, value=value), tempfile.TemporaryDirectory() as temp:
+                    d, _, data, payload, env, metadata, _ = self.setup_case(Path(temp))
+                    key = f"actions/runs/{d['verification_runs']['web-publish.yml']}/attempts/1"
+                    if target == 'payload':
+                        payload['workflow_run'] = {**payload['workflow_run'], field: value}
+                        Path(env['GITHUB_EVENT_PATH']).write_text(json.dumps(payload))
+                    else:
+                        metadata[key] = {**metadata[key], field: value}
+                    with patch.dict(archive.os.environ, env), patch.object(archive.core, 'api', side_effect=lambda path, token: metadata[path]), patch.object(archive, 'download_proof', return_value=data), self.assertRaises((ValueError, KeyError)):
+                        archive.resolve_publication('test-only')
+
+    def test_exact_ci_attempt_failures_duplicates_missing_and_boolean_ids(self):
+        for change in ('missing', 'duplicate', 'boolean_id', 'boolean_attempt', 'failed', 'wrong_attempt', 'wrong_id', 'wrong_source'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temp:
+                d, proof, _, _, _, metadata, approval = self.setup_case(Path(temp))
+                item = proof['verification'][0]
+                run = metadata[f"actions/runs/{item['id']}/attempts/1"]
+                if change == 'missing': proof['verification'].pop()
+                elif change == 'duplicate': proof['verification'][1] = item.copy()
+                elif change == 'boolean_id': item['id'] = True
+                elif change == 'boolean_attempt': item['attempt'] = True
+                elif change == 'failed': run['conclusion'] = 'failure'
+                elif change == 'wrong_attempt': run['run_attempt'] = 2
+                elif change == 'wrong_id': run['id'] = 999
+                elif change == 'wrong_source': run['head_sha'] = 'f' * 40
+                data = zipped_proof(proof)
+                metadata[f"actions/runs/{d['verification_runs']['web-publish.yml']}/artifacts?per_page=100"]['artifacts'][0]['digest'] = 'sha256:' + archive.core.sha256(data)
+                with patch.object(archive.core, 'api', side_effect=lambda path, token: metadata[path]), self.assertRaises(ValueError):
+                    archive.verify_provenance(d, approval, publication_proof=data)
+
+    def test_unknown_event_and_metadata_failure_never_fall_back(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d, _, data, _, env, metadata, approval = self.setup_case(Path(temp))
+            for event in ('push', 'pull_request', 'repository_dispatch'):
+                with patch.dict(archive.os.environ, {**env, 'GITHUB_EVENT_NAME': event}), patch.object(archive.core, 'api') as api, self.assertRaises(ValueError):
+                    archive.resolve_publication('test-only')
+                api.assert_not_called()
+                invalid = copy.deepcopy(d)
+                invalid['producer']['event'] = event
+                with self.assertRaises(ValueError):
+                    archive.validate_descriptor(invalid)
+            with patch.dict(archive.os.environ, env), patch.object(archive.core, 'api', side_effect=RuntimeError('rate limited')), patch.object(archive, 'download_proof') as download, self.assertRaises(RuntimeError):
+                archive.resolve_publication('test-only')
+            download.assert_not_called()
+
+    def test_consumer_required_event_and_exact_export_attempt(self):
+        for event in ('workflow_run', 'workflow_dispatch'):
+            with tempfile.TemporaryDirectory() as temp:
+                d, _, data, _, _, metadata, approval = self.setup_case(Path(temp), event)
+                with patch.object(archive.core, 'api', side_effect=lambda path, token: metadata[path]), patch.object(archive, 'download_proof', side_effect=AssertionError('host ZIP forbidden')), patch.object(archive.core, 'command', side_effect=AssertionError('host credentials forbidden')):
+                    archive.verify_provenance(d, approval, publication_proof=data)
+                    if event == 'workflow_run':
+                        archive.verify_provenance(d, approval, publication_proof=data, required_event='workflow_run')
+                    else:
+                        with self.assertRaises(ValueError):
+                            archive.verify_provenance(d, approval, publication_proof=data, required_event='workflow_run')
+                    for field, value in [('id', 101), ('run_attempt', 3), ('event', 'push'), ('conclusion', 'failure')]:
+                        old = metadata['actions/runs/100/attempts/2'].copy()
+                        metadata['actions/runs/100/attempts/2'][field] = value
+                        with self.assertRaises(ValueError):
+                            archive.verify_provenance(d, approval, publication_proof=data)
+                        metadata['actions/runs/100/attempts/2'] = old
+
+    def test_nonancestor_and_artifact_name_rejected(self):
+        for change in ('diverged', 'mergebase', 'name', 'replacement', 'expired', 'listing'):
+            with tempfile.TemporaryDirectory() as temp:
+                d, _, data, _, _, metadata, approval = self.setup_case(Path(temp))
+                compare = metadata[f"compare/{d['source_sha']}...{d['producer']['sha']}"]
+                listing = metadata[f"actions/runs/{d['verification_runs']['web-publish.yml']}/artifacts?per_page=100"]
+                if change == 'diverged': compare['status'] = 'diverged'
+                elif change == 'mergebase': compare['merge_base_commit']['sha'] = 'f' * 40
+                elif change == 'name': metadata['actions/artifacts/200']['name'] = 'wrong'
+                elif change == 'replacement': listing['artifacts'][0]['created_at'] = '2026-09-20T03:00:00Z'
+                elif change == 'expired': listing['artifacts'][0]['expired'] = True
+                else: listing['total_count'] = 101
+                with patch.object(archive.core, 'api', side_effect=lambda path, token: metadata[path]), self.assertRaises(ValueError):
+                    archive.verify_provenance(d, approval, publication_proof=data)
+
+
+class SourceVerifierTests(unittest.TestCase):
+    def test_node_verifier_requires_exact_original_repository_attempt(self):
+        import subprocess
+        source = Path(archive.__file__).with_name('verify-publication-source.mjs').as_uri()
+        script = r"""
+        const mode = process.argv[1];
+        globalThis.setTimeout = () => { throw new Error('No trusted candidate'); };
+        globalThis.fetch = async url => {
+          const workflow = url.includes('/workflows/') ? url.split('/workflows/')[1].split('/')[0] : globalThis.workflow;
+          globalThis.workflow = workflow;
+          const identity = 12 + ['web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'].indexOf(workflow);
+          const value = {id: identity, run_attempt: 2, head_sha: 'a'.repeat(40), head_branch: 'qa', event: 'push',
+            repository: {full_name: 'h66rogi/rogichat'}, head_repository: {full_name: 'h66rogi/rogichat'},
+            path: `.github/workflows/${workflow}`, status: 'completed', conclusion: 'success', html_url: 'https://example.invalid/run'};
+          if (url.includes('/attempts/')) {
+            if (mode === 'id') value.id = 99;
+            if (mode === 'attempt') value.run_attempt = 3;
+            if (mode === 'repo') value.repository.full_name = 'other/repo';
+            if (mode === 'fork') value.head_repository.full_name = 'fork/repo';
+            if (mode === 'path') value.path = '.github/workflows/wrong.yml';
+            if (mode === 'event') value.event = 'pull_request';
+            if (mode === 'branch') value.head_branch = 'main';
+            if (mode === 'failed') value.conclusion = 'failure';
+            if (mode === 'boolean') value.id = true;
+            return {ok: true, json: async () => value};
+          }
+          return {ok: true, json: async () => ({workflow_runs: [value]})};
+        };
+        await import(SOURCE);
+        """.replace('SOURCE', json.dumps(source))
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / 'output'
+            env = {'PATH': archive.os.environ['PATH'], 'SOURCE_SHA': 'a' * 40,
+                   'SOURCE_REPOSITORY': archive.core.REPOSITORY, 'GH_TOKEN': 'test-only', 'GITHUB_OUTPUT': str(output)}
+            for mode in ('valid', 'id', 'attempt', 'repo', 'fork', 'path', 'event', 'branch', 'failed', 'boolean'):
+                with self.subTest(mode=mode):
+                    result = subprocess.run(['node', '--input-type=module', '-e', script, mode], env=env, capture_output=True, timeout=10)
+                    self.assertEqual(result.returncode == 0, mode == 'valid', result.stderr.decode())
+            evidence = json.loads(output.read_text().removeprefix('evidence='))
+            self.assertEqual(len(evidence), 5)
+            self.assertEqual({item['attempt'] for item in evidence}, {2})
 
 
 if __name__ == '__main__':
