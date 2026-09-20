@@ -1,13 +1,14 @@
 import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
+import type { ServerMessage } from '../../src/features/chat/contract';
 import AxeBuilder from '@axe-core/playwright';
 import { installApi, json, TEST_ACTOR_ID, TEST_ROOM_ID } from './api-fixture';
 
 // All synthetic payloads live in test code, behind interception of the real API paths.
 const streamerId = '44444444-4444-4444-8444-444444444444';
-const incoming = { id: '55555555-5555-4555-8555-555555555555', version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE', author: { kind: 'member', actorId: streamerId, nickname: '테스트 스트리머', avatar: null }, content: { type: 'TEXT', text: '실제 계약 형식의 개인 메시지' }, quote: null };
+const incoming = { id: '55555555-5555-4555-8555-555555555555', version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE' as const, author: { kind: 'member' as const, actorId: streamerId, nickname: '테스트 스트리머', avatar: null }, content: { type: 'TEXT' as const, text: '실제 계약 형식의 개인 메시지' }, quote: null };
 async function chatApi(page: Page) {
   const account = await installApi(page, true); account.joined = true;
-  const state = { messages: [incoming], failSnapshot: false, revoked: false, canSend: true, posts: [] as Record<string, unknown>[], failSend: false, holdSend: null as Promise<void> | null, sockets: [] as WebSocketRoute[] };
+  const state = { messages: [incoming] as ServerMessage[], recipients: [{ actorId: streamerId, nickname: '테스트 스트리머', avatar: null }], deleteCalls: 0, failDelete: false, holdDelete: null as Promise<void> | null, failSnapshot: false, revoked: false, canSend: true, posts: [] as Record<string, unknown>[], failSend: false, holdSend: null as Promise<void> | null, sockets: [] as WebSocketRoute[] };
   await page.routeWebSocket('**/v1/realtime/**', socket => {
     state.sockets.push(socket);
     expect(new URL(socket.url()).searchParams.get('transport')).toBe('websocket');
@@ -27,15 +28,24 @@ async function chatApi(page: Page) {
     const envelope = { schemaVersion: 1, resetRequired: false };
     if (path === '/v1/sync') { await json(route, { ...envelope, generation: 'test-membership', rooms: [{ roomId: TEST_ROOM_ID, name: '후로기', actorId: TEST_ACTOR_ID, mode: 'FAN', role: 'FAN' }], nextCursor: null, complete: true }); return; }
     if (path.endsWith('/profile-sync')) { await json(route, { ...envelope, generation: 'test-profiles', profiles: [{ actorId: TEST_ACTOR_ID, nickname: '테스트 팬', role: 'FAN', avatar: null }, { actorId: streamerId, nickname: '테스트 스트리머', role: 'STREAMER', avatar: null }], nextCursor: null, complete: true }); return; }
-    if (path.endsWith('/private-recipients')) { await json(route, { recipients: state.canSend ? [{ actorId: streamerId, nickname: '테스트 스트리머', avatar: null }] : [], next: null }); return; }
+    if (path.endsWith('/private-recipients')) { await json(route, { recipients: state.canSend ? state.recipients : [], next: null }); return; }
     if (path.endsWith('/snapshot')) { await json(route, { ...envelope, messages: state.messages, nextCursor: 'test-events', historyCursor: null }, state.failSnapshot ? 503 : 200); return; }
     if (path.endsWith('/events')) { await json(route, { ...envelope, events: state.messages.map(message => ({ type: 'message.upsert', message })), hasMore: false, nextCursor: 'test-events' }); return; }
+    if (path.endsWith('/delete')) {
+      state.deleteCalls++; expect(route.request().headers()['x-csrf-token']).toBe(account.sessionToken);
+      expect(route.request().postDataJSON()).toEqual({});
+      if (state.holdDelete) await state.holdDelete;
+      if (state.failDelete) { await json(route, {}, 503); return; }
+      const id = path.split('/').at(-2);
+      state.messages = state.messages.filter(message => message.id !== id).map(message => message.quote?.id === id ? { ...message, quote: null } : message);
+      await json(route, { requestId: 'test-delete-request', status: 'blocked' }); return;
+    }
     if (path.endsWith('/messages')) {
       expect(route.request().headers()['x-csrf-token']).toBe(account.sessionToken);
       const body = route.request().postDataJSON() as Record<string, unknown>; state.posts.push(body);
       if (state.holdSend) await state.holdSend;
       if (state.failSend) { await json(route, {}, 503); return; }
-      const sent = { ...incoming, id: '66666666-6666-4666-8666-666666666666', author: { ...incoming.author, actorId: TEST_ACTOR_ID, nickname: '테스트 팬' }, content: body.content as { type: string; text: string } };
+      const sent = { ...incoming, id: '66666666-6666-4666-8666-666666666666', author: { ...incoming.author, actorId: TEST_ACTOR_ID, nickname: '테스트 팬' }, content: body.content as { type: 'TEXT'; text: string } };
       state.messages = [...state.messages, sent];
       await json(route, { clientMessageId: body.clientMessageId, messageId: sent.id, status: 'committed', version: '1' }); return;
     }
@@ -94,4 +104,44 @@ test('another-tab cookie session change clears previous draft before reauthoriza
   await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
   await expect(input).toHaveValue('');
   expect(state.posts).toHaveLength(0);
+});
+
+
+test('only own messages offer confirmed deletion, retain failure for retry, and remove body plus quotes after ACK', async ({ page }) => {
+  const { state } = await chatApi(page);
+  const own = { ...incoming, id: '77777777-7777-4777-8777-777777777777', author: { ...incoming.author, actorId: TEST_ACTOR_ID }, content: { type: 'TEXT' as const, text: '삭제할 내 메시지' } };
+  state.messages = [own, { ...incoming, quote: { id: own.id, content: { type: 'TEXT', text: own.content.text } } }];
+  await page.goto('/chat');
+  await expect(page.getByTestId('chat-delete')).toHaveCount(1);
+  await page.getByTestId('chat-delete').click();
+  const dialog = page.getByRole('alertdialog'); await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('button', { name: '취소', exact: true })).toBeFocused();
+  await dialog.getByRole('button', { name: '취소', exact: true }).click(); expect(state.deleteCalls).toBe(0);
+  await page.getByTestId('chat-delete').click();
+  const accessibility = await new AxeBuilder({ page }).analyze(); expect(accessibility.violations).toEqual([]);
+  let release!: () => void; state.holdDelete = new Promise<void>(resolve => { release = resolve; }); state.failDelete = true;
+  await dialog.getByRole('button', { name: '삭제 확인', exact: true }).click();
+  await expect(dialog.getByRole('button', { name: '삭제 요청 중', exact: true })).toBeDisabled();
+  await expect(page.getByText(own.content.text, { exact: true })).toHaveCount(2);
+  release(); state.holdDelete = null;
+  await expect(dialog.getByRole('alert')).toContainText('삭제 결과를 확인하지 못했습니다');
+  state.failDelete = false; await dialog.getByRole('button', { name: '삭제 다시 시도', exact: true }).click();
+  await expect(dialog).toHaveCount(0); await expect(page.getByText(own.content.text, { exact: true })).toHaveCount(0);
+  await expect(page.getByText('메시지가 더 이상 표시되지 않도록 차단되었습니다.', { exact: true })).toBeVisible();
+  expect(state.deleteCalls).toBe(2);
+});
+
+
+test('multiple permitted streamers require explicit target selection and send to that actor only', async ({ page }) => {
+  const { state } = await chatApi(page);
+  const second = { actorId: '88888888-8888-4888-8888-888888888888', nickname: '두 번째 스트리머', avatar: null };
+  state.recipients.push(second);
+  await page.goto('/chat');
+  await expect(page.getByRole('radio')).toHaveCount(2);
+  await expect(page.getByTestId('chat-composer-input')).toHaveCount(0);
+  await expect(page.getByText('메시지를 보낼 대상을 선택해 주세요.', { exact: true })).toBeVisible();
+  await page.getByRole('radio', { name: '두 번째 스트리머님에게만', exact: true }).click();
+  const input = page.getByTestId('chat-composer-input'); await input.fill('선택한 대상에게만');
+  await input.press('Enter'); await expect(input).toHaveValue('');
+  expect(state.posts).toHaveLength(1); expect(state.posts[0]?.recipientActorId).toBe(second.actorId);
 });

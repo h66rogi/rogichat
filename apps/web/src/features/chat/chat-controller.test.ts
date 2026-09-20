@@ -172,3 +172,71 @@ void test('shared send follows manifest role, omits recipient field, and never q
   const fan = new ChatController(room.roomId, backend()); await fan.refresh();
   assert.equal((await fan.send({ target: { scope: 'SHARED' }, body: '공개' })).accepted, false); fan.dispose();
 });
+
+void test('deletion refuses another author, retries same resource, and hides all derived text only after blocked ACK', async () => {
+  const own = { ...source('own-test'), author: { kind: 'member' as const, actorId: 'fan-test', nickname: '테스트 팬' } };
+  let blocked = false; let deleteCalls = 0; let observedCleared = false;
+  const paths: string[] = [];
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (path.includes('/snapshot?')) return { schemaVersion: 1, resetRequired: false, messages: blocked ? [] : [source(), own], nextCursor: 'events', historyCursor: null };
+    if (path.endsWith('/delete')) {
+      deleteCalls++; paths.push(path); assert.deepEqual(options?.body, {}); assert.equal(options?.method, 'POST');
+      if (deleteCalls === 1) throw new TypeError('lost response');
+      blocked = true; return { requestId: 'request-test', status: 'blocked' };
+    }
+    return undefined;
+  }));
+  await controller.refresh();
+  assert.equal((await controller.remove('message-test')).accepted, false); assert.equal(deleteCalls, 0);
+  assert.equal((await controller.remove('own-test')).accepted, false); assert.equal(controller.getSnapshot().items.length, 2);
+  controller.subscribe(() => { if (controller.getSnapshot().phase === 'loading' && controller.getSnapshot().items.length === 0) observedCleared = true; });
+  assert.equal((await controller.remove('own-test')).accepted, true);
+  assert.equal(paths[0], paths[1]); assert.equal(observedCleared, true);
+  assert.deepEqual(controller.getSnapshot().items, []); assert.match(controller.getSnapshot().notice!, /차단/); controller.dispose();
+});
+void test('unrecognized deletion acknowledgement never hides data or claims completion', async () => {
+  const own = { ...source(), author: { kind: 'member' as const, actorId: 'fan-test', nickname: '테스트 팬' } };
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.includes('/snapshot?')) return { schemaVersion: 1, resetRequired: false, messages: [own], nextCursor: 'events', historyCursor: null };
+    if (path.endsWith('/delete')) return { requestId: 'request-test', status: 'purged' };
+    return undefined;
+  }));
+  await controller.refresh(); assert.equal((await controller.remove(own.id)).accepted, false);
+  assert.equal(controller.getSnapshot().items.length, 1); controller.dispose();
+});
+void test('delete ACK aborts an older in-flight sync so stale private content cannot return', async () => {
+  const own = { ...source(), author: { kind: 'member' as const, actorId: 'fan-test', nickname: '테스트 팬' } };
+  let blocked = false; let release!: (value: unknown) => void; let reached!: () => void;
+  const waiting = new Promise<void>(resolve => { reached = resolve; });
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.includes('/snapshot?')) return { schemaVersion: 1, resetRequired: false, messages: blocked ? [] : [own], nextCursor: 'events', historyCursor: null };
+    if (path.includes('/events?')) { reached(); return new Promise(resolve => { release = resolve; }); }
+    if (path.endsWith('/delete')) { blocked = true; return { requestId: 'request-test', status: 'blocked' }; }
+    return undefined;
+  }));
+  await controller.refresh(); const sync = controller.refresh(); await waiting;
+  const removal = controller.remove(own.id);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(controller.getSnapshot().items, []);
+  release({ schemaVersion: 1, resetRequired: false, events: [{ type: 'message.upsert', message: own }], hasMore: false, nextCursor: 'stale' });
+  await sync; assert.equal((await removal).accepted, true); assert.deepEqual(controller.getSnapshot().items, []); controller.dispose();
+});
+
+
+void test('delete 403/404 immediately hide prior private data and revalidate without global logout', async () => {
+  for (const status of [403, 404]) {
+    const own = { ...source(), author: { kind: 'member' as const, actorId: 'fan-test', nickname: '테스트 팬' } };
+    let denied = false; let invalidations = 0; let manifests = 0;
+    const controller = new ChatController(room.roomId, backend(async path => {
+      if (path.startsWith('/v1/sync?')) manifests++;
+      if (path.includes('/snapshot?')) return { schemaVersion: 1, resetRequired: false, messages: denied ? [] : [own], nextCursor: 'events', historyCursor: null };
+      if (path.endsWith('/delete')) { denied = true; throw Object.assign(new Error('access changed'), { status }); }
+      return undefined;
+    }), () => { invalidations++; });
+    await controller.refresh(); assert.equal(controller.getSnapshot().items.length, 1);
+    assert.equal((await controller.remove(own.id)).accepted, false);
+    assert.deepEqual(controller.getSnapshot().items, []);
+    await controller.refresh(); assert.ok(manifests >= 2); assert.equal(invalidations, 0);
+    assert.deepEqual(controller.getSnapshot().items, []); controller.dispose();
+  }
+});

@@ -72,8 +72,9 @@ function LiveRoom({ controller, connected }: { controller: ChatController; conne
   return <ChatRoomView
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
-    fanRecipient={recipients.length === 1 ? recipients[0] : null}
+    fanRecipients={recipients}
     streamerRecipients={recipients}
+    onDelete={controller.remove} actionNotice={state.notice ?? undefined}
     onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} isLoadingOlder={state.loadingOlder}
     connectionNotice={connected ? undefined : '실시간 연결을 다시 시도하고 있습니다. 메시지는 주기적으로 확인합니다.'}
   />;

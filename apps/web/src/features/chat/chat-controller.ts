@@ -3,10 +3,10 @@ import type { ChatRequest, RoomMembership, ServerMessage } from './contract';
 import type { ChatActorRef, ChatComposerSubmission, ChatSubmitResult, ChatTimelineItem } from './types';
 
 export interface ChatState {
-  phase: 'loading' | 'ready' | 'error'; epoch: number; room: RoomMembership | null;
+  phase: 'loading' | 'ready' | 'error'; notice: string | null; epoch: number; room: RoomMembership | null;
   profiles: ChatActorRef[]; recipients: ChatActorRef[]; items: ChatTimelineItem[]; hasOlder: boolean; loadingOlder: boolean; error: string | null;
 }
-const initial = (): ChatState => ({ phase: 'loading', epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, loadingOlder: false, error: null });
+const initial = (): ChatState => ({ phase: 'loading', notice: null, epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, loadingOlder: false, error: null });
 const inaccessible = (error: unknown) => [401, 403, 404].includes(Number(recordError(error).status));
 function recordError(error: unknown): { status?: unknown } { return error !== null && typeof error === 'object' ? error : {}; }
 class ResetRequired extends Error {}
@@ -28,6 +28,7 @@ export class ChatController {
   private cacheId = crypto.randomUUID();
   private attempts = new Map<string, string>();
   private sending = false;
+  private deleting = false;
   private readonly roomId: string;
   private readonly request: ChatRequest;
   private readonly onInvalidate: (() => void) | undefined;
@@ -123,6 +124,7 @@ export class ChatController {
   };
   private async synchronize() {
     for (let attempt = 0; attempt < 2 && !this.dead; attempt++) {
+      const epoch = this.state.epoch;
       try {
         const auth = await this.authorization();
         if (!this.eventCursor) {
@@ -154,7 +156,7 @@ export class ChatController {
         this.publish({ ...auth, phase: 'ready', items: projectMessages(this.messages, auth.room.actorId, auth.profiles), hasOlder: this.historyCursor !== null, error: null });
         return;
       } catch (error) {
-        if (this.dead) return;
+        if (this.dead || epoch !== this.state.epoch) return;
         if (error instanceof ResetRequired) { this.clear(); if (attempt === 0) continue; }
         // A failed authorization/sync must never leave previously visible private content on screen.
         this.clear(inaccessible(error));
@@ -171,6 +173,7 @@ export class ChatController {
   }
   loadOlder = async (): Promise<void> => {
     if (this.dead || this.flight || !this.historyCursor || this.state.phase !== 'ready') return;
+    const epoch = this.state.epoch;
     this.publish({ loadingOlder: true });
     this.flight = (async () => {
       try {
@@ -180,15 +183,47 @@ export class ChatController {
         await this.verifySession();
         this.publish({ items: projectMessages(this.messages, this.state.room!.actorId, this.state.profiles), hasOlder: this.historyCursor !== null, error: null });
       } catch (error) {
+        if (this.dead || epoch !== this.state.epoch) return;
         this.clear(inaccessible(error)); this.publish({ phase: 'error', error: '이전 메시지를 불러오지 못했습니다. 다시 확인해 주세요.' });
         if (Number(recordError(error).status) === 401) this.onInvalidate?.();
       } finally { this.publish({ loadingOlder: false }); }
     })().finally(() => { this.flight = null; });
     await this.flight;
   };
+  private async revalidate() {
+    await this.flight;
+    if (!this.dead) await this.refresh();
+  }
+  remove = async (messageId: string): Promise<ChatSubmitResult> => {
+    if (this.dead || this.deleting || this.sending || this.state.phase !== 'ready') return { accepted: false, reason: '다른 요청을 확인한 뒤 다시 시도해 주세요.' };
+    const owned = this.messages.find(item => item.id === messageId);
+    if (!owned || owned.author.kind !== 'member' || owned.author.actorId !== this.state.room?.actorId) return { accepted: false, reason: '내 메시지만 삭제할 수 있습니다.' };
+    const signal = this.abort.signal; this.deleting = true;
+    try {
+      const ack = record(await this.request(this.path(`messages/${encodeURIComponent(messageId)}/delete`), { method: 'POST', body: {}, signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
+      if (signal.aborted || this.dead) return { accepted: false, reason: '접근 상태가 변경되어 삭제 결과를 다시 확인해야 합니다.' };
+      if (ack.status !== 'blocked' || typeof ack.requestId !== 'string' || !ack.requestId) throw new Error('INVALID_ACK');
+      // Anonymous copies cannot be traced client-side. Drop ALL text/quotes/drafts,
+      // abort pre-delete reads, then recover only from a fresh authorized snapshot.
+      this.clear();
+      this.publish({ notice: '메시지가 더 이상 표시되지 않도록 차단되었습니다.' });
+      // A concurrent refresh is aborted by clear; let it settle before fresh sync.
+      await this.flight;
+      if (!this.dead) await this.refresh();
+      return { accepted: true };
+    } catch (error) {
+      if (!this.dead && inaccessible(error)) {
+        this.clear(Number(recordError(error).status) === 401);
+        this.publish({ phase: 'error', error: '메시지와 채팅 접근 권한을 다시 확인해 주세요.' });
+        if (Number(recordError(error).status) === 401) this.onInvalidate?.();
+        else void this.revalidate();
+      }
+      return { accepted: false, reason: '삭제 결과를 확인하지 못했습니다. 다시 시도해 주세요.' };
+    } finally { this.deleting = false; }
+  };
   send = async (submission: ChatComposerSubmission): Promise<ChatSubmitResult> => {
     const room = this.state.room;
-    if (this.dead || this.sending || this.state.phase !== 'ready' || !room) return { accepted: false, reason: '채팅 연결을 확인한 뒤 다시 시도해 주세요.' };
+    if (this.dead || this.sending || this.deleting || this.state.phase !== 'ready' || !room) return { accepted: false, reason: '채팅 연결을 확인한 뒤 다시 시도해 주세요.' };
     const { target } = submission;
     const recipient = target.scope === 'PRIVATE' ? this.state.recipients.find(p => p.actorId === target.recipient.actorId && p.actorId !== room.actorId) : null;
     if (target.scope === 'SHARED' ? room.role !== 'STREAMER' : !recipient) return { accepted: false, reason: '이 대상에게 메시지를 보낼 수 없습니다.' };
@@ -216,7 +251,7 @@ export class ChatController {
         this.clear(Number(recordError(error).status) === 401);
         this.publish({ phase: 'error', error: '보낼 대상과 채팅 접근 권한을 다시 확인해 주세요.' });
         if (Number(recordError(error).status) === 401) this.onInvalidate?.();
-        else void this.refresh();
+        else void this.revalidate();
       }
       return { accepted: false, reason: '전송을 확인하지 못했습니다. 같은 내용으로 다시 보내면 중복 없이 재확인합니다.' };
     } finally { this.sending = false; }

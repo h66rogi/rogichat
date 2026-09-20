@@ -5,8 +5,10 @@ import { Ban, Check, CircleAlert, CornerUpLeft, Lock, LoaderCircle, Megaphone, R
 import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
 import { cn } from '@/shared/lib/cn';
 
+import { DeleteMessageControl } from './DeleteMessageControl';
 import { formatTimeLabel, parseIsoDate } from './formatters';
 import type {
+  ChatSubmitResult,
   ChatMessageItemModel,
   ChatMessageStatus,
   ChatPublicationItemModel,
@@ -34,23 +36,26 @@ export interface ChatMessageItemProps {
   item: ChatTimelineItem;
   viewerRole: ChatViewerRole;
   /** Offered only where a private reply makes sense; the room view decides the target. */
+  onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
 }
 
-export function ChatMessageItem({ item, viewerRole, onReplyPrivate }: ChatMessageItemProps) {
+export function ChatMessageItem({ item, viewerRole, onReplyPrivate, onDelete }: ChatMessageItemProps) {
   if (item.kind === 'publication') return <PublicationRow item={item} />;
   if (item.kind === 'unsupported') return <UnsupportedRow item={item} />;
   if (item.status === 'deleted') return <TombstoneRow item={item} />;
-  return <MessageRow item={item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} />;
+  return <MessageRow item={item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} />;
 }
 
 function MessageRow({
   item,
   viewerRole,
   onReplyPrivate,
+  onDelete,
 }: {
   item: ChatMessageItemModel;
   viewerRole: ChatViewerRole;
+  onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
 }) {
   const isOwn = item.isOwn;
@@ -97,6 +102,8 @@ function MessageRow({
             {isOwn && <StatusMark status={item.status} />}
             <time dateTime={item.createdAt}>{timeLabel}</time>
           </div>
+
+          {isOwn && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
 
           {canReply && (
             <button
