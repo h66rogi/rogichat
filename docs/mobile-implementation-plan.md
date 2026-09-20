@@ -7,6 +7,7 @@
 사용자의 최신 보정에 따라 QA에도 **실제 출시용 MVP와 같은 제품 구성**을 사용한다.
 이 원칙을 적용한 실제 코드·검증 범위는 [제품 구성 교체 기록](mobile-product-progress.md)에 있다.
 후속 세션·프로필 연결과 구체적 발급/기기 블로커는 [네이티브 연결 기록](mobile-native-transport-progress.md)에 분리한다.
+진행 중인 SOOP 클라이언트와 서명 준비는 [네이티브 인증 기록](mobile-native-auth-progress.md)에 기록한다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
@@ -25,11 +26,11 @@
 
 | 영역 | 조사 시점 증거 | 계획에서의 취급 |
 |---|---|---|
-| 네이티브 앱 | [제품 구성 교체](mobile-product-progress.md): 멜로밍 화면·탐색·상태 구현 재사용, QA/prod 공통 진입, 합성 UI 제거 | MB02a–c 코드/OS 작업 진행. 실제 native 인증·영속 저장·통신과 실기기 gate가 남아 MB02 전체 완료로 간주하지 않음 |
+| 네이티브 앱 | [제품 구성 교체](mobile-product-progress.md)와 [세션·프로필 adapter](mobile-native-transport-progress.md)가 QA에 통합되고 빌드 9로 배포됨 | 보호 credential 저장·REST·만료·로그아웃 경계가 구현됨. 제공자 발급·계정/방 DB·실기기 gate는 남아 MB02 전체 완료로 간주하지 않음 |
 | 빌드/배포 | QA/prod 분리, 서명 도구, Firebase/TestFlight 시험과 테스터 그룹 연결 | 기존 [배포 절차](mobile-test-distribution.md) 재사용 |
 | M03 인증 | 기존 웹 인증과 별도로 `ac69ca2`에서 native Bearer/session/logout/socket 계약 확정 | 실제 SOOP/Apple 발급·handoff·제공자 검증과 QA 왕복은 별도 gate |
 | M04–M07 | 방·프로필·텍스트·삭제·sync·힌트·공개·반응과 합성 fixture | HTTP 계약을 확인하며 활용; live 성공과 구별 |
-| 계약 패키지 | health JSON, JS sync/interaction 참조 구현 | OpenAPI·Kotlin/Swift 생성 DTO·실제 SQLite adapter는 아직 없음 |
+| 계약 패키지 | PR #17의 OpenAPI exporter와 응답 계약 시험이 QA에 통합됨. JS sync/interaction 참조 구현도 존재 | 현재 OpenAPI/실제 projector를 기준으로 Kotlin/Swift decode parity를 검증. 생성 DTO·versioned sync/socket·실제 SQLite adapter 완료로 확대 해석하지 않음 |
 | M08–M09 | QA `8ece99d`까지 아바타 조회·스티커 메시지 변경 병합 | 확정 projection을 대조하며 후속 미커밋 형태를 생성 DTO로 취급하지 않음 |
 | 백엔드 구조 | QA `0429d71`에 feature module/DTO/projector 보정 병합 | 이 기준의 인증·프로필 DTO를 읽어 앱 경계를 맞춤. 네이티브 인증 API 완료나 실제 운영 반영을 의미하지 않음 |
 
@@ -198,10 +199,10 @@ Distribution 사용을 runtime FCM 선택/설정 완료로 해석하지 않는�
 | C01 | `ac69ca2`에 native REST/socket transport 계약 확정, 앱 연결·배포 검증은 후속 | 정확한 Bearer/client pair, web/native·환경 혼용 거부, 같은 DB 인가를 사용. 실제 credential 발급과 통합 왕복까지 확인 | 서버 Auth/Realtime + 앱 Session |
 | C02 | SOOP 발급 후보 `de02c6a`에 start/launch/S256/exchange·오류 명시. 앱 복귀·Apple identity 처리는 후속 | 후보 계약 검토·QA 배포와 별개로 native client 구현 가능. broker canonical subject/운영 등록·실제 사용자 증거 필요. Apple native/web client별 audience와 callback allowlist, 재전송·취소·충돌 시험 | 서버 Auth + 앱 Auth |
 | C03 | native `/auth/session` 계정 요약·SOOP 상태·만료·opaque generation 확정. 방/동기화 scope 연결은 남음 | 요약과 전체 프로필을 분리하고 제공자를 추정하지 않음. room의 joined/mode/actorId/next 보존, 방별 인가·scope 확인. capabilities는 서버 인가 대체 불가 | 서버 Auth/Rooms/Access |
-| C04 | receipt에만 clientMessageId 있고 sync message에는 없음 | **작성자 본인에게만** clientMessageId를 direct GET/sync에 동일하게 projection하는 안을 우선 검증. 타 기기·ACK 유실에서도 하나로 합치며 공개본/타 사용자에는 제외. 명령 결과 조회 방식으로 바꾸면 동등한 중복 방지 fixture 필수 | 서버 Messages/Sync + 앱 Outbox |
-| C05 | PRIVATE 응답에 답장 상대와 허용 동작이 충분하지 않음 | 현재 viewer에게 허용된 counterpart actor 및 reply/publish/delete 가능 여부를 명시. 본인이 보낸 개인답장의 상대 복원, 익명 공개본에서 원 작성자/원본 연결 미노출 시험 | 서버 projector + 앱 Composer |
-| C06 | 화면 정렬·오래된 미로딩 메시지 upsert 처리 미확정 | 표시 순서·동일 시각 tie·history 병합 계약을 ADR과 fixture로 고정. 후보는 `(createdAt,id)` 표시 정렬과 기존 opaque pagination의 분리. commit 순서와 같다고 주장하지 않으며 내부 order/숨은 gap을 노출하지 않음 | 서버 Sync + 양 OS DB |
-| C07 | DTO가 손으로 작성된 반환 객체, M08에서 변동 중 | canonical projector와 strict DTO에서 OpenAPI export. sync/socket versioned schema 및 JSON 공통 예제. nullable PATCH의 absent/null/value 구분과 unsigned bigint 문자열 비교 포함 | 서버 contracts + 양 OS API |
+| C04 | PR #34 `4002329`에 본인 command receipt 조회와 stable accountPartition 후보 구현. 기존 session account.userId는 호환 유지 | 기존 send의 동일 ID/정규화 payload와 receipt GET으로 ACK 유실을 조정. deleted는 terminal, 404는 미전송 증거나 새 ID 발급 허가가 아님. accountPartition은 인증/멤버십 fence가 아니며 키 회전 시 자동 replay 금지. QA 계약·멤버십 scope와 양 OS parity 검증 후 outbox 연결 | 서버 Messages/Sync + 앱 Outbox |
+| C05 | 서버가 nullable counterpart와 required allowedActions 계약을 고정하고 독립 소스 리뷰를 통과했다고 전달. 게시 SHA·호스팅 CI·앱 parity는 후속 | 현재 viewer의 reply/publish/delete 힌트이며 인가를 대체하지 않음. 같은 version도 현재 scope의 전체 힌트를 교체하고 tombstone을 보존. 익명 공개본의 원 작성자/원본 연결 미노출 시험 | 서버 projector + 앱 Composer |
+| C06 | 서버가 schemaVersion 2·membershipScope/authorizationRevision·표시 정렬 계약을 승인하고 구현 중. 고정 게시 소스와 앱 통합은 후속 | `(createdAt,id)` 표시 정렬과 opaque pagination 분리. SEND는 현재 membershipScope를 receipt/dedupe보다 먼저 확인. 옛 pending을 새 멤버십에 자동 재결합하지 않음. 내부 order/숨은 gap을 노출하지 않음 | 서버 Sync + 양 OS DB |
+| C07 | PR #17 OpenAPI exporter·응답 계약 시험이 QA에 통합됨. 양 OS의 세션/프로필 strict decode 구현 | 실제 exporter/projector를 기준으로 sync/socket versioned schema와 공통 JSON의 양 OS decode parity를 확정. nullable PATCH absent/null/value 및 unsigned bigint 문자열 비교 검증을 유지 | 서버 contracts + 양 OS API |
 | C08 | `ac69ca2`에서 고정 7일 opaque credential·만료 시 재인증 확정 | 앱 보호 저장·복원·명시적 폐기·expiry/401/응답 경쟁 검증. refresh API는 없으며, 향후 도입 시 rotation/replay/응답 유실을 별도 검증 | 서버 Auth + 앱 Session |
 
 C09는 이번 재사용 조사에서 구체화한 **후속 알림 계약**이다. MB01의 C01–C08 인증/텍스트
@@ -209,18 +210,46 @@ C09는 이번 재사용 조사에서 구체화한 **후속 알림 계약**이다
 
 | 후속 계약 | 현재/제안 구분 | 완료 조건 |
 |---|---|---|
-| C09 — native push/device/preferences | backend M11 및 web-push 문서는 설계이며 native 등록·수신의 구현 증거가 아님. FCM/APNs transport 선택, installation/device 식별·계정/환경 binding revision, upsert/unbind·회전·재시도, preference scope/수정 동시성, 최소 route payload와 dedupe key를 명시 | 서버 발송 직전 session/SOOP/방 권한 재검사, logout offline·계정 전환·늦은 register/unregister/rotation 경쟁, 오래된 job 거부, OS 표시/tap 실기기 fixture. 실제 path/DTO는 OpenAPI 확정 전 가정하지 않음 |
+| C09 — native push/device/preferences | M11 PR #36 후보 `43d7bec`의 backend-m11-contract/m11.openapi를 후속 소비자 기준으로 검토. expectedGeneration은 필수 uint64 decimal이며 opaque accountGeneration과 별개. native는 실제 provider 준비 전 read/disable만 허용하고 enable/register/remove는 503 | MB03과 별도 변경으로 정확한 DTO·CAS·오류·늦은 응답을 연결. signed readContext/current membership, 토글 역전·계정 변경·OS 권한과 서버 선호 분리 검증. FCM/APNs 발송·표시/tap 실기기·SOOP/방 재인가는 source 구현이나 선호 조회만으로 완료 처리하지 않음 |
 
 알림함 이력·미확인 badge·채팅 unread는 C09 기본 범위에 자동 포함하지 않는다. 필요 시
 제품 의미와 서버 pagination/count/read-state 계약을 별도 확정한다. C09 통합 검증 미완료는 push 완료 선언/공개 출시를
 차단하지만 공통 shell·설정·OS 상태 UI나 MB03/04 REST 기반 기능을 차단하지 않는다.
 
-C06은 MB04 전에 해결해야 하는 차단 항목이다. UUID 정렬이나 클라이언트 시각으로
+MB03 인증 소스를 고정한 뒤 M11 소비자는 별도 변경으로 진행한다. 기준은
+[고정 계약](https://github.com/h66rogi/rogichat/blob/43d7bec2793d8c5f12719e3c3d9f5b4af68f9dd3/docs/backend-m11-contract.md)이며
+계약 소스의 존재와 QA 배포·native provider 활성화를 구분한다.
+
+양 OS의 후속 실제 구현과 재사용·검증은 [M11 진행 기록](mobile-notification-preferences-progress.md)에
+모은다. Android `577fb9e`·iOS `6513439`의 앱 소스를 통합했으며 새 credential 형식이나
+native push SDK를 추가하지 않았다. MB03 서명 단계와 별도 검증·배포한다.
+
+1. `GET /v1/me/notification-preferences`의 실제 확인값과 generation을 사용한다.
+   LINK_REQUIRED도 서버가 허용한 계정 조회 범위다. unknown/loading/error를 false/true
+   기본값으로 바꾸지 않는다. OS 허용 상태와 서버의 계정 전체 설정은 별도 섹션으로 둔다.
+2. 현재 native 계약에서 가능한 `PUT`의 `pushEnabled:false`만 연결한다. 실제 값이 true일
+   때 다른 기기/웹에도 적용되는 계정 전체 알림 끄기임을 설명한다. provider 없는 켜기·등록
+   동작이나 가짜 성공을 제공하지 않는다. `expectedGeneration`은 양의 uint64 문자열이며
+   최대 `18446744073709551615`다. opaque accountGeneration·accountPartition과 섞지 않는다.
+3. 멜로밍 설정 화면/VM/API 책임을 재사용하되 낙관적 토글·과거 값 rollback은 교체한다.
+   확인된 응답으로만 값/세대를 갱신하고 한 번에 한 쓰기, 계정·요청·변경 revision을 적용한다.
+   409나 PUT 응답 유실은 GET으로 다시 확인한 뒤 새 사용자 선택을 요구한다. 낡은 GET/PUT/401이
+   새 계정이나 더 최신 확인값을 바꾸면 실패다.
+4. room read-state는 typed client까지만 독립 준비한다. 실제 표시한 허용 messageId와
+   현재 opaque readContext를 연결하는 작업은 C05/C06·방 lifecycle 이후다. null/누락/최대
+   100개 응답에서 unread 수를 추정하거나 Web Push 형식에 FCM 토큰을 넣지 않는다.
+
+C05/C06의 계약 결정은 전달받았지만 현재 MB03 서명 소스에 채팅 기능을 섞지 않는다.
+고정 게시 SHA·서버 회귀 시험·양 OS decode/저장 검증은 MB04 전에 해결해야 하는 항목이다.
+UUID 정렬이나 클라이언트 시각으로
 commit 순서를 복원하지 않는다. 동일 timestamp, 역순 ACK, 오래된 메시지의 reaction upsert,
 history와 delta 동시 도착, reset 후 페이지 도착을 양 OS에서 같은 fixture로 검증한다.
 특히 같은 createdAt가 history 페이지 경계를 가로지르는 경우와 아직 로딩하지 않은 오래된
 메시지가 reaction upsert로 처음 도착하는 경우를 포함한다.
-서버 기존 페이지 순서와 새 표시 순서의 차이를 허용할지는 이 단계에서 명시적으로 결정한다.
+승인된 C06은 내부 생성 순서의 페이지 경계를 먼저 캡처하고 선택된 결과를 표시 순서로
+정렬한다. 이벤트 로그의 순서는 유지한다. complete manifest만 멤버십 교체의 근거이며,
+부분 discovery로 기존 멤버십을 지우지 않는다. 계정·방·요청 generation과 현재 M/A를 함께
+검증하고 reset의 null scope/빈 결과를 처리한다. 이 승인 자체를 QA 활성화로 기록하지 않는다.
 
 OpenAPI는 DB row를 그대로 노출하지 않는다. 원본 스키마→고정 도구→Kotlin/Swift DTO를
 생성하고 CI에서 drift를 확인한다. 네트워크/세션/저장 코드는 생성 DTO 바깥의 얇은 adapter로
@@ -298,17 +327,24 @@ hosted QA의 mock login·고정 사용자 토큰·인증 우회도 금지한다.
 
 ## 6. 로컬 데이터·전송 상태·복구
 
-각 환경/계정별 DB를 열고 session generation을 메모리 작업 fence로 둔다. 설치 단위 deviceId,
+각 환경/서버 `accountPartition`별 DB를 열고 원래 승인된 session scope를 HTTP·DB commit·
+화면 게시까지 전달한다. partition이 없는 호환 세션은 인증을 유지하되 durable 채팅을 열지
+않고 userId로 DB key를 대체하지 않는다. partition 변경은 이전 DB/작업을 격리하며 자동
+이동·replay하지 않는다. 설치 단위 deviceId,
 계정 manifest의 cacheId, 방별 timeline cacheId, 방별 profile cacheId를 구분한다.
 한 방의 snapshot/events/history는 같은 timeline cacheId를 사용한다. 계정 전환은 모든 scope를
 교체한다. C03/C07에서 이 cacheId 사용이 서버 binding과 일치하는지 fixture로 확정한다.
 테이블 개념은
 `rooms`, `memberships`, `messages`, `profiles`, `reactions`, `sync_checkpoints`,
-`manifest_staging`, `outbox`, `drafts`, 이후 `media_transfers`다. membership period는 C03의
-opaque scope를 사용한다. 실제 DB schema와 migration은 MB02/04에서 검증해 확정한다.
+`manifest_staging`, `outbox`, `drafts`, 이후 `media_transfers`다. membership period는
+C06의 `membershipScope`(M)를 사용하며 `authorizationRevision`(A)과 구분한다.
+실제 DB schema와 migration은 MB02/04에서 검증해 확정한다.
 
 - `messages`: server ID, resource version(십진 문자열), audience, 허용된 author/content,
-  tombstone, generation. version은 문자열 사전순·부동소수점으로 비교하지 않는다.
+  tombstone, generation. uint64 version은 canonical TEXT로 저장하고 문자열 사전순·
+  signed SQL INTEGER·부동소수점으로 비교하지 않는다. 같은 account/room/cache generation과
+  M/A의 terminal tombstone은 더 큰 version을 포함한 모든 later live를 거부한다.
+  복구는 새 fenced generation과 authoritative snapshot으로 수행하며 ID 재사용은 없다.
 - `outbox`: UUID clientMessageId, 계정/방/참여 scope, 불변 정규화 payload, 상태, 시도 시각,
   serverMessageId/receipt. 전송 전에 payload와 낙관 표시 항목을 한 transaction에 저장한다.
 - 전송 상태: `queued → sending → committed`; 응답 유실은 `outcomeUnknown`, 명시적 거부는
@@ -317,10 +353,12 @@ opaque scope를 사용한다. 실제 DB schema와 migration은 MB02/04에서 검
   별도 새 명령을 만든다. 앱 재시작 후 sending은 새 ID 없이 결과 불명 상태로 복구한다.
 - outbox row/메시지/receipt mapping 반영은 원자적이다. ACK보다 sync가 먼저 와도 C04로
   합친다. 계정/방 철회 후 과거 outbox를 자동 재전송하지 않는다.
-- snapshot에 없다는 사실은 미전송 증거가 아니다. 현재 권한이 유효할 때 같은 ID와 payload로
-  POST를 replay해 receipt를 확인한다. `deleted`이면 낙관 표시·본문을 지우고 최소 종료 표식만
-  남긴다. 결과 확인 권한이 사라졌다면 미전송으로 단정하지 않고 송신 종료·해당 scope 정리를
-  적용한다. 같은 내용을 새 ID로 자동 생성하지 않는다.
+- snapshot에 없다는 사실은 미전송 증거가 아니다. 현재 권한·원래 M을 확인하고 C04 GET
+  receipt를 먼저 조회한다. 404는 `outcomeUnknown`을 유지하며 재전송·새 ID 허가가 아니다.
+  현재 권한과 동일 M이 계속 유효할 때만 원래 ID·payload·M으로 제한된 SEND 재시도를
+  별도 결정한다. `deleted`이면 낙관 표시·본문을 지우고 최소 종료 표식만 남긴다.
+  결과 확인 권한이 사라지면 미전송으로 단정하지 않고 송신 종료·해당 scope 정리를 적용한다.
+  재입장 후 새 M을 오래된 command에 끼워 넣거나 같은 내용을 새 ID로 자동 생성하지 않는다.
 - 명시적 400/409는 자동 반복하지 않는다. 429는 서버 재시도 정보가 있으면 따르고,
   없으면 bounded exponential backoff+jitter를 적용한다. 네트워크/5xx는 같은 명령으로
   제한된 재시도와 수동 재시도를 제공한다. 실패 메시지를 새 명령으로 몰래 다시 보내지 않는다.
@@ -353,7 +391,7 @@ outbox는 cache와 분리해 명령 ID·불변 payload·outcomeUnknown을 유지
 | reset 발생 지점 | 폐기·차단 범위 | 복구와 큐 처리 |
 |---|---|---|
 | 계정 membership manifest | staging/continuation과 account manifest cacheId 교체, 그 계정의 pending 송신 일시 중지 | 완전한 새 manifest와 열린 방 재인가 후 scope 대조; 사라진 방/변경된 참여는 정리 |
-| 방 snapshot/events/history | 해당 timeline generation·메시지/인용/반응·미디어 파생 cache·두 cursor 폐기, 방 송신 중지 | 새 timeline cacheId와 snapshot. outbox는 별도로 주차하고 현재 scope 확인 후 receipt replay; snapshot 부재로 재생성 금지 |
+| 방 snapshot/events/history | 해당 timeline generation·메시지/인용/반응·미디어 파생 cache·두 cursor 폐기, 방 송신 중지 | 새 timeline cacheId와 snapshot. outbox는 별도로 주차하고 현재 scope 확인 후 GET receipt 조회; SEND 재시도는 별도 결정하며 snapshot 부재로 재생성 금지 |
 | 방 profile manifest | profile staging/continuation/cacheId와 기존 민감 profile 표시 무효화 | 새 profile cycle을 완주해 replace. 메시지 cursor는 유지하되 현재 권한 확인 실패 시 방/계정 정리로 확대 |
 | 계정/방 인가 상실 확인 | 위 cache reset을 넘어 관련 outbox·초안·credential(계정 종료 시)까지 정리 | 새 인가/참여 이후에도 과거 명령 자동 부활 금지 |
 
@@ -401,6 +439,36 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 | MB06 — 미디어 | MB04/05, M08 계약·실배포 검증 | picker/전처리, upload 상태 머신, 처리 대기·재시도, authorized URL loader, 스티커/아바타 | 권한/URL 만료/취소/재시작/크기·형식 거부 및 계정 전환 시험 |
 | MB07 — 계정·알림·출시 UX | MB03/04, C09 계약 합의, 서버 lifecycle/push/moderation/delete 준비 | MB03 logout 확장, 서버 탈퇴, 신고/차단, 생일 공개 철회, MB02c adapter에 실제 push binding/선호 설정/재인가 연결 | 늦은 push/callback/응답의 계정 혼입 0, 데이터 삭제·정책 링크·접근성 |
 | MB08 — 내부 기능 검증 | MB03–05, 서버 실데이터 gate | QA 서명 빌드와 승인된 실제 QA 계정 시나리오, 지원 OS 실기기 결과; 합성 상태는 별도 테스트 | 설치 성공과 기능 성공 분리, 알려진 제한 기록, 출시 기능은 MB06/07 포함 후 별도 승인 |
+
+### MB04의 첫 구현 경계 — 교차 OS 리뷰 반영
+
+C06 `48c00bb`의 schemaVersion 2와 C05 `492f2f7`, C04 `4002329`를 읽고 양 OS 설계를
+독립 검토했다. C06 terminal tombstone은 같은 cache generation/M/A 안에서 모든 later
+live를 거부하도록 서버 담당자가 확정했으며 reference helper의 후속 수정 SHA는 timeline
+구현 전에 다시 고정한다. 현재 첫 단계의 계약 블로커는 없다.
+
+1. **MB04a**는 실제 discovery·complete membership manifest·계정별 on-disk DB와
+   partition/session commit fence까지만 양 OS 동일하게 구현한다. Android Room과 iOS
+   GRDB를 사용하며 원본 멜로밍에 대응 DB 구현이 없어 새 DB라고 기록한다. 기존 HTTP,
+   repository·constructor/dispatcher 주입, 목록 loading/error 구조는 실제 원본을 재사용한다.
+2. discovery는 페이지별 탐색 결과다. 여기에 담긴 joined/M/A가 늦게 도착해 더 최근의
+   authoritative membership을 덮어쓰면 안 된다. 완전하고 같은 generation인 manifest만
+   멤버십 교체·누락 방 정리의 근거다. empty complete, partial, reset, 오류를 구분한다.
+   M/A는 manifest envelope가 아니라 각 room에 있다.
+3. metadata/discovery/memberships/manifest staging/account checkpoint만 저장한다.
+   아직 사용하지 않는 messages/profiles/outbox/drafts 테이블·receipt client는 추가하지 않는다.
+   실제 SQLite rollback/reopen, 페이지 중 종료, 혼합 generation·중복·반복 cursor·schema 1
+   거부, scope 변경과 최종 COMMIT 사이 경쟁, cleanup 실패 후 cold reopen을 시험한다.
+4. 목록·참여 상태·새로고침·페이지/오류/재시도만 실제 결과로 보여준다. 미구현 대화 진입이나
+   join/leave 자리표시 버튼을 제공하지 않는다. **입장/퇴장은 후속 mutation 단계**에서
+   명시적 사용자 동작·서버 응답·완전 manifest 재확인을 함께 완성한다.
+5. **MB04b/c**에서 실제 메시지 cache, C05 전체 projection 교체, 원자적 cursor/effect 저장,
+   C04 GET receipt 복구와 원래 M이 불변인 durable outbox를 차례로 구현한다. 그 전에
+   timeline·composer·SEND worker·읽음 보고·socket을 활성화하지 않는다.
+
+MB03의 실제 provider/기기 gate는 유지하면서 위 코드·격리 검증은 독립 진행한다.
+schema 2의 QA 활성화는 web/Android/iOS 소비자와 backend의 정확한 통합 SHA 및 동시
+전환/rollback 계획을 조율한 뒤 수행한다. 코드 존재를 실제 계정·호스팅 왕복으로 대체하지 않는다.
 
 ### MB02 실행 분할과 현재 우선순위
 
@@ -464,7 +532,8 @@ offline에서 실패해도 UI logout을 무기한 지연시키지 않고 local f
 예전 unregister가 새 계정 binding을 제거하는 경쟁도 시험한다. 이 보장이 없으면 push gate를
 닫지 않는다. 제공자 token/등록 식별자는 실제 SDK 계약에서 확정하며 영구 device ID로 가정하지 않는다.
 
-MB07의 push payload는 최소 route hint로 취급한다. 현재 계정·방을 검증한 뒤 화면을 열며
+MB07의 push payload는 M11의 `{type:sync_required,version:1}` wake-only 신호로만 취급한다.
+내용·방·이동 경로를 추론하거나 자동 이동하지 않고 현재 인증 범위에서 sync를 요청한다.
 토큰 갱신/사용자 전환 시 서버 binding을 정리한다. push 없이 foreground 복구가 가능해야 한다.
 삭제·복구 원장·신고/차단·Apple 계정 lifecycle이 미완료면 공개 출시하지 않는다.
 

@@ -45,6 +45,7 @@ android {
             buildConfigField("String", "ENVIRONMENT", "\"qa\"")
             buildConfigField("String", "API_BASE_URL", "\"https://api.qa.rogi.chat/v1/\"")
             manifestPlaceholders["environment"] = "qa"
+            manifestPlaceholders["authHost"] = "qa.rogi.chat"
             manifestPlaceholders["apiBaseURL"] = "https://api.qa.rogi.chat/v1/"
         }
         create("prod") {
@@ -53,6 +54,7 @@ android {
             buildConfigField("String", "ENVIRONMENT", "\"prod\"")
             buildConfigField("String", "API_BASE_URL", "\"https://api.rogi.chat/v1/\"")
             manifestPlaceholders["environment"] = "prod"
+            manifestPlaceholders["authHost"] = "rogi.chat"
             manifestPlaceholders["apiBaseURL"] = "https://api.rogi.chat/v1/"
         }
     }
@@ -92,6 +94,7 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
+    implementation(libs.androidx.browser)
     implementation(libs.navigation.compose)
     implementation(libs.lifecycle.compose)
     implementation(libs.lifecycle.viewmodel.compose)

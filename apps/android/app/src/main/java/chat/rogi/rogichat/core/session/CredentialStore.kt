@@ -19,6 +19,7 @@ interface CredentialStore {
     suspend fun read(): NativeCredential?
     suspend fun write(credential: NativeCredential)
     suspend fun clear()
+    suspend fun clearStamp(): String? = null
 }
 interface CredentialDisk {
     fun read(): ByteArray?
@@ -27,6 +28,7 @@ interface CredentialDisk {
     fun markCleared()
     fun removeClearMarker()
     fun erase()
+    fun clearStamp(): ByteArray? = if (isCleared()) byteArrayOf(1) else null
 }
 
 /** Meloming TokenStorage's protected persistence boundary, adapted to a single expiring native
@@ -42,6 +44,9 @@ class ProtectedCredentialStore(private val disk: CredentialDisk, private val cip
         disk.write(cipher.seal(credential))
         disk.removeClearMarker()
     }
+    override suspend fun clearStamp(): String? = guarded { disk.clearStamp()?.let {
+        java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(java.security.MessageDigest.getInstance("SHA-256").digest(it))
+    } }
     override suspend fun clear() = guarded {
         disk.markCleared()
         disk.erase()
