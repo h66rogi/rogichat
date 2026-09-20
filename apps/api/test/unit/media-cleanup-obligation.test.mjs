@@ -189,3 +189,10 @@ test('late writer acknowledgement after DELETE needs a later ordered DELETE befo
   assert.equal(f.calls.refunds, 0);
   await f.run(); assert.equal(f.state().asset.state, 'DELETED'); assert.equal(f.calls.refunds, 1);
 });
+
+test('durable actual PUT acknowledgement proves an ALLOCATED writer, but absence alone does not', () => {
+  const row = { id: 'attempt', object_key: 'key', state: 'ALLOCATED', byte_length: null, sha256: null };
+  assert.equal(acknowledgedWrite(row), false);
+  for (const proof of [true, 1, '1']) assert.equal(acknowledgedWrite({ ...row, writer_acknowledged: proof }), true);
+  for (const proof of [false, 0, null]) assert.equal(acknowledgedWrite({ ...row, writer_acknowledged: proof }), false);
+});
