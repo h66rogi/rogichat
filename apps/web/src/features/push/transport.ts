@@ -1,19 +1,20 @@
 /**
- * The single seam between this module and the shared API client.
+ * The transport seam for the enrollment calls.
  *
- * `src/core/api/client.ts` is owned outside this module and currently sends GET/POST/PATCH
- * only, and it discards the error envelope. M11 additionally needs PUT and DELETE-with-body,
- * and the enrollment states depend on the distinction between 403 FORBIDDEN,
- * 403 SOOP_LINK_REQUIRED and 503 AUTH_UNAVAILABLE. This port states exactly what the client
- * adapter must provide so no part of the transport has to be guessed here:
+ * `http.ts` implements this port for production and is what the settings wiring uses; the
+ * port itself exists so the lifecycle and its failure states can be tested without a network.
+ * Any other implementation must behave the same way:
  *
- *  - same-origin API host with `credentials: 'include'`, `cache: 'no-store'`, `redirect: 'error'`;
- *  - `X-CSRF-Token` on every mutation (PUT/POST/DELETE), from the current session;
- *  - JSON request body for every mutation, including DELETE;
- *  - resolve for any HTTP status, including 4xx/5xx: return the status and the parsed JSON body
- *    (`{error:{code}}` for failures, `null` for 204 and for non-JSON bodies). Never throw on a
- *    non-2xx status, and never surface the raw body text;
- *  - reject only when the request never completed (network failure, abort, timeout).
+ *  - approved API origin, `credentials: 'include'`, `cache: 'no-store'`, `redirect: 'error'`;
+ *  - the current session's `X-CSRF-Token` on every mutation (PUT/POST/DELETE), read per request;
+ *  - a JSON request body on every mutation, including DELETE;
+ *  - resolve for any HTTP status, including 4xx/5xx: return the response's own status — never
+ *    one inferred from the method — and the parsed JSON body (`{error:{code}}` for a failure
+ *    whose code the contract defines for that status, `null` otherwise and for 204). Never
+ *    throw on a non-2xx status, and never surface raw body text;
+ *  - reject only when the request never completed (network failure, abort, timeout), keeping
+ *    `AbortError`'s name so the account/session fence can tell an abort from a network failure,
+ *    or with a `PushError` for a state it already knows, such as an unusable session token.
  *
  * See docs/web-push-integration.md for the wiring contract.
  */
@@ -26,7 +27,7 @@ export interface PushHttpRequest {
 
 export interface PushHttpResponse {
   status: number;
-  /** Parsed JSON body, or null for an empty (204) or non-JSON response. */
+  /** Parsed JSON body, or null for an empty (204), non-JSON or untrusted body. */
   json: unknown;
 }
 
