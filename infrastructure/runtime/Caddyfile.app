@@ -1,4 +1,14 @@
 {
+	# Error logs also contain requests; do not retain OAuth queries or headers.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers delete
+			}
+		}
+	}
 	admin localhost:2019
 }
 

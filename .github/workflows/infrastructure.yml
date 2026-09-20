@@ -50,3 +50,4 @@ jobs:
         run: |
           python3 tools/operations/check_web_runtime.py
           python3 -m unittest discover -s tools/operations -p 'test_web_*.py'
+          python3 -m unittest discover -s tools/operations -p 'test_caddy_privacy.py'
