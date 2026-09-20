@@ -2,17 +2,22 @@
 
 Android는 서명 APK를 Firebase App Distribution에 올리고, 테스터는 App Tester로 설치한다.
 Play Console에 직접 올릴 서명 AAB도 함께 만든다. iOS는 서명 Archive → IPA export →
-Apple validation → TestFlight 업로드 순서다. `4e222de`까지의 QA 앱은
-[오프라인 와이어프레임](mobile-wireframe-progress.md)이며 실제 로그인·전송은 미연동이다.
-사용자 보정으로 이 제품 방향은 폐기됐다. 다음 앱 변경 배포는
-[통합 계획 §2.1·§8](mobile-implementation-plan.md)의 **멜로밍 구현 최대 재사용, QA/prod 공통
-제품 구성, 양 배포 산출물 fixture 제외** 기준을 충족해야 한다. 문서 수정만으로 기존 앱이
-교체된 것으로 보고하거나 동일한 미리보기 앱의 build number만 올려 재배포하지 않는다.
+Apple validation → TestFlight 업로드 순서다. `4e222de`까지의
+[오프라인 와이어프레임](mobile-wireframe-progress.md) 제품 방향은 폐기됐다.
+현재 [제품 구성 교체](mobile-product-progress.md)는 [통합 계획 §2.1·§8](mobile-implementation-plan.md)의
+**멜로밍 구현 최대 재사용, QA/prod 공통 제품 구성, 양 배포 산출물 fixture 제외**를 적용한다.
+네이티브 로그인·프로필 API·채팅 통합은 아직 완료되지 않았다. 내부 테스트 배포를
+로그인·대화 가능한 MVP 완성이나 정식 출시로 보고하지 않는다.
 이 설명은 기존 TestFlight/App Tester 업로드가 최신 소스라는 뜻이 아니다. 배포된 source SHA와
 build number는 개별 release manifest로 확인한다. 이 도구는 `chat.rogi.rogichat.qa`만 처리한다.
 
 사용자 운영 지시: 단계별 구현·검증·커밋 후 두 QA 배포 경로에 업로드하고 처리/테스터 접근을 확인한다.
 테스터 식별자는 공개 문서에 기록하지 않는다.
+
+`product_guards.py`가 제품 소스와 APK/AAB·iOS 앱/IPA의 기존 합성 host·샘플 계정/방·미리보기
+진입을 차단한다. 서명 빌드와 업로드 전에도 같은 검사를 실행하며, 테스트 fixture는
+Android `src/testQa`·iOS `Tests`에만 둔다. 배포 manifest의 source SHA와 `dirty=false`,
+산출물 SHA-256, 원격 처리 상태와 테스터 접근 확인은 Git 밖의 배포 기록에 보관한다.
 
 ## 로컬 설정
 
@@ -124,7 +129,7 @@ API에서 같은 build number가 이미 보이거나 로컬 업로드 시도 기
 연결한다. 테스터가 TestFlight에서 설치 가능한지까지 확인해야 테스트 배포 완료다.
 이 도구는 테스터 초대나 외부 심사 제출을 자동으로 수행하지 않는다.
 
-현재 미연동 QA 와이어프레임에는 암호화 구현이나 외부 라이브러리가 없으므로
+현재 iOS 앱에는 별도 암호화 구현이나 외부 라이브러리가 없으므로
 `ITSAppUsesNonExemptEncryption=false`를 plist에 명시한다. 암호화 기능이나 의존성을
 추가할 때에는 [Apple의 해당 키 설명](https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption)에 따라 선언을 다시 검토한다.
 

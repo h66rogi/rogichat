@@ -5,11 +5,13 @@ from pathlib import Path
 import plistlib
 import subprocess
 import xml.etree.ElementTree as ET
+from product_guards import inspect_ios_app, inspect_product_sources
 
 ROOT = Path(__file__).resolve().parents[2]
 
 
 def main():
+    inspect_product_sources(platforms=("ios",))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--derived-data", type=Path, default=ROOT / ".build/ios")
     args = parser.parse_args()
@@ -64,11 +66,9 @@ def main():
             macho = subprocess.check_output(["xcrun", "vtool", "-show-build", str(executable)], text=True)
             if "platform IOS" not in macho or "minos 18.0" not in macho:
                 raise SystemExit("Unexpected executable platform or minimum OS")
-            # Debug builds can place Swift code in a companion debug dylib.
-            code = executable.read_bytes() + b"".join(file.read_bytes() for file in app.glob("*.dylib"))
-            if (b"sample-room-a" in code) != (environment == "qa"):
-                raise SystemExit(f"{configuration}: wrong QA wireframe fixture isolation")
-            print(f"{configuration}: unsigned build, bundle configuration and QA fixture isolation verified", flush=True)
+            # Includes the main executable, debug dylib, frameworks and resources.
+            inspect_ios_app(app, info["CFBundleExecutable"])
+            print(f"{configuration}: unsigned build, bundle configuration and product fixture exclusion verified", flush=True)
 
 
 if __name__ == "__main__":

@@ -39,6 +39,8 @@ jobs:
           java-version: '17'
       - name: Install pinned Android SDK packages
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
+      - name: Reject synthetic product entry points in either environment
+        run: python3 tools/mobile/product_guards.py
       - name: Compile every variant and check environment separation
         working-directory: apps/android
         run: ./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdDebug :app:assembleProdRelease :app:test :app:lint :app:lintQaDebug :app:lintQaRelease :app:lintProdRelease --no-daemon
@@ -77,7 +79,7 @@ jobs:
           python3 tools/mobile/install_xcodegen.py
           .tools/xcodegen-2.44.1/xcodegen/bin/xcodegen generate --spec apps/ios/project.yml
           git diff --exit-code -- apps/ios/Rogichat.xcodeproj
-      - name: Check wireframe navigation and draft isolation without a simulator
+      - name: Check product state and test-only scenario isolation without a simulator
         run: python3 tools/mobile/check_ios_wireframe.py
       - name: Verify signing security with a disposable keychain
         env:

@@ -59,7 +59,9 @@ android {
         release {
             // Store signing is configured only in a separate trusted release workflow.
             signingConfig = null
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
         }
     }
     buildFeatures {
@@ -89,5 +91,9 @@ dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
+    implementation(libs.navigation.compose)
+    implementation(libs.lifecycle.compose)
+    implementation(libs.lifecycle.viewmodel.compose)
+    implementation(libs.phosphor)
     testImplementation(libs.junit)
 }
