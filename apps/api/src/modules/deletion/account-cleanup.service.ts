@@ -1,0 +1,44 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { Transactions } from '../../infrastructure/database/transactions.js';
+import { NotificationsCoreService } from '../notifications/notifications-core.service.js';
+import { ReadStateCoreService } from '../read-state/read-state-core.service.js';
+import { AccountCleanupRepository } from './account-cleanup.repository.js';
+import { DeletionLedger, deletionIntentKey } from './deletion-ledger.js';
+
+export type AccountCleanupPhase = 'private-fields' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'subset-drained';
+export interface AccountCleanupResult { phase: AccountCleanupPhase; changed: number; hasMore: boolean }
+
+/** Explicit internal step; no scheduler, HTTP endpoint or global completion claim. */
+@Injectable()
+export class AccountCleanupService {
+  constructor(@Inject(Transactions) private readonly transactions: Transactions,
+    @Inject(DeletionLedger) private readonly ledger: DeletionLedger,
+    @Inject(AccountCleanupRepository) private readonly repository: AccountCleanupRepository,
+    @Inject(ReadStateCoreService) private readonly readState: ReadStateCoreService,
+    @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService) {}
+
+  async step(requestId: string, limit = 100): Promise<AccountCleanupResult> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('invalid_account_cleanup_limit');
+    // Re-read the immutable external evidence before any database transaction.
+    // A DB job, fabricated receipt or caller-supplied user ID alone is not authority.
+    const receipt = await this.ledger.readByKey(deletionIntentKey(this.ledger.environment, requestId));
+    if (receipt.intent.scope !== 'ACCOUNT') throw new Error('account_cleanup_scope');
+    return this.transactions.write<AccountCleanupResult>(async tx => {
+      await this.repository.authorize(tx, receipt);
+      const userId = receipt.intent.targetId;
+      const privateFields = await this.repository.privateFields(tx, userId);
+      if (privateFields) return { phase: 'private-fields', changed: privateFields, hasMore: true };
+      const read = await this.readState.purgeAccount(tx, userId, limit);
+      if (read.deleted || read.hasMore) return { phase: 'read-state', changed: read.deleted, hasMore: true };
+      const member = await this.repository.memberPage(tx, userId, limit);
+      if (member) return { ...member, hasMore: true };
+      const push = await this.notifications.purgeAccount(tx, userId, limit);
+      if (push.deleted || !push.done) return { phase: 'push', changed: push.deleted, hasMore: true };
+      const sessions = await this.repository.sessions(tx, userId, limit);
+      if (sessions) return { phase: 'sessions', changed: sessions, hasMore: true };
+      // No persistent phase flag: after restart, re-check the first remaining
+      // page in every phase. Identity/media/content and global purge are pending.
+      return { phase: 'subset-drained', changed: 0, hasMore: false };
+    });
+  }
+}

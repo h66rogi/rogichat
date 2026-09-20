@@ -25,6 +25,12 @@ This source integration is not a QA release or a completed M10 purge.
   legacy DELETED rows are not sufficient proof. This is the bounded safety slice
   described in [its closure review](backend-media-late-write-closure.md), not
   complete external-storage purge.
+- Bounded account cleanup `16a0f70` (PR 57): Backend CI `35499919734` passed
+  329 unit, 18 e2e, 18 contract and 273 disposable-MySQL tests, plus image safety.
+  Its isolated internal module drains private profile/capability fields,
+  read-state, own membership/reactions/grants/periods, push references and sessions.
+  It remains unregistered in API/worker runtime; identity, avatar/media, outbox,
+  shared cache invalidation and global purge obligations remain outstanding.
 
 These input results do not substitute for final composed-tree validation.
 
@@ -54,13 +60,16 @@ The earlier MESSAGE/push integration `46bca35` passed all required hosted gates,
 including Backend CI `35498258627`. ACCOUNT/owner composition `388c9d0` then
 passed Backend CI `35499262730`; its docs-only follow-up `d9614ed` passed all
 required gates, including Backend CI `35499608318`. These results do not cover
-the subsequent media composition, which needs its own hosted build,
+the subsequent media/account-cleanup composition, which needs its own hosted build,
 generated-client/schema, unit, HTTP/OpenAPI, real-MySQL and image checks.
 The local resource gate defers new heavy suites. Existing tests and explicit
 API/worker push-plus-deletion composition regressions are retained. The media
 merge changes no HTTP contract, configuration key or migration; consumer and
 private-operations source scans found no dependency on its internal helper or
 object-state representation.
+The account-cleanup merge adds only its isolated module, tests and documentation;
+it does not install a scheduler, change a controller, or claim a drained subset
+means completed account deletion.
 
 Ordinary app-only QA source merges were cleared after web delivery commissioning.
 This candidate still changes the root dependency lockfile and API image build,
@@ -80,3 +89,13 @@ coordinated web/native cutover, not silently included in this additive batch.
 ACCOUNT admission additionally needs a dedicated file-only identity guard key;
 missing configuration returns unavailable rather than acknowledging deletion.
 No key has been generated or installed by this source integration.
+
+An independent replay review also confirmed a liveness gap: a persistently
+invalid/unavailable ledger record or failed apply/scrub pins the current page and
+can starve later independent intents. Inventory-envelope validation can block
+discovery before an individual item is reached. A separate durable failure
+journal/fair-discovery implementation is being designed; merely skipping errors
+or retaining an unbounded memory retry queue is not accepted. The existing
+`passFinished` result denotes inventory exhaustion only, not complete resolution;
+no runtime restore-release consumer of that flag exists in this source. Complete
+restore/purge authority remains a separate gate.
