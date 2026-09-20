@@ -136,7 +136,13 @@ export class ChatController {
             let unknownPosition = false;
             for (const value of list(page.events)) {
               const event = record(value);
-              if (event.type === 'message.deleted') this.messages = this.messages.filter(item => item.id !== string(event.messageId));
+              if (event.type === 'message.deleted') {
+                string(event.messageId);
+                // A remote deletion also invalidates quotes in hidden composer drafts
+                // and untraceable copies. Reset the complete UI/cache epoch before
+                // reauthorizing, just like local deletion; keep uncertain send IDs.
+                throw new ResetRequired();
+              }
               else if (event.type === 'message.upsert') {
                 const incoming = message(event.message);
                 if (!this.messages.some(item => item.id === incoming.id)) unknownPosition = true;

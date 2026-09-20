@@ -80,6 +80,7 @@ void test('reconnect refresh resumes cursor, applies deletion, and history remai
   const paths: string[] = []; let remove = false;
   const controller = new ChatController(room.roomId, backend(async path => {
     paths.push(path);
+    if (path.includes('/snapshot?') && remove) return { schemaVersion: 1, resetRequired: false, messages: [source('older-test', '2026-08-01T00:00:00.000Z')], nextCursor: 'after-delete', historyCursor: null };
     if (path.includes('/events?') && remove) return { schemaVersion: 1, resetRequired: false, events: [{ type: 'message.deleted', messageId: 'message-test', version: '2' }], nextCursor: 'after-delete', hasMore: false };
     return undefined;
   }));
@@ -239,4 +240,22 @@ void test('delete 403/404 immediately hide prior private data and revalidate wit
     await controller.refresh(); assert.ok(manifests >= 2); assert.equal(invalidations, 0);
     assert.deepEqual(controller.getSnapshot().items, []); controller.dispose();
   }
+});
+
+void test('remote deletion purges the complete draft epoch before recovery without forgetting uncertain sends', async () => {
+  let removed = false; let observedEmpty = false; const ids: string[] = [];
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (path.includes('/events?') && removed) return { schemaVersion: 1, resetRequired: false, events: [{ type: 'message.deleted', messageId: 'message-test', version: '2' }], nextCursor: 'deleted', hasMore: false };
+    if (path.includes('/snapshot?') && removed) return { schemaVersion: 1, resetRequired: false, messages: [], nextCursor: 'deleted', historyCursor: null };
+    if (path.endsWith('/messages')) { ids.push((options?.body as { clientMessageId: string }).clientMessageId); throw new TypeError('ack lost'); }
+    return undefined;
+  }));
+  await controller.refresh(); await controller.send(submission);
+  const epoch = controller.getSnapshot().epoch;
+  controller.subscribe(() => { const state = controller.getSnapshot(); if (state.epoch > epoch && state.phase === 'loading' && state.items.length === 0) observedEmpty = true; });
+  removed = true; await controller.refresh();
+  assert.equal(observedEmpty, true); assert.equal(controller.getSnapshot().epoch, epoch + 1);
+  assert.deepEqual(controller.getSnapshot().items, []);
+  await controller.send(submission);
+  assert.equal(ids.length, 2); assert.equal(ids[0], ids[1]); controller.dispose();
 });
