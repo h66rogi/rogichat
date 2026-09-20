@@ -39,7 +39,7 @@ def expected_policy():
     rules = [{"id": "rogichat-ssh-public-key", "description": "SSH public key material is also prohibited by repository policy", "regex": SSH_REGEX},
              {"id": "rogichat-public-key-formats", "description": "PEM and RFC4716 public keys are prohibited", "regex": PUBLIC_REGEX},
              {"id": "rogichat-github-installation-token", "description": "GitHub installation tokens including variable-length formats",
-              "regex": r"\bghs_[A-Za-z0-9._-]{36,}", "keywords": ["ghs_"]}]
+              "regex": r"ghs_[A-Za-z0-9._-]{36,}", "keywords": ["ghs_"]}]
     if PRIVATE_OPS:
         rules[0]["allowlists"] = [{"paths": [KEY_PATH]}]
     return {"title": "Rogichat private ops secret policy" if PRIVATE_OPS else "Rogichat public repository secret policy",

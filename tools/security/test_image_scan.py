@@ -73,6 +73,19 @@ class ImageScanTests(unittest.TestCase):
                         self.assertEqual(str(caught.exception), 'secret findings require review')
                         self.assertNotIn(value, str(caught.exception))
 
+    def test_installation_token_adjacent_literals_in_binary_and_utf16(self):
+        token = self.installation_token(520, True)
+        for prefix, suffix in ((b"X", b""), (b"TOKEN_", b""), (b"v2", b""),
+                               (b"someOtherStringLiteral", b"nextLiteral")):
+            value = prefix + token + suffix
+            for encoding, payload in (("binary", b"\0\xff" + value + b"\0"),
+                                      ("utf16", value.decode().encode("utf-16"))):
+                with self.subTest(prefix=prefix, suffix=suffix, encoding=encoding):
+                    with self.assertRaises(scan.Blocked) as caught:
+                        self.run_scan(image([tar([('app/data', payload)])]))
+                    self.assertEqual(str(caught.exception), 'secret findings require review')
+                    self.assertNotIn(token.decode(), str(caught.exception))
+
     def test_installation_token_short_template_and_boundary(self):
         for value in ("gh" + "s_APPID_JWT", "gh" + "s_" + "a" * 35):
             self.run_scan(image([tar([('app/data', value.encode())])]))

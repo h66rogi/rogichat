@@ -72,6 +72,15 @@ class GuardTests(unittest.TestCase):
                         (self.repo / "settings.txt").write_text("clean worktree\n")
                         self.assert_installation_blocked(token)
 
+    def test_installation_token_adjacent_literals_in_exact_staged_blob(self):
+        token = self.installation_token(520, True)
+        for prefix, suffix in (("X", ""), ("TOKEN_", ""), ("v2", ""),
+                               ("someOtherStringLiteral", "nextLiteral")):
+            with self.subTest(prefix=prefix, suffix=suffix):
+                self.stage_file("settings.txt", prefix + token + suffix)
+                (self.repo / "settings.txt").write_text("clean worktree\n")
+                self.assert_installation_blocked(token)
+
     def test_installation_token_short_template_and_boundary(self):
         for value in ("gh" + "s_APPID_JWT", "gh" + "s_" + "a" * 35):
             self.stage_file("template.txt", value)
@@ -96,8 +105,8 @@ class GuardTests(unittest.TestCase):
         self.assert_installation_blocked(token, "all")
 
     def test_installation_token_filename_without_echo(self):
-        # A filesystem component cannot contain a 390-character token; use legacy length.
-        token = self.installation_token(40)
+        # Use a short structured token: it fits NAME_MAX and stock rules miss it.
+        token = self.installation_token(40, True)
         self.stage_file(token + ".txt", "public content")
         self.assert_installation_blocked(token)
 
