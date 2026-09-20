@@ -2,8 +2,10 @@
 
 Android는 서명 APK를 Firebase App Distribution에 올리고, 테스터는 App Tester로 설치한다.
 Play Console에 직접 올릴 서명 AAB도 함께 만든다. iOS는 서명 Archive → IPA export →
-Apple validation → TestFlight 업로드 순서다. 현재 앱은 시작 화면만 있으며 로그인·채팅은
-아직 구현하지 않았다. 이 도구는 `chat.rogi.rogichat.qa`만 처리한다.
+Apple validation → TestFlight 업로드 순서다. 현재 소스의 QA 앱은
+[오프라인 와이어프레임](mobile-wireframe-progress.md)을 제공하며 실제 로그인·전송은 미연동이다.
+이 설명은 기존 TestFlight/App Tester 업로드가 최신 소스라는 뜻이 아니다. 배포된 source SHA와
+build number는 개별 release manifest로 확인한다. 이 도구는 `chat.rogi.rogichat.qa`만 처리한다.
 
 ## 로컬 설정
 
@@ -115,7 +117,7 @@ API에서 같은 build number가 이미 보이거나 로컬 업로드 시도 기
 연결한다. 테스터가 TestFlight에서 설치 가능한지까지 확인해야 테스트 배포 완료다.
 이 도구는 테스터 초대나 외부 심사 제출을 자동으로 수행하지 않는다.
 
-현재 시작 화면 앱에는 암호화 구현이나 외부 라이브러리가 없으므로
+현재 미연동 QA 와이어프레임에는 암호화 구현이나 외부 라이브러리가 없으므로
 `ITSAppUsesNonExemptEncryption=false`를 plist에 명시한다. 암호화 기능이나 의존성을
 추가할 때에는 [Apple의 해당 키 설명](https://developer.apple.com/documentation/bundleresources/information-property-list/itsappusesnonexemptencryption)에 따라 선언을 다시 검토한다.
 

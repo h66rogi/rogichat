@@ -21,6 +21,10 @@ Android/iOS는 원격에서 별도 reference checkout을 확보했다.
 
 ## 재사용 판단
 
+아래 표는 최초 후보 조사 기록이다. 2026-09-20 사용자 보정으로 모바일 Talk/TalkV2의
+UX/구현 이식 후보는 제외했다. 최신 공통 기반 후보는 [모바일 재사용 조사](mobile-reuse-audit.md),
+실행 기준은 [통합 구현 계획](mobile-implementation-plan.md)을 따른다.
+
 | 영역 | 재사용 후보 | 먼저 분리/검증할 것 |
 |---|---|---|
 | 1:N 웹 UI | `TalkStreamerView`, message bubble/list/input, 낙관적 전송 상태 | 전역 채널·결제·이모티콘 의존, 임시 ID와 ACK 동기화 |
