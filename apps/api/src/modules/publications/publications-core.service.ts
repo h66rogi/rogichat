@@ -20,7 +20,7 @@ const receipt = (row: { id: unknown; state: unknown; published_message_id?: unkn
 @Injectable()
 export class PublicationsCoreService {
   constructor(@Inject(PublicationsRepository) private readonly repository: PublicationsRepository, @Inject(AccessService) private readonly access: AccessService, @Inject(MessagesCoreService) private readonly messages: MessagesCoreService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(PublicationPhotoRepository) private readonly photos: PublicationPhotoRepository) {}
-  private async sourceForOwner(tx: Transaction, roomId: string, userId: string, messageId: string) {
+  protected async sourceForOwner(tx: Transaction, roomId: string, userId: string, messageId: string) {
     const [room] = await this.repository.lockRoom(tx, identifier(roomId));
     if (!room || room.status !== 'ACTIVE') throw new ApiError('NOT_FOUND', 404);
     const viewer = await this.access.requireActiveMember(tx, roomId, userId);

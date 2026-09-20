@@ -82,7 +82,7 @@ test('native issuance contract preserves conditional consent, strict proofs and 
   const exchange = { clientId: 'android', transactionId: randomUUID(), code: proof, codeVerifier: 'v'.repeat(128) };
   check(nativeExchangeRequest, exchange);
   for (const body of [{ ...exchange, codeVerifier: 'v'.repeat(129) }, { ...exchange, codeVerifier: 'short' }, { ...exchange, code: null }, { ...exchange, clientId: 'web' }, { ...exchange, subject: 'injected' }]) check(nativeExchangeRequest, body, false);
-  const { app, config } = await openApiFixture('auth'); t.after(() => app.close());
+  const { app, config } = await openApiFixture('native-feature'); t.after(() => app.close());
   const doc = createOpenApiDocument(app, config);
   for (const path of ['/v1/auth/native/soop/transactions', '/v1/auth/native/completions/exchange']) {
     const operation = doc.paths[path].post;

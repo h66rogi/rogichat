@@ -15,6 +15,6 @@ export const authDocs = {
     ApiResponse({ status: 200, headers: { 'Set-Cookie': { description: 'HttpOnly 트랜잭션 바인딩 쿠키. hosted에서는 Secure/__Host- 접두사.', schema: text } } })),
   callback: () => applyDecorators(contract({ id: 'finishSoopAuthentication', summary: 'SOOP 인증 결과 callback', auth: 'none', status: 303, errors: [400, 401, 403, 429],
     query: [{ name: 'state', required: true, schema: opaque }, { name: 'code', required: false, schema: opaque }, { name: 'error', required: false, schema: enumeration('PROVIDER_DENIED', 'PROVIDER_AUTH_FAILED') }],
-    description: 'code 또는 error 중 하나와 시작 단계의 트랜잭션 쿠키가 필요합니다. 저장된 채널에 따라 웹은 성공 시 세션 쿠키를 설정하고, native는 세션 쿠키 없이 일회성 completion code 또는 안전한 error와 returnState를 고정 HTTPS handoff로 보냅니다. 채널·리다이렉트 주소는 호출자가 선택할 수 없습니다. 이 endpoint는 Swagger에서 수동 실행하지 않습니다.' }),
-    ApiResponse({ status: 303, description: '저장된 채널의 고정 웹 경로로 이동', headers: { Location: { schema: text, description: '웹 홈/실패 화면 또는 native HTTPS completion handoff' }, 'Set-Cookie': { schema: text, description: '트랜잭션 쿠키 제거. 웹 성공 시에만 세션 쿠키 설정.' } } })),
+    description: 'code 또는 error 중 하나와 시작 단계의 트랜잭션 쿠키가 필요합니다. 성공 시 세션 쿠키를 설정하고 웹으로 303 이동합니다. 이 endpoint는 Swagger에서 수동 실행하지 않습니다.' }),
+    ApiResponse({ status: 303, description: '웹 앱으로 이동', headers: { Location: { schema: text, description: '웹 홈 또는 인증 실패 화면' }, 'Set-Cookie': { schema: text, description: '트랜잭션 쿠키 제거 및 성공 시 세션 쿠키 설정' } } })),
 };

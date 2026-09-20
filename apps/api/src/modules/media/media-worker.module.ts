@@ -10,13 +10,14 @@ import { MediaSpooler } from '../../common/media/media-spool.js';
 import { UnixImageDecoder } from './adapters/media-decoder-client.js';
 import { MediaStorageModule } from './media-storage.module.js';
 import { MediaWorkerRepository } from './media-worker.repository.js';
+import { RecoveryMediaWorkerService } from './recovery-media-worker.service.js';
 import { MediaWorkerService } from './media-worker.service.js';
 import { MEDIA_DECODER } from './media.tokens.js';
 @Module({})
 export class MediaWorkerModule {
   static register(infrastructure: DynamicModule, settings: MediaSettings): DynamicModule {
     return { module: MediaWorkerModule, imports: [infrastructure, PublicationsCoreModule, AccessModule, JobsCoreModule, MessagesCoreModule, MediaStorageModule.register(settings, true)],
-      providers: [MediaCopyService, MediaWorkerRepository, MediaWorkerService,
+      providers: [MediaCopyService, MediaWorkerRepository, { provide: MediaWorkerService, useClass: RecoveryMediaWorkerService },
         { provide: MEDIA_DECODER, inject: [MediaSpooler], useFactory: (spool: MediaSpooler) => new UnixImageDecoder(settings.decoderSocket!, spool) }], exports: [MediaWorkerService, MediaCopyService] };
   }
 }

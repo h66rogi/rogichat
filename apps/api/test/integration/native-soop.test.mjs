@@ -6,7 +6,11 @@ import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
-import { createApi } from '../../dist/application.js';
+import { createConfiguredApi } from '../../dist/application.js';
+import { AppModule } from '../../dist/app.module.js';
+import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
+import { AuthController } from '../../dist/modules/auth/auth.controller.js';
+import { NativeAuthController } from '../../dist/modules/auth/native-auth.controller.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { IdentityRepository } from '../../dist/modules/auth/identity.repository.js';
@@ -59,7 +63,11 @@ async function fixture(t, overrides = {}) {
   const broker = new FixtureBroker(); const identities = new IdentityService(new IdentityRepository());
   const nativeFlow = new NativeAuthService(sessions, db.transactions, config, broker, new NativeAuthRepository(), identities, new LoginRepository());
   const flow = new AuthFlow(sessions, db.transactions, config, broker, new LoginRepository(), identities);
-  app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config, sessions, flow, nativeFlow });
+  // Explicit isolated registration retains security coverage for the unshipped feature.
+  const lifecycle = new LifecycleState();
+  const module = AppModule.register(db, lifecycle, { config, sessions, flow, nativeFlow });
+  module.imports.find(entry => entry.module?.name === 'AuthModule').controllers = [AuthController, NativeAuthController];
+  app = await createConfiguredApi(module, new SafeLogger('api', line => { logs += line; }), lifecycle, config);
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const verify = responseContract(app, config);
   const checked = async (method, path, options) => {
