@@ -51,6 +51,7 @@ enum SignInMethod: String, Sendable { case apple, soop }
 struct SessionCapabilities: Sendable {
     var signInMethods: [SignInMethod] = []
     var canLinkSOOP = false
+    var canLinkApple = false
     var canEditProfile = false
     var canSignOut = false
     var canDeleteAccount = false
@@ -58,9 +59,10 @@ struct SessionCapabilities: Sendable {
 }
 
 enum ProductError: Error, LocalizedError, Equatable {
-    case unavailable, sessionChanged, connection, unauthenticated, linkRequired, invalidResponse, secureStorage, remoteLogoutUnconfirmed, accountDeletionPending, deletionHistoryFull
+    case notificationPermission, unavailable, sessionChanged, connection, unauthenticated, linkRequired, invalidResponse, secureStorage, remoteLogoutUnconfirmed, accountDeletionPending, deletionHistoryFull
     var errorDescription: String? {
         switch self {
+        case .notificationPermission: "이 기기의 알림 허용 상태가 변경되었어요. 설정을 확인한 뒤 다시 선택해 주세요."
         case .accountDeletionPending: "탈퇴 요청의 기기 정리를 먼저 완료해 주세요."
         case .deletionHistoryFull: "기기에 저장된 탈퇴 요청 기록이 가득 찼어요. 새 요청은 보내지 않았어요."
         case .unavailable: "이 기능을 사용할 수 없어요."
@@ -75,6 +77,9 @@ enum ProductError: Error, LocalizedError, Equatable {
     }
 }
 
+protocol AccountFeatureAuthorizing: Sendable {
+    func accountFeatureData(_ input: ConversationFeatureRequest, scope: RoomsScope) async throws -> Data
+}
 protocol ConversationAuthorizing: Sendable {
     func conversationData(_ endpoint: ConversationRequest, scope: ConversationScope) async throws -> Data
 }
@@ -102,12 +107,14 @@ protocol SessionServing: Sendable {
     func acceptAuthCallback(_ url: URL) async throws -> SessionSnapshot?
     func beginSOOP(consentVersion: String, attempt: SessionAttempt) async throws -> SessionSnapshot
     func beginLinkSOOP(attempt: SessionAttempt) async throws -> SessionSnapshot
+    func beginApple(consentVersion: String?, link: Bool, attempt: SessionAttempt) async throws -> SessionSnapshot
     func cancelAuthentication() async throws -> SessionSnapshot?
     func resetLocalSession() async throws
     func resetLocalSession(attempt: SessionAttempt) async throws
 }
 
 extension SessionServing {
+    func beginApple(consentVersion: String?, link: Bool, attempt: SessionAttempt) async throws -> SessionSnapshot { throw ProductError.unavailable }
     func signInSOOP(consentVersion: String) async throws -> SessionSnapshot { try await signIn(.soop) }
     func acceptAuthCallback(_ url: URL) async throws -> SessionSnapshot? { throw ProductError.unavailable }
     func beginSOOP(consentVersion: String, attempt: SessionAttempt) async throws -> SessionSnapshot { try attempt.check(); return try await signInSOOP(consentVersion: consentVersion) }
@@ -157,7 +164,9 @@ final class AppSession {
     }
     @ObservationIgnored private var deletionWork: Task<Void, Never>?
     private(set) var errorMessage: String?
-    private(set) var generation: UInt64 = 0
+    private var featureAttempt = SessionAttempt()
+    private(set) var generation: UInt64 = 0 { didSet { featureAttempt.cancel(); featureAttempt = SessionAttempt(); scopeInvalidated?() } }
+    @ObservationIgnored var scopeInvalidated: (@MainActor () -> Void)?
     private let service: any SessionServing
     var capabilities: SessionCapabilities { service.capabilities }
     init(service: any SessionServing = UnavailableNativeSession()) { self.service = service }
@@ -237,12 +246,17 @@ final class AppSession {
     }
     func signIn(_ method: SignInMethod, consent: Bool = false) async {
         guard access == .signedOut, capabilities.signInMethods.contains(method), !busy else { return }
-        if method == .soop {
-            guard consent else { errorMessage = "이용 안내를 확인하고 동의해 주세요."; return }
-            let attempt = SessionAttempt(); authAttempt = attempt
-            await transition { try await self.service.beginSOOP(consentVersion: "2026-09-20", attempt: attempt) }
-        } else { await transition { try await self.service.signIn(method) } }
+        guard consent else { errorMessage = "이용 안내를 확인하고 동의해 주세요."; return }
+        let attempt = SessionAttempt(); authAttempt = attempt
+        if method == .soop { await transition { try await self.service.beginSOOP(consentVersion: "2026-09-20", attempt: attempt) } }
+        else { await transition { try await self.service.beginApple(consentVersion: "2026-09-20", link: false, attempt: attempt) } }
     }
+    func linkApple() async {
+        guard capabilities.canLinkApple, account != nil, [.ready, .linkRequired].contains(access), !busy else { return }
+        let attempt = SessionAttempt(); authAttempt = attempt
+        await transition { try await self.service.beginApple(consentVersion: nil, link: true, attempt: attempt) }
+    }
+
     func linkSOOP() async {
         guard capabilities.canLinkSOOP, access == .linkRequired, !busy else { return }
         let attempt = SessionAttempt(); authAttempt = attempt
@@ -321,6 +335,14 @@ final class AppSession {
             busy = false; access = .retryableFailure; errorMessage = ProductError.secureStorage.errorDescription
         }
     }
+    func accountFeatureData(_ input: ConversationFeatureRequest, scope: RoomsScope) async throws -> Data {
+        guard !busy, access == .ready, roomsScope === scope, let service = service as? any AccountFeatureAuthorizing else { throw ProductError.sessionChanged }
+        let ticket = generation
+        do {
+            let data = try await service.accountFeatureData(input, scope: scope)
+            guard ticket == generation, roomsScope === scope else { throw ProductError.sessionChanged }; try scope.check(); return data
+        } catch { await handleAccountError(error, ticket: ticket); throw error }
+    }
     func conversationData(_ endpoint: ConversationRequest, scope: ConversationScope) async throws -> Data {
         guard !busy, access == .ready, roomsScope === scope.account, let service = service as? any ConversationAuthorizing else { throw ConversationError.staleScope }
         let ticket = generation
@@ -361,6 +383,29 @@ final class AppSession {
             await handleAccountError(error, ticket: ticket)
             throw error
         }
+    }
+    func realtimeOffer() async throws -> NativeRealtimeOffer {
+        guard !busy, access == .ready, let clientScope, let service = service as? any NativeRealtimeServing else { throw ProductError.sessionChanged }
+        let ticket = generation
+        let offer = try await service.realtimeOffer(scope: clientScope)
+        guard ticket == generation, self.clientScope == clientScope, !busy, access == .ready else { throw ProductError.sessionChanged }
+        return offer
+    }
+    func pushCapabilities(scope: UInt64) async throws -> NativePushCapabilities {
+        guard scope == generation, !busy, access == .ready, let clientScope, let service = service as? any NativePushServing else { throw ProductError.sessionChanged }
+        do {
+            let value = try await service.pushCapabilities(scope: clientScope)
+            guard scope == generation, self.clientScope == clientScope, !busy else { throw ProductError.sessionChanged }
+            return value
+        } catch { await handleAccountError(error, ticket: scope); throw error }
+    }
+    func enablePush(token: DevicePushToken, scope: UInt64, permission: @escaping @Sendable () async -> PushPermission) async throws -> AccountNotificationPreferences {
+        guard scope == generation, !busy, access == .ready, let clientScope, let service = service as? any NativePushServing else { throw ProductError.sessionChanged }
+        let original = featureAttempt
+        do {
+            let value = try await service.enablePush(token: token, scope: clientScope, permission: permission, original: { try original.check() })
+            guard scope == generation, self.clientScope == clientScope else { throw ProductError.sessionChanged }; return value
+        } catch { await handleAccountError(error, ticket: scope); throw error }
     }
     func loadNotificationPreferences(scope: UInt64) async throws -> AccountNotificationPreferences {
         try await notificationPreferences(scope: scope) { try await $0.loadNotificationPreferences(scope: $1) }

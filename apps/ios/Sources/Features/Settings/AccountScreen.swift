@@ -6,6 +6,7 @@ struct AccountScreen: View {
     let account: AccountSummary
     let capabilities: SessionCapabilities
     let onLink: () -> Void
+    let onLinkApple: () -> Void
     let onSignOut: () async throws -> Void
     let prepareDeletion: () -> AccountDeletionIntent?
     let onDelete: (AccountDeletionIntent) -> Void
@@ -28,6 +29,7 @@ struct AccountScreen: View {
                 if !account.soopConnected && capabilities.canLinkSOOP {
                     Button("SOOP 계정 연결", action: onLink)
                 }
+                if capabilities.canLinkApple { Button("Apple 계정 연결", action: onLinkApple) }
             } header: { Text("연결된 계정") }
               footer: { Text("대화를 이용하려면 SOOP 계정이 연결되어 있어야 해요.") }
             if capabilities.canSignOut || capabilities.canDeleteAccount {

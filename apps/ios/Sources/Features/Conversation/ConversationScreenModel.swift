@@ -106,6 +106,18 @@ final class ConversationScreenModel {
             }
         }
     }
+    func sendAttachment(_ attachment: OutgoingAttachment) async throws -> TextCommand {
+        guard active, listing?.ready == true, !loading, !loadingHistory, !sending, !checking,
+              sharedAllowed || privateTarget != nil else { throw ConversationError.busy }
+        let command = try TextCommand(roomID: scope.room.id, membershipScope: scope.room.membershipScope,
+            recipientActorID: privateTarget, quoteID: quote?.id, attachment: attachment)
+        sending = true; error = nil; defer { sending = false }
+        do {
+            let result = try await coordinator.send(command); try scope.check(); state = .loaded(result)
+            if try await coordinator.containsCommand(command.id) { cancelReply() }
+            return command
+        } catch { await failed(error); throw error }
+    }
     private func failed(_ failure: any Error) async {
         if !active {
             state = .failed(failure); recipients = []; recipient = nil; cancelReply(); draft = ""

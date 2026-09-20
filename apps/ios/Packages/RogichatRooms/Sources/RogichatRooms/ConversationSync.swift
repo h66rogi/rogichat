@@ -117,5 +117,71 @@ public protocol RoomsConversationOpening: Sendable {
 }
 
 public enum ConversationRequest: Sendable {
-    case read(ConversationQuery), send(TextCommand)
+    case read(ConversationQuery), send(TextCommand), feature(ConversationFeatureRequest)
+}
+
+// Constructed only by reviewed feature adapters. This travels through the same immutable
+// account/room authorization gate as sync; no captured credential escapes that boundary.
+public struct ConversationFeatureRequest: Sendable {
+    public let method: String
+    public let path: String
+    public let body: Data?
+    public let upload: URL?
+    public let uploadBytes: Int64?
+    public let expectedStatus: Int
+    public let query: [String: String]
+    public let admit: @Sendable () throws -> Void
+    public init(method: String, path: String, body: Data?, upload: URL? = nil, uploadBytes: Int64? = nil,
+                expectedStatus: Int, query: [String: String] = [:], admit: @escaping @Sendable () throws -> Void = {}) throws {
+        guard ["GET", "POST", "PUT", "PATCH", "DELETE"].contains(method), [200, 201, 202, 204].contains(expectedStatus),
+              !path.isEmpty, !path.hasPrefix("/"), !path.contains(".."), !path.contains("%"), !path.contains("#"),
+              body == nil || upload == nil, upload == nil || uploadBytes.map({ $0 > 0 && $0 <= 50 * 1024 * 1024 }) == true
+        else { throw ConversationError.invalidResponse }
+        self.method = method; self.path = path; self.body = body; self.upload = upload
+        self.uploadBytes = uploadBytes; self.expectedStatus = expectedStatus; self.query = query; self.admit = admit
+    }
+    public func validate(room: String) throws {
+        let raw = path.split(separator: "?", maxSplits: 1).map(String.init)
+        let parts = raw[0].split(separator: "/").map(String.init)
+        let allowed: Bool
+        if parts.count >= 3, parts[0] == "media", ["upload-intents", "assets"].contains(parts[1]) {
+            allowed = RoomsWire.uuid(parts[2]) && (parts.count == 3 || (parts.count == 4 && ["content", "access"].contains(parts[3])))
+        } else if parts == ["media", "upload-intents"] { allowed = method == "POST" }
+        else if parts.count == 2, parts[0] == "report-receipts" { allowed = method == "GET" && RoomsWire.uuid(parts[1]) }
+        else if parts.count >= 3, parts[0] == "rooms", parts[1] == room {
+            switch parts[2] {
+            case "stickers", "read-state": allowed = parts.count == 3
+            case "blocks": allowed = parts.count == 3 || (parts.count == 4 && RoomsWire.uuid(parts[3]))
+            case "publications": allowed = parts.count == 4 && RoomsWire.uuid(parts[3])
+            case "messages":
+                allowed = parts.count >= 5 && parts.count <= 6 && RoomsWire.uuid(parts[3]) &&
+                    ["delete", "publications", "reactions", "reports"].contains(parts[4]) && (parts.count != 6 || parts[5] == "me")
+            default: allowed = false
+            }
+        } else { allowed = false }
+        guard allowed, query.keys.allSatisfy({ $0 == "after" }), query.values.allSatisfy(RoomsWire.uuid),
+              query.isEmpty || (["blocks", "stickers"].contains(parts.last ?? "") && method == "GET" && raw.count == 1) else { throw ConversationError.invalidResponse }
+        if raw.count == 2 {
+            guard ["stickers", "blocks"].contains(parts.last ?? ""), raw[1].hasPrefix("after="), RoomsWire.uuid(String(raw[1].dropFirst(6))) else { throw ConversationError.invalidResponse }
+        }
+    }
+}
+public struct ConversationFeatureFailure: Error, Sendable {
+    public let status: Int
+    public let data: Data
+    public init(status: Int, data: Data) { self.status = status; self.data = data }
+}
+// Feature journals retain opaque, typed-adapter validated records, never credentials or signed URLs.
+public enum ConversationJournal: String, Sendable { case media, actions, viewport, moderation, blockRooms }
+public protocol ConversationFeatureJournal: Sendable {
+    func records(_ journal: ConversationJournal) throws -> [Data]
+    func put(_ journal: ConversationJournal, id: String, value: Data) throws
+    func remove(_ journal: ConversationJournal, id: String) throws
+}
+public protocol ConversationFeatureStoring: Sendable {
+    var localFeatures: any ConversationFeatureJournal { get }
+    func featureRecords(_ journal: ConversationJournal) async throws -> [Data]
+    func putFeature(_ journal: ConversationJournal, id: String, value: Data) async throws
+    func removeFeature(_ journal: ConversationJournal, id: String) async throws
+    func blockProjection(_ messageID: String) async throws
 }

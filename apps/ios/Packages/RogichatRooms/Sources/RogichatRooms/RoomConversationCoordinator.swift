@@ -9,7 +9,7 @@ public protocol ConversationFetching: Sendable {
 public actor RoomConversationCoordinator: ConversationCoordinating {
     public nonisolated let scope: ConversationScope
     private let remote: any ConversationFetching
-    private let database: RoomsDatabase
+    let database: RoomsDatabase
     private var reading = false
     private var sendTask: Task<ConversationListing, any Error>?
     private var recipientsLoading = false

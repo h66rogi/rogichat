@@ -39,6 +39,17 @@ enum NativeEndpoint: Sendable {
         return request
     }
 }
+// Captured account epoch and protected credential are checked at the HTTP actor,
+// after every awaited OS permission query and immediately before URLSession admission.
+struct NativeRequestAdmission: Sendable {
+    let check: @Sendable () throws -> Void
+    var permission: (@Sendable () async -> PushPermission)? = nil
+    func validate() async throws {
+        try Task.checkCancellation(); try check()
+        if let permission, await permission() != .authorized { throw ProductError.notificationPermission }
+        try Task.checkCancellation(); try check()
+    }
+}
 protocol NativeRequesting: Sendable {
     func perform(_ endpoint: NativeEndpoint, credential: NativeCredential) async throws -> Data
 }
@@ -55,12 +66,12 @@ final class NativeSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         } else { completionHandler(.cancelAuthenticationChallenge, nil) }
     }
 }
-actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsRequesting, RoomsCommandRequesting, AccountDeletionRequesting, ConversationRequesting {
+actor NativeAPIClient: AccountFeatureRequesting, AppleIdentityRequesting, NativePushRequesting, NativeRequesting, SOOPRequesting, M11Requesting, RoomsRequesting, RoomsCommandRequesting, AccountDeletionRequesting, ConversationRequesting {
     private let environment: NativeEnvironment
     private let session: URLSession
-    init(environment: NativeEnvironment) {
+    init(environment: NativeEnvironment, configuration: URLSessionConfiguration? = nil) {
         self.environment = environment
-        self.session = URLSession(configuration: Self.configuration(), delegate: NativeSessionDelegate(), delegateQueue: nil)
+        self.session = URLSession(configuration: configuration ?? Self.configuration(), delegate: NativeSessionDelegate(), delegateQueue: nil)
     }
     deinit { session.invalidateAndCancel() }
     static func configuration() -> URLSessionConfiguration {
@@ -93,9 +104,54 @@ actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsReq
             throw ProductError.connection
         }
     }
+    func performApple(_ endpoint: AppleIdentityEndpoint, intent: IdentityIntent, originalCredential: NativeCredential?) async throws -> Data {
+        try await performApple(endpoint, intent: intent, originalCredential: originalCredential, admit: {})
+    }
+    func performApple(_ endpoint: AppleIdentityEndpoint, intent: IdentityIntent, originalCredential: NativeCredential?, admit: @escaping @Sendable () throws -> Void) async throws -> Data {
+        let request = try endpoint.request(environment: environment, intent: intent, originalCredential: originalCredential)
+        do {
+            try admit()
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            guard let response = response as? HTTPURLResponse, response.url == request.url, response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ProductError.invalidResponse }
+            let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
+            guard response.statusCode == 200 else {
+                struct Failure: Decodable { struct Detail: Decodable { let code: String }; let error: Detail }
+                let code = try? JSONDecoder().decode(Failure.self, from: data).error.code
+                if response.statusCode == 401, code == "UNAUTHENTICATED" { throw SOOPAuthError.unauthenticated }
+                if response.statusCode == 401, code == "LINK_SESSION_CHANGED" { throw SOOPAuthError.sessionChanged }
+                throw AppleIdentityProblem.response(status: response.statusCode, code: code)
+            }
+            return data
+        } catch let error as AppleIdentityProblem { throw error }
+        catch let error as SOOPAuthError { throw error }
+        catch let error as ProductError { throw error }
+        catch { if Task.isCancelled || error is CancellationError { throw CancellationError() }; throw ProductError.connection }
+    }
+    func performNativePush(_ endpoint: NativePushEndpoint, credential: NativeCredential) async throws -> Data {
+        try await performNativePush(endpoint, credential: credential, admission: NativeRequestAdmission(check: {}))
+    }
+    func performNativePush(_ endpoint: NativePushEndpoint, credential: NativeCredential, admission: NativeRequestAdmission) async throws -> Data {
+        let request = try endpoint.request(environment: environment, credential: credential)
+        try await admission.validate()
+        try Task.checkCancellation(); try admission.check()
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let response = response as? HTTPURLResponse, response.url == request.url, response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ProductError.invalidResponse }
+        let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
+        if response.statusCode == 401 { throw ProductError.unauthenticated }
+        let expected: Int
+        switch endpoint { case .register: expected = 201; case .remove: expected = 204; default: expected = 200 }
+        guard response.statusCode == expected, expected != 204 || data.isEmpty else { throw ProductError.connection }
+        return data
+    }
     func performSOOP(_ input: SOOPRequest, credential: NativeCredential?) async throws -> Data {
+        try await performSOOP(input, credential: credential, admit: {})
+    }
+    func performSOOP(_ input: SOOPRequest, credential: NativeCredential?, admit: @escaping @Sendable () throws -> Void) async throws -> Data {
         let request = try input.request(environment: environment, credential: credential)
         do {
+            try admit()
             let (bytes, response) = try await session.bytes(for: request)
             defer { bytes.task.cancel() }
             guard let response = response as? HTTPURLResponse, response.url == request.url,
@@ -112,8 +168,13 @@ actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsReq
         }
     }
     func performM11(_ endpoint: M11Endpoint, credential: NativeCredential) async throws -> Data {
+        try await performM11(endpoint, credential: credential, admission: NativeRequestAdmission(check: {}))
+    }
+    func performM11(_ endpoint: M11Endpoint, credential: NativeCredential, admission: NativeRequestAdmission) async throws -> Data {
         let request = try endpoint.request(environment: environment, credential: credential)
         do {
+            try await admission.validate()
+            try Task.checkCancellation(); try admission.check()
             let (bytes, response) = try await session.bytes(for: request)
             defer { bytes.task.cancel() }
             try Task.checkCancellation()
@@ -173,10 +234,25 @@ actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsReq
             throw RoomsError.connection
         }
     }
+    func performAccountFeature(_ input: ConversationFeatureRequest, credential: NativeCredential, scope: RoomsScope) async throws -> Data {
+        try scope.check()
+        let request = try input.accountRequest(environment: environment, credential: credential)
+        try scope.check(); try input.admit()
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        try scope.check()
+        guard let response = response as? HTTPURLResponse, response.url == request.url, response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ProductError.invalidResponse }
+        if response.statusCode == 401 { throw ProductError.unauthenticated }
+        let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() }); try scope.check()
+        guard response.statusCode == input.expectedStatus else { throw ConversationFeatureFailure(status: response.statusCode, data: data) }
+        guard input.expectedStatus != 204 || data.isEmpty else { throw ProductError.invalidResponse }
+        return data
+    }
     func performConversation(_ endpoint: ConversationEndpoint, credential: NativeCredential, scope: ConversationScope) async throws -> Data {
         try scope.check()
         let request = try endpoint.request(environment: environment, credential: credential, scope: scope)
         do {
+            try scope.check(); try endpoint.admit()
             let (bytes, response) = try await session.bytes(for: request)
             defer { bytes.task.cancel() }
             try scope.check()
@@ -185,9 +261,14 @@ actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsReq
             guard response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ConversationError.invalidResponse }
             let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
             try scope.check()
-            guard response.statusCode == 200 else { throw ConversationEndpoint.error(data: data, status: response.statusCode, writing: endpoint.isSending) }
+            guard response.statusCode == endpoint.expectedStatus else {
+                if case .feature = endpoint { throw ConversationFeatureFailure(status: response.statusCode, data: data) }
+                throw ConversationEndpoint.error(data: data, status: response.statusCode, writing: endpoint.isSending)
+            }
+            if endpoint.expectedStatus == 204, !data.isEmpty { throw ConversationError.invalidResponse }
             return data
-        } catch let error as ConversationError { throw error }
+        } catch let error as ConversationFeatureFailure { throw error }
+        catch let error as ConversationError { throw error }
         catch let error as ProductError { throw error }
         catch let error as RoomsError { throw error }
         catch {

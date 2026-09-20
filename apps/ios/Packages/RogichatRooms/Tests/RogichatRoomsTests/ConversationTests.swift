@@ -293,3 +293,53 @@ private actor ConversationRemote: ConversationFetching {
     #expect(result.messages.first?.content == .text("새 권한의 내용"))
     #expect(await remote.messageGets == 1); #expect(await remote.sends == 0)
 }
+
+@Test func attachmentIntentSurvivesColdReopenWithoutRebindingOrReplay() throws {
+    let disk = try ConversationDisk(); defer { try? FileManager.default.removeItem(at: disk.directory) }; try disk.snapshot()
+    let attachment = try OutgoingAttachment(type: "PHOTO", assetIds: [cMessage])
+    let command = try TextCommand(roomID: cRoom, membershipScope: ct(), attachment: attachment)
+    try disk.db.admitText(command, scope: disk.scope); try disk.db.claimText(command, scope: disk.scope)
+    let encoded = try command.requestBody()
+    #expect(String(data: encoded, encoding: .utf8)?.contains("https:") == false)
+    try disk.close()
+    let cold = try ConversationDisk(path: disk.directory); defer { try? cold.close() }
+    let saved = try #require(cold.db.conversationListing(scope: cold.scope).commands.first)
+    #expect(saved.phase == .unknown && saved.command == command)
+    #expect(try saved.command?.requestBody() == encoded)
+    #expect(throws: (any Error).self) { try cold.db.claimText(command, scope: cold.scope) }
+    #expect(throws: (any Error).self) { try OutgoingAttachment(type: "PHOTO", assetIds: [cMessage, cMessage]) }
+    #expect(throws: (any Error).self) { try OutgoingAttachment(type: "VIDEO", assetIds: [cMessage, cActor]) }
+    #expect(throws: (any Error).self) { try OutgoingAttachment(type: "STICKER", assetIds: [cMessage], stickerId: cPeer) }
+}
+@Test func featureJournalsCommitScopeAndAccountBlockRetentionAfterLeave() throws {
+    let disk = try ConversationDisk(); defer { disk.remove() }; try disk.snapshot()
+    let value = Data("{\"id\":\"scoped-test-value\"}".utf8)
+    try disk.db.putFeature(.media, id: cMessage, value: value, scope: disk.scope)
+    try disk.db.putFeature(.moderation, id: cMessage, value: value, scope: disk.scope)
+    try disk.db.putFeature(.blockRooms, id: cRoom, value: Data(("{\"id\":\"" + cRoom + "\"}").utf8), scope: disk.scope)
+    #expect(try disk.db.featureRecords(.media, scope: disk.scope) == [value])
+    disk.scope.invalidate()
+    #expect(throws: (any Error).self) { try disk.db.putFeature(.media, id: cActor, value: value, scope: disk.scope) }
+    let page: MembershipPage = try decodeC(["schemaVersion": 2,"resetRequired": false,"rooms": [],"generation": ct(7),"complete": true,"nextCursor": NSNull()], MembershipPage.self)
+    _ = try disk.db.manifestPage(page, request: disk.db.beginManifest())
+    #expect(try disk.db.accountRecords(.moderation, room: cRoom) == [value])
+    #expect(try disk.db.accountRecords(.blockRooms).count == 1)
+    try disk.db.putAccountFeature(.unblocks, room: cRoom, id: cMessage, value: value)
+    disk.account.invalidate()
+    #expect(throws: (any Error).self) { try disk.db.accountRecords(.moderation) }
+    #expect(throws: (any Error).self) { try disk.db.putAccountFeature(.unblocks, room: cRoom, id: cPeer, value: value) }
+}
+@Test func acknowledgedDeleteBlocksLateProjectionAndQuotedCopies() throws {
+    let disk = try ConversationDisk(); defer { disk.remove() }
+    var quoted = cm(); quoted["id"] = cPeer
+    quoted["quote"] = ["id": cMessage, "content": ["type":"TEXT","text":"인용된 내용"]]
+    try disk.snapshot([cm(), quoted])
+    try disk.db.blockProjection(cMessage, scope: disk.scope)
+    #expect(try disk.db.conversationListing(scope: disk.scope).messages.isEmpty)
+    try disk.db.applySingleMessage(decodeC(cm("999"), ConversationMessage.self), scope: disk.scope)
+    try disk.db.applySingleMessage(decodeC(quoted, ConversationMessage.self), scope: disk.scope)
+    #expect(try disk.db.conversationListing(scope: disk.scope).messages.isEmpty)
+    quoted["quote"] = NSNull()
+    try disk.db.applySingleMessage(decodeC(quoted, ConversationMessage.self), scope: disk.scope)
+    #expect(try disk.db.conversationListing(scope: disk.scope).messages.map(\.id) == [cPeer])
+}

@@ -12,6 +12,12 @@ extension ConversationRequest {
         var query: [URLQueryItem] = []
         var body: Data?
         switch self {
+        case .feature(let feature):
+            try feature.validate(room: scope.room.id)
+            let relative = feature.path.split(separator: "?", maxSplits: 1).map(String.init)
+            path = relative[0]; body = feature.body
+            query = feature.query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) }
+            if relative.count == 2 { query = URLComponents(string: "?" + relative[1])?.queryItems ?? [] }
         case .send(let command):
             guard command.roomID == scope.room.id, command.membershipScope == scope.room.membershipScope else { throw ConversationError.staleScope }
             path = "rooms/\(scope.room.id)/messages"; body = try command.requestBody()
@@ -44,6 +50,17 @@ extension ConversationRequest {
         if !query.isEmpty { components.queryItems = query }
         var request = URLRequest(url: components.url!)
         request.httpMethod = body == nil ? "GET" : "POST"; request.httpBody = body
+        if case .feature(let feature) = self {
+            request.httpMethod = feature.method
+            if let file = feature.upload {
+                let info = try file.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey, .isSymbolicLinkKey])
+                guard file.isFileURL, info.isRegularFile == true, info.isSymbolicLink != true,
+                      info.fileSize.map(Int64.init) == feature.uploadBytes, let stream = InputStream(url: file) else { throw ConversationError.invalidResponse }
+                request.httpBodyStream = stream
+                request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+                request.setValue(String(feature.uploadBytes!), forHTTPHeaderField: "Content-Length")
+            }
+        }
         request.cachePolicy = .reloadIgnoringLocalCacheData; request.httpShouldHandleCookies = false
         request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
         request.setValue("ios", forHTTPHeaderField: "X-Rogi-Client")
@@ -51,6 +68,8 @@ extension ConversationRequest {
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         return request
     }
+    var expectedStatus: Int { if case .feature(let value) = self { value.expectedStatus } else { 200 } }
+    func admit() throws { if case .feature(let value) = self { try value.admit() } }
     var isSending: Bool { if case .send = self { true } else { false } }
     static func error(data: Data, status: Int, writing: Bool = false) -> any Error {
         struct Failure: Decodable { struct Detail: Decodable { let code: String }; let error: Detail }
