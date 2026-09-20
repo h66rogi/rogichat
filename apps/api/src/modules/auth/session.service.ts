@@ -15,6 +15,14 @@ export class SessionService {
 
   csrf(token: string): string { return createHmac('sha256', this.key).update(`csrf:${this.audience}:${token}`).digest('base64url'); }
 
+  // Local persistence namespace only: never accept this value as authorization.
+  // Stable across transports, relogin and revocation generations; rotating the
+  // configured key invalidates old namespaces instead of mixing account data.
+  accountPartition(userId: string): string {
+    return createHmac('sha256', this.key).update('account-partition:v1:')
+      .update(JSON.stringify([this.audience, userId])).digest('base64url');
+  }
+
   async nativeBinding(tx: Transaction, sessionId: string, clientId: NativeClientId) {
     const row = await this.repository.boundNative(tx, sessionId, this.audience, clientId);
     if (!row) throw new ApiError('LINK_SESSION_CHANGED', 401);
@@ -34,7 +42,7 @@ export class SessionService {
     const accountGeneration = createHmac('sha256', this.key).update('native-account:v1:').update(JSON.stringify([this.audience, principal.userId, String(account.user.membership_generation), principal.soopLinked])).digest('base64url');
     return { authenticated: true, account: { userId: principal.userId, nickname: profile.nickname, avatarAssetId },
       soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED', onboardingState: principal.soopLinked ? 'READY' : 'SOOP_LINK_REQUIRED',
-      expiresAt: account.expires_at.toISOString(), accountGeneration, capabilities: { chat: principal.soopLinked } };
+      expiresAt: account.expires_at.toISOString(), accountGeneration, accountPartition: this.accountPartition(principal.userId), capabilities: { chat: principal.soopLinked } };
   }
 
   async issue(tx: Transaction, userId: string): Promise<{ token: string; csrf: string }> {

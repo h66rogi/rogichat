@@ -98,7 +98,7 @@ test('native HTTP session projects only own account, preserves web response and 
   let response = await f.call('GET', '/v1/auth/session');
   assert.equal(response.status, 200); assert.equal(response.headers.get('cache-control'), 'no-store');
   const before = await response.json();
-  assert.deepEqual(Object.keys(before).sort(), ['account', 'accountGeneration', 'authenticated', 'capabilities', 'expiresAt', 'onboardingState', 'soopLinkStatus']);
+  assert.deepEqual(Object.keys(before).sort(), ['account', 'accountGeneration', 'accountPartition', 'authenticated', 'capabilities', 'expiresAt', 'onboardingState', 'soopLinkStatus']);
   assert.deepEqual(before.account, { userId: f.userId, nickname: '네이티브 합성 사용자', avatarAssetId: null });
   assert.deepEqual(before.capabilities, { chat: false }); assert.equal(before.onboardingState, 'SOOP_LINK_REQUIRED');
   assert.equal(before.soopLinkStatus, 'REQUIRED'); assert.equal(before.expiresAt, f.native.expiresAt); assert.match(before.accountGeneration, /^[A-Za-z0-9_-]{43}$/);
@@ -109,8 +109,11 @@ test('native HTTP session projects only own account, preserves web response and 
   const after = await (await f.call('GET', '/v1/auth/session')).json();
   assert.equal(after.account.nickname, '내 프로필 수정'); assert.equal(after.onboardingState, 'READY'); assert.deepEqual(after.capabilities, { chat: true });
   assert.notEqual(after.accountGeneration, before.accountGeneration);
+  assert.match(before.accountPartition, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(after.accountPartition, before.accountPartition);
   const another = await f.issue('ios');
   assert.equal((await f.auth.session({ ...f.credentials, token: another.token })).accountGeneration, after.accountGeneration);
+  assert.equal((await f.auth.session({ ...f.credentials, token: another.token })).accountPartition, before.accountPartition);
   for (const extra of [{ Cookie: `rogi_session=${f.web.token}` }, { 'X-CSRF-Token': f.web.csrf }, { 'X-Rogi-Client': 'web' }, { Authorization: `Bearer ${f.native.token}, Bearer ${f.native.token}` }]) {
     assert.equal((await f.call('GET', '/v1/auth/session', undefined, extra)).status, 400);
   }
@@ -124,7 +127,7 @@ test('native HTTP session projects only own account, preserves web response and 
   assert.equal(duplicated, 400);
   const webHeaders = { Cookie: `rogi_session=${f.web.token}`, Origin: f.config.origin };
   response = await fetch(`${f.base}/v1/auth/session`, { headers: webHeaders });
-  assert.deepEqual(await response.json(), { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: f.web.csrf });
+  assert.deepEqual(await response.json(), { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: f.web.csrf, accountPartition: before.accountPartition });
   response = await fetch(`${f.base}/v1/auth/logout`, { method: 'POST', headers: { ...webHeaders, 'Content-Type': 'application/json' }, body: '{}' });
   assert.equal(response.status, 400);
   assert.equal((await f.call('POST', '/v1/auth/logout', { csrf: 'no' })).status, 400);

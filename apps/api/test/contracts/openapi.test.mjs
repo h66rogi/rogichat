@@ -97,7 +97,7 @@ test('native issuance contract preserves conditional consent, strict proofs and 
   assert.equal(launch.responses['303'].content, undefined);
   const issued = { tokenType: 'Bearer', accessToken: proof, expiresAt: new Date().toISOString(), session: {
     authenticated: true, account: { userId: randomUUID(), nickname: '사용자', avatarAssetId: null }, soopLinkStatus: 'VERIFIED',
-    onboardingState: 'READY', expiresAt: new Date().toISOString(), accountGeneration: proof, capabilities: { chat: true },
+    onboardingState: 'READY', expiresAt: new Date().toISOString(), accountGeneration: proof, accountPartition: proof, capabilities: { chat: true },
   } };
   const schema = doc.paths['/v1/auth/native/completions/exchange'].post.responses['200'].content['application/json'].schema;
   check(schema, issued);
@@ -119,7 +119,7 @@ test('OpenAPI describes real projections, auth alternatives, binary transport an
   assert.deepEqual(doc.paths['/v1/rooms/{roomId}/messages'].post.security, [{ browserSession: [], csrf: [] }, { nativeBearer: [], nativeClient: [] }]);
   assert.equal(doc.paths['/v1/rooms/{roomId}/messages'].post.parameters.find(x => x.name === 'Origin').required, false);
   assert.equal(doc.components.securitySchemes.nativeClient.name, 'X-Rogi-Client');
-  check(response('/v1/auth/session'), { authenticated: true, account: { userId: id, nickname: '사용자', avatarAssetId: null }, soopLinkStatus: 'REQUIRED', onboardingState: 'SOOP_LINK_REQUIRED', expiresAt: new Date().toISOString(), accountGeneration: 'a'.repeat(43), capabilities: { chat: false } });
+  check(response('/v1/auth/session'), { authenticated: true, account: { userId: id, nickname: '사용자', avatarAssetId: null }, soopLinkStatus: 'REQUIRED', onboardingState: 'SOOP_LINK_REQUIRED', expiresAt: new Date().toISOString(), accountGeneration: 'a'.repeat(43), accountPartition: 'b'.repeat(43), capabilities: { chat: false } });
   assert.deepEqual(doc.paths['/v1/auth/soop/start'].post.security, []);
   assert.equal(doc.components.securitySchemes.browserSession.name, '__Host-rogi_session');
   assert.ok(doc.paths['/v1/auth/soop/callback'].get.responses['303'].headers.Location);
@@ -135,4 +135,28 @@ test('OpenAPI describes real projections, auth alternatives, binary transport an
   assert.equal(syncInput(sync).limit, 100);
   assert.ok(doc.paths['/v1/rooms/{roomId}/history'].get.parameters.find(x => x.name === 'cursor').required);
   assert.ok(!doc.paths['/v1/rooms/{roomId}/snapshot'].get.parameters.some(x => x.name === 'cursor'));
+});
+
+test('own command and account partition contracts reject widened or incomplete projections', async t => {
+  const { app, config } = await openApiFixture('auth'); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config);
+  const operation = doc.paths['/v1/rooms/{roomId}/message-commands/{clientMessageId}'].get;
+  assert.equal(operation.requestBody, undefined);
+  assert.deepEqual(operation.security, [{ browserSession: [] }, { nativeBearer: [], nativeClient: [] }]);
+  const schema = operation.responses['200'].content['application/json'].schema;
+  const id = randomUUID();
+  check(schema, { clientMessageId: id, status: 'committed', messageId: randomUUID(), version: '2' });
+  check(schema, { clientMessageId: id, status: 'deleted' });
+  for (const value of [
+    { clientMessageId: id, status: 'deleted', messageId: randomUUID() },
+    { clientMessageId: id, status: 'deleted', text: 'hidden' },
+    { clientMessageId: id, status: 'committed', messageId: randomUUID(), version: 2 },
+    { clientMessageId: id, status: 'committed', messageId: randomUUID() },
+  ]) check(schema, value, false);
+  const session = doc.paths['/v1/auth/session'].get.responses['200'].content['application/json'].schema;
+  const web = { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: 'a'.repeat(43), accountPartition: 'b'.repeat(43) };
+  check(session, web);
+  check(session, { ...web, accountPartition: undefined }, false);
+  check(session, { ...web, accountPartition: id }, false);
+  check(session, { ...web, userId: id }, false);
 });

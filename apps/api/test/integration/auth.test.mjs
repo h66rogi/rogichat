@@ -14,6 +14,7 @@ import { AuthFlow } from '../../dist/modules/auth/auth-flow.service.js';
 import { oauthCookieName } from '../../dist/modules/auth/auth-context.js';
 import { createApi } from '../../dist/application.js';
 import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
+import { responseContract } from '../support/openapi-response.mjs';
 
 function deferred() {
   let resolve;
@@ -88,6 +89,7 @@ async function fixture(t, withHttp = false, secure = false) {
     return { userId, ...await sessions.issue(tx, userId) };
   });
   return { db, config, sessions, broker, flow, begin, complete, principal, localSession,
+    verify: app ? responseContract(app, config) : undefined,
     base: app ? await app.getUrl() : undefined, logs: () => logs };
 }
 
@@ -141,7 +143,9 @@ test('real MySQL HTTP login/session/logout uses strict minimal DTOs, cookie bind
   response = await fetch(`${f.base}/v1/auth/session`, { headers: { Cookie: sessionCookie, Origin: f.config.origin } });
   assert.equal(response.status, 200);
   const status = await response.json();
-  assert.deepEqual(Object.keys(status).sort(), ['authenticated', 'csrfToken', 'soopLinkStatus']);
+  assert.deepEqual(Object.keys(status).sort(), ['accountPartition', 'authenticated', 'csrfToken', 'soopLinkStatus']);
+  assert.match(status.accountPartition, /^[A-Za-z0-9_-]{43}$/);
+  f.verify('GET', '/v1/auth/session', response.status, status);
   assert.equal(status.authenticated, true);
   assert.equal(status.soopLinkStatus, 'VERIFIED');
   assert.match(status.csrfToken, /^[A-Za-z0-9_-]{43}$/);

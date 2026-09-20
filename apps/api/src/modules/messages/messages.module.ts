@@ -3,11 +3,15 @@ import type { DynamicModule } from '@nestjs/common';
 import { MessagesController } from './messages.controller.js';
 import { MessagesService } from './messages.service.js';
 import { MessagesCoreModule } from './messages-core.module.js';
+import { AccessModule } from '../access/access.module.js';
+import { MessageCommandsController } from './message-commands.controller.js';
+import { MessageCommandsService } from './message-commands.service.js';
+import { MessageCommandsRepository } from './message-commands.repository.js';
 
 @Module({})
 export class MessagesModule {
   static register(infrastructure: DynamicModule, auth: DynamicModule): DynamicModule {
-    return { module: MessagesModule, imports: [infrastructure, auth, MessagesCoreModule],
-      controllers: [MessagesController], providers: [MessagesService], exports: [MessagesService] };
+    return { module: MessagesModule, imports: [infrastructure, auth, MessagesCoreModule, AccessModule],
+      controllers: [MessagesController, MessageCommandsController], providers: [MessagesService, MessageCommandsService, MessageCommandsRepository], exports: [MessagesService] };
   }
 }
