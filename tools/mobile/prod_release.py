@@ -140,7 +140,7 @@ def inspect_app(app, cfg, number, version):
     profile = plistlib.loads(command(["security", "cms", "-D", "-i", str(app / "embedded.mobileprovision")]).encode())
     with tempfile.TemporaryDirectory(prefix="rogichat-prod-certificate-") as temporary:
         prefix = str(Path(temporary) / "signer")
-        command(["codesign", "-d", "--extract-certificates", prefix, str(app)])
+        command(["codesign", "-d", "--extract-certificates=" + prefix, str(app)])
         certificate = Path(prefix + "0").read_bytes()
     verify_entitlements(ent, profile, cfg, certificate)
     macho = command(["xcrun", "vtool", "-show-build", str(app / "Rogichat")])

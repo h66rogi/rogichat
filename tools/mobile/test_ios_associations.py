@@ -92,13 +92,17 @@ class CallbackSigningTests(unittest.TestCase):
         captured = []
         def run(command, **kwargs):
             captured.append(command)
-            if "--extract-certificates" in command:
-                Path(command[command.index("--extract-certificates") + 1] + "0").write_bytes(self.certificate)
+            self.assertNotIn("--extract-certificates", command)  # Optional argument requires '='.
+            for argument in command:
+                if argument.startswith("--extract-certificates="):
+                    self.assertEqual(command[-1], "unit-app")
+                    self.assertEqual(len(command), 4)
+                    Path(argument.split("=", 1)[1] + "0").write_bytes(self.certificate)
             return b""
         with patch.object(guard, "_run", side_effect=run), patch.object(guard, "_plist", side_effect=[self.signed, self.profile]):
             guard.inspect_signed_callback("unit-app", b"unit-profile", self.cfg)
         self.assertEqual(captured[0], ["codesign", "--verify", "--strict", "unit-app"])
-        prefix = captured[-1][captured[-1].index("--extract-certificates") + 1]
+        prefix = captured[-1][2].split("=", 1)[1]
         self.assertFalse(Path(prefix).parent.exists())
 
     def test_inspector_timeout_suppresses_command_details(self):

@@ -130,6 +130,34 @@ class ProdReleaseTests(unittest.TestCase):
         cfg["ios"]["signing_certificate"] = "0" * 40
         with self.assertRaises(ValueError): prod.verify_entitlements(ent, profile, cfg, CERT)
 
+    def test_certificate_extraction_uses_attached_optional_argument_and_actual_bytes(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(prod, "inspect_info"), \
+                patch.object(prod, "inspect_ios_app"), patch.object(prod, "verify_entitlements") as verify:
+            app = Path(root) / "Rogichat.app"; app.mkdir()
+            (app / "Info.plist").write_bytes(plistlib.dumps({}))
+            profile = plistlib.loads(plistlib.dumps(self.profile()))
+            prefixes = []
+            def command(args):
+                self.assertNotIn("--extract-certificates", args)
+                if "--entitlements" in args:
+                    return plistlib.dumps(self.entitlements()).decode()
+                if args[0] == "security":
+                    return plistlib.dumps(profile).decode()
+                if args[0] == "xcrun":
+                    return "platform IOS\nminos 18.0"
+                for argument in args:
+                    if argument.startswith("--extract-certificates="):
+                        self.assertEqual(args[-1], str(app)); self.assertEqual(len(args), 4)
+                        prefixes.append(argument.split("=", 1)[1])
+                        Path(prefixes[-1] + "0").write_bytes(CERT)
+                return ""
+            cfg = self.config(root)
+            with patch.object(prod, "command", side_effect=command):
+                prod.inspect_app(app, cfg, 15, "0.1.0")
+            self.assertEqual(len(prefixes), 1)
+            self.assertFalse(Path(prefixes[0]).parent.exists())
+            verify.assert_called_once_with(self.entitlements(), profile, cfg, CERT)
+
     def test_prod_bundle_exact_identity_and_transport(self):
         info = {"CFBundleIdentifier": prod.APP_ID, "CFBundleVersion": "1", "CFBundleShortVersionString": "0.1.0",
                 "CFBundleDisplayName": "로기챗", "CFBundleExecutable": "Rogichat", "RogichatEnvironment": "prod",
