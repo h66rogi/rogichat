@@ -1,4 +1,5 @@
 import { isGeneration, isSubscriptionId, toBase64Url } from './contract';
+import { PushError } from './errors';
 import type { PushSubscriptionKeys } from './contract';
 import type { PushScopeIdentity } from './scope';
 
@@ -95,4 +96,27 @@ export function readAccountBinding(storage: BindingStorage, identity: PushScopeI
 
 export function forgetBinding(storage: BindingStorage): void {
   storage.removeItem(PUSH_BINDING_KEY);
+}
+
+/**
+ * Wraps browser storage so an unavailable one is a stated result rather than a crash.
+ *
+ * A private window, blocked site data or a full quota make `localStorage` throw. Without the
+ * record this browser could not prove which subscription it registered or release it later,
+ * so enrollment cannot honestly proceed: the failure is reported as its own state instead of
+ * being swallowed into an apparently working toggle.
+ */
+export function guardedStorage(storage: BindingStorage): BindingStorage {
+  const guard = <T>(operation: () => T): T => {
+    try {
+      return operation();
+    } catch {
+      throw new PushError('storage');
+    }
+  };
+  return {
+    getItem: key => guard(() => storage.getItem(key)),
+    setItem: (key, value) => { guard(() => { storage.setItem(key, value); }); },
+    removeItem: key => { guard(() => { storage.removeItem(key); }); },
+  };
 }

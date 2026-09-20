@@ -35,9 +35,19 @@ export interface SettingsSoopModel {
 export interface SettingsNotificationsModel {
   support: 'supported' | 'unsupported' | 'install-required' | 'unknown';
   permission: 'granted' | 'denied' | 'not-asked' | 'unknown';
-  /** null means the service has no persisted notification preference to display. */
+  /** null means the current state has not been read yet, not that notifications are unsupported. */
   enabled: boolean | null;
   toggle: SettingsActionState;
+  /**
+   * What pressing the control does now. 'disable' while `enabled` is false means the server
+   * still holds a registration this browser can no longer receive with, so the press releases
+   * it rather than turning anything on. Omitted when the harness has no explicit action.
+   */
+  action?: 'enable' | 'disable' | null;
+  /** True while a change is in flight. */
+  busy?: boolean;
+  /** Honest result of the last action, shown next to the control. */
+  notice?: string;
 }
 
 export interface SettingsRoomModel {

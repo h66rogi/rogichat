@@ -4,8 +4,11 @@ import { installApi, json } from './api-fixture';
 test('profile edits use CSRF and are restored from persisted server response', async ({ page }) => {
   const state = await installApi(page, true);
   await page.goto('/settings');
-  await expect(page.getByText('현재 웹에서는 새 메시지 알림을 제공하지 않습니다.')).toBeVisible();
-  await expect(page.getByTestId('settings-notifications-toggle')).toHaveCount(0);
+  // The notification control states what is actually known. Until the settings harness is wired
+  // to the push module it has no confirmed state, so it stays present, disabled and explained.
+  const notifications = page.getByTestId('settings-notifications-toggle');
+  await expect(notifications).toBeVisible();
+  await expect(notifications).toBeDisabled();
   await page.getByLabel('닉네임', { exact: true }).fill('저장된 이름');
   await page.getByRole('button', { name: '변경 내용 저장' }).click();
   await expect(page.getByText('프로필을 저장했습니다.')).toBeVisible();

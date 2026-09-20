@@ -1,5 +1,5 @@
 export { PushApi } from './api';
-export { PUSH_BINDING_KEY, forgetBinding, isFingerprint, readAccountBinding, readBinding, rememberBinding, subscriptionFingerprint } from './binding';
+export { PUSH_BINDING_KEY, forgetBinding, guardedStorage, isFingerprint, readAccountBinding, readBinding, rememberBinding, subscriptionFingerprint } from './binding';
 export type { BindingStorage, StoredBinding } from './binding';
 export { WebPushBrowser, describeSubscription, readPermission } from './browser';
 export type { BrowserSubscription, PushBrowser, PushPermission, PushSupport } from './browser';
@@ -32,6 +32,10 @@ export type {
 } from './contract';
 export { PushEnrollment } from './enrollment';
 export { pushHttp } from './http';
+export { usePushSettings } from './use-push-settings';
+export type { PushSettings } from './use-push-settings';
+export { WAKE_BIND, WAKE_SYNC, WAKE_UNBIND, startWakeBridge } from './wake-bridge';
+export type { WakeBridgeOptions, WakeWorkerPort } from './wake-bridge';
 export type { PushHttpOptions } from './http';
 export type { PushEnrollmentOptions, PushEnrollmentState, PushNotificationsModel } from './enrollment';
 export { PushError, PushScopeChanged, classify, errorCode } from './errors';

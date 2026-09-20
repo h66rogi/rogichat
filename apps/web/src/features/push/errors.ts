@@ -18,7 +18,8 @@ export type PushFailureKind =
   | 'server'
   | 'network'
   | 'invalid-response'
-  | 'browser';
+  | 'browser'
+  | 'storage';
 
 const MESSAGES: Record<PushFailureKind, string> = {
   'invalid-request': '알림 설정 요청을 서버가 받아들이지 않았습니다. 잠시 후 다시 시도해 주세요.',
@@ -33,6 +34,7 @@ const MESSAGES: Record<PushFailureKind, string> = {
   network: '서버에 연결하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.',
   'invalid-response': '서버 응답을 확인하지 못했습니다. 다시 시도해 주세요.',
   browser: '이 브라우저에서 알림 구독 정보를 확인하지 못했습니다.',
+  storage: '브라우저 저장소를 사용할 수 없어 알림 설정을 이 브라우저에 유지할 수 없습니다. 시크릿 모드나 저장소 차단 설정을 확인해 주세요.',
 };
 
 export class PushError extends Error {

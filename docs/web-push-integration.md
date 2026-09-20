@@ -4,10 +4,12 @@
 app: server capability, the account preference, browser subscription registration and removal,
 the account/session fence and the wake-payload logic the service worker needs.
 
-This document is the wiring contract for the owners of the shared web files. The module ships
-its own transport and no UI, and the only line it changes outside itself is the `test:unit`
-glob in `apps/web/package.json`, so nothing in it is reachable from the product until the
-settings screen and `public/sw.js` are wired as described below.
+This document is the wiring contract. The module ships its own transport, the settings hook,
+the page wake bridge and the service worker; outside `src/features/push/**` it changes the
+notification section and its model, the `test:unit` glob in `apps/web/package.json`,
+`public/sw.js` and the browser expectations those change. The one remaining step is mounting
+the hook in `src/features/settings/real-settings.tsx`, which its owner does as described below;
+until then the product still shows the static unavailable notification model.
 
 ## Source of truth
 
@@ -39,6 +41,8 @@ rejected locally, so a bad value fails with a stated reason instead of a generic
 | `browser.ts` | `PushBrowser` port and the production adapter over Service Worker, Push API and Notification permission. |
 | `enrollment.ts` | The lifecycle: `refresh`, `enable`, `disable`, and the settings presentation model. |
 | `wake.ts` | Wake payload validation, generation-fenced wake coalescing, the account binding registry and the generic visible notification for the service worker. |
+| `wake-bridge.ts` | The page side of a wake: binds the worker to this account, syncs on wake, open and resume, and refuses a wake for another account or session. |
+| `use-push-settings.ts` | The React hook the settings screen mounts: builds the transport, browser adapter, storage and scope, and exposes the model, the press and the notice. |
 
 ## 1. Transport (owned here, no core file changes)
 
@@ -65,84 +69,90 @@ Anything else is reported as no body, so an unexpected payload can never read as
 whose CSRF token is not the server's canonical 43-character base64url value is an
 authentication state, reported as such without reaching the network.
 
-## 2. Settings wiring (`src/features/settings`, core owner)
+## 2. Settings wiring (`src/features/settings/real-settings.tsx`, core owner)
 
-```ts
-const scope = adoptScope(previous, { account, session });      // opaque, non-reversible values
-const enrollment = new PushEnrollment({ api: new PushApi(http), browser: new WebPushBrowser(), storage: window.localStorage, scope });
+The hook does the building; the mount is three lines and changes nothing else:
+
+```tsx
+const push = usePushSettings(session, profile.id);
+// ...
+notifications: push.model,                       // replaces the static unavailable model
+<SettingsView ... onToggleNotifications={push.toggle} />
 ```
 
-- `session` is `await sessionBinding(session.csrfToken)` from `src/core/api/session-binding.ts`.
-  `account` must be an equally opaque per-account value; do not pass a raw account id.
-- Call `adoptScope` whenever the private session changes. The previous scope ends, its requests
-  abort, and its late completions are discarded instead of applied to the new account.
-- `enrollment.subscribe` / `enrollment.getState` are `useSyncExternalStore`-shaped.
-- `enrollment.model()` returns exactly the `SettingsNotificationsModel` shape that
-  `NotificationSection` consumes; assign it directly so any drift fails typecheck at the
-  wiring site. `enrollment.test.ts` asserts that structural match.
-- `refresh()` on mount, then `toggle()` straight from the click. `enable()` is the only path
-  that calls `Notification.requestPermission`, and nothing in the module prompts on load,
-  navigation or refresh. `toggle()` dispatches without awaiting and `enable()` starts the
-  prompt before its first `await`, inside the click's transient activation, so do not wrap
-  either in work of your own that awaits first. `enable()` also refuses to prompt until
-  `refresh()` has confirmed the server capability, and the toggle stays blocked until then, so
-  the prompt never appears for a capability the server has not confirmed.
-- `refresh()` reads existing browser state through `getRegistration`, so opening settings never
-  installs the service worker. `enable()` registers `/sw.js`, inside the user action.
-- When `getState().needsDecision` is true a compare-and-set conflict happened. The module has
-  already re-read the stored value; show it and let the user choose again. The desired value is
-  never replayed.
-- `NotificationSection` renders `enabled === null` as "알림을 제공하지 않습니다". The module
-  reports `null` only while the account preference has not been read in this scope.
-- `model().enabled` is true only while every condition a notification depends on holds: the
+- `usePushSettings` reads the API origin from `useApi()`, derives the opaque account and session
+  identities with `sessionBinding`, guards `localStorage`, creates the scope through
+  `adoptScope` and refreshes on mount. No raw account id, CSRF token or credential is stored,
+  and the CSRF token is read per request from the latest render.
+- `push.toggle` is what `onToggleNotifications` receives, and it **ignores the boolean the
+  control offers**. When the state is not enrolled while the server still keeps a preference or
+  this browser still keeps a record, the press releases that registration instead of enrolling;
+  deriving the action from the displayed value would route it to `enable()`, which refuses, and
+  the user could never release what the server keeps. `push.model.action` carries the same
+  decision so the section can name the press.
+- `push.toggle` dispatches without awaiting, and `enable()` starts the permission prompt before
+  its first `await`, so the prompt stays inside the click's transient activation. Do not wrap
+  either in work of your own that awaits first.
+- `enable()` refuses to prompt until `refresh()` has confirmed the server capability, and the
+  control stays blocked until then, so the prompt never appears for a capability the server has
+  not confirmed. `refresh()` reads existing browser state through `getRegistration`, so opening
+  settings never installs the service worker; `enable()` registers `/sw.js` inside the action.
+- `push.needsDecision` is true after a compare-and-set conflict: the module has re-read the
+  stored value, so show it and let the user choose again. The desired value is never replayed.
+- `push.refresh` re-reads state after an error; `NotificationSection` takes it as `onRetry`.
+- `model.enabled` is true only while every condition a notification depends on holds: the
   preference the server keeps is on, this browser session still holds the exact subscription it
   registered, the browser still supports Web Push, the permission is still granted and the
   server still reports the capability. A permission revoked in browser settings, a rotated key,
   an endpoint the push service replaced, a dropped browser subscription, a record left by an
-  earlier session or one that cannot prove which subscription it belongs to, and a server that
-  lost its configuration all report false.
-- Wire the click to `enrollment.toggle()`, never to `enable()` or `disable()` picked from
-  `model().enabled`. When that value is false while the server still keeps a preference or this
-  browser still keeps a record, the press means clean up rather than enrol, and choosing from
-  the displayed value would route it to `enable()`, which refuses — leaving the user unable to
-  release what the server still keeps. `enrollment.intent()` reports `'enable'`, `'disable'` or
-  `null` for the same decision when the control needs a label.
+  earlier session or one that cannot prove which subscription it belongs to, an unusable
+  browser storage and a server that lost its configuration all report false.
+- `SettingsView.tsx` needs no change: it already forwards `onToggleNotifications`.
+- `SettingsNotificationsModel` gained only optional fields (`action`, `busy`, `notice`), so an
+  existing caller keeps compiling. `NotificationSection` uses them to show the real result, an
+  in-flight change and a retry, and to present a cleanup press as an explicit release rather
+  than an off-to-on switch. `enabled === null` now means the state has not been read yet, not
+  that notifications are unsupported.
 
-## 3. Service worker (`public/sw.js`, core owner)
+## 2b. Page wake bridge
 
-`public/sw.js` is served verbatim from the web origin and is not bundled, so it cannot import
-this module. `wake.ts` is the source of truth for the logic; the worker must implement the same
-rules, and a build step that generates `sw.js` from the module is the way to stop the two from
-drifting. The worker must:
+```ts
+const stop = startWakeBridge({ binding, sync, worker: navigator.serviceWorker, resume: window, visible: () => document.visibilityState === 'visible' });
+```
 
-1. On `push`: treat the data as a wake only when it is exactly `{"type":"sync_required","version":1}`
-   (`isWakePayload`). Anything else — extra fields, another type or version, unparseable data —
-   is ignored. The payload carries no room, member or message id, no author, no text, no URL
-   and no cursor, so nothing in it may be rendered.
-2. Coalesce wakes (`WakeCoalescer`): while a sync runs, further wakes fold into a single pending
-   flag and are covered by one further run of the same sync. A failed sync is passed to
-   `event.waitUntil`, not swallowed, and leaves the worker able to accept the next wake.
-3. Show a notification for every wake, because `userVisibleOnly` subscriptions owe the user
-   something visible. Use `WAKE_NOTIFICATION`: it says only that there may be something to
-   check. It must not claim a new message, name a sender or show content — the worker has none.
-4. Bind worker state to the account with `WakeBindingRegistry`. The page posts the current
-   `{account, session}` on login, account switch and logout; every bind produces a distinct
-   binding, so logging out and back into the same account (A → B → A) does not make earlier
-   work current again. A sync result is applied only while `isCurrent` holds for the binding
-   that started it, and `WakeCoalescer.dispose()` abandons the running cycle on a switch so a
-   late success or failure cannot disturb the new one. The worker keeps no Cache API storage:
-   the app has no private caches today and this module introduces none, so an account switch
-   invalidates in-memory work rather than evicting stored private data.
-5. On `notificationclick`: focus an existing client or open the web origin. Authenticated sync
-   happens in the page after open or resume; the worker never renders content of its own.
+`binding` is `{account, session, generation}` from `WakeBindingRegistry`, `sync` is the app's
+authenticated sync. The bridge posts the binding to the worker, syncs when the worker reports a
+wake for this binding, syncs on open, `visibilitychange` and `focus`, collapses a burst into one
+run, ignores a wake for another account, session or generation, and on stop unbinds the worker
+and abandons the running cycle. A wake delivered while no page was running is covered by the
+sync on open, which is what browser policy allows.
 
-The sync the worker and the page run after a wake is owned by the command/sync work, not by
-this module. Its integration point is a single callback — `coalescer.run(() => sync())` in the
-worker and the same sync on `visibilitychange`/`focus` in the page — and it must reauthenticate
-and reauthorize, because a wake is not proof that anything is readable.
+## 3. Service worker (`public/sw.js`)
 
-Browser policy the product has to respect: permission is requested only from a user gesture;
-a denied permission can be changed only in browser settings, so the UI states that instead of
+`public/sw.js` now implements the wake handlers. It is served verbatim and cannot import the
+module, so it mirrors `wake.ts`, and `src/features/push/service-worker.test.ts` runs the shipped
+file itself against stub globals and checks the same rules. Keep the two in step; a build step
+that generates the worker from the module would remove that duty entirely.
+
+What it does, and nothing else:
+
+1. `push`: treats the data as a wake only when it is exactly `{"type":"sync_required","version":1}`.
+   Extra fields, another type or version and unparseable data are ignored. The payload carries
+   no room, member or message id, no author, no text, no URL and no cursor, so nothing in it is
+   rendered.
+2. Shows the generic notification for every wake, because a `userVisibleOnly` subscription owes
+   the user something visible; the shared tag collapses a burst into one. It says only that
+   there may be something to check and never claims a message, a sender or content.
+3. Coalesces the sync work: while one run is in flight, further wakes are covered by one more.
+4. Tells the open pages of the bound account to sync, through `WAKE_SYNC`. The worker itself
+   fetches no private data, keeps no Cache API storage and reads no cookie, token or account
+   identifier; the binding is memory only and arrives from the page as `WAKE_BIND`, with
+   `WAKE_UNBIND` on logout.
+5. `notificationclick`: focuses an existing page of this origin, or opens this origin's root.
+   The target is fixed; no URL is ever taken from a payload.
+
+Browser policy the product has to respect: permission is requested only from a user gesture; a
+denied permission can be changed only in browser settings, so the UI states that instead of
 re-prompting; iOS and iPadOS deliver Web Push only to a Home Screen web app, which the module
 reports as `install-required` rather than claiming a Safari tab will work; and a browser may
 expire or rotate a subscription at any time, after which the server answers 404/410 for the old
@@ -150,10 +160,9 @@ endpoint and the user has to enroll again.
 
 ## 4. Unit tests
 
-`apps/web/package.json` `test:unit` now includes `src/features/push/*.test.ts`, so the module's
-tests run in `.github/workflows/web.yml` with the rest of the web unit tests. That one-line
-script addition is the only change this branch makes outside `src/features/push/**` and this
-document. Locally:
+`apps/web/package.json` `test:unit` includes `src/features/push/*.test.ts`, so these run in
+`.github/workflows/web.yml` with the rest of the web unit tests. `service-worker.test.ts` runs
+the shipped `public/sw.js` itself, so the worker is covered by the same suite. Locally:
 
 ```sh
 node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts
@@ -161,9 +170,13 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 
 ## Lifecycle rules the module enforces
 
-- **Order.** `enable()` reads capability, then the stored preference, then asks for permission,
-  then registers the endpoint, and only then writes `pushEnabled: true`. The stored preference
-  is never true while the server has no endpoint for this browser.
+- **Order.** `enable()` checks support and the capability already confirmed by `refresh()`,
+  asks for permission before any await, re-reads the capability for its current key, reads the
+  stored preference, registers the endpoint, and only then writes `pushEnabled: true`. The
+  preference the server keeps is never true while it has no endpoint for this browser.
+- **Storage.** An unusable `localStorage` — a private window, blocked site data, a full quota —
+  is reported as its own state. Without the record this browser could not prove what it
+  registered or release it later, so enrollment stops instead of appearing to work.
 - **Compare-and-set.** Preference writes carry the generation from the latest read. A 409 re-reads
   the stored value and sets `needsDecision`; the desired value is not replayed.
 - **Lost response.** Only a network failure on an initial registration is retried, once, with the
@@ -218,12 +231,13 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
   `{"available":false}` and enrollment correctly reports the server as not ready. No real
   registration, push delivery, device notification or return-to-sync has been exercised. Server
   availability is enrollment capability, not delivery, and a worker ACK is not proof of receipt.
-- **Product wiring.** The settings screen still passes a static unavailable notification model
-  and `public/sw.js` still has no `push` handler. Until those core-owned changes land, this
-  module is unreachable from the product and FW07 is not complete. The transport is not
-  pending: it ships here.
-- **The sync itself.** What the page and the worker do after a wake belongs to the command/sync
-  work; this module defines only the wake contract and the callback seam.
+- **Product wiring.** The settings screen still passes a static unavailable notification model,
+  so the hook is not mounted yet and the product still shows that. Until that one mount lands,
+  the lifecycle is unreachable from the product and FW07 is not complete. The transport, the
+  hook, the bridge, the worker and the section are not pending: they ship here.
+- **The sync itself.** What a page reads after a wake belongs to the command/sync work; this
+  module decides when that sync runs and refuses wakes from another account, session or
+  generation, but the sync is the app's own authenticated call.
 - **Browser matrix.** No Android Chrome, desktop or iOS Home Screen verification was run, and no
   Next.js production build or Playwright run was executed in this worktree.
 
@@ -232,7 +246,7 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 Node 24.21.0, TypeScript 5.9.3 (the repository pin), from `apps/web`:
 
 - `node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts`
-  — 89 tests, 89 pass, 0 fail.
+  — 109 tests, 109 pass, 0 fail.
 - `tsc --noEmit` over `src/features/push/**` with the repository's strict options
   (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`) — clean.
 - ESLint 10.11.0 with the repository's type-aware rule set over the module's 18 files — 0 errors,

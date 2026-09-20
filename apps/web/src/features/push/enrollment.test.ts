@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { PushApi } from './api';
-import { PUSH_BINDING_KEY, subscriptionFingerprint } from './binding';
+import { PUSH_BINDING_KEY, guardedStorage, subscriptionFingerprint } from './binding';
 import type { BindingStorage } from './binding';
 import type { BrowserSubscription, PushBrowser, PushPermission, PushSupport } from './browser';
 import { toBase64Url } from './contract';
@@ -85,6 +85,7 @@ class TestBrowser implements PushBrowser {
 
 interface Options {
   stored?: string;
+  storage?: BindingStorage;
   endpoints?: string[];
   subscription?: BrowserSubscription;
   permission?: PushPermission;
@@ -111,12 +112,13 @@ function harness(script: (PushHttpResponse | typeof NETWORK)[], options: Options
     removeItem: key => { delete values[key]; },
   };
   const browser = new TestBrowser(options.endpoints ?? ['https://push.example/a'], order);
+  const store = options.storage ?? storage;
   if (options.subscription !== undefined) browser.live = options.subscription;
   if (options.permission !== undefined) browser.permissionValue = options.permission;
   if (options.promptResult !== undefined) browser.promptResult = options.promptResult;
   if (options.support !== undefined) browser.supportValue = options.support;
   const scope = new PushScope(IDENTITY);
-  const enrollment = new PushEnrollment({ api: new PushApi(http), browser, storage, scope });
+  const enrollment = new PushEnrollment({ api: new PushApi(http), browser, storage: store, scope });
   const routes = (): string[] => sent.map(request => `${request.method} ${request.path}`);
   return { enrollment, browser, scope, storage, sent, routes, order, values };
 }
@@ -577,4 +579,36 @@ void test('a rebinding sends its generation only for the endpoint the record was
   await context.enrollment.enable();
   assert.equal(context.browser.subscribes, 1, 'the unknown subscription is replaced');
   assert.deepEqual(context.sent[2]?.body, { endpoint: 'https://push.example/fresh', keys: KEYS }, 'a new endpoint is not a rebinding and carries no generation');
+});
+
+void test('a browser storage that cannot be written reports that, and claims nothing', async () => {
+  const context = await primed(
+    [available(), preference(false, '2'), registered(ID, '1')],
+    {
+      storage: guardedStorage({
+        getItem: () => null,
+        setItem: () => { throw new DOMException('blocked'); },
+        removeItem: () => undefined,
+      }),
+    },
+  );
+  await context.enrollment.enable();
+  assert.ok(context.sent.every(request => request.method !== 'PUT'), 'the preference is not stored when the record cannot be');
+  assert.equal(context.enrollment.getState().subscriptionId, null);
+  assert.equal(context.enrollment.model().enabled, false);
+  assert.match(context.enrollment.getState().notice, /저장소/);
+});
+
+void test('a browser storage that cannot be read reports that instead of looking empty', async () => {
+  const context = harness([available(), preference(true, '5')], {
+    storage: guardedStorage({
+      getItem: () => { throw new DOMException('blocked'); },
+      setItem: () => undefined,
+      removeItem: () => undefined,
+    }),
+    subscription: subscription('https://push.example/a'),
+  });
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.model().enabled, false);
+  assert.match(context.enrollment.getState().notice, /저장소/);
 });

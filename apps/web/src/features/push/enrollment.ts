@@ -73,6 +73,10 @@ export interface PushNotificationsModel {
   permission: PushPermission;
   enabled: boolean | null;
   toggle: { enabled: true } | { enabled: false; reason: string };
+  /** What pressing the control does now; the section names the press from this, not from `enabled`. */
+  action?: 'enable' | 'disable' | null;
+  busy?: boolean;
+  notice?: string;
 }
 
 export interface PushEnrollmentOptions {

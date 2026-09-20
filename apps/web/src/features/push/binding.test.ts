@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { PUSH_BINDING_KEY, forgetBinding, isFingerprint, readAccountBinding, readBinding, rememberBinding, subscriptionFingerprint } from './binding';
+import { PUSH_BINDING_KEY, forgetBinding, guardedStorage, isFingerprint, readAccountBinding, readBinding, rememberBinding, subscriptionFingerprint } from './binding';
 import type { BindingStorage } from './binding';
 import { toBase64Url } from './contract';
+import { PushError } from './errors';
 
 const ID = '2f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b';
 const identity = { account: 'account-one', session: 'session-one' };
@@ -95,4 +96,32 @@ void test('forgetting removes the record', () => {
   const storage = memory({ [PUSH_BINDING_KEY]: `v3:account-one:session-one:${ID}:2:${FINGERPRINT}` });
   forgetBinding(storage);
   assert.equal(readBinding(storage), null);
+});
+
+void test('an unusable browser storage is reported, never treated as an empty one', () => {
+  const blocked = guardedStorage({
+    getItem: () => { throw new DOMException('blocked'); },
+    setItem: () => { throw new DOMException('blocked'); },
+    removeItem: () => { throw new DOMException('blocked'); },
+  });
+  const failure = (operation: () => unknown): unknown => {
+    try {
+      operation();
+      return null;
+    } catch (error) {
+      return error;
+    }
+  };
+  for (const operation of [
+    () => readBinding(blocked),
+    () => rememberBinding(blocked, identity, { id: ID, generation: '1', fingerprint: FINGERPRINT }),
+    () => { forgetBinding(blocked); },
+  ]) {
+    const error = failure(operation);
+    assert.ok(error instanceof PushError && error.kind === 'storage', 'a blocked storage is its own state');
+  }
+
+  const working = memory();
+  rememberBinding(guardedStorage(working), identity, { id: ID, generation: '1', fingerprint: FINGERPRINT });
+  assert.equal(readBinding(guardedStorage(working))?.id, ID, 'a usable storage behaves exactly as before');
 });
