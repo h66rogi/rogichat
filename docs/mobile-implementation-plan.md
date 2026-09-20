@@ -6,6 +6,7 @@
 화면·기능 흐름·공통 기반까지 적용하며, 멜로밍 채팅 UX는 제외한다.
 사용자의 최신 보정에 따라 QA에도 **실제 출시용 MVP와 같은 제품 구성**을 사용한다.
 이 원칙을 적용한 실제 코드·검증 범위는 [제품 구성 교체 기록](mobile-product-progress.md)에 있다.
+후속 세션·프로필 연결과 구체적 발급/기기 블로커는 [네이티브 연결 기록](mobile-native-transport-progress.md)에 분리한다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
@@ -26,10 +27,10 @@
 |---|---|---|
 | 네이티브 앱 | [제품 구성 교체](mobile-product-progress.md): 멜로밍 화면·탐색·상태 구현 재사용, QA/prod 공통 진입, 합성 UI 제거 | MB02a–c 코드/OS 작업 진행. 실제 native 인증·영속 저장·통신과 실기기 gate가 남아 MB02 전체 완료로 간주하지 않음 |
 | 빌드/배포 | QA/prod 분리, 서명 도구, Firebase/TestFlight 시험과 테스터 그룹 연결 | 기존 [배포 절차](mobile-test-distribution.md) 재사용 |
-| M03 인증 | 웹 쿠키/Origin/CSRF, `/auth/session`, SOOP start/callback | 네이티브 handoff·Apple 인증은 미구현 |
+| M03 인증 | 기존 웹 인증과 별도로 `ac69ca2`에서 native Bearer/session/logout/socket 계약 확정 | 실제 SOOP/Apple 발급·handoff·제공자 검증과 QA 왕복은 별도 gate |
 | M04–M07 | 방·프로필·텍스트·삭제·sync·힌트·공개·반응과 합성 fixture | HTTP 계약을 확인하며 활용; live 성공과 구별 |
 | 계약 패키지 | health JSON, JS sync/interaction 참조 구현 | OpenAPI·Kotlin/Swift 생성 DTO·실제 SQLite adapter는 아직 없음 |
-| M08 | 미디어 관련 파일·migration·기존 DTO가 작업트리에서 수정 중 | 미커밋 형태를 확정 API로 생성하거나 복사하지 않음 |
+| M08–M09 | QA `8ece99d`까지 아바타 조회·스티커 메시지 변경 병합 | 확정 projection을 대조하며 후속 미커밋 형태를 생성 DTO로 취급하지 않음 |
 | 백엔드 구조 | QA `0429d71`에 feature module/DTO/projector 보정 병합 | 이 기준의 인증·프로필 DTO를 읽어 앱 경계를 맞춤. 네이티브 인증 API 완료나 실제 운영 반영을 의미하지 않음 |
 
 근거: [M03](backend-m03-implementation.md), [M04](backend-m04-implementation.md),
@@ -194,14 +195,14 @@ Distribution 사용을 runtime FCM 선택/설정 완료로 해석하지 않는�
 
 | ID | 현재 계약의 공백 | 구현안·완료 조건 | 담당 경계 |
 |---|---|---|---|
-| C01 | REST/socket이 웹 cookie·Origin·CSRF 전용 | web 흐름 보존, native Bearer credential adapter를 REST/socket 모두에 추가. 두 credential 혼합·환경 혼용 거부. 같은 session/account/ACL 검사 재사용 | 서버 Auth/Realtime + 앱 Session |
-| C02 | 앱 복귀·Apple identity 처리 없음 | native login/link transaction, S256 PKCE, 서버 nonce, 일회용 completion exchange. Apple native/web client별 audience와 callback allowlist, 재전송·취소·충돌 시험 | 서버 Auth + 앱 Auth |
-| C03 | session 응답에 user UUID/이용 상태 부족, room manifest는 role까지만 제공 | bootstrap에서 계정 scope와 상태, 방별 actor/참여기간 scope·capabilities 제공. `/auth/session` 확장과 별도 bootstrap 중 하나를 ADR로 확정. capabilities는 UX 힌트이며 서버 인가 대체 불가 | 서버 Auth/Rooms/Access |
+| C01 | `ac69ca2`에 native REST/socket transport 계약 확정, 앱 연결·배포 검증은 후속 | 정확한 Bearer/client pair, web/native·환경 혼용 거부, 같은 DB 인가를 사용. 실제 credential 발급과 통합 왕복까지 확인 | 서버 Auth/Realtime + 앱 Session |
+| C02 | SOOP 발급 후보 `de02c6a`에 start/launch/S256/exchange·오류 명시. 앱 복귀·Apple identity 처리는 후속 | 후보 계약 검토·QA 배포와 별개로 native client 구현 가능. broker canonical subject/운영 등록·실제 사용자 증거 필요. Apple native/web client별 audience와 callback allowlist, 재전송·취소·충돌 시험 | 서버 Auth + 앱 Auth |
+| C03 | native `/auth/session` 계정 요약·SOOP 상태·만료·opaque generation 확정. 방/동기화 scope 연결은 남음 | 요약과 전체 프로필을 분리하고 제공자를 추정하지 않음. room의 joined/mode/actorId/next 보존, 방별 인가·scope 확인. capabilities는 서버 인가 대체 불가 | 서버 Auth/Rooms/Access |
 | C04 | receipt에만 clientMessageId 있고 sync message에는 없음 | **작성자 본인에게만** clientMessageId를 direct GET/sync에 동일하게 projection하는 안을 우선 검증. 타 기기·ACK 유실에서도 하나로 합치며 공개본/타 사용자에는 제외. 명령 결과 조회 방식으로 바꾸면 동등한 중복 방지 fixture 필수 | 서버 Messages/Sync + 앱 Outbox |
 | C05 | PRIVATE 응답에 답장 상대와 허용 동작이 충분하지 않음 | 현재 viewer에게 허용된 counterpart actor 및 reply/publish/delete 가능 여부를 명시. 본인이 보낸 개인답장의 상대 복원, 익명 공개본에서 원 작성자/원본 연결 미노출 시험 | 서버 projector + 앱 Composer |
 | C06 | 화면 정렬·오래된 미로딩 메시지 upsert 처리 미확정 | 표시 순서·동일 시각 tie·history 병합 계약을 ADR과 fixture로 고정. 후보는 `(createdAt,id)` 표시 정렬과 기존 opaque pagination의 분리. commit 순서와 같다고 주장하지 않으며 내부 order/숨은 gap을 노출하지 않음 | 서버 Sync + 양 OS DB |
 | C07 | DTO가 손으로 작성된 반환 객체, M08에서 변동 중 | canonical projector와 strict DTO에서 OpenAPI export. sync/socket versioned schema 및 JSON 공통 예제. nullable PATCH의 absent/null/value 구분과 unsigned bigint 문자열 비교 포함 | 서버 contracts + 양 OS API |
-| C08 | 모바일 갱신·만료 정책 미확정 | 첫 버전은 기존 DB 검증 가능한 opaque session/만료 정책을 native Bearer로 운반하고 만료 시 재인증하는 안을 기준으로 ADR 확정. 존재하지 않는 refresh endpoint를 가정하지 않음. refresh 도입 시 rotation/replay/응답 유실을 별도 검증 | 서버 Auth + 앱 Session |
+| C08 | `ac69ca2`에서 고정 7일 opaque credential·만료 시 재인증 확정 | 앱 보호 저장·복원·명시적 폐기·expiry/401/응답 경쟁 검증. refresh API는 없으며, 향후 도입 시 rotation/replay/응답 유실을 별도 검증 | 서버 Auth + 앱 Session |
 
 C09는 이번 재사용 조사에서 구체화한 **후속 알림 계약**이다. MB01의 C01–C08 인증/텍스트
 계약을 일괄 지연시키지 않고, MB02c의 순수 UI/parser와 독립적으로 준비한다.

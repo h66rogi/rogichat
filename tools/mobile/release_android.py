@@ -117,4 +117,4 @@ def upload(cfg, manifest_path, notes_file):
     receipt = firebase_json(["appdistribution:distribute", str(apk), "--project", firebase["project_id"],
                              "--app", firebase["app_id"], "--release-notes-file", str(external(notes_file))], directory)
     private_write(directory / "firebase-receipt.json", json.dumps(receipt, indent=2) + "\n")
-    print("Firebase upload completed; private receipt saved. Tester distribution is a separate console step.")
+    print("Firebase upload completed; private receipt saved. Run android-finalize to verify the release and distribute to the approved testers.")

@@ -183,6 +183,18 @@ model login_transactions {
   session_id     String?     @db.Char(36)
   status         LoginStatus @default(PENDING)
   expires_at     DateTime    @db.DateTime(3)
+  channel        SessionTransport @default(WEB)
+  client_id      String?     @db.VarChar(32)
+  app_challenge  String?     @db.VarChar(43)
+  return_state   String?     @db.VarChar(43)
+  launch_digest  Bytes?      @unique @db.Binary(32)
+  launch_expires DateTime?   @db.DateTime(3)
+  launch_payload Bytes?      @db.Blob
+  launched_at    DateTime?   @db.DateTime(3)
+  completion_digest Bytes?   @unique @db.Binary(32)
+  completion_expires DateTime? @db.DateTime(3)
+  identity_payload Bytes?    @db.Blob
+  bound_generation BigInt?   @db.UnsignedBigInt
   @@index([expires_at])
 }
 
