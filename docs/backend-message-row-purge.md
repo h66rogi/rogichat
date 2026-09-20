@@ -1,8 +1,10 @@
 # M10 bounded MESSAGE row purge
 
 Internal source slice built on composed backend `388c9d0` (ACCOUNT admission and
-owner-send fence included). It is not a runtime PURGE handler, deployment, account
-purge, storage cleanup or `LIVE_PURGED` assertion.
+owner-send fence included). The configured bounded PURGE runtime now invokes
+this port as described in [bounded deletion runtime](backend-purge-runtime.md).
+This remains a MESSAGE row subset, not deployment, full account purge, storage
+cleanup or a `LIVE_PURGED` assertion.
 
 `MessagePurgeService.step` owns one fresh write transaction and requires a valid
 PURGE lease, configured ledger environment and page size 1–500. It locks the

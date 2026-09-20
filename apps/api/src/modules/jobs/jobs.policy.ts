@@ -1,4 +1,4 @@
-import { randomInt } from 'node:crypto';
+import { createHash, randomInt } from 'node:crypto';
 import { uuid } from '../../common/validation/identifier.js';
 export const JOB_PURPOSES = Object.freeze(['REALTIME_HINT', 'MEDIA', 'PUBLICATION', 'PURGE', 'PUSH', 'LEDGER_EXPORT'] as const);
 export type JobPurpose = typeof JOB_PURPOSES[number];
@@ -47,3 +47,13 @@ export function retryDelayMs(attempt: number, jitter = randomInt(0, 1001) / 1000
   if (!Number.isFinite(jitter) || jitter < 0 || jitter > 1) throw new Error('invalid_job_jitter');
   return Math.min(900_000, Math.floor(Math.min(900_000, 1000 * 2 ** (attempt - 1)) * (0.5 + jitter)));
 }
+
+// Scheduling identity only; domain handlers still verify external immutable authority.
+export function purgeDedupe(requestId: string): Buffer {
+  return createHash('sha256').update(`purge:${requestId}`).digest();
+}
+export function isDurablePurge(row: { purpose: string; resource_id: string | null; dedupe_key: Uint8Array | null }): boolean {
+  return row.purpose === 'PURGE' && row.resource_id !== null && row.dedupe_key instanceof Uint8Array &&
+    Buffer.from(row.dedupe_key).equals(purgeDedupe(row.resource_id));
+}
+export type PurgeContinuation = 'progress' | 'deferred' | 'subset_drained' | 'evidence_unavailable';

@@ -347,7 +347,9 @@ last job fence. `DeletionRepository.messageExists` is a current root-existence
 lock for replay after physical deletion; a failed author check is not absence. All discovery/CRUD uses Prisma after those parent locks in a fresh
 transaction. The job clock is sampled after lock acquisition. See
 [the bounded purge contract](backend-message-row-purge.md) for deferred media,
-retained dedupe metadata and cursor invalidation; no runtime handler is installed.
+retained dedupe metadata and cursor invalidation. The configured
+[bounded deletion runtime](backend-purge-runtime.md) now schedules this subset
+with same-transaction lease-fenced continuation; it does not assert full deletion.
 
 C06 exception: `membership-scope/membership-scope.repository.ts` uses one bound
 ACL-before-DISTINCT/LIMIT query for revoked sticker IDs across the selected room

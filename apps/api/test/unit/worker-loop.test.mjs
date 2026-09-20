@@ -28,7 +28,7 @@ test('only installed worker purposes are claimed; copied allowlist prioritizes P
   assert.ok(Object.isFrozen(f.loop.stats().installedPurposes));
   const result = await f.loop.tick(); assert.equal(result.completed, 1);
   for (const call of f.calls) if (call.operation === 'claim') assert.deepEqual(call.input, { purposes: ['PURGE', 'PUBLICATION'], limit: 1, leaseMs: 30000 });
-  const noHandlers = fixture({}); assert.deepEqual(await noHandlers.loop.tick(), { claimed: 0, completed: 0, leaseLost: 0, retried: 0, failed: 0 });
+  const noHandlers = fixture({}); assert.deepEqual(await noHandlers.loop.tick(), { claimed: 0, completed: 0, leaseLost: 0, retried: 0, failed: 0, progress: 0, deferred: 0, subsetDrained: 0 });
   assert.deepEqual(noHandlers.calls, []); assert.equal(noHandlers.checks(), 0);
 });
 
@@ -51,7 +51,7 @@ test('readiness fails closed before every claim and is rechecked after a handler
 test('at most ten single-flight executions per tick, with no unconditional completion by the loop', async () => {
   let active = 0; let maximum = 0;
   const f = fixture({ PUBLICATION: async () => { active++; maximum = Math.max(maximum, active); await Promise.resolve(); active--; return 'completed'; } }, Array.from({ length: 12 }, () => lease()));
-  assert.deepEqual(await f.loop.tick(), { claimed: 10, completed: 10, leaseLost: 0, retried: 0, failed: 0 });
+  assert.deepEqual(await f.loop.tick(), { claimed: 10, completed: 10, leaseLost: 0, retried: 0, failed: 0, progress: 0, deferred: 0, subsetDrained: 0 });
   assert.equal(maximum, 1); assert.equal(f.calls.length, 10); assert.equal(f.checks(), 10);
   assert.equal((await f.loop.tick()).completed, 2); assert.equal(f.rows.length, 0);
 });
@@ -63,7 +63,7 @@ test('exceptions persist only allowlisted errors and stale/committed domain fenc
   const f = fixture({ PUBLICATION: async () => { const value = values.shift(); if (value instanceof Error) throw value; return value; } }, jobs);
   let retries = 0;
   f.loop.jobs.retry = async (job, code, input) => { f.calls.push({ operation: 'retry', id: job.id, code, input }); return ++retries !== 5; };
-  assert.deepEqual(await f.loop.tick(), { claimed: 6, completed: 0, leaseLost: 2, retried: 1, failed: 3 });
+  assert.deepEqual(await f.loop.tick(), { claimed: 6, completed: 0, leaseLost: 2, retried: 1, failed: 3, progress: 0, deferred: 0, subsetDrained: 0 });
   const codes = f.calls.filter(call => call.operation === 'retry').map(call => call.code);
   assert.deepEqual(codes, ['TEMPORARY_UNAVAILABLE', 'SOURCE_UNAVAILABLE', 'DEPENDENCY_TIMEOUT', 'PERMANENT_FAILURE', 'TEMPORARY_UNAVAILABLE']);
   assert.ok(!JSON.stringify(f.calls).includes('private message'));
@@ -77,7 +77,7 @@ test('concurrent ticks share one promise and graceful stop waits for the current
   await Promise.resolve(); assert.equal(stopped, false);
   assert.equal((await f.loop.tick()).claimed, 0);
   finish.release(); await closing;
-  assert.deepEqual(await first, { claimed: 1, completed: 1, leaseLost: 0, retried: 0, failed: 0 });
+  assert.deepEqual(await first, { claimed: 1, completed: 1, leaseLost: 0, retried: 0, failed: 0, progress: 0, deferred: 0, subsetDrained: 0 });
   assert.equal(f.rows.length, 1); assert.equal(f.loop.stats().stopped, true); assert.equal(f.loop.stats().running, false);
   assert.equal(f.loop.stop(), f.loop.stop());
 });
@@ -91,6 +91,22 @@ test('stop or drain during readiness/claim never starts a newly acquired domain 
   await stopping; assert.equal((await checking).claimed, 0); assert.equal(before.calls.length, 0);
   const after = fixture({ PUBLICATION: async () => { effects++; return 'completed'; } });
   after.loop.jobs.claim = async () => { after.lifecycle.draining = true; return [lease()]; };
-  assert.deepEqual(await after.loop.tick(), { claimed: 1, completed: 0, leaseLost: 0, retried: 1, failed: 0 });
+  assert.deepEqual(await after.loop.tick(), { claimed: 1, completed: 0, leaseLost: 0, retried: 1, failed: 0, progress: 0, deferred: 0, subsetDrained: 0 });
   assert.equal(effects, 0); assert.deepEqual(after.calls[0].input, { delayMs: 0 });
+});
+
+
+test('bounded purge outcomes are counted truthfully without completion or retry', async () => {
+  const outcomes = ['progress', 'deferred', 'subset_drained'];
+  const f = fixture({ PURGE: async () => outcomes.shift() }, [lease('PURGE'), lease('PURGE'), lease('PURGE')]);
+  assert.deepEqual(await f.loop.tick(), { claimed: 3, completed: 0, leaseLost: 0, retried: 0, failed: 0, progress: 1, deferred: 1, subsetDrained: 1 });
+  assert.equal(f.calls.some(call => call.operation !== 'claim'), false);
+});
+
+test('retained PURGE backlog reserves every fourth claim for other purposes, including short ticks', async () => {
+  const queue = [], f = fixture({ PURGE: async () => 'deferred', PUBLICATION: async () => 'completed', MEDIA: async () => 'completed', PUSH: async () => 'completed' }, [], { maxPerTick: 1 });
+  f.loop.jobs.claim = async input => { queue.push(input.purposes); return [lease(input.purposes.includes('PURGE') ? 'PURGE' : 'PUBLICATION')]; };
+  for (let i = 0; i < 12; i++) await f.loop.tick();
+  assert.equal(queue.filter(purposes => !purposes.includes('PURGE')).length, 3);
+  for (const purposes of queue.filter(purposes => !purposes.includes('PURGE'))) assert.deepEqual(purposes, ['MEDIA', 'PUBLICATION', 'PUSH']);
 });
