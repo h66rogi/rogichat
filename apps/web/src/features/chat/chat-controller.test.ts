@@ -817,3 +817,30 @@ for (const pathKind of ['events', 'history'] as const) void test(`live ${pathKin
   assert.ok(controller.getSnapshot().epoch > epoch); controller.saveComposer(drafts, submission.target, epoch);
   assert.equal(controller.getComposer().drafts.shared?.quote?.excerpt, '[current authorized text]'); controller.dispose(); memory.clearAll();
 });
+
+void test('ROOM_OWNER send and retry preserve an actor-free command under fresh FAN authority', async () => {
+  let role = 'FAN'; let posts = 0; const bodies: Record<string, unknown>[] = [];
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (path.startsWith('/v1/sync?')) return { schemaVersion: 2, resetRequired: false, rooms: [{ ...room, role }], generation: 'membership-1', nextCursor: null, complete: true };
+    if (path.includes('/private-recipients')) return { recipients: [], next: null };
+    if (path.endsWith('/messages')) {
+      const body = options?.body as Record<string, unknown>; bodies.push(body); posts++;
+      if (posts === 1) throw new TypeError('uncertain transport');
+      return { clientMessageId: body.clientMessageId, messageId: source().id, status: 'committed', version: '1' };
+    }
+    return undefined;
+  }));
+  try {
+    await controller.refresh();
+    const result = await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '방장 수신함' });
+    assert.equal(result.accepted, false); assert.ok(result.retryCommandId);
+    assert.equal(bodies[0]?.intent, 'ROOM_OWNER'); assert.equal('recipientActorId' in bodies[0]!, false);
+    await controller.refresh(); await controller.retry(result.retryCommandId!);
+    assert.equal(posts, 2); assert.deepEqual(bodies[1], bodies[0]);
+    assert.equal((await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '인용 주입', quoteMessageId: source().id })).accepted, false);
+    assert.equal((await controller.send({ target: { scope: 'SHARED' }, body: '공개 주입' })).accepted, false);
+    role = 'STREAMER'; await controller.refreshHints();
+    assert.equal((await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '역할 변경' })).accepted, false);
+    assert.equal(posts, 2);
+  } finally { controller.dispose(); }
+});
