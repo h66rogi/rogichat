@@ -75,7 +75,9 @@ generated and applied by Prisma 7.10.0 on an isolated MySQL 8.0.44 instance, the
 replayed with all prior migrations on a second fresh instance. Its SHA256 is
 `8e26e053d3245ed96d253759a6bfb4488ab5297d0f0c4e2ee9bf1df103ee7aca`.
 The successful generation started 2026-09-20 10:40:54 UTC; fresh replay started
-10:41:57 UTC and both fixture teardowns were confirmed by 10:42:35 UTC. No live SQL
+10:41:57 UTC. Both harnesses exited successfully and completed fixture teardown
+before the coordinator transferred the DB lease; a separate exact stop timestamp
+was not captured. No live SQL
 or shared database migration was performed. Schema source was published separately
 as `d08a0e5` for dependent additive migrations.
 

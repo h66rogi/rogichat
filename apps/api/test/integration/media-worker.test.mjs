@@ -397,16 +397,16 @@ test('VIDEO real DB heartbeat extends its live lease during decoder I/O', { time
   assert.equal(await running, 'completed');
 });
 
-test('VIDEO uncertain poster and young deletion defer cleanup with all quota retained', { timeout: 20000 }, async t => {
+test('VIDEO uncertain poster retains quota even after immediate bounded deletion', { timeout: 20000 }, async t => {
   const f = await fixture(t, 'VIDEO'); const input = await f.processing(); const lease = await f.lease(input.assetId);
   f.hooks.put = key => { if (key.endsWith('/poster')) throw new Error('unknown-put'); };
   await assert.rejects(f.process(lease));
   await f.txs.write(tx => tx.execute("UPDATE media_assets SET state='DELETING',deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [input.assetId]));
   const before = await f.inspect(input.assetId); delete f.hooks.put;
-  assert.equal(await f.process(lease), 'completed'); const after = await f.inspect(input.assetId);
+  assert.equal(await f.process(lease), 'progress'); const after = await f.inspect(input.assetId);
   assert.equal(after.asset.state, 'DELETING'); assert.equal(after.reserved, before.reserved);
-  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 1); assert.equal(f.calls.remove.length, 0);
-  assert.equal(f.objects.size, 3);
+  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 1); assert.equal(f.calls.remove.length, 3);
+  assert.equal(f.objects.size, 0);
 });
 
 
@@ -438,11 +438,11 @@ test('VIDEO poster failure before storage leaves video discoverable and cleanup 
   assert.equal(before.asset.state, 'PROCESSING'); assert.equal(before.objects.filter(row => row.state === 'ALLOCATED').length, 2);
   assert.equal(f.objects.size, 2); assert.equal(f.calls.dispose, 2);
   await f.txs.write(tx => tx.execute("UPDATE media_assets SET state='DELETING',deleted_at=UTC_TIMESTAMP(3) WHERE id=?", [input.assetId]));
-  await f.age(input.assetId); assert.equal(await f.process(lease), 'completed');
+  await f.age(input.assetId); assert.equal(await f.process(lease), 'progress');
   const after = await f.inspect(input.assetId);
   assert.equal(after.asset.state, 'DELETING'); assert.equal(f.objects.size, 0);
   assert.equal(f.calls.remove.length, 3); assert.equal(after.reserved, before.reserved);
-  assert.equal(after.objects.filter(row => row.state === 'ALLOCATED').length, 2);
+  assert.equal(after.objects.filter(row => row.state === 'ALLOCATED').length, 1);
 });
 
 
