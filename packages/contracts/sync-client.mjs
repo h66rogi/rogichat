@@ -8,7 +8,10 @@ const version = value => {
 // adapter must commit the cloned resource set AND cursor in one local transaction.
 export class ReferenceRoomCache {
   constructor(cacheId) { this.reset(cacheId); }
-  reset(cacheId) { this.state = { cacheId, cursor: null, membershipScope: null, authorizationRevision: null, messages: new Map() }; }
+  reset(cacheId) {
+    if (this.state && cacheId === this.state.cacheId) throw new Error('new_cache_generation_required');
+    this.state = { cacheId, cursor: null, membershipScope: null, authorizationRevision: null, messages: new Map() };
+  }
   transaction(cacheId, run, beforeCommit = () => {}) {
     if (cacheId !== this.state.cacheId) return false; // Old account/cache responses cannot merge.
     const next = structuredClone(this.state);
@@ -23,8 +26,8 @@ export class ReferenceRoomCache {
     const createdAt = prior?.message?.createdAt ?? prior?.createdAt;
     if (createdAt && createdAt !== message.createdAt) throw new Error('immutable_display_key');
     if (prior && version(prior.version) > version(message.version)) return;
-    // At equal version a prior tombstone wins over a late history response.
-    if (prior?.deleted && version(prior.version) === version(message.version)) return;
+    // A tombstone is terminal within this authority/cache generation, at every version.
+    if (prior?.deleted) return;
     next.messages.set(message.id, { version: message.version, deleted: false, message: structuredClone(message) });
   }
   snapshot(cacheId, response) {

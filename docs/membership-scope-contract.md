@@ -78,5 +78,16 @@ UTC createdAt then lowercase UUID ASCII, without locale comparison. This display
 key is immutable. Internal created_order remains the history boundary; capture
 that boundary before sorting a copy of the selected response. Event log ordering
 stays event_order, never display order. Treat versions as uint64 decimal strings
-and compare with BigInt/lossless integers. Equal-version tombstones win. A late
-upsert must neither resurrect a tombstone nor change an established display key.
+and compare with BigInt/lossless integers. Within the same account, room, local
+cache generation and M/A context, an accepted tombstone is terminal: lower, equal
+and higher-version live upserts/history cannot resurrect it. Newer tombstones may
+advance the stored version and event checkpoint; ignored live events still allow
+the response cursor to commit atomically. Immutable display-key validation remains
+in force, including for rejected resurrection attempts.
+
+Reset requires a different, fresh cacheId; reusing the current cacheId cannot erase
+tombstones. An authority change requires a fresh fenced local cache generation and
+an authoritative, freshly authorized snapshot. Old-generation responses must never
+merge into it, even when M/A later cycles back to an earlier value. This cache reset
+is not a message-restoration or ID-reuse contract: server deletions remain irreversible,
+and any newly visible projection must come from that authorized snapshot.
