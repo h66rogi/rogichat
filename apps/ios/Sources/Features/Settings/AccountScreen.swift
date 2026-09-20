@@ -1,47 +1,62 @@
 import SwiftUI
 
-struct AccountPresentation {
-    let signInSummary: String
-    let connectionSummary: String
-}
+// Adapted MyPageView's account actions and explicit destructive confirmation.
+// Only operations backed by the injected account service are displayed.
 struct AccountScreen: View {
-    let account: AccountPresentation
-    var onEndPreview: (() -> Void)? = nil
+    let account: AccountProfile
+    let capabilities: SessionCapabilities
+    let onLink: () -> Void
+    let onSignOut: () async throws -> Void
+    let onDelete: () async throws -> Void
     @State private var notice: Notice?
-    private enum Notice { case logout, deletion, endPreview }
-    private var title: String {
-        switch notice {
-        case .logout: return "로그아웃"
-        case .deletion: return "회원 탈퇴"
-        default: return "미리보기를 종료할까요?"
+    @State private var working = false
+    @State private var errorMessage: String?
+    private enum Notice { case logout, deletion }
+
+    var body: some View {
+        List {
+            Section("로그인 계정") {
+                LabeledContent("로그인 방법", value: account.signInMethod)
+                LabeledContent("표시 이름", value: account.displayName)
+            }
+            Section {
+                Label(account.soopConnected ? "SOOP 계정 연결됨" : "SOOP 계정 연결 필요",
+                      systemImage: account.soopConnected ? "checkmark.seal.fill" : "link")
+                    .foregroundStyle(account.soopConnected ? AppTheme.accent : .secondary)
+                if !account.soopConnected && capabilities.canLinkSOOP {
+                    Button("SOOP 계정 연결", action: onLink)
+                }
+            } header: { Text("연결된 계정") }
+              footer: { Text("대화를 이용하려면 SOOP 계정이 연결되어 있어야 해요.") }
+            if capabilities.canSignOut || capabilities.canDeleteAccount {
+                Section {
+                    if capabilities.canSignOut { Button("로그아웃", role: .destructive) { notice = .logout } }
+                    if capabilities.canDeleteAccount { Button("회원 탈퇴", role: .destructive) { notice = .deletion } }
+                }
+            }
+            if working { Section { ProgressView("처리하는 중").frame(maxWidth: .infinity) } }
+            if let errorMessage { Section { Text(errorMessage).font(.footnote).foregroundStyle(.red) } }
+        }
+        .disabled(working)
+        .confirmationDialog(notice == .deletion ? "로기챗에서 탈퇴할까요?" : "로그아웃할까요?",
+                            isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } }), titleVisibility: .visible) {
+            if notice == .deletion {
+                Button("회원 탈퇴", role: .destructive) { perform(onDelete) }
+            } else {
+                Button("로그아웃", role: .destructive) { perform(onSignOut) }
+            }
+            Button("취소", role: .cancel) { notice = nil }
+        } message: {
+            Text(notice == .deletion ? "탈퇴하면 이 계정으로 로기챗을 이용할 수 없어요. 계속하려면 회원 탈퇴를 선택해 주세요." : "이 기기에서 로기챗 계정을 로그아웃해요.")
         }
     }
-    var body: some View {
-        Group {
-            SettingsSection(title: "계정 연결") {
-                SettingsRow(icon: "person", title: "로그인 계정", subtitle: account.signInSummary)
-                SettingsRow(icon: "link", title: "SOOP 연결", subtitle: account.connectionSummary)
-                SettingsRow(icon: "arrow.triangle.2.circlepath", title: "계정 연결 변경", subtitle: "계정 연결 기능 준비 중", enabled: false)
-            }
-            SettingsSection(title: "계정 관리") {
-                SettingsRow(icon: "rectangle.portrait.and.arrow.right", title: "로그아웃", subtitle: "로그아웃 안내 보기") { notice = .logout }
-                SettingsRow(icon: "person.crop.circle.badge.minus", title: "회원 탈퇴", subtitle: "회원 탈퇴 안내 보기") { notice = .deletion }
-            }
-            if onEndPreview != nil { Button("미리보기 종료") { notice = .endPreview }.buttonStyle(.bordered) }
-        }
-        .alert(title, isPresented: Binding(get: { notice != nil }, set: { if !$0 { notice = nil } })) {
-            Button("취소", role: .cancel) { notice = nil }
-            if notice == .endPreview {
-                Button("종료", role: .destructive) { notice = nil; onEndPreview?() }
-            } else {
-                Button("준비 중", role: .destructive) {}.disabled(true)
-            }
-        } message: {
-            switch notice {
-            case .logout: Text("로그아웃 기능은 준비 중이에요. 현재 계정은 변경되지 않아요.")
-            case .deletion: Text("탈퇴 기능과 데이터 처리 안내를 준비하고 있어요. 현재 계정이나 데이터는 삭제되지 않아요.")
-            default: Text("프로필 입력과 대화 초안이 초기화돼요. 실제 계정에는 영향을 주지 않아요.")
-            }
+    private func perform(_ action: @escaping () async throws -> Void) {
+        guard !working else { return }
+        notice = nil; working = true; errorMessage = nil
+        Task { @MainActor in
+            defer { working = false }
+            do { try await action() }
+            catch { errorMessage = "요청을 완료하지 못했어요. 연결을 확인하고 다시 시도해 주세요." }
         }
     }
 }
