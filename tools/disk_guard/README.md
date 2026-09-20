@@ -50,6 +50,10 @@ and skip reason. The delta is explicitly qualified for concurrent disk activity.
    A frozen-lockfile reinstall command is recorded; no lifecycle scripts are run.
 4. Every file/link/mode/xattr is fingerprinted. Protected names, local databases, keys,
    model-weight extensions and special files block the entire dependency directory.
+   Names such as vendor `env.js` are distinguished only when their bytes are recorded
+   in the exact locked pnpm package receipt and match its SHA-512 content-addressed
+   store blob. Receipt SQLite is read-only. Actual `.env`, keys, databases and model
+   weights remain unconditional blockers; modified or unknown vendor content blocks.
    Symlinks are never traversed for deletion, copying or fingerprinting.
 5. The configured external mount UUID/path must match, with at least the copy's size
    plus 20 GiB reserve. A native `ditto` copy preserves resource forks, xattrs and ACLs.

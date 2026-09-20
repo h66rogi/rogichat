@@ -163,6 +163,44 @@ class CleanupTests(unittest.TestCase):
                     c.fresh(api, {}, path)
                 self.assertEqual(proc.call_args.args[0][:2], ['/usr/bin/sudo', '-n'])
 
+    def test_vendor_code_requires_locked_cas_proof_and_rejects_modified_content(self):
+        import hashlib
+        import sqlite3
+        c = self.module()
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            modules = root/'node_modules'
+            package = modules/'.pnpm/vendor@1.0.0/node_modules/vendor'
+            package.mkdir(parents=True)
+            (package/'package.json').write_text(json.dumps({'name': 'vendor', 'version': '1.0.0'}))
+            source = package/'env.js'
+            source.write_text('module.exports = 1;')
+            digest = hashlib.sha512(source.read_bytes()).hexdigest()
+            store = root/'store'
+            blob = store/'files'/digest[:2]/digest[2:]
+            blob.parent.mkdir(parents=True)
+            blob.write_bytes(source.read_bytes())
+            lock = root/'pnpm-lock.yaml'
+            lock.write_text('integrity: sha512-example')
+            db = sqlite3.connect(store/'index.db')
+            db.execute('CREATE TABLE package_index (key TEXT, data BLOB)')
+            db.execute('INSERT INTO package_index VALUES (?,?)', ('sha512-example\tvendor@1.0.0', digest.encode()))
+            db.commit()
+            db.close()
+            allowed = c.vendor_allowances(modules, store, lock)
+            self.assertIn(str(source.relative_to(modules)), allowed)
+            c.fingerprint(modules, vendor_paths=allowed)
+            source.write_text('personal draft')
+            with self.assertRaises(RuntimeError):
+                c.vendor_allowances(modules, store, lock)
+
+    def test_env_is_never_exempted_by_vendor_allowance(self):
+        c = self.module()
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, '.env').write_text('protected')
+            with self.assertRaises(RuntimeError):
+                c.fingerprint(d, vendor_paths={'.env'})
+
     def test_unmounted_archive_is_rejected_before_any_write(self):
         c = self.module()
         with patch.object(Path, 'is_mount', return_value=False):
@@ -179,7 +217,7 @@ class CleanupTests(unittest.TestCase):
             target.mkdir(parents=True)
             (work/'package.json').write_text(json.dumps({'packageManager': 'pnpm@12.4.2'}))
             (work/'pnpm-lock.yaml').write_text('lockfileVersion: 9')
-            (target/'.modules.yaml').write_text(json.dumps({'packageManager': 'pnpm@12.4.2', 'nodeLinker': 'isolated'}))
+            (target/'.modules.yaml').write_text(json.dumps({'packageManager': 'pnpm@12.4.2', 'nodeLinker': 'isolated', 'storeDir': str(root/'store')}))
             (target/'index.js').write_text('original')
             snapshot = {'git': {'head': 'saved'}, 'instance': 'same'}
             api = types.SimpleNamespace(GIB=1, git=lambda *a: '', run=lambda *a: '12.4.2', atomic=g.atomic)
@@ -187,7 +225,7 @@ class CleanupTests(unittest.TestCase):
             config = {'pnpm_command': ['pnpm'], 'archive_volume': str(root)}
             def fresh(*args):
                 return dict(snapshot, instance='changed') if change_after_copy and archive.exists() else snapshot
-            with patch.object(c, 'fresh', side_effect=fresh), patch.object(c, 'mounted_archive', return_value=archive), patch.object(c, 'fresh_after_rename', return_value=final_recheck), patch.object(c, 'separate_volume'):
+            with patch.object(c, 'fresh', side_effect=fresh), patch.object(c, 'mounted_archive', return_value=archive), patch.object(c, 'fresh_after_rename', return_value=final_recheck), patch.object(c, 'separate_volume'), patch.object(c, 'vendor_allowances', return_value=set()):
                 if change_after_copy or not final_recheck:
                     with self.assertRaises(RuntimeError):
                         c.clean_one(api, config, root, {'path': str(work), 'git': snapshot['git']})

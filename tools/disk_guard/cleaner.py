@@ -11,6 +11,7 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -61,7 +62,80 @@ def attributes(path):
     return result
 
 
-def fingerprint(root, protect=True):
+def hard_protected(name):
+    return (name == '.env' or name.startswith('.env.') or
+            name in {'.npmrc', '.netrc', '.git', 'id_rsa', 'id_ed25519', 'credentials', 'secrets', 'uploads'} or
+            re.search(r'\.(db|sqlite|sqlite3|pem|key|p12|pfx|gguf|onnx|safetensors|pt|pth)$', name, re.I))
+
+
+def vendor_allowances(root, store, lockfile):
+    """Disambiguate vendor code names using locked pnpm receipts and CAS bytes.
+
+This does not exempt credentials/DBs/weights, unknown content, or user directories.
+Receipt DB is opened read-only; no pnpm store file is changed.
+"""
+    root, store = Path(root), Path(store)
+    lock = Path(lockfile).read_text()
+    db = sqlite3.connect((store/'index.db').as_uri() + '?mode=ro', uri=True)
+    cache = {}
+    def original(file):
+        if file.is_symlink() or not file.is_file():
+            return False
+        package = file.parent
+        while package != root and package.is_relative_to(root):
+            manifest = package/'package.json'
+            if manifest.is_file() and not manifest.is_symlink():
+                data = json.loads(manifest.read_text())
+                name, version = data.get('name', ''), data.get('version', '')
+                if name and version:
+                    key = name + '@' + version
+                    if key not in cache:
+                        suffix = '\t' + key
+                        rows = db.execute('SELECT key,data FROM package_index WHERE substr(key,-length(?))=?', (suffix, suffix)).fetchall()
+                        cache[key] = [blob for k, blob in rows if k.split('\t')[0] in lock]
+                    digest = hashlib.sha512(file.read_bytes()).hexdigest()
+                    # The bytes must be indexed by this exact locked package, and
+                    # a correctly named content-addressed blob must still restore them.
+                    if any(digest.encode() in blob for blob in cache[key]):
+                        blob = store/'files'/digest[:2]/digest[2:]
+                        if not blob.exists():
+                            blob = blob.with_name(blob.name + '-exec')
+                        if blob.is_file() and not blob.is_symlink() and hashlib.sha512(blob.read_bytes()).hexdigest() == digest:
+                            return True
+            package = package.parent
+        return False
+    allowed = set()
+    try:
+        for base, dirs, files in os.walk(root, followlinks=False):
+            for name in dirs + files:
+                if hard_protected(name):
+                    raise RuntimeError('protected data name present; preserve complete dependency tree')
+                if not PROTECTED.search(name):
+                    continue
+                path = Path(base)/name
+                rel = path.relative_to(root)
+                valid = False
+                if path.is_symlink():
+                    dest = path.resolve()
+                    valid = dest.is_relative_to(root) and original(dest/'package.json' if dest.is_dir() else dest)
+                elif path.is_file():
+                    valid = original(path)
+                elif path.is_dir() and len(rel.parts) == 2 and rel.parts[0] == '.pnpm':
+                    # pnpm package slot, not an arbitrary user directory.
+                    manifests = list((path/'node_modules').glob('*/package.json')) + list((path/'node_modules').glob('@*/*/package.json'))
+                    valid = {p.name for p in path.iterdir()} == {'node_modules'} and any(original(p) for p in manifests if not p.parent.is_symlink())
+                elif path.is_dir():
+                    members = [p for p in path.rglob('*') if p.is_file() and not p.is_symlink()]
+                    valid = bool(members) and all(original(p) for p in members)
+                if not valid:
+                    raise RuntimeError('protected-looking name lacks locked vendor content proof: ' + str(rel))
+                allowed.add(str(rel))
+    finally:
+        db.close()
+    return allowed
+
+
+def fingerprint(root, protect=True, vendor_paths=frozenset()):
     """Hash all bytes, links, permissions and xattrs without following symlinks."""
     root = Path(root)
     if root.is_symlink() or not root.is_dir():
@@ -71,7 +145,7 @@ def fingerprint(root, protect=True):
         for name in sorted(dirs + files):
             path = Path(base)/name
             rel = str(path.relative_to(root))
-            if protect and (PROTECTED.search(name) or name in {'.npmrc', '.netrc', '.git', 'id_rsa', 'id_ed25519'}):
+            if protect and (hard_protected(name) or (PROTECTED.search(name) and rel not in vendor_paths)):
                 raise RuntimeError('protected name present; preserve complete dependency tree')
             before = path.lstat()
             if stat.S_ISLNK(before.st_mode):
@@ -190,7 +264,8 @@ def clean_one(api, config, state_dir, row):
     modules = json.loads((target/'.modules.yaml').read_text())
     if modules.get('packageManager') != expected or modules.get('nodeLinker') != 'isolated':
         raise RuntimeError('dependency installation provenance uncertain')
-    stamp = fingerprint(target)
+    vendor_paths = vendor_allowances(target, modules['storeDir'], path/'pnpm-lock.yaml')
+    stamp = fingerprint(target, vendor_paths=vendor_paths)
     size = sum(f.get('size', 0) for f in stamp.values())
     root = mounted_archive(config)
     separate_volume(Path(config['archive_volume']), path)
@@ -210,7 +285,7 @@ def clean_one(api, config, state_dir, row):
             shutil.copytree(target, backup, symlinks=True, copy_function=shutil.copy2)
     # Deterministic location prevents repeated failed attempts from filling the SSD.
     # Existing incomplete or altered backups block, never get overwritten.
-    if fingerprint(backup) != stamp or fingerprint(target) != stamp:
+    if fingerprint(backup, vendor_paths=vendor_paths) != stamp or fingerprint(target, vendor_paths=vendor_paths) != stamp:
         raise RuntimeError('copy verification or source stability failed; source retained')
     mounted_archive(config)
     if fresh(api, config, path) != before:
@@ -226,7 +301,7 @@ def clean_one(api, config, state_dir, row):
         # Quarantine is deliberately untracked: ignore only this exact guard-owned
         # path for the final Git comparison, never unknown ignored/user files.
         current = fresh_after_rename(api, config, path, quarantine, before)
-        if not current or fingerprint(quarantine) != stamp:
+        if not current or fingerprint(quarantine, vendor_paths=vendor_paths) != stamp:
             raise RuntimeError('state changed immediately before removal')
         mounted_archive(config)
         shutil.rmtree(quarantine)
@@ -266,6 +341,9 @@ def review(api, config, state_dir, report):
     attempts = {p: t for p, t in attempts.items() if p in live_paths}
     for row in sorted(report['worktrees'], key=lambda w: attempts.get(w['path'], 0)):
         if not eligible(row) or not any(api.within(row['path'], r) for r in config.get('cleanup_roots', [])):
+            continue
+        dependency_dir = Path(row['path'])/'node_modules'
+        if not dependency_dir.is_dir() or dependency_dir.is_symlink():
             continue
         try:
             initial = api.orca(config, 'terminal', 'list')['terminals']
