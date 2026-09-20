@@ -4,6 +4,8 @@ import RogichatRooms
 struct ProductRootView: View {
     @State private var session: AppSession
     @State private var confirmLocalReset = false
+    @State private var resetGeneration: UInt64?
+    @State private var resetAfterHistoryDismiss = false
     private let nativeEnvironment: NativeEnvironment
     @State private var navigation = ShellNavigation()
     @State private var roomsStorage: RoomsStorage
@@ -43,11 +45,21 @@ struct ProductRootView: View {
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL { Task { await session.acceptAuthCallback(url) } }
         }
-        .confirmationDialog("이 기기의 로그인 정보를 지울까요?", isPresented: $confirmLocalReset, titleVisibility: .visible) {
-            Button("로그인 정보 지우기", role: .destructive) { Task { await session.resetLocalSession() } }
+        .sheet(isPresented: $session.showDeletionHistory, onDismiss: {
+            if resetAfterHistoryDismiss { resetAfterHistoryDismiss = false; confirmLocalReset = true }
+        }) {
+            AccountDeletionScreen(records: session.visibleDeletions, busy: session.busy, error: session.deletionError,
+                onRetry: { id in Task { await session.retryDeletionCleanup(id: id) } },
+                onReset: { resetGeneration = session.generation; resetAfterHistoryDismiss = true; session.showDeletionHistory = false },
+                onDismiss: { session.dismissDeletionPresentation() })
+        }
+        .confirmationDialog("이 기기의 정보를 지울까요?", isPresented: $confirmLocalReset, titleVisibility: .visible) {
+            Button("기기 정보 지우기", role: .destructive) {
+                if let expected = resetGeneration { Task { await session.resetLocalSession(expectedGeneration: expected) } }
+            }
             Button("취소", role: .cancel) {}
         } message: {
-            Text("저장된 로그인 정보를 기기에서 삭제해 다시 로그인할 수 있게 합니다. 서버의 로그인 종료는 확인할 수 없어요.")
+            Text("저장된 로그인 정보와 이 기기의 접수 기록이 지워져요. 서버의 탈퇴 요청을 취소하거나 접수 여부를 확인하는 작업은 아니에요.")
         }
         .task { await session.restore() }
         .onChange(of: scenePhase) { _, phase in
@@ -73,7 +85,7 @@ struct ProductRootView: View {
                 Task { await session.signIn(method, consent: consent) }
             }
         case .settings:
-            SettingsScreen(account: session.account, capabilities: session.capabilities, onOpen: { navigation.open($0) }, onSignIn: { navigation.selectTab(.talks) })
+            SettingsScreen(account: session.account, capabilities: session.capabilities, onOpen: { navigation.open($0) }, onSignIn: { navigation.selectTab(.talks) }, hasDeletionHistory: session.account == nil && !session.deletions.isEmpty, onDeletionHistory: { session.showDeletionHistory = true })
         case .appearance: AppearanceScreen()
         case .notifications:
             let scope = session.generation
@@ -88,8 +100,9 @@ struct ProductRootView: View {
             }
         case .account:
             if let account = session.account {
+                let generation = session.generation
                 AccountScreen(account: account, capabilities: session.capabilities,
-                              onLink: { navigation.selectTab(.talks) }, onSignOut: { try await session.signOut() }, onDelete: { try await session.deleteAccount() })
+                              onLink: { navigation.selectTab(.talks) }, onSignOut: { try await session.signOut() }, prepareDeletion: { session.deletionIntent(expectedGeneration: generation) }, onDelete: { session.startDeletion($0) })
                     .id(session.generation)
             }
         case .link:
@@ -115,9 +128,12 @@ struct ProductRootView: View {
                 VStack(spacing: 16) {
                     ScreenStatus(title: "계정을 확인하지 못했어요", message: session.errorMessage ?? "연결을 확인하고 다시 시도해 주세요.", retry: { Task { await session.restore() } })
                     if session.account == nil, session.capabilities.canResetLocalSession {
-                        Button("이 기기의 로그인 정보 지우기", role: .destructive) { confirmLocalReset = true }
+                        Button("이 기기의 정보 초기화", role: .destructive) { resetGeneration = session.generation; confirmLocalReset = true }
                     }
                 }.frame(maxHeight: .infinity)
+            } else if session.access == .accountClosing {
+                ScreenStatus(title: "탈퇴 요청 확인 중", message: "요청을 다시 보내지 않고 처리 결과를 기다리고 있어요.", loading: true)
+                    .safeAreaInset(edge: .bottom) { Button("요청 상태 보기") { session.showDeletionHistory = true }.padding() }
             } else {
                 ContentUnavailableView(session.access == .accountClosing ? "계정 탈퇴를 처리하고 있어요" : "계정을 이용할 수 없어요", systemImage: "person.crop.circle.badge.exclamationmark")
             }

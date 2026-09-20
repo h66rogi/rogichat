@@ -26,7 +26,7 @@ protocol CredentialBytesStoring: Sendable {
     func write(_ data: Data) throws
     func remove() throws
 }
-private struct KeychainCredentialBytes: CredentialBytesStoring {
+struct KeychainCredentialBytes: CredentialBytesStoring {
     let service: String
     private var query: [String: Any] {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
@@ -57,7 +57,7 @@ private struct KeychainCredentialBytes: CredentialBytesStoring {
 // Adapted KeychainService's access-token read/write/clear boundary. The original
 // refresh/FCM keys and swallowed errors do not satisfy this native contract.
 // Synchronous operations under one lock make compare-and-replace nonreentrant.
-final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
+final class NativeCredentialStore: SOOPAuthStoring, AccountDeletionStoring, @unchecked Sendable {
     private struct Marker: Codable {
         var schema = 1
         var installation = UUID()
@@ -65,11 +65,12 @@ final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
         var cancelledAuth: UUID? = nil
     }
     private struct Envelope: Codable {
-        var schema = 2
+        var schema = 3
         var credential: NativeCredential?
         var pending: SOOPPending?
         var authEpoch = UUID()
         var installedByAuth: UUID? = nil
+        var deletions: [AccountDeletionRecord]? = []
     }
     private let lock = NSLock()
     private let environment: NativeEnvironment
@@ -91,8 +92,12 @@ final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
             var value = try marker()
             guard value.logoutPending else { throw ProductError.sessionChanged }
             // No replacement can be installed while this durable intent is set.
-            // Remove even a corrupt retained record without decoding its secret.
-            try bytes.remove()
+            // Preserve protected admission evidence; corrupt envelopes require
+            // the separately confirmed device reset instead of automatic removal.
+            var state = try envelope()
+            guard admitsSession(state) else { throw ProductError.accountDeletionPending }
+            state.credential = nil; state.pending = nil; state.installedByAuth = nil; state.authEpoch = UUID()
+            try saveSessionCleared(state)
             value.logoutPending = false
             try saveMarker(value)
         }
@@ -100,7 +105,17 @@ final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
     func read() throws -> NativeCredential? { try lock.withLock { _ = try marker(); return try readLocked() } }
     private func envelope() throws -> Envelope {
         guard let data = try bytes.read() else { return Envelope() }
-        if let value = try? JSONDecoder().decode(Envelope.self, from: data), value.schema == 2 {
+        guard data.count <= 65_536 else { throw ProductError.secureStorage }
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        if object?["schema"] != nil {
+            guard var value = try? JSONDecoder().decode(Envelope.self, from: data), [2,3].contains(value.schema),
+                  value.schema != 3 || value.deletions != nil else { throw ProductError.secureStorage }
+            let records = value.deletions ?? []
+            guard records.count <= 16, Set(records.map(\.id)).count == records.count,
+                  records.allSatisfy({ $0.valid && $0.environment == environment && $0.installation == (try? marker().installation) }),
+                  records.filter({ $0.cleanupPending || $0.phase != .finished }).count <= 1,
+                  records.allSatisfy({ !$0.cleanupPending && $0.phase == .finished }) || (value.credential == nil && value.pending == nil && value.installedByAuth == nil) else { throw ProductError.secureStorage }
+            value.schema = 3; value.deletions = records
             guard value.credential.map({ $0.isValid && $0.environment == environment }) ?? true else { throw ProductError.secureStorage }
             if let pending = value.pending {
                 guard pending.id == value.authEpoch, pending.environment == environment, pending.proof.valid,
@@ -133,16 +148,36 @@ final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
         marker.cancelledAuth = nil; try saveMarker(marker)
         return state
     }
-    private func saveEnvelope(_ value: Envelope) throws { try bytes.write(JSONEncoder().encode(value)) }
-    private func readLocked() throws -> NativeCredential? { try envelope().credential }
+    private func saveEnvelope(_ value: Envelope) throws {
+        let data = try JSONEncoder().encode(value)
+        guard data.count <= 65_536, (value.deletions ?? []).count <= 16, (value.deletions ?? []).allSatisfy(\.valid) else { throw ProductError.secureStorage }
+        try bytes.write(data)
+    }
+    private func saveSessionCleared(_ state: Envelope) throws {
+        if (state.deletions ?? []).isEmpty { try bytes.remove() }
+        else { try saveEnvelope(state) }
+    }
+    private func admitsSession(_ state: Envelope) -> Bool {
+        (state.deletions ?? []).allSatisfy { !$0.cleanupPending && $0.phase == .finished }
+    }
+    private func readLocked() throws -> NativeCredential? {
+        let state = try envelope()
+        guard admitsSession(state) else { throw ProductError.accountDeletionPending }
+        return state.credential
+    }
     @discardableResult func replace(expected: NativeCredential?, with value: NativeCredential?) throws -> Bool {
         try lock.withLock {
             let marker = try marker()
-            guard try readLocked() == expected else { return false }
+            var state = try envelope()
+            guard admitsSession(state), state.credential == expected else { return false }
             if let value {
                 guard !marker.logoutPending, value.isValid, value.environment == environment else { throw ProductError.secureStorage }
-                try saveEnvelope(Envelope(credential: value))
-            } else { try bytes.remove() }
+                state.credential = value; state.pending = nil; state.installedByAuth = nil; state.authEpoch = UUID()
+                try saveEnvelope(state)
+            } else {
+                state.credential = nil; state.pending = nil; state.installedByAuth = nil; state.authEpoch = UUID()
+                try saveSessionCleared(state)
+            }
             return true
         }
     }
@@ -150,7 +185,7 @@ final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
         try lock.withLock {
             let marker = try marker()
             var state = try envelope()
-            guard !marker.logoutPending, state.installedByAuth == nil, state.credential == expected, proof.valid,
+            guard !marker.logoutPending, admitsSession(state), state.installedByAuth == nil, state.credential == expected, proof.valid,
                   intent == .login ? expected == nil && accountID == nil && serverGeneration == nil : expected != nil && accountID != nil && serverGeneration != nil else { throw SOOPAuthError.sessionChanged }
             let id = UUID()
             let pending = SOOPPending(id: id, installation: marker.installation, environment: environment, intent: intent,
@@ -162,7 +197,7 @@ final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
     }
     private func currentPending(_ state: Envelope, now: Date) throws -> SOOPPending {
         let marker = try marker()
-        guard !marker.logoutPending, let pending = state.pending, pending.id == state.authEpoch,
+        guard !marker.logoutPending, admitsSession(state), let pending = state.pending, pending.id == state.authEpoch,
               pending.installation == marker.installation, pending.originalCredential == state.credential else { throw SOOPAuthError.sessionChanged }
         guard pending.isCurrent(at: now) else { throw SOOPAuthError.expired }
         return pending
@@ -204,7 +239,7 @@ final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
     func acknowledgeAuth(id: UUID, credential: NativeCredential) throws {
         try lock.withLock {
             let marker = try marker(); var state = try envelope()
-            guard !marker.logoutPending, state.installedByAuth == id, state.credential == credential else { throw SOOPAuthError.sessionChanged }
+            guard !marker.logoutPending, admitsSession(state), state.installedByAuth == id, state.credential == credential else { throw SOOPAuthError.sessionChanged }
             state.installedByAuth = nil; try saveEnvelope(state)
         }
     }
@@ -322,6 +357,94 @@ final class NativeCredentialStore: SOOPAuthStoring, @unchecked Sendable {
             if descriptor >= 0 { close(descriptor) }
             try? FileManager.default.removeItem(at: temporary)
             throw ProductError.secureStorage
+        }
+    }
+}
+
+extension NativeCredentialStore {
+    func deletionRecords() throws -> [AccountDeletionRecord] { try lock.withLock { _ = try marker(); return try envelope().deletions ?? [] } }
+    func reserveDeletion(_ intent: AccountDeletionIntent, expected: NativeCredential) throws -> AccountDeletionRecord {
+        try lock.withLock {
+            let install = try marker(); var state = try envelope()
+            guard !install.logoutPending, admitsSession(state), state.credential == expected, state.installedByAuth == nil,
+                  UUID(uuidString: intent.accountID) != nil else { throw ProductError.sessionChanged }
+            guard (state.deletions ?? []).count < 16 else { throw ProductError.deletionHistoryFull }
+            state.authEpoch = UUID(); state.pending = nil; state.credential = nil
+            let record = AccountDeletionRecord(id: intent.id, installation: install.installation, environment: environment,
+                accountID: intent.accountID, clientScope: intent.clientScope, fingerprint: AccountDeletionRecord.fingerprint(expected),
+                authEpoch: state.authEpoch, quarantine: expected)
+            state.deletions = (state.deletions ?? []) + [record]
+            try saveEnvelope(state)
+            return record
+        }
+    }
+    private func deletionIndex(_ record: AccountDeletionRecord, state: Envelope) throws -> Int {
+        guard try marker().installation == record.installation,
+              let index = state.deletions?.firstIndex(where: { $0.id == record.id && $0.installation == record.installation && $0.fingerprint == record.fingerprint }) else { throw ProductError.sessionChanged }
+        return index
+    }
+    func claimDeletion(_ record: AccountDeletionRecord) throws -> AccountDeletionRecord {
+        try lock.withLock {
+            var state = try envelope(); let i = try deletionIndex(record, state: state)
+            var current = state.deletions![i]
+            guard current.revision == record.revision, current.phase == .preparing, state.authEpoch == current.authEpoch,
+                  !(try marker().logoutPending), state.credential == nil else { throw ProductError.sessionChanged }
+            current.phase = .dispatchClaimed; current.outcome = .unknown; current.revision += 1
+            state.deletions![i] = current; try saveEnvelope(state); return current
+        }
+    }
+    func classifyDeletion(_ record: AccountDeletionRecord, response: AccountDeletionResponse) throws -> AccountDeletionRecord {
+        try lock.withLock {
+            var state = try envelope(); let i = try deletionIndex(record, state: state)
+            var current = state.deletions![i]
+            // A late result can only upgrade its own retained unknown record. It
+            // cannot replace the whole envelope or touch a new account's session.
+            guard current.revision == record.revision || (current.outcome == .unknown && response.receipt != nil) else { throw ProductError.sessionChanged }
+            current.outcome = response.outcome; current.receipt = response.receipt; current.phase = .finished; current.revision += 1
+            if response != .recentAuth { current.quarantine = nil }
+            state.deletions![i] = current; try saveEnvelope(state); return current
+        }
+    }
+    func verifyDeletionCleanup(_ record: AccountDeletionRecord) throws {
+        try lock.withLock {
+            let state = try envelope(); let i = try deletionIndex(record, state: state)
+            guard state.deletions![i].revision == record.revision, state.deletions![i].cleanupPending,
+                  state.credential == nil, state.pending == nil, state.installedByAuth == nil else { throw ProductError.sessionChanged }
+        }
+    }
+    func finishDeletion(_ record: AccountDeletionRecord) throws -> AccountDeletionRecord {
+        try lock.withLock {
+            var state = try envelope(); let i = try deletionIndex(record, state: state)
+            var current = state.deletions![i]
+            guard current.revision == record.revision, current.phase == .finished else { throw ProductError.sessionChanged }
+            current.quarantine = nil; current.cleanupPending = false; current.revision += 1
+            state.deletions![i] = current; try saveEnvelope(state); return current
+        }
+    }
+    func releaseDeletion(_ record: AccountDeletionRecord, now: Date) throws -> NativeCredential {
+        try lock.withLock {
+            var state = try envelope(); let i = try deletionIndex(record, state: state)
+            var current = state.deletions![i]
+            guard current.revision == record.revision, current.outcome == .recentAuthRequired, current.phase == .finished,
+                  state.authEpoch == current.authEpoch, !(try marker().logoutPending), state.credential == nil,
+                  state.pending == nil, state.installedByAuth == nil, let original = current.quarantine, original.expiresAt > now,
+                  AccountDeletionRecord.fingerprint(original) == current.fingerprint else { throw ProductError.sessionChanged }
+            state.credential = original; state.authEpoch = UUID()
+            current.quarantine = nil; current.cleanupPending = false; current.released = true; current.revision += 1
+            state.deletions![i] = current; try saveEnvelope(state); return original
+        }
+    }
+    func recoverDeletion(_ record: AccountDeletionRecord) throws -> AccountDeletionRecord {
+        try lock.withLock {
+            var state = try envelope(); let i = try deletionIndex(record, state: state)
+            var current = state.deletions![i]
+            if current.phase != .finished { current.outcome = .unknown; current.receipt = nil; current.phase = .finished }
+            if current.released, let credential = state.credential, AccountDeletionRecord.fingerprint(credential) == current.fingerprint {
+                state.credential = nil; state.pending = nil; state.installedByAuth = nil; state.authEpoch = UUID()
+                current.cleanupPending = true
+            }
+            current.released = false; current.quarantine = nil; current.revision += 1
+            state.deletions![i] = current; try saveEnvelope(state); return current
         }
     }
 }

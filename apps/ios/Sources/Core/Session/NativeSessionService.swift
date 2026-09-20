@@ -4,9 +4,12 @@ import RogichatRooms
 #endif
 
 // Real native transport and one-shot provider completion; no bootstrap credentials.
-actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAuthorizing {
+actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAuthorizing, AccountDeletionServing {
     nonisolated let capabilities: SessionCapabilities
     private let auth: (any SOOPAuthenticating)?
+    private var deletionTask: Task<AccountDeletionUpdate, any Error>?
+    private var observedDeletion: (record: AccountDeletionRecord, response: AccountDeletionResponse, persisted: Bool)?
+    private var deletionPermit: AccountDeletionPermit?
     private var authenticating = false
     private let environment: NativeEnvironment
     private let api: any NativeRequesting
@@ -28,9 +31,11 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
          now: @escaping @Sendable () -> Date = { Date() }, auth: (any SOOPAuthenticating)? = nil, purgeRooms: @escaping @Sendable () throws -> Void = {}) {
         self.environment = environment; self.api = api; self.store = store; self.now = now; self.auth = auth; self.purgeRooms = purgeRooms
         self.capabilities = SessionCapabilities(signInMethods: auth == nil ? [] : [.soop], canLinkSOOP: auth != nil,
-                                               canEditProfile: true, canSignOut: true, canResetLocalSession: store is any SOOPAuthStoring)
+                                               canEditProfile: true, canSignOut: true, canDeleteAccount: store is any AccountDeletionStoring && api is any AccountDeletionRequesting, canResetLocalSession: store is any SOOPAuthStoring)
     }
     func restore() async throws -> SessionSnapshot {
+        if deletionTask != nil { return try deletionSnapshot(access: .accountClosing) }
+        if let recovered = try recoverDeletionOnStart() { return recovered }
         let wasAuthenticating = authenticating
         authenticating = false
         epoch &+= 1
@@ -52,7 +57,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
             // Completes cache deletion after a crash between Keychain removal and
             // durable SQLite purge intent. No credential never admits old caches.
             try purgeRoomStorage()
-            return SessionSnapshot(access: .signedOut, account: nil, notice: recoveryNotice)
+            return SessionSnapshot(access: .signedOut, account: nil, notice: recoveryNotice, deletions: try deletionPresentations())
         }
         do {
             let data = try await api.perform(.session, credential: credential)
@@ -62,6 +67,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
             try (store as? any SOOPAuthStoring)?.reconcileAuth(accountID: snapshot.account?.id, serverGeneration: snapshot.serverGeneration)
             snapshot.notice = recoveryNotice
             try attachRooms(&snapshot)
+            snapshot.deletions = try deletionPresentations()
             validated = snapshot; activeCredential = credential
             return snapshot
         } catch {
@@ -75,6 +81,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         }
     }
     func revalidate() async throws -> SessionSnapshot {
+        if deletionTask != nil { return try deletionSnapshot(access: .accountClosing) }
         guard let previous = validated, let credential = activeCredential else { return try await restore() }
         let ticket = epoch
         let revision = profileRevision
@@ -244,6 +251,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         }
     }
     func signOut() async throws {
+        guard deletionTask == nil else { throw ProductError.accountDeletionPending }
         epoch &+= 1; authenticating = false
         validated = nil; activeCredential = nil
         // Persist intent first: if Keychain deletion fails, restoration must finish
@@ -270,6 +278,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
     func beginLinkSOOP(attempt: SessionAttempt) async throws -> SessionSnapshot { try await authenticate(intent: .link, consentVersion: nil, attempt: attempt) }
     private func authenticate(intent: SOOPIntent, consentVersion: String?, attempt: SessionAttempt = SessionAttempt()) async throws -> SessionSnapshot {
         try attempt.check()
+        guard deletionTask == nil, !logoutRequested else { throw ProductError.accountDeletionPending }
         guard let auth, !authenticating else { throw ProductError.unavailable }
         let original = try store.read()
         if intent == .login { guard original == nil else { throw SOOPAuthError.sessionChanged } }
@@ -323,6 +332,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         return snapshot
     }
     func acceptAuthCallback(_ url: URL) async throws -> SessionSnapshot? {
+        guard deletionTask == nil, !logoutRequested else { throw ProductError.accountDeletionPending }
         guard let auth, let authStore = store as? any SOOPAuthStoring else { throw ProductError.unavailable }
         let ticket = epoch
         let pending = try authStore.pendingAuth(now: now())
@@ -350,6 +360,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         }
     }
     func cancelAuthentication() async throws -> SessionSnapshot? {
+        guard deletionTask == nil else { throw ProductError.accountDeletionPending }
         epoch &+= 1; authenticating = false
         let ticket = epoch
         try (store as? any SOOPAuthStoring)?.cancelAuth(id: nil)
@@ -359,12 +370,16 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         guard ticket == epoch else { throw ProductError.sessionChanged }
         return signedOut ? .signedOut : nil
     }
-    func resetLocalSession() async throws {
+    func resetLocalSession() async throws { try await resetLocalSession(attempt: SessionAttempt()) }
+    func resetLocalSession(attempt: SessionAttempt) async throws {
+        try attempt.check()
+        guard deletionTask == nil else { throw ProductError.accountDeletionPending }
+        deletionPermit?.cancel(); deletionPermit = nil
         epoch &+= 1; authenticating = false; validated = nil; activeCredential = nil; logoutRequested = true
         guard let authStore = store as? any SOOPAuthStoring else { throw ProductError.unavailable }
+        try purgeRoomStorage() // Do not erase protected evidence before local cleanup succeeds.
         try authStore.resetConfirmed()
-        logoutRequested = false
-        try purgeRoomStorage()
+        observedDeletion = nil; logoutRequested = false
         await auth?.closeBrowser()
     }
     func deleteAccount() async throws { throw ProductError.unavailable }
@@ -391,5 +406,143 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
     private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
         do { return try JSONDecoder().decode(type, from: data) }
         catch { throw ProductError.invalidResponse }
+    }
+}
+
+extension NativeSessionService {
+    private func deletionPresentations() throws -> [AccountDeletionPresentation] {
+        try (store as? any AccountDeletionStoring)?.deletionRecords().map(\.presentation) ?? []
+    }
+    private func deletionSnapshot(access: ShellAccess = .signedOut) throws -> SessionSnapshot {
+        SessionSnapshot(access: access, account: nil, deletions: try deletionPresentations())
+    }
+    // A pending protected record blocks every credential writer. Combined with
+    // the service actor, this admits the existing synchronous purge only for its
+    // original owner, never an old callback after B has installed a credential.
+    private func cleanupDeletion(_ record: AccountDeletionRecord, store: any AccountDeletionStoring) throws -> AccountDeletionRecord {
+        guard activeCredential == nil, validated == nil else { throw ProductError.sessionChanged }
+        try store.verifyDeletionCleanup(record)
+        try purgeRoomStorage()
+        return try store.finishDeletion(record)
+    }
+    private func recoverDeletionOnStart() throws -> SessionSnapshot? {
+        guard let store = store as? any AccountDeletionStoring else { return nil }
+        if let observed = observedDeletion, !observed.persisted {
+            let saved = try store.classifyDeletion(observed.record, response: observed.response)
+            observedDeletion = (saved, observed.response, true)
+        }
+        let records = try store.deletionRecords()
+        let pending = records.filter { $0.cleanupPending || $0.phase != .finished || $0.released }
+        guard !pending.isEmpty else { return nil }
+        var retiredOriginal = false
+        for record in pending {
+            // A cleaned A's historical released flag is not authority to close B.
+            let originalCurrent: Bool
+            if record.cleanupPending || record.phase != .finished { originalCurrent = true }
+            else {
+                let current = try store.read()
+                originalCurrent = current.map { AccountDeletionRecord.fingerprint($0) == record.fingerprint } ?? false
+            }
+            if originalCurrent && !retiredOriginal { epoch &+= 1; validated = nil; activeCredential = nil; retiredOriginal = true }
+            let recovered = try store.recoverDeletion(record)
+            if recovered.cleanupPending { _ = try cleanupDeletion(recovered, store: store) }
+        }
+        if retiredOriginal, try store.read() == nil {
+            let snapshot = try deletionSnapshot(); observedDeletion = nil; return snapshot
+        }
+        observedDeletion = nil
+        return nil
+    }
+    func admitDeletion(_ intent: AccountDeletionIntent) async throws -> AccountDeletionUpdate {
+        guard deletionTask == nil, !authenticating, intent.clientScope == clientScope,
+              validated?.account?.id == intent.accountID, let credential = activeCredential,
+              let store = store as? any AccountDeletionStoring, let api = api as? any AccountDeletionRequesting else { throw ProductError.sessionChanged }
+        try requireCurrent(epoch, credential)
+        let record = try store.reserveDeletion(intent, expected: credential)
+        epoch &+= 1; let ticket = epoch
+        validated = nil; activeCredential = nil
+        let permit = AccountDeletionPermit(expiresAt: credential.expiresAt, now: now); deletionPermit = permit
+        // Reserve protected proof and local epoch before the first actor suspension.
+        let owned = Task { try await self.runDeletion(record, credential: credential, ticket: ticket, permit: permit, store: store, api: api) }
+        deletionTask = owned
+        defer { if ticket == epoch { deletionTask = nil; deletionPermit = nil } }
+        return try await owned.value
+    }
+    private func runDeletion(_ original: AccountDeletionRecord, credential: NativeCredential, ticket: UInt64,
+                             permit: AccountDeletionPermit, store: any AccountDeletionStoring, api: any AccountDeletionRequesting) async throws -> AccountDeletionUpdate {
+        var record = original
+        do {
+            guard ticket == epoch else { throw ProductError.sessionChanged }
+            try store.verifyDeletionCleanup(record)
+            try purgeRoomStorage() // Durable close/delete and marker success before dispatch.
+            record = try store.claimDeletion(record)
+        } catch {
+            // No HTTP yet. Persist conservative recovery if possible, never replay.
+            permit.cancel()
+            throw error
+        }
+        await auth?.closeBrowser()
+        guard ticket == epoch else { permit.cancel(); throw ProductError.sessionChanged }
+        let response: AccountDeletionResponse
+        do { response = try await api.performAccountDeletion(credential: credential, permit: permit) }
+        catch { response = .unknown }
+        guard ticket == epoch else {
+            // Even in a future lifecycle which allows a later completion, only
+            // the old protected record is eligible for update.
+            _ = try? store.classifyDeletion(record, response: response)
+            throw ProductError.sessionChanged
+        }
+        observedDeletion = (record, response, false)
+        record = try store.classifyDeletion(record, response: response)
+        observedDeletion = (record, response, true)
+        if response == .recentAuth {
+            do {
+                let restored = try store.releaseDeletion(record, now: now())
+                let data = try await self.api.perform(.session, credential: restored)
+                try requireCurrent(ticket, restored)
+                var snapshot = try decode(NativeSessionDTO.self, data).snapshot(credential: restored, now: now())
+                guard snapshot.account?.id == record.accountID else { throw ProductError.sessionChanged }
+                try attachRooms(&snapshot)
+                snapshot.deletions = try deletionPresentations()
+                validated = snapshot; activeCredential = restored
+                let result = AccountDeletionUpdate(presentation: snapshot.deletions!.first(where: { $0.id == record.id })!, snapshot: snapshot)
+                observedDeletion = nil
+                return result
+            } catch {
+                // Never present a locally restored account when real revalidation
+                // failed. Cold/retry recovery removes only this original token.
+                throw error
+            }
+        }
+        record = try cleanupDeletion(record, store: store)
+        let result = AccountDeletionUpdate(presentation: record.presentation, snapshot: try deletionSnapshot())
+        observedDeletion = nil
+        return result
+    }
+    func deletionStatus(id: UUID) async throws -> AccountDeletionPresentation {
+        if let observed = observedDeletion, observed.record.id == id {
+            return AccountDeletionPresentation(id: id, outcome: observed.response.outcome, requestID: observed.response.receipt?.requestId, cleanupPending: true, accountID: observed.record.accountID)
+        }
+        guard let store = store as? any AccountDeletionStoring,
+              let record = try store.deletionRecords().first(where: { $0.id == id }) else { throw ProductError.sessionChanged }
+        return record.presentation
+    }
+    func retryDeletionCleanup(id: UUID) async throws -> AccountDeletionUpdate {
+        guard deletionTask == nil, let store = store as? any AccountDeletionStoring else { throw ProductError.accountDeletionPending }
+        if let observed = observedDeletion, observed.record.id == id, !observed.persisted {
+            let saved = try store.classifyDeletion(observed.record, response: observed.response)
+            observedDeletion = (saved, observed.response, true)
+        }
+        guard let record = try store.deletionRecords().first(where: { $0.id == id }) else { throw ProductError.sessionChanged }
+        if !record.cleanupPending && !record.released && record.phase == .finished {
+            if observedDeletion?.record.id == id { observedDeletion = nil }
+            return AccountDeletionUpdate(presentation: record.presentation) // Never touch B's session/cache.
+        }
+        guard activeCredential == nil, validated == nil else { throw ProductError.sessionChanged }
+        let recovered = try store.recoverDeletion(record)
+        let done = recovered.cleanupPending ? try cleanupDeletion(recovered, store: store) : recovered
+        let result = AccountDeletionUpdate(presentation: done.presentation, snapshot: try deletionSnapshot())
+        observedDeletion = nil
+        return result
     }
 }
