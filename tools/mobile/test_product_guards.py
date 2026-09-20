@@ -131,6 +131,7 @@ class ProductGuardsTest(unittest.TestCase):
         mutations = []
         for key, value in (("NSPrivacyTracking", True), ("NSPrivacyTracking", 0),
                            ("NSPrivacyTrackingDomains", ["tracking.example.invalid"]),
+                           ("NSPrivacyCollectedDataTypes", []),
                            ("NSPrivacyCollectedDataTypes", [{"NSPrivacyCollectedDataType": "NSPrivacyCollectedDataTypeEmailAddress"}]),
                            ("NSPrivacyAccessedAPITypes", [])):
             declaration = deepcopy(EXPECTED_IOS_PRIVACY)
@@ -141,6 +142,15 @@ class ProductGuardsTest(unittest.TestCase):
             declaration = deepcopy(EXPECTED_IOS_PRIVACY)
             declaration["NSPrivacyAccessedAPITypes"][0][key] = value
             mutations.append(declaration)
+        for index in range(len(EXPECTED_IOS_PRIVACY["NSPrivacyCollectedDataTypes"])):
+            for key, value in (("NSPrivacyCollectedDataTypeLinked", False),
+                               ("NSPrivacyCollectedDataTypeLinked", 1),
+                               ("NSPrivacyCollectedDataTypeTracking", True),
+                               ("NSPrivacyCollectedDataTypeTracking", 0),
+                               ("NSPrivacyCollectedDataTypePurposes", ["NSPrivacyCollectedDataTypePurposeAnalytics"])):
+                declaration = deepcopy(EXPECTED_IOS_PRIVACY)
+                declaration["NSPrivacyCollectedDataTypes"][index][key] = value
+                mutations.append(declaration)
         for key in EXPECTED_IOS_PRIVACY:
             declaration = deepcopy(EXPECTED_IOS_PRIVACY)
             declaration.pop(key)

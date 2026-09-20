@@ -18,6 +18,10 @@ struct ProfileUpdate: Encodable, Sendable {
     var birthdayChanged = false
     var birthdayVisibleToStreamers: Bool?
     var isEmpty: Bool { nickname == nil && !birthdayChanged && birthdayVisibleToStreamers == nil }
+    var isValid: Bool {
+        !isEmpty && (nickname.map { ProfileEditor(baseline: $0).error == nil && ProfileEditor(baseline: $0).normalized.utf8.elementsEqual($0.utf8) } ?? true)
+            && (!birthdayChanged || birthday?.isValid != false)
+    }
     private enum CodingKeys: String, CodingKey { case nickname, birthday, birthdayVisibleToStreamers }
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)

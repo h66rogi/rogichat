@@ -147,7 +147,7 @@ def upload(cfg, manifest_path):
          "-exportPath", str(directory / "upload"), *asc.signing_args()], directory / "upload.log")
     receipt["state"] = "transport_completed"
     private_write(attempt, json.dumps(receipt) + "\n")
-    print("Upload transport completed. Run ios-status until processingState is VALID; tester availability is separate.")
+    print("Upload transport completed. Run ios-finalize to verify processing, Korean notes and approved internal tester access.")
 
 
 def status(cfg, number):

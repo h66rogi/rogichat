@@ -9,16 +9,21 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Assert.*
 import org.junit.Test
 
 class ProductSessionTest {
-    @Test fun installedCompositionHasNoSyntheticOrUnimplementedActions() {
-        val services = ProductServices.installed()
+    @Test fun installedGatewayWithNoCredentialHasNoSyntheticOrUnimplementedActions() = runBlocking {
+        val services = NativeSessionCoordinator(TestStore(null), TestApi()).services()
+        services.actions!!.restore()
         assertEquals(ShellAccess.SIGNED_OUT, services.session.value.access)
         assertNull(services.session.value.account)
-        assertNull(services.actions)
-        assertNull(services.profiles)
+        assertTrue(services.actions.providers.isEmpty())
+        assertFalse(services.actions.canLinkSoop)
+        assertFalse(services.actions.canCloseAccount)
+        assertNotNull(services.profiles)
         assertNull(services.rooms)
     }
     @Test fun readyRequiresLinkedSoopAccountAndSignedOutNeverContainsProfile() {
@@ -92,7 +97,7 @@ class ProductSessionTest {
         assertEquals("", profileMonogram(""))
     }
 
-    @Test fun restoringSessionStartsOnceAndDoesNotLoopOnRecomposition() = runBlocking {
+    @Test fun restoringSessionStartsOnceAndDoesNotLoopOnRecomposition() = runTest {
         var restores = 0
         val actions = object : SessionActions {
             override val providers = emptySet<SignInProvider>()
@@ -103,12 +108,12 @@ class ProductSessionTest {
             override suspend fun closeAccount(): Result<Unit> = error("unsupported")
             override suspend fun restore(): Result<Unit> { restores++; return Result.success(Unit) }
         }
-        val model = SessionViewModel(ProductServices(MutableStateFlow(SessionSnapshot(ShellAccess.RESTORING)), actions), this)
+        val model = SessionViewModel(ProductServices(MutableStateFlow(SessionSnapshot(ShellAccess.RESTORING)), actions), backgroundScope)
         model.start(); model.start()
-        yield()
+        runCurrent()
         assertEquals(1, restores)
         model.start()
-        yield()
+        runCurrent()
         assertEquals(1, restores)
     }
 
