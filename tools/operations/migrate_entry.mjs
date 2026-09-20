@@ -57,6 +57,25 @@ export function validateHistory(rows, manifest, exact = false) {
   });
 }
 
+export function validateManifest(actual, approved) {
+  for (const entries of [actual, approved]) {
+    if (!Array.isArray(entries) || entries.length === 0 || entries.length > 100) fail();
+    let previous = '';
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+          || Object.keys(entry).sort().join(',') !== 'checksum,name'
+          || typeof entry.name !== 'string' || !/^[0-9]{14}_[a-z0-9_]{1,80}$/.test(entry.name)
+          || typeof entry.checksum !== 'string' || !/^[a-f0-9]{64}$/.test(entry.checksum)
+          || entry.name <= previous) fail();
+      previous = entry.name;
+    }
+  }
+  // JSON object field order is not part of an approval. Migration order and
+  // every approved name/checksum remain exact, including the number of entries.
+  if (actual.length !== approved.length || actual.some((entry, index) =>
+    entry.name !== approved[index].name || entry.checksum !== approved[index].checksum)) fail();
+}
+
 async function connect(value) {
   const mysql = require('mysql2/promise');
   const connection = await mysql.createConnection({
@@ -112,7 +131,7 @@ export async function main() {
     'rogichat_migrator', approval.database_host_sha256);
   if (runtime.host !== migrator.host) fail();
   const {migrationManifest} = await import(pathToFileURL('/workspace/apps/api/dist/infrastructure/database/schema-manifest.js'));
-  if (JSON.stringify(migrationManifest) !== JSON.stringify(approval.migrations)) fail();
+  validateManifest(migrationManifest, approval.migrations);
   const runtimeConnection = await connect(runtime);
   let migratorConnection;
   try {
