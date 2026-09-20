@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { ChatMemory, sessionChatMemory, forgetChatMemory, MAX_PARKED_ROOMS, PARKED_LIFETIME_MS } from './chat-memory';
 import { ChatController } from './chat-controller';
 import { mergeMessages, message, projectMessages } from './contract';
 import type { ChatRequest, ServerMessage } from './contract';
@@ -493,4 +494,141 @@ void test('late receipt after fresh identical-M/A generation cannot settle an un
   release({ clientMessageId: first.retryCommandId, status: 'committed', messageId: source().id, version: '99' });
   await read; await reset; await controller.refresh();
   assert.equal(controller.getSnapshot().commands.length, 1); controller.dispose();
+});
+
+
+void test('equal-version history hint replacement also fences a late reaction result', async () => {
+  let release!: (value: unknown) => void;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.includes('/reactions')) return new Promise(resolve => { release = resolve; });
+    if (path.includes('/history?')) return { ...sync, messages: [{ ...source(), counterpart: null, allowedActions: { reply: false, publish: false, delete: false } }], nextCursor: null };
+    return undefined;
+  }));
+  await controller.refresh(); const reaction = controller.react(source().id);
+  await controller.loadOlder(); release({ counts: [{ emoji: '👍', count: 4 }], mine: null }); await reaction;
+  const item = controller.getSnapshot().items[0]!;
+  assert.equal(item.kind, 'message'); if (item.kind === 'message') assert.equal(item.allowedActions?.reply, false);
+  assert.deepEqual(controller.getSnapshot().reactions, {}); controller.dispose();
+});
+
+void test('generic and repeated sync tombstones do not invent durable command deletion', async () => {
+  let id = ''; let removed = false;
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (path.endsWith('/messages')) { id = (options?.body as { clientMessageId: string }).clientMessageId; return { clientMessageId: id, status: 'committed', messageId: source().id, version: '1' }; }
+    if (removed && path.includes('/events?')) return { ...sync, events: [{ type: 'message.deleted', messageId: source().id, version: '2' }], hasMore: false, nextCursor: 'after-block' };
+    return undefined;
+  }));
+  await controller.refresh(); await controller.send(submission); await controller.refresh();
+  removed = true; await controller.refresh(); const epoch = controller.getSnapshot().epoch;
+  await controller.refresh(); assert.equal(controller.getSnapshot().epoch, epoch);
+  const result = await controller.send({ ...submission, retryCommandId: id });
+  assert.equal(result.accepted, true); if (result.accepted) assert.doesNotMatch(result.note ?? '', /삭제/);
+  controller.dispose();
+});
+
+void test('confirmed room loss keeps only non-replayable outcome lookup identity after access returns', async () => {
+  let denied = false; let posts = 0; let reads = 0;
+  const memory = new ChatMemory();
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (denied && path.startsWith('/v1/sync?')) throw Object.assign(new Error('room access revoked'), { status: 403 });
+    if (path.endsWith('/messages')) { posts++; throw new TypeError('ack lost'); }
+    if (path.includes('/message-commands/')) { reads++; return { clientMessageId: path.split('/').at(-1), status: 'deleted' }; }
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); const first = await controller.send(submission);
+  if (first.accepted || !first.retryCommandId) throw new Error('missing command');
+  denied = true; await controller.refresh(); assert.deepEqual(controller.getSnapshot().items, []);
+  assert.equal(memory.recipients, null); assert.equal(memory.authority, null); assert.equal(memory.membershipScope, null); assert.equal(memory.hints.size, 0);
+  assert.deepEqual(controller.getSnapshot().commands, [{ id: first.retryCommandId, canRetry: false }]);
+  denied = false; await controller.refresh();
+  assert.equal((await controller.send({ ...submission, retryCommandId: first.retryCommandId })).accepted, false);
+  await controller.retry(first.retryCommandId); assert.equal(posts, 1);
+  await controller.reconcile(first.retryCommandId); assert.equal(reads, 1);
+  assert.deepEqual(controller.getSnapshot().commands, []); controller.dispose(); memory.clearAll();
+});
+
+void test('same-authority foreground snapshots preserve parked drafts and retry identity across controller remounts', async () => {
+  const memory = new ChatMemory(); const cacheIds: string[] = []; let offline = false;
+  const request = backend(async path => {
+    if (offline) throw new TypeError('offline during resume');
+    if (path.includes('/snapshot?')) cacheIds.push(new URL(path, 'https://example.test').searchParams.get('cacheId')!);
+    if (path.endsWith('/messages')) throw new TypeError('ack lost');
+    return undefined;
+  });
+  const controller = new ChatController(room.roomId, request, undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); const result = await controller.send({ ...submission, quoteMessageId: source().id });
+  if (result.accepted || !result.retryCommandId) throw new Error('missing command');
+  const drafts = { [`private:${profiles[1]!.actorId}`]: { body: submission.body, quote: { messageId: source().id, authorName: '테스트 운영자', excerpt: '인용' }, retryCommandId: result.retryCommandId } };
+  controller.saveComposer(drafts, submission.target, controller.getSnapshot().epoch);
+  const epoch = controller.getSnapshot().epoch;
+  for (let i = 0; i < 3; i++) { await controller.refreshHints(); assert.equal(controller.getSnapshot().epoch, epoch); assert.deepEqual(controller.getComposer().drafts, drafts); }
+  offline = true; await controller.refreshHints(); assert.equal(controller.getSnapshot().phase, 'error'); assert.deepEqual(controller.getComposer().drafts, drafts);
+  offline = false;
+  controller.dispose();
+  const replacement = new ChatController(room.roomId, request, undefined, session.csrfToken, session.accountPartition, memory);
+  await replacement.refresh();
+  controller.saveComposer({}, null, epoch); // Disposed owner cannot overwrite the parked state.
+  assert.deepEqual(replacement.getComposer().drafts, drafts);
+  assert.deepEqual(replacement.getSnapshot().commands, [{ id: result.retryCommandId, canRetry: true }]);
+  assert.equal(new Set(cacheIds).size, 5); replacement.dispose(); memory.clearAll();
+});
+
+void test('parked quote is freshly read when outside snapshot and confirmed missing source clears it', async () => {
+  const memory = new ChatMemory(); let missing = false; let snapshots = 0; let reads = 0;
+  const request = backend(async path => {
+    if (path.includes('/snapshot?') && snapshots++ > 0) return { ...sync, messages: [], nextCursor: 'fresh', historyCursor: null };
+    if (path.endsWith(`/messages/${source().id}`)) { reads++; if (missing) throw Object.assign(new Error('unreadable'), { status: 404 }); return source(); }
+    return undefined;
+  });
+  const controller = new ChatController(room.roomId, request, undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh();
+  const drafts = { [`private:${profiles[1]!.actorId}`]: { body: '보관 초안', quote: { messageId: source().id, authorName: '테스트 운영자', excerpt: '비공개 인용' } } };
+  controller.saveComposer(drafts, submission.target, controller.getSnapshot().epoch);
+  await controller.refreshHints(); assert.deepEqual(controller.getComposer().drafts, drafts); assert.equal(reads, 1);
+  missing = true; await controller.refreshHints(); assert.deepEqual(controller.getComposer().drafts, {}); assert.equal(reads, 2);
+  controller.dispose(); memory.clearAll();
+});
+
+void test('parked lifetime, session replacement, ownership and room capacity scrub private memory', async () => {
+  forgetChatMemory();
+  assert.equal(PARKED_LIFETIME_MS, 15 * 60 * 1000);
+  const memory = sessionChatMemory(session.accountPartition, session.csrfToken, room.roomId);
+  const controller = new ChatController(room.roomId, backend(async path => { if (path.endsWith('/messages')) throw new TypeError('lost'); return undefined; }), undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); await controller.send(submission);
+  controller.saveComposer({ shared: { body: 'private-parked-text', quote: null } }, null, controller.getSnapshot().epoch);
+  controller.dispose(); memory.expire();
+  assert.deepEqual(memory.drafts, {}); assert.equal('payload' in memory.commands.pending()[0]!, false);
+  assert.equal(memory.recipients, null); assert.equal(memory.authority, null); assert.equal(memory.membershipScope, null); assert.equal(memory.hints.size, 0);
+  const successor = sessionChatMemory(session.accountPartition, 'new-session', room.roomId);
+  assert.notEqual(successor, memory); assert.deepEqual(memory.commands.pending(), []);
+  for (let i = 0; i < MAX_PARKED_ROOMS; i++) sessionChatMemory(session.accountPartition, 'new-session', `room-${i}`);
+  assert.notEqual(sessionChatMemory(session.accountPartition, 'new-session', room.roomId), successor);
+  forgetChatMemory();
+});
+
+void test('only the allowlisted membership mismatch code quarantines replayable commands on 409', async () => {
+  for (const code of ['MEMBERSHIP_SCOPE_MISMATCH', 'REQUEST_FAILED']) {
+    const controller = new ChatController(room.roomId, backend(async path => { if (path.endsWith('/messages')) throw Object.assign(new Error('opaque'), { status: 409, code }); return undefined; }));
+    await controller.refresh(); await controller.send(submission); await controller.refresh();
+    assert.equal(controller.getSnapshot().commands[0]?.canRetry, code !== 'MEMBERSHIP_SCOPE_MISMATCH'); controller.dispose();
+  }
+});
+
+void test('an in-flight SEND parks its identity before unmount, preventing a reminted composer retry', async () => {
+  const memory = new ChatMemory(); let postedId = ''; let release!: (value: unknown) => void; let reached!: () => void;
+  const waiting = new Promise<void>(resolve => { reached = resolve; });
+  const request = backend(async (path, options) => {
+    if (path.endsWith('/messages')) { postedId = (options?.body as { clientMessageId: string }).clientMessageId; reached(); return new Promise(resolve => { release = resolve; }); }
+    return undefined;
+  });
+  const old = new ChatController(room.roomId, request, undefined, session.csrfToken, session.accountPartition, memory);
+  await old.refresh();
+  old.saveComposer({ [`private:${profiles[1]!.actorId}`]: { body: submission.body, quote: null } }, submission.target, old.getSnapshot().epoch);
+  const pending = old.send(submission); await waiting; old.dispose();
+  const next = new ChatController(room.roomId, backend(), undefined, session.csrfToken, session.accountPartition, memory);
+  await next.refresh();
+  assert.equal(next.getComposer().drafts[`private:${profiles[1]!.actorId}`]?.retryCommandId, postedId);
+  release({ clientMessageId: postedId, status: 'committed', messageId: source().id, version: '1' });
+  assert.equal((await pending).accepted, false); assert.equal(next.getSnapshot().commands.length, 1);
+  next.dispose(); memory.clearAll();
 });

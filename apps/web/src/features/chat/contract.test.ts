@@ -68,7 +68,33 @@ void test('GET deleted receipt has no message fields; SEND deleted wire contract
   for (const extra of [{ messageId: id }, { version: '2' }, { body: 'private' }]) assert.throws(() => receipt({ clientMessageId: id, status: 'deleted', ...extra }, id, 'lookup'));
   assert.deepEqual(receipt({ clientMessageId: id, status: 'deleted', messageId: id }, id, 'send'), { clientMessageId: id, status: 'deleted' });
   const commands = new SendCommands();
-  commands.settle({ clientMessageId: id, status: 'deleted' });
-  commands.settle({ clientMessageId: id, status: 'committed', messageId: id, version: '99' });
-  assert.deepEqual(commands.get(id), { clientMessageId: id, status: 'deleted' });
+  const command = commands.create({ roomId: id, actorId: id, name: 'room', mode: 'FAN', role: 'STREAMER', ...scopes }, 'A'.repeat(43), 'session', 1, { intent: 'SHARED', content: { type: 'TEXT', text: 'test' } });
+  commands.settle({ clientMessageId: command.clientMessageId, status: 'deleted' });
+  commands.settle({ clientMessageId: command.clientMessageId, status: 'committed', messageId: id, version: '99' });
+  assert.deepEqual(commands.get(command.clientMessageId), { clientMessageId: command.clientMessageId, status: 'deleted' });
+  commands.settle({ clientMessageId: id, status: 'committed', messageId: id, version: '1' });
+  assert.equal(commands.get(id), undefined);
+});
+
+
+void test('confirmed access loss quarantines only receipt identity and destroys replayable private fields', () => {
+  const ledger = new SendCommands();
+  const command = ledger.create({ roomId: fixture.privateOutgoing.id, name: 'room', actorId: fixture.privateOutgoing.author.actorId, mode: 'FAN', role: 'FAN', ...scopes }, 'A'.repeat(43), 'local-session', 1,
+    { intent: 'PRIVATE', recipientActorId: fixture.privateOutgoing.counterpart.actorId, quoteId: fixture.anonymousPublisher.id, content: { type: 'TEXT', text: 'private-pending-content' } });
+  ledger.quarantine();
+  const quarantined = ledger.get(command.clientMessageId)!;
+  assert.deepEqual(Object.keys(quarantined).sort(), ['status', 'clientMessageId', 'accountPartition', 'sessionBinding', 'roomId', 'membershipScope', 'membershipGeneration'].sort());
+  assert.equal('payload' in quarantined, false);
+  assert.equal(JSON.stringify(quarantined).includes('private-pending-content'), false);
+  assert.equal(JSON.stringify(quarantined).includes(fixture.privateOutgoing.counterpart.actorId), false);
+  assert.equal(JSON.stringify(quarantined).includes(fixture.anonymousPublisher.id), false);
+  assert.ok(Object.isFrozen(quarantined));
+});
+
+void test('command capacity refuses new identities without evicting unknown outcomes', () => {
+  const commands = new SendCommands(); const room = { roomId: fixture.privateOutgoing.id, actorId: fixture.privateOutgoing.author.actorId, name: 'room', mode: 'FAN' as const, role: 'STREAMER' as const, ...scopes };
+  const first = commands.create(room, 'A'.repeat(43), 'session', 1, { intent: 'SHARED', content: { type: 'TEXT', text: 'one' } });
+  for (let i = 1; i < 256; i++) commands.create(room, 'A'.repeat(43), 'session', 1, { intent: 'SHARED', content: { type: 'TEXT', text: 'next' } });
+  assert.throws(() => commands.create(room, 'A'.repeat(43), 'session', 1, { intent: 'SHARED', content: { type: 'TEXT', text: 'over capacity' } }), /COMMAND_CAPACITY/);
+  assert.equal(commands.pending().length, 256); assert.equal(commands.get(first.clientMessageId), first);
 });

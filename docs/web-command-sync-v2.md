@@ -108,7 +108,7 @@ remain a high-impact coordinated-cutover dependency, not a compatibility claim.
 
 Durable IndexedDB/outbox, media/publication expansion, push/read state, account
 lifecycle/moderation and real-account deployment verification remain out of scope.
-Unknown in-memory records are intentionally lost on reload/session disposal.
+A browser reload or confirmed session loss removes memory-only recovery. Component unmounts park scoped memory under the limits below.
 
 Review checkpoint: 75 focused unit/contract tests passed on Node 24.21.0;
 TypeScript and ESLint passed. Exact C05 fixture validation, nested negative DTO
@@ -117,3 +117,46 @@ included. Checksum-pinned Gitleaks installation and the mandatory `check.py all`
 passed; staged commit and pre-push hooks remain mandatory. Browser fixtures and
 new outgoing-reply/identical-new-command cases are aligned to v2 but await hosted
 execution. No browser/build or deployment success is claimed by these local checks.
+
+
+## Independent review corrections
+
+The independent Opus review of `62d7e47` identified the foreground composer-loss
+P1 and the action-generation, receipt/tombstone and accessibility followups. The
+correction separates component/cache lifetime from the parked command/composer
+owner. Fresh snapshots still hide private UI during reauthorization; same
+account/session/M/A/actor/role plus current projections restore the draft, quote
+and retry identity. A quoted source outside the latest page is freshly read and
+room authority checked before its excerpt can render. Identity is parked before
+a SEND begins, so unmount during an uncertain in-flight request cannot remint it.
+Each new controller claims an exclusive local lease; old completions/writers
+cannot attach to a successor. Real pagehide/pageshow and focus browser tests are
+included for the auth-gate unmount path, alongside session-loss scrubbing.
+
+Parking is bounded to four rooms, 32 drafts and 2 MiB of draft data per room,
+544 hint records, and 256 command records. New commands are refused if all 256
+records remain unknown; old settled entries can be evicted and are never replayed
+when absent. Parked private content expires after 15 minutes: drafts, participant
+metadata, hints and replay payloads are scrubbed, retaining only minimal unknown
+receipt identity. Logout/session loss clears all rooms; confirmed room loss uses
+the same payload/participant scrub with receipt-only quarantine. Expiry warnings
+are consumed by a fresh valid lifecycle. Capacity/lifetime and stale ownership
+have focused regression coverage. This is not durable storage or crash recovery.
+
+Generic sync tombstones no longer create a durable deleted command receipt.
+Duplicate tombstones are idempotent; rejected lower-version deletions cannot
+settle other commands in a mixed page. Only receipts for existing commands settle
+the ledger, and a true deleted receipt remains irreversible. History and events
+both invalidate reactions/actions on equal-version hint changes. Mismatch handling
+uses the allowlisted MEMBERSHIP_SCOPE_MISMATCH code, distinct from generic
+conflicts. The actual safe-exception filter and OpenAPI error schema both define
+exactly `{error:{code}}`, with no requestId; strict rejection of extra fields is
+intentional. Counterpart labels also resolve from authorized recipients, and
+pending recovery controls have unique accessible names and groups.
+
+Corrected local checkpoint: **85 unit/contract tests, TypeScript and ESLint passed**
+on Node 24.21.0 before publication. The actual auth-gate pagehide/pageshow/focus
+browser regressions are committed for hosted execution, not claimed as locally
+run. Transient reauthorization failure keeps parked drafts locked until a fresh
+successful authority check; confirmed loss scrubs them. No new dependency or
+build cache was installed during correction.

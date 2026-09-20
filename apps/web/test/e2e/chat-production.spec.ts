@@ -47,7 +47,7 @@ async function chatApi(page: Page) {
       const body = route.request().postDataJSON() as Record<string, unknown>; state.posts.push(body); expect(body.membershipScope).toBe(TEST_SCOPES.membershipScope);
       if (state.holdSend) await state.holdSend;
       if (state.failSend) { await json(route, {}, 503); return; }
-      const sent = { ...incoming, id: String(body.clientMessageId), author: { ...incoming.author, actorId: TEST_ACTOR_ID, nickname: '테스트 팬' }, allowedActions: { reply: true, publish: false, delete: true }, content: body.content as { type: 'TEXT'; text: string } };
+      const sent = { ...incoming, id: String(body.clientMessageId), counterpart: { actorId: String(body.recipientActorId) }, author: { ...incoming.author, actorId: TEST_ACTOR_ID, nickname: '테스트 팬' }, allowedActions: { reply: true, publish: false, delete: true }, content: body.content as { type: 'TEXT'; text: string } };
       state.messages = [...state.messages, sent];
       await json(route, { clientMessageId: body.clientMessageId, messageId: sent.id, status: 'committed', version: '1' }); return;
     }
@@ -175,8 +175,8 @@ for (const hidden of [false, true]) test(`remote deletion clears ${hidden ? 'hid
   await page.getByRole('radio', { name: '두 번째 스트리머님에게만', exact: true }).click();
   await expect(input).toHaveValue(''); await expect(page.getByTestId('chat-quote-preview')).toHaveCount(0);
   state.deletedIds = []; state.failSend = false;
-  await page.getByRole('button', { name: '같은 전송 다시 시도', exact: true }).click();
-  await expect(page.getByRole('button', { name: '같은 전송 다시 시도', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true }).click();
+  await expect(page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true })).toHaveCount(0);
   expect(state.posts).toHaveLength(2); expect(state.posts[0]?.clientMessageId).toBe(state.posts[1]?.clientMessageId);
 });
 
@@ -342,4 +342,35 @@ test('new identical composer submissions create separate command identities', as
   await input.fill('의도한 새 메시지'); await input.press('Enter'); await expect(input).toHaveValue('');
   await input.fill('의도한 새 메시지'); await input.press('Enter'); await expect(input).toHaveValue('');
   expect(state.posts).toHaveLength(2); expect(state.posts[0]?.clientMessageId).not.toBe(state.posts[1]?.clientMessageId);
+});
+
+test('auth-gate pagehide/pageshow unmount preserves same-authority draft quote and exact retry command', async ({ page }) => {
+  const { state } = await chatApi(page); state.failSend = true;
+  await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
+  await page.getByTestId('chat-reply').click(); await input.fill('복귀 뒤에도 같은 명령'); await input.press('Enter');
+  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
+  const id = state.posts[0]?.clientMessageId;
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
+  await expect(input).toHaveCount(0); await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
+  await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
+  for (let i = 0; i < 2; i++) {
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
+  }
+  state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
+  expect(state.posts).toHaveLength(2); expect(state.posts[1]?.clientMessageId).toBe(id);
+});
+
+test('confirmed session loss scrubs parked drafts before same-token account access returns', async ({ page }) => {
+  const { account } = await chatApi(page);
+  await page.goto('/chat'); const input = page.getByTestId('chat-composer-input'); await input.fill('재인증 후 남으면 안 되는 초안');
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toHaveCount(0);
+  account.sessionStatus = 401;
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await expect(page.getByRole('button', { name: /로그인/ }).first()).toBeVisible();
+  account.sessionStatus = 200;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(input).toHaveValue('');
 });

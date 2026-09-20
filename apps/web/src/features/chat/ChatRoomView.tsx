@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { WifiOff } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/badge';
 import { cn } from '@/shared/lib/cn';
 
+import type { ComposerStore } from './chat-memory';
 import { ChatComposer } from './ChatComposer';
 import type { ChatComposerNotice } from './ChatComposer';
 import { ChatTimeline } from './ChatTimeline';
@@ -51,6 +52,8 @@ export interface ChatRoomViewProps {
    * Changing it resets drafts, quote, target, notices and scroll position.
    */
   conversationScopeKey: string;
+  composerMemory?: ComposerStore | undefined;
+  composerEpoch?: number | undefined;
   roomName: string;
   viewer: ChatActorRef;
   viewerRole: ChatViewerRole;
@@ -83,6 +86,7 @@ const EMPTY_RECIPIENTS: readonly ChatActorRef[] = [];
 
 function ScopedChatRoom({
   conversationScopeKey,
+  composerMemory, composerEpoch,
   roomName,
   viewer,
   viewerRole,
@@ -116,10 +120,13 @@ function ScopedChatRoom({
   const defaultTarget = viewerRole === 'FAN' && targetOptions.length !== 1 ? null : targetOptions[0] ?? null;
 
   const [requestedTarget, setRequestedTarget] = useState<ChatComposerTarget | null>(() => {
+    const parked = composerMemory?.getComposer().target;
+    if (parked && isAuthorizedTarget(parked, authorization)) return parked;
     if (initialTarget && isAuthorizedTarget(initialTarget, authorization)) return initialTarget;
     return defaultTarget;
   });
-  const [drafts, setDrafts] = useState<ChatDrafts>({});
+  const [drafts, setDrafts] = useState<ChatDrafts>(() => composerMemory?.getComposer().drafts ?? {});
+  useLayoutEffect(() => { if (composerEpoch !== undefined) composerMemory?.saveComposer(drafts, requestedTarget, composerEpoch); }, [composerMemory, composerEpoch, drafts, requestedTarget]);
   /** Draft key whose send is pending, or null. */
   const [submittingKey, setSubmittingKey] = useState<ChatDraftKey | null>(null);
   /** Result/guidance per draft key, so a late result lands on the target it belongs to. */
@@ -229,7 +236,7 @@ function ScopedChatRoom({
 
       const recipient = (viewerRole === 'FAN' ? permittedFans : streamerRecipients).find((r) => r.actorId === (item.scope === 'PRIVATE' ? item.counterpartActorId : item.author.actorId));
       if (!recipient) {
-        if (currentKey) setNoticeFor(currentKey, { tone: 'error', text: `${item.author.displayName}님에게는 지금 개인 답장을 보낼 수 없습니다.` });
+        if (currentKey) setNoticeFor(currentKey, { tone: 'error', text: `${item.recipient?.displayName ?? (item.isOwn ? '상대방' : item.author.displayName)}님에게는 지금 개인 답장을 보낼 수 없습니다.` });
         return;
       }
       const next: ChatComposerTarget = { scope: 'PRIVATE', recipient };

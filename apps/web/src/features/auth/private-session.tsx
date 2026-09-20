@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError, type Profile, type Session } from '@/core/api/client';
 import { sessionBinding } from '@/core/api/session-binding';
+import { forgetChatMemory } from '@/features/chat/chat-memory';
 import { useApi } from '@/core/runtime/provider';
 
 import { LOGOUT_PENDING, beginLogout, clearLogout } from '@/core/api/logout-marker';
@@ -23,6 +24,7 @@ export function invalidateSession() {
   channel?.close();
 }
 export function setLogoutPending(binding: string) {
+  forgetChatMemory();
   const marker = beginLogout(localStorage, binding, crypto.randomUUID());
   invalidateSession();
   return marker;
@@ -44,7 +46,7 @@ export function usePrivateSession() {
     if (!mounted.current) return;
     if (document.visibilityState === 'hidden') { setState({ kind: 'hidden' }); return; }
     try {
-      if (localStorage.getItem(LOGOUT_PENDING)) { setState({ kind: 'logoutPending' }); return; }
+      if (localStorage.getItem(LOGOUT_PENDING)) { forgetChatMemory(); setState({ kind: 'logoutPending' }); return; }
     } catch { setState({ kind: 'error', message: '브라우저 저장소에 접근할 수 없어 안전하게 로그인 상태를 확인할 수 없습니다.' }); return; }
     setState({ kind: 'checking' });
     const controller = new AbortController();
@@ -57,6 +59,7 @@ export function usePrivateSession() {
         if (current !== generation.current || !mounted.current) return;
         publishSessionBinding(binding);
         if (session.soopLinkStatus === 'REQUIRED') {
+          forgetChatMemory();
           if (current === generation.current && mounted.current) setState({ kind: 'linkRequired', session });
           return;
         }
@@ -67,6 +70,7 @@ export function usePrivateSession() {
         if (current === generation.current && mounted.current) setState({ kind: 'ready', session, profile, generation: current });
       } catch (error) {
         if (current !== generation.current || !mounted.current) return;
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) forgetChatMemory();
         if (error instanceof ApiError && error.status === 401) { try { publishSessionBinding('signed-out'); } catch { /* Locked state below remains authoritative. */ } }
         setState(error instanceof ApiError && error.status === 401 ? { kind: 'unauthenticated' } : { kind: 'error', message: error instanceof ApiError ? error.message : '연결을 확인할 수 없습니다. 다시 시도해 주세요.' });
       }

@@ -11,25 +11,44 @@ export interface PendingCommand {
   readonly payload: Readonly<SendPayload>;
   readonly membershipGeneration: number;
 }
-export type CommandRecord = PendingCommand | Readonly<Receipt>;
+export interface QuarantinedCommand {
+  readonly status: 'unknown'; readonly clientMessageId: string;
+  readonly accountPartition: string; readonly sessionBinding: string; readonly roomId: string;
+  readonly membershipScope: string; readonly membershipGeneration: number;
+}
+export type UnknownCommand = PendingCommand | QuarantinedCommand;
+export type CommandRecord = UnknownCommand | Readonly<Receipt>;
 /** Immutable records keyed by explicit intent identity, never by a payload fingerprint. */
 export class SendCommands {
   private records = new Map<string, CommandRecord>();
-  pending(): PendingCommand[] { return [...this.records.values()].filter((value): value is PendingCommand => value.status === 'unknown'); }
+  pending(): UnknownCommand[] { return [...this.records.values()].filter((value): value is UnknownCommand => value.status === 'unknown'); }
   get(id: string) { return this.records.get(id); }
   create(room: RoomMembership, accountPartition: string, sessionBinding: string, membershipGeneration: number, body: Omit<SendPayload, 'clientMessageId' | 'membershipScope'>): PendingCommand {
+    if (this.records.size >= 256) {
+      const settled = [...this.records.values()].find(value => value.status !== 'unknown');
+      if (settled) this.records.delete(settled.clientMessageId);
+      else throw new Error('COMMAND_CAPACITY');
+    }
     const clientMessageId = crypto.randomUUID();
     const command: PendingCommand = Object.freeze({ status: 'unknown', clientMessageId, accountPartition, sessionBinding, membershipGeneration, roomId: room.roomId,
       payload: Object.freeze({ ...body, content: Object.freeze({ ...body.content }), clientMessageId, membershipScope: room.membershipScope }) });
     this.records.set(clientMessageId, command); return command;
   }
   settle(result: Receipt) {
-    if (this.records.get(result.clientMessageId)?.status === 'deleted') return;
+    const prior = this.records.get(result.clientMessageId);
+    if (!prior || prior.status === 'deleted') return;
     // A terminal deletion retains no payload, message ID/version, or participant binding.
     this.records.set(result.clientMessageId, Object.freeze({ ...result }));
   }
-  deleted(messageId: string) {
-    for (const command of this.records.values()) if (command.status === 'committed' && command.messageId === messageId) this.settle({ clientMessageId: command.clientMessageId, status: 'deleted' });
+  /** Confirmed access loss erases replayable content, retaining only receipt lookup identity. */
+  quarantine(matches: (command: PendingCommand) => boolean = () => true) {
+    for (const command of this.records.values()) {
+      if (command.status !== 'unknown' || !('payload' in command) || !matches(command)) continue;
+      this.records.set(command.clientMessageId, Object.freeze({ status: 'unknown', clientMessageId: command.clientMessageId,
+        accountPartition: command.accountPartition, sessionBinding: command.sessionBinding, roomId: command.roomId,
+        membershipScope: command.payload.membershipScope, membershipGeneration: command.membershipGeneration }));
+    }
   }
+  scrub() { this.quarantine(); for (const [id, value] of this.records) if (value.status === 'committed') this.records.delete(id); }
   clear() { this.records.clear(); }
 }

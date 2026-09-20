@@ -1,8 +1,10 @@
-import { SendCommands, type PendingCommand } from './commands';
+import { ChatMemory, authorityKey, MAX_PARKED_BYTES, MAX_PARKED_DRAFTS } from './chat-memory';
+import type { ChatDrafts } from './drafts';
+import { type PendingCommand, type UnknownCommand } from './commands';
 import { reactionSummary, type ReactionState } from './reactions';
 import { actor, cursor, envelope, event, exact, list, membership, mergeMessages, message, projectMessages, receipt, record, string, token, uuid } from './contract';
 import type { ChatRequest, RoomMembership, ServerMessage, SyncKind, Receipt } from './contract';
-import type { ChatActorRef, ChatComposerSubmission, ChatSubmitResult, ChatTimelineItem } from './types';
+import type { ChatActorRef, ChatComposerTarget, ChatComposerSubmission, ChatSubmitResult, ChatTimelineItem } from './types';
 
 export interface ChatState {
   commands: { id: string; canRetry: boolean }[]; commandBusy: boolean;
@@ -14,13 +16,18 @@ const initial = (): ChatState => ({ commands: [], commandBusy: false, reactions:
 const inaccessible = (error: unknown) => [401, 403, 404].includes(Number(recordError(error).status));
 function recordError(error: unknown): { status?: unknown; code?: unknown } { return error !== null && typeof error === 'object' ? error : {}; }
 class ResetRequired extends Error {}
+const differentHints = (a: ServerMessage, b: ServerMessage) => JSON.stringify([a.counterpart, a.allowedActions]) !== JSON.stringify([b.counterpart, b.allowedActions]);
 
 /** Ephemeral, per-mount cache. No browser persistence; every request is bounded by one access epoch. */
 export class ChatController {
   private state = initial();
   private listeners = new Set<() => void>();
   private abort = new AbortController();
-  private dead = false;
+  private disposed = false;
+  private readonly memory: ChatMemory;
+  private readonly lease: number;
+  private readonly retainMemory: boolean;
+  private get dead() { return this.disposed || this.lease !== this.memory.lease; }
   private flight: Promise<void> | null = null;
   private messages: ServerMessage[] = [];
   private eventCursor: string | null = null;
@@ -30,12 +37,10 @@ export class ChatController {
   private recipientBinding: string | null = null;
   private readonly deviceId = crypto.randomUUID();
   private cacheId = crypto.randomUUID();
-  private commands = new SendCommands();
+  private get commands() { return this.memory.commands; }
   private tombstones = new Map<string, { version: string; createdAt?: string }>();
   private scope: RoomMembership | null = null;
   private projectionGeneration = 0;
-  private membershipGeneration = 0;
-  private lastMembershipScope: string | null = null;
   private accountPartition: string | undefined;
   private sessionBinding: string | undefined;
   private sending = false;
@@ -45,7 +50,9 @@ export class ChatController {
   private readonly roomId: string;
   private readonly request: ChatRequest;
   private readonly onInvalidate: (() => void) | undefined;
-  constructor(roomId: string, request: ChatRequest, onInvalidate?: () => void, csrfToken?: string, accountPartition?: string) {
+  constructor(roomId: string, request: ChatRequest, onInvalidate?: () => void, csrfToken?: string, accountPartition?: string, memory?: ChatMemory) {
+    this.memory = memory ?? new ChatMemory(); this.retainMemory = memory !== undefined; this.lease = this.memory.activate();
+    this.state = { ...initial(), epoch: this.memory.epoch, notice: this.memory.expired ? '오래 보관된 초안은 삭제되었습니다. 미확인 전송은 결과만 조회할 수 있습니다.' : null };
     this.roomId = roomId; this.request = request; this.onInvalidate = onInvalidate; this.accountPartition = accountPartition; this.sessionBinding = csrfToken;
   }
   getSnapshot = (): ChatState => this.state;
@@ -58,14 +65,39 @@ export class ChatController {
     if (patch.items) this.state.reactions = Object.fromEntries(Object.entries(this.state.reactions).filter(([id, value]) => this.messages.some(message => message.id === id && message.version === value.version)));
     for (const listener of this.listeners) listener();
   }
-  private clear(forgetAttempts = false) {
+  private clear(forgetAttempts = false, preserveComposer = false) {
     this.abort.abort(); this.abort = new AbortController(); this.cacheId = crypto.randomUUID();
     this.reactionFlights = new Set(); this.reactionCooldown = 0;
     this.messages = []; this.tombstones.clear(); this.scope = null; this.projectionGeneration++; this.eventCursor = null; this.historyCursor = null;
-    this.manifestGeneration = null; this.profileGeneration = null; this.recipientBinding = null; if (forgetAttempts) this.commands.clear();
-    this.publish({ ...initial(), epoch: this.state.epoch + 1 });
+    this.manifestGeneration = null; this.profileGeneration = null; this.recipientBinding = null;
+    if (forgetAttempts) this.memory.clearAll(); else if (!preserveComposer) this.memory.clearComposer();
+    this.publish({ ...initial(), epoch: this.memory.epoch });
   }
-  dispose() { this.clear(true); this.dead = true; this.abort.abort(); this.listeners.clear(); }
+  private clearAfterError(error: unknown) {
+    const status = Number(recordError(error).status);
+    if (status === 403 || status === 404) { this.memory.scrubAccess(); this.clear(false, true); }
+    else this.clear(status === 401, status !== 401);
+  }
+  dispose() { if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); this.listeners.clear(); }
+  getComposer = () => ({ drafts: structuredClone(this.memory.drafts), target: structuredClone(this.memory.target) });
+  saveComposer = (drafts: ChatDrafts, target: ChatComposerTarget | null, epoch: number) => {
+    if (!this.dead && this.state.phase === 'ready' && epoch === this.memory.epoch) {
+      if (Object.keys(drafts).length > MAX_PARKED_DRAFTS || new TextEncoder().encode(JSON.stringify(drafts)).length > MAX_PARKED_BYTES) {
+        this.memory.drafts = {}; this.memory.target = null;
+        this.publish({ notice: '초안 임시 보관 한도를 넘었습니다. 화면을 떠나기 전에 내용을 정리해 주세요.' }); return;
+      }
+      const parked = structuredClone(drafts);
+      if (this.sending) for (const [key, draft] of Object.entries(parked)) {
+        const prior = this.memory.drafts[key];
+        if (!draft.retryCommandId && prior?.retryCommandId && prior.body === draft.body && prior.quote?.messageId === draft.quote?.messageId) draft.retryCommandId = prior.retryCommandId;
+      }
+      this.memory.drafts = parked; this.memory.target = structuredClone(target);
+      for (const draft of Object.values(drafts)) { const item = this.messages.find(item => item.id === draft.quote?.messageId); if (item) this.memory.hints.set(item.id, { createdAt: item.createdAt, version: item.version, counterpart: item.counterpart, allowedActions: item.allowedActions }); }
+      const quoted = new Set(Object.values(drafts).flatMap(draft => draft.quote ? [draft.quote.messageId] : []));
+      for (const id of this.memory.hints.keys()) { if (this.memory.hints.size <= 544) break; if (!quoted.has(id)) this.memory.hints.delete(id); }
+    }
+  };
+  private invalidateComposer() { this.memory.clearComposer(); this.publish({ epoch: this.memory.epoch, reactions: {}, items: [] }); }
   private async get(path: string, kind: SyncKind, from?: string | null): Promise<Record<string, unknown>> {
     const query = new URLSearchParams({ deviceId: this.deviceId, cacheId: this.cacheId, limit: '100' });
     if (from) query.set('cursor', from);
@@ -101,8 +133,8 @@ export class ChatController {
       if (next && (manifestCursors.has(next) || manifestCursors.size >= 100)) throw new Error('INVALID_RESPONSE');
       if (next) manifestCursors.add(next);
     } while (next);
-    if (!found) { this.membershipGeneration++; this.lastMembershipScope = null; throw Object.assign(new Error('ACCESS_CHANGED'), { status: 403 }); }
-    if (this.lastMembershipScope !== found.membershipScope) { this.membershipGeneration++; this.lastMembershipScope = found.membershipScope; }
+    if (!found) { this.memory.scrubAccess(); throw Object.assign(new Error('ACCESS_CHANGED'), { status: 403 }); }
+    if (this.memory.membershipScope !== found.membershipScope) { if (this.memory.membershipScope !== null) this.commands.quarantine(); this.memory.membershipGeneration++; this.memory.membershipScope = found.membershipScope; }
     if (this.manifestGeneration && this.manifestGeneration !== generation) throw new ResetRequired();
     if (this.scope && (this.scope.membershipScope !== found.membershipScope || this.scope.authorizationRevision !== found.authorizationRevision || this.scope.actorId !== found.actorId || this.scope.role !== found.role)) throw new ResetRequired();
     this.scope = found;
@@ -135,6 +167,7 @@ export class ChatController {
       if (next && (recipientCursors.has(next) || recipientCursors.size >= 200)) throw new Error('INVALID_RESPONSE');
       if (next) recipientCursors.add(next);
     } while (next);
+    this.commands.quarantine(command => command.payload.intent === 'SHARED' ? found.role !== 'STREAMER' : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
     const binding = JSON.stringify(recipients.map(recipient => recipient.actorId));
     if (this.recipientBinding && this.recipientBinding !== binding) throw new ResetRequired();
     guard();
@@ -151,49 +184,54 @@ export class ChatController {
   /** Resume/access refresh replaces hints from a new authoritative snapshot, never stale versions. */
   refreshHints = async (): Promise<void> => {
     if (this.dead) return;
-    this.clear(); await this.flight; if (!this.dead) await this.refresh();
+    this.clear(false, true); await this.flight; if (!this.dead) await this.refresh();
   };
   private async synchronize() {
     for (let attempt = 0; attempt < 2 && !this.dead; attempt++) {
-      const epoch = this.state.epoch; const signal = this.abort.signal;
+      const signal = this.abort.signal;
       try {
         const auth = await this.authorization();
-        if (this.dead || epoch !== this.state.epoch) return;
+        if (this.dead || signal.aborted) return;
         if (!this.eventCursor) {
           await this.snapshot();
+          if (signal.aborted || this.dead) return;
+          await this.reauthorizeComposer(auth.room, auth.recipients, signal);
         } else {
           let more = true; const eventCursors = new Set<string>();
           while (more) {
             const page = await this.get(this.path('events'), 'events', this.eventCursor);
+            if (signal.aborted || this.dead) return;
             const events = list(page.events).map(event);
             const nextMessages = this.messages.slice();
             const tombstones = new Map(this.tombstones);
-            let merged = nextMessages; let removed = false;
+            let merged = nextMessages; let removed = false; let hintsChanged = false; const deletedIds = new Set<string>();
             for (const value of events) {
               if (value.type === 'message.deleted') {
                 const prior = merged.find(item => item.id === value.messageId);
                 const tombstone = tombstones.get(value.messageId);
                 if (BigInt(prior?.version ?? tombstone?.version ?? '0') <= BigInt(value.version)) {
                   tombstones.set(value.messageId, { version: value.version, ...(prior ? { createdAt: prior.createdAt } : tombstone?.createdAt ? { createdAt: tombstone.createdAt } : {}) });
-                  merged = merged.filter(item => item.id !== value.messageId); removed = true;
+                  merged = merged.filter(item => item.id !== value.messageId);
+                  if (!tombstone) removed = true; deletedIds.add(value.messageId);
                 }
               } else {
                 const prior = tombstones.get(value.message.id);
                 if (prior?.createdAt && prior.createdAt !== value.message.createdAt) throw new Error('IMMUTABLE_DISPLAY_KEY');
                 if (!prior) {
                   const previous = merged.find(m => m.id === value.message.id);
-                  if (previous && BigInt(value.message.version) >= BigInt(previous.version) && JSON.stringify([previous.counterpart, previous.allowedActions]) !== JSON.stringify([value.message.counterpart, value.message.allowedActions])) { this.projectionGeneration++; this.publish({ reactions: {}, epoch: this.state.epoch + 1 }); }
+                  if (previous && BigInt(value.message.version) >= BigInt(previous.version) && differentHints(previous, value.message)) hintsChanged = true;
                   merged = mergeMessages(merged, [value.message]);
                 }
               }
             }
             this.messages = merged; this.tombstones = tombstones;
+            this.commands.quarantine(command => Boolean(command.payload.quoteId && (deletedIds.has(command.payload.quoteId) || merged.some(item => item.id === command.payload.quoteId && !item.allowedActions.reply))));
+            if (hintsChanged && !removed) { this.projectionGeneration++; this.invalidateComposer(); }
             if (removed) {
               // Drop all draft/quote views and in-flight action projections, but retain
               // this cache generation's terminal tombstones and event checkpoint.
               this.projectionGeneration++;
-              for (const value of events) if (value.type === 'message.deleted') this.commands.deleted(value.messageId);
-              this.publish({ epoch: this.state.epoch + 1, reactions: {}, items: [], notice: null });
+              this.invalidateComposer(); this.publish({ notice: null });
               const candidates = this.messages;
               this.messages = [];
               // Anonymous derived copies have no source link. Re-read every retained
@@ -224,39 +262,79 @@ export class ChatController {
         }
         await this.verifySession();
         if (this.dead || signal.aborted) return;
-        this.publish({ ...auth, phase: 'ready', items: projectMessages(this.messages, auth.room.actorId, auth.profiles), hasOlder: this.historyCursor !== null, error: null });
+        this.rememberAuthority(auth.room, auth.recipients);
+        this.publish({ ...auth, phase: 'ready', items: projectMessages(this.messages, auth.room.actorId, [...auth.profiles, ...auth.recipients]), hasOlder: this.historyCursor !== null, error: null });
         return;
       } catch (error) {
         if (this.dead || signal.aborted) return;
         if (error instanceof ResetRequired) { this.clear(); if (attempt === 0) continue; }
         // A failed authorization/sync must never leave previously visible private content on screen.
-        this.clear(inaccessible(error));
+        this.clearAfterError(error);
         this.publish({ phase: 'error', error: inaccessible(error) ? '채팅 접근 권한이 변경되었습니다. 다시 확인해 주세요.' : '메시지를 불러오지 못했습니다. 다시 시도해 주세요.' });
         if (Number(recordError(error).status) === 401) this.onInvalidate?.();
         return;
       }
     }
   }
+  private rememberAuthority(room: RoomMembership, recipients: ChatActorRef[]) {
+    this.memory.expired = false;
+    this.memory.authority = authorityKey(room); this.memory.recipients = JSON.stringify(recipients.map(item => item.actorId));
+    const quoteIds = new Set(Object.values(this.memory.drafts).flatMap(draft => draft.quote ? [draft.quote.messageId] : []));
+    const retained = [...this.messages.slice(-512), ...this.messages.filter(item => quoteIds.has(item.id))];
+    this.memory.hints = new Map(retained.map(item => [item.id, { createdAt: item.createdAt, version: item.version, counterpart: item.counterpart, allowedActions: item.allowedActions }]));
+  }
+  private async reauthorizeComposer(room: RoomMembership, recipients: ChatActorRef[], signal: AbortSignal) {
+    const changed = this.memory.authority !== null && (this.memory.authority !== authorityKey(room) || this.memory.recipients !== JSON.stringify(recipients.map(item => item.actorId)));
+    if (changed) { this.invalidateComposer(); return; }
+    // A quote outside the new latest page must be re-read before its parked excerpt
+    // can return to the DOM; absence from a snapshot is not deletion evidence.
+    const quoteIds = [...new Set(Object.values(this.memory.drafts).flatMap(draft => draft.quote ? [draft.quote.messageId] : []))];
+    for (const id of quoteIds) {
+      if (this.messages.some(item => item.id === id)) continue;
+      try {
+        const value = message(await this.request(this.path(`messages/${id}`), { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
+        if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError');
+        const prior = this.memory.hints.get(id);
+        if (value.id !== id || (prior && (prior.createdAt !== value.createdAt || BigInt(value.version) < BigInt(prior.version)))) throw new Error('INVALID_RESPONSE');
+        this.messages = mergeMessages(this.messages, [value]);
+      } catch (error) {
+        const status = Number(recordError(error).status);
+        if (status !== 403 && status !== 404) throw error;
+        await this.authorization(); if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError');
+        this.commands.quarantine(command => command.payload.quoteId === id); this.invalidateComposer();
+      }
+    }
+    if (quoteIds.length) { await this.authorization(); if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError'); }
+    if (this.messages.some(item => { const prior = this.memory.hints.get(item.id); return prior && JSON.stringify([prior.counterpart, prior.allowedActions]) !== JSON.stringify([item.counterpart, item.allowedActions]); })) this.invalidateComposer();
+  }
   private async snapshot() {
+    const signal = this.abort.signal;
     const page = await this.get(this.path('snapshot'), 'snapshot');
+    if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError');
     this.messages = mergeMessages([], list(page.messages).map(message));
     this.eventCursor = string(page.nextCursor); this.historyCursor = cursor(page.historyCursor);
   }
   loadOlder = async (): Promise<void> => {
     if (this.dead || this.flight || !this.historyCursor || this.state.phase !== 'ready') return;
-    const epoch = this.state.epoch; const signal = this.abort.signal;
+    const signal = this.abort.signal;
     this.publish({ loadingOlder: true });
     this.flight = (async () => {
       try {
         const page = await this.get(this.path('history'), 'history', this.historyCursor);
+        if (signal.aborted || this.dead) return;
         const incoming = list(page.messages).map(message).filter(item => { const deleted = this.tombstones.get(item.id); if (deleted?.createdAt && deleted.createdAt !== item.createdAt) throw new Error('IMMUTABLE_DISPLAY_KEY'); return !deleted; });
+        const hintsChanged = incoming.some(item => { const prior = this.messages.find(value => value.id === item.id); return prior && BigInt(item.version) >= BigInt(prior.version) && differentHints(prior, item); });
         this.messages = mergeMessages(this.messages, incoming);
+        this.commands.quarantine(command => Boolean(command.payload.quoteId && this.messages.some(item => item.id === command.payload.quoteId && !item.allowedActions.reply)));
+        if (hintsChanged) { this.projectionGeneration++; this.invalidateComposer(); }
         this.historyCursor = cursor(page.nextCursor);
         await this.verifySession();
-        this.publish({ items: projectMessages(this.messages, this.state.room!.actorId, this.state.profiles), hasOlder: this.historyCursor !== null, error: null });
+        if (signal.aborted || this.dead) return;
+        this.rememberAuthority(this.state.room!, this.state.recipients);
+        this.publish({ items: projectMessages(this.messages, this.state.room!.actorId, [...this.state.profiles, ...this.state.recipients]), hasOlder: this.historyCursor !== null, error: null });
       } catch (error) {
-        if (this.dead || epoch !== this.state.epoch) return;
-        this.clear(inaccessible(error)); this.publish({ phase: 'error', error: '이전 메시지를 불러오지 못했습니다. 다시 확인해 주세요.' });
+        if (this.dead || signal.aborted) return;
+        this.clearAfterError(error); this.publish({ phase: 'error', error: '이전 메시지를 불러오지 못했습니다. 다시 확인해 주세요.' });
         if (Number(recordError(error).status) === 401) this.onInvalidate?.();
       } finally { if (!signal.aborted && !this.dead) this.publish({ loadingOlder: false }); }
     })().finally(() => { this.flight = null; });
@@ -342,9 +420,9 @@ export class ChatController {
       return { accepted: false, reason: '삭제 결과를 확인하지 못했습니다. 다시 시도해 주세요.' };
     } finally { this.deleting = false; }
   };
-  private commandAuthorized(command: PendingCommand): boolean {
+  private commandAuthorized(command: UnknownCommand): boolean {
     const room = this.state.room;
-    if (!room || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== room.roomId || command.payload.membershipScope !== room.membershipScope || command.membershipGeneration !== this.membershipGeneration) return false;
+    if (!('payload' in command) || !room || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== room.roomId || command.payload.membershipScope !== room.membershipScope || command.membershipGeneration !== this.memory.membershipGeneration) return false;
     return this.payloadAuthorized(command.payload, room);
   }
   private payloadAuthorized(body: { intent: 'SHARED' | 'PRIVATE'; recipientActorId?: string; quoteId?: string }, room: RoomMembership): boolean {
@@ -379,7 +457,7 @@ export class ChatController {
   };
   retry = async (id: string): Promise<void> => {
     const command = this.commands.get(id);
-    if (command?.status !== 'unknown' || !this.commandAuthorized(command)) return;
+    if (command?.status !== 'unknown' || !('payload' in command) || !this.commandAuthorized(command)) return;
     const signal = this.abort.signal; const projection = this.projectionGeneration;
     const payload = command.payload;
     const recipient = this.state.recipients.find(item => item.actorId === payload.recipientActorId);
@@ -404,18 +482,23 @@ export class ChatController {
     if (submission.retryCommandId) {
       const previous = this.commands.get(submission.retryCommandId);
       if (!previous) return { accepted: false, reason: '이 전송 기록은 현재 세션에서 확인할 수 없습니다.' };
-      if (previous.status !== 'unknown') return this.commandResult(previous);
+      if (previous.status !== 'unknown') return { accepted: true, note: previous.status === 'deleted' ? '이 메시지는 이미 삭제되었습니다.' : '이전에 저장된 전송입니다.' };
+      if (!('payload' in previous)) return { accepted: false, retryCommandId: previous.clientMessageId, reason: '접근 상태가 변경된 이전 전송은 결과 조회만 가능합니다.' };
       if (previous.payload.intent !== body.intent || previous.payload.recipientActorId !== body.recipientActorId || previous.payload.quoteId !== body.quoteId || previous.payload.content.text !== text) return { accepted: false, reason: '다시 시도할 메시지의 내용과 대상이 변경되었습니다.' };
       command = previous;
     } else {
       if (!this.payloadAuthorized(body, room)) return { accepted: false, reason: '이 대상이나 메시지에 지금 전송할 수 없습니다.' };
-      command = this.commands.create(room, this.accountPartition, this.sessionBinding, this.membershipGeneration, body);
+      try { command = this.commands.create(room, this.accountPartition, this.sessionBinding, this.memory.membershipGeneration, body); }
+      catch { return { accepted: false, reason: '미확인 전송이 많습니다. 이전 전송 결과를 먼저 확인해 주세요.' }; }
     }
     const clientMessageId = command.clientMessageId;
+    const draftKey = body.intent === 'SHARED' ? 'shared' : `private:${body.recipientActorId}`;
+    const draft = this.memory.drafts[draftKey];
+    if (draft && draft.body.trim().normalize('NFC') === text && draft.quote?.messageId === body.quoteId) this.memory.drafts = { ...this.memory.drafts, [draftKey]: { ...draft, retryCommandId: clientMessageId } };
     if (!this.commandAuthorized(command)) return { accepted: false, retryCommandId: clientMessageId, reason: '참여 상태나 보낼 대상이 변경되었습니다. 이전 전송을 새 참여 상태로 다시 보내지 않습니다.' };
     const signal = this.abort.signal; const projection = this.projectionGeneration;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration;
-    this.sending = true;
+    this.sending = true; this.publish({});
     try {
       await this.verifySession(); if (!current()) throw new Error('STALE_REQUEST');
       if (submission.retryCommandId) {
@@ -441,6 +524,7 @@ export class ChatController {
       if (current()) {
         const status = Number(recordError(error).status);
         if (status === 401) { this.clear(true); this.publish({ phase: 'error', error: '로그인 상태를 다시 확인해 주세요.' }); this.onInvalidate?.(); }
+        else if (status === 409 && recordError(error).code === 'MEMBERSHIP_SCOPE_MISMATCH') { this.commands.quarantine(); void this.refreshHints(); }
         else if (inaccessible(error) || error instanceof ResetRequired || status === 409 || (status >= 400 && status < 500)) {
           // Includes MEMBERSHIP_SCOPE_MISMATCH: no expected-token hints, rebinding or automatic send.
           void this.refreshHints();

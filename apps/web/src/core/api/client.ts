@@ -39,7 +39,7 @@ export class ApiClient {
         if (response.headers.get('content-type')?.includes('application/json')) {
           const envelope = exact(await response.json(), ['error']);
           const error = exact(envelope.error, ['code']);
-          const allowed: Record<number, readonly string[]> = { 400: ['INVALID_REQUEST'], 401: ['UNAUTHENTICATED'], 403: ['FORBIDDEN', 'SOOP_LINK_REQUIRED'], 404: ['NOT_FOUND'], 409: ['MEMBERSHIP_SCOPE_MISMATCH'], 429: ['RATE_LIMITED'] };
+          const allowed: Record<number, readonly string[]> = { 400: ['INVALID_REQUEST'], 401: ['UNAUTHENTICATED'], 403: ['FORBIDDEN', 'SOOP_LINK_REQUIRED'], 404: ['NOT_FOUND'], 409: ['MEMBERSHIP_SCOPE_MISMATCH', 'CONFLICT'], 429: ['RATE_LIMITED'] };
           if (typeof error.code === 'string' && allowed[response.status]?.includes(error.code)) code = error.code;
         }
       } catch { /* Malformed or non-allowlisted bodies remain opaque. */ }

@@ -62,6 +62,8 @@ void test('only exact status-bound safe codes survive; raw fields, expected scop
   for (const [status, body, expected] of [
     [409, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH' } }, 'MEMBERSHIP_SCOPE_MISMATCH'],
     [404, { error: { code: 'NOT_FOUND' } }, 'NOT_FOUND'],
+    [409, { error: { code: 'CONFLICT' } }, 'CONFLICT'],
+    [409, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH' }, requestId: 'synthetic' }, 'REQUEST_FAILED'],
     [400, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH' } }, 'REQUEST_FAILED'],
     [409, { error: { code: 'MEMBERSHIP_SCOPE_MISMATCH', expectedScope: 'private' } }, 'REQUEST_FAILED'],
     [409, { error: { code: 'private arbitrary text' } }, 'REQUEST_FAILED'],
