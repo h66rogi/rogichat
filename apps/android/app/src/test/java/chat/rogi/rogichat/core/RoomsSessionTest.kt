@@ -10,9 +10,18 @@ import kotlinx.coroutines.test.*
 import org.junit.Assert.*
 import org.junit.Test
 
-private class RoomTestApi : NativeApi {
+internal class RoomTestApi : NativeApi {
     var sessionJson = partitionProjection()
     var manifestCalls = 0; var discoveryCalls = 0
+    var joins = 0; var leaves = 0
+    var authResponse: suspend (ApiRoute) -> String = { error("unused") }
+    override suspend fun postAuth(route: ApiRoute, token: String?, body: String): String {
+        check(token == null); return authResponse(route)
+    }
+    var join: suspend (String, RoomId) -> String = { _, _ -> joinJson() }
+    var leave: suspend (String, RoomId) -> Unit = { _, _ -> }
+    override suspend fun joinRoom(token: String, room: RoomId): String { joins++; return join(token, room) }
+    override suspend fun leaveRoom(token: String, room: RoomId) { leaves++; leave(token, room) }
     var manifest: suspend (ManifestRequest) -> String = { manifestJson() }
     var discovery: suspend (RoomId?) -> String = { discoveryJson() }
     override suspend fun get(route: ApiRoute, token: String) = sessionJson
@@ -25,21 +34,22 @@ internal class RoomTestStore : RoomsStore {
     var commits = 0; var begins = 0; var clears = 0; var failClear = false
     var identity = RoomSyncIdentity(RoomId(OWN), RoomId(OTHER))
     var beforeCommit: suspend () -> Unit = {}
+    var beforeBegin: suspend () -> Unit = {}
     var beforeClear: suspend () -> Unit = {}
     var pages = mutableListOf<MembershipPage>()
     override suspend fun begin(scope: RoomsAccountScope, validate: () -> Unit): RoomSyncIdentity {
-        validate(); begins++; identity = RoomSyncIdentity(RoomId(OWN), RoomId(java.util.UUID.randomUUID().toString())); return identity
+        validate(); beforeBegin(); validate(); begins++; identity = RoomSyncIdentity(RoomId(OWN), RoomId(java.util.UUID.randomUUID().toString())); return identity
     }
     override suspend fun manifest(scope: RoomsAccountScope, identity: RoomSyncIdentity, requested: SyncCursor?, page: MembershipPage, validate: () -> Unit) {
         validate(); beforeCommit(); validate(); commits++; pages += page
     }
     override suspend fun discovery(scope: RoomsAccountScope, identity: RoomSyncIdentity, after: RoomId?, page: DiscoveryPage, validate: () -> Unit): RoomDirectory {
         validate(); beforeCommit(); validate(); commits++
-        return RoomDirectory((pages.last() as MembershipPage.Success).rooms, page.rooms, page.next?.let { DiscoveryContinuation(identity.cacheId, it) })
+        return RoomDirectory((pages.last() as MembershipPage.Success).rooms, page.rooms, page.next?.let { DiscoveryContinuation(identity.cacheId, it) }, identity.cacheId)
     }
     override suspend fun clear() { beforeClear(); clears++; if (failClear) throw RoomsStorageException(); pages.clear() }
 }
-private fun NativeSessionCoordinator.roomsScope() = session.value.let { RoomsAccountScope(requireNotNull(it.account).id, it.generation, requireNotNull(it.accountPartition)) }
+internal fun NativeSessionCoordinator.roomsScope() = session.value.let { RoomsAccountScope(requireNotNull(it.account).id, it.generation, requireNotNull(it.accountPartition)) }
 
 class RoomsSessionTest {
     @Test fun freshCompleteManifestIsRequiredBeforeDiscoveryAndMissingPartitionNeverFallsBackToUserId() = runTest {

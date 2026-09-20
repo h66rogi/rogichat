@@ -7,7 +7,7 @@ data class RoomsAccountScope(val accountId: String, val localEpoch: Long, val pa
 data class RoomSyncIdentity(val deviceId: RoomId, val cacheId: RoomId)
 data class DiscoveryContinuation(val cacheId: RoomId, val after: RoomId)
 data class RoomDirectory(val memberships: List<Membership>, val discovered: List<DiscoveredRoom>,
-                         val continuation: DiscoveryContinuation?)
+                         val continuation: DiscoveryContinuation?, val cycle: RoomId)
 class RoomsStorageException : Exception("rooms_storage_failed")
 class RoomsResetRequired : Exception("rooms_reset_required")
 

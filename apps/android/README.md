@@ -92,7 +92,8 @@ room access stays closed and never falls back to `account.userId`. Discovery pag
 are separate from membership authority: only all pages of one complete manifest
 generation replace the account's membership set. Reset, duplicate/loop cursors,
 unknown schema, stale credentials and partial/error responses cannot manufacture
-an empty or joined state. Directory rows have no unimplemented open/join action.
+an empty or joined state. Directory rows expose only the implemented participation commands; no unimplemented
+chat-opening action is shown.
 
 Room 2.8.5 with KSP 2.3.12 provides an actual on-disk, no-backup database per environment
 and account partition. Staging/effects/checkpoint changes commit in one transaction
@@ -101,8 +102,8 @@ Credential or partition changes hide private state before durable cleanup, and a
 failed cleanup marker prevents a cold open from reviving old authority. A fresh
 manifest is required after process restart. DB failures remain errors; no destructive
 migration fallback is configured. Versioned schema exports and isolated SQLite
-rollback/reopen tests live under `src/androidTest`. There are no message/profile,
-outbox/draft, receipt, timeline, join/leave or socket implementations in this slice.
+rollback/reopen tests live under `src/androidTest`. The room cache has no message/profile, outbox/draft or receipt tables. Timeline
+and socket implementations remain outside this slice.
 Source contract tests do not establish hosted schema-v2 rollout or live account success.
 
 
@@ -114,3 +115,21 @@ It is sent in the authenticated `/v1/sync` query to bind server cursors, while
 advertising or push identifier. Store privacy disclosures must account for this
 identifier's off-device transmission and authenticated association; the mobile
 implementation alone does not establish server retention or ephemeral processing.
+
+
+Room participation commands use the existing native Bearer transport: one explicit
+JSON `{}` POST to join (200) or leave (204). Leave requires a native confirmation;
+it does not delete messages. A session-owned active command survives feature
+ViewModel recreation and blocks competing mutations/refreshes while in flight.
+Before sending, the app commits a fresh incomplete directory checkpoint under the
+original account scope; failed local invalidation sends nothing. Old manifest,
+continuation and command responses cannot republish a different account's data.
+
+Only a fresh complete manifest publishes current membership after a command.
+Conflicts, malformed/lost responses and network errors never auto-replay a POST;
+retry fetches current state. Such a GET proves membership at read time, not that
+an earlier timed-out command has terminated. A later server commit remains possible.
+The wire contract has no expected membership scope or idempotency receipt for
+join/leave; the app does not invent one or claim cross-device period-specific CAS.
+The user can issue a new explicit choice after current state is confirmed. Native
+message/timeline/composer and room policy-management flows remain outside this slice.
