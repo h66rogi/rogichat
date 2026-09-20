@@ -142,7 +142,7 @@ test('discovery failure history remains after recovery; source-bound backlog exe
   assert.equal(source.current_failure_code, null); assert.equal(source.last_failure_code, 'INVENTORY_INVALID'); assert.ok(source.first_failure_at);
 });
 
-test('lost actual page COMMIT acknowledgement is recovered from durable cursor rather than guessing', async t => {
+test('synthetic adapter acknowledgment loss after DB commit recovers the durable cursor', async t => {
   let armed = false;
   const connect = PrismaMariaDb.prototype.connect;
   t.mock.method(PrismaMariaDb.prototype, 'connect', async function () {
@@ -155,7 +155,9 @@ test('lost actual page COMMIT acknowledgement is recovered from durable cursor r
   });
   const f = await fixture(t, 1), claim = await f.db.transactions.write(tx => f.repository.claimDiscovery(tx, f.source));
   const page = await f.ledger.discover(); page.cursor = 'synthetic-next';
-  await assert.rejects(f.db.transactions.write(async tx => { await f.repository.registerPage(tx, claim, page); armed = true; }), /commit_outcome_unknown/);
+  let callbacks = 0;
+  await assert.rejects(f.db.transactions.write(async tx => { callbacks++; await f.repository.registerPage(tx, claim, page); armed = true; }), /commit_outcome_unknown/);
+  assert.equal(callbacks, 1); // Injected after successful DB commit, not a network proxy or lost packet.
   const restarted = await f.db.transactions.write(tx => new DeletionReplayRepository().claimDiscovery(tx, f.source));
   assert.equal(restarted.cursor, 'synthetic-next'); assert.equal((await f.entries()).length, 1);
 });

@@ -440,7 +440,7 @@ test('repeated full inventory discovers a receipt inserted behind the previous p
   // Durable discovery is independent of the four-attempt execution budget and is not resolution.
 });
 
-test('lost actual deletion COMMIT ACK does not replay the command callback or return success', { timeout: 20000 }, async t => {
+test('synthetic adapter acknowledgment loss after deletion commit does not replay the callback or return success', { timeout: 20000 }, async t => {
   let armed = false, lost = 0;
   const original = PrismaMariaDb.prototype.connect;
   t.mock.method(PrismaMariaDb.prototype, 'connect', async function () {

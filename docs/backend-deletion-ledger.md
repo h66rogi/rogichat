@@ -163,7 +163,8 @@ Disposable MySQL coverage includes two-device first-time convergence, legacy UUI
 and time mapping, failed/unconfigured ledger without DB blocking, lost PUT ACK,
 durable PUT plus real rollback recovered by the independently booted reconciler,
 revoked authorization during I/O, missing restored parents, stale checkpoint
-rechecking, actual lost COMMIT ACK without callback replay, bounded full-pass cursor
+rechecking, synthetic adapter acknowledgment loss after successful DB commit
+without callback replay, bounded full-pass cursor
 insertion, owner deletion after leave/closed room, source/copy/attachment blocking
 and no private/public DTO leakage. Unit coverage includes standard UUIDv5 vectors,
 strict R2 inventory/read-by-key, malformed records, abort/deadline handling, and
