@@ -1,6 +1,6 @@
 """Synthetic temporary files only; no Docker, network, host configuration or DB."""
 import copy
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, contextmanager, redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
@@ -13,6 +13,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import backend_release as release
+
+
+@contextmanager
+def unchanged_edge():
+    with patch.object(release, 'snapshot_edge', return_value={}), patch.object(release, 'verify_web'):
+        yield
 
 
 def fixture():
@@ -37,6 +43,176 @@ def ready_container(role='api'):
             'NetworkSettings': {'Networks': {request['edge_network']: {}}},
             'State': {'Status': 'running', 'Running': True, 'Paused': False, 'OOMKilled': False,
                       'Health': {'Status': 'healthy'}}}
+
+
+class EdgeTests(unittest.TestCase):
+    def caddy(self, commissioned=True):
+        networks = {'rogichat-qa_default': {'NetworkID': 'a' * 64}}
+        mounts = []
+        if commissioned:
+            networks[release.WEB_NETWORK] = {'NetworkID': 'b' * 64}
+            mounts.append({'Destination': '/etc/caddy/sites', 'Type': 'bind',
+                           'Source': str(release.WEB_SITES), 'RW': False})
+        return {'Id': 'c' * 64, 'Image': 'sha256:' + 'd' * 64, 'HostConfig': {},
+                'Mounts': mounts, 'Name': '/fixture-caddy', 'State': {'Running': True},
+                'NetworkSettings': {'Networks': networks}}
+
+    def snapshot(self, caddy, *, site=False, peer=False, web=None, network_id=None):
+        peers = {'c' * 64: {'Name': 'fixture-caddy'}}
+        if peer:
+            peers['e' * 64] = {'Name': release.WEB_NETWORK}
+        members = {'Id': network_id or 'b' * 64, 'Driver': 'bridge', 'Internal': False, 'Containers': peers}
+        def docker(*args):
+            if args[:2] == ('network', 'inspect'):
+                return json.dumps([members]).encode()
+            return json.dumps([web if args[1] == 'e' * 64 else caddy]).encode()
+        with patch.object(release, 'get_caddy', return_value='c' * 12), \
+                patch.object(release, 'docker', side_effect=docker), \
+                patch.object(release, 'protected', return_value=b'fixture'), \
+                patch.object(release.Path, 'lstat', return_value=SimpleNamespace(st_mode=stat.S_IFDIR | 0o755, st_uid=0)), \
+                patch.object(release.Path, 'iterdir', return_value=[release.WEB_SITES / 'web.caddy'] if site else []):
+            return release.snapshot_edge('rogichat-qa_default')
+
+    def test_legacy_and_prepared_empty_web_are_distinct(self):
+        legacy = self.snapshot(self.caddy(False))
+        empty = self.snapshot(self.caddy())
+        self.assertIsNone(legacy['web'])
+        self.assertIsNone(empty['web'])
+        self.assertNotEqual(legacy, empty)
+        with patch.object(release, 'web_route') as route:
+            release.verify_web(empty)
+        route.assert_not_called()
+
+    def test_third_network_wrong_or_writable_mount_and_missing_mount_rejected(self):
+        for change in ('third', 'source', 'rw', 'missing', 'duplicate', 'legacy-mount', 'id'):
+            item = self.caddy()
+            if change == 'third':
+                item['NetworkSettings']['Networks']['unexpected'] = {'NetworkID': 'f' * 64}
+            elif change == 'source':
+                item['Mounts'][0]['Source'] = '/other'
+            elif change == 'rw':
+                item['Mounts'][0]['RW'] = True
+            elif change == 'missing':
+                item['Mounts'] = []
+            elif change == 'duplicate':
+                item['Mounts'] *= 2
+            elif change == 'legacy-mount':
+                del item['NetworkSettings']['Networks'][release.WEB_NETWORK]
+            else:
+                item['NetworkSettings']['Networks'][release.WEB_NETWORK]['NetworkID'] = 'not-an-id'
+            with self.subTest(change=change), self.assertRaises(release.Rejected):
+                self.snapshot(item)
+        with self.assertRaises(release.Rejected):
+            self.snapshot(self.caddy(), network_id='f' * 64)
+
+    def test_web_identity_and_site_are_both_required_and_stable(self):
+        web = ready_container()
+        web.update(Id='e' * 64, Image='sha256:' + 'f' * 64, Mounts=[], Name='/' + release.WEB_NETWORK)
+        web['Config']['Labels'] = {'com.docker.compose.project': release.WEB_NETWORK, 'com.docker.compose.service': 'web'}
+        web['HostConfig']['NetworkMode'] = release.WEB_NETWORK
+        web['NetworkSettings']['Networks'] = {release.WEB_NETWORK: {'NetworkID': 'b' * 64}}
+        good = self.snapshot(self.caddy(), site=True, peer=True, web=web)
+        self.assertEqual(good['web']['Id'], web['Id'])
+        self.assertNotIn('Config', good['web'])
+        for site, peer in [(False, True), (True, False)]:
+            with self.assertRaises(release.Rejected):
+                self.snapshot(self.caddy(), site=site, peer=peer, web=web)
+        web['HostConfig']['PortBindings'] = {'3000/tcp': [{'HostPort': '3000'}]}
+        with self.assertRaises(release.Rejected):
+            self.snapshot(self.caddy(), site=True, peer=True, web=web)
+
+    def test_edge_change_blocks_before_request_consumption_or_host_write(self):
+        with patch.object(release, 'snapshot_edge', return_value={'Id': 'changed'}), \
+                patch.object(release.Path, 'mkdir') as mkdir, patch.object(release, 'atomic') as atomic, \
+                patch.object(release, 'caddy_config') as caddy, self.assertRaises(release.Rejected):
+            release.deploy(fixture(), {}, 'fixture', {'Id': 'original'})
+        mkdir.assert_not_called()
+        atomic.assert_not_called()
+        caddy.assert_not_called()
+
+    def test_web_proof_checks_health_page_and_same_origin_asset(self):
+        with patch.object(release, 'web_route', side_effect=[b'ok', b'<script src="/_next/static/chunks/app.js"></script>', b'js']) as route:
+            release.verify_web({'web': {'Id': 'fixture'}})
+        self.assertEqual([call.args[0] for call in route.call_args_list], ['/healthz', '/', '/_next/static/chunks/app.js'])
+        with patch.object(release, 'web_route', side_effect=[b'ok', b'<script src="https://other/app.js"></script>']), self.assertRaises(release.Rejected):
+            release.verify_web({'web': {'Id': 'fixture'}})
+
+    def test_route_has_no_redirect_and_fixed_origin_byte_and_time_bounds(self):
+        with patch.object(release, 'run', return_value=b'ok\n200\nhttps://qa.rogi.chat/healthz') as run:
+            self.assertEqual(release.web_route('/healthz'), b'ok')
+        args = run.call_args.args[0]
+        self.assertEqual(args[1], '--disable')  # Ignore root's curlrc before other options.
+        self.assertNotIn('--location', args)
+        self.assertEqual(args[args.index('--max-time') + 1], '10')
+        self.assertEqual(args[args.index('--max-filesize') + 1], '1048576')
+        self.assertEqual(run.call_args.kwargs['timeout'], 15)
+        for body in (b'\n302\nhttps://qa.rogi.chat/healthz', b'ok\n200\nhttps://other/healthz'):
+            with patch.object(release, 'run', return_value=body), self.assertRaises(release.Rejected):
+                release.web_route('/healthz')
+        for path in ('https://other', '//other', '/_next/static/../a.js', '/_next/static/a.js?token=x'):
+            with patch.object(release, 'run') as run, self.assertRaises(release.Rejected):
+                release.web_route(path)
+            run.assert_not_called()
+
+    def test_success_and_failure_recheck_web_before_completion(self):
+        for failure in (None, 'migration', 'topology', 'web'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                root = Path(directory)
+                edge = {'web': {'Id': 'fixture'}}
+                events = []
+                calls = {'snapshot': 0, 'web': 0}
+                attached = {'migration': False}
+                real_mkstemp = tempfile.mkstemp
+                for key, path in [('RELEASES', root), ('APP', root / 'app'), ('IMAGES', root / 'images'),
+                                  ('UNIT', root / 'unit'), ('CADDY', root / 'caddy')]:
+                    stack.enter_context(patch.object(release, key, path))
+                def snapshot(_):
+                    self.assertFalse(attached['migration'], 'migration must leave edge network before verification')
+                    calls['snapshot'] += 1
+                    events.append('snapshot')
+                    return {'changed': True} if failure == 'topology' and calls['snapshot'] == 2 else edge
+                def web(_):
+                    calls['web'] += 1
+                    events.append('web')
+                    if failure == 'web' and calls['web'] == 2:
+                        raise release.Rejected()
+                def docker(*args, **_):
+                    if args[0] == 'run' and failure == 'migration':
+                        attached['migration'] = True
+                        raise subprocess.TimeoutExpired(['fixture'], 360)
+                    return b''
+                def cleanup(name, path):
+                    attached['migration'] = False
+                    if path:
+                        path.unlink()
+                stack.enter_context(patch.object(release, 'snapshot_edge', side_effect=snapshot))
+                stack.enter_context(patch.object(release, 'verify_web', side_effect=web))
+                atomic = stack.enter_context(patch.object(release, 'atomic', side_effect=lambda path, *_: events.append(path.name)))
+                stack.enter_context(patch.object(release, 'caddy_config', side_effect=lambda *args: events.append('caddy')))
+                stack.enter_context(patch.object(release, 'docker', side_effect=docker))
+                stack.enter_context(patch.object(release, 'start_units'))
+                stack.enter_context(patch.object(release, 'wait_health'))
+                stack.enter_context(patch.object(release, 'cleanup_migration', side_effect=cleanup))
+                fail = stack.enter_context(patch.object(release, 'fail_closed', side_effect=lambda *_: events.append('fail_closed')))
+                stack.enter_context(patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))))
+                stack.enter_context(patch.object(release.tempfile, 'mkstemp', side_effect=lambda **_: real_mkstemp(dir=directory)))
+                stack.enter_context(patch.object(release.os, 'fchown'))
+                response = stack.enter_context(patch.object(release.urllib.request, 'urlopen')).return_value.__enter__.return_value
+                response.status = 200
+                response.geturl.side_effect = ['https://api.qa.rogi.chat' + path for path in ('/live', '/ready', '/_infra/health')]
+                stack.enter_context(redirect_stdout(io.StringIO()))
+                files = {'bootstrap': b'maintenance', 'caddy': b'live', 'compose': b'compose', 'unit': b'unit'}
+                if failure:
+                    with self.assertRaises((release.Rejected, subprocess.TimeoutExpired)):
+                        release.deploy(fixture(), files, 'fixture-caddy', edge)
+                    fail.assert_called_once()
+                    self.assertEqual(events[-3:], ['fail_closed', 'snapshot', 'web'])
+                    self.assertFalse(any(call.args[0].name == 'completed' for call in atomic.call_args_list))
+                else:
+                    release.deploy(fixture(), files, 'fixture-caddy', edge)
+                    fail.assert_not_called()
+                    self.assertEqual(events[-3:], ['web', 'snapshot', 'completed'])
+                self.assertEqual(events[:3], ['snapshot', 'web', 'consumed.json'])
 
 
 class RequestTests(unittest.TestCase):
@@ -83,19 +259,27 @@ class RequestTests(unittest.TestCase):
                 root = Path(directory)
                 kwargs = {'side_effect': failure} if isinstance(failure, Exception) else {'return_value': failure}
                 migration = b'' if stage == 'success' else release.Rejected('fixture migration rejected')
-                with patch.object(release, 'RELEASES', root), patch.object(release, 'APP', root / 'app'), \
-                        patch.object(release, 'IMAGES', root / 'images'), patch.object(release, 'UNIT', root / 'unit'), \
-                        patch.object(release, 'CADDY', root / 'caddy'), patch.object(release, 'atomic') as atomic, \
-                        patch.object(release, 'caddy_config'), patch.object(release, 'docker', side_effect=[b'', migration]), \
-                        patch.object(release, 'start_units') as start, patch.object(release, 'wait_health') as health, \
-                        patch.object(release, 'fail_closed', side_effect=release.Rejected() if stage == 'rollback-failed' else None) as fail_closed, \
-                        patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))), \
-                        patch.object(release.tempfile, 'mkstemp', side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)), \
-                        patch.object(release.os, 'fchown'), patch.object(release.subprocess, 'run', **kwargs) as cleanup, \
-                        redirect_stdout(io.StringIO()) as output, self.assertRaises(release.Rejected):
-                    release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy')
+                with ExitStack() as stack:
+                    for name in ('RELEASES', 'APP', 'IMAGES', 'UNIT', 'CADDY'):
+                        stack.enter_context(patch.object(release, name, root if name == 'RELEASES' else root / name.lower()))
+                    atomic = stack.enter_context(patch.object(release, 'atomic'))
+                    stack.enter_context(patch.object(release, 'caddy_config'))
+                    stack.enter_context(patch.object(release, 'docker', side_effect=[b'', migration]))
+                    stack.enter_context(unchanged_edge())
+                    start = stack.enter_context(patch.object(release, 'start_units'))
+                    health = stack.enter_context(patch.object(release, 'wait_health'))
+                    fail_closed = stack.enter_context(patch.object(release, 'fail_closed',
+                        side_effect=release.Rejected() if stage == 'rollback-failed' else None))
+                    stack.enter_context(patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))))
+                    stack.enter_context(patch.object(release.tempfile, 'mkstemp',
+                        side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)))
+                    stack.enter_context(patch.object(release.os, 'fchown'))
+                    cleanup = stack.enter_context(patch.object(release.subprocess, 'run', **kwargs))
+                    output = stack.enter_context(redirect_stdout(io.StringIO()))
+                    with self.assertRaises(release.Rejected):
+                        release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy', {})
                 self.assertEqual(list(root.glob('migration-*')), [])
-                self.assertEqual(cleanup.call_count, 2 if stage == 'success' else 1)
+                self.assertEqual(cleanup.call_count, {'success': 3, 'migration-failed': 2, 'rollback-failed': 1}[stage])
                 fail_closed.assert_called_once_with('fixture-caddy', b'fixture')
                 start.assert_not_called()
                 health.assert_not_called()
@@ -113,18 +297,25 @@ class RequestTests(unittest.TestCase):
             return real_cleanup(name, secret)
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            with patch.object(release, 'RELEASES', root), patch.object(release, 'APP', root / 'app'), \
-                    patch.object(release, 'IMAGES', root / 'images'), patch.object(release, 'UNIT', root / 'unit'), \
-                    patch.object(release, 'CADDY', root / 'caddy'), patch.object(release, 'atomic') as atomic, \
-                    patch.object(release, 'caddy_config'), patch.object(release, 'docker', return_value=b''), \
-                    patch.object(release, 'start_units') as start, patch.object(release, 'wait_health') as health, \
-                    patch.object(release, 'fail_closed') as fail_closed, \
-                    patch.object(release, 'cleanup_migration', side_effect=interrupted), \
-                    patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))), \
-                    patch.object(release.tempfile, 'mkstemp', side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)), \
-                    patch.object(release.os, 'fchown'), patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stderr=b'')), \
-                    redirect_stdout(io.StringIO()), self.assertRaises(release.Rejected):
-                release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy')
+            with ExitStack() as stack:
+                for name in ('RELEASES', 'APP', 'IMAGES', 'UNIT', 'CADDY'):
+                    stack.enter_context(patch.object(release, name, root if name == 'RELEASES' else root / name.lower()))
+                atomic = stack.enter_context(patch.object(release, 'atomic'))
+                stack.enter_context(patch.object(release, 'caddy_config'))
+                stack.enter_context(patch.object(release, 'docker', return_value=b''))
+                stack.enter_context(unchanged_edge())
+                start = stack.enter_context(patch.object(release, 'start_units'))
+                health = stack.enter_context(patch.object(release, 'wait_health'))
+                fail_closed = stack.enter_context(patch.object(release, 'fail_closed'))
+                stack.enter_context(patch.object(release, 'cleanup_migration', side_effect=interrupted))
+                stack.enter_context(patch.object(release.sys, 'stdin', SimpleNamespace(buffer=io.BytesIO(b'{}'))))
+                stack.enter_context(patch.object(release.tempfile, 'mkstemp',
+                    side_effect=lambda **_: real_mkstemp(prefix='migration-', dir=directory)))
+                stack.enter_context(patch.object(release.os, 'fchown'))
+                stack.enter_context(patch.object(release.subprocess, 'run', return_value=SimpleNamespace(returncode=0, stderr=b'')))
+                stack.enter_context(redirect_stdout(io.StringIO()))
+                with self.assertRaises(release.Rejected):
+                    release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy', {})
             self.assertEqual(len(attempts), 2)
             self.assertEqual(list(root.glob('migration-*')), [])
             fail_closed.assert_called_once()
