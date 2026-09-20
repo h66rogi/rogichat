@@ -24,6 +24,6 @@ export class MediaController {
   }
   @Post('assets/:assetId/access') @HttpCode(200)
   access(@Req() request: Request, @Param('assetId') assetId: string) {
-    return this.media.access(readCommandCredentials(request, this.config), assetId, object(request.body, ['roomId', 'messageId', 'actorId', 'variant']));
+    return this.media.access(readCommandCredentials(request, this.config), assetId, object(request.body, ['roomId', 'messageId', 'actorId', 'stickerId', 'variant']));
   }
 }

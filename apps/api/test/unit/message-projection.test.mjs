@@ -40,7 +40,7 @@ test('anonymous projection drops identity and allowlists fields at every nested 
 });
 
 test('all media kinds deep-map authorized attachments in input order, stripping keys and preserving empty arrays', () => {
-  for (const type of ['PHOTO', 'VIDEO', 'STICKER']) {
+  for (const type of ['PHOTO', 'VIDEO']) {
     const input = model({ author: { kind: 'member', actorId: 'actor', nickname: '이름', avatar: { assetId: 'avatar', signedUrl: 'private-url' }, userId: 'private-user' },
       content: { type, text: 'private-text', attachments: [
         { assetId: 'z-first', width: 1920, height: 1080, variant: 'video', objectKey: 'private-key', ownerUserId: 'private-user' },
@@ -56,6 +56,15 @@ test('all media kinds deep-map authorized attachments in input order, stripping 
     assert.equal(JSON.stringify(result).includes('private-'), false);
     assert.deepEqual(projectMessageDto(model({ content: { type, attachments: [] } })).content, { type, attachments: [] });
   }
+});
+
+test('sticker projection exposes catalog identity and dimensions, never attachment ownership or storage keys', () => {
+  const content = { type: 'STICKER', stickerId: 'catalog', assetId: 'asset', width: 32, height: 64,
+    objectKey: 'private-key', ownerUserId: 'private-user', attachments: [{ assetId: 'private-asset' }] };
+  const result = projectMessageDto(model({ content }));
+  assert.deepEqual(result.content, { type: 'STICKER', stickerId: 'catalog', assetId: 'asset', width: 32, height: 64 });
+  result.content.width = 100;
+  assert.equal(content.width, 32);
 });
 
 test('projection has no mutable object or array aliases back to its read model', () => {
