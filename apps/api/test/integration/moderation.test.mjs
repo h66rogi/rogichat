@@ -236,3 +236,51 @@ test('owned block recovery labels remain current after leave without granting pr
   assert.equal((await list()).body.blocks[0].displayName, null);
   assert.equal((await f.call(f.fan1, 'DELETE', `${endpoint}/${f.owner.actor}`)).status, 200);
 });
+
+
+test('fresh-session account recovery discovers only owned blocked rooms after leave with current visibility and ban suppression', { timeout: 30000 }, async t => {
+  const f = await fixture(t); const endpoint = `/rooms/${f.room}/blocks/${f.owner.actor}`;
+  assert.deepEqual((await f.call(f.fan1, 'GET', '/blocked-rooms')).body, { rooms: [], nextCursor: null });
+  await f.call(f.fan1, 'PUT', endpoint, {});
+  await f.call(f.fan1, 'POST', `/rooms/${f.room}/leave`, {});
+  // A fresh login/device has no saved room references. The account endpoint must rediscover them.
+  const fresh = { id: f.fan1.id, ...await f.db.transactions.write(tx => f.sessions.issue(tx, f.fan1.id)) };
+  const list = () => f.call(fresh, 'GET', '/blocked-rooms');
+  const result = await list(); assert.equal(result.status, 200); assert.equal(result.body.rooms[0].roomId, f.room);
+  assert.deepEqual(Object.keys(result.body.rooms[0]).sort(), ['displayName', 'roomId']);
+  assert.deepEqual((await f.call(f.outsider, 'GET', '/blocked-rooms')).body.rooms, []);
+  assert.deepEqual((await f.call(f.fan2, 'GET', '/blocked-rooms')).body.rooms, []);
+  assert.equal((await f.call(fresh, 'GET', `/blocked-rooms?userId=${f.owner.id}`)).status, 400);
+  assert.equal((await f.call(fresh, 'GET', '/blocked-rooms?cursor=forged')).status, 400);
+  await f.db.transactions.write(tx => tx.prisma.rooms.update({ where: { id: f.room }, data: { name: '현재 방 이름' } }));
+  assert.equal((await list()).body.rooms[0].displayName, '현재 방 이름');
+  await f.db.transactions.write(tx => tx.prisma.rooms.update({ where: { id: f.room }, data: { join_policy: 'INVITE_ONLY' } }));
+  assert.equal((await list()).body.rooms[0].displayName, null, 'LEFT has no current private room label authority');
+  assert.equal((await f.call(fresh, 'GET', `/rooms/${f.room}/snapshot?${new globalThis.URLSearchParams(f.device)}`)).status, 404);
+  await f.db.transactions.write(tx => tx.prisma.rooms.update({ where: { id: f.room }, data: { join_policy: 'OPEN_AUTHENTICATED' } }));
+  assert.equal((await f.call(f.owner, 'POST', `/rooms/${f.room}/bans/${f.fan1.actor}`, {})).status, 200);
+  assert.equal((await list()).body.rooms[0].displayName, null);
+  assert.equal((await f.call(fresh, 'DELETE', endpoint)).status, 200);
+  assert.deepEqual((await list()).body.rooms, []);
+});
+
+
+test('bounded account recovery continues past nonblocked memberships without leaking or reusing another session cursor', { timeout: 30000 }, async t => {
+  const f = await fixture(t);
+  await f.call(f.fan1, 'PUT', `/rooms/${f.room}/blocks/${f.owner.actor}`, {});
+  const unrelated = Array.from({ length: 50 }, () => ({ room: randomUUID(), actor: randomUUID() }));
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.rooms.createMany({ data: unrelated.map(row => ({ id: row.room, name: 'private recovery fixture', mode: 'FAN', join_policy: 'INVITE_ONLY' })) });
+    await tx.prisma.room_members.createMany({ data: unrelated.map(row => ({ id: row.actor, room_id: row.room, user_id: f.fan1.id, role: 'FAN', status: 'LEFT' })) });
+  });
+  const first = await f.call(f.fan1, 'GET', '/blocked-rooms');
+  assert.equal(first.status, 200); assert.equal(typeof first.body.nextCursor, 'string');
+  const next = `/blocked-rooms?${new globalThis.URLSearchParams({ cursor: first.body.nextCursor })}`;
+  assert.equal((await f.call(f.outsider, 'GET', next)).body.error.code, 'INVALID_CURSOR');
+  const fresh = { id: f.fan1.id, ...await f.db.transactions.write(tx => f.sessions.issue(tx, f.fan1.id)) };
+  assert.equal((await f.call(fresh, 'GET', next)).body.error.code, 'INVALID_CURSOR');
+  const second = await f.call(f.fan1, 'GET', next);
+  assert.equal(second.status, 200); assert.equal(second.body.nextCursor, null);
+  assert.deepEqual([...first.body.rooms, ...second.body.rooms].map(room => room.roomId), [f.room]);
+  assert.ok(!JSON.stringify([first.body.rooms, second.body.rooms]).includes('private recovery fixture'));
+});

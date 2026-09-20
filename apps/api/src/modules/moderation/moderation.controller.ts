@@ -21,6 +21,11 @@ export class ModerationController {
   receipt(@Req() req: Request, @Param('reportId') id: string) { return this.service.receipt(readSessionCredentials(req, this.config), identifier(id)); }
   @Get('report-receipts/:idempotencyKey') @moderationDocs.receipt(true)
   receiptByKey(@Req() req: Request, @Param('idempotencyKey') id: string) { return this.service.receipt(readSessionCredentials(req, this.config), identifier(id), true); }
+  @Get('blocked-rooms') @moderationDocs.blockRooms()
+  blockRooms(@Req() req: Request) {
+    const query = object(req.query, ['cursor']);
+    return this.service.blockRooms(readSessionCredentials(req, this.config), query.cursor);
+  }
   @Get('rooms/:roomId/blocks') @moderationDocs.blocks()
   blocks(@Req() req: Request, @Param('roomId') roomId: string) { return this.service.blocks(readSessionCredentials(req, this.config), identifier(roomId), after(req)); }
   @Put('rooms/:roomId/blocks/:actorId') @moderationDocs.block(true)
