@@ -70,6 +70,20 @@ a missing local Compose executable; rerunning with the official checksum-verifie
 standalone executable passed the unchanged render/isolation assertion. No test
 was skipped to make that environment failure green.
 
+The final intake adds only the reviewed web HTTPS readiness correction
+(`29f5ef9`): verified TLS, no redirects, transient-only retries within 90 seconds,
+and preservation of an enclosing caller's absolute alarm deadline. First-activation
+rollback remains covered. This helper-only change reuses the unchanged API/MySQL
+evidence above and reruns affected combined operations and publication checks.
+
+An independent Claude Opus 5 review of the bounded web automatic-export change
+(`27b9e61`, identical nine reviewed blobs at `5bc0ca8`) reported no blocker and
+passed 22 web plus 48 backend/helper cases. That verdict does not cover unrelated
+backend changes or the later TLS correction. Historical archive provenance is
+distinct from release preflight and receiver/poller checks of current successful
+CI attempts; rerun revocation remains enforced at those later gates. Automatic
+web export currently requires the repository default branch to remain `qa`.
+
 The ledger module is still an unregistered foundation, not external-first deletion
 admission, account deletion or proof of physical purge. M10 admission/replay,
 bounded content and media cleanup, independent backup inventory and restore gates
