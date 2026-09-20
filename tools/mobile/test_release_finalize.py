@@ -114,7 +114,7 @@ class FinalizationTests(unittest.TestCase):
         self.stack = self.enterContext(ExitStack())
         self.stack.enter_context(patch("builtins.print"))
         self.stack.enter_context(patch("release_finalize.verify_apk"))
-        self.stack.enter_context(patch("release_finalize.verify_firebase_apk"))
+        self.stack.enter_context(patch("release_finalize.verify_firebase_apk", return_value="configured"))
         self.stack.enter_context(patch("release_finalize.inspect_archive"))
         self.stack.enter_context(patch("release_finalize.inspect_ipa"))
 
@@ -159,6 +159,14 @@ class FinalizationTests(unittest.TestCase):
             guard.assert_called_once_with(Path(value["artifacts"]["apk"]["path"]), self.cfg)
         self.assertEqual(api.posts, [])
         self.assertNotEqual(self.journal("android")["steps"]["verification"]["state"], "verified")
+
+    def test_android_unavailable_push_still_distributes_and_records_truthful_sdk_state(self):
+        path, value = self.release("android")
+        api = FirebaseFake(value["artifacts"]["apk"]["sha256"])
+        with patch("release_finalize.verify_firebase_apk", return_value="unavailable"):
+            android(self.cfg, path, self.testers_file, client=api)
+        self.assertEqual(len(api.posts), 1)
+        self.assertEqual(self.journal("android")["steps"]["verification"]["firebase_sdk_state"], "unavailable")
         self.assertEqual((path.parent / "finalization.json").stat().st_mode & 0o777, 0o600)
 
     def test_android_unknown_post_response_blocks_all_retries(self):

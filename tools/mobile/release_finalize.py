@@ -45,7 +45,7 @@ def android(cfg, manifest_path, testers_file, *, client=None):
         journal.record("verification", "checking")
         apk = external(value["artifacts"]["apk"]["path"])
         verify_apk(apk, value["build_number"], value["version"])
-        verify_firebase_apk(apk, cfg)
+        sdk_state = verify_firebase_apk(apk, cfg)
         api = client or Firebase(cfg)
         matches = [item for item in api.collection(api.app + "/releases", "releases")
                    if item.get("buildVersion") == str(value["build_number"])
@@ -71,7 +71,8 @@ def android(cfg, manifest_path, testers_file, *, client=None):
         if not set(emails).issubset(registered):
             raise Pending("Distribution was acknowledged, but project tester registration readback is incomplete")
         journal.record("verification", "verified", remote_apk_sha256=remote_hash,
-                       project_testers_registered=len(emails), distribution_acknowledged=True)
+                       project_testers_registered=len(emails), distribution_acknowledged=True,
+                       firebase_sdk_state=sdk_state)
     print("Android: remote APK hash verified; distribution acknowledged; approved project testers registered. Receipt saved privately.")
 
 

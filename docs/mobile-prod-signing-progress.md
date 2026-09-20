@@ -212,11 +212,17 @@ integration's validation step; no SDK build or upload ran in this guard task.
 
 ## Signed Android Firebase input
 
-The trusted QA and Prod release CLI builds require an external Firebase SDK JSON file before
-reading signing material, creating a build output directory or invoking Gradle.
-The private release config must already identify its approved `firebase.app_id`
-and `firebase.project_id`. A missing Prod target is an explicit preparation
-blocker; the tooling never substitutes the QA target.
+Firebase SDK input is optional for signed QA and Prod apps. When its path is
+completely absent from both the environment and private release config, the app
+can build and distribute with push unavailable. Real API use and foreground
+recovery do not depend on push configuration. Missing SDK input is not an
+app-wide signing blocker or evidence of successful push delivery.
+
+When a path is supplied, the file and its approved `firebase.app_id` and
+`firebase.project_id` must pass local validation before signing material is read,
+a build output directory is created or Gradle runs. A present empty path, partial
+or malformed config, or mismatched target remains an error. The tooling never
+substitutes the QA target into Prod.
 
 Supply the file with `ROGICHAT_QA_FIREBASE_CONFIG_FILE` or
 `ROGICHAT_PROD_FIREBASE_CONFIG_FILE`, or with `firebase.config_file` in the
@@ -236,25 +242,30 @@ fields are:
 | `gcmSenderId` | Numeric project number, equal to the SDK app ID's project number |
 
 Duplicate/extra/missing fields, ambiguous paths and mismatched environments are
-rejected without printing their values. Child Gradle processes receive only the
-selected config path, together with that environment's signing variables.
-Isolated hosted CI can omit this private config, including its temporary-key
-signing checks; those artifacts are not distributed. Gradle validates any config
-that is supplied. The trusted release CLI's build, upload and finalization gates
-require real approved config and matching resources, so a config-free CI binary
-cannot pass those distribution boundaries. No fake Firebase identity or bypass
-flag is added for CI. Build preflight is local and does not request a fresh
-Firebase login.
+rejected without printing their values. Child Gradle processes receive a selected
+config path only when one exists, together with that environment's signing
+variables. The same absence rule applies to isolated hosted CI, including its
+temporary-key signing checks. No fake Firebase identity or bypass flag is added.
+Build preflight is local and does not request a fresh Firebase login.
 
 After signing, both APK and AAB must contain exactly the four expected
-`rogi_firebase_*` string values, with no translated override or empty fallback.
+`rogi_firebase_*` string values, with no translated override. Configured builds
+must match the supplied values; unavailable builds must contain all four strings
+with exactly empty values. Both modes require `FirebaseInitProvider` to be absent
+and application-owned messaging auto-init and analytics collection metadata to
+be explicitly false. Those checks inspect the actual APK and AAB manifests.
 APK resource inspection uses aapt2; AAB inspection follows the pinned
 [bundletool 1.18.3 resource dump format](https://github.com/google/bundletool/blob/1.18.3/src/main/java/com/android/tools/build/bundletool/commands/DumpManagerUtils.java).
 Resource output is captured in memory and is never printed or written to a log.
-QA upload and finalization recheck the APK's configured values before their
-existing exact remote-target, hash and distribution checks. This establishes
-configuration consistency, not provider credentials, token registration or push
-delivery success. Actual signed SDK artifacts remain a parent integration check.
+QA upload and finalization recheck the APK's configured or unavailable state
+before their existing exact remote-target, hash and distribution checks.
+App Distribution still requires its own approved target and valid authentication;
+that upload target is independent of runtime SDK input. Build manifests and
+finalization receipts record `firebase_sdk_state` as `configured` or `unavailable`.
+The field reports the inspected state and cannot bypass resource verification.
+This establishes configuration consistency, not provider credentials, token
+registration or push delivery success. Actual newly signed artifacts remain a
+parent integration check.
 The resource parser shapes were also checked read-only against `app_name` in
 the historical QA 14 APK/AAB using aapt2 37.0.0 and the checksum-pinned bundletool.
 That verifies dump syntax only; it does not apply the new Firebase requirement

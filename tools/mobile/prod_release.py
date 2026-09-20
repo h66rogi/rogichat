@@ -27,6 +27,7 @@ from release_common import ROOT, capture, external, private_write, run, sha256, 
 API_URL = "https://api.rogi.chat/v1/"
 DOMAINS = {"applinks:rogi.chat", "webcredentials:rogi.chat"}
 PROFILE_NAME = TARGETS["prod"][1]
+_UNSET_FIREBASE = object()
 
 
 def require_prod(cfg):
@@ -271,8 +272,8 @@ def android_certificate(cfg):
     return sha256(external(cfg["artifact_root"]) / "signing/android-prod-upload.der")
 
 
-def inspect_android(apk, aab, cfg, number, version, *, firebase=None):
-    firebase = firebase or android_firebase.load(cfg, "prod")
+def inspect_android(apk, aab, cfg, number, version, *, firebase=_UNSET_FIREBASE):
+    if firebase is _UNSET_FIREBASE: firebase = android_firebase.load(cfg, "prod")
     certificate = android_certificate(cfg)
     for path in (apk, aab): inspect_android_package(path)
     signed = command([sdk_tool("apksigner"), "verify", "--print-certs", str(apk)])
@@ -299,8 +300,8 @@ def inspect_android(apk, aab, cfg, number, version, *, firebase=None):
     certificates = re.findall(r"-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+)-----END CERTIFICATE-----", cert)
     if len(certificates) != 1 or hashlib.sha256(base64.b64decode(certificates[0])).hexdigest() != certificate:
         raise ValueError("AAB signer is not the dedicated Prod upload certificate")
-    android_firebase.inspect_apk(apk, firebase, sdk_tool("aapt2"), command)
-    android_firebase.inspect_aab(aab, firebase, args, command)
+    android_firebase.inspect_apk(apk, firebase, sdk_tool("aapt2"), command, environment="prod")
+    android_firebase.inspect_aab(aab, firebase, args, command, environment="prod")
 
 
 def android_build(cfg, number, version, commit):
@@ -311,8 +312,8 @@ def android_build(cfg, number, version, commit):
     if not password: raise ValueError("Prod upload password is empty")
     directory = output(cfg, "android", number)
     env = dict(environment(), ROGICHAT_PROD_KEYSTORE=str(external(android["keystore"])),
-               ROGICHAT_PROD_STORE_PASSWORD=password, ROGICHAT_PROD_KEY_ALIAS=android["key_alias"],
-               ROGICHAT_PROD_FIREBASE_CONFIG_FILE=str(firebase.path))
+               ROGICHAT_PROD_STORE_PASSWORD=password, ROGICHAT_PROD_KEY_ALIAS=android["key_alias"])
+    if firebase is not None: env["ROGICHAT_PROD_FIREBASE_CONFIG_FILE"] = str(firebase.path)
     run(["./gradlew", ":app:assembleProdRelease", ":app:bundleProdRelease", f"-ProgichatBuildNumber={number}",
          f"-ProgichatVersion={version}", "--no-daemon", "--max-workers=2"], directory / "build.log", cwd=ROOT / "apps/android", env=env)
     artifacts = {}
@@ -320,7 +321,7 @@ def android_build(cfg, number, version, commit):
         target = directory / f"rogichat-prod-{version}-{number}.{kind}"
         shutil.copy2(ROOT / "apps/android/app/build/outputs" / relative, target); target.chmod(0o600); artifacts[kind] = target
     inspect_android(artifacts["apk"], artifacts["aab"], cfg, number, version, firebase=firebase)
-    save(directory, "android", number, version, commit, artifacts)
+    save(directory, "android", number, version, commit, artifacts, firebase_sdk_state=android_firebase.state(firebase))
 
 
 def main():

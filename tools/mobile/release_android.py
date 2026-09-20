@@ -65,7 +65,8 @@ def build(cfg, number, version):
         raise ValueError("QA signing password is empty")
     directory = new_output(cfg, "android", number)
     env = dict(android_firebase.build_environment(), ROGICHAT_QA_KEYSTORE=str(keystore), ROGICHAT_QA_STORE_PASSWORD=password,
-               ROGICHAT_QA_KEY_ALIAS=android["key_alias"], ROGICHAT_QA_FIREBASE_CONFIG_FILE=str(firebase.path))
+               ROGICHAT_QA_KEY_ALIAS=android["key_alias"])
+    if firebase is not None: env["ROGICHAT_QA_FIREBASE_CONFIG_FILE"] = str(firebase.path)
     run(["./gradlew", ":app:assembleQaRelease", ":app:bundleQaRelease",
          f"-ProgichatBuildNumber={number}", f"-ProgichatVersion={version}", "--no-daemon"],
         directory / "build.log", cwd=ROOT / "apps/android", env=env)
@@ -86,9 +87,11 @@ def build(cfg, number, version):
     signing = capture(["jarsigner", "-verify", str(artifacts["aab"])])
     if "jar verified." not in signing:
         raise ValueError("AAB signature missing")
-    android_firebase.inspect_apk(artifacts["apk"], firebase, sdk_tool("aapt2"), capture)
-    android_firebase.inspect_aab(artifacts["aab"], firebase, bundletool(), capture)
+    android_firebase.inspect_apk(artifacts["apk"], firebase, sdk_tool("aapt2"), capture, environment="qa")
+    android_firebase.inspect_aab(artifacts["aab"], firebase, bundletool(), capture, environment="qa")
     path = save_manifest(directory, "android", number, version, artifacts)
+    value = json.loads(path.read_text()); value["firebase_sdk_state"] = android_firebase.state(firebase)
+    private_write(path, json.dumps(value, indent=2) + "\n")
     print("Signed QA APK and AAB verified. Manifest:", path)
 
 
@@ -110,7 +113,8 @@ def firebase_json(arguments, directory):
 
 def verify_firebase_apk(path, cfg):
     settings = android_firebase.load(cfg, "qa")
-    android_firebase.inspect_apk(path, settings, sdk_tool("aapt2"), capture)
+    android_firebase.inspect_apk(path, settings, sdk_tool("aapt2"), capture, environment="qa")
+    return android_firebase.state(settings)
 
 
 def upload(cfg, manifest_path, notes_file):

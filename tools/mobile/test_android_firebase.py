@@ -12,6 +12,11 @@ import android_firebase as firebase
 import prod_release
 import release_android
 
+INIT_XML = '''<manifest xmlns:android="http://schemas.android.com/apk/res/android"><application>
+<meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false"/>
+<meta-data android:name="firebase_analytics_collection_enabled" android:value="false"/>
+</application></manifest>'''
+
 
 class AndroidFirebaseTests(unittest.TestCase):
     def setUp(self):
@@ -63,9 +68,21 @@ class AndroidFirebaseTests(unittest.TestCase):
             self.write(dict(self.value, **changes))
             with self.subTest(fields=list(changes)), self.assertRaises(ValueError): self.load()
         self.write()
-        for cfg in ({}, {"firebase": {}}, {"firebase": {"app_id": self.value["applicationId"]}},
-                    dict(self.cfg, environment="prod"), dict(self.cfg, app_id="other.package")):
+        for cfg in (dict(self.cfg, environment="prod"), dict(self.cfg, app_id="other.package")):
             with self.assertRaises(ValueError): firebase.load(cfg, "qa", environ={})
+
+    def test_only_complete_sdk_path_absence_is_unavailable(self):
+        for cfg in ({}, {"firebase": {}}, {"firebase": {"app_id": self.value["applicationId"]}},
+                    {"firebase": {key: value for key, value in self.cfg["firebase"].items() if key != "config_file"}}):
+            for environment in ("qa", "prod"):
+                self.assertIsNone(firebase.load(cfg, environment, environ={}))
+        for value in (None, "", 0):
+            cfg = deepcopy(self.cfg); cfg["firebase"]["config_file"] = value
+            with self.assertRaises(ValueError): firebase.load(cfg, "qa", environ={})
+            with self.assertRaises(ValueError): firebase.load({}, "qa", environ={"ROGICHAT_QA_FIREBASE_CONFIG_FILE": value})
+        for target in ({}, {"app_id": self.value["applicationId"]}, {"project_id": self.value["projectId"]}):
+            with self.assertRaisesRegex(ValueError, "approved Firebase"):
+                firebase.load({"firebase": target}, "qa", environ={"ROGICHAT_QA_FIREBASE_CONFIG_FILE": str(self.path)})
 
     def test_gradle_utf8_unescaped_flat_format_and_single_link_match_preflight(self):
         linked = self.root / "hardlink.json"; os.link(self.path, linked)
@@ -102,8 +119,9 @@ class AndroidFirebaseTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.load()
 
     def test_invalid_signed_build_stops_before_source_signing_output_or_command(self):
-        for module, operation in ((release_android, lambda: release_android.build({}, 1, "0.1.0")),
-                                  (prod_release, lambda: prod_release.android_build({"environment": "prod", "app_id": firebase.PACKAGES["prod"]}, 1, "0.1.0", "a" * 40))):
+        invalid = {"firebase": {"config_file": ""}}
+        for module, operation in ((release_android, lambda: release_android.build(invalid, 1, "0.1.0")),
+                                  (prod_release, lambda: prod_release.android_build(dict(invalid, environment="prod", app_id=firebase.PACKAGES["prod"]), 1, "0.1.0", "a" * 40))):
             with patch.object(module, "inspect_product_sources") as source, patch.object(module, "run") as run, \
                     patch.object(module, "external") as material, patch.object(module, "new_output" if module == release_android else "output") as output:
                 with self.assertRaisesRegex(ValueError, "approved Firebase"): operation()
@@ -140,12 +158,29 @@ class AndroidFirebaseTests(unittest.TestCase):
         self.assertNotIn(self.value["apiKey"], str(run.call_args))
 
     def test_prod_cli_invalid_input_does_not_create_output_root_or_lock(self):
-        cfg = {"environment": "prod", "app_id": firebase.PACKAGES["prod"], "artifact_root": str(self.root / "absent")}
+        cfg = {"environment": "prod", "app_id": firebase.PACKAGES["prod"], "artifact_root": str(self.root / "absent"),
+               "firebase": {"config_file": ""}}
         with patch("sys.argv", ["prod_release.py", "android-build", "--source-sha", "a" * 40, "--build-number", "1", "--version", "0.1.0"]), \
                 patch.object(prod_release, "prod_config", return_value=cfg), patch.object(prod_release, "android_build") as build:
             with self.assertRaisesRegex(ValueError, "approved Firebase"): prod_release.main()
             build.assert_not_called()
         self.assertFalse((self.root / "absent").exists())
+
+    def test_absent_sdk_input_allows_both_signed_build_commands_without_firebase_env(self):
+        key = self.root / "upload.keystore"; key.write_bytes(b"unit-key"); key.chmod(0o600)
+        password = self.root / "password"; password.write_text("unit-password"); password.chmod(0o600)
+        cfg = {"android": {"keystore": str(key), "password_file": str(password), "key_alias": "unit"}}
+        class BeforeSDK(Exception): pass
+        for environment, module in (("qa", release_android), ("prod", prod_release)):
+            candidate = dict(cfg, environment=environment, app_id=firebase.PACKAGES[environment])
+            with patch.object(module, "inspect_product_sources"), \
+                    patch.object(module, "new_output" if environment == "qa" else "output", return_value=self.root), \
+                    patch.object(module, "run", side_effect=BeforeSDK) as run, patch.dict(os.environ, {}, clear=True), \
+                    patch.object(prod_release, "source"), patch.object(prod_release, "android_certificate"):
+                with self.assertRaises(BeforeSDK):
+                    if environment == "qa": module.build(candidate, 1, "0.1.0")
+                    else: module.android_build(candidate, 1, "0.1.0", "a" * 40)
+            self.assertFalse(any(name.endswith("FIREBASE_CONFIG_FILE") for name in run.call_args.kwargs["env"]))
 
     def apk_dump(self):
         lines = ["Package name=" + self.value["packageName"] + " id=7f"]
@@ -177,14 +212,53 @@ class AndroidFirebaseTests(unittest.TestCase):
             with self.assertRaises(ValueError): firebase.verify_aab_dump(altered, settings, name)
 
     def test_resource_inspection_captures_values_never_logs_or_passes_them_in_arguments(self):
-        settings = self.load(); capture = Mock(side_effect=[self.aab_dump(name) for name in firebase.RESOURCES])
+        settings = self.load(); capture = Mock(side_effect=[self.aab_dump(name) for name in firebase.RESOURCES] + [INIT_XML])
         with patch("sys.stdout", new_callable=io.StringIO) as stdout:
             firebase.inspect_aab(Path("unit.aab"), settings, ["bundletool"], capture)
-        self.assertEqual(capture.call_count, 4); self.assertEqual(stdout.getvalue(), "")
+        self.assertEqual(capture.call_count, 5); self.assertEqual(stdout.getvalue(), "")
         self.assertNotIn(self.value["apiKey"], str(capture.call_args_list))
         with self.assertRaises(ValueError) as error:
             firebase.verify_apk_dump(self.apk_dump().replace(self.value["apiKey"], "sensitive-mismatch"), settings)
         self.assertNotIn("sensitive-mismatch", str(error.exception))
+
+    def test_unavailable_requires_four_present_empty_resources_in_exact_environment(self):
+        for environment in ("qa", "prod"):
+            self.value.update(environment=environment, packageName=firebase.PACKAGES[environment])
+            self.value.update({key: "" for key in firebase.RESOURCES.values()})
+            firebase.verify_apk_dump(self.apk_dump(), None, environment=environment)
+            for name in firebase.RESOURCES:
+                firebase.verify_aab_dump(self.aab_dump(name), None, name, environment=environment)
+            with self.assertRaises(ValueError): firebase.verify_apk_dump("", None, environment=environment)
+            for field in firebase.RESOURCES.values():
+                self.value[field] = "unexpected-config"
+                with self.assertRaises(ValueError): firebase.verify_apk_dump(self.apk_dump(), None, environment=environment)
+                name = next(key for key, value in firebase.RESOURCES.items() if value == field)
+                with self.assertRaises(ValueError): firebase.verify_aab_dump(self.aab_dump(name), None, name, environment=environment)
+                self.value[field] = ""
+        with self.assertRaises(ValueError): firebase.verify_apk_dump(self.apk_dump(), None)
+        self.assertEqual(firebase.state(None), "unavailable")
+
+    def test_initialization_requires_provider_absence_and_application_owned_false_flags(self):
+        firebase.verify_aab_initialization(INIT_XML)
+        firebase.verify_apk_initialization(prod_release.xmltree(INIT_XML))
+        metadata = '<meta-data android:name="firebase_messaging_auto_init_enabled" android:value="false"/>'
+        provider = '<provider android:name="com.google.firebase.provider.FirebaseInitProvider"/>'
+        for xml in (INIT_XML.replace('value="false"', 'value="true"', 1),
+                    INIT_XML.replace(metadata, ""), INIT_XML.replace(metadata, metadata * 2),
+                    INIT_XML.replace(metadata, "<activity>" + metadata + "</activity>"),
+                    INIT_XML.replace("</application>", provider + "</application>"),
+                    INIT_XML.replace("</application>", "</application><application/>")):
+            with self.assertRaises(ValueError): firebase.verify_aab_initialization(xml)
+            with self.assertRaises(ValueError): firebase.verify_apk_initialization(prod_release.xmltree(xml))
+
+    def test_unavailable_inspection_checks_real_manifest_after_empty_resource_dump(self):
+        self.value.update({key: "" for key in firebase.RESOURCES.values()})
+        capture = Mock(side_effect=[self.apk_dump(), prod_release.xmltree(INIT_XML)])
+        firebase.inspect_apk(Path("unit.apk"), None, "aapt2", capture, environment="qa")
+        self.assertEqual(capture.call_count, 2)
+        capture = Mock(side_effect=[self.aab_dump(name) for name in firebase.RESOURCES] + [INIT_XML])
+        firebase.inspect_aab(Path("unit.aab"), None, ["bundletool"], capture, environment="qa")
+        self.assertEqual(capture.call_count, 5)
 
 
 if __name__ == "__main__": unittest.main()
