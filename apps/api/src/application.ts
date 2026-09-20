@@ -1,3 +1,4 @@
+import type { DeletionOptions } from './modules/deletion/deletion.module.js';
 import type { Config } from './infrastructure/config/config.js';
 import { configureOpenApi } from './infrastructure/openapi/openapi.js';
 import type { AuthConfig } from './infrastructure/config/auth-config.js';
@@ -20,8 +21,8 @@ import type { MediaOptions } from './modules/media/media.module.js';
 import { AppModule } from './app.module.js';
 import { WorkerModule } from './worker.module.js';
 
-export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthModuleOptions, media?: MediaOptions, environment: Config['environment'] = 'test'): Promise<NestExpressApplication> {
-  return createConfiguredApi(AppModule.register(database, lifecycle, auth, media), logger, lifecycle, auth?.config, Boolean(media), environment);
+export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthModuleOptions, media?: MediaOptions, environment: Config['environment'] = 'test', deletion?: DeletionOptions): Promise<NestExpressApplication> {
+  return createConfiguredApi(AppModule.register(database, lifecycle, auth, media, deletion), logger, lifecycle, auth?.config, Boolean(media), environment);
 }
 export async function createConfiguredApi(module: DynamicModule, logger: SafeLogger, suppliedLifecycle?: LifecycleState, auth?: AuthConfig, media = false, environment: Config['environment'] = 'test'): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(module, { logger: false, abortOnError: false, bodyParser: false });

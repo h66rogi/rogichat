@@ -1,6 +1,6 @@
 import { Agent } from 'node:https';
 import { Readable } from 'node:stream';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { DeletionLedgerError, LEDGER_MAX_BYTES, decodeDeletionIntent, deletionIntentKey } from '../deletion-ledger.js';
 import type { DeletionLedgerStore, LedgerEnvironment } from '../deletion-ledger.js';
 
@@ -35,7 +35,7 @@ export class R2DeletionLedgerStore implements DeletionLedgerStore {
   async putIfAbsent(key: string, bytes: Uint8Array, signal: AbortSignal): Promise<void> {
     const record = decodeDeletionIntent(bytes, this.config.environment);
     if (this.key(key) !== deletionIntentKey(this.config.environment, record.requestId)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
-    // Immutable intent only: no update, delete, list, public URL or lifecycle capability.
+    // Immutable intent only: no update, delete, public URL or lifecycle capability.
     // Bucket retention/credential separation must be verified before activating this adapter.
     await this.client.send(new PutObjectCommand({ Bucket: this.config.bucket, Key: key, Body: bytes,
       ContentLength: bytes.length, ContentType: 'application/json', CacheControl: 'private, no-store, max-age=0', IfNoneMatch: '*' }), { abortSignal: signal });
@@ -65,6 +65,28 @@ export class R2DeletionLedgerStore implements DeletionLedgerStore {
           '$metadata' in error && (error.$metadata as { httpStatusCode?: number } | undefined)?.httpStatusCode === 404) return null;
       throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
     } finally { signal.removeEventListener('abort', abort); body?.destroy(); }
+  }
+  async list(cursor: string | null, limit: number, signal: AbortSignal): Promise<{ keys: string[]; cursor: string | null }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 ||
+        (cursor !== null && (typeof cursor !== 'string' || !cursor.length || cursor.length > 2048))) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    try {
+      signal.throwIfAborted();
+      const page = await this.client.send(new ListObjectsV2Command({ Bucket: this.config.bucket,
+        Prefix: `${this.config.environment}/`, MaxKeys: limit, ...(cursor ? { ContinuationToken: cursor } : {}) }), { abortSignal: signal });
+      signal.throwIfAborted();
+      if (typeof page.IsTruncated !== 'boolean' || (page.Contents?.length ?? 0) > limit || (page.CommonPrefixes?.length ?? 0) !== 0 ||
+          (page.IsTruncated && (!page.NextContinuationToken || page.NextContinuationToken.length > 2048 || page.NextContinuationToken === cursor)) ||
+          (!page.IsTruncated && page.NextContinuationToken !== undefined)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+      const keys = (page.Contents ?? []).map(item => {
+        if (typeof item.Key !== 'string' || !Number.isInteger(item.Size) || item.Size! < 1 || item.Size! > LEDGER_MAX_BYTES) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+        return this.key(item.Key);
+      });
+      if (new Set(keys).size !== keys.length) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+      return { keys, cursor: page.IsTruncated ? page.NextContinuationToken! : null };
+    } catch (error) {
+      if (error instanceof DeletionLedgerError) throw error;
+      throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
+    }
   }
   close(): void { this.client.destroy(); }
 }

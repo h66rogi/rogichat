@@ -16,6 +16,7 @@ export interface DeletionLedgerStore {
   putIfAbsent(key: string, bytes: Uint8Array, signal: AbortSignal): Promise<void>;
   /** Return null only for a confirmed missing object, never permission/network errors. */
   read(key: string, signal: AbortSignal): Promise<Uint8Array | null>;
+  list(cursor: string | null, limit: number, signal: AbortSignal): Promise<{ keys: string[]; cursor: string | null }>;
   close(): void;
 }
 export class DeletionLedgerError extends Error {
@@ -59,11 +60,47 @@ export function decodeDeletionIntent(bytes: Uint8Array, environment: LedgerEnvir
 /** Internal write-ahead port, NOT authorization and NOT deletion completion.
  * Caller first authorizes the exact immutable target and captures server/DB UTC,
  * closes that transaction, then records intent before the DB blocking mutation.
- * Request UUID is retained across retries; no HTTP endpoint calls this yet.
+ * Request UUID is retained across retries; only the internal admission service calls this.
  */
 export class DeletionLedger {
-  constructor(private readonly store: DeletionLedgerStore, private readonly environment: LedgerEnvironment) {
+  constructor(private readonly store: DeletionLedgerStore, readonly environment: LedgerEnvironment) {
     if (!['qa', 'production'].includes(environment)) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+  }
+  async inventory(cursor: string | null = null, limit = 50, signal?: AbortSignal) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    const bounded = AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]);
+    try {
+      bounded.throwIfAborted();
+      const page = await this.store.list(cursor, limit, bounded);
+      if (!Array.isArray(page.keys) || page.keys.length > limit || new Set(page.keys).size !== page.keys.length ||
+          (page.cursor !== null && (typeof page.cursor !== 'string' || !page.cursor.length || page.cursor.length > 2048 || page.cursor === cursor))) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+      for (const key of page.keys) this.checkedKey(key);
+      bounded.throwIfAborted();
+      return page;
+    } catch (error) {
+      if (error instanceof DeletionLedgerError) throw error;
+      throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
+    }
+  }
+  private checkedKey(key: string) {
+    if (typeof key !== 'string' || key !== deletionIntentKey(this.environment, key.split('/')[1] ?? '')) throw new DeletionLedgerError('INVALID_LEDGER_INTENT');
+    return key;
+  }
+  async readByKey(key: string, signal?: AbortSignal) {
+    this.checkedKey(key);
+    const bounded = AbortSignal.any([AbortSignal.timeout(10000), ...(signal ? [signal] : [])]);
+    try {
+      bounded.throwIfAborted();
+      const bytes = await this.store.read(key, bounded);
+      bounded.throwIfAborted();
+      if (!bytes) throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
+      const intent = decodeDeletionIntent(bytes, this.environment);
+      if (deletionIntentKey(this.environment, intent.requestId) !== key) throw new DeletionLedgerError('LEDGER_CONFLICT');
+      return Object.freeze({ intent, sha256: createHash('sha256').update(bytes).digest('hex') });
+    } catch (error) {
+      if (error instanceof DeletionLedgerError) throw error;
+      throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
+    }
   }
   async ensureIntent(value: DeletionIntent, signal?: AbortSignal) {
     const intended = checkedDeletionIntent(value, this.environment);
@@ -91,4 +128,15 @@ export class DeletionLedger {
       throw new DeletionLedgerError('LEDGER_UNAVAILABLE');
     }
   }
+}
+
+export type DeletionReceipt = Awaited<ReturnType<DeletionLedger['ensureIntent']>>;
+// Versioned namespace is an identifier, never authority. RFC 9562 UUIDv5.
+const MESSAGE_NAMESPACE_V1 = Buffer.from('c905df9b942b53e8a72659c955726fcc', 'hex');
+export function messageDeletionId(environment: LedgerEnvironment, actor: string, room: string, message: string): string {
+  const bytes = createHash('sha1').update(MESSAGE_NAMESPACE_V1).update(JSON.stringify([environment, actor, 'MESSAGE', room, message])).digest().subarray(0, 16);
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }

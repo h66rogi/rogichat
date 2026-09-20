@@ -163,7 +163,7 @@ test('READY synthetic attachments use current private-message ACL and source del
   await denied(f.get(f.owner, assetId, { ...context, messageId: randomUUID() }));
   await f.db.transactions.write(tx => tx.execute('UPDATE stream_grants SET revoked_at=UTC_TIMESTAMP(3) WHERE member_id=?', [f.a.actor]));
   await denied(f.get(f.a, assetId, context)); assert.equal(await f.get(f.owner, assetId, context), key);
-  await f.auth(f.a, true, tx => deleteMessage(tx, f.room, f.a.id, messageId));
+  await deleteMessage(f.db.transactions, f.room, f.a.id, messageId);
   await denied(f.get(f.owner, assetId, context));
 });
 

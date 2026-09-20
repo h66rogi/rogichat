@@ -1,3 +1,14 @@
+import { NestFactory } from '@nestjs/core';
+import { DatabaseModule } from '../../dist/infrastructure/database/database.module.js';
+import { LifecycleState } from '../../dist/common/lifecycle/lifecycle-state.js';
+import { DeletionModule } from '../../dist/modules/deletion/deletion.module.js';
+import { PrismaMariaDb } from '@prisma/adapter-mariadb';
+import { MessagesCoreService } from '../../dist/modules/messages/messages-core.service.js';
+import { DeletionApplyService } from '../../dist/modules/deletion/deletion-apply.service.js';
+import { DeletionRepository } from '../../dist/modules/deletion/deletion.repository.js';
+import { DeletionReconciler } from '../../dist/modules/deletion/deletion-reconciler.js';
+import { messageDeletionId, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
+import { deletionFixture } from '../support/deletion-fixture.mjs';
 import { createUser, createRoom, joinRoom, nextOrder, sendInput, sendMessage } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
@@ -9,9 +20,9 @@ import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { createApi } from '../../dist/application.js';
 import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 
-async function fixture(t, mode = 'FAN') {
+async function fixture(t, mode = 'FAN', configured = true) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
-  const db = new MysqlDatabase(readConfig('api')); let app;
+  const db = new MysqlDatabase(readConfig('api')); const deletion = deletionFixture(); let app;
   t.after(async () => { try { await app?.close(); } finally { await db.close(); } });
   const config = { audience: 'messages-fixture', origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
@@ -31,7 +42,7 @@ async function fixture(t, mode = 'FAN') {
   let base;
   const restart = async () => {
     await app?.close();
-    app = await createApi(db, new SafeLogger('api', () => {}), undefined, { sessions, config });
+    app = await createApi(db, new SafeLogger('api', () => {}), undefined, { sessions, config }, undefined, 'test', configured ? deletion : undefined);
     await app.listen(0, '127.0.0.1'); base = await app.getUrl();
   };
   await restart();
@@ -50,7 +61,7 @@ async function fixture(t, mode = 'FAN') {
   // Advance only this fixture's burst bucket between independent authorization phases.
   // Concurrent limit enforcement is separately tested across two real pools in rates.test.
   const nextBurst = who => db.transactions.write(tx => tx.execute('UPDATE rate_buckets SET expires_at=TIMESTAMPADD(SECOND,-1,UTC_TIMESTAMP(3)) WHERE key_digest=?', [createHmac('sha256', config.key).update(`send:burst:${who.id}:${room}`).digest()]));
-  return { db, sessions, config, owner, fan1, fan2, outsider, room, call, command, send, get, remove, restart, nextBurst };
+  return { db, deletion, get app() { return app; }, sessions, config, owner, fan1, fan2, outsider, room, call, command, send, get, remove, restart, nextBurst };
 }
 const keys = value => Object.keys(value).sort();
 
@@ -238,4 +249,146 @@ test('random missing room UUIDs consume a fixed account budget without creating 
   const [bucket] = await f.db.transactions.read(tx => tx.rows('SELECT used FROM rate_buckets WHERE key_digest=?', [key]));
   assert.equal(Number(bucket.used), 60);
   assert.equal((await f.send(f.fan1, f.command('독립 사용자의 private', 'PRIVATE', f.owner.actor))).status, 200);
+});
+
+test('two devices converge on deterministic UUIDv5 and first ledger UTC after lost PUT ACK', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'GROUP');
+  const device = { id: f.fan1.id, ...await f.db.transactions.write(tx => f.sessions.issue(tx, f.fan1.id)) };
+  const { body: sent } = await f.send(f.fan1, f.command());
+  f.deletion.store.loseAck = true;
+  const replies = await Promise.all([f.remove(f.fan1, sent.messageId), f.remove(device, sent.messageId)]);
+  for (const reply of replies) assert.equal(reply.status, 200, JSON.stringify(reply));
+  assert.deepEqual(replies[0], replies[1]); assert.equal(f.deletion.store.rows.size, 1);
+  const id = messageDeletionId('qa', f.fan1.id, f.room, sent.messageId);
+  assert.equal(replies[0].body.requestId, id); assert.equal(id[14], '5');
+  const intent = decodeDeletionIntent([...f.deletion.store.rows.values()][0], 'qa');
+  const [request] = await f.db.transactions.read(tx => tx.rows('SELECT requested_at FROM deletion_requests WHERE id=?', [id]));
+  const [checkpoint] = await f.db.transactions.read(tx => tx.rows('SELECT requested_at,blocked_at FROM deletion_intents WHERE request_id=?', [id]));
+  assert.equal(request.requested_at.toISOString(), intent.requestedAt); assert.equal(checkpoint.requested_at.toISOString(), intent.requestedAt);
+  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
+  const [again] = await f.db.transactions.read(tx => tx.rows('SELECT requested_at,blocked_at FROM deletion_intents WHERE request_id=?', [id]));
+  assert.deepEqual(again, checkpoint);
+});
+
+test('legacy request keeps its random UUID and original timestamp; backfill never invents a new deadline', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'GROUP'); const sent = await f.send(f.fan1, f.command());
+  const id = randomUUID(); const original = new Date('2020-01-02T03:04:05.006Z');
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.deletion_requests.create({ data: { id, actor_user_id: f.fan1.id, room_id: f.room, message_id: sent.body.messageId, requested_at: original } });
+    await tx.prisma.messages.update({ where: { id: sent.body.messageId }, data: { deleted_at: original, text_content: null } });
+  });
+  assert.deepEqual(await f.remove(f.fan1, sent.body.messageId), { status: 200, body: { requestId: id, status: 'blocked' } });
+  const intent = decodeDeletionIntent([...f.deletion.store.rows.values()][0], 'qa');
+  assert.equal(intent.requestId, id); assert.equal(intent.requestedAt, original.toISOString());
+});
+
+test('failed or unconfigured ledger returns truthful 503 without DB blocking or metadata leakage', { timeout: 20000 }, async t => {
+  for (const configured of [true, false]) {
+    const f = await fixture(t, 'GROUP', configured); const sent = await f.send(f.fan1, f.command('retained body'));
+    f.deletion.store.fail = true;
+    assert.deepEqual(await f.remove(f.fan1, sent.body.messageId), { status: 503, body: { error: { code: 'UNAVAILABLE' } } });
+    assert.equal((await f.get(f.fan2, sent.body.messageId)).body.content.text, 'retained body');
+    const requests = await f.db.transactions.read(tx => tx.prisma.deletion_requests.count({ where: { message_id: sent.body.messageId } }));
+    assert.equal(requests, 0); assert.equal(f.deletion.store.rows.size, 0);
+  }
+});
+
+test('durable PUT then actual DB rollback is recovered solely by independent inventory replay', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'GROUP'); const sent = await f.send(f.fan1, f.command());
+  const repository = f.app.get(DeletionRepository); const original = repository.markBlocked.bind(repository);
+  repository.markBlocked = async () => { throw new Error('synthetic_db_failure_after_block'); };
+  assert.equal((await f.remove(f.fan1, sent.body.messageId)).status, 500);
+  assert.equal(f.deletion.store.rows.size, 1);
+  assert.equal((await f.get(f.fan2, sent.body.messageId)).status, 200);
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_requests.count({ where: { message_id: sent.body.messageId } })), 0);
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.jobs.count({ where: { room_id: f.room, purpose: 'PURGE' } })), 0);
+  repository.markBlocked = original;
+  const worker = await NestFactory.createApplicationContext(DeletionModule.register(
+    DatabaseModule.register({ database: f.db, lifecycle: new LifecycleState(), externallyOwned: true }), f.deletion, true),
+  { logger: false, abortOnError: false });
+  t.after(() => worker.close());
+  const deadline = Date.now() + 5000;
+  while ((await f.get(f.fan2, sent.body.messageId)).status !== 404 && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal((await f.get(f.fan2, sent.body.messageId)).status, 404);
+  const replay = new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService));
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_requests.count({ where: { message_id: sent.body.messageId } })), 1);
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.jobs.count({ where: { room_id: f.room, purpose: 'PURGE' } })), 1);
+  await replay.tick();
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.jobs.count({ where: { room_id: f.room, purpose: 'PURGE' } })), 1);
+});
+
+test('revoking authorization during external I/O cannot cancel already authorized durable intent', { timeout: 20000 }, async t => {
+  const f = await fixture(t, 'GROUP'); const sent = await f.send(f.fan1, f.command());
+  f.deletion.store.beforePut = () => f.db.transactions.write(tx => f.sessions.revoke(tx, f.fan1.token, f.fan1.csrf));
+  assert.equal((await f.remove(f.fan1, sent.body.messageId)).status, 200);
+  assert.equal((await f.get(f.fan1, sent.body.messageId)).status, 401);
+  assert.equal((await f.get(f.fan2, sent.body.messageId)).status, 404);
+});
+
+test('missing restored actor/room/message persists opaque obligation without synthetic parents or completion claims', { timeout: 20000 }, async t => {
+  const f = await fixture(t); const target = randomUUID(), actor = randomUUID(), room = randomUUID();
+  const intent = { schemaVersion: 1, environment: 'qa', actorUserId: actor, targetId: target, roomId: room, scope: 'MESSAGE',
+    requestId: messageDeletionId('qa', actor, room, target), requestedAt: '2020-01-02T03:04:05.006Z' };
+  await f.deletion.ledger.ensureIntent(intent);
+  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
+  const state = await f.db.transactions.read(async tx => ({
+    checkpoint: await tx.prisma.deletion_intents.findUnique({ where: { request_id: intent.requestId } }),
+    users: await tx.prisma.users.count({ where: { id: actor } }), messages: await tx.prisma.messages.count({ where: { id: target } }),
+    rooms: await tx.prisma.rooms.count({ where: { id: room } }), requests: await tx.prisma.deletion_requests.count({ where: { id: intent.requestId } }),
+  }));
+  assert.equal(state.checkpoint.blocked_at, null); assert.equal(state.checkpoint.requested_at.toISOString(), intent.requestedAt);
+  for (const key of ['users', 'messages', 'rooms', 'requests']) assert.equal(state[key], 0);
+  await f.db.transactions.write(tx => tx.prisma.deletion_intents.update({ where: { request_id: intent.requestId }, data: { blocked_at: new Date() } }));
+  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
+  assert.equal((await f.db.transactions.read(tx => tx.prisma.deletion_intents.findUnique({ where: { request_id: intent.requestId } }))).blocked_at, null);
+});
+
+test('malformed inventory key/body fails closed before any corresponding apply', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  for (const key of ['qa/invalid/intent.json', deletionIntentKey('qa', randomUUID())]) {
+    f.deletion.store.rows.clear(); f.deletion.store.rows.set(key, Buffer.from('malformed'));
+    await assert.rejects(new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick());
+  }
+});
+
+test('repeated full inventory discovers a receipt inserted behind the previous page cursor', { timeout: 30000 }, async t => {
+  const f = await fixture(t); const actor = randomUUID(), room = randomUUID();
+  const make = requestId => ({ schemaVersion: 1, environment: 'qa', requestId, actorUserId: actor, scope: 'MESSAGE',
+    roomId: room, targetId: randomUUID(), requestedAt: '2020-01-02T03:04:05.006Z' });
+  for (let i = 0; i < 51; i++) await f.deletion.ledger.ensureIntent(make(randomUUID()));
+  const replay = new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService));
+  assert.deepEqual(await replay.tick(), { scanned: 50, passFinished: false });
+  const behind = make('00000000-0000-5000-8000-000000000001');
+  await f.deletion.ledger.ensureIntent(behind);
+  assert.deepEqual(await replay.tick(), { scanned: 1, passFinished: true });
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_intents.count({ where: { request_id: behind.requestId } })), 0);
+  assert.deepEqual(await replay.tick(), { scanned: 50, passFinished: false });
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_intents.count({ where: { request_id: behind.requestId } })), 1);
+});
+
+test('lost actual deletion COMMIT ACK does not replay the command callback or return success', { timeout: 20000 }, async t => {
+  let armed = false, lost = 0;
+  const original = PrismaMariaDb.prototype.connect;
+  t.mock.method(PrismaMariaDb.prototype, 'connect', async function () {
+    const adapter = await original.call(this), start = adapter.startTransaction.bind(adapter);
+    adapter.startTransaction = async isolation => {
+      const tx = await start(isolation), commit = tx.commit.bind(tx);
+      tx.commit = async () => {
+        await commit();
+        if (armed) { armed = false; lost++; throw Object.assign(new Error('synthetic_lost_commit_ack'), { code: 'P2034' }); }
+      };
+      return tx;
+    };
+    return adapter;
+  });
+  const f = await fixture(t, 'GROUP'); const sent = await f.send(f.fan1, f.command());
+  const core = f.app.get(MessagesCoreService), apply = core.remove.bind(core); let applications = 0;
+  core.remove = (...args) => { applications++; return apply(...args); };
+  f.deletion.store.beforePut = async () => { armed = true; };
+  assert.deepEqual(await f.remove(f.fan1, sent.body.messageId), { status: 500, body: { error: { code: 'INTERNAL_ERROR' } } });
+  assert.equal(lost, 1); assert.equal(applications, 1);
+  assert.equal((await f.get(f.fan2, sent.body.messageId)).status, 404);
+  await new DeletionReconciler(f.deletion.ledger, f.app.get(DeletionApplyService)).tick();
+  assert.equal(applications, 2);
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.deletion_requests.count({ where: { message_id: sent.body.messageId } })), 1);
 });

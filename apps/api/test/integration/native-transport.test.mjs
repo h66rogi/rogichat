@@ -1,3 +1,4 @@
+import { deletionFixture } from '../support/deletion-fixture.mjs';
 import { responseContract } from '../support/openapi-response.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,7 +31,7 @@ async function fixture(t, http = false) {
   const web = await db.transactions.write(tx => sessions.issue(tx, userId));
   let logs = '';
   if (http) {
-    app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config });
+    app = await createApi(db, new SafeLogger('api', line => { logs += line; }), undefined, { config }, undefined, 'test', deletionFixture());
     await app.listen(0, '127.0.0.1');
   }
   const base = app ? await app.getUrl() : undefined;

@@ -74,7 +74,7 @@ test('real DB private/shared hint audience, deleted-message invalidation and cur
   await f.drain(); assert.deepEqual(f.counts(), [1, 1, 0, 0]);
   assert.deepEqual(f.a.hints[0], { schemaVersion: 1 });
   f.clear();
-  await f.db.transactions.write(tx => deleteMessage(tx, f.room, f.a.id, privateMessage.messageId));
+  await deleteMessage(f.db.transactions, f.room, f.a.id, privateMessage.messageId);
   await f.drain(); assert.deepEqual(f.counts(), [1, 1, 0, 0]);
   f.clear();
   await f.send(f.owner, 'SHARED');

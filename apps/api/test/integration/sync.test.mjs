@@ -1,3 +1,4 @@
+import { deletionFixture } from '../support/deletion-fixture.mjs';
 import { createUser, createRoom, joinRoom, nextOrder } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
@@ -11,7 +12,7 @@ import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
-  const db = new MysqlDatabase(readConfig('api')); let app;
+  const db = new MysqlDatabase(readConfig('api')); const deletion = deletionFixture(); let app;
   t.after(async () => { try { await app?.close(); } finally { await db.close(); } });
   const config = { audience: 'sync-fixture', origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
@@ -28,7 +29,7 @@ async function fixture(t) {
     await tx.execute('UPDATE rooms SET owner_member_id=? WHERE id=?', [owner.actor, id]);
     return id;
   });
-  app = await createApi(db, new SafeLogger('api', () => {}), undefined, { sessions, config });
+  app = await createApi(db, new SafeLogger('api', () => {}), undefined, { sessions, config }, undefined, 'test', deletion);
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const call = async (who, method, path, body) => {
     const response = await fetch(`${base}/v1${path}`, { method, headers: { Origin: config.origin,

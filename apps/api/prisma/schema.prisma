@@ -615,3 +615,16 @@ model jobs {
   @@index([purpose, state, available_at, id])
   @@index([purpose, state, lease_until, id])
 }
+
+// External receipts survive restored/missing parent rows. No synthetic parents or purge claims.
+model deletion_intents {
+  request_id String @id @db.Char(36)
+  environment String @db.VarChar(10)
+  actor_user_id String @db.Char(36)
+  scope String @db.VarChar(7)
+  target_id String @db.Char(36)
+  room_id String? @db.Char(36)
+  requested_at DateTime @db.DateTime(3)
+  ledger_sha256 Bytes @db.Binary(32)
+  blocked_at DateTime? @db.DateTime(3)
+}

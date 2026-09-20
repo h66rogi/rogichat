@@ -144,3 +144,14 @@ test('transport effect executes outside any transaction, with sanitized retry an
   const failing = new Jobs({ write: async () => { throw original; } }, 'api', queue.ownerId);
   await assert.rejects(runClaimedJob(failing, claimed, async () => {}), error => error === original);
 });
+
+test('only PURGE resource references accept canonical UUIDv5; other identifiers keep UUIDv4 policy', async () => {
+  const id = 'b74685d3-0c46-558e-8b2d-12512b102949';
+  await enqueueJob(harness().tx, { purpose: 'PURGE', resourceId: id });
+  for (const purpose of ['MEDIA', 'PUBLICATION', 'PUSH', 'LEDGER_EXPORT', 'REALTIME_HINT']) {
+    await assert.rejects(enqueueJob(harness().tx, { purpose, resourceId: id }));
+  }
+  for (const patch of [{ resourceId: id.toUpperCase() }, { resourceId: id.replace('-558e-', '-758e-') }, { resourceId: 'invalid' }, { id }, { roomId: id }]) {
+    await assert.rejects(enqueueJob(harness().tx, { purpose: 'PURGE', ...patch }));
+  }
+});

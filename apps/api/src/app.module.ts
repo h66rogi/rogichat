@@ -1,3 +1,4 @@
+import type { DeletionOptions } from './modules/deletion/deletion.module.js';
 import type { RuntimeSettings, MediaSettings } from './infrastructure/config/runtime-settings.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { Module } from '@nestjs/common';
@@ -20,18 +21,18 @@ import type { MediaOptions } from './modules/media/media.module.js';
 // Tests override providers through the same feature graph used by production.
 @Module({})
 export class AppModule {
-  static register(database: Database, lifecycle: LifecycleState, auth?: AuthModuleOptions, media?: MediaOptions): DynamicModule {
+  static register(database: Database, lifecycle: LifecycleState, auth?: AuthModuleOptions, media?: MediaOptions, deletion?: DeletionOptions): DynamicModule {
     const infrastructure = DatabaseModule.register({ database, lifecycle, externallyOwned: true });
-    return this.compose(infrastructure, auth, media);
+    return this.compose(infrastructure, auth, media, deletion);
   }
   static production(settings: RuntimeSettings): DynamicModule {
-    return this.compose(DatabaseModule.register({ config: settings.config }), settings.auth ? { config: settings.auth } : undefined, settings.media);
+    return this.compose(DatabaseModule.register({ config: settings.config }), settings.auth ? { config: settings.auth } : undefined, settings.media, settings.deletion);
   }
-  private static compose(infrastructure: DynamicModule, auth?: AuthModuleOptions, media?: MediaOptions | MediaSettings): DynamicModule {
+  private static compose(infrastructure: DynamicModule, auth?: AuthModuleOptions, media?: MediaOptions | MediaSettings, deletion?: DeletionOptions): DynamicModule {
     const authentication = auth ? AuthModule.register(infrastructure, auth) : undefined;
     return {
       module: AppModule,
-      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, MessagesModule.register(infrastructure, authentication), UsersModule.register(infrastructure, authentication), RoomsModule.register(infrastructure, authentication), SyncModule.register(infrastructure, authentication), ReactionsModule.register(infrastructure, authentication), PublicationsModule.register(infrastructure, authentication), RealtimeModule.register(infrastructure, authentication, true), ...(media ? [MediaModule.register(infrastructure, authentication, media)] : [])] : [])],
+      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, MessagesModule.register(infrastructure, authentication, deletion), UsersModule.register(infrastructure, authentication), RoomsModule.register(infrastructure, authentication), SyncModule.register(infrastructure, authentication), ReactionsModule.register(infrastructure, authentication), PublicationsModule.register(infrastructure, authentication), RealtimeModule.register(infrastructure, authentication, true), ...(media ? [MediaModule.register(infrastructure, authentication, media)] : [])] : [])],
     };
   }
 }

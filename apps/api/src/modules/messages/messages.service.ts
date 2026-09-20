@@ -1,4 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { DeletionLedger, DeletionLedgerError } from '../deletion/deletion-ledger.js';
+import { DeletionApplyService } from '../deletion/deletion-apply.service.js';
+import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import { ApiError } from '../auth/auth-primitives.js';
 import { requireCommandProof } from '../auth/auth-context.js';
@@ -16,7 +18,9 @@ export class MessagesService {
   constructor(@Inject(Transactions) private readonly transactions: Transactions,
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
-    @Inject(MessagesCoreService) private readonly messages: MessagesCoreService) {}
+    @Inject(MessagesCoreService) private readonly messages: MessagesCoreService,
+    @Inject(DeletionLedger) private readonly ledger: DeletionLedger | null,
+    @Inject(DeletionApplyService) private readonly deletion: DeletionApplyService) {}
 
   async send(credentials: CommandCredentials, roomId: string, input: SendInput) {
     identifier(roomId);
@@ -40,11 +44,21 @@ export class MessagesService {
     });
   }
 
-  remove(credentials: CommandCredentials, roomId: string, messageId: string) {
+  async remove(credentials: CommandCredentials, roomId: string, messageId: string) {
     requireCommandProof(credentials);
-    return this.transactions.write(async tx => {
+    const intent = await this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials);
-      return this.messages.remove(tx, roomId, actor.userId, messageId);
+      if (!this.ledger) throw new ServiceUnavailableException();
+      return this.messages.authorizeDeletion(tx, roomId, actor.userId, messageId, this.ledger.environment);
     });
+    try {
+      const receipt = await this.ledger!.ensureIntent(intent);
+      const result = await this.deletion.apply(receipt);
+      if (result.status !== 'blocked') throw new ServiceUnavailableException();
+      return result;
+    } catch (error) {
+      if (error instanceof DeletionLedgerError) throw new ServiceUnavailableException();
+      throw error;
+    }
   }
 }
