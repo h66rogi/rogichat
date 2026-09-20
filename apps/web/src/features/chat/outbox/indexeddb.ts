@@ -188,17 +188,20 @@ export class DurableOutbox {
     const fence = this.fence;
     this.generation++; this.authority = null; this.fence = null; this.lookup404.clear(); this.operationAbort.abort();
     for (const tx of this.pending) { try { tx.abort(); } catch { /* A committed transaction needs no abort. */ } }
-    if (!this.stopped && fence !== null) this.releaseLease(fence);
+    if (!this.stopped) this.releaseLease(fence);
   }
-  private releaseLease(fence: number): void {
+  private releaseLease(fence: number | null): void {
     // Only ownership metadata may finish after close/suspend. It must not depend on
     // the now-invalid local generation, or every ordinary unmount would hold 30s.
+    // Reauthorization clears the local fence before its transaction completes.
+    // Queue cleanup even then: IDB serializes it after pending grants and before
+    // any later authorize call. The unique owner check protects other instances.
     try {
       const tx = this.db.transaction('state', 'readwrite');
       const store = tx.objectStore('state'), request = store.get('singleton');
       request.onsuccess = () => {
         const state = request.result as OutboxState | undefined;
-        if (state?.schema === 1 && state.owner === this.owner && state.fence === fence) {
+        if (state?.schema === 1 && state.owner === this.owner && (fence === null || state.fence === fence)) {
           state.owner = null; state.leaseUntil = 0; store.put(state, 'singleton');
         }
       };
