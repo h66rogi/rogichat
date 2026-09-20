@@ -171,15 +171,15 @@ class ArchiveTests(unittest.TestCase):
                 'execution_id': 'sha256:' + 'e' * 64, 'validator_sha256': 'f' * 64, 'web_validator_sha256': 'd' * 64}
 
     def test_complete_archive_crypto_chain_and_tamper(self):
-        from types import SimpleNamespace
         # Isolated instance of the real reused archive core, configured like the
-        # publisher. Provenance I/O is mocked; archive bytes/config/layers are real.
+        # publisher. Only HTTP metadata is stubbed; the full verifier chain is real.
         spec = importlib.util.spec_from_file_location('test_web_archive_core', Path(w.__file__).parent.parent / 'web/archive.py')
         validator = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(validator)
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             r = request()
+            r['verification_runs'] = {name: i + 10 for i, name in enumerate(sorted(w.WORKFLOWS))}
             a = self.approval()
             r['archive'] = a
             folder = root / r['source_sha'] / 'web-export'
@@ -212,8 +212,16 @@ class ArchiveTests(unittest.TestCase):
                               'archive_sha256': validator.core.file_hash(folder / 'runtime.tar')}}}
             (folder / 'descriptor.json').write_text(json.dumps(descriptor))
             a['descriptor_sha256'] = w.digest((folder / 'descriptor.json').read_bytes())
+            publication_id = r['verification_runs']['web-publish.yml']
+            proof_value = {'schemaVersion': 1, 'repository': validator.core.REPOSITORY,
+                           'sourceSha': r['source_sha'], 'image': r['image'], 'checkedImageId': a['config_id'],
+                           'platform': 'linux/amd64', 'publicationAttempt': 1,
+                           'publicationRun': f'https://github.com/{validator.core.REPOSITORY}/actions/runs/{publication_id}',
+                           'runtimeEnvironmentsVerified': ['qa', 'production'],
+                           'verification': [{'workflow': name, 'id': identity, 'sha': r['source_sha']}
+                                            for name, identity in r['verification_runs'].items() if name != 'web-publish.yml']}
             with zipfile.ZipFile(folder / 'publication-proof.zip', 'w') as proof:
-                proof.writestr('web-publication-proof.json', '{}')
+                proof.writestr('web-publication-proof.json', json.dumps(proof_value))
             proof_bytes = (folder / 'publication-proof.zip').read_bytes()
             with zipfile.ZipFile(folder / 'export.zip', 'w') as bundle:
                 for filename in validator.core.FILES:
@@ -222,10 +230,36 @@ class ArchiveTests(unittest.TestCase):
             d.update(Id=a['execution_id'], RepoDigests=[], RootFS={'Layers': c['rootfs']['diff_ids']})
             def read(path, mode=None, directory=False, read=True):
                 return path.read_bytes() if read else None
-            module = SimpleNamespace(validate_zip=validator.validate_zip, read_proof=validator.read_proof, verify_provenance=unittest.mock.Mock())
-            with patch.object(w, 'RELEASES', root), patch.object(w, 'protected', side_effect=read), patch.object(w, 'load_archive_validator', return_value=module):
+            run = {'head_sha': r['source_sha'], 'head_branch': 'qa', 'event': 'push',
+                   'status': 'completed', 'conclusion': 'success', 'run_attempt': 1,
+                   'run_started_at': '2026-09-20T01:00:00Z',
+                   'repository': {'full_name': validator.core.REPOSITORY},
+                   'head_repository': {'full_name': validator.core.REPOSITORY}}
+            metadata = {f'actions/runs/{identity}': {**run, 'path': '.github/workflows/' + name}
+                        for name, identity in r['verification_runs'].items()}
+            metadata[f"actions/runs/{a['export_run']}/attempts/{a['export_attempt']}"] = {
+                **run, 'head_sha': a['export_sha'], 'event': 'workflow_dispatch',
+                'path': '.github/workflows/web-export.yml', 'run_started_at': '2026-09-20T02:00:00Z'}
+            metadata[f"actions/artifacts/{a['artifact_id']}"] = {
+                'expired': False, 'digest': a['artifact_sha256'],
+                'workflow_run': {'id': a['export_run'], 'head_sha': a['export_sha']},
+                'name': f"web-{r['source_sha']}-{a['export_run']}-{a['export_attempt']}"}
+            metadata[f'actions/runs/{publication_id}/artifacts?per_page=100'] = {
+                'total_count': 1, 'artifacts': [{'id': 300, 'expired': False,
+                    'digest': 'sha256:' + w.digest(proof_bytes),
+                    'name': f"web-publication-proof-{r['source_sha']}-1",
+                    'created_at': '2026-09-20T01:05:00Z',
+                    'workflow_run': {'id': publication_id, 'head_sha': r['source_sha']}}]}
+            metadata[f"compare/{r['source_sha']}...{a['export_sha']}"] = {
+                'status': 'identical', 'merge_base_commit': {'sha': r['source_sha']}}
+            def public_metadata(http_request, timeout):
+                self.assertFalse(http_request.has_header('Authorization'))
+                self.assertNotIn('/zip', http_request.full_url)
+                key = http_request.full_url.split('/repos/' + validator.core.REPOSITORY + '/')[1]
+                return io.BytesIO(json.dumps(metadata[key]).encode())
+            with patch.object(w, 'RELEASES', root), patch.object(w, 'protected', side_effect=read), patch.object(w, 'load_archive_validator', return_value=validator), patch.object(validator.core.urllib.request, 'urlopen', side_effect=public_metadata) as http, patch.object(validator, 'download_proof', side_effect=AssertionError('host ZIP download forbidden')), patch.object(validator.core, 'command', side_effect=AssertionError('host credential command forbidden')):
                 w.verify_archive(r, d)
-                module.verify_provenance.assert_called_once_with(descriptor, a, publication_proof=proof_bytes)
+                self.assertEqual(http.call_count, 12)
                 (folder / 'export.zip').write_bytes(b'tampered')
                 with self.assertRaises(ValueError):
                     w.verify_archive(r, d)
