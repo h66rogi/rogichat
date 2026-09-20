@@ -52,7 +52,17 @@ export class ApiClient {
   async session(signal?: AbortSignal): Promise<Session> {
     const value = await this.request<Session>('/v1/auth/session', signal ? { signal } : {});
     if (!value || value.authenticated !== true || typeof value.csrfToken !== 'string' || value.csrfToken.length < 16 || !['VERIFIED', 'REQUIRED'].includes(value.soopLinkStatus)) throw new ApiError(502, 'INVALID_SESSION');
-    try { exact(value, ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition']); token(value.accountPartition); } catch { throw new ApiError(502, 'INVALID_SESSION'); }
+    try {
+      const data = exact(value, ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition'], ['onboardingState', 'capabilities']);
+      token(value.accountPartition);
+      // The current cookie projection adds admission fields as a pair. Validate
+      // their meaning instead of rejecting a real session for additive fields.
+      if ('onboardingState' in data || 'capabilities' in data) {
+        const capabilities = exact(data.capabilities, ['chat']);
+        const linked = value.soopLinkStatus === 'VERIFIED';
+        if (data.onboardingState !== (linked ? 'READY' : 'SOOP_LINK_REQUIRED') || capabilities.chat !== linked) throw new Error('INVALID_SESSION');
+      }
+    } catch { throw new ApiError(502, 'INVALID_SESSION'); }
     return value;
   }
   async profile(signal?: AbortSignal): Promise<Profile> {
