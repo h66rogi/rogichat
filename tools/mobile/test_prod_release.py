@@ -96,18 +96,61 @@ class ProdReleaseTests(unittest.TestCase):
         expected = hashlib.sha256(CERT).hexdigest()
         def commands(apk_cert, aab_cert):
             pem = "-----BEGIN CERTIFICATE-----\n" + base64.b64encode(aab_cert).decode() + "\n-----END CERTIFICATE-----"
-            return [f"Signer #1 certificate SHA-256 digest: {apk_cert}\n",
+            return [f"Number of signers: 1\nSigner #1 certificate SHA-256 digest: {apk_cert}\n",
                     f"package: name='{prod.APP_ID}' versionCode='1' versionName='0.1.0'\napplication-label:'로기챗'\n",
                     prod.xmltree(XML), "", XML, "jar verified.", pem]
         with patch.object(prod, "android_certificate", return_value=expected), patch.object(prod, "inspect_android_package"), \
                 patch.object(prod.android_firebase, "load"), patch.object(prod.android_firebase, "inspect_apk"), \
                 patch.object(prod.android_firebase, "inspect_aab"), \
                 patch.object(prod, "sdk_tool", side_effect=lambda value: value), patch.object(prod, "bundletool", return_value=["bundletool"]):
-            with patch.object(prod, "command", side_effect=commands(expected, CERT)):
+            with patch.object(prod, "command", side_effect=commands(expected, CERT)) as command:
                 prod.inspect_android(Path("app.apk"), Path("app.aab"), self.config("/tmp/test"), 1, "0.1.0")
+                self.assertEqual(command.call_args_list[0].args[0], ["apksigner", "verify", "--verbose", "--print-certs", "app.apk"])
             for apk_cert, aab_cert in (("0" * 64, CERT), (expected, b"qa-certificate")):
                 with patch.object(prod, "command", side_effect=commands(apk_cert, aab_cert)), self.assertRaises(ValueError):
                     prod.inspect_android(Path("app.apk"), Path("app.aab"), self.config("/tmp/test"), 1, "0.1.0")
+
+    def test_apksigner_37_v2_and_legacy_single_signer_formats(self):
+        expected = hashlib.sha256(CERT).hexdigest()
+        for label in ("V2 Signer:", "Signer #1"):
+            for digest in (expected, expected.upper()):
+                with self.subTest(label=label, digest=digest):
+                    prod.inspect_apk_signer(self.signer_output(label, digest), expected)
+
+    def signer_output(self, label="V2 Signer:", digest=None):
+        digest = digest or hashlib.sha256(CERT).hexdigest()
+        return ("Verifies\nVerified using v1 scheme (JAR signing): false\n"
+                "Verified using v2 scheme (APK Signature Scheme v2): true\n"
+                "Verified using v3 scheme (APK Signature Scheme v3): false\n"
+                "Number of signers: 1\n"
+                f"{label} certificate DN: CN=unit\n"
+                f"{label} certificate SHA-256 digest: {digest}\n"
+                f"{label} public key SHA-256 digest: {'0' * 64}\n")
+
+    def test_apk_signer_cardinality_and_ambiguous_labels_fail_closed(self):
+        expected = hashlib.sha256(CERT).hexdigest()
+        original = self.signer_output()
+        digest_line = f"V2 Signer: certificate SHA-256 digest: {expected}\n"
+        bad = [original.replace("Number of signers: 1\n", ""),
+               original.replace("Number of signers: 1", "Number of signers: 0"),
+               original.replace("Number of signers: 1", "Number of signers: 2"),
+               original.replace("Number of signers: 1", "Number of signers: 01"),
+               original + "Number of signers: 1\n", original + digest_line,
+               original + f"Signer #2 certificate SHA-256 digest: {expected}\n",
+               original + f"Signer #1 certificate SHA-256 digest: {expected}\n",
+               self.signer_output("Signer #2"), self.signer_output("V3 Signer:"),
+               original.replace(digest_line, ""), original.replace(digest_line, " " + digest_line),
+               self.signer_output(digest="0" * 64), self.signer_output(digest="a" * 63),
+               self.signer_output(digest="a" * 65), self.signer_output(digest="z" * 64),
+               original.replace("scheme (APK Signature Scheme v2): true", "scheme (APK Signature Scheme v2): false"),
+               original.replace("Verified using v2 scheme (APK Signature Scheme v2): true\n", ""),
+               original + "Verified using v2 scheme (APK Signature Scheme v2): true\n"]
+        for output in bad:
+            with self.subTest(output=output), self.assertRaises(ValueError):
+                prod.inspect_apk_signer(output, expected)
+        for certificate in ("", "a" * 63, "a" * 65, "z" * 64):
+            with self.subTest(certificate=certificate), self.assertRaises(ValueError):
+                prod.inspect_apk_signer(original, certificate)
 
     def test_qa_or_wildcard_profile_signed_entitlements_are_rejected(self):
         cfg = self.config("/tmp/test"); ent = self.entitlements(); profile = self.profile()
@@ -129,6 +172,34 @@ class ProdReleaseTests(unittest.TestCase):
         with self.assertRaises(ValueError): prod.verify_entitlements(ent, invalid, cfg, CERT)
         cfg["ios"]["signing_certificate"] = "0" * 40
         with self.assertRaises(ValueError): prod.verify_entitlements(ent, profile, cfg, CERT)
+
+    def test_certificate_extraction_uses_attached_optional_argument_and_actual_bytes(self):
+        with tempfile.TemporaryDirectory() as root, patch.object(prod, "inspect_info"), \
+                patch.object(prod, "inspect_ios_app"), patch.object(prod, "verify_entitlements") as verify:
+            app = Path(root) / "Rogichat.app"; app.mkdir()
+            (app / "Info.plist").write_bytes(plistlib.dumps({}))
+            profile = plistlib.loads(plistlib.dumps(self.profile()))
+            prefixes = []
+            def command(args):
+                self.assertNotIn("--extract-certificates", args)
+                if "--entitlements" in args:
+                    return plistlib.dumps(self.entitlements()).decode()
+                if args[0] == "security":
+                    return plistlib.dumps(profile).decode()
+                if args[0] == "xcrun":
+                    return "platform IOS\nminos 18.0"
+                for argument in args:
+                    if argument.startswith("--extract-certificates="):
+                        self.assertEqual(args[-1], str(app)); self.assertEqual(len(args), 4)
+                        prefixes.append(argument.split("=", 1)[1])
+                        Path(prefixes[-1] + "0").write_bytes(CERT)
+                return ""
+            cfg = self.config(root)
+            with patch.object(prod, "command", side_effect=command):
+                prod.inspect_app(app, cfg, 15, "0.1.0")
+            self.assertEqual(len(prefixes), 1)
+            self.assertFalse(Path(prefixes[0]).parent.exists())
+            verify.assert_called_once_with(self.entitlements(), profile, cfg, CERT)
 
     def test_prod_bundle_exact_identity_and_transport(self):
         info = {"CFBundleIdentifier": prod.APP_ID, "CFBundleVersion": "1", "CFBundleShortVersionString": "0.1.0",

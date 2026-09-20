@@ -357,3 +357,15 @@ TEXT sender/recipient/body에 맞춘 iOS messages 개인정보 선언과 Android
 [실시간 추출 기록](mobile-native-realtime-progress.md)은 SDK 원본의 cookie/Origin 처리와
 공식 engine seam을 선택한 근거, 정확한 pin·라이선스, 실제 loopback 검사의 범위를 기록한다.
 [제품 통합 기록](mobile-product-integration-progress.md)에서 실제 앱 연결과 최종 검증을 구분한다.
+
+## SOOP 인증 창 만료 복구
+
+| ID | source 파일·심볼 | 대상 | 실제 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R63 | iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `Meloming/Core/Auth/AuthManager.swift`의 `loginWithGoogle`·`GoogleAuthPresentationContext` | 기존 `SOOPBrowserSession`, 신규 `SOOPBrowserOperation` | **기존 수정 재사용 유지 + 신규 수명 처리**: ASWebAuthenticationSession·continuation·presentation-context와 기존 HTTPS callback 검증을 유지한다. 원본에는 만료 타이머가 없어 로기챗의 보호된 transaction 생성 시각+600초를 사용하는 one-shot watchdog을 새로 구현했다. 남은 시간만 대기하며 만료·취소·callback 모두 한 번만 창을 닫고, 이전 timer/callback은 새 작업을 종료하지 않는다. provider URL·쿠키 정책·자동 재시도는 변경하지 않는다 |
+
+Swift 6 strict SOOP 인증 실행 검증에 기존 회귀와 새 만료 회귀 5개 시나리오가 통과했다.
+실제 service/coordinator와 주입된 ByteStore에서 만료 후 busy 해제·pending 정리·exchange 0회,
+남은 555초, 만료 시각 callback, 취소 후 늦은 timer와 새 작업, 이미 만료된 시작을 확인했다.
+이는 실제 iOS Keychain·SOOP provider·ASWebAuthenticationSession 기기 실행 증거가 아니다.
+최초 SOOP 리다이렉트 실패의 해결을 주장하지 않으며, device SDK 검증은 통합 소스에서 별도로 수행한다.

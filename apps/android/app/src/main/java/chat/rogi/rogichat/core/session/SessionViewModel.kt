@@ -54,9 +54,12 @@ class SessionViewModel(private val services: ProductServices, private val inject
     }
     fun background() { services.actions?.setForeground(false) }
     fun foreground() { services.actions?.setForeground(true); services.actions?.let { actions -> (injectedScope ?: viewModelScope).launch { actions.revalidate() } } }
-    fun retryValidation() { if (services.session.value.account != null) services.actions?.takeIf { it.canRestore }?.let {
-        perform("계정 확인을 완료하지 못했어요.") { it.revalidate() }
-    } }
+    fun retryValidation(expected: SessionIdentity = SessionIdentity.from(services.session.value)) {
+        if (!expected.matches(services.session.value) || services.session.value.account == null) return
+        services.actions?.takeIf { it.canRestore }?.let {
+            perform("계정 확인을 완료하지 못했어요.") { it.revalidate(expected) }
+        }
+    }
     fun signIn(provider: SignInProvider) {
         val actions = services.actions ?: return
         if (services.session.value.access != ShellAccess.SIGNED_OUT) return

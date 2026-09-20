@@ -35,7 +35,7 @@ enum SOOPRequest: Sendable {
     }
 }
 protocol SOOPBrowsing: Sendable {
-    @MainActor func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, validate: @Sendable () throws -> Void) async throws -> URL
+    @MainActor func authorize(_ url: URL, environment: NativeEnvironment, operation: UUID, expiresAt: Date, validate: @Sendable () throws -> Void) async throws -> URL
     @MainActor func deliver(_ url: URL, operation: UUID) -> Bool
     @MainActor func cancel(operation: UUID)
 }
@@ -73,7 +73,7 @@ actor SOOPAuthCoordinator: SOOPAuthenticating {
             let launched = try store.finishAuthStart(id: pending.id, response: response, now: now())
             browserOperation = launched.id
             let store = store; let clock = now
-            let callback = try await browser.authorize(response.authorizeUrl, environment: environment, operation: launched.id, validate: {
+            let callback = try await browser.authorize(response.authorizeUrl, environment: environment, operation: launched.id, expiresAt: launched.expiresAt, validate: {
                 try attempt.check()
                 guard try store.pendingAuth(now: clock())?.id == launched.id else { throw SOOPAuthError.sessionChanged }
             })

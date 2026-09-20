@@ -65,7 +65,7 @@ interface SessionActions {
     suspend fun signOut(expected: SessionIdentity? = null): Result<Unit>
     suspend fun resetLocalSession(expected: SessionIdentity? = null): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
     suspend fun restore(): Result<Unit>
-    suspend fun revalidate(): Result<Unit> = Result.success(Unit)
+    suspend fun revalidate(expected: SessionIdentity? = null): Result<Unit> = Result.success(Unit)
     suspend fun expireSession(generation: Long, expiresAt: Instant): Result<Unit> = Result.success(Unit)
 }
 

@@ -140,7 +140,7 @@ def inspect_app(app, cfg, number, version):
     profile = plistlib.loads(command(["security", "cms", "-D", "-i", str(app / "embedded.mobileprovision")]).encode())
     with tempfile.TemporaryDirectory(prefix="rogichat-prod-certificate-") as temporary:
         prefix = str(Path(temporary) / "signer")
-        command(["codesign", "-d", "--extract-certificates", prefix, str(app)])
+        command(["codesign", "-d", "--extract-certificates=" + prefix, str(app)])
         certificate = Path(prefix + "0").read_bytes()
     verify_entitlements(ent, profile, cfg, certificate)
     macho = command(["xcrun", "vtool", "-show-build", str(app / "Rogichat")])
@@ -272,14 +272,33 @@ def android_certificate(cfg):
     return sha256(external(cfg["artifact_root"]) / "signing/android-prod-upload.der")
 
 
+def inspect_apk_signer(output, certificate):
+    """Accept pinned apksigner 37's V2 label or its older numbered label.
+
+    The verbose signer count is required: a digest match alone cannot establish
+    that this is the sole signer. Ambiguous/duplicate digest lines fail closed.
+    """
+    lines = output.splitlines()
+    counts = [line for line in lines if line.lstrip().startswith("Number of signers:")]
+    digests = [line for line in lines if "certificate SHA-256 digest:" in line]
+    if counts != ["Number of signers: 1"] or len(digests) != 1:
+        raise ValueError("Expected exactly one unambiguous Prod APK signer")
+    match = re.fullmatch(r"(Signer #1|V2 Signer:) certificate SHA-256 digest: ([0-9a-fA-F]{64})", digests[0])
+    if (not match or not re.fullmatch(r"[0-9a-fA-F]{64}", certificate)
+            or match[2].lower() != certificate.lower()):
+        raise ValueError("Prod APK signer is not the dedicated upload certificate")
+    if match[1] == "V2 Signer:":
+        schemes = [line for line in lines if line.lstrip().startswith("Verified using v2 scheme")]
+        if schemes != ["Verified using v2 scheme (APK Signature Scheme v2): true"]:
+            raise ValueError("Expected verified APK Signature Scheme v2")
+
+
 def inspect_android(apk, aab, cfg, number, version, *, firebase=_UNSET_FIREBASE):
     if firebase is _UNSET_FIREBASE: firebase = android_firebase.load(cfg, "prod")
     certificate = android_certificate(cfg)
     for path in (apk, aab): inspect_android_package(path)
-    signed = command([sdk_tool("apksigner"), "verify", "--print-certs", str(apk)])
-    fingerprints = re.findall(r"^Signer #[0-9]+ certificate SHA-256 digest: ([0-9a-fA-F]{64})$", signed, re.MULTILINE)
-    if len(fingerprints) != 1 or fingerprints[0].lower() != certificate:
-        raise ValueError("Prod APK signer is not the dedicated upload certificate")
+    signed = command([sdk_tool("apksigner"), "verify", "--verbose", "--print-certs", str(apk)])
+    inspect_apk_signer(signed, certificate)
     info = command([sdk_tool("aapt2"), "dump", "badging", str(apk)])
     for expected in (f"package: name='{APP_ID}'", f"versionCode='{number}'", f"versionName='{version}'", "application-label:'로기챗'"):
         if expected not in info: raise ValueError("Prod APK identity/version mismatch")

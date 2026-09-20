@@ -192,9 +192,10 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         }
     }
     override suspend fun restore(): Result<Unit> = refresh(retainAuthorized = false)
-    private suspend fun refresh(retainAuthorized: Boolean, expectedEpoch: Long? = null, expectedToken: String? = null): Result<Unit> = outcome {
+    private suspend fun refresh(retainAuthorized: Boolean, expectedEpoch: Long? = null, expectedToken: String? = null, expectedIdentity: SessionIdentity? = null): Result<Unit> = outcome {
         var requestId = 0L
         val ticket = lock.withLock {
+            if (expectedIdentity != null && !expectedIdentity.matches(mutable.value)) return@outcome
             deletionStartupLocked()
             if (activeDeletion != null) return@outcome
             if (expectedEpoch != null && (epoch != expectedEpoch || credential?.token != expectedToken)) return@outcome
@@ -277,8 +278,8 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
             withContext(NonCancellable) { lock.withLock { if (activeRefresh == requestId) activeRefresh = null } }
         }
     }
-    override suspend fun revalidate(): Result<Unit> = if (session.value.access in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED))
-        refresh(retainAuthorized = true) else Result.success(Unit)
+    override suspend fun revalidate(expected: SessionIdentity?): Result<Unit> = if (session.value.access in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED))
+        refresh(retainAuthorized = true, expectedIdentity = expected) else Result.success(Unit)
     override suspend fun expireSession(generation: Long, expiresAt: Instant): Result<Unit> = outcome {
         lock.withLock {
             if (epoch == generation && credential?.expiresAt == expiresAt && mutable.value.account != null &&

@@ -144,7 +144,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
                 Text(session.notice.orEmpty(), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                TextButton(onClick = sessionModel::retryValidation, enabled = !operation.busy) { Text("다시 시도") }
+                TextButton(onClick = { sessionModel.retryValidation(renderedIdentity) }, enabled = !operation.busy) { Text("다시 시도") }
             }
         }
         }
@@ -174,7 +174,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                                 }
                             })
                         } else ScreenStatus("대화 목록을 확인할 수 없어요", "계정 정보를 다시 확인해 주세요.",
-                            onRetry = if (services.actions?.canRestore == true && !operation.busy) sessionModel::restore else null)
+                            onRetry = if (services.actions?.canRestore == true && !operation.busy) ({ sessionModel.retryValidation(renderedIdentity) }) else null)
                         ShellAccess.RESTORING -> ScreenStatus("계정을 확인하는 중", "잠시만 기다려 주세요.", loading = true)
                         ShellAccess.RETRYABLE_FAILURE -> {
                             ScreenStatus("계정을 확인하지 못했어요", if (session.storageFailure) "기기에 저장된 로그인 정보를 읽거나 지우지 못했어요." else "연결 상태를 확인하고 다시 시도해 주세요.",
