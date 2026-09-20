@@ -1,6 +1,5 @@
 {
   "schemaVersion": 1,
-  "runtimeCommit": "f237f41d96e3c21a6faa35688dce4868b48a1ed3",
   "mediaCommit": "ba06a93d97deda4d4e4bdb676d836ba7c9a7d2bc",
   "environment": "disposable-local-only",
   "node": "24.21.0",
@@ -40,5 +39,18 @@
     "Component tests are not an independent joined restore release",
     "Old session row resurrection is tested through actual SessionService with a repository fixture; actual HTTP restore proof remains joined-driver work",
     "Kernel storage custody requires the separate Linux isolated authority; no live R2 custody claim"
-  ]
+  ],
+  "baselineRuntimeCommit": "f237f41d96e3c21a6faa35688dce4868b48a1ed3",
+  "physicalTargetCorrection": {
+    "runtimeBuildSha256": "5c711fee7fc14edd42f121c9b8c38757ab3113a6633417919ee5e32f4c2a6057",
+    "passed": 3,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 2572.796875,
+    "sameLogicalDatabaseOnNewVerifiedServer": "passed",
+    "oldServerUuidCurrentFence": "rejected",
+    "duplicateCurrentPhysicalLogicalTarget": "rejected",
+    "oldNonceHistory": "retained",
+    "migration24Sql": "unchanged"
+  }
 }

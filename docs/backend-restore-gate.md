@@ -107,7 +107,7 @@ The source24 implementation passed a clean disposable MySQL 8.0.44 migration
 replay (all 24 applied, schema in sync). Three real-MySQL regressions passed: custody
 lost during an actual account lock wait rolls back domain and receipt changes;
 custody lost between binding-scrub pages prevents the next page from committing;
-a prior checkpoint permits a fresh target while retaining consumed nonce history.
+a prior checkpoint permits a new verified physical target while retaining consumed nonce history.
 The auth/session, epoch/proof, protected-file, IPC, media and architecture batch
 passed 60 tests with no skips, and the operator module startup test passed. These are component evidence, not a joined
 backup/restore release or a production storage-custody claim. The separately
@@ -116,11 +116,16 @@ readback against the exact published source and build digest.
 
 ## Subsequent restores and target identity
 
-Every restore uses a **fresh unique database name**, including a restore from a
-snapshot which carries a previous successful restore checkpoint. `targetId` must
-be that actual database name; changing only `restoreRunId` is insufficient. The
-unique target constraint deliberately refuses a second run for the same target.
-Old checkpoint rows and consumed nonces remain intact in the new database. This
-implementation has no in-place supersession or checkpoint-deletion procedure.
-Operators must provision and fence the new target before invoking the gate; an
-in-place database-name reuse remains unsupported and fails closed.
+`scope.targetId` remains the actual logical database name. The persisted unique
+checkpoint target is `SHA256("rogichat:restore-target:v1:" + canonical({version:1,
+databaseName:scope.targetId,mysqlServerUuid}))`, where the UUID comes from signed
+custody and is rechecked against `@@server_uuid` in each current transaction.
+The UUID also binds checkpoint context and observed release state.
+
+A fresh physical restore may therefore retain its logical database name while
+carrying old checkpoints from another server. Old rows and consumed nonces stay
+intact. A second run for the same verified server and database still fails closed;
+there is no in-place supersession or checkpoint-deletion procedure. This binding
+is not proof that a provider assigns globally unique physical identities: the
+independent custodian must verify target provisioning and ownership. A clone
+which retains an old server UUID is not automatically a new restore target.

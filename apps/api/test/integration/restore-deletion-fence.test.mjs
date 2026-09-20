@@ -36,7 +36,7 @@ async function fixture(t) {
     await fence.fence(tx, config.database.name, proof); return result;
   }); };
   const release = () => admin.query('SELECT RELEASE_LOCK(?)', [name]);
-  return { db, admin, user, receipt, apply, guarded, release, blocking };
+  return { db, admin, user, receipt, apply, guarded, release, blocking, held };
 }
 
 test('restore apply rolls back domain and receipt when custody is lost during actual row-lock wait', async t => {
@@ -73,12 +73,14 @@ test('restore binding scrub does not commit another page after custody release',
   assert.equal(await remaining(), 1);
 });
 
-test('a carried prior restore checkpoint permits a fresh target name and retains old nonce history', async t => {
-  const f = await fixture(t), repository = new RestoreGateRepository();
-  const authorization = { authorizationEpoch: randomUUID(), authorizationKeySha256: 'a'.repeat(64), storageScopeSha256: 'b'.repeat(64), storageFenceId: 'c'.repeat(64) };
+test('carried checkpoint permits the same database name on a newly verified server and retains nonce history', async t => {
+  const f = await fixture(t), repository = new RestoreGateRepository(), targetId = readConfig('api').database.name;
+  const historicalServer = randomUUID(), authorization = { authorizationEpoch: randomUUID(), authorizationKeySha256: 'a'.repeat(64),
+    storageScopeSha256: 'b'.repeat(64), storageFenceId: 'c'.repeat(64), mysqlServerUuid: historicalServer };
   const prior = { environment: 'qa', sourceCommit: 'd'.repeat(40), schemaSha256: 'e'.repeat(64), restoreRunId: randomUUID(),
-    snapshotSha256: 'f'.repeat(64), targetId: `rogichat_test_${randomBytes(8).toString('hex')}`, ledgerSourceId: '0'.repeat(64) };
-  // Simulate a checkpoint carried by a snapshot; no nonce history is removed.
+    snapshotSha256: 'f'.repeat(64), targetId, ledgerSourceId: '0'.repeat(64) };
+  // Seed a historical row carried by the backup. Its previous physical server
+  // is not live in this drill; the new current server is verified below in SQL.
   const proof = { sha256: '1'.repeat(64), issuer: '2'.repeat(64) }, digest = '3'.repeat(64), nonce = randomBytes(16).toString('hex');
   await f.db.transactions.write(async tx => {
     await repository.begin(tx, prior, proof, authorization);
@@ -86,8 +88,11 @@ test('a carried prior restore checkpoint permits a fresh target name and retains
     await repository.consume(tx, prior.restoreRunId, digest, nonce, '4'.repeat(64));
   });
   await assert.rejects(f.db.transactions.write(tx => repository.begin(tx, { ...prior, restoreRunId: randomUUID() }, proof, authorization)), /restore_gate_rejected/);
-  const next = { ...prior, restoreRunId: randomUUID(), targetId: readConfig('api').database.name };
-  assert.equal((await f.db.transactions.write(tx => repository.begin(tx, next, proof, authorization))).phase, 'NEW');
+  await assert.rejects(f.db.transactions.write(tx => repository.fence(tx, targetId, { ...f.held(), mysqlServerUuid: historicalServer })), /restore_gate_rejected/);
+  const next = { ...prior, restoreRunId: randomUUID() }, current = { ...authorization, mysqlServerUuid: f.held().mysqlServerUuid };
+  assert.notEqual(current.mysqlServerUuid, historicalServer);
+  assert.equal((await f.guarded(tx => repository.begin(tx, next, proof, current))).phase, 'NEW');
+  await assert.rejects(f.guarded(tx => repository.begin(tx, { ...next, restoreRunId: randomUUID() }, proof, current)), /restore_gate_rejected/);
   const carried = await f.db.transactions.read(tx => tx.prisma.restore_gate_checkpoints.findUnique({ where: { run_id: prior.restoreRunId }, select: { phase: true, release_nonce: true } }));
   assert.deepEqual(carried, { phase: 'RELEASE_AUTHORIZED', release_nonce: nonce });
 });
