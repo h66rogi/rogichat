@@ -60,7 +60,7 @@ void test('room access rejection purges private data and locks without reauthent
   assert.equal(controller.getSnapshot().items.length, 0); assert.equal(controller.getSnapshot().profiles.length, 0);
   assert.equal(controller.getSnapshot().room, null); assert.equal(invalidations, 0); controller.dispose();
 });
-void test('cursor reset drops old epoch before re-snapshot and replaces private content', async () => {
+void test('cursor reset hides old cache before re-snapshot without treating it as composer authority loss', async () => {
   let snapshots = 0; let reset = false; let observedEmpty = false;
   const controller = new ChatController(room.roomId, backend(async path => {
     if (path.includes('/snapshot?')) return { ...sync, messages: ++snapshots === 1 ? [source()] : [], nextCursor: 'fresh', historyCursor: null };
@@ -68,9 +68,9 @@ void test('cursor reset drops old epoch before re-snapshot and replaces private 
     return undefined;
   }));
   await controller.refresh(); const epoch = controller.getSnapshot().epoch;
-  controller.subscribe(() => { if (controller.getSnapshot().epoch > epoch && controller.getSnapshot().items.length === 0) observedEmpty = true; });
+  controller.subscribe(() => { if (controller.getSnapshot().phase === 'loading' && controller.getSnapshot().items.length === 0) observedEmpty = true; });
   reset = true; await controller.refresh();
-  assert.equal(observedEmpty, true); assert.equal(controller.getSnapshot().phase, 'ready'); assert.deepEqual(controller.getSnapshot().items, []); controller.dispose();
+  assert.equal(observedEmpty, true); assert.equal(controller.getSnapshot().epoch, epoch); assert.equal(controller.getSnapshot().phase, 'ready'); assert.deepEqual(controller.getSnapshot().items, []); controller.dispose();
 });
 void test('late snapshot after disposal cannot repopulate a previous session or room', async () => {
   let release!: (value: unknown) => void;
@@ -558,7 +558,7 @@ void test('same-authority foreground snapshots preserve parked drafts and retry 
   const controller = new ChatController(room.roomId, request, undefined, session.csrfToken, session.accountPartition, memory);
   await controller.refresh(); const result = await controller.send({ ...submission, quoteMessageId: source().id });
   if (result.accepted || !result.retryCommandId) throw new Error('missing command');
-  const drafts = { [`private:${profiles[1]!.actorId}`]: { body: submission.body, quote: { messageId: source().id, authorName: '테스트 운영자', excerpt: '인용' }, retryCommandId: result.retryCommandId } };
+  const drafts = { [`private:${profiles[1]!.actorId}`]: { body: submission.body, quote: { messageId: source().id, authorName: '테스트 운영자', excerpt: '테스트 메시지' }, retryCommandId: result.retryCommandId } };
   controller.saveComposer(drafts, submission.target, controller.getSnapshot().epoch);
   const epoch = controller.getSnapshot().epoch;
   for (let i = 0; i < 3; i++) { await controller.refreshHints(); assert.equal(controller.getSnapshot().epoch, epoch); assert.deepEqual(controller.getComposer().drafts, drafts); }
@@ -582,7 +582,7 @@ void test('parked quote is freshly read when outside snapshot and confirmed miss
   });
   const controller = new ChatController(room.roomId, request, undefined, session.csrfToken, session.accountPartition, memory);
   await controller.refresh();
-  const drafts = { [`private:${profiles[1]!.actorId}`]: { body: '보관 초안', quote: { messageId: source().id, authorName: '테스트 운영자', excerpt: '비공개 인용' } } };
+  const drafts = { [`private:${profiles[1]!.actorId}`]: { body: '보관 초안', quote: { messageId: source().id, authorName: '테스트 운영자', excerpt: '테스트 메시지' } } };
   controller.saveComposer(drafts, submission.target, controller.getSnapshot().epoch);
   await controller.refreshHints(); assert.deepEqual(controller.getComposer().drafts, drafts); assert.equal(reads, 1);
   missing = true; await controller.refreshHints(); assert.deepEqual(controller.getComposer().drafts, {}); assert.equal(reads, 2);
@@ -631,4 +631,80 @@ void test('an in-flight SEND parks its identity before unmount, preventing a rem
   release({ clientMessageId: postedId, status: 'committed', messageId: source().id, version: '1' });
   assert.equal((await pending).accepted, false); assert.equal(next.getSnapshot().commands.length, 1);
   next.dispose(); memory.clearAll();
+});
+
+for (const churn of ['manifest', 'profiles', 'events-reset'] as const) void test(`${churn} reset uses a fresh snapshot without losing same-authority draft or retry identity`, async () => {
+  const memory = new ChatMemory(); let changed = false; const caches: string[] = [];
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.endsWith('/messages')) throw new TypeError('ACK lost');
+    if (path.includes('/snapshot?')) caches.push(new URL(path, 'https://example.test').searchParams.get('cacheId')!);
+    if (!changed) return undefined;
+    if (churn === 'manifest' && path.startsWith('/v1/sync?')) return { schemaVersion: 2, resetRequired: false, rooms: [room], generation: 'membership-2', nextCursor: null, complete: true };
+    if (churn === 'profiles' && path.includes('/profile-sync?')) return { ...sync, profiles, generation: 'profiles-2', nextCursor: null, complete: true };
+    if (churn === 'events-reset' && path.includes('/events?')) return { schemaVersion: 2, resetRequired: true, events: [], hasMore: false, nextCursor: null, membershipScope: null, authorizationRevision: null };
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); const result = await controller.send({ ...submission, quoteMessageId: source().id });
+  if (result.accepted || !result.retryCommandId) throw new Error('missing command');
+  const epoch = controller.getSnapshot().epoch;
+  const drafts = { [`private:${profiles[1]!.actorId}`]: { body: submission.body, quote: { messageId: source().id, authorName: '테스트 운영자', excerpt: '테스트 메시지' }, retryCommandId: result.retryCommandId } };
+  controller.saveComposer(drafts, submission.target, epoch); changed = true; await controller.refresh();
+  assert.equal(controller.getSnapshot().phase, 'ready'); assert.equal(controller.getSnapshot().epoch, epoch);
+  assert.deepEqual(controller.getComposer().drafts, drafts); assert.equal(new Set(caches).size, 2);
+  assert.equal(controller.getSnapshot().commands[0]?.canRetry, true); controller.dispose(); memory.clearAll();
+});
+
+for (const action of ['react', 'remove'] as const) for (const status of [403, 404]) void test(`${action} ${status} preserves unrelated drafts until fresh room checks confirm loss and scrub`, async () => {
+  const memory = new ChatMemory(); let roomLost = false;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (roomLost && path.startsWith('/v1/sync?')) throw Object.assign(new Error('room denied'), { status: 403 });
+    if (path.includes('/snapshot?')) return { ...sync, messages: [{ ...source(), allowedActions: { reply: true, publish: false, delete: true } }], nextCursor: 'events-1', historyCursor: null };
+    if (path.endsWith('/reactions') || path.endsWith('/delete')) throw Object.assign(new Error('message denied'), { status });
+    if (path.endsWith('/messages')) throw new TypeError('ACK lost');
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); await controller.send(submission);
+  const drafts = { [`private:${profiles[1]!.actorId}`]: { body: 'unrelated private draft', quote: null } };
+  controller.saveComposer(drafts, submission.target, controller.getSnapshot().epoch);
+  await controller[action](source().id);
+  assert.equal(controller.getSnapshot().phase, 'ready'); assert.deepEqual(controller.getComposer().drafts, drafts);
+  assert.equal('payload' in memory.commands.pending()[0]!, true);
+  roomLost = true; await controller[action](source().id);
+  assert.equal(controller.getSnapshot().phase, 'error'); assert.deepEqual(memory.drafts, {});
+  assert.equal('payload' in memory.commands.pending()[0]!, false);
+  assert.equal(memory.authority, null); assert.equal(memory.recipients, null); assert.equal(memory.membershipScope, null); assert.equal(memory.hints.size, 0);
+  controller.dispose(); memory.clearAll();
+});
+
+for (const inSnapshot of [true, false]) void test(`fresh quote body replaces parked excerpt from ${inSnapshot ? 'snapshot' : 'point read'}`, async () => {
+  const memory = new ChatMemory(); let changed = false;
+  const fresh = { ...source(), version: '2', content: { type: 'TEXT' as const, text: '[redacted by moderation]' } };
+  const request = backend(async path => {
+    if (changed && path.includes('/snapshot?')) return { ...sync, messages: inSnapshot ? [fresh] : [], nextCursor: 'fresh', historyCursor: null };
+    if (changed && path.endsWith(`/messages/${source().id}`)) return fresh;
+    return undefined;
+  });
+  const controller = new ChatController(room.roomId, request, undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh(); controller.saveComposer({ shared: { body: 'keep draft', quote: { messageId: source().id, authorName: 'old name', excerpt: 'stale private excerpt' } } }, submission.target, controller.getSnapshot().epoch);
+  controller.dispose(); changed = true;
+  const replacement = new ChatController(room.roomId, request, undefined, session.csrfToken, session.accountPartition, memory); await replacement.refresh();
+  assert.equal(replacement.getSnapshot().phase, 'ready'); assert.equal(replacement.getComposer().drafts.shared?.body, 'keep draft');
+  assert.equal(replacement.getComposer().drafts.shared?.quote?.excerpt, '[redacted by moderation]');
+  assert.equal(replacement.getComposer().drafts.shared?.quote?.authorName, '테스트 운영자'); replacement.dispose(); memory.clearAll();
+});
+
+for (const corruption of ['createdAt', 'version'] as const) void test(`off-snapshot quote evidence survives sync and rejects ${corruption} corruption after remount`, async () => {
+  const memory = new ChatMemory(); const id = '00000000-0000-4000-8000-000000000007';
+  const controller = new ChatController(room.roomId, backend(), undefined, session.csrfToken, session.accountPartition, memory);
+  await controller.refresh();
+  // A bounded parked quote may outlive the latest timeline page; preserve its prior evidence.
+  memory.drafts = { shared: { body: 'private draft', quote: { messageId: id, authorName: 'name', excerpt: 'private quote' } } };
+  memory.hints.set(id, { createdAt: '2026-08-01T00:00:00.000Z', version: '2', counterpart: source().counterpart, allowedActions: source().allowedActions });
+  await controller.refresh(); assert.equal(memory.hints.get(id)?.version, '2'); controller.dispose();
+  const replacement = new ChatController(room.roomId, backend(async path => {
+    if (path.endsWith(`/messages/${id}`)) return { ...source(id, corruption === 'createdAt' ? '2020-01-01T00:00:00.000Z' : '2026-08-01T00:00:00.000Z'), version: corruption === 'version' ? '1' : '2' };
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, memory);
+  await replacement.refresh(); assert.equal(replacement.getSnapshot().phase, 'error'); assert.deepEqual(replacement.getSnapshot().items, []);
+  replacement.dispose(); memory.clearAll();
 });

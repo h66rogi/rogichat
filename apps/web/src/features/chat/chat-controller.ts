@@ -1,5 +1,6 @@
 import { ChatMemory, authorityKey, MAX_PARKED_BYTES, MAX_PARKED_DRAFTS } from './chat-memory';
 import type { ChatDrafts } from './drafts';
+import { truncateExcerpt } from './formatters';
 import { type PendingCommand, type UnknownCommand } from './commands';
 import { reactionSummary, type ReactionState } from './reactions';
 import { actor, cursor, envelope, event, exact, list, membership, mergeMessages, message, projectMessages, receipt, record, string, token, uuid } from './contract';
@@ -267,7 +268,7 @@ export class ChatController {
         return;
       } catch (error) {
         if (this.dead || signal.aborted) return;
-        if (error instanceof ResetRequired) { this.clear(); if (attempt === 0) continue; }
+        if (error instanceof ResetRequired) { this.clear(false, true); if (attempt === 0) continue; }
         // A failed authorization/sync must never leave previously visible private content on screen.
         this.clearAfterError(error);
         this.publish({ phase: 'error', error: inaccessible(error) ? '채팅 접근 권한이 변경되었습니다. 다시 확인해 주세요.' : '메시지를 불러오지 못했습니다. 다시 시도해 주세요.' });
@@ -281,7 +282,9 @@ export class ChatController {
     this.memory.authority = authorityKey(room); this.memory.recipients = JSON.stringify(recipients.map(item => item.actorId));
     const quoteIds = new Set(Object.values(this.memory.drafts).flatMap(draft => draft.quote ? [draft.quote.messageId] : []));
     const retained = [...this.messages.slice(-512), ...this.messages.filter(item => quoteIds.has(item.id))];
-    this.memory.hints = new Map(retained.map(item => [item.id, { createdAt: item.createdAt, version: item.version, counterpart: item.counterpart, allowedActions: item.allowedActions }]));
+    const hints = new Map([...this.memory.hints].filter(([id]) => quoteIds.has(id)));
+    for (const item of retained) hints.set(item.id, { createdAt: item.createdAt, version: item.version, counterpart: item.counterpart, allowedActions: item.allowedActions });
+    this.memory.hints = hints;
   }
   private async reauthorizeComposer(room: RoomMembership, recipients: ChatActorRef[], signal: AbortSignal) {
     const changed = this.memory.authority !== null && (this.memory.authority !== authorityKey(room) || this.memory.recipients !== JSON.stringify(recipients.map(item => item.actorId)));
@@ -290,13 +293,19 @@ export class ChatController {
     // can return to the DOM; absence from a snapshot is not deletion evidence.
     const quoteIds = [...new Set(Object.values(this.memory.drafts).flatMap(draft => draft.quote ? [draft.quote.messageId] : []))];
     for (const id of quoteIds) {
-      if (this.messages.some(item => item.id === id)) continue;
       try {
-        const value = message(await this.request(this.path(`messages/${id}`), { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
+        const value = this.messages.find(item => item.id === id) ?? message(await this.request(this.path(`messages/${id}`), { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
         if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError');
         const prior = this.memory.hints.get(id);
         if (value.id !== id || (prior && (prior.createdAt !== value.createdAt || BigInt(value.version) < BigInt(prior.version)))) throw new Error('INVALID_RESPONSE');
         this.messages = mergeMessages(this.messages, [value]);
+        // A parked excerpt is never display authority: derive it from the current DTO.
+        if (value.content.type !== 'TEXT' || typeof value.content.text !== 'string' || value.author.kind !== 'member' || !value.allowedActions.reply) {
+          this.commands.quarantine(command => command.payload.quoteId === id); this.invalidateComposer();
+        } else {
+          const quote = { messageId: id, authorName: value.author.nickname, excerpt: truncateExcerpt(value.content.text) };
+          this.memory.drafts = Object.fromEntries(Object.entries(this.memory.drafts).map(([key, draft]) => [key, draft.quote?.messageId === id ? { ...draft, quote } : draft]));
+        }
       } catch (error) {
         const status = Number(recordError(error).status);
         if (status !== 403 && status !== 404) throw error;
@@ -370,10 +379,10 @@ export class ChatController {
       if (!current()) return;
       const status = Number(recordError(error).status);
       if (inaccessible(error)) {
-        this.clear(status === 401);
+        this.clear(status === 401, status !== 401);
         this.publish({ phase: 'error', error: '메시지와 채팅 접근 권한을 다시 확인해 주세요.' });
         if (status === 401) this.onInvalidate?.();
-        else void this.revalidate();
+        else await this.revalidate();
         return;
       }
       if (emoji !== undefined && (status === 400 || status === 409)) { void this.refreshHints(); return; }
@@ -411,10 +420,11 @@ export class ChatController {
       return { accepted: true };
     } catch (error) {
       if (!this.dead && !signal.aborted && projection === this.projectionGeneration && inaccessible(error)) {
-        this.clear(Number(recordError(error).status) === 401);
+        const status = Number(recordError(error).status);
+        this.clear(status === 401, status !== 401);
         this.publish({ phase: 'error', error: '메시지와 채팅 접근 권한을 다시 확인해 주세요.' });
-        if (Number(recordError(error).status) === 401) this.onInvalidate?.();
-        else void this.revalidate();
+        if (status === 401) this.onInvalidate?.();
+        else await this.revalidate();
       }
       if (!this.dead && !signal.aborted && projection === this.projectionGeneration && Number(recordError(error).status) >= 400 && Number(recordError(error).status) < 500 && !inaccessible(error)) void this.refreshHints();
       return { accepted: false, reason: '삭제 결과를 확인하지 못했습니다. 다시 시도해 주세요.' };

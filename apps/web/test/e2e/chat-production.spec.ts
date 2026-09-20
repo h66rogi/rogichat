@@ -8,7 +8,7 @@ const streamerId = '44444444-4444-4444-8444-444444444444';
 const incoming = { id: '55555555-5555-4555-8555-555555555555', version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE' as const, author: { kind: 'member' as const, actorId: streamerId, nickname: '테스트 스트리머', avatar: null }, content: { type: 'TEXT' as const, text: '실제 계약 형식의 개인 메시지' }, quote: null, counterpart: { actorId: streamerId }, allowedActions: { reply: true, publish: false, delete: false } };
 async function chatApi(page: Page) {
   const account = await installApi(page, true); account.joined = true;
-  const state = { messages: [incoming] as ServerMessage[], recipients: [{ actorId: streamerId, nickname: '테스트 스트리머', avatar: null }], deletedIds: [] as string[], deleteCalls: 0, failDelete: false, holdDelete: null as Promise<void> | null, failSnapshot: false, revoked: false, canSend: true, posts: [] as Record<string, unknown>[], failSend: false, holdSend: null as Promise<void> | null, sockets: [] as WebSocketRoute[] };
+  const state = { manifestGeneration: 'test-membership', profileGeneration: 'test-profiles', resetEvents: false, snapshots: 0, messages: [incoming] as ServerMessage[], recipients: [{ actorId: streamerId, nickname: '테스트 스트리머', avatar: null }], deletedIds: [] as string[], deleteCalls: 0, failDelete: false, holdDelete: null as Promise<void> | null, failSnapshot: false, revoked: false, canSend: true, posts: [] as Record<string, unknown>[], failSend: false, holdSend: null as Promise<void> | null, sockets: [] as WebSocketRoute[] };
   await page.routeWebSocket('**/v1/realtime/**', socket => {
     state.sockets.push(socket);
     expect(new URL(socket.url()).searchParams.get('transport')).toBe('websocket');
@@ -26,10 +26,11 @@ async function chatApi(page: Page) {
     if (path !== '/v1/sync' && !path.startsWith(`/v1/rooms/${TEST_ROOM_ID}/`)) { await route.fallback(); return; }
     if (state.revoked) { await json(route, {}, 403); return; }
     const envelope = { schemaVersion: 2, resetRequired: false, ...TEST_SCOPES };
-    if (path === '/v1/sync') { await json(route, { schemaVersion: 2, resetRequired: false, generation: 'test-membership', rooms: [{ roomId: TEST_ROOM_ID, name: '후로기', actorId: TEST_ACTOR_ID, mode: 'FAN', role: 'FAN', ...TEST_SCOPES }], nextCursor: null, complete: true }); return; }
-    if (path.endsWith('/profile-sync')) { await json(route, { ...envelope, generation: 'test-profiles', profiles: [{ actorId: TEST_ACTOR_ID, nickname: '테스트 팬', role: 'FAN', avatar: null }, { actorId: streamerId, nickname: '테스트 스트리머', role: 'STREAMER', avatar: null }], nextCursor: null, complete: true }); return; }
+    if (path === '/v1/sync') { await json(route, { schemaVersion: 2, resetRequired: false, generation: state.manifestGeneration, rooms: [{ roomId: TEST_ROOM_ID, name: '후로기', actorId: TEST_ACTOR_ID, mode: 'FAN', role: 'FAN', ...TEST_SCOPES }], nextCursor: null, complete: true }); return; }
+    if (path.endsWith('/profile-sync')) { await json(route, { ...envelope, generation: state.profileGeneration, profiles: [{ actorId: TEST_ACTOR_ID, nickname: '테스트 팬', role: 'FAN', avatar: null }, { actorId: streamerId, nickname: '테스트 스트리머', role: 'STREAMER', avatar: null }], nextCursor: null, complete: true }); return; }
     if (path.endsWith('/private-recipients')) { await json(route, { recipients: state.canSend ? state.recipients : [], next: null }); return; }
-    if (path.endsWith('/snapshot')) { await json(route, { ...envelope, messages: state.messages, nextCursor: 'test-events', historyCursor: null }, state.failSnapshot ? 503 : 200); return; }
+    if (path.endsWith('/snapshot')) { state.snapshots++; await json(route, { ...envelope, messages: state.messages, nextCursor: 'test-events', historyCursor: null }, state.failSnapshot ? 503 : 200); return; }
+    if (path.endsWith('/events') && state.resetEvents) { state.resetEvents = false; await json(route, { schemaVersion: 2, resetRequired: true, events: [], hasMore: false, nextCursor: null, membershipScope: null, authorizationRevision: null }); return; }
     if (path.endsWith('/events')) { await json(route, { ...envelope, events: [...state.deletedIds.map(messageId => ({ type: 'message.deleted', messageId, version: '2' })), ...state.messages.map(message => ({ type: 'message.upsert', message }))], hasMore: false, nextCursor: 'test-events' }); return; }
     if (path.endsWith('/delete')) {
       state.deleteCalls++; expect(route.request().headers()['x-csrf-token']).toBe(account.sessionToken);
@@ -374,4 +375,32 @@ test('confirmed session loss scrubs parked drafts before same-token account acce
   account.sessionStatus = 200;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(input).toHaveValue('');
+});
+
+for (const churn of ['profiles', 'manifest', 'events-reset'] as const) test(`${churn} churn takes a fresh snapshot and preserves draft quote and retry command`, async ({ page }) => {
+  const { state, hint } = await chatApi(page); state.failSend = true;
+  await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
+  await page.getByTestId('chat-reply').click(); await input.fill('세대 변경에도 같은 초안'); await input.press('Enter');
+  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
+  const id = state.posts[0]?.clientMessageId; const snapshots = state.snapshots;
+  if (churn === 'profiles') state.profileGeneration = 'profiles-after-unrelated-join';
+  else if (churn === 'manifest') state.manifestGeneration = 'manifest-after-unrelated-change';
+  else state.resetEvents = true;
+  hint(); await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
+  await expect(input).toHaveValue('세대 변경에도 같은 초안');
+  await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
+  state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
+  expect(state.posts).toHaveLength(2); expect(state.posts[1]?.clientMessageId).toBe(id);
+});
+
+test('auth-gate resume rebuilds a parked quote from the newly authorized message body', async ({ page }) => {
+  const { state } = await chatApi(page);
+  await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
+  await page.getByTestId('chat-reply').click(); await input.fill('유지할 초안');
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toHaveCount(0);
+  state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '수정된 인용 본문' } }];
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
+  await expect(input).toHaveValue('유지할 초안');
+  await expect(page.getByTestId('chat-quote-preview')).toContainText('수정된 인용 본문');
+  await expect(page.getByTestId('chat-quote-preview')).not.toContainText(incoming.content.text);
 });

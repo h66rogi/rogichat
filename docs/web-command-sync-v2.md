@@ -160,3 +160,32 @@ browser regressions are committed for hosted execution, not claimed as locally
 run. Transient reauthorization failure keeps parked drafts locked until a fresh
 successful authority check; confirmed loss scrubs them. No new dependency or
 build cache was installed during correction.
+
+
+### Second independent review corrections
+
+The second immutable review of `5e9299d` reproduced routine manifest/profile
+cache-generation resets dropping drafts, message-scoped 403/404 doing the same,
+and parked quote freshness/evidence gaps. Generation resets now preserve scoped
+composer memory while always replacing the cache and snapshot. Message reaction
+and delete denials hide the timeline, preserve unrelated drafts, and await fresh
+room authorization; confirmed room loss takes the full scrub/quarantine path.
+Successful deletion still deliberately clears derived private drafts and quotes.
+
+Every restored quote is checked against bounded prior createdAt/version evidence,
+including quotes already in the latest page. Its excerpt and author label are
+rebuilt from the current authorized DTO. Hints for parked quotes outside the
+current timeline survive normal sync, up to the existing 32-quote/544-hint bound.
+Focused regressions vary manifest/profile generations and reset envelopes, cover
+both 403 and 404 for reactions and deletion, fresh snapshot/point-read quote bodies,
+and off-snapshot createdAt mutation/version rollback. Browser regressions exercise
+real socket wake generation changes plus auth-gate quote refresh.
+
+Inferred followups remain bounded and are not claimed resolved: draft parking
+serializes at most the accepted 2 MiB map on each edit (large rejected input can
+cost more); performance optimization needs measurement and must preserve the exact
+JSON byte bound. Capacity errors for more than four simultaneously active rooms
+are unreachable in the current dedicated single-room composition and need a UI
+error boundary before that composition expands. Scrubbed expired entries remain
+in the four-slot registry until bounded eviction, intentionally preserving minimal
+unknown-receipt recovery without retaining private payloads.
