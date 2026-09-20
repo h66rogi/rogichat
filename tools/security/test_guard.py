@@ -297,6 +297,40 @@ class GuardTests(unittest.TestCase):
         self.git("-c", "tag.gpgsign=false", "tag", "blob-fixture", oid)
         self.assert_blocked("all")
 
+    def test_tag_chain_and_tree_targets_are_scanned(self):
+        # Exercise clean tag-of-tag traversal before making only its target dirty.
+        self.git("-c", "user.name=Guard Test", "-c", "user.email=test@example.invalid",
+                 "-c", "tag.gpgsign=false", "tag", "-a", "inner", "-m", "fixture")
+        self.git("-c", "user.name=Guard Test", "-c", "user.email=test@example.invalid",
+                 "-c", "tag.gpgsign=false", "tag", "-a", "outer", "inner", "-m", "fixture")
+        self.assertEqual(self.check("all").returncode, 0)
+        self.stage_file("payload.txt", self.fake_token())
+        tree = self.git("write-tree").stdout.decode().strip()
+        self.git("-c", "tag.gpgsign=false", "tag", "tree-fixture", tree)
+        self.git("rm", "--cached", "payload.txt")
+        self.assertEqual(self.check().returncode, 0)
+        self.assert_blocked("all")
+
+    def test_refname_secret_is_scanned(self):
+        self.git("branch", self.fake_token())
+        self.assert_blocked("all")
+
+    def test_shared_blob_does_not_exempt_forbidden_historical_path(self):
+        self.stage_file("allowed.txt", "same bytes")
+        self.stage_file(".env", "same bytes")
+        self.commit()
+        self.git("rm", ".env")
+        self.commit()
+        self.assertEqual(self.check().returncode, 0)
+        self.assert_blocked("all")
+
+    def test_scanner_failure_and_wrong_version_fail_closed(self):
+        scanner = self.repo / ".tools/gitleaks"
+        scanner.write_text('#!/bin/sh\nif [ "$1" = version ]; then echo 8.30.1; else exit 2; fi\n')
+        self.assert_blocked()
+        scanner.write_text('#!/bin/sh\necho 0.0.0\n')
+        self.assert_blocked()
+
     def test_secret_in_commit_metadata_blocks_push(self):
         self.git("-c", "user.name=Guard Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false",
                  "commit", "--allow-empty", "-qm", self.fake_token())
