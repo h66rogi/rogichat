@@ -1,0 +1,55 @@
+# Native media integration checkpoint
+
+This is an independently testable module delivery, **not a deployed or fully mounted product claim**. Native OS owners must complete the adapters and screen mounts below under the existing authenticated gateways. QA and production use the same modules; there is no runtime fixture, preview account or success substitute.
+
+## Verified source contracts
+
+Read with `git show`: baseline `f9197a31d61b7c34256e92f0bcb73ee255275d40`, complete media source `f4c89d853a7c5e35a8d542e6bd383c72009f5568`, M09 integration `9aa1891`, cleanup correction `3ef7e8e79cb4fb9a2b445020d1974d0c0804e127`. Source presence does not prove the running QA deployment enables each dependency.
+
+| Operation | Contract relative to `/v1/` | Success |
+| --- | --- | --- |
+| Reserve | POST `media/upload-intents`, `{kind,contentType,byteLength,roomId?}` | 201 `{assetId,status:"reserved"}` |
+| Upload | POST `media/upload-intents/{assetId}/content`, exact `application/octet-stream`; optional exact Content-Length; no query, encoding or multipart | 202 processing, not READY |
+| Recover/poll | GET `media/upload-intents/{assetId}` | 200 reserved/uploading/processing/ready/deleting/deleted |
+| Access | POST `media/assets/{assetId}/access` | 200 `{url,expiresIn:60}` |
+| Catalog | GET `rooms/{roomId}/stickers?after={cursor}` | 200 `{items:[{id,label,assetId}],nextCursor}` |
+| Avatar | PATCH `me/profile`, `{avatarAssetId: UUID or null}` only | 200 real profile acknowledgement |
+
+Source paths: `apps/api/src/modules/media/{media.controller.ts,media-core.service.ts,dto/media.openapi.ts}`, `modules/stickers/{stickers.controller.ts,dto/sticker.openapi.ts}`, `modules/users/dto/update-profile.dto.ts`, `modules/messages/dto/send-message.dto.ts`, `common/media/media-policy.ts`, `isolated/media-decoder/video-decoder.ts`.
+
+PHOTO/AVATAR accept JPEG/PNG/WebP from one byte through 10 MiB. VIDEO accepts MP4/QuickTime up to 50 MiB. Server enforces decoded duration ≤60 seconds, dimensions ≤1920×1080 in either orientation, and validates/transcodes; client MIME/size acceptance is never readiness proof. M09 output is H.264, yuv420p, AAC, MP4 `+faststart`; poster is WebP. No raw original-file URL is displayed.
+
+Access variants are `image`, `video`, `poster`. A message requires original roomId+messageId; avatar requires roomId+actorId and image; sticker requires roomId+stickerId (plus messageId for an existing message). Only unattached owner preview omits context. URL is never an attachment SEND value.
+
+## Frozen native seams and required parent patches
+
+Android package `chat.rogi.rogichat.core.media`; iOS source directory `Sources/Core/Media` (same app module).
+
+1. Implement **MediaScope** (`presentationID`, `roomId` Android / `roomID` Swift, `check()`) as a wrapper around the existing immutable original ConversationScope/selection or account permit. Do not reconstruct M/A, invent room IDs, or look up a replacement session. `presentationID` must be stable for the original permit and change whenever it changes; it is not an auth credential. `check` must reject changed credential epoch, account partition/client scope, cache generation, membershipScope or authorizationRevision. Avatar reserve/update explicitly require room nil; PHOTO/VIDEO and catalog require real room scope.
+2. Implement **MediaTransport.perform(MediaRequest, scope)** on the existing authenticated native gateway. `MediaRequest` exposes `method`, `path`, `expectedStatus`, `jsonBody`, `upload`. Authenticate against the configured QA/prod API with the original credential only. Guard admission, HTTP and result commit, cancel network operations when that permit is revoked, and forbid redirect following, cookies and automatic mutation retries. Enforce expectedStatus exactly and preserve sanitized status/error code as MediaFailure/MediaError.response. Bound JSON to 1 MiB. For `upload`, stream the file after `validate`, with exact octet-stream and byteLength; enforce the streamed byte count as well. Never load the video into a JSON body or attach API credentials to the signed URL.
+3. Implement **MediaJournal.save/remove** in the existing scoped durable database. Persist only PendingMedia(assetId,kind), under original account/room scope with atomic guard at commit. List only matching records when restoring, call MediaUpload.recover for status-only recovery, and remove after the owning SEND/profile coordinator has durably accepted its acknowledgement. No automatic binary resend after uncertain admission. Reserved/processing timeout remains an explicit retryable status check; deleted/deleting is unavailable. Unreturned reservation IDs and abandoned reservations are server cleanup obligations; there is no invented cancel/delete API.
+4. Mount **MediaPicker**, **AvatarPicker**, **StickerPicker**, **AuthorizedMedia** from native Features/Media. Picker callbacks are suspending and own a bounded scratch file only for the duration of the callback. PHOTO/VIDEO caller runs MediaUpload.start, builds MediaContent, then passes its encoded content into the existing outbox envelope, retaining original clientMessageId, SHARED/PRIVATE recipient and quote. PHOTO permits 1–4 distinct ready assets; VIDEO exactly one; STICKER encodes `{type:"STICKER",stickerId}`. Parent outbox admission must still enforce current policy and original scope. AvatarPicker handles upload-ready, PATCH, journal acknowledgement and invokes onUpdated for genuine profile reload; use an account permit.
+5. Key every mounted media view/picker by original scope and asset/context; dispose/cancel on navigation or scope change. Video and poster are separately authorized contexts. Video downloads request `Range: bytes=0-`; only complete 200 or exact `Content-Range: bytes 0-(length-1)/length` 206 is accepted, with video/mp4 MIME, identity encoding and a 52 MiB output cap. Redirects, cookies, credentials, nonmatching range, 403 and expiry are rejected. Native VideoView/AVPlayer seeks the complete private scratch rendition locally, not through an expired signed URL. Playback starts after bounded download; this is not progressive playback. Lease deadline uses monotonic time starting before access request, with five-second margin; presentation subtrees are keyed by permit identity+asset+access context. At grant age 35 seconds, a bounded five-second renewal calls the real POST access endpoint under that same permit and preserves the player/scratch only on success; failure/revocation clears it. Retry obtains fresh authorization. Upload POSTs are never replayed for renewal. Controls support native seeking; actual device codec/seek/Range behavior remains an integration verification item.
+6. Call `purgeMediaScratchAtProcessStart` once before any media jobs. Android takes app cacheDirectory; iOS uses app temporaryDirectory. It removes only module-prefixed leftover scratch. Current operation deletes scratch on success/error/cancellation, and views stop playback and delete on disposal/expiry. Never persist signed URLs, scratch paths or decoded images in the room DB.
+
+No edits to shared API/session, navigation, database/coordinator, build/project, privacy manifest or global audit files were made. The parent owns those changes. Native system picker/player APIs and existing coroutine/JSON/OkHttp dependencies are used; no new media SDK install is required. iOS project source discovery must include both new Media directories, and the executable regression file under Tests must not enter app sources.
+
+## Reuse audit rows for parent to append to mobile-reuse-audit.md
+
+| Read-only source commit/path/symbol | Destination | Actual adaptation |
+| --- | --- | --- |
+| Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, `feature/channel/src/main/java/com/meloming/android/feature/channel/ChannelSettingsScreen.kt`, photoPickerLauncher | `feature/media/MediaPicker.kt` | Retains rememberLauncherForActivityResult/PickVisualMedia, selected URI/content resolver and MIME flow. Replaces unbounded UI-thread readBytes with cancellable 64 KiB private-file streaming and caps; removes fabricated JPEG fallback and legacy event/viewmodel. Adds native video mode. |
+| iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `Meloming/Presentation/Channel/ChannelSettingsView.swift`, ProfileImagePicker | `Features/Media/MediaPicker.swift` | Retains PhotosPicker selection, disabled import state, selection-driven import. Replaces whole-Data transfer and unconditional JPEG label with file Transferable, actual MIME, bounded copy, cancellation and cleanup; adds movie mode. |
+| Android same commit, `core/designsystem/.../MelomingAsyncImage.kt`, ProfileImage/MelomingAsyncImage; iOS same commit, `Core/Network/APIClient.swift` | Reviewed only | Existing global-URL image cache and account-refresh/logging path are unsuitable for 60-second authorized scoped media. New download/display uses ephemeral credential-free transport and private scratch, while authenticated operations remain on parent existing native gateway. No claim of code reuse for these new components. |
+
+No Talk/TalkV2 source or chat UX was reused. No reference assets, environment files, signing, secrets, private identifiers or history were copied.
+
+## Validation and remaining verification
+
+- Swift 6 isolated core typecheck and executable `Tests/Media/MediaRegression.swift`: passed (typed requests, content cardinality/readiness, lease expiry, Range validation, original-scope stale response, uncertain upload cleanup and status-only recovery, explicit avatar null).
+- Android bounded direct Kotlin compiler (512 MiB heap), JUnit (256 MiB heap): core contract/workflow tests; final result recorded below. Cached Kotlin 2.0.21, coroutine 1.9.0 and serialization 1.7.3 are smoke-test tooling only, not changes to repository versions. Parent runs the actual pinned Gradle build.
+- No simulator, emulator, GUI or full build launched by this worker. Small iOS device-SDK typecheck is run with the approved external SDK; final result recorded below.
+- Real QA authenticated integration remains with OS owners: durable journal migration, gateway adapter, mounts, original M/A revocation under in-flight calls, real video upload/processing/poster/codec/seek, policy denial/empty sticker catalog, avatar reload. Existing SOOP/Firebase verification blockers are not re-requested from the user.
+- QA runtime readiness depends on the media worker, isolated decoder/object store and current deployed SHA; source tests alone do not establish those operational facts. No deployment was triggered for these leaf modules.
+
+Final native checkpoint: iOS device-SDK typecheck of all Core/Media + Features/Media files passed with Swift 6 and warnings-as-errors. Swift executable regressions passed including permit/context presentation replacement, pre-expiry lease budget, overlap rejection and cancellation cleanup. Android isolated JUnit suite contains six tests and passed; pinned Gradle/Compose integration remains the OS owner's shared build check. Required public-repository security scanning and remote publication are recorded in the worker's delivery receipt.
