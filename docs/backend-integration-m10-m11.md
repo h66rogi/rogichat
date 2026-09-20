@@ -41,6 +41,17 @@ the logical database and currently verified MySQL server UUID, preserving nonce
 history and migration bytes. Final aggregate hosted acceptance remains pending;
 real joined restore execution remains a separate operator gate.
 
+Joined test/workflow source `29d9e0515427fef66edb8c36e58e5fb3aa1f93a2` is normally
+merged without runtime or schema changes. Its [hosted run 35512581548](https://github.com/h66rogi/rogichat/actions/runs/35512581548)
+passed against pinned runtime `7b559b645ef2b71fc5492d79895142745d0d6ead` and dist
+hash `5c711fee7fc14edd42f121c9b8c38757ab3113a6633417919ee5e32f4c2a6057`.
+The result covers 18 fail-closed cases, actual HTTP epoch/ABA rejection and nonce
+CAS; the owner is publishing the durable receipt. The workflow's runtime-identity
+guard intentionally excludes aggregate cursor/transport deltas, so this is pinned
+runtime evidence rather than an exact-aggregate joined run or live Aurora/R2 proof.
+The only merge conflict keeps both `--restore` and `--expansion`, the 180-second
+migration budget and the restore-only five-field runner metadata allowlist.
+
 Approved MOBILE `f103f01a8c124701de3091d5b264006b5d24447f` normally merges the
 parent's complete Android/iOS product, persistence, account deletion, media,
 moderation, realtime/push and signing/test-tool histories. Android/iOS source,
