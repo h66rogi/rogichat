@@ -108,3 +108,18 @@ test('message dependency drain waits for moderation scrubbing including zero-cha
   assert.deepEqual(await core.page(tx, 'room', 'message', 10), { changed: 0, done: false });
   assert.deepEqual(calls, [[tx, 'room', 'message', 10]]);
 });
+
+
+test('recovery names are scoped to existing owned blocks and keep FAN/afterleave policy without profile grants', async () => {
+  const repo = new ModerationRepository(); const calls = [];
+  const member = { id: 'mine', role: 'FAN', status: 'LEFT', room: { mode: 'FAN', status: 'ACTIVE' }, user: { status: 'ACTIVE', soop: { status: 'VERIFIED' } } };
+  const rows = [{ target_actor_id: 'visible', created_at: new Date(0) }, { target_actor_id: 'unavailable', created_at: new Date(0) }];
+  const tx = { prisma: { room_members: { findFirst: async () => member, findMany: async query => {
+    calls.push(query); return [{ id: 'visible', active_period: { member_id: 'visible' }, user: { profile: { nickname: 'current name' } } }];
+  } }, actor_blocks: { findMany: async query => { assert.equal(query.where.blocker_actor_id, 'mine'); return rows; } } } };
+  assert.deepEqual((await repo.ownBlocks(tx, 'room', 'caller', '')).map(row => row.displayName), ['current name', null]);
+  assert.deepEqual(calls[0].where.id, { in: ['visible', 'unavailable'] }); assert.equal(calls[0].where.role, 'STREAMER');
+  assert.deepEqual(calls[0].select.user, { select: { profile: { select: { nickname: true } } } });
+  member.status = 'BANNED'; assert.ok((await repo.ownBlocks(tx, 'room', 'caller', '')).every(row => row.displayName === null)); assert.equal(calls.length, 1);
+  tx.prisma.room_members.findFirst = async () => null; assert.deepEqual(await repo.ownBlocks(tx, 'room', 'outsider', ''), []); assert.equal(calls.length, 1);
+});

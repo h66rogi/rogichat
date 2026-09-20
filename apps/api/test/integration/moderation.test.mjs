@@ -212,3 +212,27 @@ test('anonymous publication permits report but never exposes or targets its hidd
   await f.call(f.fan2, 'DELETE', `/rooms/${f.room}/blocks/${f.owner.actor}`);
   assert.equal((await f.call(f.fan2, 'GET', `/rooms/${f.room}/messages/${publication}`)).status, 200);
 });
+
+
+test('owned block recovery labels remain current after leave without granting profiles or disclosing hidden/deleting targets', { timeout: 30000 }, async t => {
+  const f = await fixture(t); const endpoint = `/rooms/${f.room}/blocks`;
+  await f.call(f.fan1, 'PUT', `${endpoint}/${f.owner.actor}`, {});
+  const list = () => f.call(f.fan1, 'GET', endpoint);
+  const initial = await list(); assert.equal(initial.body.blocks[0].displayName, '동기화 방장');
+  assert.deepEqual(Object.keys(initial.body.blocks[0]).sort(), ['actorId', 'blockedAt', 'displayName']);
+  assert.deepEqual((await f.call(f.outsider, 'GET', endpoint)).body.blocks, []);
+  assert.deepEqual((await f.call(f.fan2, 'GET', endpoint)).body.blocks, []);
+  assert.equal((await f.call(f.fan1, 'POST', `/rooms/${f.room}/leave`, {})).status, 204);
+  await f.db.transactions.write(tx => tx.prisma.user_profiles.update({ where: { user_id: f.owner.id }, data: { nickname: '새 현재 닉네임' } }));
+  assert.equal((await list()).body.blocks[0].displayName, '새 현재 닉네임');
+  assert.equal((await f.call(f.fan1, 'GET', `/rooms/${f.room}/actors/${f.owner.actor}/profile`)).status, 404);
+  // A historical block cannot become an oracle if the target is now a hidden fan.
+  await f.db.transactions.write(tx => tx.prisma.room_members.update({ where: { id: f.owner.actor }, data: { role: 'FAN' } }));
+  assert.equal((await list()).body.blocks[0].displayName, null);
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.room_members.update({ where: { id: f.owner.actor }, data: { role: 'STREAMER' } });
+    await tx.prisma.users.update({ where: { id: f.owner.id }, data: { status: 'DELETING' } });
+  });
+  assert.equal((await list()).body.blocks[0].displayName, null);
+  assert.equal((await f.call(f.fan1, 'DELETE', `${endpoint}/${f.owner.actor}`)).status, 200);
+});

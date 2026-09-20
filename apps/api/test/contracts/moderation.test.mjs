@@ -17,6 +17,12 @@ test('moderation OpenAPI exposes exact actor-scoped methods, durable receipt rec
     ['get', '/v1/admin/reports'], ['post', '/v1/admin/reports/{reportId}/resolve'],
   ];
   for (const [method, path] of routes) assert.ok(doc.paths[path]?.[method], `${method} ${path}`);
+  const blockList = ajv.compile(doc.paths['/v1/rooms/{roomId}/blocks'].get.responses['200'].content['application/json'].schema);
+  for (const displayName of [null, 'current nickname']) {
+    const block = { actorId: randomUUID(), blockedAt: new Date().toISOString(), displayName };
+    assert.equal(blockList({ blocks: [block], next: null }), true);
+    for (const field of ['userId', 'avatar', 'birthday', 'rootMessageId']) assert.equal(blockList({ blocks: [{ ...block, [field]: 'forbidden' }], next: null }), false);
+  }
   const report = doc.paths[routes[0][1]].post;
   const request = ajv.compile(report.requestBody.content['application/json'].schema);
   assert.equal(request({ idempotencyKey: randomUUID(), reason: 'spam' }), true);

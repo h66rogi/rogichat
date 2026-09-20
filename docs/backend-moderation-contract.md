@@ -16,7 +16,7 @@ is the existing room membership identifier, never a global account/provider ID.
 | POST `rooms/:roomId/messages/:messageId/reports` | `idempotencyKey`, `reason`, optional `detail` | `reportId,status,createdAt` |
 | GET `report-receipts/:idempotencyKey` | None | Own receipt |
 | GET `reports/:reportId` | None | Own receipt |
-| GET `rooms/:roomId/blocks?after=:actorId` | None | `blocks:[{actorId,blockedAt}],next` |
+| GET `rooms/:roomId/blocks?after=:actorId` | None | `blocks:[{actorId,blockedAt,displayName}],next` |
 | PUT `rooms/:roomId/blocks/:actorId` | `{}` | `actorId,blocked:true,resetRequired:true` |
 | DELETE `rooms/:roomId/blocks/:actorId` | No body | `actorId,blocked:false,resetRequired:true` |
 | GET `rooms/:roomId/bans?after=:actorId` | None | Owner-only `bans:[{actorId}],next` |
@@ -54,8 +54,15 @@ a minimal receipt, keyed digest and internal audit references remain.
 
 Personal blocks require a legitimately visible current nonself actor. A fan
 cannot use another fan ID or anonymous publication root as a target/discovery
-oracle. Own recovery lists reveal only previously recorded target actor IDs and
-are available after leaving; unblock does not require renewed target visibility.
+oracle. Own recovery lists return previously recorded target actor IDs plus a nullable current
+`displayName`, solely for the existing caller-owned block. This purpose-specific label
+is available after leaving, without restoring general profile or room access. It is
+null for banned/unverified callers, unavailable rooms, missing/inactive/deleting/deleted/
+suspended/unverified targets, invalid periods, missing profiles or FAN-role-hidden targets.
+Only the current nickname is projected; no historical name, avatar, birthday, provider ID,
+user ID or anonymous source lookup is retained or exposed. Unblock does not require
+renewed target visibility. Clients distinguish unavailable labels with the existing
+actor reference and date rather than stale profile caches.
 Personal blocks never evict other fans or delete content. Blocking the only
 streamer can leave a fan with no usable conversation; leave, unblock and account
 management remain available.
@@ -108,5 +115,7 @@ reset, create-only migration or live database changes are part of this batch.
 - Migration 22 `20260920111123_moderation_report_block` generated/applied with Prisma 7.10.0 and MySQL 8.0.44; second fresh database replayed all 22 and reported schema in sync.
 - SQL SHA-256: `37cf4a1bc473baf2165b5f3477efa7e64ae358b9483d1da2dd9c7e1f0d33c0ea`. Predecessor schema 21: `d366904`; no prior SQL changed.
 - Both fixture databases and owned mysqld/datadir teardown confirmed at `2026-09-20T11:12:16.683Z`.
-- Full isolated integration and hosted CI: pending.
+- Targeted fresh-MySQL suite: 63 tests, 55 passed; all 8 moderation HTTP tests, both final push-block directions, account report-detail cleanup and message purge/crash tests passed. The 8 media tests failed because a predecessor test fixture set the shared budget below a single photo reservation; upstream fix `a7bd230` is merged, rerun pending hosted CI.
+- After the predecessor hardening merge: TypeScript and 47 focused unit tests passed.
+- Additive recovery-label projection: TypeScript, 12 focused unit/OpenAPI tests and targeted lint passed; real MySQL afterleave/IDOR/deletion regression and hosted CI pending.
 - Deployment and QA/main merge: not performed by this worker.

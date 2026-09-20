@@ -18,8 +18,24 @@ export class ModerationRepository {
     const [row] = await tx.rows<{ id: string; user_id: string; role: string; status: string; active_period_id: string | null; account_status: string; soop_status: string | null; valid_period_id: string | null; period_left_at: Date | null }>(`SELECT m.id,m.user_id,m.role,m.status,m.active_period_id,u.status AS account_status,s.status AS soop_status,p.id AS valid_period_id,p.left_at AS period_left_at FROM room_members m LEFT JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id JOIN users u ON u.id=m.user_id LEFT JOIN platform_soop s ON s.user_id=u.id WHERE m.room_id=? AND m.id=? FOR UPDATE`, [roomId, actorId]);
     return row;
   }
-  ownBlocks(tx: Transaction, roomId: string, userId: string, after: string) {
-    return tx.prisma.room_members.findFirst({ where: { room_id: roomId, user_id: userId }, select: { id: true } }).then(member => member ? tx.prisma.actor_blocks.findMany({ where: { room_id: roomId, blocker_actor_id: member.id, target_actor_id: { gt: after } }, orderBy: { target_actor_id: 'asc' }, take: 51, select: { target_actor_id: true, created_at: true } }) : []);
+  async ownBlocks(tx: Transaction, roomId: string, userId: string, after: string) {
+    const member = await tx.prisma.room_members.findFirst({ where: { room_id: roomId, user_id: userId },
+      select: { id: true, role: true, status: true, room: { select: { mode: true, status: true } }, user: { select: { status: true, soop: { select: { status: true } } } } } });
+    if (!member) return [];
+    // The existing caller-owned block page is the only authority for this narrow
+    // recovery label. Never accept arbitrary actor IDs or consult message roots.
+    const rows = await tx.prisma.actor_blocks.findMany({ where: { room_id: roomId, blocker_actor_id: member.id, target_actor_id: { gt: after } },
+      orderBy: { target_actor_id: 'asc' }, take: 51, select: { target_actor_id: true, created_at: true } });
+    const names = new Map<string, string>();
+    if (rows.length && member.status !== 'BANNED' && member.room.status === 'ACTIVE' && member.user.status === 'ACTIVE' && member.user.soop?.status === 'VERIFIED') {
+      const targets = await tx.prisma.room_members.findMany({ where: { room_id: roomId, id: { in: rows.slice(0, 50).map(row => row.target_actor_id) },
+        status: 'ACTIVE', active_period: { is: { room_id: roomId, left_at: null } },
+        user: { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } },
+        ...(member.room.mode === 'FAN' && member.role !== 'STREAMER' ? { role: 'STREAMER' as const } : {}) },
+      select: { id: true, active_period: { select: { member_id: true } }, user: { select: { profile: { select: { nickname: true } } } } } });
+      for (const target of targets) if (target.active_period?.member_id === target.id && target.user.profile) names.set(target.id, target.user.profile.nickname);
+    }
+    return rows.map(row => ({ ...row, displayName: names.get(row.target_actor_id) ?? null }));
   }
   async setBlock(tx: Transaction, roomId: string, actorId: string, targetId: string, blocked: boolean) {
     const where = { room_id: roomId, blocker_actor_id: actorId, target_actor_id: targetId };
