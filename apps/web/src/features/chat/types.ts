@@ -18,6 +18,8 @@ export interface ChatActorRef {
   actorId: string;
   displayName: string;
   avatarUrl: string | null;
+  avatarAssetId?: string;
+  providerAvatarAvailable?: boolean;
   role?: ChatViewerRole | undefined;
 }
 

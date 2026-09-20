@@ -1,5 +1,7 @@
 'use client';
 
+import { ChatActorAvatar } from './ChatActorAvatar';
+
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { WifiOff } from 'lucide-react';
 
@@ -332,7 +334,7 @@ function ScopedChatRoom({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h1 className="truncate text-[18px] font-semibold text-ink">{roomName}</h1>
           <div className="flex items-center gap-2 text-[14px] text-muted">
-            <span className="truncate">{viewer.displayName}</span>
+            <ChatActorAvatar actor={viewer} /><span className="truncate">{viewer.displayName}</span>
             <Badge variant={viewerRole === 'STREAMER' ? 'brand' : 'secondary'}>{viewerRole === 'STREAMER' ? '스트리머' : '팬'}</Badge>
           </div>
         </div>

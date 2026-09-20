@@ -310,3 +310,30 @@ void test('abort cancels a pending metadata read and releases its lock', async (
     assert.equal(stream.locked, false);
   }
 });
+
+void test('provider avatar reads use exact API ticket URL without cookie or CSRF forwarding', async () => {
+  const url = 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64);
+  const { client, calls } = setup([json({ url, expiresIn: 60 }), image()]);
+  const result = await client.providerAvatar(room, asset, idleSignal());
+  assert.equal(result.blob.type, 'image/webp');
+  assert.equal(calls[0]?.url, `https://api.qa.rogi.chat/v1/rooms/${room}/actors/${asset}/provider-avatar/access`);
+  assert.equal(calls[0]?.init.body, '{}');
+  assert.equal(calls[1]?.url, url);
+  assert.equal(calls[1]?.init.credentials, 'omit');
+  assert.equal(calls[1]?.init.headers, undefined);
+  assert.equal(calls[1]?.init.redirect, 'error');
+  assert.equal(calls[1]?.init.referrerPolicy, 'no-referrer');
+  result.release?.();
+});
+void test('provider avatar rejects untrusted origins, paths, extra query, wrong type and oversized body', async () => {
+  const base = 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64);
+  for (const url of [base.replace('api.qa.rogi.chat', 'evil.example'), base.replace('profile-images', 'me/profile'), base + '&extra=1', base + '#hash', base.replace('https:', 'http:')]) {
+    const state = setup([json({ url, expiresIn: 60 })]);
+    await assert.rejects(state.client.providerAvatar(room, asset, idleSignal()));
+    assert.equal(state.calls.length, 1);
+  }
+  for (const response of [new Response('not-image', { headers: { 'Content-Type': 'image/svg+xml' } }), new Response(new Uint8Array(2 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'image/jpeg' } })]) {
+    const state = setup([json({ url: base, expiresIn: 60 }), response]);
+    await assert.rejects(state.client.providerAvatar(room, asset, idleSignal()));
+  }
+});

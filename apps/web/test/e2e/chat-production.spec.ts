@@ -545,3 +545,30 @@ test('READY video sends one real asset reference and mounted timeline plays scop
   await expect(video).toHaveCount(0);
   expect(await page.evaluate(async url => fetch(url!).then(() => true, () => false), blob)).toBe(false);
 });
+
+test('chat provider avatars use scoped opaque tickets, deduplicate actors, and vanish on pagehide', async ({ page }) => {
+  const { account, state } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
+  state.messages.push({ ...incoming, id: '66666666-6666-4666-8666-666666666666' });
+  let admissions = 0;
+  await page.route('**/profile-sync*', route => json(route, { schemaVersion: 2, resetRequired: false, ...TEST_SCOPES, generation: state.profileGeneration, profiles: [{ actorId: TEST_ACTOR_ID, nickname: '테스트 팬', role: 'FAN', avatar: null }, { actorId: streamerId, nickname: '테스트 스트리머', role: 'STREAMER', avatar: null, providerAvatarAvailable: true }], nextCursor: null, complete: true }));
+  await page.route('**/provider-avatar/access', route => {
+    if (route.request().method() === 'OPTIONS') return json(route, null, 204);
+    admissions++;
+    expect(route.request().headers()['x-csrf-token']).toBe(MEDIA_CSRF);
+    expect(route.request().postDataJSON()).toEqual({});
+    return json(route, { url: 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64), expiresIn: 60 });
+  });
+  await page.route('**/v1/profile-images?*', route => {
+    expect(route.request().headers()['x-csrf-token']).toBeUndefined();
+    expect(route.request().headers().cookie).toBeUndefined();
+    expect(route.request().headers().referer).toBeUndefined();
+    return route.fulfill({ status: 200, headers: { 'Content-Type': 'image/webp', 'Access-Control-Allow-Origin': '*' }, body: TEST_IMAGE.buffer });
+  });
+  await page.goto('/chat');
+  const images = page.getByRole('img', { name: '참여자 프로필 사진' });
+  await expect(images).toHaveCount(2);
+  await expect(images.first()).toHaveAttribute('src', /^blob:/);
+  expect(admissions).toBe(1);
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
+  await expect(images).toHaveCount(0);
+});
