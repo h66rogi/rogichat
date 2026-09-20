@@ -369,7 +369,8 @@ test('confirmed session loss scrubs parked drafts before same-token account acce
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toHaveCount(0);
   account.sessionStatus = 401;
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
-  await expect(page.getByRole('button', { name: /로그인/ }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
+  await expect(input).toHaveCount(0);
   account.sessionStatus = 200;
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(input).toHaveValue('');
