@@ -231,7 +231,7 @@ shared-snapshot evidence, including preserved coordinator feature work and the O
 | Gate | Current result |
 |---|---|
 | Clean build and typecheck | PASS |
-| Unit, including architecture/privacy/UoW boundaries | 188 PASS |
+| Unit, including architecture/privacy/UoW boundaries | 189 PASS |
 | HTTP/process, including outage, kill and shutdown | 14 PASS |
 | API/schema/runtime-consumer contracts | 4 PASS |
 | Explicit native decoder regression | 5 PASS |
@@ -239,13 +239,17 @@ shared-snapshot evidence, including preserved coordinator feature work and the O
 | ESLint | PASS |
 | Public-repository scanner | Worktree checkpoint PASS; exact staged hook gate required for publication |
 
-These local suites total 317 passing tests. Publication additionally requires the exact staged
+These local suites total 318 passing tests. Publication additionally requires the exact staged
 security scan and the task PR checks against current QA; the PR carries those publication results.
 
-A handshake deadline assertion initially missed its unchanged threshold under simultaneous native
-video/typecheck load; the full unit suite passed after those CPU-heavy checks exited. No test timeout
-or production deadline was relaxed. The native decoder test is an explicit local dependency gate;
-these results do not establish production R2/decoder operation.
+Remote CI exposed that cold Prisma initialization and connection acquisition could spend separate
+budgets before readiness settled. Readiness now has an absolute 2,000 ms budget covering the whole
+read transaction, while ordinary domain transactions retain their 8,000 ms limit. The unchanged
+2,500 ms handshake assertion passes under standard unit-test parallelism; new checks prove pending
+handshake sockets close and a timed-out startup cannot invoke a late domain callback. The full unit,
+MySQL and HTTP/contract suites passed after this correction, and independent re-review found no
+P1/P2 cancellation or coalescing regression. The native decoder test is an explicit local dependency
+gate; these results do not establish production R2/decoder operation.
 
 The user assigned the separate ORM-first conversion during this correction. Its worker owns database
 runtime and repository data access; the structure worker owns architecture tests/documentation, while

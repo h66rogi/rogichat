@@ -31,7 +31,7 @@ Reads use a fresh writer REPEATABLE READ, database-enforced READ ONLY snapshot.
 Writes retain explicit current locking reads and established lock ordering. The
 driver adapter and generated client share one bounded process pool. UTC, session
 lock timeout (2 seconds), acquire timeout (1.2 seconds), statement wall deadline
-(3 seconds) and whole-transaction deadline (8 seconds) are enforced at their
+(3 seconds) and whole-transaction deadline (8 seconds; 2 seconds for readiness) are enforced at their
 boundaries. The 3-second socket timeout bounds idle transport only. On MySQL 8,
 MariaDB's resetAfterUse performs rollback rather than full session reset: each
 checkout explicitly reapplies UTC, lock wait timeout and NEXT-transaction READ
@@ -167,6 +167,18 @@ Prisma except the specifically identified arithmetic/lease/limiter statements.
 Login's unique-subject retry requires positive rollback evidence from Transactions,
 not just a P2002 code. The final transaction retries at most once without another
 broker exchange. Both failed-rollback and confirmed-rollback caller tests cover it.
+
+## Cold readiness deadline
+
+The first remote run exposed a cold-start bound violation: the official adapter
+performs capability discovery with one acquire budget, catches its failure, then
+attempts transaction checkout with another. Two 1.2-second windows plus engine
+startup exceeded the existing 2.5-second readiness test (2.585 seconds observed).
+Readiness now explicitly uses a 2-second absolute read-transaction deadline that
+includes engine startup, capability discovery and checkout. Domain transactions
+retain their 8-second budget. Cancellation closes any owned transport and blocks
+late callbacks; the original timing assertion remains unchanged. Tests also prove
+that closing a failed readiness pool releases its pending handshake sockets.
 
 ## Verification checkpoint
 

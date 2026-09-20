@@ -10,6 +10,7 @@ function harness(overrides = {}) {
     async $transaction(callback) {
       counts.acquired++;
       const state = context.getStore();
+      await overrides.acquire?.();
       try {
         const result = await callback({
           $queryRaw: async (...args) => { counts.queries++; return overrides.query?.(...args) ?? []; },
@@ -110,3 +111,12 @@ for (const rollbackFails of [false, true]) {
     assert.equal(counts.acquired, 1);
   });
 }
+
+test('short readiness budget includes cold startup and suppresses its late callback', async () => {
+  let resume, called = false;
+  const { transactions, counts } = harness({ acquire: () => new Promise(resolve => { resume = resolve; }) });
+  await assert.rejects(transactions.read(async () => { called = true; }, 20), /transaction_timeout/);
+  resume(); await turn();
+  assert.equal(called, false); assert.equal(counts.committed, 0); assert.equal(counts.queries, 0);
+  for (const budget of [0, -1, 8001, Infinity]) assert.throws(() => transactions.read(async () => {}, budget), /invalid_transaction_deadline/);
+});

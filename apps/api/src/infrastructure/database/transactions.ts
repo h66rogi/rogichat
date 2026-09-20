@@ -48,7 +48,10 @@ function lockFailure(error: unknown): boolean {
 }
 export class Transactions {
   constructor(private readonly client: PrismaClient, private readonly context: AsyncLocalStorage<TransactionState>) {}
-  read<T>(operation: (tx: Transaction) => Promise<T>): Promise<T> { return this.run(false, operation); }
+  read<T>(operation: (tx: Transaction) => Promise<T>, deadlineMs = 8000): Promise<T> {
+    if (!Number.isSafeInteger(deadlineMs) || deadlineMs < 1 || deadlineMs > 8000) throw new Error('invalid_transaction_deadline');
+    return this.run(false, operation, deadlineMs);
+  }
   async write<T>(operation: (tx: Transaction) => Promise<T>): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try { return await this.run(true, operation); }
@@ -62,11 +65,11 @@ export class Transactions {
   private readonly retryable = new Set<unknown>();
   private readonly rolledBack = new WeakSet<object>();
   rollbackConfirmed(error: unknown): boolean { return typeof error === 'object' && error !== null && this.rolledBack.has(error); }
-  private async run<T>(writable: boolean, operation: (tx: Transaction) => Promise<T>): Promise<T> {
+  private async run<T>(writable: boolean, operation: (tx: Transaction) => Promise<T>, deadlineMs = 8000): Promise<T> {
     const state: TransactionState = { writable, closed: false, commitStarted: false, rollbackConfirmed: false };
     let timer: ReturnType<typeof setTimeout>;
     const deadline = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { state.closed = true; state.abort?.(); reject(new Error('transaction_timeout')); }, 8000);
+      timer = setTimeout(() => { state.closed = true; state.abort?.(); reject(new Error('transaction_timeout')); }, deadlineMs);
     });
     try {
       return await Promise.race([this.context.run(state, () => this.client.$transaction(async client => {

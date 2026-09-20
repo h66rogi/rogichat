@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:net';
 import { once } from 'node:events';
+import { setTimeout } from 'node:timers';
 import { performance } from 'node:perf_hooks';
 import { MysqlDatabase, poolOptions } from '../../dist/infrastructure/database/database.js';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
@@ -33,4 +34,7 @@ test('unresponsive DB handshake is bounded and simultaneous probes are coalesced
   assert.equal(first, database.check());
   assert.deepEqual(await first, { ready: false, reason: 'database_unavailable' });
   assert.ok(performance.now() - started < 2500);
+  await database.close();
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(sockets.size, 0, 'closed readiness pool must release pending handshake sockets');
 });
