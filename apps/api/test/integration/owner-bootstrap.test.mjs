@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createConnection } from 'mysql2/promise';
+import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { NestFactory } from '@nestjs/core';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { PrismaDatabase } from '../../dist/infrastructure/database/database.js';
@@ -137,4 +138,39 @@ test('failure after domain creation rolls back grants, room graph, generation an
   assert.deepEqual(await f.inspect(), before);
   f.repository.receipt = original;
   assert.equal((await f.service.provision(f.r)).status, 'applied');
+});
+
+
+test('actual database COMMIT then lost driver ACK never replays and exact operator rerun recovers', async t => {
+  let armed = false, lost = 0, grants = 0;
+  const originalConnect = PrismaMariaDb.prototype.connect;
+  t.mock.method(PrismaMariaDb.prototype, 'connect', async function () {
+    const adapter = await originalConnect.call(this), start = adapter.startTransaction.bind(adapter);
+    adapter.startTransaction = async isolation => {
+      const tx = await start(isolation), commit = tx.commit.bind(tx);
+      tx.commit = async () => {
+        await commit(); // Real MySQL durable commit succeeds before the injected ACK loss.
+        if (armed) { armed = false; lost++; throw Object.assign(new Error('isolated_lost_commit_ack'), { code: 'P2034' }); }
+      };
+      return tx;
+    };
+    return adapter;
+  });
+  const f = await fixture(t); await f.seed();
+  const receipt = f.repository.receipt.bind(f.repository), grant = f.repository.grant.bind(f.repository);
+  f.repository.receipt = async (...args) => { await receipt(...args); armed = true; };
+  f.repository.grant = async (...args) => { grants++; return grant(...args); };
+  await assert.rejects(f.service.provision(f.r), /commit_outcome_unknown/);
+  assert.equal(lost, 1); assert.equal(grants, 1);
+  // A separate Prisma connection observes the durable graph, not a returned callback value.
+  const durable = await f.other.transactions.read(async tx => ({
+    rooms: await tx.prisma.rooms.count(), grants: await tx.prisma.creator_accounts.count(),
+    admins: await tx.prisma.admin_capabilities.count(), receipts: await tx.prisma.audit_events.count(),
+    members: await tx.prisma.room_members.count(), periods: await tx.prisma.membership_periods.count(),
+    counters: await tx.prisma.room_counters.count(), streams: await tx.prisma.message_streams.count(),
+  }));
+  assert.deepEqual(durable, { rooms: 1, grants: 1, admins: 1, receipts: 3, members: 1, periods: 1, counters: 1, streams: 1 });
+  const before = await f.inspect();
+  assert.deepEqual(await f.service.provision(f.r), { status: 'already_applied', roomId: f.r.roomId });
+  assert.equal(grants, 1); assert.equal(lost, 1); assert.deepEqual(await f.inspect(), before);
 });

@@ -81,9 +81,9 @@ test('exact replay verifies live owner, period, policy and requested grant witho
   assert.equal((await f.service.provision(f.r)).status, 'already_applied'); assert.ok(!f.calls.includes('grant'));
   f.state.room.owner.role = 'FAN'; await assert.rejects(f.service.provision(f.r));
 });
-test('unknown transaction outcome propagates; service never fabricates CLI success or retries itself', async () => {
-  const f = fixture(); f.repository.receipt = async () => { throw new Error('commit_outcome_unknown'); };
-  await assert.rejects(f.service.provision(f.r), /commit_outcome_unknown/); assert.equal(f.calls.filter(x => x === 'grant').length, 1);
+test('precommit receipt failure propagates without service-level retry', async () => {
+  const f = fixture(); f.repository.receipt = async () => { throw new Error('isolated_receipt_failure'); };
+  await assert.rejects(f.service.provision(f.r), /isolated_receipt_failure/); assert.equal(f.calls.filter(x => x === 'grant').length, 1);
 });
 test('operator CLI rejects argv and pipes without logging supplied private values', () => {
   try { execFileSync(process.execPath, ['dist/modules/owner-bootstrap/owner-bootstrap.command.js', 'private-marker'], { cwd: new URL('../../', import.meta.url), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }); assert.fail(); }

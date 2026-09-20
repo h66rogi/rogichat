@@ -156,10 +156,14 @@ binding, protected input, missing/ineligible/conflicting state, exact replay,
 transaction failure and redacted CLI errors. `test/integration/owner-bootstrap.test.mjs`
 creates fresh disposable schemas from committed migrations and covers empty DB,
 complete real domain graph, requested-only grants, both history policies, exact
-rerun/lost-response recovery, changed requests/state, two competing owners, same
+rerun/lost-response recovery and real MySQL COMMIT followed by injected driver ACK
+loss (including no internal replay), changed requests/state, two competing owners, same
 request race, existing multiple rooms, deletion fences and inverse-order locks.
 These fixtures run only under the disposable test harness and never enter the
-runtime bundle. Hosted CI owns full build, lint, typecheck, existing regression
+runtime bundle. `tools/operations/test_backend_owner_bootstrap.py` executes the actual
+shell helper against isolated command stubs to verify fixed paths, container flags,
+metadata validation and nonzero failure propagation without Docker or host writes.
+Hosted CI owns full build, lint, typecheck, existing regression
 suite and MySQL execution; no dependency installation/full build/MySQL was run
 locally for this batch.
 
