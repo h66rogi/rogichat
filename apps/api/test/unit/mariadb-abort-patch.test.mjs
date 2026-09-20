@@ -15,12 +15,14 @@ const Options = require(join(directory, 'lib/config/connection-options.js'));
 const { Status } = require(join(directory, 'lib/const/connection_status.js'));
 
 test('exact pinned hard-abort patch is installed and recorded by frozen lockfile', () => {
-  assert.equal(require(join(directory, 'package.json')).version, '3.4.5');
-  const patch = readFileSync(new URL('../../../../patches/mariadb@3.4.5.patch', import.meta.url));
+  assert.equal(require(join(directory, 'package.json')).version, '3.4.7');
+  assert.equal(require.resolve('mariadb/package.json'), adapterRequire.resolve('mariadb/package.json'));
+  const patch = readFileSync(new URL('../../../../patches/mariadb@3.4.7.patch', import.meta.url));
   const lock = readFileSync(new URL('../../../../pnpm-lock.yaml', import.meta.url), 'utf8');
   assert.ok(lock.includes(createHash('sha256').update(patch).digest('hex')));
   assert.match(Connection.prototype.destroy.toString(), /this\.fatalError\(err, true\)/);
   assert.doesNotMatch(Connection.prototype.destroy.toString(), /new Connection|new Quit|killCon/);
+  assert.match(Connection.prototype.createSecureContext.toString(), /info\.isMariaDB\(\) && this\.opts\.ssl === true/);
 });
 
 test('active query transport closes synchronously when any auxiliary connection is unavailable', async t => {

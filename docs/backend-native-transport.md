@@ -139,10 +139,10 @@ authoritative; connection-state recovery is disabled.
 
 ## Verification boundary
 
-Local validation on 2026-09-20 passed build, type checking, lint, 219 combined
-unit/HTTP/contract tests and 121 disposable real-MySQL integration tests. The
+Local validation on 2026-09-20 passed build, type checking, lint, 222 combined
+unit/HTTP/contract tests and 130 disposable real-MySQL integration tests. The
 transport migration was generated and applied only in that isolated local MySQL;
-these counts precede integration with the newer reusable-sticker QA change.
+these counts include the reusable-sticker QA change and patched MariaDB 3.4.7.
 Neither the native transport migration nor these routes have been deployed to QA
 at this checkpoint.
 
@@ -156,3 +156,10 @@ CSRF check in publication requests; it was replaced with the shared transport
 proof and covered by an actual HTTP/worker regression. Fixture issuance occurs only
 inside tests, never through a product endpoint. These tests do not establish real
 SOOP/Apple registration, callback association or device-login success.
+
+Consumer review confirmed the unchanged web session shape and recipient paginator
+match the web implementation. Backend-first rollout remains mandatory: a missing
+recipient endpoint is an error, never an empty successful list. Multiple eligible
+streamers require explicit user selection, not an inferred first actor. Native
+clients must retain server accountGeneration separately from their local
+cancellation epoch, and cannot infer a sign-in provider from SOOP link status.

@@ -100,10 +100,12 @@ jobs:
           const require = createRequire(import.meta.url);
           const adapterRequire = createRequire(require.resolve('@prisma/adapter-mariadb'));
           const driverRequire = createRequire(adapterRequire.resolve('mariadb/package.json'));
-          assert.equal(driverRequire('./package.json').version, '3.4.5');
+          assert.equal(driverRequire('./package.json').version, '3.4.7');
+          assert.equal(require.resolve('mariadb/package.json'), adapterRequire.resolve('mariadb/package.json'));
           const destroy = driverRequire('./lib/connection.js').prototype.destroy.toString();
           assert.match(destroy, /this\.fatalError\(err, true\)/);
           assert.doesNotMatch(destroy, /new Connection|new Quit|killCon/);
+          assert.match(driverRequire('./lib/connection.js').prototype.createSecureContext.toString(), /info\.isMariaDB\(\) && this\.opts\.ssl === true/);
           JS
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$migration_image" \
             -e "const fs=require('node:fs');const path=require('node:path');const p=require('prisma/package.json');const engine=path.dirname(require.resolve('@prisma/engines/package.json',{paths:[require.resolve('prisma/package.json')]}));if(p.version!=='7.10.0'||!fs.existsSync(path.join(engine,'schema-engine-debian-openssl-3.0.x'))||typeof require('mysql2/promise').createConnection!=='function')process.exit(1)"
