@@ -22,7 +22,7 @@ function fixture(readResult, pushResult) {
   };
   const read = { async purgeAccount(_tx, _userId, limit) { assert.equal(limit, 100); calls.push('read'); return readResult; } };
   const push = { async purgeAccount(_tx, _userId, limit) { assert.equal(limit, 100); calls.push('push'); return pushResult; } };
-  return { calls, service: new AccountCleanupService(transactions, ledger, repository, read, push) };
+  return { calls, service: new AccountCleanupService(transactions, ledger, repository, read, push, { async purgeAccount() { calls.push('auth'); return { changed: 0, hasMore: false, providerPending: false }; } }) };
 }
 
 test('read-state hasMore and push done are distinct continuation barriers, including zero-deletion passes', async () => {
@@ -37,7 +37,7 @@ test('read-state hasMore and push done are distinct continuation barriers, inclu
   }
   const f = fixture({ deleted: 0, hasMore: false }, { deleted: 0, done: true });
   assert.deepEqual(await f.service.step(requestId), { phase: 'subset-drained', changed: 0, hasMore: false });
-  assert.equal(f.calls.at(-1), 'sessions');
+  assert.equal(f.calls.at(-1), 'auth');
 });
 
 test('cleanup module exports only its internal service and consumes existing domain ports without installing a runner', () => {

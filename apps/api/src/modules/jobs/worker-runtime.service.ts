@@ -1,3 +1,4 @@
+import { AppleLifecycleService } from '../auth/apple/apple-lifecycle.service.js';
 import { PurgeWorkerService } from '../deletion/purge-worker.service.js';
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { OnApplicationBootstrap, OnModuleDestroy } from '@nestjs/common';
@@ -22,7 +23,8 @@ export class WorkerRuntimeService implements OnApplicationBootstrap, OnModuleDes
     @Inject(WorkerLoop) private readonly jobs: WorkerLoop,
     @Inject(PublicationsCoreService) private readonly publications: PublicationsCoreService,
     @Optional() @Inject(MediaWorkerService) private readonly media?: MediaWorkerService,
-    @Optional() @Inject(PurgeWorkerService) private readonly purge?: PurgeWorkerService) {}
+    @Optional() @Inject(PurgeWorkerService) private readonly purge?: PurgeWorkerService,
+    @Optional() @Inject(AppleLifecycleService) private readonly apple?: AppleLifecycleService) {}
   onApplicationBootstrap(): void { this.tick(); this.jobs.start(); }
   private tick = (): void => { this.pending = this.probe(); };
   private async probe(): Promise<void> {
@@ -34,6 +36,9 @@ export class WorkerRuntimeService implements OnApplicationBootstrap, OnModuleDes
     if (result.ready && this.purge) await this.purge.recover().then(counts => {
       if (counts.unavailable) process.stderr.write('purge_recovery_unavailable\n');
     }, () => { process.stderr.write('purge_recovery_unavailable\n'); });
+    if (result.ready && this.apple) await this.apple.revokeStep().then(result => {
+      if (result.unavailable) process.stderr.write('apple_revocation_unavailable\n');
+    }, () => { process.stderr.write('apple_revocation_unavailable\n'); });
     if (!this.lifecycle.draining) this.timer = setTimeout(this.tick, 5000);
   }
   async onModuleDestroy(): Promise<void> {

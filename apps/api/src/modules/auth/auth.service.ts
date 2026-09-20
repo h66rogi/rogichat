@@ -46,7 +46,8 @@ export class AuthService {
       if (credentials.transport === 'NATIVE') {
         return this.sessionStore.nativeSession(tx, credentials.token, credentials.clientId);
       }
-      return { authenticated: true, soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED', csrfToken: this.csrf(credentials.token!),
+      return { authenticated: true, soopLinkStatus: principal.soopLinked ? 'VERIFIED' : 'REQUIRED',
+        onboardingState: principal.soopLinked ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: principal.soopLinked }, csrfToken: this.csrf(credentials.token!),
         accountPartition: this.sessionStore.accountPartition(principal.userId) };
     });
   }

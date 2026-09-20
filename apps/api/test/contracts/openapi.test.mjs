@@ -154,7 +154,7 @@ test('own command and account partition contracts reject widened or incomplete p
     { clientMessageId: id, status: 'committed', messageId: randomUUID() },
   ]) check(schema, value, false);
   const session = doc.paths['/v1/auth/session'].get.responses['200'].content['application/json'].schema;
-  const web = { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: 'a'.repeat(43), accountPartition: 'b'.repeat(43) };
+  const web = { authenticated: true, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true }, csrfToken: 'a'.repeat(43), accountPartition: 'b'.repeat(43) };
   check(session, web);
   check(session, { ...web, accountPartition: undefined }, false);
   check(session, { ...web, accountPartition: id }, false);

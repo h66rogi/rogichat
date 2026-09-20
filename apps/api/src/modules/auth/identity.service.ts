@@ -27,9 +27,9 @@ export class IdentityService {
     const existing = await this.repository.findSubject(tx, subject);
     if (existing) {
       if (linkUserId && existing.user_id !== linkUserId) throw new ApiError('CONFLICT', 409);
-      if (existing.status !== 'VERIFIED') throw new ApiError('AUTH_FAILED', 400);
       const user = await this.repository.account(tx, String(existing.user_id));
       if (!user || user.status !== 'ACTIVE') throw new ApiError('AUTH_FAILED', 400);
+      if (existing.status === 'REVOKED') await this.repository.reverify(tx, String(existing.user_id));
       return String(existing.user_id);
     }
     await this.guards.requireRegistration(tx);

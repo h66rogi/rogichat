@@ -45,6 +45,7 @@ export async function createConfiguredApi(module: DynamicModule, logger: SafeLog
     next();
   });
   if (auth) authCors(server, auth);
+  server.use('/v1/auth/apple/callback', express.urlencoded({ extended: false, limit: '32kb', parameterLimit: 4, inflate: false }));
   const json = express.json({ limit: '64kb', strict: true, inflate: false });
   server.use((request: Request, response: Response, next: NextFunction) => {
     if (request.method === 'POST' && /^\/v1\/media\/upload-intents\/[^/]+\/content$/.test(request.path)) { next(); return; }

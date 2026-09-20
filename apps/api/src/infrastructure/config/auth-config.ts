@@ -1,8 +1,11 @@
+import { readAppleConfig } from '../../modules/auth/apple/apple-config.js';
+import type { AppleConfig } from '../../modules/auth/apple/apple-config.js';
 import { readFileSync, statSync } from 'node:fs';
 import { ConfigurationError } from './config.js';
 import type { Config } from './config.js';
 
 export interface AuthConfig {
+  readonly apple?: AppleConfig;
   readonly audience: string;
   readonly origin: string;
   readonly callback: string;
@@ -31,6 +34,8 @@ export function readAuthConfig(config: Config, env: NodeJS.ProcessEnv = process.
       if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error();
       broker = { baseUrl: url.origin, clientId: b.clientId, clientSecret: b.clientSecret };
     }
-    return Object.freeze({ audience: `rogi-${config.environment}`, origin, callback, secure: hosted, key: Buffer.from(record.key, 'hex'), ...(typeof record.identityGuardKey === 'string' ? { identityGuardKey: Buffer.from(record.identityGuardKey, 'hex') } : {}), broker });
+    const apple = readAppleConfig(config.environment, env);
+    if (apple && typeof record.identityGuardKey !== 'string') throw new Error();
+    return Object.freeze({ ...(apple ? { apple } : {}), audience: `rogi-${config.environment}`, origin, callback, secure: hosted, key: Buffer.from(record.key, 'hex'), ...(typeof record.identityGuardKey === 'string' ? { identityGuardKey: Buffer.from(record.identityGuardKey, 'hex') } : {}), broker });
   } catch { throw new ConfigurationError('AUTH_SECRET_FILE'); }
 }
