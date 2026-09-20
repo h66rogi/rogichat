@@ -1,3 +1,4 @@
+import { MediaWriteProofService } from './media-write-proof.service.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { MediaWorkerRepository, acknowledgedWrite } from './media-worker.repository.js';
 import { JobsCoreService } from '../jobs/jobs-core.service.js';
@@ -29,8 +30,10 @@ interface TransformAttempt { assetId: string; objectId: string; key: string; inp
 
 @Injectable()
 export class MediaWorkerService {
-  constructor(@Inject(Transactions) private readonly transactions: Transactions, @Inject(MEDIA_STORE) private readonly store: MediaStore, @Inject(MEDIA_DECODER) private readonly decoder: ImageDecoder & VideoDecoder, @Inject(MEDIA_PREFIX) private readonly prefix: string, @Inject(MediaWorkerRepository) private readonly repository: MediaWorkerRepository, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(AccessService) private readonly access: AccessService, @Inject(MessagesCoreService) private readonly messages: MessagesCoreService) {}
-  private async finish(tx: Transaction, lease: JobLease): Promise<void> { if (!await this.jobs.complete(tx, lease)) throw new StaleMediaLease(); }
+  constructor(@Inject(Transactions) private readonly transactions: Transactions, @Inject(MEDIA_STORE) private readonly store: MediaStore, @Inject(MEDIA_DECODER) private readonly decoder: ImageDecoder & VideoDecoder, @Inject(MEDIA_PREFIX) private readonly prefix: string, @Inject(MediaWorkerRepository) private readonly repository: MediaWorkerRepository, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(AccessService) private readonly access: AccessService, @Inject(MessagesCoreService) private readonly messages: MessagesCoreService, @Inject(MediaWriteProofService) private readonly writes: MediaWriteProofService) {}
+  private async finish(tx: Transaction, lease: JobLease): Promise<void> {
+    if (!(await this.repository.fence(tx, lease)).length || !await this.jobs.complete(tx, lease)) throw new StaleMediaLease();
+  }
   private async assetLock(tx: Transaction, assetId: string) {
     const [reference] = await this.repository.reference(tx, assetId);
     if (!reference) throw new JobFailure('INVALID_RESOURCE', true);
@@ -81,7 +84,7 @@ export class MediaWorkerService {
     const poster = input.kind === 'VIDEO' ? { objectId: randomUUID(), key: mediaKey(this.prefix, String(asset.id), attempt, 'poster') } : undefined;
     if (poster) await this.repository.allocate(tx, poster.objectId, asset.id, attempt, poster.key, 'poster');
     // Lock/check the job last. The finalization repeats this fence after external I/O.
-    const current = await this.repository.fence(tx, lease.id, lease.generation.toString(), lease.leaseOwner, lease.leaseToken);
+    const current = await this.repository.fence(tx, lease);
     if (!current.length) throw new StaleMediaLease();
     return { assetId: String(asset.id), objectId, key, inputKey: String(originals[0]!.object_key), input, poster };
   }
@@ -106,7 +109,7 @@ export class MediaWorkerService {
       const { asset } = await this.assetLock(tx, lease.resourceId!);
       if (asset.state !== 'DELETING') throw new JobFailure('SOURCE_UNAVAILABLE');
       const page = await this.repository.cleanupPage(tx, String(asset.id));
-      if (!(await this.repository.fence(tx, lease.id, lease.generation.toString(), lease.leaseOwner, lease.leaseToken)).length) throw new StaleMediaLease();
+      if (!(await this.repository.fence(tx, lease)).length) throw new StaleMediaLease();
       return page;
     });
     // Even unacknowledged attempts get a best-effort DELETE, but never closure.
@@ -124,8 +127,8 @@ export class MediaWorkerService {
     });
   }
   async processMedia(lease: JobLease): Promise<'completed' | 'lease_lost' | 'progress' | 'deferred'> {
-    // Includes GET, 270s decoder transport and both PUTs. Remains below the
-    // existing 10-minute late-write guard; renewal never extends this deadline.
+    // Includes GET, decoder transport and both PUTs. This bounds the caller;
+    // timeout alone is never storage-writer termination proof.
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 450000);
     let decoded: DecodedMedia | DecodedVideoMedia | undefined;
     let source: Readable | undefined;
@@ -181,12 +184,16 @@ export class MediaWorkerService {
         if (!Number.isSafeInteger(video.durationMs) || !attempt.poster || [video.file, poster.file].some(file => !/^[a-f0-9]{64}$/.test(file.sha256))) throw new JobFailure('INVALID_RESOURCE', true);
         controller.signal.throwIfAborted();
         await this.store.put(attempt.key, video.file.path, video.file.bytes, video.contentType, controller.signal);
+        await this.transactions.write(tx => this.writes.acknowledge(tx, attempt.assetId, attempt.objectId, attempt.key));
         controller.signal.throwIfAborted();
         await this.store.put(attempt.poster.key, poster.file.path, poster.file.bytes, poster.contentType, controller.signal);
+        const output = attempt.poster;
+        await this.transactions.write(tx => this.writes.acknowledge(tx, attempt.assetId, output.objectId, output.key));
       } else {
         if (attempt.input.kind === 'VIDEO') throw new JobFailure('INVALID_RESOURCE', true);
         controller.signal.throwIfAborted();
         await this.store.put(attempt.key, decoded.file.path, decoded.file.bytes, decoded.contentType, controller.signal);
+        await this.transactions.write(tx => this.writes.acknowledge(tx, attempt.assetId, attempt.objectId, attempt.key));
       }
       controller.signal.throwIfAborted();
       const result = decoded;

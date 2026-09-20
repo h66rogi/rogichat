@@ -1,15 +1,16 @@
 import { affected } from '../../infrastructure/database/transactions.js';
 import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
+import type { JobLease } from '../jobs/jobs.policy.js';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
-export interface CleanupObject { id: string; object_key: string; state: string; byte_length: string | null; sha256: string | null; attempt_id?: string }
-// Only acknowledged PUT finalization populates both fields in registered writers.
-// ALLOCATED never proves termination, including after abort or lease expiry.
+export interface CleanupObject { id: string; object_key: string; state: string; byte_length: string | null; sha256: string | null; attempt_id?: string; writer_acknowledged?: boolean | number | string }
+// Successful PUT acknowledgements are recorded separately from domain finalization.
+// ALLOCATED alone never proves termination, including after abort or lease expiry.
 export function acknowledgedWrite(row: CleanupObject): boolean {
-  return ['STORED', 'READY', 'DELETED'].includes(row.state) && row.byte_length !== null &&
+  return Number(row.writer_acknowledged) === 1 || ['STORED', 'READY', 'DELETED'].includes(row.state) && row.byte_length !== null &&
     /^[1-9][0-9]*$/.test(String(row.byte_length)) && typeof row.sha256 === 'string' && /^[a-f0-9]{64}$/.test(row.sha256);
 }
-const unprovenWrite = "(o.state NOT IN ('STORED','READY','DELETED') OR o.byte_length IS NULL OR o.byte_length=0 OR o.sha256 IS NULL OR NOT REGEXP_LIKE(o.sha256,'^[a-f0-9]{64}$','c'))";
+const unprovenWrite = "((o.state NOT IN ('STORED','READY','DELETED') OR o.byte_length IS NULL OR o.byte_length=0 OR o.sha256 IS NULL OR NOT REGEXP_LIKE(o.sha256,'^[a-f0-9]{64}$','c')) AND NOT EXISTS (SELECT 1 FROM media_cleanup_attempts p WHERE p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key AND p.writer_acknowledged=1))";
 @Injectable()
 export class MediaWorkerRepository {
   reference(tx: Transaction, assetId: string) {
@@ -40,8 +41,8 @@ export class MediaWorkerRepository {
   allocate(tx: Transaction, objectId: string, assetId: unknown, attempt: string, key: string, variant: 'image' | 'video' | 'poster' = 'image') {
     return tx.prisma.media_objects.create({ data: { id: objectId, asset_id: String(assetId), attempt_id: attempt, variant, object_key: key }, select: { id: true } });
   }
-  fence(tx: Transaction, jobId: string, generation: string, owner: string, token: string) {
-    return tx.rows("SELECT id FROM jobs WHERE id=? AND purpose='MEDIA' AND state='RUNNING' AND generation=? AND lease_owner=? AND lease_token=? AND lease_until>UTC_TIMESTAMP(3) FOR UPDATE", [jobId, generation, owner, token]);
+  fence(tx: Transaction, lease: JobLease) {
+    return tx.rows("SELECT id FROM jobs WHERE id=? AND purpose='MEDIA' AND room_id<=>? AND resource_id=? AND state='RUNNING' AND generation=? AND lease_owner=? AND lease_token=? AND lease_until>UTC_TIMESTAMP(3) FOR UPDATE", [lease.id, lease.roomId, lease.resourceId, lease.generation.toString(), lease.leaseOwner, lease.leaseToken]);
   }
   // DB-clock renewal must atomically reject an expired/reclaimed lease. Job-only
   // transaction: never acquire domain locks after this update.
@@ -55,7 +56,7 @@ export class MediaWorkerRepository {
     return affected(tx.prisma.media_assets.updateMany({ where: { id: String(assetId) }, data: { state: 'READY' } }));
   }
   objects(tx: Transaction, assetId: unknown) {
-    return tx.rows<CleanupObject>("SELECT id,object_key,state,byte_length,sha256 FROM media_objects WHERE asset_id=? ORDER BY id LIMIT 501 FOR UPDATE", [assetId]);
+    return tx.rows<CleanupObject>("SELECT o.id,o.object_key,o.state,o.byte_length,o.sha256,p.writer_acknowledged FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key WHERE o.asset_id=? ORDER BY o.id LIMIT 501 FOR UPDATE", [assetId]);
   }
   currentObjects(tx: Transaction, assetId: unknown) {
     return this.objects(tx, assetId);
@@ -63,7 +64,7 @@ export class MediaWorkerRepository {
   async cleanupPage(tx: Transaction, assetId: string) {
     const checkpoint = await tx.prisma.media_cleanup_checkpoints.upsert({ where: { asset_id: assetId }, create: { asset_id: assetId }, update: {}, select: { object_cursor: true } });
     const page = await tx.rows<CleanupObject & { attempt_id: string }>(
-      'SELECT id,attempt_id,object_key,state,byte_length,sha256 FROM media_objects WHERE asset_id=? AND id>? ORDER BY id LIMIT 100 FOR UPDATE', [assetId, checkpoint.object_cursor ?? '']);
+      'SELECT o.id,o.attempt_id,o.object_key,o.state,o.byte_length,o.sha256,p.writer_acknowledged FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key WHERE o.asset_id=? AND o.id>? ORDER BY o.id LIMIT 100 FOR UPDATE', [assetId, checkpoint.object_cursor ?? '']);
     for (const row of page) {
       const prior = await tx.prisma.media_cleanup_attempts.findUnique({ where: { object_id: row.id }, select: { asset_id: true, attempt_id: true, object_key: true } });
       if (prior && (prior.asset_id !== assetId || prior.attempt_id !== row.attempt_id || prior.object_key !== row.object_key)) throw new Error('media_cleanup_provenance_conflict');
@@ -75,7 +76,7 @@ export class MediaWorkerRepository {
   }
   async finishPage(tx: Transaction, assetId: string, page: CleanupObject[]) {
     for (const planned of page) {
-      const [current] = await tx.rows<CleanupObject>('SELECT id,object_key,state,byte_length,sha256 FROM media_objects WHERE asset_id=? AND id=? FOR UPDATE', [assetId, planned.id]);
+      const [current] = await tx.rows<CleanupObject>('SELECT o.id,o.object_key,o.state,o.byte_length,o.sha256,p.writer_acknowledged FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key WHERE o.asset_id=? AND o.id=? FOR UPDATE', [assetId, planned.id]);
       if (!current || current.object_key !== planned.object_key) throw new Error('media_cleanup_provenance_conflict');
       const acknowledged = acknowledgedWrite(current);
       await tx.prisma.media_cleanup_attempts.update({ where: { object_id: current.id }, data: { writer_acknowledged: acknowledged, delete_observed_at: await tx.now() }, select: { object_id: true } });
@@ -84,8 +85,8 @@ export class MediaWorkerRepository {
       if (acknowledged && acknowledgedWrite(planned)) await tx.prisma.media_objects.updateMany({ where: { id: current.id, asset_id: assetId }, data: { state: 'DELETED' } });
     }
     await tx.prisma.media_cleanup_checkpoints.update({ where: { asset_id: assetId }, data: { object_cursor: page.at(-1)?.id ?? null }, select: { asset_id: true } });
-    return !(await tx.rows(`SELECT o.id FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.object_key=o.object_key
-      WHERE o.asset_id=? AND (o.state<>'DELETED' OR ${unprovenWrite} OR p.object_id IS NULL OR p.writer_acknowledged=0 OR p.delete_observed_at IS NULL) LIMIT 1 FOR UPDATE`, [assetId])).length;
+    return !(await tx.rows(`SELECT o.id FROM media_objects o LEFT JOIN media_cleanup_attempts p ON p.object_id=o.id AND p.asset_id=o.asset_id AND p.attempt_id=o.attempt_id AND p.object_key=o.object_key
+      WHERE o.asset_id=? AND (o.state<>'DELETED' OR p.object_id IS NULL OR p.writer_acknowledged=0 OR p.delete_observed_at IS NULL) LIMIT 1 FOR UPDATE`, [assetId])).length;
   }
   releaseBudget(tx: Transaction, bytes: unknown, minimum: unknown) {
     return affected(tx.prisma.media_budget.updateMany({ where: { id: 'global', reserved_bytes: { gte: BigInt(String(minimum)) } }, data: { reserved_bytes: { decrement: BigInt(String(bytes)) } } }));

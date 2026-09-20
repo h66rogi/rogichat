@@ -12,14 +12,16 @@ export class AccountContentRepository {
     await tx.rows('SELECT id FROM rooms WHERE id=? FOR UPDATE', [found.room_id]);
     const [row] = await tx.rows<{ id: string; room_id: string; content_owner_user_id: string; deletion_root_id: string | null; deleted_at: Date | null }>(
       'SELECT id,room_id,content_owner_user_id,deletion_root_id,deleted_at FROM messages WHERE id=? AND room_id=? FOR UPDATE', [found.id, found.room_id]);
-    if (!row || row.content_owner_user_id !== userId) throw new Error('account_content_scope');
+    if (!row) return { ...found, missing: true as const };
+    if (row.content_owner_user_id !== userId) throw new Error('account_content_scope');
     return row;
   }
   async restoredDependencies(tx: Transaction, receipt: DeletionReceipt) {
     // Select and lock one durable checkpoint before its room. FK-free restored
     // receipts may exist without a live message; absence alone is never proof.
     const [row] = await tx.rows<{ message_id: string; room_id: string; content_owner_user_id: string; environment: string; requested_at: Date; ledger_sha256: Buffer }>(`SELECT c.message_id,c.room_id,c.content_owner_user_id,c.environment,c.requested_at,c.ledger_sha256 FROM account_content_checkpoints c
-      WHERE c.request_id=? AND c.rows_purged_at IS NOT NULL AND (
+      WHERE c.request_id=? AND c.rows_purged_at IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.room_id=c.room_id AND m.id=c.message_id) AND (
         EXISTS (SELECT 1 FROM command_receipts r WHERE r.room_id=c.room_id AND r.message_id=c.message_id AND (r.deleted=0 OR r.payload_digest IS NOT NULL)) OR
         EXISTS (SELECT 1 FROM push_deliveries p WHERE p.room_id=c.room_id AND p.message_id=c.message_id))
       ORDER BY c.message_id LIMIT 1 FOR UPDATE`, [receipt.intent.requestId]);

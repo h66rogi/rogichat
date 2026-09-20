@@ -22,6 +22,9 @@ export class AccountContentService {
       const dependencies = await this.dependencies.page(tx, restored.room_id, restored.message_id, limit);
       return { phase: 'content' as const, changed: dependencies.changed, hasMore: !dependencies.done };
     }
+    // Another scope may remove discovery's row while we wait for its room.
+    // Yield without acquiring a second room in this transaction.
+    if ('missing' in message) return { phase: 'content' as const, changed: 0, hasMore: true };
     await this.repository.checkpoint(tx, receipt, message);
     const finish = async (changed: number) => {
       if (changed) await this.repository.epoch(tx, message.room_id);

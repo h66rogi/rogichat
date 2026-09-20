@@ -145,8 +145,8 @@ test('cleanup inventory uses bounded current locking reads including legacy dele
   const tx = { async rows(sql, values) { queries.push({ sql, values }); return []; } };
   await repository.objects(tx, 'asset'); await repository.currentObjects(tx, 'asset');
   for (const { sql, values } of queries) {
-    assert.match(sql, /ORDER BY id LIMIT 501 FOR UPDATE$/);
-    assert.match(sql, /object_key,state,byte_length,sha256/); assert.doesNotMatch(sql, /state<>/);
+    assert.match(sql, /ORDER BY o.id LIMIT 501 FOR UPDATE$/);
+    assert.match(sql, /object_key,o.state,o.byte_length,o.sha256/); assert.doesNotMatch(sql, /state<>/);
     assert.equal(values.length, 1); assert.equal(values[0], 'asset');
   }
   await repository.recoverable(tx);
@@ -188,4 +188,11 @@ test('late writer acknowledgement after DELETE needs a later ordered DELETE befo
   await f.run(); // bounded cursor wrap
   assert.equal(f.calls.refunds, 0);
   await f.run(); assert.equal(f.state().asset.state, 'DELETED'); assert.equal(f.calls.refunds, 1);
+});
+
+test('durable actual PUT acknowledgement proves an ALLOCATED writer, but absence alone does not', () => {
+  const row = { id: 'attempt', object_key: 'key', state: 'ALLOCATED', byte_length: null, sha256: null };
+  assert.equal(acknowledgedWrite(row), false);
+  for (const proof of [true, 1, '1']) assert.equal(acknowledgedWrite({ ...row, writer_acknowledged: proof }), true);
+  for (const proof of [false, 0, null]) assert.equal(acknowledgedWrite({ ...row, writer_acknowledged: proof }), false);
 });

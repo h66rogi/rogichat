@@ -13,7 +13,7 @@ function fixture() {
   const core = { async preparePhoto() { assert.equal(inTransaction, true); return [attempt]; }, async finalizePhoto() { assert.equal(inTransaction, true); finalized++; }, isStaleLease() { return false; } };
   const store = { async read() { assert.equal(inTransaction, false); return { stream: Readable.from([bytes], { objectMode: false }), bytes: bytes.length }; }, async put(key, _path, length, type) { assert.equal(inTransaction, false); assert.equal(key, attempt.key); assert.equal(length, bytes.length); assert.equal(type, 'image/webp'); puts++; } };
   const spool = new MediaSpooler();
-  const worker = new MediaCopyService(transactions, store, 'test', spool, core);
+  const worker = new MediaCopyService(transactions, store, 'test', spool, core, { async acknowledge() { assert.equal(inTransaction, true); } });
   return { bytes, attempt, transactions, core, store, spool, worker, state: () => ({ finalized, puts }) };
 }
 test('copy I/O follows committed preparation and precedes finalization; temporary files are released', async () => {

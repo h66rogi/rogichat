@@ -1,3 +1,4 @@
+import { MediaWriteProofModule } from '../../dist/modules/media/media-write-proof.module.js';
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +38,7 @@ async function fixture(t) {
   };
   const media = { store, prefix: 'test', spool: new MediaSpooler({ directory }) };
   class FixtureModule {}
-  Module({ imports: [PublicationsCoreModule, MediaStorageModule.register(media, true)], providers: [MediaCopyService, { provide: Transactions, useValue: txs }] })(FixtureModule);
+  Module({ imports: [MediaWriteProofModule, PublicationsCoreModule, MediaStorageModule.register(media, true)], providers: [MediaCopyService, { provide: Transactions, useValue: txs }] })(FixtureModule);
   const context = await NestFactory.createApplicationContext(FixtureModule, { logger: false, abortOnError: false });
   const core = context.get(PublicationsCoreService), worker = context.get(MediaCopyService);
   const config = { audience: randomBytes(8).toString('hex'), key: randomBytes(32), origin: 'http://localhost:3001', secure: false };

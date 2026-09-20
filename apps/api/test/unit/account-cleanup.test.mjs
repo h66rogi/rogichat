@@ -19,6 +19,7 @@ function fixture(readResult, pushResult, moderation = { changed: 0, done: true }
     async authorize() { assert.equal(inTransaction, true); calls.push('authorize'); },
     async privateFields() { calls.push('private'); return 0; },
     async memberPage() { calls.push('member'); return null; },
+    async mediaUsage() { return 0; },
     async profileChanges() { return 0; },
     async sessions() { calls.push('sessions'); return 0; },
   };

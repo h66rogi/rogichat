@@ -92,6 +92,10 @@ export class AccountCleanupRepository {
     if (jobs.length) return (await tx.prisma.jobs.deleteMany({ where: { id: { in: jobs.map(row => row.id) }, purpose: 'REALTIME_HINT', room_id: null } })).count;
     return (await tx.prisma.profile_changes.deleteMany({ where: { id: { in: ids }, user_id: userId } })).count;
   }
+  async mediaUsage(tx: Transaction, userId: string, limit: number) {
+    const page = await tx.prisma.media_daily_usage.findMany({ where: { user_id: userId }, orderBy: { day: 'asc' }, take: limit, select: { day: true } });
+    return page.length ? (await tx.prisma.media_daily_usage.deleteMany({ where: { user_id: userId, day: { in: page.map(row => row.day) } } })).count : 0;
+  }
   async sessions(tx: Transaction, userId: string, limit: number) {
     const rows = await tx.prisma.auth_sessions.findMany({ where: { user_id: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     return rows.length ? (await tx.prisma.auth_sessions.deleteMany({ where: { user_id: userId, id: { in: rows.map(row => row.id) } } })).count : 0;

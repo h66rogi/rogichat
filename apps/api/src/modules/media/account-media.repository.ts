@@ -9,9 +9,8 @@ export class AccountMediaRepository {
     const userId = receipt.intent.targetId;
     // Account and (if applicable) one room already locked. Asset is the next
     // serialization point; no second account or room lock may follow it.
-    await tx.rows('SELECT id FROM media_assets WHERE id=? FOR UPDATE', [basis.assetId]);
-    const asset = await tx.prisma.media_assets.findUnique({ where: { id: basis.assetId }, select: { owner_user_id: true, room_id: true } });
-    if (!asset || asset.room_id !== basis.roomId) throw new Error('account_media_scope');
+    const [asset] = await tx.rows<{ owner_user_id: string; room_id: string | null }>('SELECT owner_user_id,room_id FROM media_assets WHERE id=? FOR UPDATE', [basis.assetId]);
+    if (!asset || asset.room_id !== basis.roomId || (['ACCOUNT', 'AVATAR'].includes(basis.kind) && asset.owner_user_id !== userId)) throw new Error('account_media_scope');
     // Current locking existence probes are necessary after asset-lock waits:
     // an older RR snapshot cannot authorize revoking another account's reference.
     const shared = Boolean((await tx.rows("SELECT id FROM sticker_catalog WHERE asset_id=? AND approved_at IS NOT NULL LIMIT 1 FOR SHARE", [basis.assetId])).length ||
