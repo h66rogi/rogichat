@@ -103,6 +103,10 @@ reset, create-only migration or live database changes are part of this batch.
 ## Validation checkpoint
 
 - Prisma Client generation and TypeScript emit: passed with existing pinned tools.
-- Focused unit tests: 21 passed.
-- Full unit, OpenAPI, isolated MySQL, migration replay and hosted CI: pending.
+- Full serial unit suite after M10 runtime and retention wiring: 394 passed.
+- Targeted lint and all 20 OpenAPI/contract tests passed.
+- Migration 22 `20260920111123_moderation_report_block` generated/applied with Prisma 7.10.0 and MySQL 8.0.44; second fresh database replayed all 22 and reported schema in sync.
+- SQL SHA-256: `37cf4a1bc473baf2165b5f3477efa7e64ae358b9483d1da2dd9c7e1f0d33c0ea`. Predecessor schema 21: `d366904`; no prior SQL changed.
+- Both fixture databases and owned mysqld/datadir teardown confirmed at `2026-09-20T11:12:16.683Z`.
+- Full isolated integration and hosted CI: pending.
 - Deployment and QA/main merge: not performed by this worker.

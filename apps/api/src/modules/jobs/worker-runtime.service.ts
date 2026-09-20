@@ -32,7 +32,7 @@ export class WorkerRuntimeService implements OnApplicationBootstrap, OnModuleDes
     if (result.reason !== this.previous) { this.logger.event('readiness_changed', { reason: result.reason }); this.previous = result.reason; }
     if (result.ready) await this.transactions.write(collectExpiredRates).catch(() => {});
     if (result.ready) await this.transactions.write(tx => this.publications.recoverPhotos(tx)).catch(() => {});
-    if (result.ready && this.moderation) await this.transactions.write(tx => this.moderation!.expire(tx)).catch(() => {});
+    if (result.ready && this.moderation) await this.transactions.write(tx => this.moderation!.expire(tx)).catch(() => { process.stderr.write('moderation_retention_unavailable\n'); });
     if (result.ready && this.media) await this.transactions.write(tx => this.media!.recoverMedia(tx)).catch(() => {});
     if (result.ready && this.purge) await this.purge.recover().then(counts => {
       if (counts.unavailable) process.stderr.write('purge_recovery_unavailable\n');

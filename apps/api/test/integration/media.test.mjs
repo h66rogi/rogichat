@@ -205,3 +205,15 @@ test('new PHOTO attachment rechecks current room policy while an existing commit
   assert.deepEqual(await f.sendPhoto(first.assetId, clientMessageId), committed);
   assert.deepEqual(await snapshot(), before);
 });
+
+test('personal actor block denies attached media authorization and unblock preserves the original object', { timeout: 20000 }, async t => {
+  const f = await fixture(t); const { assetId } = await f.reserve(); const key = await f.ready(assetId);
+  const message = await f.sendPhoto(assetId); const context = { roomId: f.room, messageId: message.messageId, variant: 'image' };
+  assert.equal(await f.get(f.owner, assetId, context), key);
+  const where = { room_id: f.room, blocker_actor_id: f.owner.actor, target_actor_id: f.a.actor };
+  await f.db.transactions.write(tx => tx.prisma.actor_blocks.create({ data: where }));
+  await denied(f.get(f.owner, assetId, context));
+  assert.equal(await f.get(f.a, assetId, context), key, 'personal block never purges the owner object');
+  await f.db.transactions.write(tx => tx.prisma.actor_blocks.deleteMany({ where }));
+  assert.equal(await f.get(f.owner, assetId, context), key);
+});

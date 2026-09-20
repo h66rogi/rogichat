@@ -1,7 +1,7 @@
 import { deletionFixture } from '../support/deletion-fixture.mjs';
 
 import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
-import { createUser, createRoom, joinRoom } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, joinRoom, nextOrder } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -172,7 +172,7 @@ test('concurrent block/unblock preserves content and final state matches all rea
   assert.equal(content.deleted_at, null); assert.ok(content.text_content);
 });
 
-test('blocked author cannot reappear through own quotes, profiles, reaction counts or inherited media context', { timeout: 30000 }, async t => {
+test('blocked author cannot reappear through own quotes, profiles or reaction counts', { timeout: 30000 }, async t => {
   const f = await fixture(t); const shared = await f.send(f.owner, '인용 합성 원문');
   const quoted = await f.send(f.fan1, '내 인용 합성', f.owner, shared);
   await f.call(f.owner, 'PUT', `/rooms/${f.room}/messages/${quoted}/reactions/me`, { emoji: '😀' });
@@ -183,9 +183,32 @@ test('blocked author cannot reappear through own quotes, profiles, reaction coun
   assert.equal(after.body.allowedActions.reply, false);
   const reactions = await f.call(f.fan1, 'GET', `/rooms/${f.room}/messages/${quoted}/reactions`);
   assert.deepEqual(reactions.body.counts, []);
+  assert.equal((await f.call(f.fan1, 'PUT', `/rooms/${f.room}/messages/${quoted}/reactions/me`, { emoji: '😀' })).status, 404);
+  assert.equal((await f.call(f.owner, 'PUT', `/rooms/${f.room}/messages/${quoted}/reactions/me`, { emoji: '😀' })).status, 404);
   const page = await f.roomSync(f.fan1, 'snapshot'); assert.equal(page.body.messages.find(m => m.id === quoted).quote, null);
   assert.equal((await f.call(f.fan1, 'GET', `/rooms/${f.room}/actors/${f.owner.actor}/profile`)).status, 404);
   await f.call(f.fan1, 'DELETE', `/rooms/${f.room}/blocks/${f.owner.actor}`);
   assert.equal((await f.call(f.fan1, 'GET', `/rooms/${f.room}/messages/${quoted}`)).body.quote.id, shared);
   assert.equal((await f.call(f.fan1, 'GET', `/rooms/${f.room}/messages/${quoted}/reactions`)).body.counts[0].count, 1);
+});
+
+
+test('anonymous publication permits report but never exposes or targets its hidden fan', { timeout: 30000 }, async t => {
+  const f = await fixture(t); const root = await f.send(f.fan1, '익명 원본 합성', f.owner);
+  const publication = await f.db.transactions.write(async tx => {
+    const stream = await tx.prisma.message_streams.findFirstOrThrow({ where: { room_id: f.room, kind: 'ROOM_SHARED' }, select: { id: true } });
+    const id = randomUUID(); await tx.prisma.messages.create({ data: { id, room_id: f.room, stream_id: stream.id,
+      sender_member_id: f.owner.actor, content_owner_user_id: f.fan1.id, deletion_root_id: root,
+      text_content: '익명 원본 합성', created_order: await nextOrder(tx, f.room) } }); return id;
+  });
+  const shown = await f.call(f.fan2, 'GET', `/rooms/${f.room}/messages/${publication}`);
+  assert.equal(shown.status, 200); assert.deepEqual(shown.body.author, { kind: 'anonymous' });
+  assert.ok(!JSON.stringify(shown.body).includes(f.fan1.actor)); assert.ok(!JSON.stringify(shown.body).includes(root));
+  const receipt = await f.call(f.fan2, 'POST', path(f, publication), reportBody()); assert.equal(receipt.status, 200);
+  assert.deepEqual(Object.keys(receipt.body).sort(), ['createdAt', 'reportId', 'status']);
+  assert.equal((await f.call(f.fan2, 'PUT', `/rooms/${f.room}/blocks/${f.fan1.actor}`, {})).status, 404);
+  await f.call(f.fan2, 'PUT', `/rooms/${f.room}/blocks/${f.owner.actor}`, {});
+  assert.equal((await f.call(f.fan2, 'GET', `/rooms/${f.room}/messages/${publication}`)).status, 404);
+  await f.call(f.fan2, 'DELETE', `/rooms/${f.room}/blocks/${f.owner.actor}`);
+  assert.equal((await f.call(f.fan2, 'GET', `/rooms/${f.room}/messages/${publication}`)).status, 200);
 });

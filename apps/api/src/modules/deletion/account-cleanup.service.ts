@@ -1,3 +1,4 @@
+import { ModerationRetentionService } from '../moderation/moderation-retention.service.js';
 import { AccountContentService } from './account-content.service.js';
 import { AccountMediaService } from '../media/account-media.service.js';
 import type { DeletionReceipt } from './deletion-ledger.js';
@@ -9,7 +10,7 @@ import { ReadStateCoreService } from '../read-state/read-state-core.service.js';
 import { AccountCleanupRepository } from './account-cleanup.repository.js';
 import { DeletionLedger, deletionIntentKey } from './deletion-ledger.js';
 
-export type AccountCleanupPhase = 'private-fields' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'profile-changes' | 'content' | 'media' | 'subset-drained';
+export type AccountCleanupPhase = 'private-fields' | 'moderation' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'profile-changes' | 'content' | 'media' | 'subset-drained';
 export interface AccountCleanupResult { phase: AccountCleanupPhase; changed: number; hasMore: boolean }
 
 /** Internal bounded ACCOUNT step composed by the durable PURGE worker. */
@@ -21,7 +22,8 @@ export class AccountCleanupService {
     @Inject(ReadStateCoreService) private readonly readState: ReadStateCoreService,
     @Inject(NotificationsCoreService) private readonly notifications: NotificationsCoreService,
     @Inject(AccountContentService) private readonly content: AccountContentService,
-    @Inject(AccountMediaService) private readonly media: AccountMediaService) {}
+    @Inject(AccountMediaService) private readonly media: AccountMediaService,
+    @Inject(ModerationRetentionService) private readonly moderation: ModerationRetentionService) {}
 
   async step(requestId: string, limit = 100, finish?: (tx: Transaction, result: AccountCleanupResult) => Promise<void>): Promise<AccountCleanupResult> {
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('invalid_account_cleanup_limit');
@@ -42,6 +44,8 @@ export class AccountCleanupService {
     const userId = receipt.intent.targetId;
     const privateFields = await this.repository.privateFields(tx, userId);
     if (privateFields) return { phase: 'private-fields', changed: privateFields, hasMore: true };
+    const moderation = await this.moderation.clearForAccount(tx, userId, limit);
+    if (moderation.changed || !moderation.done) return { phase: 'moderation', changed: moderation.changed, hasMore: true };
     const read = await this.readState.purgeAccount(tx, userId, limit);
     if (read.deleted || read.hasMore) return { phase: 'read-state', changed: read.deleted, hasMore: true };
     const member = await this.repository.memberPage(tx, userId, limit);
