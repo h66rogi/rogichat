@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(RogichatRooms)
+import RogichatRooms
+#endif
 
 // Adapted from Meloming APIClient: actor-owned URLSession, bounded timeouts,
 // response decoding and HTTP status handling. Native auth has no refresh path.
@@ -52,7 +55,7 @@ final class NativeSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         } else { completionHandler(.cancelAuthenticationChallenge, nil) }
     }
 }
-actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting {
+actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsRequesting {
     private let environment: NativeEnvironment
     private let session: URLSession
     init(environment: NativeEnvironment) {
@@ -126,6 +129,27 @@ actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting {
         catch {
             if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
             throw ProductError.connection
+        }
+    }
+    func performRooms(_ endpoint: RoomsEndpoint, credential: NativeCredential, scope: RoomsScope) async throws -> Data {
+        try scope.check() // Repeat at this actor's admission, not only in the caller.
+        let request = try endpoint.request(environment: environment, credential: credential)
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            try scope.check()
+            guard let response = response as? HTTPURLResponse, response.url == request.url else { throw RoomsError.invalidResponse }
+            if response.statusCode == 401 { throw ProductError.unauthenticated }
+            guard response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw RoomsError.invalidResponse }
+            let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
+            try scope.check()
+            guard response.statusCode == 200 else { throw RoomsEndpoint.error(data: data, status: response.statusCode) }
+            return data
+        } catch let error as RoomsError { throw error }
+        catch let error as ProductError { throw error }
+        catch {
+            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw RoomsError.connection
         }
     }
     func revokeSOOPCredential(_ credential: NativeCredential) async { _ = try? await perform(.logout, credential: credential) }

@@ -57,7 +57,7 @@ struct NativeSessionDTO: Decodable, Sendable {
                                      soopConnected: ready, avatarAssetID: account.avatarAssetId)
         guard summary.isValid else { throw ProductError.invalidResponse }
         return SessionSnapshot(access: ready ? .ready : .linkRequired, account: summary,
-                               serverGeneration: accountGeneration, expiresAt: expiry)
+                               serverGeneration: accountGeneration, expiresAt: expiry, accountPartition: accountPartition)
     }
 }
 struct NativeProfileDTO: Decodable, Sendable {

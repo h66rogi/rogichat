@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if canImport(RogichatRooms)
+import RogichatRooms
+#endif
 
 // The session projection intentionally has no provider or birthday information.
 struct AccountSummary: Equatable, Sendable {
@@ -39,6 +42,8 @@ struct SessionSnapshot: Sendable {
     var publication: SessionPublication? = nil
     // Opaque local service epoch, unrelated to server generation/partition.
     var clientScope: UUID? = nil
+    var accountPartition: String? = nil
+    var roomsScope: RoomsScope? = nil
     static let signedOut = SessionSnapshot(access: .signedOut, account: nil)
 }
 enum SignInMethod: String, Sendable { case apple, soop }
@@ -66,6 +71,8 @@ enum ProductError: Error, LocalizedError, Equatable {
         }
     }
 }
+
+protocol RoomsAuthorizing: Sendable { func roomsData(_ endpoint: RoomsQuery, scope: RoomsScope) async throws -> Data }
 
 // Provider issuance and native credential transport are separate capabilities.
 protocol SessionServing: Sendable {
@@ -119,7 +126,9 @@ final class AppSession {
     private var savingProfile = false
     private(set) var revalidating = false
     private var profileRevision: UInt64 = 0
+    private(set) var roomsScope: RoomsScope?
     private var clientScope: UUID?
+    private var accountPartition: String?
     private var deferredAuthCallback: URL?
     private var authAttempt: SessionAttempt?
     @ObservationIgnored private var expirationTask: Task<Void, Never>?
@@ -140,7 +149,7 @@ final class AppSession {
         generation &+= 1
         let ticket = generation
         account = nil
-        clientScope = nil
+        roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil
         serverGeneration = nil
         expiresAt = nil
         access = .restoring
@@ -159,7 +168,7 @@ final class AppSession {
             generation &+= 1
             busy = false
             account = nil
-            clientScope = nil
+            roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil
             serverGeneration = nil
             expiresAt = nil
             access = .retryableFailure
@@ -217,6 +226,7 @@ final class AppSession {
     }
     private func transition(_ operation: () async throws -> SessionSnapshot) async {
         // A fresh user operation supersedes a cold callback still awaiting IO.
+        roomsScope?.invalidate(); roomsScope = nil
         generation &+= 1
         busy = true
         errorMessage = nil
@@ -254,6 +264,7 @@ final class AppSession {
     }
     func cancelAuthentication() async {
         authAttempt?.cancel(); authAttempt = nil
+        roomsScope?.invalidate(); roomsScope = nil
         generation &+= 1; busy = false; deferredAuthCallback = nil
         let ticket = generation
         do {
@@ -262,13 +273,13 @@ final class AppSession {
             if let snapshot { apply(snapshot) }; errorMessage = nil
         } catch {
             guard ticket == generation else { return }
-            account = nil; clientScope = nil; serverGeneration = nil; expiresAt = nil; access = .retryableFailure
+            account = nil; roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil; serverGeneration = nil; expiresAt = nil; access = .retryableFailure
             errorMessage = (error as? LocalizedError)?.errorDescription ?? "취소를 확인하지 못했어요. 다시 시도해 주세요."
         }
     }
     func resetLocalSession() async {
         authAttempt?.cancel(); authAttempt = nil
-        generation &+= 1; account = nil; clientScope = nil; serverGeneration = nil; expiresAt = nil; busy = true; deferredAuthCallback = nil
+        generation &+= 1; account = nil; roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil; serverGeneration = nil; expiresAt = nil; busy = true; deferredAuthCallback = nil
         let ticket = generation
         do {
             try await service.resetLocalSession()
@@ -277,6 +288,20 @@ final class AppSession {
         } catch {
             guard ticket == generation else { return }
             busy = false; access = .retryableFailure; errorMessage = ProductError.secureStorage.errorDescription
+        }
+    }
+    func roomsData(_ endpoint: RoomsQuery, scope: RoomsScope) async throws -> Data {
+        guard !busy, access == .ready, roomsScope === scope, let service = service as? any RoomsAuthorizing else { throw RoomsError.staleScope }
+        let ticket = generation
+        do {
+            try scope.check()
+            let data = try await service.roomsData(endpoint, scope: scope)
+            guard ticket == generation, roomsScope === scope else { throw RoomsError.staleScope }
+            try scope.check()
+            return data
+        } catch {
+            await handleAccountError(error, ticket: ticket)
+            throw error
         }
     }
     func loadNotificationPreferences(scope: UInt64) async throws -> AccountNotificationPreferences {
@@ -335,7 +360,7 @@ final class AppSession {
         if error as? ProductError == .unauthenticated { reset() }
         else if error as? ProductError == .linkRequired { await restore() }
         else if error as? ProductError == .secureStorage || error as? ProductError == .sessionChanged {
-            generation &+= 1; account = nil; clientScope = nil; serverGeneration = nil; expiresAt = nil
+            generation &+= 1; account = nil; roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil; serverGeneration = nil; expiresAt = nil
             access = .retryableFailure; errorMessage = (error as? ProductError)?.errorDescription
         }
     }
@@ -352,7 +377,7 @@ final class AppSession {
         generation &+= 1
         let ticket = generation
         account = nil
-        clientScope = nil
+        roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil
         serverGeneration = nil
         expiresAt = nil
         access = .restoring
@@ -377,7 +402,7 @@ final class AppSession {
     private func reset() {
         generation &+= 1
         account = nil
-        clientScope = nil
+        roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil
         serverGeneration = nil
         expiresAt = nil
         access = .signedOut
@@ -392,7 +417,7 @@ final class AppSession {
               snapshot.access != .ready || snapshot.account?.soopConnected == true else {
             generation &+= 1
             account = nil
-            clientScope = nil
+            roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil
             serverGeneration = nil
             expiresAt = nil
             access = .retryableFailure
@@ -400,8 +425,11 @@ final class AppSession {
             errorMessage = "계정 정보를 확인하지 못했어요. 다시 시도해 주세요."
             return
         }
-        if account?.id != snapshot.account?.id || access != snapshot.access || serverGeneration != snapshot.serverGeneration || clientScope != snapshot.clientScope { generation &+= 1 }
+        if account?.id != snapshot.account?.id || access != snapshot.access || serverGeneration != snapshot.serverGeneration || clientScope != snapshot.clientScope || accountPartition != snapshot.accountPartition { generation &+= 1 }
+        if roomsScope !== snapshot.roomsScope { roomsScope?.invalidate() }
+        roomsScope = snapshot.access == .ready ? snapshot.roomsScope : nil
         clientScope = needsAccount ? snapshot.clientScope : nil
+        accountPartition = needsAccount ? snapshot.accountPartition : nil
         account = needsAccount ? snapshot.account : nil
         serverGeneration = needsAccount ? snapshot.serverGeneration : nil
         expiresAt = needsAccount ? snapshot.expiresAt : nil
