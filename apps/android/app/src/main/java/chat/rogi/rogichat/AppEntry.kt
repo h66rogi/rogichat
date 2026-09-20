@@ -104,9 +104,13 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     LaunchedEffect(operation.error) { operation.error?.let { snackbar.showSnackbar(it); sessionModel.dismissError() } }
     val topLevel = route in setOf(null, "talks", "settings")
     val privateAccount = session.account.takeIf { session.access in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) }
+    val showsSessionStatus = authState.active || authState.error != null ||
+        (session.validationNeedsRetry && privateAccount != null)
     fun open(value: String) { nav.navigate(value) { launchSingleTop = true } }
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
-        Column {
+        if (showsSessionStatus) Column(Modifier.windowInsetsPadding(
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        )) {
         if (authState.active || authState.error != null) AuthStatusBanner(authState, sessionModel::cancelAuthentication,
             onReauthenticate = if (privateAccount != null && authState.error in setOf(AuthProblem.TERMS, AuthProblem.RECENT_AUTH))
                 ({ confirmReauthentication = true }) else null)
@@ -127,7 +131,8 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             }
         }
     }) { insets ->
-        NavHost(navController = nav, startDestination = "talks", modifier = Modifier.padding(insets)) {
+        NavHost(navController = nav, startDestination = "talks",
+            modifier = Modifier.padding(insets).consumeWindowInsets(insets)) {
             composable("talks") {
                 ProductPage(if (session.access == ShellAccess.SIGNED_OUT) "로기챗" else "대화", scroll = false) {
                     when (session.access) {
