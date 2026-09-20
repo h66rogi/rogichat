@@ -57,9 +57,9 @@ def zip_directory(directory, path):
     return 'sha256:' + archive.file_hash(path)
 
 
-def oci_tar(root, descriptor, *, mutate=None):
-    identity = descriptor['images']['runtime']['config_id']
-    with tarfile.open(root / 'runtime.tar') as tar:
+def oci_tar(root, descriptor, *, mutate=None, role='runtime'):
+    identity = descriptor['images'][role]['config_id']
+    with tarfile.open(root / (role + '.tar')) as tar:
         config = tar.extractfile(identity[7:] + '.json').read()
     layer = gzip.compress(b'synthetic layer bytes')
     config_name = 'blobs/sha256/' + identity[7:]
@@ -79,7 +79,7 @@ def oci_tar(root, descriptor, *, mutate=None):
         index['manifests'].append(reference)
     if mutate == 'raw_hash':
         raw += b'altered'
-    with tarfile.open(root / 'runtime.tar', 'w') as tar:
+    with tarfile.open(root / (role + '.tar'), 'w') as tar:
         for name, data in [(config_name, config), (layer_name, layer), ('index.json', json.dumps(index).encode()),
              ('oci-layout', b'{"imageLayoutVersion":"1.0.0"}'), ('blobs/sha256/' + reference['digest'][7:], raw),
              ('manifest.json', json.dumps([{'Config': config_name, 'Layers': [layer_name], 'RepoTags': None}]).encode())]:
@@ -111,6 +111,17 @@ class ArchiveTests(unittest.TestCase):
             bad['images']['decoder']['image'] = bad['images']['runtime']['image']
             with self.assertRaises(ValueError):
                 archive.validate_descriptor(bad)
+
+    def test_decoder_oci_execution_identity_is_bound_independently(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp) / 'input'
+            descriptor = build(root, version=2)
+            reference = oci_tar(root, descriptor, role='decoder')
+            descriptor['images']['decoder']['archive_sha256'] = archive.file_hash(root / 'decoder.tar')
+            (root / 'descriptor.json').write_text(json.dumps(descriptor))
+            _, configs = archive.validate_directory(root)
+            self.assertEqual(configs['decoder']['_archive_manifest'], reference)
+            self.assertNotEqual(reference['digest'], descriptor['images']['decoder']['config_id'])
 
     def test_decoder_tar_manifest_missing_extra_and_execution_contract_rejected(self):
         for attack in ['tar', 'manifest', 'missing', 'extra', 'cmd', 'directory', 'env']:
