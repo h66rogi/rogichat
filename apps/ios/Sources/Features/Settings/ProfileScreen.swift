@@ -12,13 +12,16 @@ struct ProfileScreen: View {
     @FocusState private var editingName: Bool
     let onSave: (ProfileUpdate) async throws -> Void
     let avatar: AnyView?
+    let soopDisplayID: String?
 
     init(profile: AccountProfile, onSave: @escaping (ProfileUpdate) async throws -> Void, avatar: AnyView? = nil) {
         _draft = State(initialValue: ProfileDraft(profile: profile))
         self.onSave = onSave; self.avatar = avatar
+        self.soopDisplayID = profile.soopDisplayID
     }
     var body: some View {
         Form {
+            if let soopDisplayID { Section { LabeledContent("SOOP ID", value: soopDisplayID).textSelection(.enabled) } }
             if let avatar { avatar }
             Section {
                 TextField("표시 이름", text: Binding(get: { draft.name.draft }, set: { draft.name.edit($0) }))

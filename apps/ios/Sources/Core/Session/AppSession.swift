@@ -19,6 +19,9 @@ struct AccountProfile: Equatable, Sendable {
     var birthday: Birthday? = nil
     var birthdayVisibleToStreamers = false
     var avatarAssetID: String? = nil
+    // Self-profile presentation only, independent of immutable account identity.
+    var soopDisplayID: String? = nil
+    var providerAvatarURL: String? = nil
     var isValid: Bool { !id.isEmpty && ProfileEditor(baseline: displayName).error == nil && ProfileEditor(baseline: displayName).normalized.utf8.elementsEqual(displayName.utf8) && (birthday?.isValid ?? true) }
 }
 // An auth result remains unpublished until the main-actor owner accepts it.

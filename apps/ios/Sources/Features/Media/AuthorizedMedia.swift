@@ -7,15 +7,18 @@ struct AuthorizedMedia: View {
     let client: MediaClient
     let assetID: String
     let access: MediaAccess
+    var avatar = false
     var body: some View {
-        AuthorizedMediaBody(client: client, assetID: assetID, access: access)
+        AuthorizedMediaBody(client: client, assetID: assetID, access: access, avatar: avatar)
             .id(MediaPresentationIdentity(scopeID: client.scope.presentationID, assetID: assetID, access: access))
     }
 }
 private struct AuthorizedMediaBody: View {
     let client: MediaClient
-    let assetID: String
+    let assetID: String?
     let access: MediaAccess
+    let avatar: Bool
+    var provider = false
     @State private var taskID: UUID?
     @State private var player: AVPlayer?
     @State private var image: UIImage?
@@ -24,10 +27,13 @@ private struct AuthorizedMediaBody: View {
     var body: some View {
         VStack {
             if failed {
-                Text("미디어를 표시할 수 없어요.")
+                if !avatar { Text("미디어를 표시할 수 없어요.") }
                 Button("다시 시도") { retry += 1 }
             } else if let player { VideoPlayer(player: player) }
-            else if let image { Image(uiImage: image).resizable().scaledToFit() }
+            else if let image {
+                if avatar { Image(uiImage: image).resizable().scaledToFill().accessibilityLabel("프로필 사진") }
+                else { Image(uiImage: image).resizable().scaledToFit() }
+            }
             else { ProgressView() }
         }
         .task(id: retry) {
@@ -39,7 +45,9 @@ private struct AuthorizedMediaBody: View {
                 if let scratch { try? FileManager.default.removeItem(at: scratch) }
             }
             do {
-                var lease = try await client.access(assetID, context: access)
+                var lease: MediaLease
+                if provider { lease = try await client.providerAvatar(actorID: assetID) }
+                else { lease = try await client.access(assetID!, context: access) }
                 let url = try await MediaDownload.fetch(lease, scope: client.scope); scratch = url
                 _ = try lease.checkedURL(scope: client.scope)
                 if access.variant == .video { player = AVPlayer(url: url) }
@@ -57,11 +65,22 @@ private struct AuthorizedMediaBody: View {
                 }
                 while true {
                     try await Task.sleep(for: .milliseconds(250)); _ = try lease.checkedURL(scope: client.scope)
-                    if lease.needsRenewal() { lease = try await client.renewAccess(assetID, context: access, replacing: lease) }
+                    if lease.needsRenewal() {
+                        if provider { retry += 1; break }
+                        else { lease = try await client.renewAccess(assetID!, context: access, replacing: lease) }
+                    }
                     if player?.currentItem?.status == .failed { throw MediaError.unavailable }
                 }
             } catch { if !Task.isCancelled && taskID == operation { failed = true } }
         }
+    }
+}
+struct AuthorizedProviderAvatar: View {
+    let client: MediaClient
+    var actorID: String? = nil
+    var body: some View {
+        AuthorizedMediaBody(client: client, assetID: actorID, access: .preview(.image), avatar: true, provider: true)
+            .id(client.scope.presentationID + ":provider:" + (actorID ?? "self"))
     }
 }
 #endif

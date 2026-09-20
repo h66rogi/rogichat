@@ -60,6 +60,21 @@ class MediaClient(private val transport: MediaTransport, val scope: MediaScope) 
             access(assetId, context).also { it.checkedURL(scope) }
         }
     }
+    suspend fun providerAvatar(actorId: String? = null): MediaLease {
+        val path = if (actorId == null) {
+            require(scope.roomId == null); "me/provider-avatar/access"
+        } else "rooms/${mediaId(requireNotNull(scope.roomId))}/actors/${mediaId(actorId)}/provider-avatar/access"
+        val started = System.nanoTime()
+        val result = Json.parseToJsonElement(request("POST", path, 200)).jsonObject
+        check(result.getValue("expiresIn").jsonPrimitive.int == 60)
+        val url = result.getValue("url").jsonPrimitive.content
+        val uri = URI(url); require(uri.scheme == "https" && !uri.host.isNullOrEmpty() && uri.userInfo == null && uri.fragment == null)
+        return MediaLease(url, started + 55_000_000_000L, MediaVariant.image)
+    }
+    suspend fun renewProviderAvatar(actorId: String?, replacing: MediaLease): MediaLease {
+        replacing.checkedURL(scope)
+        return kotlinx.coroutines.withTimeout(replacing.renewalBudgetMillis()) { providerAvatar(actorId).also { it.checkedURL(scope) } }
+    }
     suspend fun stickers(after: String? = null): MediaStickerPage {
         val room = mediaId(requireNotNull(scope.roomId))
         val path = "rooms/$room/stickers" + (after?.let { "?after=${mediaId(it)}" } ?: "")

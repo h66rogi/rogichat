@@ -104,6 +104,13 @@ actor ControlledNativeAPI: NativeRequesting {
         print("iOS native transport: request isolation, exact DTOs, durable install/logout intent, credential CAS, expiry/401, truthful logout, cancellation and stale-response fences passed")
     }
     static func checkHTTPAndDTO() throws {
+        let selfAvatar = try ConversationFeatureRequest(method: "POST", path: "me/provider-avatar/access", body: nil, expectedStatus: 200)
+        let selfAvatarRequest = try selfAvatar.accountRequest(environment: .qa, credential: credential)
+        check(selfAvatarRequest.httpBody == nil && selfAvatarRequest.httpMethod == "POST")
+        let actorAvatar = try ConversationFeatureRequest(method: "POST", path: "rooms/\(accountID)/actors/\(accountID)/provider-avatar/access", body: nil, expectedStatus: 200)
+        try actorAvatar.validate(room: accountID)
+        let invalidAvatar = try ConversationFeatureRequest(method: "GET", path: "me/provider-avatar/access", body: nil, expectedStatus: 200)
+        expect(.invalidResponse) { _ = try invalidAvatar.accountRequest(environment: .qa, credential: credential) }
         let request = try NativeEndpoint.updateProfile(ProfileUpdate(birthdayChanged: true)).request(environment: .qa, credential: credential)
         check(request.url?.absoluteString == "https://api.qa.rogi.chat/v1/me/profile")
         check(request.httpMethod == "PATCH" && request.value(forHTTPHeaderField: "X-Rogi-Client") == "ios")
@@ -150,6 +157,15 @@ actor ControlledNativeAPI: NativeRequesting {
         }
         let profile = try JSONDecoder().decode(NativeProfileDTO.self, from: profileData(birthday: ["month": 2, "day": 29])).profile(expectedID: accountID)
         check(profile.birthday == Birthday(month: 2, day: 29) && profile.birthdayVisibleToStreamers)
+        var augmented = try JSONSerialization.jsonObject(with: profileData()) as! [String: Any]
+        augmented["soop"] = ["displayId": "provider_id"]
+        augmented["providerAvatarUrl"] = "https://profile.img.sooplive.co.kr/LOGO/pr/provider_id/provider_id.jpg"
+        let imported = try JSONDecoder().decode(NativeProfileDTO.self, from: JSONSerialization.data(withJSONObject: augmented)).profile(expectedID: accountID)
+        check(imported.id == accountID && imported.soopDisplayID == "provider_id" && imported.providerAvatarURL != nil)
+        augmented["providerAvatarUrl"] = NSNull(); augmented["soop"] = NSNull()
+        let cleared = try JSONDecoder().decode(NativeProfileDTO.self, from: JSONSerialization.data(withJSONObject: augmented)).profile(expectedID: accountID)
+        check(cleared.providerAvatarURL == nil && cleared.soopDisplayID == nil)
+        check(profile.soopDisplayID == nil && profile.providerAvatarURL == nil)
         var partial = try JSONSerialization.jsonObject(with: profileData()) as! [String: Any]
         partial.removeValue(forKey: "birthday")
         expect(.invalidResponse) { _ = try JSONDecoder().decode(NativeProfileDTO.self, from: JSONSerialization.data(withJSONObject: partial)) }

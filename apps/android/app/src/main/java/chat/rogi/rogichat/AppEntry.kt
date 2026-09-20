@@ -188,12 +188,19 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 }
             }
             composable("settings") {
+                val profileModel: ProfileViewModel? = if (privateAccount != null && services.profiles != null)
+                    viewModel { ProfileViewModel(services.profiles, privateAccount.id, autoLoad = false) } else null
                 ProductPage("설정") {
                     SettingsScreen(privateAccount, appearance, onSignIn = { open("talks") },
                         onProfile = if (privateAccount != null && services.profiles != null) ({ open("profile") }) else null,
                         onAccount = if (privateAccount != null) ({ open("account") }) else null,
                         onAppearance = { open("appearance") }, onNotifications = { open("notifications") }, onAbout = { open("about") },
-                        onBlocks = if (session.access == ShellAccess.READY && services.blocks != null && session.accountPartition != null) ({ open("blocks") }) else null)
+                        onBlocks = if (session.access == ShellAccess.READY && services.blocks != null && session.accountPartition != null) ({ open("blocks") }) else null,
+                        profileModel = profileModel, avatar = { profile ->
+                            if (session.access == ShellAccess.READY && services.accountMedia != null && session.accountPartition != null)
+                                chat.rogi.rogichat.feature.media.AccountProfileAvatar(services.accountMedia, renderedIdentity, profile.avatarAssetId)
+                            else Text("사진을 확인할 수 없어요", style = MaterialTheme.typography.bodySmall)
+                        })
                 }
             }
             composable("blocks") {
@@ -214,8 +221,9 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("profile") {
                 if (privateAccount != null && services.profiles != null) {
                     val model: ProfileViewModel = viewModel { ProfileViewModel(services.profiles, privateAccount.id) }
-                    val avatar: chat.rogi.rogichat.feature.media.AvatarSettingsModel? = if (session.access == ShellAccess.READY && services.accountMedia != null && session.accountPartition != null)
-                        viewModel { chat.rogi.rogichat.feature.media.AvatarSettingsModel(services.accountMedia, renderedIdentity, privateAccount.avatarAssetId) } else null
+                    val profileState by model.uiState.collectAsStateWithLifecycle()
+                    val avatar: chat.rogi.rogichat.feature.media.AvatarSettingsModel? = if (profileState.original != null && session.access == ShellAccess.READY && services.accountMedia != null && session.accountPartition != null)
+                        viewModel { chat.rogi.rogichat.feature.media.AvatarSettingsModel(services.accountMedia, renderedIdentity, profileState.original?.avatarAssetId, profileState.original?.providerAvatarUrl != null) } else null
                     ProfileScreen(model, avatar) { nav.popBackStack() }
                 } else LaunchedEffect(Unit) { nav.popBackStack() }
             }

@@ -36,6 +36,8 @@ struct AccountAvatarSection: View {
     let scope: RoomsScope
     let accountID: String
     let originalAssetID: String?
+    var originalProviderAvatarAvailable = false
+    @State private var providerAvatarAvailable = false
     @State private var journal: AccountMediaJournal?
     @State private var currentAssetID: String?
     @State private var pending: [PendingMedia] = []
@@ -45,8 +47,9 @@ struct AccountAvatarSection: View {
     var body: some View {
         Section {
             if let asset = currentAssetID {
-                AuthorizedMedia(client: client, assetID: asset, access: .preview(.image)).frame(height: 150)
+                AuthorizedMedia(client: client, assetID: asset, access: .preview(.image), avatar: true).frame(width: 96, height: 96).clipShape(Circle())
             }
+            if currentAssetID == nil && providerAvatarAvailable { AuthorizedProviderAvatar(client: client).frame(width: 96, height: 96).clipShape(Circle()) }
             if let journal {
                 MediaPicker(kind: .avatar, enabled: !busy, scope: client.scope) { file in
                     busy = true; error = nil; defer { busy = false }
@@ -58,7 +61,7 @@ struct AccountAvatarSection: View {
                         await confirmed()
                     } catch { self.error = "프로필 사진 변경 결과를 확인하지 못했어요. 현재 프로필을 다시 확인해 주세요."; await readPending(); throw error }
                 }
-                if currentAssetID != nil {
+                if currentAssetID != nil || providerAvatarAvailable {
                     Button("프로필 사진 삭제", role: .destructive) { Task {
                         busy = true; defer { busy = false }
                         do { try await client.updateAvatar(nil); await confirmed() }
@@ -84,7 +87,7 @@ struct AccountAvatarSection: View {
     }
     private func load() async {
         error = nil
-        do { journal = AccountMediaJournal(database: try storage.open(scope: scope), accountID: accountID); currentAssetID = originalAssetID; await readPending() }
+        do { journal = AccountMediaJournal(database: try storage.open(scope: scope), accountID: accountID); currentAssetID = originalAssetID; providerAvatarAvailable = originalProviderAvatarAvailable; await readPending() }
         catch { self.error = "기기의 사진 작업 기록을 읽지 못했어요." }
     }
     private func readPending() async {
@@ -96,7 +99,7 @@ struct AccountAvatarSection: View {
     private func confirmed() async {
         do {
             let profile = try await session.loadProfile(); try scope.check(); guard profile.id == accountID else { throw ProductError.sessionChanged }
-            currentAssetID = profile.avatarAssetID; await session.revalidate(); await readPending()
+            currentAssetID = profile.avatarAssetID; providerAvatarAvailable = profile.providerAvatarURL != nil; await session.revalidate(); await readPending()
         } catch { self.error = "현재 프로필 사진을 확인하지 못했어요." }
     }
 }

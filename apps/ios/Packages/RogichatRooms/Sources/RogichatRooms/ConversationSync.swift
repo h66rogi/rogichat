@@ -150,6 +150,8 @@ public struct ConversationFeatureRequest: Sendable {
         else if parts.count == 2, parts[0] == "report-receipts" { allowed = method == "GET" && RoomsWire.uuid(parts[1]) }
         else if parts.count >= 3, parts[0] == "rooms", parts[1] == room {
             switch parts[2] {
+            case "actors":
+                allowed = parts.count == 6 && RoomsWire.uuid(parts[3]) && parts[4] == "provider-avatar" && parts[5] == "access" && method == "POST" && body == nil && upload == nil && expectedStatus == 200
             case "stickers", "read-state": allowed = parts.count == 3
             case "blocks": allowed = parts.count == 3 || (parts.count == 4 && RoomsWire.uuid(parts[3]))
             case "publications": allowed = parts.count == 4 && RoomsWire.uuid(parts[3])

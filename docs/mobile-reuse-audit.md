@@ -357,3 +357,16 @@ TEXT sender/recipient/body에 맞춘 iOS messages 개인정보 선언과 Android
 [실시간 추출 기록](mobile-native-realtime-progress.md)은 SDK 원본의 cookie/Origin 처리와
 공식 engine seam을 선택한 근거, 정확한 pin·라이선스, 실제 loopback 검사의 범위를 기록한다.
 [제품 통합 기록](mobile-product-integration-progress.md)에서 실제 앱 연결과 최종 검증을 구분한다.
+
+
+## 실제 SOOP 기본 프로필·기본방 소비
+
+| ID | 원본·대상 | 재사용와 새 계약의 경계 |
+|---|---|---|
+| R64 | Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`의 `core/designsystem/.../MelomingAsyncImage.kt:ProfileImage`, `feature/more/.../ProfileSettingsScreen.kt`; iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b`의 `Meloming/Presentation/More/MyPageView.swift:MyProfileHero`; 대상 양 OS SettingsScreen/ProfileScreen | **기존 추출 확장·수정 재사용**: 프로필 중심 헤더·원형 crop·이름/보조 정보·수정 화면을 유지하고 실제 self-profile GET의 SOOP ID를 표시한다. session 요약에 없는 값을 추정하지 않는다. 이미지 엔진은 기존 AuthorizedMedia/MediaDownload를 직접 재사용한다. 별도 Coil/Kingfisher 캐시나 인증 client는 추가하지 않는다. |
+| R65 | 기존 Rogichat MediaClient·AuthorizedMedia·계정/대화 scope·Room/GRDB profile projection; 대상 동일 구현 | **기존 코드 직접 재사용 + 계약 추가**: 기본 사진의 body 없는 self/actor 조회권을 기존 60초 lease·인증 없는 다운로드·크기/형식/취소 검증에 연결한다. 직접 올린 asset을 우선하고 provider 사진은 갱신 때 실제 bytes도 다시 읽는다. raw provider URL/ID는 self 응답 밖으로 전파하거나 DB에 저장하지 않는다. actor는 현재 room profile 허용 범위에서만 표시하고 익명 author에는 연결하지 않는다. |
+| R66 | 기존 RoomsScreen·RoomsViewModel/RoomsScreenModel·Room/GRDB discovery 저장 경로 | **기존 구현 확장**: 실제 default room의 선택 필드 `isDefault`, `availability`를 저장·표시한다. `OWNER_PENDING`이면 방장 확인 대기를 표시하고 join을 보내지 않는다. 방 ID·owner를 앱에서 생성/추정하지 않는다. Android DB 3→4는 기존 row/outbox를 보존하는 additive migration, iOS 기존 JSON은 필드 부재 시 이전 계약으로 읽는다. 채팅 UX는 멜로밍에서 추출하지 않았다. |
+
+추가 API 필드는 이전 배포에서 없거나 self-profile에서 null일 수 있다. 표시 ID는 계정
+subject·partition·권한 키가 아니다. 수동 이름·사진·사진 삭제의 보존은 서버가 결정하며
+클라이언트는 실제 GET/PATCH 결과를 표시한다. 테스트 합성 프로필·방은 test target에만 있다.

@@ -37,6 +37,18 @@ private func expectFailure(_ body: () throws -> Void) throws {
 }
 @main struct MediaRegression {
     @MainActor static func main() async throws {
+        let selfScope = Scope(roomID: nil)
+        let providerReceipt = "{\"url\":\"https://api.qa.rogi.chat/v1/profile-images?ticket=opaque\",\"expiresIn\":60}"
+        let providerTransport = Transport([providerReceipt, providerReceipt])
+        let ownPhoto = try await MediaClient(transport: providerTransport, scope: selfScope).providerAvatar()
+        let selfRequest = await providerTransport.requests[0]
+        precondition(selfRequest.path == "me/provider-avatar/access" && selfRequest.method == "POST" && selfRequest.jsonBody == nil)
+        _ = try ownPhoto.checkedURL(scope: selfScope)
+        selfScope.invalidate()
+        try expectFailure { _ = try ownPhoto.checkedURL(scope: selfScope) }
+        _ = try await MediaClient(transport: providerTransport, scope: Scope()).providerAvatar(actorID: asset)
+        let actorRequest = await providerTransport.requests[1]
+        precondition(actorRequest.path == "rooms/\(room)/actors/\(asset)/provider-avatar/access" && actorRequest.jsonBody == nil)
         let scope = Scope()
         let ready = MediaReceipt(assetId: asset, status: .ready)
         try expectFailure { _ = try JSONEncoder().encode(MediaContent.attachments(.video, [ready, ready])) }

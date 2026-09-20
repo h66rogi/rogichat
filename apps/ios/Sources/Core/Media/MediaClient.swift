@@ -71,6 +71,32 @@ struct MediaClient: Sendable {
             guard let lease = try await group.next() else { throw MediaError.expired }; return lease
         }
     }
+    func providerAvatar(actorID: String? = nil) async throws -> MediaLease {
+        let path: String
+        if let actorID {
+            guard let room = scope.roomID else { throw MediaError.invalid }
+            path = "rooms/\(try mediaID(room))/actors/\(try mediaID(actorID))/provider-avatar/access"
+        } else {
+            guard scope.roomID == nil else { throw MediaError.invalid }
+            path = "me/provider-avatar/access"
+        }
+        let started = ContinuousClock.now
+        let data = try await request(MediaRequest("POST", path, 200))
+        struct Receipt: Decodable { let url: URL; let expiresIn: Int }
+        let receipt = try JSONDecoder().decode(Receipt.self, from: data)
+        guard receipt.expiresIn == 60 else { throw MediaError.invalid }
+        return try MediaLease(url: receipt.url, started: started, variant: .image)
+    }
+    func renewProviderAvatar(actorID: String?, replacing: MediaLease) async throws -> MediaLease {
+        _ = try replacing.checkedURL(scope: scope)
+        let budget = replacing.renewalBudget()
+        return try await withThrowingTaskGroup(of: MediaLease.self) { group in
+            group.addTask { let lease = try await providerAvatar(actorID: actorID); _ = try lease.checkedURL(scope: scope); return lease }
+            group.addTask { try await Task.sleep(for: budget); throw MediaError.expired }
+            defer { group.cancelAll() }
+            guard let lease = try await group.next() else { throw MediaError.expired }; return lease
+        }
+    }
     func stickers(after: String? = nil) async throws -> MediaStickerPage {
         guard let room = scope.roomID else { throw MediaError.invalid }
         var path = "rooms/\(try mediaID(room))/stickers"

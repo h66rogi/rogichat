@@ -144,3 +144,36 @@ Public PR jobs continue to receive no credentials.
 
 Existing QA build 14 artifacts and distribution receipts remain unchanged. No
 build 15 or new full-feature tester release is claimed by this record.
+
+
+## SOOP 기본 프로필·후로기 기본방 후속
+
+- `/me/profile`의 선택 필드 `soop.displayId`와 `providerAvatarUrl`을 읽는다. 설정 진입 시
+  실제 self-profile을 읽고 오류/재시도를 제공한다. `/auth/session`의 계정 UUID·subject·
+  partition 계약은 변경하지 않는다. ID는 읽기 전용 표시 정보다.
+- 직접 업로드한 아바타가 우선이다. 기본 사진은 self/actor `provider-avatar/access`로
+  발급한 조회권을 기존 미디어 처리로 읽는다. 원본 provider URL을 직접 내려받거나
+  자격 증명을 이미지 서버로 전달하지 않는다. 명시적 삭제 후 서버가 null을 주면 숨긴다.
+- 대화 사진은 현재 허용된 profile의 avatar/`providerAvatarAvailable`만 사용한다.
+  익명 author와 조회에서 제거된 profile에는 표시하지 않는다. 계정/방 수명 종료와
+  권한 갱신 실패 때 이미지·파일을 폐기한다. provider 사진은 갱신 시 bytes도 다시 읽는다.
+- 실제 discovery 응답의 `OWNER_PENDING`은 방장 확인 대기로 표시하고 join을 차단한다.
+  앱에서 기본방 ID, 방장, 가짜 membership을 만들지 않는다. 서버의 준비 완료 후에는
+  같은 실제 방의 기존 join 경로를 사용한다.
+- Android Room v4는 discovery 상태와 provider 사진 존재 여부만 추가한다. 기존 DB를
+  초기화하지 않으며 프로필 staging에도 같은 필드를 적용한다. iOS는 기존 JSON projection의
+  선택 필드로 보존하므로 이전 데이터도 읽는다. raw provider URL/ID는 영속 projection에 없다.
+- 재사용 근거는 R64–R66. 이 변경만으로 실제 SOOP 계정 초기화·방장 바인딩·스토어 배포
+  완료를 주장하지 않는다. BACKEND 최종 migration/초기화와 WEB의 승인된 기존 계정 검증,
+  중앙의 통합 배포가 연결되어야 한다. 이번 작업에서는 QA17 버전을 유지한다.
+
+
+검증: Android QA 단위 237개, QA lint·테스트 APK, QA/Prod Debug·Release APK 빌드 통과.
+iOS Swift 6 상태·native transport·media·ROOM_PENDING 선택 검사, GRDB 30개와 cold recovery,
+QA/Prod Debug·Release 기기 SDK 빌드 및 제품 fixture 제외 검증 통과. Android SQLite 3→4 SQL을
+exported v3 schema에 실행해 실제 기존 row 보존과 변경된 세 테이블의 fresh v4 schema 일치를
+확인했다. 실제 Android Room instrumentation은 PR의 격리 CI 검사로 확인한다. 로컬 검증은
+실제 계정 사진 수신이나 TestFlight/App Distribution 배포 완료의 증거가 아니다.
+
+DB v4 적용 후 이전 v3 전용 Android 바이너리로의 단순 downgrade는 지원하지 않는다.
+기존 outbox를 보존하는 forward fix로 복구하며 destructive fallback을 추가하지 않는다.

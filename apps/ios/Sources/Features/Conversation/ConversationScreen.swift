@@ -173,6 +173,13 @@ struct ConversationScreen: View {
             if mine { Spacer(minLength: 36) }
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
                 HStack(spacing: 6) {
+                    if let actor = message.author.actorID, let profile = model.listing?.profiles.first(where: { $0.actorId == actor }), let features {
+                        Group {
+                            if let avatar = profile.avatar { AuthorizedMedia(client: features.media, assetID: avatar.assetId,
+                                access: .avatar(room: model.scope.room.id, actor: actor), avatar: true) }
+                            else if profile.providerAvatarAvailable { AuthorizedProviderAvatar(client: features.media, actorID: actor) }
+                        }.frame(width: 40, height: 40).clipShape(Circle())
+                    }
                     Text(message.author.displayName).font(.caption.weight(.medium))
                     if message.audience == "PRIVATE" { Label("비공개", systemImage: "lock.fill").font(.caption2) }
                 }.foregroundStyle(.secondary)

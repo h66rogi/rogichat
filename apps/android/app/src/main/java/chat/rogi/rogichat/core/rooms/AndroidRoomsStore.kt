@@ -24,7 +24,7 @@ class AndroidRoomsStore(private val context: Context, private val environment: S
                         private val directory: File = File(context.noBackupFilesDir, "rooms-$environment"),
                         private val io: CoroutineDispatcher = Dispatchers.IO,
                         private val openDatabase: (File) -> RoomsDatabase = { file ->
-                            Room.databaseBuilder(context, RoomsDatabase::class.java, file.absolutePath).addMigrations(RoomsDatabase.MIGRATION_1_2, RoomsDatabase.MIGRATION_2_3).build() }) : RoomsStore, ConversationStore, AccountFeatureStore {
+                            Room.databaseBuilder(context, RoomsDatabase::class.java, file.absolutePath).addMigrations(RoomsDatabase.MIGRATION_1_2, RoomsDatabase.MIGRATION_2_3, RoomsDatabase.MIGRATION_3_4).build() }) : RoomsStore, ConversationStore, AccountFeatureStore {
     init { require(environment in setOf("qa", "prod")) }
     private val cleanup = AtomicFile(File(directory, "cleanup"))
     private val device = AtomicFile(File(directory, "device"))
@@ -152,7 +152,7 @@ class AndroidRoomsStore(private val context: Context, private val environment: S
             val prior = dao.discovery()
             valid(prior.size + page.rooms.size <= 10000)
             valid(page.rooms.none { room -> prior.any { it.roomId == room.roomId.value } })
-            dao.discovery(page.rooms.map { DiscoveryRow(it.roomId.value, it.name, it.mode.name) })
+            dao.discovery(page.rooms.map { DiscoveryRow(it.roomId.value, it.name, it.mode.name, it.isDefault, it.availability.name) })
             dao.page(PageCheckpoint("discovery", cursor))
             dao.checkpoint(checkpoint.copy(discoveryCursor = page.next?.value, discoveryLoaded = true))
             val members = dao.memberships().map { it.domain() }

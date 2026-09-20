@@ -16,6 +16,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import chat.rogi.rogichat.core.design.ScreenStatus
 import chat.rogi.rogichat.core.common.request
+import chat.rogi.rogichat.core.network.RoomAvailability
 import chat.rogi.rogichat.core.network.RoomMode
 import chat.rogi.rogichat.core.network.RoomId
 import chat.rogi.rogichat.core.network.Membership
@@ -79,6 +80,8 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
         it.scope == accountScope && (it.busy || it.needsVerification)
     }
     fun join(room: RoomId, renderedCycle: RoomId) {
+        val directory = mutable.value.directory ?: return
+        if (directory.cycle != renderedCycle || directory.discovered.find { it.roomId == room }?.availability == RoomAvailability.OWNER_PENDING) return
         submit(RoomCommandIntent(accountScope, room, RoomAction.JOIN, renderedCycle))
     }
     fun leaveIntent(room: Membership, renderedCycle: RoomId) =
@@ -199,7 +202,7 @@ fun RoomsScreen(model: RoomsViewModel, onOpen: ((Membership, RoomId) -> Unit)? =
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(directory.discovered, key = { "discover-${it.roomId.value}" }) { room ->
-                    RoomRow(room.name, room.mode, "참여", enabled = !state.loadingMore) { model.join(room.roomId, directory.cycle) }
+                    RoomRow(room.name, room.mode, if (room.availability == RoomAvailability.OWNER_PENDING) "방장 확인 대기 중" else "참여", enabled = !state.loadingMore && room.availability == RoomAvailability.READY) { model.join(room.roomId, directory.cycle) }
                 }
                 state.error?.let { error -> item { Text(error, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error) } }
                 if (directory.continuation != null) item {

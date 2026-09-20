@@ -10,12 +10,25 @@ struct SettingsScreen: View {
     var canManageBlocks = false
     var hasDeletionHistory = false
     var onDeletionHistory: () -> Void = {}
+    var onLoadProfile: (() async throws -> AccountProfile)?
+    var avatar: (AccountProfile) -> AnyView? = { _ in nil }
+    @State private var profile: AccountProfile?
+    @State private var loadingProfile = false
+    @State private var profileError: String?
+    @State private var profileRetry = 0
     @AppStorage("appearance") private var appearance = AppAppearance.system.rawValue
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
                 profileHero
+                if loadingProfile { ProgressView("프로필을 불러오는 중") }
+                if let profileError {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(profileError).font(.footnote).foregroundStyle(.secondary)
+                        Button("프로필 다시 불러오기") { profileRetry += 1 }
+                    }
+                }
                 if account != nil {
                     SettingsSection(title: "내 계정") {
                         if capabilities.canEditProfile {
@@ -48,18 +61,35 @@ struct SettingsScreen: View {
             .frame(maxWidth: .infinity)
         }
         .background(AppTheme.page)
+        .task(id: [account?.id ?? "", account?.displayName ?? "", account?.avatarAssetID ?? "", String(profileRetry)]) {
+            profile = nil; profileError = nil
+            guard let account, let onLoadProfile else { loadingProfile = false; return }
+            loadingProfile = true
+            do {
+                let value = try await onLoadProfile()
+                try Task.checkCancellation()
+                guard value.id == account.id else { throw ProductError.sessionChanged }
+                profile = value; loadingProfile = false
+            } catch {
+                if !Task.isCancelled { loadingProfile = false; profileError = (error as? ProductError)?.errorDescription ?? "프로필을 불러오지 못했어요. 다시 시도해 주세요." }
+            }
+        }
     }
     private var profileHero: some View {
         HStack(alignment: .center, spacing: 18) {
-            Circle().fill(AppTheme.accent.opacity(0.12))
+            Group {
+                if let profile, (profile.avatarAssetID != nil || profile.providerAvatarURL != nil), let photo = avatar(profile) { photo }
+                else { Circle().fill(AppTheme.accent.opacity(0.12))
                 .overlay {
-                    if let account { Text(String(account.displayName.prefix(1))).font(.title.weight(.bold)).foregroundStyle(AppTheme.accent) }
+                    if let account { Text(String((profile?.displayName ?? account.displayName).prefix(1))).font(.title.weight(.bold)).foregroundStyle(AppTheme.accent) }
                     else { Image(systemName: "person.crop.circle.fill").font(.system(size: 48)).foregroundStyle(AppTheme.accent) }
                 }
-                .frame(width: 76, height: 76).accessibilityHidden(true)
+                .accessibilityHidden(true) }
+            }.frame(width: 76, height: 76).clipShape(Circle())
             VStack(alignment: .leading, spacing: 7) {
-                Text(account?.displayName ?? "로기챗에 오신 것을 환영해요").font(.title3.weight(.bold))
+                Text(profile?.displayName ?? account?.displayName ?? "로기챗에 오신 것을 환영해요").font(.title3.weight(.bold))
                     .fixedSize(horizontal: false, vertical: true)
+                if let displayID = profile?.soopDisplayID { Text("SOOP ID · \(displayID)").font(.footnote).foregroundStyle(.secondary).textSelection(.enabled) }
                 if let account {
                     Label(account.soopConnected ? "SOOP 계정 연결됨" : "SOOP 계정 연결 필요", systemImage: account.soopConnected ? "checkmark.seal.fill" : "link")
                         .font(.footnote).foregroundStyle(account.soopConnected ? AppTheme.accent : .secondary)

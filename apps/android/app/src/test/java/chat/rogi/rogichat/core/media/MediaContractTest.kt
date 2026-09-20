@@ -11,6 +11,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MediaContractTest {
+    @Test fun providerAvatarUsesBodylessScopedEndpointAndLease() = runBlocking {
+        val own = Scope(null); var path = ""
+        val transport = MediaTransport { request, _ ->
+            chat.rogi.rogichat.core.network.FeatureRoutes.media(request)
+            assertEquals("POST", request.method); assertNull(request.jsonBody); assertNull(request.upload)
+            path = request.path
+            """{"url":"https://api.qa.rogi.chat/v1/profile-images?ticket=opaque","expiresIn":60}"""
+        }
+        val lease = MediaClient(transport, own).providerAvatar()
+        assertEquals("me/provider-avatar/access", path)
+        assertTrue(lease.checkedURL(own).contains("profile-images"))
+        own.valid = false
+        assertThrows(CancellationException::class.java) { lease.checkedURL(own) }
+        val peer = MediaClient(transport, Scope())
+        peer.providerAvatar(asset)
+        assertEquals("rooms/$room/actors/$asset/provider-avatar/access", path)
+        try { peer.providerAvatar(); fail("self endpoint admitted from room scope") } catch (_: IllegalArgumentException) { }
+    }
     private val asset = "10000000-0000-4000-8000-000000000001"
     private val room = "20000000-0000-4000-8000-000000000001"
     private inner class Scope(override val roomId: String? = room) : MediaScope {
