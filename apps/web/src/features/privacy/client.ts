@@ -1,5 +1,6 @@
 import { ApiError, type Session } from '../../core/api/client';
 import { exact, token, uuid } from '../chat/contract';
+import { blockPage, blockReceipt, reportInput, reportReceipt, type ReportInput } from './moderation-contract';
 
 export interface DeletionReceipt { requestId: string; status: 'blocked' }
 export type PublicationReceipt = { publicationId: string; status: 'preparing' | 'revoked' } | { publicationId: string; status: 'published'; messageId: string };
@@ -25,7 +26,7 @@ export class PrivacyClient {
     if (!['https://api.qa.rogi.chat', 'https://api.rogi.chat'].includes(origin)) throw new Error('Unapproved API origin');
     this.origin = origin; this.transport = (input, init) => transport(input, init);
   }
-  private async request(path: string, status: number, signal: AbortSignal, method?: 'POST' | 'DELETE', csrf?: string, body: unknown = {}): Promise<unknown> {
+  private async request(path: string, status: number, signal: AbortSignal, method?: 'POST' | 'PUT' | 'DELETE', csrf?: string, body: unknown = {}): Promise<unknown> {
     signal.throwIfAborted();
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (method) {
@@ -34,7 +35,7 @@ export class PrivacyClient {
       else if (path !== '/v1/auth/soop/start') throw new Error('Missing CSRF');
     }
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
-    const response = await this.transport(this.origin + path, { method: method ?? 'GET', credentials: 'include', cache: 'no-store', redirect: 'error', headers, signal: requestSignal, ...(method ? { body: JSON.stringify(body) } : {}) });
+    const response = await this.transport(this.origin + path, { method: method ?? 'GET', credentials: 'include', cache: 'no-store', redirect: 'error', headers, signal: requestSignal, ...(method && body !== null ? { body: JSON.stringify(body) } : {}) });
     const reader = response.body?.getReader();
     const cancel = () => { void reader?.cancel().catch(() => {}); };
     requestSignal.addEventListener('abort', cancel, { once: true });
@@ -79,6 +80,10 @@ export class PrivacyClient {
   async deleteAccount(csrf: string, signal: AbortSignal) { return deletionReceipt(await this.request('/v1/me/account', 200, signal, 'DELETE', csrf)); }
   async publish(room: string, message: string, csrf: string, signal: AbortSignal) { return publicationReceipt(await this.request(`/v1/rooms/${uuid(room)}/messages/${uuid(message)}/publications`, 202, signal, 'POST', csrf)); }
   async publication(room: string, id: string, signal: AbortSignal) { return publicationReceipt(await this.request(`/v1/rooms/${uuid(room)}/publications/${uuid(id)}`, 200, signal), id); }
+  async report(room: string, message: string, input: ReportInput, csrf: string, signal: AbortSignal) { return reportReceipt(await this.request(`/v1/rooms/${uuid(room)}/messages/${uuid(message)}/reports`, 200, signal, 'POST', csrf, reportInput(input))); }
+  async reportByKey(key: string, signal: AbortSignal) { return reportReceipt(await this.request(`/v1/report-receipts/${uuid(key)}`, 200, signal)); }
+  async blocks(room: string, after: string | null, signal: AbortSignal) { return blockPage(await this.request(`/v1/rooms/${uuid(room)}/blocks${after === null ? '' : `?after=${uuid(after)}`}`, 200, signal)); }
+  async block(room: string, actor: string, blocked: boolean, csrf: string, signal: AbortSignal) { return blockReceipt(await this.request(`/v1/rooms/${uuid(room)}/blocks/${uuid(actor)}`, 200, signal, blocked ? 'PUT' : 'DELETE', csrf, blocked ? {} : null), actor, blocked); }
   async login(signal: AbortSignal): Promise<string> {
     const data = exact(await this.request('/v1/auth/soop/start', 200, signal, 'POST', undefined, { intent: 'login', termsVersion: '2026-09-20' }), ['authorizeUrl']);
     if (typeof data.authorizeUrl !== 'string') throw new ApiError(502, 'INVALID_AUTH_URL');

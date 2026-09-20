@@ -41,7 +41,7 @@ function DeletionForm({ origin, session, onBlocked }: AccountDeletionControlProp
   return <section aria-label="계정 탈퇴" className="space-y-4"><h2 className="font-semibold">계정 탈퇴</h2><p role="status">{deletionText[state]}</p>{state !== 'blocked' && <><label className="flex gap-3"><input type="checkbox" checked={confirmed} disabled={busy} onChange={event => setConfirmed(event.target.checked)} /><span>계정 접근 차단과 삭제 요청 내용을 이해하고 탈퇴를 요청합니다.</span></label><Button variant="outline" disabled={!confirmed || busy} onClick={() => void submit()}>계정 탈퇴 요청</Button></>}</section>;
 }
 
-export interface AccountDeletionRecoveryProps { origin: string; onResume: () => void; onBlocked?: () => void }
+export interface AccountDeletionRecoveryProps { origin: string; onResume: () => void; onBlocked: () => void }
 /** Must mount ahead of the private gate when isAccountDeletionPending() is true. */
 export function AccountDeletionRecovery({ origin, onResume, onBlocked }: AccountDeletionRecoveryProps) {
   const [state, setState] = useState<DeletionState>('checking');
