@@ -8,18 +8,25 @@ The follow-up preserves accepted `4216aaaa53cc657a2d15e11cd12e53ce159e3b3b`
 and normally merges these complete source histories:
 
 - M10 account content/media `a25fb66f3e7345b136bdd810481d2f8f863be053`,
-  including late-write reopening, cleanup fencing and durable cursor regressions.
+  including late-write reopening, cleanup fencing and durable cursor regressions;
+  Apple also carries final sticker-proof correction
+  `ae65a689b206dc57e1f2bcd898ef5bb5487e2413` without rewriting that commit.
 - Moderation `d0461ccd778966dff6bbfd165e29fb8492650a7e`, including bounded
   report retention, reversible actor blocks and privacy-scoped recovery names.
 - Native push `7774ce0634e686a0a66338e4a2619d1ab712eaaa`, including explicit
   enrollment, encrypted provider tokens, provider-aware enqueue/delivery and
   generated migration 23.
+- Apple lifecycle `357f1fb80b9cdf5586a0ca6627466f74e974fe4f`, including
+  SOOP-gated onboarding, bounded revocation and restored-credential quarantine.
 - Current QA `c5c75d433e1da9a46d8a2fa4b66c405ab6e4a0c5`, including reviewed
   public-history scanner improvements.
 
-Migrations 20–23 are retained without rewriting their bytes. Apple lifecycle
-runtime is pending its author's final frozen source; its schema is already an
-ancestor of native push. No intermediate Apple implementation is accepted here.
+Migrations 20–23 are retained without rewriting their bytes. Shared Nest module,
+account-cleanup and worker conflicts preserve both moderation retention and Apple
+lifecycle services. The merged cleanup tests retain both continuation contracts:
+pending moderation cannot falsely complete, and provider waits cannot starve
+independent content/media cleanup. The separate M12 restore-epoch/schema-24 work
+is not part of this source checkpoint.
 
 Integration-owned changes add [bounded overload admission](backend-overload-admission.md),
 temporary socket transport retry, narrow native NOWAIT contention handling, and
