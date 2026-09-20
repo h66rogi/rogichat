@@ -75,7 +75,7 @@ pnpm --filter @rogichat/api dev:worker
 파일 credential 구조는 [운영 인계](../../docs/qa-operations-handoff.md)와 맞춘다. 앱은 secret을
 직접 발급/회전하거나 AWS 관리자 자격증명을 받지 않는다. 파일 원자 교체 뒤 app recreate는 후속 배포 계약이다.
 설정 값·URL·SQL·본문·headers·stack을 로그에 기록하지 않는다. 알려진 event/reason/status와
-서버가 생성한 request UUID만 기록한다. 익명 health 이외의 API, auth bypass, Swagger UI는 없다.
+서버가 생성한 request UUID만 기록한다. 인증·인가 검사는 문서 제공 여부와 무관하게 유지한다.
 
 ## Health·종료·스키마 경계
 
@@ -89,8 +89,7 @@ pnpm --filter @rogichat/api dev:worker
 - SIGTERM/SIGINT 시 readiness 차단→HTTP/context 종료→DB pool 종료. 10초 초과/실패는 비정상 종료.
 - CORS는 아직 비활성, proxy header는 신뢰하지 않음. 인증 단계에서 검증된 origin/proxy 계약을 추가한다.
 
-[`health.json`](../../packages/contracts/health.json)은 최소 검증 fixture다. 생성 OpenAPI와
-제품 DTO 계약은 해당 API 구현 단계에서 추가하며 이미 제공된 것으로 표시하지 않는다.
+[`health.json`](../../packages/contracts/health.json)은 최소 검증 fixture다. 생성 OpenAPI는 아래 경로에서 확인한다.
 
 ## 버전·운영 경계
 
@@ -103,3 +102,28 @@ Node 검사와 schema-engine 설치 script만 허용하며 나머지 dependency 
 
 Backend CI는 build/test만 하며 image 발행·cloud 접속·DB migration·Caddy 변경·배포는 하지 않는다.
 실제 Aurora TLS positive 연결, 앱 image/UID/GID, migration 단일 실행과 public route는 후속 증거다.
+
+## Swagger / OpenAPI
+
+`APP_ENV=local` 또는 `qa`에서 `/docs`(조회 전용 UI), `/docs/openapi.json`을 제공한다.
+`test`와 `production`에서는 UI·JSON·정적 자산을 등록하지 않는다.
+QA: <https://api.qa.rogi.chat/docs>. 검색과 태그별 탐색을 지원하며 Try it out과 인증 저장은 꺼져 있다.
+문서는 실제 활성화된 Nest 모듈의 REST 경로만 포함한다. 소켓 복구 계약은
+[백엔드 설계](../../docs/backend-design.md)를 함께 참고한다.
+
+웹은 쿠키 세션을 사용하며 보호된 쓰기에는 CSRF 토큰과 허용 Origin도 필요하다.
+네이티브는 Bearer 토큰과 `X-Rogi-Client: ios|android`를 함께 사용하며 웹 인증과 혼용할 수 없다.
+네이티브 토큰 발급용 공개 로그인·refresh endpoint는 아직 제공되지 않는다.
+각 작업에 로그인 예외, 방 권한, 조회 범위와 오류를 표시한다. 문서 조회 권한은 API 실행 권한이 아니다.
+
+```sh
+pnpm --filter @rogichat/api contracts:check
+pnpm --filter @rogichat/api openapi:export
+```
+
+Export는 외부 서비스나 환경 파일 없이 health/auth/full 세 구성의 JSON을
+`apps/api/build/openapi/`에 생성한다. CI도 같은 파일을 artifact로 보관한다.
+생성 파일은 Git에 넣지 않는다. REST 변경 시 기능별 `dto/*.openapi.ts`와 컨트롤러의
+문서 메타데이터를 함께 수정한다. route inventory, OpenAPI 표준 검사, 요청 parser 비교,
+실제 HTTP 응답 schema 검사 및 환경별 노출 테스트로 계약을 검증한다.
+[설계·구현계획](../../docs/swagger-design.md)에 범위와 후속 조건을 기록했다.

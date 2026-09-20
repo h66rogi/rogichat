@@ -1,3 +1,4 @@
+import { responseContract } from '../support/openapi-response.mjs';
 import { createUser, createRoom, joinRoom, Jobs, publishText } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
@@ -31,11 +32,13 @@ async function fixture(t) {
   });
   app = await createApi(db, new SafeLogger('api', () => {}), undefined, { config, sessions });
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
+  const validateResponse = responseContract(app, config);
   const call = async (person, method, path, body, headers = {}) => {
     const response = await fetch(`${base}/v1${path}`, { method, headers: { Origin: config.origin, Cookie: `rogi_session=${person.token}`,
       'X-CSRF-Token': person.csrf, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     const responseBody = response.headers.get('content-type')?.includes('application/json') ? await response.json() : undefined;
+    validateResponse(method, `/v1${path}`, response.status, responseBody);
     return { status: response.status, body: responseBody, headers: response.headers };
   };
   const messagePath = id => `/rooms/${room}/messages/${id}`;

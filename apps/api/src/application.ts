@@ -1,3 +1,5 @@
+import type { Config } from './infrastructure/config/config.js';
+import { configureOpenApi } from './infrastructure/openapi/openapi.js';
 import type { AuthConfig } from './infrastructure/config/auth-config.js';
 import 'reflect-metadata';
 import { randomUUID } from 'node:crypto';
@@ -18,10 +20,10 @@ import type { MediaOptions } from './modules/media/media.module.js';
 import { AppModule } from './app.module.js';
 import { WorkerModule } from './worker.module.js';
 
-export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthModuleOptions, media?: MediaOptions): Promise<NestExpressApplication> {
-  return createConfiguredApi(AppModule.register(database, lifecycle, auth, media), logger, lifecycle, auth?.config, Boolean(media));
+export async function createApi(database: Database, logger: SafeLogger, lifecycle = new LifecycleState(), auth?: AuthModuleOptions, media?: MediaOptions, environment: Config['environment'] = 'test'): Promise<NestExpressApplication> {
+  return createConfiguredApi(AppModule.register(database, lifecycle, auth, media), logger, lifecycle, auth?.config, Boolean(media), environment);
 }
-export async function createConfiguredApi(module: DynamicModule, logger: SafeLogger, suppliedLifecycle?: LifecycleState, auth?: AuthConfig, media = false): Promise<NestExpressApplication> {
+export async function createConfiguredApi(module: DynamicModule, logger: SafeLogger, suppliedLifecycle?: LifecycleState, auth?: AuthConfig, media = false, environment: Config['environment'] = 'test'): Promise<NestExpressApplication> {
   const app = await NestFactory.create<NestExpressApplication>(module, { logger: false, abortOnError: false, bodyParser: false });
   const lifecycle = suppliedLifecycle ?? app.get<LifecycleState>(LifecycleState);
   const server: Express = app.getHttpAdapter().getInstance();
@@ -47,7 +49,8 @@ export async function createConfiguredApi(module: DynamicModule, logger: SafeLog
     if (request.method === 'POST' && /^\/v1\/media\/upload-intents\/[^/]+\/content$/.test(request.path)) { next(); return; }
     json(request, response, next);
   });
-  // No static serving, Swagger UI, debug or test-auth routes.
+  // Documentation routes never change product authentication or controller validation.
+  configureOpenApi(app, environment, auth);
   app.useGlobalFilters(new SafeExceptionFilter());
   const http: Server = app.getHttpServer();
   http.requestTimeout = media ? 310000 : 15000;

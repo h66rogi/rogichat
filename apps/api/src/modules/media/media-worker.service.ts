@@ -35,6 +35,9 @@ export class MediaWorkerService {
     if (lease.purpose !== 'MEDIA' || !lease.resourceId) throw new JobFailure('INVALID_RESOURCE', true);
     const { asset, owner } = await this.assetLock(tx, lease.resourceId);
     if (['READY', 'DELETED'].includes(String(asset.state))) { await this.finish(tx, lease); return 'completed'; }
+    // Deletion needs no membership grant. Do not acquire a room lock after
+    // owner/asset locks: publication and message deletion lock room before assets.
+    if (asset.state === 'DELETING') return 'cleanup';
     let allowed = owner.status === 'ACTIVE' && owner.linked === 'VERIFIED';
     if (allowed && asset.room_id) {
       try { await this.access.requireActiveMember(tx, String(asset.room_id), String(asset.owner_user_id)); }

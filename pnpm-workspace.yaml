@@ -12,6 +12,7 @@ allowBuilds:
   prisma@7.10.0: true
   '@prisma/engines@7.10.0': true
   '*': false
+  '@scarf/scarf@1.4.0': false # Swagger UI install telemetry is unnecessary.
 
 # Prisma 7.10.0 pins the vulnerable connector; keep its only driver on the
 # reviewed security release, including transitive adapter resolution.

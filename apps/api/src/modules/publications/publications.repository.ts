@@ -32,6 +32,7 @@ export class PublicationsRepository {
   lockPublication(tx: Transaction, roomId: string, resourceId: string) {
     return tx.rows<RowDataPacket>('SELECT id,state,source_message_id,source_version,publisher_member_id FROM message_publications WHERE room_id=? AND id=? FOR UPDATE', [roomId, resourceId]);
   }
+  lockCopyAsset(tx: Transaction, id: string) { return tx.rows('SELECT id FROM media_assets WHERE id=? FOR UPDATE', [id]); }
   revoke(tx: Transaction, id: unknown) { return affected(tx.prisma.message_publications.updateMany({ where: { id: String(id) }, data: { state: 'REVOKED' } })); }
   sharedStreams(tx: Transaction, roomId: string) {
     return tx.rows<RowDataPacket>("SELECT id FROM message_streams WHERE room_id=? AND kind='ROOM_SHARED' FOR UPDATE", [roomId]);

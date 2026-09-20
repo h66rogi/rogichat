@@ -1,0 +1,50 @@
+name: Web verified image export
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Full source SHA with successful QA checks and publication
+        required: true
+      runtime_digest:
+        description: Web registry sha256 hex (64 characters)
+        required: true
+
+permissions: {}
+
+jobs:
+  export:
+    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Verify exact QA source, publication and published image archive
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          EXPORT_SOURCE_SHA: ${{ inputs.source_sha }}
+          EXPORT_RUNTIME_DIGEST: ${{ inputs.runtime_digest }}
+        run: python3 tools/web/archive.py produce
+      - name: Scan every exported layer before artifact upload
+        run: |
+          python3 tools/security/install.py
+          python3 tools/security/image_scan.py "$RUNNER_TEMP/rogichat-export/runtime.tar"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: web-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/rogichat-export/descriptor.json
+            ${{ runner.temp }}/rogichat-export/runtime.tar
+            ${{ runner.temp }}/rogichat-export/runtime.manifest.json
+            ${{ runner.temp }}/rogichat-export/publication-proof.zip
+          if-no-files-found: error
+          compression-level: 6
+          retention-days: 1
+          overwrite: false

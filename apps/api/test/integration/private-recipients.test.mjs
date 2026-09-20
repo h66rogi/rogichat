@@ -1,3 +1,4 @@
+import { responseContract } from '../support/openapi-response.mjs';
 import { createUser, createRoom, joinRoom, leaveRoom, sendMessage } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,12 +31,15 @@ async function fixture(t) {
   });
   app = await createApi(db, new SafeLogger('api', () => {}), undefined, { config, sessions });
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
+  const validateResponse = responseContract(app, config);
   const call = async (person, method, path, body) => {
     const response = await fetch(`${base}/v1${path}`, { method, headers: { Origin: config.origin,
       ...(person ? { Cookie: `rogi_session=${person.token}`, 'X-CSRF-Token': person.csrf } : {}),
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-    return { status: response.status, body: response.headers.get('content-type')?.includes('application/json') ? await response.json() : undefined, headers: response.headers };
+    const result = { status: response.status, body: response.headers.get('content-type')?.includes('application/json') ? await response.json() : undefined, headers: response.headers };
+    validateResponse(method, `/v1${path}`, result.status, result.body);
+    return result;
   };
   const list = (person = owner, suffix = '', roomId = room) => call(person, 'GET', `/rooms/${roomId}/private-recipients${suffix}`);
   const sendAs = (person, target) => call(person, 'POST', `/rooms/${room}/messages`, { clientMessageId: randomUUID(), intent: 'PRIVATE', recipientActorId: target.actor, content: { type: 'TEXT', text: '합성 개인답장' } });
