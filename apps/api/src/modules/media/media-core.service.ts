@@ -98,8 +98,8 @@ export class MediaCoreService {
   }
   async failUpload(tx: Transaction, attempt: UploadAttempt): Promise<void> {
     const result = await this.repository.fail(tx, attempt.assetId, attempt.token);
-    if (result.affectedRows) await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: attempt.assetId, dedupeKey: digest(`media-cleanup:${attempt.assetId}:${attempt.token}`) });
-    // Never release a byte reservation before storage cleanup succeeds after the upload horizon.
+    if (result.affectedRows) await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: attempt.assetId, dedupeKey: digest(`media-cleanup:${attempt.assetId}`) });
+    // Reservation release requires ordered storage deletion and actual writer proof.
   }
 
   // Called in a fresh authenticated transaction immediately before local 60-second URL signing.

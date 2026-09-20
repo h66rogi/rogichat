@@ -373,3 +373,14 @@ to avoid inverse A→B/B→A cycles. Hint lookup, uniqueness, count and conditio
 writes use generated Prisma. Existing push enqueue locking predicates now match
 provider/client/session for WEB, APNS and FCM; they do not introduce a second pool
 or external network I/O under a database lock. See [native push](backend-native-push.md).
+
+### Account content and media cleanup
+
+ACCOUNT content/media cleanup (migration 20) uses generated Prisma for checkpoints,
+reference provenance, bounded discovery and mutations. Current-row SQL exceptions
+lock the selected room/message after account authorization, one restored physical
+checkpoint, and shared-reference existence after an asset-lock wait (an older RR
+snapshot cannot authorize revocation). MEDIA cleanup uses bounded current locking
+object pages and closure projections around external DELETE, then the final queue
+fence; no storage I/O runs in a DB transaction. These exceptions retain fixed SQL
+identifiers and bound values, with no second database pool.

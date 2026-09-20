@@ -36,6 +36,13 @@ export class JobsCoreService {
     const result = await this.repository.complete(tx, leaseValues(lease));
     return result.affectedRows === 1;
   }
+  async continueMedia(tx: Transaction, lease: JobLease, progress: boolean): Promise<void> {
+    leaseValues(lease);
+    if (lease.purpose !== 'MEDIA' || !lease.resourceId || !await this.repository.continueMedia(tx, lease, progress)) throw new Error('media_cleanup_lease_lost');
+  }
+  async recoverMedia(tx: Transaction, assetId: string): Promise<void> {
+    await this.repository.recoverMedia(tx, assetId);
+  }
   /** Domain locks first; this must be the last mutation in the domain transaction. */
   async continuePurge(tx: Transaction, lease: JobLease, outcome: PurgeContinuation): Promise<void> {
     leaseValues(lease);

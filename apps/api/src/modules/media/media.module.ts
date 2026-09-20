@@ -1,3 +1,4 @@
+import { MediaWriteProofModule } from './media-write-proof.module.js';
 import { Module } from '@nestjs/common';
 import type { DynamicModule } from '@nestjs/common';
 import type { MediaStore } from './adapters/media-store.js';
@@ -12,6 +13,6 @@ export interface MediaOptions { store: MediaStore; prefix: string; spool: MediaS
 @Module({})
 export class MediaModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule, options: MediaOptions | MediaSettings): DynamicModule {
-    return { module: MediaModule, imports: [infrastructure, authentication, MediaCoreModule, MediaStorageModule.register(options), StickersModule.register(infrastructure, authentication)], controllers: [MediaController], providers: [MediaService] };
+    return { module: MediaModule, imports: [infrastructure, MediaWriteProofModule, authentication, MediaCoreModule, MediaStorageModule.register(options), StickersModule.register(infrastructure, authentication)], controllers: [MediaController], providers: [MediaService] };
   }
 }
