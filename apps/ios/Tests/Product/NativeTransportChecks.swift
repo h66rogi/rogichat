@@ -233,9 +233,19 @@ actor ControlledNativeAPI: NativeRequesting {
         expect(.invalidResponse) { _ = try AccountAccessRequest.issue(accountID,requestID,3601,"확인").wire() }
         expect(.invalidResponse) { _ = try AccountAccessRequest.revoke("../me",accountID,"확인").wire() }
         let (store,_,directory) = try fixture(); defer { try? FileManager.default.removeItem(at:directory) }
-        let api = ControlledNativeAPI(); await api.configure(.success(try sessionData()))
+        var value = try JSONSerialization.jsonObject(with:sessionData()) as! [String:Any]
+        value["accountPartition"] = String(repeating:"A",count:43)
+        let ready = try JSONSerialization.data(withJSONObject:value)
+        let api = ControlledNativeAPI(); await api.configure(.success(ready))
         let service = NativeSessionService(environment:.qa,api:api,store:store,now:{now})
-        _ = try await service.restore()
+        let app = AppSession(service:service); await app.restore()
+        let oldScope = app.roomsScope; check(oldScope != nil)
+        await api.configure(.success(ready),blocked:true)
+        let refresh = Task { await app.refreshAccessScope(expected:app.generation) }
+        await api.wait(); check(app.roomsScope == nil)
+        do { try oldScope?.check(); preconditionFailure("old role scope must close before response") } catch {}
+        await api.finish(.success(ready)); await refresh.value
+        check(app.roomsScope != nil && app.roomsScope !== oldScope)
         await api.configure(.success(Data("{}".utf8)),blocked:true)
         let pending = Task { try await service.accessRequest(.me) }
         await api.wait(); try await service.signOut(); await api.finish(.success(Data("{}".utf8)))

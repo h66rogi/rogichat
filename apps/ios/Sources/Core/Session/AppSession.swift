@@ -270,6 +270,7 @@ final class AppSession {
     }
     func accessRequest(_ request: AccountAccessRequest, expected: UInt64) async throws -> Data {
         guard generation == expected, account != nil else { throw ProductError.sessionChanged }
+        if request.mutation { roomsScope?.invalidate(); roomsScope = nil }
         let result = try await service.accessRequest(request)
         guard generation == expected else { throw ProductError.sessionChanged }
         if case .room = request {
@@ -294,6 +295,8 @@ final class AppSession {
     }
     func refreshAccessScope(expected: UInt64) async {
         guard generation == expected, account != nil else { return }
+        // Withdraw rendered private data before waiting for network revalidation.
+        roomsScope?.invalidate(); roomsScope = nil
         do { let snapshot = try await service.refreshAccessScope(); guard generation == expected else { return }; apply(snapshot) }
         catch { await handleAccountError(error, ticket: expected) }
     }

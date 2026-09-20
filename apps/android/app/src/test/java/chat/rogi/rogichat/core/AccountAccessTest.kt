@@ -22,7 +22,8 @@ class AccountAccessTest {
             override fun withZone(zone: java.time.ZoneId): Clock = this
             override fun instant() = NOW.plusMillis(testScheduler.currentTime)
         }
-        val api = object : NativeApi by TestApi() {
+        val base = TestApi()
+        val api = object : NativeApi by base {
             override suspend fun access(request: AccessRequest, token: String, admission: () -> Unit): String {
                 admission(); assertEquals("GET",request.method); reads++
                 return if (reads == 1) """{"temporaryStreamer":{"grantId":"$OTHER","expiresAt":"${NOW.plusSeconds(60)}"}}""" else """{"temporaryStreamer":null}"""
@@ -30,10 +31,12 @@ class AccountAccessTest {
         }
         val db = RoomTestStore()
         val model = NativeSessionCoordinator(TestStore(),api,clock,roomsStore=db,roomCommandScope=backgroundScope)
-        model.restore(); val prior = db.clears
+        model.restore(); val prior = db.clears; val previousEpoch = model.session.value.generation
+        base.getBlock = { projection(generation = "h".repeat(43)) }
         assertTrue(model.access(AccessRequest.room(OWN),SessionIdentity.from(model.session.value)).isSuccess)
         runCurrent(); advanceTimeBy(60000); runCurrent()
-        assertEquals(2,reads); assertTrue(db.clears > prior); assertTrue(model.roomRefreshRequests.value > 0)
+        assertEquals(2,reads); assertEquals(2,base.gets); assertTrue(model.session.value.generation > previousEpoch)
+        assertTrue(db.clears > prior); assertTrue(model.roomRefreshRequests.value > 0)
     }
 
     @Test fun closedRequestsEnforceNativeHeadersStatusesAndSelfOnlyGrantPayload() = runTest {

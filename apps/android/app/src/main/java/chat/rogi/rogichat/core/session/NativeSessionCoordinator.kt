@@ -1079,7 +1079,14 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                     grantExpiryJob?.cancel(); grantExpiryJob = null
                     if (expiry != null && expiry.isAfter(clock.instant())) grantExpiryJob = roomCommandScope.launch {
                         delay(java.time.Duration.between(clock.instant(),expiry).toMillis().coerceAtLeast(1))
-                        val valid = lock.withLock { if (current(ticket)) { withdrawRoomsLocked(); mutableRoomRefresh.value++; true } else false }
+                        val timer = currentCoroutineContext()[Job]
+                        val valid = lock.withLock {
+                            if (current(ticket) && grantExpiryJob === timer) {
+                                // The follow-up read may replace the timer; it must not cancel this in-flight revalidation.
+                                grantExpiryJob = null
+                                withdrawRoomsLocked(); mutableRoomRefresh.value++; true
+                            } else false
+                        }
                         if (valid) { access(request,expected); refresh(retainAuthorized = true, expectedEpoch = ticket.epoch, expectedToken = ticket.credential.token) }
                     }
                 }

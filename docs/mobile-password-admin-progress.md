@@ -51,3 +51,9 @@ iOS는 전체 앱 컴파일과 기존 product/native/Keychain/SQLite suite에 �
 대응하는 백엔드 password/admin API와 실제 서버 권한·계정의 배포가 필요하다.
 고정 QA19는 이 후속 변경을 포함하지 않으며, 기존 ROOM_OWNER API 준비 확인 후
 별도로 배포한다. Firebase 서비스 계정 IAM과 Apple 서버 SIWA 키 준비는 독립 항목이다.
+
+독립 리뷰 후 만료 재검증 경계를 추가 검증했다. Android 만료 작업은 자신의 타이머
+참조를 먼저 해제해 후속 capabilities GET이 현재 작업을 취소하지 못하도록 하고,
+최종 session 재조회 및 새 generation 적용까지 테스트한다. iOS는 서버 응답을
+기다리기 전에 AppSession의 화면용 roomsScope도 nil로 만들어 이전 권한의 대화가
+남지 않게 한다. 제어된 지연 응답 테스트로 즉시 철회와 새 scope 복원을 확인한다.
