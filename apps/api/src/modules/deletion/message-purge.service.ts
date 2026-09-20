@@ -1,11 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
-import type { Transactions } from '../../infrastructure/database/transactions.js';
+import type { Transaction, Transactions } from '../../infrastructure/database/transactions.js';
 import { leaseValues } from '../jobs/jobs.policy.js';
 import type { JobLease } from '../jobs/jobs.policy.js';
 import { NotificationsCoreService } from '../notifications/notifications-core.service.js';
 import { checkedDeletionIntent, encodeDeletionIntent } from './deletion-ledger.js';
-import type { LedgerEnvironment } from './deletion-ledger.js';
+import type { DeletionReceipt, LedgerEnvironment } from './deletion-ledger.js';
 import { MessagePurgeRepository } from './message-purge.repository.js';
 
 export type MessagePurgeResult = { status: 'progress' | 'rows_purged' | 'deferred'; changed: number };
@@ -17,7 +17,7 @@ export class MessagePurgeService {
 
   // One fresh transaction per bounded step. No external I/O, hidden inherited RR
   // snapshot, whole-account sweep, job completion or LIVE_PURGED claim.
-  async step(transactions: Transactions, environment: LedgerEnvironment, lease: JobLease, limit = 100): Promise<MessagePurgeResult> {
+  async step(transactions: Transactions, environment: LedgerEnvironment, lease: JobLease, limit = 100, runtime?: { receipt: DeletionReceipt; finish: (tx: Transaction, result: MessagePurgeResult) => Promise<void> }): Promise<MessagePurgeResult> {
     leaseValues(lease);
     if (lease.purpose !== 'PURGE' || !lease.roomId || !lease.resourceId || !Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new Error('invalid_message_purge_input');
     return transactions.write(async tx => {
@@ -26,6 +26,7 @@ export class MessagePurgeService {
       const canonical = checkedDeletionIntent({ schemaVersion: 1, environment: intent.environment, requestId: intent.request_id,
         actorUserId: intent.actor_user_id, scope: intent.scope, targetId: intent.target_id, roomId: intent.room_id, requestedAt: intent.requested_at.toISOString() }, environment);
       if (!createHash('sha256').update(encodeDeletionIntent(canonical)).digest().equals(intent.ledger_sha256)) throw new Error('invalid_message_purge_intent');
+      if (runtime && (runtime.receipt.intent.requestId !== intent.request_id || runtime.receipt.sha256 !== intent.ledger_sha256.toString('hex'))) throw new Error('message_purge_external_conflict');
       // Absence of an actor cannot erase a durable proof. Active actors are valid
       // for individual message deletion; this is not account-deletion admission.
       await this.repository.account(tx, intent.actor_user_id);
@@ -38,7 +39,9 @@ export class MessagePurgeService {
           !Buffer.from(proof.ledger_sha256).equals(intent.ledger_sha256))) throw new Error('message_purge_checkpoint_conflict');
       const finish = async (status: MessagePurgeResult['status'], changed = 0): Promise<MessagePurgeResult> => {
         if (!await this.repository.fence(tx, lease)) throw new Error('message_purge_lease_lost');
-        return { status, changed };
+        const result = { status, changed };
+        if (runtime) await runtime.finish(tx, result);
+        return result;
       };
       if (!root) {
         // Missing data is not evidence. A completed proof must match the immutable

@@ -18,4 +18,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920074544_account_deletion_admission', checksum: '1e3d298e965c15500e83d96f4ebae5e2ce3336c154ce67d369a207058bff85fb' },
   { name: '20260920084358_m10_message_row_purge', checksum: '9f55555af7708656e7a4db09b1196b819b58e859d3aad95c23c96c2d52a2dc7a' },
   { name: '20260920090224_m10_durable_deletion_replay', checksum: '341773fcf5ab14ead777b85c68c8e8c04bf4eb4f9334019c3ce7053782c59e6f' },
+  { name: '20260920095340_m10_purge_runtime_discovery', checksum: '4d8b2c9be35b665942e1f4dccc396b0ec3ac8e45574ab03b88adb88aa7bbb978' },
 ];
