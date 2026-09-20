@@ -99,7 +99,15 @@ notifications: push.model,                       // replaces the static unavaila
   settings never installs the service worker; `enable()` registers `/sw.js` inside the action.
 - `push.needsDecision` is true after a compare-and-set conflict: the module has re-read the
   stored value, so show it and let the user choose again. The desired value is never replayed.
-- `push.refresh` re-reads state after an error; `NotificationSection` takes it as `onRetry`.
+- `push.refresh` re-reads state after an error and must be mounted, not merely available:
+  `SettingsView` needs one more optional prop, `onRetryNotifications?: () => void`, forwarded to
+  `NotificationSection`'s `onRetry`, and the mount passes `onRetryNotifications={push.refresh}`.
+  Without it the retry the section renders has nothing to call.
+- A server that answers `{"available":false}` is a settled state: Web Push is not configured.
+  A capability that could not be read at all — the route answering 404 as current QA does, a
+  503, a network failure — is an error the user retries, not notifications being off. The module
+  keeps those apart: `getState().failure` names the failure, `enabled` stays null rather than
+  false, and the control explains that the state could not be read.
 - `model.enabled` is true only while every condition a notification depends on holds: the
   preference the server keeps is on, this browser session still holds the exact subscription it
   registered, the browser still supports Web Push, the permission is still granted and the
@@ -174,6 +182,8 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
   asks for permission before any await, re-reads the capability for its current key, reads the
   stored preference, registers the endpoint, and only then writes `pushEnabled: true`. The
   preference the server keeps is never true while it has no endpoint for this browser.
+- **Unread is not off.** A failed read leaves `enabled` null with `failure` set, so the UI
+  offers a retry; only a server that answered decides that Web Push is unavailable.
 - **Storage.** An unusable `localStorage` — a private window, blocked site data, a full quota —
   is reported as its own state. Without the record this browser could not prove what it
   registered or release it later, so enrollment stops instead of appearing to work.
@@ -246,7 +256,7 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 Node 24.21.0, TypeScript 5.9.3 (the repository pin), from `apps/web`:
 
 - `node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts`
-  — 109 tests, 109 pass, 0 fail.
+  — 112 tests, 112 pass, 0 fail.
 - `tsc --noEmit` over `src/features/push/**` with the repository's strict options
   (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`) — clean.
 - ESLint 10.11.0 with the repository's type-aware rule set over the module's 18 files — 0 errors,

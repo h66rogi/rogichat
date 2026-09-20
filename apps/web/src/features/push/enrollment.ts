@@ -4,6 +4,7 @@ import type { BindingStorage, StoredBinding } from './binding';
 import type { BrowserSubscription, PushBrowser, PushPermission, PushSupport } from './browser';
 import type { PushCapabilitiesAvailable, PushSubscriptionIdentity } from './contract';
 import { PushError, PushScopeChanged } from './errors';
+import type { PushFailureKind } from './errors';
 import type { PushScope } from './scope';
 
 /**
@@ -45,6 +46,11 @@ export interface PushEnrollmentState {
   notice: string;
   /** A compare-and-set conflict happened: re-read state and take a fresh user decision. */
   needsDecision: boolean;
+  /**
+   * Why the last action failed, or null when it did not. An unread state is an error the user
+   * can retry, which is not the same as a server that answered that Web Push is unavailable.
+   */
+  failure: PushFailureKind | null;
 }
 
 const INITIAL: PushEnrollmentState = {
@@ -59,6 +65,7 @@ const INITIAL: PushEnrollmentState = {
   busy: false,
   notice: '',
   needsDecision: false,
+  failure: null,
 };
 
 /**
@@ -440,12 +447,15 @@ export class PushEnrollment {
 
   private async perform(operation: () => Promise<void>): Promise<void> {
     if (this.state.busy || !this.scope.active) return;
-    this.set({ busy: true });
+    this.set({ busy: true, failure: null });
     try {
       await operation();
     } catch (error) {
       if (error instanceof PushScopeChanged) return;
-      this.set({ notice: error instanceof PushError ? error.message : '알림 설정을 확인하지 못했습니다. 다시 시도해 주세요.' });
+      this.set({
+        failure: error instanceof PushError ? error.kind : 'server',
+        notice: error instanceof PushError ? error.message : '알림 설정을 확인하지 못했습니다. 다시 시도해 주세요.',
+      });
     } finally {
       if (this.scope.active) this.set({ busy: false });
     }
@@ -468,6 +478,8 @@ function supportNotice(support: PushSupport): string {
 
 function toggleBlock(state: PushEnrollmentState, enabled: boolean | null): string | null {
   if (state.busy) return '알림 설정을 변경하고 있습니다.';
+  // An unread state is a failure to retry, never a quiet "checking" or a settled "off".
+  if (enabled === null && state.failure !== null) return '알림 설정을 확인하지 못했습니다. 다시 확인해 주세요.';
   if (enabled === null) return '알림 설정을 확인하는 중입니다.';
   // Turning notifications off must stay available while any state remains to clear, including
   // when the permission was withdrawn, the key rotated or the server lost its configuration.
@@ -476,7 +488,7 @@ function toggleBlock(state: PushEnrollmentState, enabled: boolean | null): strin
   if (state.support !== 'supported') return supportNotice(state.support);
   if (state.permission === 'denied') return '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용해 주세요.';
   if (state.serverAvailable === false) return '서버에서 웹 푸시가 아직 준비되지 않았습니다.';
-  // Enabling needs a confirmed capability; the toggle waits rather than prompting blindly.
-  if (state.serverAvailable === null) return '알림 설정을 확인하는 중입니다.';
+  // Enabling needs a confirmed capability; an unread one is a retry, not a blind prompt.
+  if (state.serverAvailable === null) return state.failure === null ? '알림 설정을 확인하는 중입니다.' : '알림 설정을 확인하지 못했습니다. 다시 확인해 주세요.';
   return null;
 }

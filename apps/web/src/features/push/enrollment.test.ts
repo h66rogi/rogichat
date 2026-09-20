@@ -612,3 +612,36 @@ void test('a browser storage that cannot be read reports that instead of looking
   assert.equal(context.enrollment.model().enabled, false);
   assert.match(context.enrollment.getState().notice, /저장소/);
 });
+
+void test('a server without the enrollment routes is an error to retry, not notifications off', async () => {
+  // Current QA answers 404 for the push routes: that is an unread state, never a settled off.
+  const context = harness([failure(404, 'NOT_FOUND')]);
+  await context.enrollment.refresh();
+  const state = context.enrollment.getState();
+  assert.equal(state.failure, 'not-found');
+  assert.equal(state.serverAvailable, null, 'nothing was read, so nothing is known');
+  const model = context.enrollment.model();
+  assert.equal(model.enabled, null, 'an unread state is not false');
+  assert.deepEqual(model.toggle, { enabled: false, reason: '알림 설정을 확인하지 못했습니다. 다시 확인해 주세요.' });
+  assert.equal(context.enrollment.intent(), null, 'nothing can be pressed until the state is known');
+  assert.notEqual(state.notice, '');
+});
+
+void test('a server that answers unavailable is a settled state, not an error', async () => {
+  const context = harness([unavailable(), preference(false, '1')]);
+  await context.enrollment.refresh();
+  const state = context.enrollment.getState();
+  assert.equal(state.failure, null, 'the server answered; nothing failed');
+  assert.equal(state.serverAvailable, false);
+  assert.deepEqual(context.enrollment.model().toggle, { enabled: false, reason: '서버에서 웹 푸시가 아직 준비되지 않았습니다.' });
+});
+
+void test('a retry after a failed read clears the error and reports real state', async () => {
+  const context = harness([failure(503, 'AUTH_UNAVAILABLE'), available(), preference(false, '1')]);
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.getState().failure, 'unavailable');
+  await context.enrollment.refresh();
+  assert.equal(context.enrollment.getState().failure, null);
+  assert.equal(context.enrollment.model().enabled, false);
+  assert.deepEqual(context.enrollment.model().toggle, { enabled: true });
+});
