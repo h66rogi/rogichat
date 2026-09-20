@@ -99,6 +99,7 @@ actor ControlledNativeAPI: NativeRequesting {
         try checkHTTPAndDTO()
         try checkStore()
         try await checkResponseBound()
+        try await checkReviewerEntitlement()
         try await checkLifecycle()
         try await checkRaces()
         print("iOS native transport: request isolation, exact DTOs, durable install/logout intent, credential CAS, expiry/401, truthful logout, cancellation and stale-response fences passed")
@@ -218,6 +219,27 @@ actor ControlledNativeAPI: NativeRequesting {
         bytes.setReadFailure(false)
         let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
         check(values.isExcludedFromBackup == true)
+    }
+    @MainActor static func checkReviewerEntitlement() async throws {
+        let (store, _, directory) = try fixture()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let api = ControlledNativeAPI()
+        let service = NativeSessionService(environment: .qa, api: api, store: store, now: { now })
+        var value = try JSONSerialization.jsonObject(with: sessionData()) as! [String: Any]
+        value["soopLinkStatus"] = "REQUIRED"
+        let entitled = try JSONSerialization.data(withJSONObject: value)
+        await api.configure(.success(entitled))
+        let app = AppSession(service: service)
+        await app.restore()
+        check(app.access == .ready && app.account?.soopConnected == false)
+        for invalid in [["capabilities": ["chat": false]], ["onboardingState": "SOOP_LINK_REQUIRED"], ["soopLinkStatus": "UNKNOWN"]] as [[String: Any]] {
+            let body = try JSONSerialization.data(withJSONObject: value.merging(invalid) { _, new in new })
+            let dto = try JSONDecoder().decode(NativeSessionDTO.self, from: body)
+            expect(.invalidResponse) { _ = try dto.snapshot(credential: credential, now: now) }
+        }
+        await api.configure(.success(try sessionData(linked: false)))
+        await app.revalidate()
+        check(app.access == .linkRequired && app.account?.soopConnected == false)
     }
     @MainActor static func checkLifecycle() async throws {
         let (store, bytes, directory) = try fixture()

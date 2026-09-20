@@ -386,3 +386,8 @@ subject·partition·권한 키가 아니다. 수동 이름·사진·사진 삭�
 R66의 `OWNER_PENDING` 처리 코드는 과거 계약의 호환 처리다. 실제 팬 접근이 가능한
 기본방은 방장 미가입 여부와 무관하게 READY이며, 이번 앱은 그 상태에서 수신 actor 없이
 ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록](mobile-room-owner-progress.md)에 있다.
+
+
+| ID | 원본·대상 | 재사용와 새 계약의 경계 |
+|---|---|---|
+| R69 | 기존 NativeDtos/NativeSessionDTO, SessionSnapshot/AppSession 세션 투영과 복원·재검증 | **기존 세션 구현 직접 확장**: 실제 서버 심사 권한을 SOOP 연결 사실과 분리한다. 멜로밍 로그인 화면의 자격증명 폼은 후속 폼 이식 대상이며, 로기챗의 REQUIRED+READY+chat 계약을 제공하지 않는 원본 세션 정책으로 대체하지 않는다. 백엔드가 권한을 결정하고 UI는 사실만 표시한다. |

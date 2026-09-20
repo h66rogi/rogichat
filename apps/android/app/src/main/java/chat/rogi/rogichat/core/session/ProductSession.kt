@@ -37,7 +37,6 @@ data class SessionSnapshot(
 ) {
     init {
         require(access !in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) || account != null)
-        require(access != ShellAccess.READY || account?.soopConnected == true)
         require(access !in setOf(ShellAccess.SIGNED_OUT, ShellAccess.RESTORING, ShellAccess.RETRYABLE_FAILURE) || account == null)
     }
 }

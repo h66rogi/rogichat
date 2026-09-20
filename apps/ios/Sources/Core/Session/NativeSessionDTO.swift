@@ -50,11 +50,13 @@ struct NativeSessionDTO: Decodable, Sendable {
               NativeCredential.isOpaque(accountGeneration), accountPartition.map(Self.validPartition) ?? true, let expiry,
               abs(expiry.timeIntervalSince(credential.expiresAt)) < 0.001 else { throw ProductError.invalidResponse }
         guard expiry > now else { throw ProductError.unauthenticated }
-        let ready = soopLinkStatus == "VERIFIED" && onboardingState == "READY" && capabilities.chat
+        // Preserve provider identity truth independently of a real server entitlement.
+        guard soopLinkStatus == "VERIFIED" || soopLinkStatus == "REQUIRED" else { throw ProductError.invalidResponse }
+        let ready = onboardingState == "READY" && capabilities.chat
         let restricted = soopLinkStatus == "REQUIRED" && onboardingState == "SOOP_LINK_REQUIRED" && !capabilities.chat
         guard ready || restricted else { throw ProductError.invalidResponse }
         let summary = AccountSummary(id: account.userId, displayName: account.nickname, signInMethod: nil,
-                                     soopConnected: ready, avatarAssetID: account.avatarAssetId)
+                                     soopConnected: soopLinkStatus == "VERIFIED", avatarAssetID: account.avatarAssetId)
         guard summary.isValid else { throw ProductError.invalidResponse }
         return SessionSnapshot(access: ready ? .ready : .linkRequired, account: summary,
                                serverGeneration: accountGeneration, expiresAt: expiry, accountPartition: accountPartition)

@@ -18,11 +18,15 @@ object NativeDtos {
         val partition = if ("accountPartition" in root) AccountPartition(root.string("accountPartition")) else null
         val own = root.getValue("account").jsonObject
         val linked = when (root.string("soopLinkStatus")) { "VERIFIED" -> true; "REQUIRED" -> false; else -> error("invalid") }
-        require(root.string("onboardingState") == if (linked) "READY" else "SOOP_LINK_REQUIRED")
-        require(root.getValue("capabilities").jsonObject.bool("chat") == linked)
+        // SOOP identity and server-authorized product access are separate facts.
+        // A real reviewer entitlement can be READY while SOOP remains REQUIRED.
+        val ready = root.string("onboardingState") == "READY" && root.getValue("capabilities").jsonObject.bool("chat")
+        val restricted = !linked && root.string("onboardingState") == "SOOP_LINK_REQUIRED" &&
+            !root.getValue("capabilities").jsonObject.bool("chat")
+        require(ready || restricted)
         val generation = root.string("accountGeneration").also { require(it.matches(Regex("[A-Za-z0-9_-]{43}"))) }
         val account = AccountSummary(own.uuid("userId"), own.nickname(), null, linked, own.nullableUuid("avatarAssetId"))
-        NativeSessionProjection(account, if (linked) ShellAccess.READY else ShellAccess.LINK_REQUIRED,
+        NativeSessionProjection(account, if (ready) ShellAccess.READY else ShellAccess.LINK_REQUIRED,
             Instant.parse(root.string("expiresAt")), generation, partition)
     }
     fun profile(text: String): UserProfile = decode {

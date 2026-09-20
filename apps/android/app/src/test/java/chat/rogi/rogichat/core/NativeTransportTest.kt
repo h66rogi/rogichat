@@ -61,6 +61,22 @@ class NativeTransportTest {
         assertEquals(ShellAccess.LINK_REQUIRED, restricted.access)
         assertNull(restricted.account.signInMethod)
     }
+    @Test fun realReviewerEntitlementRestoresWithoutClaimingSoopIdentity() = runTest {
+        val entitled = projection().replace("VERIFIED", "REQUIRED")
+        val api = TestApi().apply { getBlock = { entitled } }
+        val model = gateway(api = api)
+        assertTrue(model.restore().isSuccess)
+        assertEquals(ShellAccess.READY, model.session.value.access)
+        assertFalse(requireNotNull(model.session.value.account).soopConnected)
+        api.getBlock = { projection(linked = false) }
+        assertTrue(model.revalidate().isSuccess)
+        assertEquals(ShellAccess.LINK_REQUIRED, model.session.value.access)
+        for (body in listOf(
+            entitled.replace("\"chat\":true", "\"chat\":false"),
+            entitled.replace("READY", "SOOP_LINK_REQUIRED"),
+            entitled.replace("REQUIRED", "UNKNOWN")
+        )) assertThrows(InvalidResponse::class.java) { NativeDtos.session(body) }
+    }
     @Test fun profileDecoderAndPatchPreserveClearVersusOmitted() {
         assertThrows(InvalidResponse::class.java) { NativeDtos.profile(profile().replace("\"birthday\":null", "\"birthday\":{\"month\":2,\"day\":30}")) }
         assertThrows(InvalidResponse::class.java) { NativeDtos.profile(profile(nickname = "\\ud800")) }

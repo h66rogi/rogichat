@@ -521,8 +521,7 @@ final class AppSession {
         let hasAccount = snapshot.account != nil
         let needsAccount = snapshot.access == .ready || snapshot.access == .linkRequired
         guard !needsAccount || hasAccount,
-              snapshot.account?.isValid != false,
-              snapshot.access != .ready || snapshot.account?.soopConnected == true else {
+              snapshot.account?.isValid != false else {
             generation &+= 1
             account = nil
             roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil
