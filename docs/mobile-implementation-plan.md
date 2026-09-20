@@ -698,3 +698,8 @@ VERIFIED일 때만 참으로 유지한다. 일반 미연결 계정의 SOOP_LINK_
 재사용한다. 임시 역할은 서버가 sync room.role과 actor profile에 투영하며, 만료·회수의
 authorizationRevision 변화로 기존 방 권한을 철회한다. 실제 소유자나 SOOP 신원은
 바꾸지 않는다. 공개 가입·내장 계정·내장 비밀번호·가짜 성공은 제공하지 않는다.
+
+위 후속 단계의 ID/PW 화면·실제 전송·보호 설치, 비밀번호 변경, 서버 capabilities 기반
+관리자 진입과 기본방 임시권한 발급/조회/회수를 PR100에서 구현했다.
+[구현·검증·배포 경계](mobile-password-admin-progress.md)를 따른다. QA19 산출물은
+변경하지 않으며 후속 기능의 라이브 사용은 대응 백엔드 배포와 실제 계정 준비로 확인한다.

@@ -47,7 +47,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                                private val roomsStore: RoomsStore? = null,
                                private val deletionStore: AccountDeletionStore? = null,
                                private val roomCommandScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-                               private val realtime: NativeRealtimeManager? = null) : SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, RoomsRepository, AccountDeletionActions, ConversationGateway, PushGateway, AccountFeatureGateway {
+                               private val realtime: NativeRealtimeManager? = null) : AccountAccessActions, SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, RoomsRepository, AccountDeletionActions, ConversationGateway, PushGateway, AccountFeatureGateway {
     private val lock = Mutex()
     private val profileWrites = Mutex()
     @Volatile private var foreground = false
@@ -105,6 +105,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     @Volatile private var epoch = 0L
         set(value) {
             attempt?.dispatchActive?.set(false)
+            grantExpiryJob?.cancel(); grantExpiryJob = null
             synchronized(realtimeLifecycle) { realtime?.bind(null, false); realtimeJob?.cancel(); realtimeJob = null }
             field = value; clientEpoch = UUID.randomUUID().toString(); blocksGraph?.invalidate()
         }
@@ -136,6 +137,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     private var pendingLoaded = false
     private var pending: PendingAuth? = null
     private var attempt: AuthAttempt? = null
+    private var grantExpiryJob: Job? = null
     private var authRevision = 0L
     private class AuthAttempt(val revision: Long, val epoch: Long, val proof: AuthProof, val intent: AuthIntent,
                               val createdAt: Instant, val token: String?, val accountId: String?,
@@ -149,7 +151,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     override suspend fun signIn(provider: SignInProvider) = unavailable()
     override suspend fun linkSoop() = beginAuthentication(AuthIntent.LINK)
     private fun unavailable(): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
-    fun services(push: NativePushCoordinator? = null) = ProductServices(session, this, this, auth = this.takeIf { auth != null }, notificationPreferences = this, rooms = this.takeIf { roomsStore != null }, deletion = this.takeIf { deletionStore != null }, conversations = conversationServices(), push = push, blocks = blockServices(), accountMedia = (roomsStore as? AccountFeatureStore)?.let { AccountMediaRepository(this, it) })
+    fun services(push: NativePushCoordinator? = null) = ProductServices(session, this, this, access = this, auth = this.takeIf { auth != null }, notificationPreferences = this, rooms = this.takeIf { roomsStore != null }, deletion = this.takeIf { deletionStore != null }, conversations = conversationServices(), push = push, blocks = blockServices(), accountMedia = (roomsStore as? AccountFeatureStore)?.let { AccountMediaRepository(this, it) })
 
     private fun blockServices(): AccountBlocksCoordinator? {
         val storage = roomsStore as? AccountFeatureStore ?: return null
@@ -1013,6 +1015,82 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 catch (_: Exception) { mutableAuth.value = AuthUiState(error = AuthProblem.STORAGE) }
             }
         } }
+    }
+    override suspend fun password(input: PasswordInput, expected: SessionIdentity, termsVersion: String): Result<Unit> = outcome {
+        require(termsVersion == CURRENT_TERMS)
+        val support = requireNotNull(auth)
+        val ticket = lock.withLock {
+            deletionStartupLocked(); require(activeDeletion == null && activeRoomCommand == null && loaded && !removalPending && expected.matches(mutable.value))
+            if (input.changing) require(credential != null && mutable.value.account != null)
+            else require(credential == null && mutable.value.access == ShellAccess.SIGNED_OUT)
+            invalidateAuthLocked()
+            val previous = mutable.value
+            epoch++; publish(ShellAccess.RESTORING); purgeRoomsLocked(); mutable.value = previous.copy(generation = epoch)
+            AuthAttempt(authRevision, epoch, support.createProof(), if (input.changing) AuthIntent.LINK else AuthIntent.LOGIN,
+                clock.instant(), credential?.token, mutable.value.account?.id, serverGeneration, store.clearStamp()).also { attempt = it }
+        }
+        var returned: NativeCredential? = null
+        var installed = false
+        val job = currentCoroutineContext()[Job]
+        try {
+            val admission = AuthHttpAdmission(clock, ticket.createdAt.plusSeconds(60)) { ticket.dispatchActive.get() }
+            val body = api.postAuthAdmitted(if (input.changing) ApiRoute.PASSWORD_CHANGE else ApiRoute.PASSWORD_LOGIN,
+                ticket.token, input.body(), admission::claim)
+            // Retain a valid issuance for best-effort revoke even if its nested session is rejected.
+            val issued = StrictAuthJson.objectValue(body)
+            fun issuedString(key: String): String = (issued.getValue(key) as kotlinx.serialization.json.JsonPrimitive).let { require(it.isString); it.content }
+            require(issuedString("tokenType") == "Bearer")
+            returned = NativeCredential(issuedString("accessToken"),Instant.parse(issuedString("expiresAt")))
+            val response = support.contract.exchange(body)
+            lock.withLock {
+                if (!authCurrent(ticket) || job?.isActive == false || !clock.instant().isBefore(ticket.createdAt.plusSeconds(60))) throw CancellationException("session_changed")
+                require(response.credential.token != ticket.token && response.credential.expiresAt.isAfter(clock.instant()) &&
+                    !response.credential.expiresAt.isAfter(clock.instant().plusSeconds(604860)))
+                if (input.changing) require(response.session.account.id == ticket.accountId)
+                withContext(NonCancellable) {
+                    publish(ShellAccess.RESTORING); purgeRoomsLocked()
+                    try { store.write(response.credential) } catch (failure: Exception) { try { clearLocked() } catch (_: Exception) {}; throw failure }
+                    if (job?.isActive == false) { clearLocked(); throw CancellationException("cancelled") }
+                    credential = response.credential; loaded = true; removalPending = false; serverGeneration = response.session.serverGeneration
+                    accountPartition = response.session.accountPartition; epoch++; profileRevision++; attempt = null; authRevision++
+                    publish(response.session.access,response.session.account); installed = true
+                }
+            }
+        } finally {
+            if (!installed) { authFailure(ticket, AuthProblem.FAILED); returned?.let { revokeReturned(it.token,ticket.token) } }
+        }
+    }
+    override suspend fun access(request: AccessRequest, expected: SessionIdentity): Result<String> = outcome {
+        val ticket = lock.withLock {
+            require(expected.matches(mutable.value) && mutable.value.account != null && activeDeletion == null && activeRoomCommand == null && attempt == null)
+            val saved = requireNotNull(credential); require(saved.expiresAt.isAfter(clock.instant()))
+            if (request.mutation) { withdrawRoomsLocked(); mutableRoomRefresh.value++ }
+            Ticket(epoch,saved,expected.accountId,profileRevision)
+        }
+        val admit = { if (!current(ticket) || !ticket.credential.expiresAt.isAfter(clock.instant())) throw CancellationException("session_changed") }
+        try {
+            val result = api.access(request,ticket.credential.token,admit)
+            lock.withLock {
+                admit()
+                if (request.path.startsWith("rooms/") && request.path.endsWith("/capabilities")) {
+                    val root = chat.rogi.rogichat.core.auth.StrictAuthJson.objectValue(result)
+                    val temporary = root["temporaryStreamer"] as? kotlinx.serialization.json.JsonObject
+                    val expiry = (temporary?.get("expiresAt") as? kotlinx.serialization.json.JsonPrimitive)?.content?.let(Instant::parse)
+                    grantExpiryJob?.cancel(); grantExpiryJob = null
+                    if (expiry != null && expiry.isAfter(clock.instant())) grantExpiryJob = roomCommandScope.launch {
+                        delay(java.time.Duration.between(clock.instant(),expiry).toMillis().coerceAtLeast(1))
+                        val valid = lock.withLock { if (current(ticket)) { withdrawRoomsLocked(); mutableRoomRefresh.value++; true } else false }
+                        if (valid) { access(request,expected); refresh(retainAuthorized = true, expectedEpoch = ticket.epoch, expectedToken = ticket.credential.token) }
+                    }
+                }
+            }
+            result
+        } catch (failure: Exception) {
+            if (failure is ApiException && failure.statusCode == 401) lock.withLock { if (current(ticket)) clearLocked() }
+            throw failure
+        } finally {
+            if (request.mutation) lock.withLock { if (current(ticket)) { withdrawRoomsLocked(); mutableRoomRefresh.value++ } }
+        }
     }
     override suspend fun startLogin(termsVersion: String): Result<Unit> = if (termsVersion != CURRENT_TERMS)
         Result.failure(IllegalArgumentException("terms_consent_required")) else beginAuthentication(AuthIntent.LOGIN)

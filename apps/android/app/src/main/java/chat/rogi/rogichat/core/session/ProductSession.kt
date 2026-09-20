@@ -74,6 +74,7 @@ class ProductServices(
     val profiles: ProfileRepository? = null,
     val rooms: RoomsRepository? = null,
     val auth: NativeAuthActions? = null,
+    val access: AccountAccessActions? = null,
     val notificationPreferences: NotificationPreferencesRepository? = null,
     val deletion: chat.rogi.rogichat.core.deletion.AccountDeletionActions? = null,
     val conversations: chat.rogi.rogichat.core.conversation.ConversationRepository? = null,

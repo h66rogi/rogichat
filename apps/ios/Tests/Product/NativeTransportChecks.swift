@@ -41,6 +41,9 @@ final class RedirectProbe: @unchecked Sendable {
     var completed: Bool { lock.withLock { called } }
 }
 actor ControlledNativeAPI: NativeRequesting {
+    func performAccess(_ input: AccountAccessRequest, credential: NativeCredential, admit: @escaping @Sendable () throws -> Void) async throws -> Data {
+        try admit(); return try await perform(.session,credential:credential)
+    }
     private var reply: Result<Data, ProductError> = .success(Data())
     private var blocked = false
     private var pending: CheckedContinuation<Data, any Error>?
@@ -99,6 +102,7 @@ actor ControlledNativeAPI: NativeRequesting {
         try checkHTTPAndDTO()
         try checkStore()
         try await checkResponseBound()
+        try await checkAdminAccessScope()
         try await checkReviewerEntitlement()
         try await checkLifecycle()
         try await checkRaces()
@@ -219,6 +223,24 @@ actor ControlledNativeAPI: NativeRequesting {
         bytes.setReadFailure(false)
         let values = try directory.resourceValues(forKeys: [.isExcludedFromBackupKey])
         check(values.isExcludedFromBackup == true)
+    }
+    @MainActor static func checkAdminAccessScope() async throws {
+        let requestID = UUID()
+        let (method,path,body,status,after) = try AccountAccessRequest.issue(accountID,requestID,900,"기능 확인").wire()
+        check(method == "POST" && path == "admin/rooms/\(accountID)/test-grants" && status == 201 && after == nil)
+        let payload = try JSONSerialization.jsonObject(with:body!) as! [String:Any]
+        check(Set(payload.keys) == ["requestId","durationSeconds","reason"])
+        expect(.invalidResponse) { _ = try AccountAccessRequest.issue(accountID,requestID,3601,"확인").wire() }
+        expect(.invalidResponse) { _ = try AccountAccessRequest.revoke("../me",accountID,"확인").wire() }
+        let (store,_,directory) = try fixture(); defer { try? FileManager.default.removeItem(at:directory) }
+        let api = ControlledNativeAPI(); await api.configure(.success(try sessionData()))
+        let service = NativeSessionService(environment:.qa,api:api,store:store,now:{now})
+        _ = try await service.restore()
+        await api.configure(.success(Data("{}".utf8)),blocked:true)
+        let pending = Task { try await service.accessRequest(.me) }
+        await api.wait(); try await service.signOut(); await api.finish(.success(Data("{}".utf8)))
+        await expectAsync(.sessionChanged) { _ = try await pending.value }
+        check(try store.read() == nil)
     }
     @MainActor static func checkReviewerEntitlement() async throws {
         let (store, _, directory) = try fixture()

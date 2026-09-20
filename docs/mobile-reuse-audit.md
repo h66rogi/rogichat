@@ -391,3 +391,13 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | ID | 원본·대상 | 재사용와 새 계약의 경계 |
 |---|---|---|
 | R69 | 기존 NativeDtos/NativeSessionDTO, SessionSnapshot/AppSession 세션 투영과 복원·재검증 | **기존 세션 구현 직접 확장**: 실제 서버 심사 권한을 SOOP 연결 사실과 분리한다. 멜로밍 로그인 화면의 자격증명 폼은 후속 폼 이식 대상이며, 로기챗의 REQUIRED+READY+chat 계약을 제공하지 않는 원본 세션 정책으로 대체하지 않는다. 백엔드가 권한을 결정하고 UI는 사실만 표시한다. |
+
+## 비밀번호 인증·계정 보안 확장
+
+| ID | 원본 commit/path | 대상과 재사용 | 필요한 변경 |
+|---|---|---|---|
+| R70 | meloming-android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, `feature/auth/.../LoginScreen.kt` LoginContent의 자격증명 필드·focus/IME·비밀번호 마스킹/표시·submit guard | Android PasswordForm: 기존 구조와 포커스·보안 입력 동작을 이식 | 이메일을 ASCII loginId로 변경, 로기챗 기본 입력 스타일, 실제 native 요청/약관 동의, 저장하지 않는 암호 상태, 가입/MFA/다른 OAuth 제외 |
+| R71 | meloming-ios `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `Meloming/Presentation/Auth/LoginView.swift` labeled form·SecureField·error/loading·button admission | iOS PasswordForm 및 WelcomeScreen 실제 ID/PW 진입 | username/newPassword autofill 구분, 변경 확인 입력, 로기챗 계약/약관·비활성화 시 삭제, 기존 보호 세션 publication 사용 |
+| R72 | R01 이후 이식된 SettingsSection/SettingsRow와 MyPage/More 전체 설정 허브; 원본 `Presentation/More/MfaSecuritySettingsView.swift`, `feature/more/.../MfaSecuritySettingsScreen.kt` 추가 대조 | 양쪽 AccountAccessSettings는 기존 설정 허브·section/row·실제 비동기 권한/오류 재조회 구조 직접 확장 | MFA 자체는 복사하지 않는다. self-only 임시 grant/서버 만료·role/revision 계약은 원본에 없어 새 closed request와 scope 철회 구현이 필요하다. 기존 SOOP 신원이나 방 소유자를 덮어쓰지 않는다. |
+
+상세 경계와 검증은 [비밀번호·관리자 구현 기록](mobile-password-admin-progress.md)에 있다.
