@@ -1,0 +1,99 @@
+name: Web foundation
+on:
+  push:
+    branches: [qa, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect web changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Compare against the base
+        id: filter
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if git diff --name-only "$BASE_SHA" HEAD | grep -Eq '^(apps/web/|tools/web/|packages/|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.node-version$|\.github/workflows/web\.yml$)'; then
+            echo "web=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "web=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify:
+    name: Lint, typecheck, build both shapes, isolation
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install pinned package manager and locked dependencies
+        run: |
+          npm install --global pnpm@12.4.2 --ignore-scripts
+          pnpm install --frozen-lockfile
+      - run: pnpm web:lint
+      - run: pnpm web:typecheck
+      - run: pnpm web:test:unit
+      - name: Production build (no preview routes)
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: pnpm web:build
+      - name: QA build (preview routes, separate dist dir)
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: pnpm web:build:qa
+      - name: Preview isolation of both build outputs
+        run: node tools/web/check-preview-isolation.mjs --shape both
+      - name: Browser smoke tests against the QA build
+        run: |
+          pnpm --filter @rogichat/web exec playwright install --with-deps chromium
+          pnpm web:test
+      - run: git diff --exit-code
+
+  required:
+    # Always reported so a required status never stays pending when the path filter skips verify.
+    name: Web required checks
+    needs: [changes, verify]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Evaluate (fail closed)
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          CHANGED: ${{ needs.changes.outputs.web }}
+          VERIFY: ${{ needs.verify.result }}
+        run: |
+          echo "changes: $CHANGES_RESULT, web changed: '$CHANGED', verify: $VERIFY"
+          if [ "$CHANGES_RESULT" != "success" ]; then echo "change detection did not succeed"; exit 1; fi
+          case "$CHANGED:$VERIFY" in
+            false:skipped) echo "no web change; verify skipped"; exit 0 ;;
+            true:success) echo "web verified"; exit 0 ;;
+            *) echo "unexpected combination"; exit 1 ;;
+          esac

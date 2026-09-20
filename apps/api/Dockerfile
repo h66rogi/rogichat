@@ -9,12 +9,12 @@ COPY patches ./patches
 
 FROM tooling AS build
 # Compilation does not require Prisma engine installation scripts.
-RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm --filter @rogichat/api... install --frozen-lockfile --ignore-scripts
 COPY apps/api ./apps/api
 RUN pnpm --filter @rogichat/api build
 
 FROM tooling AS production-dependencies
-RUN pnpm install --prod --frozen-lockfile --ignore-scripts
+RUN pnpm --filter @rogichat/api... install --prod --frozen-lockfile --ignore-scripts
 
 FROM build AS migration
 # Prisma CLI/engine are confined to this explicitly selected image target.
