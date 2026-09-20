@@ -34,6 +34,13 @@ test('failed and uncertain PUT never finalize but dispose local scratch', async 
   await assert.rejects(f.worker.processPublication({}), /synthetic uncertain PUT/);
   assert.equal(f.state().finalized, 0); assert.equal(f.spool.stats().reservedBytes, 0);
 });
+test('scratch admission failure closes the already acquired external read stream', async () => {
+  const f = fixture(), stream = Readable.from([f.bytes], { objectMode: false });
+  f.store.read = async () => ({ stream, bytes: f.bytes.length });
+  f.spool.receive = async () => { throw new Error('synthetic scratch capacity denial'); };
+  await assert.rejects(f.worker.processPublication({}), /synthetic scratch capacity denial/);
+  assert.equal(stream.destroyed, true); assert.deepEqual(f.state(), { finalized: 0, puts: 0 });
+});
 test('TEXT uses the existing handler and completed publication does no storage I/O', async () => {
   const f = fixture(); f.core.preparePhoto = async () => 'text';
   f.core.publishText = async transactions => { assert.equal(transactions, f.transactions); return 'completed'; };

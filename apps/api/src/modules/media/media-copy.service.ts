@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import { MediaSpooler } from '../../common/media/media-spool.js';
+import type { SpooledMedia } from '../../common/media/media-spool.js';
 import { PublicationsCoreService } from '../publications/publications-core.service.js';
 import type { JobLease } from '../jobs/jobs.policy.js';
 import { JobFailure } from '../jobs/jobs.service.js';
@@ -28,11 +29,12 @@ export class MediaCopyService {
         controller.signal.throwIfAborted();
         const source = await this.store.read(attempt.object_key, controller.signal);
         if (source.bytes !== Number(attempt.byte_length)) { source.stream.destroy(); throw new JobFailure('INVALID_RESOURCE', true); }
-        const file = await this.spool.receive(source.stream, { id: attempt.objectId, maxBytes: 10 * 1024 * 1024, expectedBytes: source.bytes, signal: controller.signal });
+        let file: SpooledMedia | undefined;
         try {
+          file = await this.spool.receive(source.stream, { id: attempt.objectId, maxBytes: 10 * 1024 * 1024, expectedBytes: source.bytes, signal: controller.signal });
           if (file.sha256 !== attempt.sha256) throw new JobFailure('INVALID_RESOURCE', true);
           await this.store.put(attempt.key, file.path, file.bytes, 'image/webp', controller.signal);
-        } finally { await file.dispose(); }
+        } finally { source.stream.destroy(); await file?.dispose(); }
       }
       controller.signal.throwIfAborted();
       await this.transactions.write(tx => this.publications.finalizePhoto(tx, lease, plan));

@@ -116,9 +116,9 @@ shebang and Node `spawn` returned ENOEXEC; a temporary external shell wrapper
 invoked its installed `bin/pnpm.mjs` for the disposable harness. No harness,
 package, lockfile or tool policy was changed to bypass validation.
 
-Final local snapshot: build, typecheck and lint pass; 208 unit, 141 disposable
-MySQL and 18 HTTP/process/contract tests pass (367 total). The 141 include eleven
-new PHOTO integration cases; four new unit cases cover the copy I/O boundary.
+Final local snapshot: build, typecheck and lint pass; 209 unit, 141 disposable
+MySQL and 18 HTTP/process/contract tests pass (368 total). The 141 include eleven
+new PHOTO integration cases; five new unit cases cover the copy I/O boundary.
 Remote CI evidence is recorded in the task PR. This slice is
 not M08/M09 release acceptance. STICKER design, VIDEO integration, actual R2
 access/expiry, independent review and the coordinator-owned QA merge/release
