@@ -104,6 +104,15 @@ class AndroidRoomsStore(private val context: Context, environment: String,
             RoomDirectory(members, discovered, page.next?.let { DiscoveryContinuation(identity.cacheId, it) }, identity.cacheId)
         }
     }
+    override suspend fun clearForDeletion(partition: AccountPartition?): Unit = storage {
+        // Deletion recovery may only touch the original partition. A stale journal is not
+        // authority to purge another account's DB, even when its credential is absent.
+        check(active == null || active?.partition == partition)
+        val expected = partition?.value?.let { "$it.db" }
+        check(files().filter { it.name.matches(Regex("[A-Za-z0-9_-]{43}\\.db(?:-wal|-shm|-journal)?")) }
+            .all { expected != null && (it.name == expected || it.name.startsWith("$expected-")) })
+        erase()
+    }
     override suspend fun clear(): Unit = storage { erase() }
     private fun valid(value: Boolean) { if (!value) throw InvalidResponse() }
     private fun db(scope: RoomsAccountScope): RoomsDatabase {

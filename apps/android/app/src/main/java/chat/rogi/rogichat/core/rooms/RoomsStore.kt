@@ -21,5 +21,6 @@ interface RoomsStore {
                          page: MembershipPage, validate: () -> Unit)
     suspend fun discovery(scope: RoomsAccountScope, identity: RoomSyncIdentity, after: RoomId?,
                           page: DiscoveryPage, validate: () -> Unit): RoomDirectory
+    suspend fun clearForDeletion(partition: AccountPartition?) { clear() }
     suspend fun clear()
 }

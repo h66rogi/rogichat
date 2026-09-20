@@ -28,6 +28,7 @@ enum class ApiRoute(val path: String) { SESSION("auth/session"), LOGOUT("auth/lo
 class ApiException(val statusCode: Int, val code: String?) : Exception("api_request_failed")
 class InvalidResponse : Exception("invalid_response")
 interface NativeApi {
+    suspend fun deleteAccount(token: String): String = throw IllegalStateException("operation_unavailable")
     suspend fun joinRoom(token: String, room: RoomId): String = throw IllegalStateException("operation_unavailable")
     suspend fun leaveRoom(token: String, room: RoomId): Unit = throw IllegalStateException("operation_unavailable")
     suspend fun getRooms(token: String, after: RoomId?): String = throw IllegalStateException("operation_unavailable")
@@ -50,6 +51,7 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         followRedirects = false
         install(HttpTimeout) { requestTimeoutMillis = 20_000; connectTimeoutMillis = 10_000; socketTimeoutMillis = 20_000 }
     }
+    override suspend fun deleteAccount(token: String): String = call(HttpMethod.Delete, "me/account", token, "{}", strictDeletion = true)
     override suspend fun joinRoom(token: String, room: RoomId): String = call(HttpMethod.Post, "rooms/${room.value}/join", token, "{}")
     override suspend fun leaveRoom(token: String, room: RoomId) {
         val response = call(HttpMethod.Post, "rooms/${room.value}/leave", token, "{}", empty = true)
@@ -75,7 +77,7 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         require(route in setOf(ApiRoute.SOOP_START, ApiRoute.SOOP_EXCHANGE))
         return call(HttpMethod.Post, route.path, token, body, authEndpoint = true)
     }
-    private suspend fun call(method: HttpMethod, path: String, token: String?, body: String? = null, empty: Boolean = false, authEndpoint: Boolean = false, query: Map<String, String> = emptyMap()): String {
+    private suspend fun call(method: HttpMethod, path: String, token: String?, body: String? = null, empty: Boolean = false, authEndpoint: Boolean = false, strictDeletion: Boolean = false, query: Map<String, String> = emptyMap()): String {
         require(token == null && authEndpoint || token != null && token.matches(Regex("[A-Za-z0-9_-]{43}")))
         return client.prepareRequest(baseUrl + path) {
             this.method = method
@@ -85,14 +87,14 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
             headers.append(HttpHeaders.Accept, "application/json")
             if (body != null) { contentType(ContentType.Application.Json); setBody(body) }
         }.execute { response ->
-            if (response.status.value == 401 && !authEndpoint) throw ApiException(401, "UNAUTHENTICATED")
+            if (response.status.value == 401 && !authEndpoint && !strictDeletion) throw ApiException(401, "UNAUTHENTICATED")
             val bytes = response.bodyAsChannel().readBuffer(1_048_577L).readByteArray()
             if (bytes.size > 1_048_576) throw InvalidResponse()
             val text = try { Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString() }
                 catch (_: Exception) { throw InvalidResponse() }
             if (response.status.value != if (empty) 204 else 200) {
-                val code = try { Json.parseToJsonElement(text).jsonObject["error"]?.jsonObject?.get("code")?.jsonPrimitive?.content }
+                val code = if (strictDeletion) chat.rogi.rogichat.core.deletion.AccountDeletionDto.errorCode(text) else try { Json.parseToJsonElement(text).jsonObject["error"]?.jsonObject?.get("code")?.jsonPrimitive?.content }
                     catch (_: Exception) { null }
                 throw ApiException(response.status.value, code?.takeIf { it.matches(Regex("[A-Z_]{1,64}")) })
             }

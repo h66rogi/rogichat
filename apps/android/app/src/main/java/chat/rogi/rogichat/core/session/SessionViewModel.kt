@@ -6,6 +6,7 @@ import chat.rogi.rogichat.core.auth.*
 import chat.rogi.rogichat.core.navigation.ShellAccess
 import chat.rogi.rogichat.core.common.request
 import java.time.Clock
+import chat.rogi.rogichat.core.deletion.*
 import java.time.Duration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
@@ -20,6 +21,8 @@ data class SessionOperationState(val busy: Boolean = false, val error: String? =
 class SessionViewModel(private val services: ProductServices, private val injectedScope: CoroutineScope? = null,
                        private val clock: Clock = Clock.systemUTC()) : ViewModel() {
     private val mutable = MutableStateFlow(SessionOperationState())
+    private val dismissedDeletion = MutableStateFlow<String?>(null)
+    val dismissedDeletionKey = dismissedDeletion.asStateFlow()
     private var revision = 0L
     private var startupRequested = false
     val state = mutable.asStateFlow()
@@ -71,14 +74,41 @@ class SessionViewModel(private val services: ProductServices, private val inject
     fun cancelAuthentication() { services.auth?.let { auth ->
         (injectedScope ?: viewModelScope).launch { auth.cancelAuthentication() }
     } }
-    fun resetLocalSession() {
+    fun resetLocalSession(expected: SessionIdentity = SessionIdentity.from(services.session.value)) {
+        if (!expected.matches(services.session.value)) return
         if (services.session.value.storageFailure && services.session.value.account == null) services.actions?.let {
-            perform("기기의 로그인 정보를 지우지 못했어요. 다시 시도해 주세요.") { it.resetLocalSession() }
+            perform("기기의 로그인 정보를 지우지 못했어요. 다시 시도해 주세요.") { it.resetLocalSession(expected) }
         }
     }
     fun linkSoop() { if (services.session.value.access != ShellAccess.LINK_REQUIRED) return; services.actions?.takeIf { it.canLinkSoop }?.let { perform("SOOP 계정을 연결하지 못했어요.") { it.linkSoop() } } }
-    fun signOut() { if (services.session.value.account == null) return; services.actions?.takeIf { it.canSignOut }?.let { perform("로그아웃하지 못했어요. 다시 시도해 주세요.") { it.signOut() } } }
-    fun closeAccount() { if (services.session.value.account == null) return; services.actions?.takeIf { it.canCloseAccount }?.let { perform("탈퇴를 완료하지 못했어요. 다시 시도해 주세요.") { it.closeAccount() } } }
+    fun signOut(expected: SessionIdentity = SessionIdentity.from(services.session.value)) { if (!expected.matches(services.session.value) || services.session.value.account == null) return; services.actions?.takeIf { it.canSignOut }?.let { perform("로그아웃하지 못했어요. 다시 시도해 주세요.") { it.signOut(expected) } } }
+    fun deleteAccount(intent: DeletionIntent) {
+        val current = services.session.value
+        // Reject a stale rendered confirmation before changing B's UI or launching a coroutine.
+        if (current.account?.id != intent.accountId || current.generation != intent.epoch || current.access !in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED)) return
+        dismissedDeletion.value = null
+        services.deletion?.let { actions -> (injectedScope ?: viewModelScope).launch {
+            val result = request { actions.requestDeletion(intent) }
+            if (result.isFailure && services.session.value.account?.id == intent.accountId && services.session.value.generation == intent.epoch)
+                mutable.value = mutable.value.copy(error = "탈퇴 요청을 시작하지 못했어요.")
+        } }
+    }
+    fun acknowledgeDeletion() {
+        val state = services.deletion?.deletionState?.value ?: return
+        if (!state.blocksSession) dismissedDeletion.value = if (state.capacityReached) "capacity" else state.record?.operationId
+    }
+    fun retryDeletionCleanup() { services.deletion?.let { actions ->
+        (injectedScope ?: viewModelScope).launch { val result = request { actions.retryDeletionCleanup() }; if (result.isFailure) mutable.value = mutable.value.copy(error = "기기 정보를 정리하지 못했어요. 탈퇴 요청을 다시 보내지는 않았어요.") }
+    } }
+    fun resetDeletionData(intent: DeletionResetIntent) {
+        val actions = services.deletion ?: return
+        if (!intent.matches(services.session.value, actions.deletionState.value)) return
+        (injectedScope ?: viewModelScope).launch {
+            val result = request { actions.resetDeletionData(intent) }
+            if (result.isFailure && intent.matches(services.session.value, actions.deletionState.value))
+                mutable.value = mutable.value.copy(error = "이 기기의 정보를 초기화하지 못했어요.")
+        }
+    }
     fun restore() { if (services.session.value.access !in setOf(ShellAccess.RESTORING, ShellAccess.RETRYABLE_FAILURE)) return; services.actions?.takeIf { it.canRestore }?.let { perform("계정을 확인하지 못했어요. 다시 시도해 주세요.") { it.restore() } } }
     private fun perform(message: String, operation: suspend () -> Result<Unit>) {
         if (mutable.value.busy) return

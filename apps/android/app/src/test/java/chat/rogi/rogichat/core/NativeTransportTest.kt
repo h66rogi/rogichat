@@ -73,7 +73,7 @@ class NativeTransportTest {
         assertTrue(model.restore().isSuccess)
         assertEquals(ShellAccess.SIGNED_OUT, model.session.value.access)
         assertEquals(0, api.gets)
-        assertTrue(model.providers.isEmpty()); assertFalse(model.canLinkSoop); assertFalse(model.canCloseAccount)
+        assertTrue(model.providers.isEmpty()); assertFalse(model.canLinkSoop)
     }
     @Test fun protectedReadFailureRemainsRetryableAndDoesNotMasqueradeAsMissing() = runTest {
         val store = TestStore().apply { readFailure = true }; val model = gateway(store)

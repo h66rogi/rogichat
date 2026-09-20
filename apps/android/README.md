@@ -34,8 +34,7 @@ claiming server logout or deleting the server account.
 The broker is still activation-gated. Actual signed App Links association and
 provider/device round trips remain external release gates; neither the manifest
 nor mocked tests establish deployment or provider success. Server 404/503/offline
-failures are displayed honestly. Apple, account deletion and message/chat adapters
-remain unavailable. A fresh installation has no credential entry screen or
+failures are displayed honestly. Apple and message/chat adapters remain unavailable. A fresh installation has no credential entry screen or
 fixture adapter. Authoritative session 401 removes only the current session;
 LINK errors never clear a newer account. Offline logout removes the local
 credential and reports unconfirmed server revoke.
@@ -133,3 +132,35 @@ The wire contract has no expected membership scope or idempotency receipt for
 join/leave; the app does not invent one or claim cross-device period-specific CAS.
 The user can issue a new explicit choice after current state is confirmed. Native
 message/timeline/composer and room policy-management flows remain outside this slice.
+
+
+Account deletion admission uses one explicit native `DELETE /v1/me/account` with
+`{}` and the captured original Bearer. A strict 200 `blocked` receipt means the
+request was accepted and account access blocked; it never means physical deletion
+is complete. Receipt IDs accept canonical UUID v4/v5. Only a strict 403
+`RECENT_AUTH_REQUIRED` response permits guarded live restoration of the original
+credential followed by real session validation; it never automatically resends a
+request after login. There is no receipt/status GET fallback.
+
+A separate environment-bound Android Keystore/AtomicFile journal preserves actual
+receipts and unknown outcomes under `noBackupFilesDir`. It does not change the
+existing credential/pending-auth v1 formats. Original credentials are erased with
+their durable clear marker before dispatch; the original Bearer survives only in
+the in-memory command. Cold recovery never repeats DELETE, and incomplete local
+cleanup prevents another account from being installed. DB cleanup is restricted
+to the original partition and rejects foreign files. Journal phases cover clear
+stamp and interrupted credential-restoration writes. Failed/unknown requests do
+not become success because a later session request succeeded or failed.
+
+Confirmed and unknown records are retained without automatic eviction (16 records,
+16 KiB). Authentication/proof storage has its own namespace. Result presentation
+can be acknowledged without erasing its protected record; another account never
+sees a previous account's receipt or reauthentication action. Explicit device-data
+reset explains that local records are lost and a server request is not canceled.
+Reset/logout confirmations retain their original account and local epoch; journal
+reset also pins the original record. UI admission and serialized service admission
+both reject stale confirmations before changing a newer account or its storage.
+The former unimplemented parameterless account-close action is removed.
+Provider, guard-key/ledger activation, physical deletion and backup retirement
+remain server/operations release gates. Tests use isolated namespaces and never
+submit a real account deletion request.
