@@ -1,6 +1,9 @@
 import { current, imageContext, MediaError, receipt, record, stickerPage, uploadInput, uuid } from './contracts';
 import type { ImageContext, ImageKind, MediaLifetime, Receipt, StickerPage } from './contracts';
 
+// Covers the 50-item catalog, including escaped Unicode labels, with headroom.
+const MAX_METADATA_BYTES = 64 * 1024;
+
 export interface MediaClientOptions {
   readonly apiOrigin: string;
   // Deployment configuration, never inferred from a response. Empty means unavailable.
@@ -43,10 +46,35 @@ export class MediaClient {
       method: write ? 'POST' : 'GET', credentials: 'include', cache: 'no-store', redirect: 'error',
       headers, signal: requestSignal, ...(write ? { body: binary ?? JSON.stringify(body) } : {}),
     });
-    current(this.lifetime); requestSignal.throwIfAborted();
-    if (response.status !== expectedStatus) throw new MediaError('REQUEST_FAILED', response.status);
-    if (response.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new MediaError('INVALID_RESPONSE');
-    const value: unknown = await response.json();
+    const reader = response.body?.getReader();
+    const cancel = () => { void reader?.cancel().catch(() => {}); };
+    requestSignal.addEventListener('abort', cancel, { once: true });
+    let value: unknown;
+    try {
+      current(this.lifetime); requestSignal.throwIfAborted();
+      if (response.status !== expectedStatus) throw new MediaError('REQUEST_FAILED', response.status);
+      if (!reader || response.headers.get('content-type')?.split(';')[0]?.trim() !== 'application/json') throw new MediaError('INVALID_RESPONSE');
+      const declared = response.headers.get('content-length');
+      if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_METADATA_BYTES)) throw new MediaError('INVALID_RESPONSE');
+      const decoder = new TextDecoder();
+      let size = 0;
+      let text = '';
+      for (;;) {
+        const part = await reader.read();
+        current(this.lifetime); requestSignal.throwIfAborted();
+        if (part.done) break;
+        size += part.value.byteLength;
+        if (size > MAX_METADATA_BYTES) throw new MediaError('INVALID_RESPONSE');
+        text += decoder.decode(part.value, { stream: true });
+      }
+      text += decoder.decode();
+      try { value = JSON.parse(text) as unknown; }
+      catch { throw new MediaError('INVALID_RESPONSE'); }
+    } finally {
+      requestSignal.removeEventListener('abort', cancel);
+      await reader?.cancel().catch(() => {});
+      reader?.releaseLock();
+    }
     current(this.lifetime); requestSignal.throwIfAborted();
     return value;
   }

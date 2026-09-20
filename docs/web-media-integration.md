@@ -50,7 +50,11 @@ offline route documentation: source availability is not a commissioned route.
   server reservation for cleanup; it is not server deletion or cancellation.
 - Polling is sequential, at most 30 attempts with two-second intervals by
   default. Each metadata request has a 15-second bound, upload five minutes,
-  storage GET 30 seconds or remaining authorization lifetime. Cancellation
+  storage GET 30 seconds or remaining authorization lifetime. Metadata JSON is
+  limited to 64 KiB using both declared Content-Length and actual streamed bytes
+  before parsing; this accommodates the 50-item catalog with escaped labels.
+  Rejected or aborted bodies are cancelled and reader locks released; malformed
+  JSON returns INVALID_RESPONSE without exposing payload text. Cancellation
   aborts current transport and polling; every completion checks lifetime and
   operation generation. No persistence or background replay exists.
 - `POST /v1/media/assets/:assetId/access`: exact context and `variant: 'image'`;
@@ -113,9 +117,9 @@ The single integration owner on `web-command-sync-v2` consumes
    raw-binary and metadata transport. If consolidating later, preserve all
    credentials/CSRF/timeout/redirect/schema/lifetime rules and the separate
    credential-free signed GET. Do not pass generic request headers to storage.
-6. The package owner must append `src/features/media/*.test.ts` to
-   `apps/web/package.json`'s `test:unit` command. Its existing explicit globs omit
-   media; this worker is not allowed to edit package scripts or workflows.
+6. `apps/web/package.json` now includes `src/features/media/*.test.ts` in
+   `test:unit`, so hosted unit runs execute this suite. This single script change
+   is the authorized shared-file exception; dependencies and workflows are unchanged.
 
 ## Remaining runtime and release gates
 
@@ -142,20 +146,29 @@ Run from `apps/web`:
 node --import ./src/features/chat/testing/register-ts.mjs --test src/features/media/media.test.ts
 ```
 
-The dedicated suite covers strict schema/context checks, non-READY rejection,
+The 23-test dedicated suite covers strict schema/context checks, non-READY rejection,
 bounded polling, immutable status retries, uncertain create/upload, delayed and
 stale completions, identity revocation, blob cleanup on unmount/expiry, URL origin
 and content restrictions, bounded streaming, zero credential forwarding, and
 catalog pagination. Test bytes exist only in the isolated unit file.
 
-Focused TypeScript and ESLint checks reuse the existing integration owner's
-dependencies read-only with temporary configuration outside this checkout;
-no dependency install, full local build, media binaries, or dependency writes.
-The dependency-free suite also runs on the locally available Node 24.11.1;
-hosted CI remains authoritative for the project's required Node 24.21 runtime
-and full build/browser/container matrix. Security all and Git hooks are mandatory.
+Correction validation uses Node 24.21.0. Focused TypeScript and typed ESLint
+reuse the integration owner's existing dependencies read-only in a temporary
+copy outside this checkout. The copy preserves `src/features/media` paths and
+uses the **unchanged** repository `eslint.config.mjs` and `tsconfig.json`, plus
+exact copies of the imported shared button and `cn` helper. Commands are
+`eslint src/features/media --max-warnings 0` and
+`tsc -p tsconfig.json --noEmit --incremental false`. A temporary negative control
+removing one test registration's `void` correctly fails `no-floating-promises`;
+all 23 registrations with `void` pass. The Next pages-directory notice reflects
+the focused copy, not a disabled rule. The original author's focused lint claim
+was insufficient: these typed rules caught the original 18 registrations.
+
+No dependency installation, full local build, media binaries or dependency writes
+are involved. Hosted CI remains authoritative for full build/browser/container
+checks. Security all and Git hooks are mandatory.
 
 Impact is additive: no existing runtime imports this module yet, no API or DB
-shape changes, no shared files changed, and no native consumers depend on these
+shape changes, only the authorized test script changes a shared file, and no native consumers depend on these
 new symbols. The important integration risks are lifetime wiring, media route
-commissioning, exact storage-origin configuration/CORS, and the test-script glob.
+commissioning, exact storage-origin configuration/CORS, and actual browser/runtime acceptance.

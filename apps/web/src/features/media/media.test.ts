@@ -29,7 +29,7 @@ const idleSignal = () => new AbortController().signal;
 const access = () => json({ url: 'https://storage.example.test/image?signature=isolated', expiresIn: 60 });
 const image = () => new Response('isolated-test-only', { headers: { 'Content-Type': 'image/webp' } });
 
-test('strict receipt, context, catalog and input contracts reject unknown/non-UUID/non-image values', () => {
+void test('strict receipt, context, catalog and input contracts reject unknown/non-UUID/non-image values', () => {
   assert.throws(() => receipt({ assetId: asset, status: 'READY' }));
   assert.throws(() => receipt({ assetId: asset, status: ['ready'] }));
   assert.throws(() => receipt({ assetId: room, status: 'ready' }, asset));
@@ -44,7 +44,7 @@ test('strict receipt, context, catalog and input contracts reject unknown/non-UU
   assert.throws(() => stickerPage({ items: [{ id: asset, assetId: asset, label: 'x', privateKey: 'x' }], nextCursor: null }));
 });
 
-test('binary upload stays on authorized API; 202 is not READY and explicit status retry retains ID', async () => {
+void test('binary upload stays on authorized API; 202 is not READY and explicit status retry retains ID', async () => {
   const { client, calls } = setup([status('reserved', 201), status('processing', 202), status('processing'), status('ready')]);
   const upload = new MediaUpload(client, { intervalMs: 0, attempts: 1 });
   await upload.start('PHOTO', file, room);
@@ -62,7 +62,7 @@ test('binary upload stays on authorized API; 202 is not READY and explicit statu
   upload.dispose();
 });
 
-test('lost reserve response never retries creation and requires explicit discard', async () => {
+void test('lost reserve response never retries creation and requires explicit discard', async () => {
   const { client, calls } = setup([async () => { throw new TypeError('network'); }]);
   const upload = new MediaUpload(client);
   await upload.start('AVATAR', file);
@@ -73,7 +73,7 @@ test('lost reserve response never retries creation and requires explicit discard
   upload.dispose();
 });
 
-test('uncertain binary transfer reconciles same asset and never retransmits bytes', async () => {
+void test('uncertain binary transfer reconciles same asset and never retransmits bytes', async () => {
   const { client, calls } = setup([status('reserved', 201), async () => { throw new TypeError('network'); }, status('deleted')]);
   const upload = new MediaUpload(client, { intervalMs: 0, attempts: 1 });
   await upload.start('AVATAR', file);
@@ -85,7 +85,7 @@ test('uncertain binary transfer reconciles same asset and never retransmits byte
   upload.dispose();
 });
 
-test('delayed reserve completion after revocation cannot upload or repopulate state', async () => {
+void test('delayed reserve completion after revocation cannot upload or repopulate state', async () => {
   let resolve!: (value: Response) => void;
   const response = new Promise<Response>(done => { resolve = done; });
   const { client, controller, calls } = setup([() => response]);
@@ -98,7 +98,7 @@ test('delayed reserve completion after revocation cannot upload or repopulate st
   upload.dispose();
 });
 
-test('generation predicate also fences non-cooperative transports without abort', async () => {
+void test('generation predicate also fences non-cooperative transports without abort', async () => {
   let resolve!: (value: Response) => void;
   const response = new Promise<Response>(done => { resolve = done; });
   const { client, invalidate } = setup([() => response]);
@@ -107,7 +107,7 @@ test('generation predicate also fences non-cooperative transports without abort'
   await assert.rejects(pending, /REVOKED/);
 });
 
-test('late operation after explicit clear cannot overwrite a new empty draft', async () => {
+void test('late operation after explicit clear cannot overwrite a new empty draft', async () => {
   let resolve!: (value: Response) => void;
   const response = new Promise<Response>(done => { resolve = done; });
   const { client } = setup([() => response]);
@@ -118,7 +118,7 @@ test('late operation after explicit clear cannot overwrite a new empty draft', a
   upload.dispose();
 });
 
-test('authorization denial on refresh clears prior private asset reference', async () => {
+void test('authorization denial on refresh clears prior private asset reference', async () => {
   const { client } = setup([status('reserved', 201), status('processing', 202), status('ready'), json({}, 403)]);
   const upload = new MediaUpload(client, { intervalMs: 0, attempts: 1 });
   await upload.start('AVATAR', file); await upload.refresh();
@@ -126,7 +126,7 @@ test('authorization denial on refresh clears prior private asset reference', asy
   upload.dispose();
 });
 
-test('signed image GET never forwards API credentials, headers or referrer', async () => {
+void test('signed image GET never forwards API credentials, headers or referrer', async () => {
   const { client, calls } = setup([access(), image()]);
   const lease = await client.image(asset, { variant: 'image', roomId: room, actorId: asset }, idleSignal());
   assert.equal(lease.blob.type, 'image/webp');
@@ -138,7 +138,7 @@ test('signed image GET never forwards API credentials, headers or referrer', asy
   assert.equal(calls[1]?.init.cache, 'no-store');
 });
 
-test('unapproved signer origin, lifetime and extra response fields fail before transfer', async () => {
+void test('unapproved signer origin, lifetime and extra response fields fail before transfer', async () => {
   for (const value of [
     { url: 'https://unapproved.example.test/image', expiresIn: 60 },
     { url: 'https://storage.example.test/image', expiresIn: 61 },
@@ -152,14 +152,14 @@ test('unapproved signer origin, lifetime and extra response fields fail before t
   }
 });
 
-test('unavailable or non-image storage response never yields displayable content', async () => {
+void test('unavailable or non-image storage response never yields displayable content', async () => {
   for (const response of [json({}, 403), new Response('<html>error</html>', { headers: { 'Content-Type': 'text/html' } })]) {
     const { client } = setup([access(), response]);
     await assert.rejects(client.image(asset, { variant: 'image' }, idleSignal()));
   }
 });
 
-test('image resource revokes object URL synchronously on authorization loss', async t => {
+void test('image resource revokes object URL synchronously on authorization loss', async t => {
   const revoked: string[] = [];
   t.mock.method(URL, 'createObjectURL', () => 'blob:isolated-test');
   t.mock.method(URL, 'revokeObjectURL', (url: string) => { revoked.push(url); });
@@ -173,7 +173,7 @@ test('image resource revokes object URL synchronously on authorization loss', as
   resource.dispose();
 });
 
-test('image expiry clears derived bytes; explicit reload gets fresh server authorization', async t => {
+void test('image expiry clears derived bytes; explicit reload gets fresh server authorization', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1000 });
   const revoked: string[] = [];
   t.mock.method(URL, 'createObjectURL', () => 'blob:isolated-test');
@@ -190,7 +190,7 @@ test('image expiry clears derived bytes; explicit reload gets fresh server autho
   resource.dispose();
 });
 
-test('late image body after unmount cannot allocate object URL', async t => {
+void test('late image body after unmount cannot allocate object URL', async t => {
   let finish!: () => void;
   const stream = new ReadableStream<Uint8Array>({ start(controller) {
     finish = () => { controller.enqueue(new Uint8Array([1])); controller.close(); };
@@ -206,7 +206,7 @@ test('late image body after unmount cannot allocate object URL', async t => {
   resource.dispose();
 });
 
-test('catalog only returns server approved references and uses cursor without writes', async () => {
+void test('catalog only returns server approved references and uses cursor without writes', async () => {
   const { client, calls } = setup([json({ items: [{ id: asset, assetId: room, label: '스티커' }], nextCursor: null })]);
   const page = await client.stickers(room, asset, idleSignal());
   assert.equal(page.items[0]?.id, asset);
@@ -214,19 +214,19 @@ test('catalog only returns server approved references and uses cursor without wr
   assert.ok(calls[0]?.url.endsWith(`?after=${asset}`));
 });
 
-test('image response stream is bounded even without Content-Length', async () => {
+void test('image response stream is bounded even without Content-Length', async () => {
   const { client } = setup([access(), new Response(new Uint8Array(10 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'image/webp' } })]);
   await assert.rejects(client.image(asset, { variant: 'image' }, idleSignal()), /INVALID_RESPONSE/);
 });
 
-test('delayed signed access cannot extend sixty-second authorization window', async t => {
+void test('delayed signed access cannot extend sixty-second authorization window', async t => {
   t.mock.timers.enable({ apis: ['Date'], now: 1000 });
   const { client, calls } = setup([async () => { t.mock.timers.setTime(61_001); return access(); }]);
   await assert.rejects(client.image(asset, { variant: 'image' }, idleSignal()), /EXPIRED/);
   assert.equal(calls.length, 1);
 });
 
-test('fresh status reserved after uncertain upload still never retransmits automatically', async () => {
+void test('fresh status reserved after uncertain upload still never retransmits automatically', async () => {
   const { client, calls } = setup([status('reserved', 201), async () => { throw new TypeError('network'); }, status('reserved')]);
   const upload = new MediaUpload(client, { intervalMs: 0, attempts: 1 });
   await upload.start('AVATAR', file); await upload.refresh();
@@ -234,4 +234,79 @@ test('fresh status reserved after uncertain upload still never retransmits autom
   assert.equal(calls.filter(call => call.init.method === 'POST').length, 2);
   assert.throws(() => upload.readyAsset());
   upload.dispose();
+});
+
+void test('metadata rejects chunked bytes above 64 KiB despite absent or understated length', async () => {
+  for (const declared of [undefined, '1']) {
+    let cancelled = false;
+    let pulls = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) { pulls++; controller.enqueue(new Uint8Array(16 * 1024).fill(32)); },
+      cancel() { cancelled = true; },
+    });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (declared !== undefined) headers['Content-Length'] = declared;
+    const { client } = setup([new Response(stream, { headers })]);
+    await assert.rejects(client.status(asset, idleSignal()), { message: 'INVALID_RESPONSE' });
+    assert.equal(cancelled, true);
+    assert.equal(stream.locked, false);
+    assert.ok(pulls <= 6, 'must stop reading at the first excess chunk');
+  }
+});
+
+void test('oversized declared metadata is cancelled before any body read', async () => {
+  let pulls = 0;
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    pull() { pulls++; }, cancel() { cancelled = true; },
+  }, { highWaterMark: 0 });
+  const { client } = setup([new Response(stream, { headers: { 'Content-Type': 'application/json', 'Content-Length': '65537' } })]);
+  await assert.rejects(client.status(asset, idleSignal()), { message: 'INVALID_RESPONSE' });
+  assert.equal(pulls, 0);
+  assert.equal(cancelled, true);
+  assert.equal(stream.locked, false);
+});
+
+void test('metadata accepts exactly 64 KiB and decodes split multibyte catalog labels', async () => {
+  const payload = JSON.stringify({ items: [{ id: asset, assetId: asset, label: '스티커' }], nextCursor: null });
+  const encoded = new TextEncoder().encode(payload);
+  const bytes = new Uint8Array(64 * 1024).fill(32);
+  bytes.set(encoded);
+  const split = encoded.indexOf(0xec) + 1;
+  const stream = new ReadableStream<Uint8Array>({ start(controller) {
+    controller.enqueue(bytes.slice(0, split)); controller.enqueue(bytes.slice(split)); controller.close();
+  } });
+  const { client } = setup([new Response(stream, { headers: { 'Content-Type': 'application/json', 'Content-Length': String(bytes.byteLength) } })]);
+  assert.equal((await client.stickers(room, undefined, idleSignal())).items[0]?.label, '스티커');
+  assert.equal(stream.locked, false);
+});
+
+void test('malformed JSON and HTTP errors never expose response payloads', async () => {
+  const privatePayload = 'private-response-marker';
+  for (const code of [200, 403]) {
+    const { client } = setup([new Response(privatePayload, { status: code, headers: { 'Content-Type': 'application/json' } })]);
+    await assert.rejects(client.status(asset, idleSignal()), error => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.message, code === 200 ? 'INVALID_RESPONSE' : 'REQUEST_FAILED');
+      assert.ok(!String(error.stack).includes(privatePayload));
+      return true;
+    });
+  }
+});
+
+void test('abort cancels a pending metadata read and releases its lock', async () => {
+  for (const revoke of [false, true]) {
+    let reading!: () => void;
+    const started = new Promise<void>(resolve => { reading = resolve; });
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({ pull() { reading(); }, cancel() { cancelled = true; } }, { highWaterMark: 0 });
+    const { client, controller } = setup([new Response(stream, { headers: { 'Content-Type': 'application/json' } })]);
+    const operation = new AbortController();
+    const pending = client.status(asset, operation.signal);
+    await started;
+    (revoke ? controller : operation).abort();
+    await assert.rejects(pending, revoke ? /REVOKED/ : /abort/i);
+    assert.equal(cancelled, true);
+    assert.equal(stream.locked, false);
+  }
 });
