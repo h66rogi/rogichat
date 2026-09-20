@@ -101,7 +101,7 @@ class AndroidRoomsStore(private val context: Context, environment: String,
             val members = dao.memberships().map { it.domain() }
             val discovered = dao.discovery().filter { row -> members.none { it.roomId.value == row.roomId } }.map { it.domain() }
             validate()
-            RoomDirectory(members, discovered, page.next?.let { DiscoveryContinuation(identity.cacheId, it) })
+            RoomDirectory(members, discovered, page.next?.let { DiscoveryContinuation(identity.cacheId, it) }, identity.cacheId)
         }
     }
     override suspend fun clear(): Unit = storage { erase() }

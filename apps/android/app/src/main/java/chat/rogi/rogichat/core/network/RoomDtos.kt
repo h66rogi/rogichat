@@ -24,6 +24,9 @@ data class SyncCursor(val value: String) {
     init { require(value.isNotEmpty() && value.length <= 4096) }
     override fun toString() = "SyncCursor([redacted])"
 }
+enum class HistoryPolicy { ALL_AVAILABLE, SINCE_JOIN }
+data class RoomJoinAcknowledgement(val actorId: RoomId, val historyPolicy: HistoryPolicy, val policyVersion: Long,
+                                   val membershipScope: RoomScopeToken, val authorizationRevision: RoomScopeToken)
 enum class RoomMode { FAN, GROUP }
 enum class RoomRole { FAN, MEMBER, STREAMER }
 data class Membership(val roomId: RoomId, val name: String, val mode: RoomMode, val actorId: RoomId,
@@ -40,6 +43,14 @@ data class ManifestRequest(val deviceId: RoomId, val cacheId: RoomId, val cursor
 
 /** C06 schema 2 only. Discovery is not a membership manifest. */
 object RoomDtos {
+    fun join(text: String): RoomJoinAcknowledgement = decode {
+        val root = StrictAuthJson.objectValue(text)
+        val version = root.getValue("policyVersion").jsonPrimitive
+        require(!version.isString && version.content.matches(Regex("0|[1-9][0-9]*")))
+        val value = requireNotNull(version.longOrNull).also { require(it in 0..4_294_967_295L) }
+        RoomJoinAcknowledgement(root.id("actorId"), HistoryPolicy.valueOf(root.string("historyPolicy")), value,
+            RoomScopeToken(root.string("membershipScope")), RoomScopeToken(root.string("authorizationRevision")))
+    }
     fun discovery(text: String): DiscoveryPage = decode {
         val root = StrictAuthJson.objectValue(text)
         val rooms = root.getValue("rooms").jsonArray.also { require(it.size <= 50) }.map { value ->
@@ -89,6 +100,8 @@ object RoomDtos {
 
 /** Adapted Meloming ChannelApi constructor, typed response and query wrapper boundary. */
 class RoomsApi(private val api: NativeApi) {
+    suspend fun join(token: String, room: RoomId) = RoomDtos.join(api.joinRoom(token, room))
+    suspend fun leave(token: String, room: RoomId) = api.leaveRoom(token, room)
     suspend fun discover(token: String, after: RoomId?) = RoomDtos.discovery(api.getRooms(token, after))
     suspend fun manifest(token: String, query: ManifestRequest) = RoomDtos.manifest(api.getManifest(token, query))
 }

@@ -28,6 +28,8 @@ enum class ApiRoute(val path: String) { SESSION("auth/session"), LOGOUT("auth/lo
 class ApiException(val statusCode: Int, val code: String?) : Exception("api_request_failed")
 class InvalidResponse : Exception("invalid_response")
 interface NativeApi {
+    suspend fun joinRoom(token: String, room: RoomId): String = throw IllegalStateException("operation_unavailable")
+    suspend fun leaveRoom(token: String, room: RoomId): Unit = throw IllegalStateException("operation_unavailable")
     suspend fun getRooms(token: String, after: RoomId?): String = throw IllegalStateException("operation_unavailable")
     suspend fun getManifest(token: String, query: ManifestRequest): String = throw IllegalStateException("operation_unavailable")
     suspend fun put(route: ApiRoute, token: String, body: String): String = throw IllegalStateException("operation_unavailable")
@@ -47,6 +49,11 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         expectSuccess = false
         followRedirects = false
         install(HttpTimeout) { requestTimeoutMillis = 20_000; connectTimeoutMillis = 10_000; socketTimeoutMillis = 20_000 }
+    }
+    override suspend fun joinRoom(token: String, room: RoomId): String = call(HttpMethod.Post, "rooms/${room.value}/join", token, "{}")
+    override suspend fun leaveRoom(token: String, room: RoomId) {
+        val response = call(HttpMethod.Post, "rooms/${room.value}/leave", token, "{}", empty = true)
+        if (response.isNotEmpty()) throw InvalidResponse()
     }
     override suspend fun getRooms(token: String, after: RoomId?): String = call(HttpMethod.Get, "rooms", token,
         query = after?.let { mapOf("after" to it.value) }.orEmpty())

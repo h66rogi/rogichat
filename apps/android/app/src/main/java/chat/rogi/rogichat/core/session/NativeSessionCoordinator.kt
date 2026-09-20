@@ -11,6 +11,10 @@ import java.time.Instant
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
@@ -29,7 +33,8 @@ import kotlinx.coroutines.sync.withLock
 class NativeSessionCoordinator(private val store: CredentialStore, private val api: NativeApi,
                                private val clock: Clock = Clock.systemUTC(),
                                private val auth: SoopAuthSupport? = null,
-                               private val roomsStore: RoomsStore? = null) : SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, RoomsRepository {
+                               private val roomsStore: RoomsStore? = null,
+                               private val roomCommandScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)) : SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, RoomsRepository {
     private val lock = Mutex()
     private val mutable = MutableStateFlow(SessionSnapshot(access = ShellAccess.RESTORING))
     val session = mutable.asStateFlow()
@@ -44,6 +49,11 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     private var accountPartition: AccountPartition? = null
     private var roomRevision = 0L
     private var roomIdentity: RoomSyncIdentity? = null
+    private var roomDirectory: RoomDirectory? = null
+    private class RoomCommandTicket(val ticket: Ticket, val intent: RoomCommandIntent) { var reconciling = false }
+    private var activeRoomCommand: RoomCommandTicket? = null
+    private val mutableRoomCommands = MutableStateFlow(RoomCommandState())
+    override val roomCommands = mutableRoomCommands.asStateFlow()
     private val mutableAuth = MutableStateFlow(AuthUiState())
     override val authState = mutableAuth.asStateFlow()
     private val mutableLaunch = MutableStateFlow<BrowserLaunch?>(null)
@@ -282,7 +292,8 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     }
 
     private suspend fun purgeRoomsLocked() {
-        roomRevision++; roomIdentity = null
+        roomRevision++; roomIdentity = null; roomDirectory = null
+        activeRoomCommand = null; mutableRoomCommands.value = RoomCommandState()
         try { withContext(NonCancellable) { roomsStore?.clear() } }
         catch (failure: Exception) { publish(ShellAccess.RETRYABLE_FAILURE, storageFailure = true); throw failure }
     }
@@ -292,7 +303,8 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
             throw CancellationException("room_scope_changed")
         if (!ticket.credential.expiresAt.isAfter(clock.instant())) throw CancellationException("session_expired")
     }
-    override suspend fun refreshRooms(scope: RoomsAccountScope): Result<RoomDirectory> = roomOperation(scope, start = true) { ticket, revision ->
+    override suspend fun refreshRooms(scope: RoomsAccountScope) = refreshRooms(scope, null)
+    private suspend fun refreshRooms(scope: RoomsAccountScope, owner: RoomCommandTicket?): Result<RoomDirectory> = roomOperation(scope, start = true, owner = owner) { ticket, revision ->
         val storage = requireNotNull(roomsStore)
         var resets = 0
         var complete = false
@@ -317,7 +329,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         lock.withLock { checkRoomTicket(ticket, scope, revision) }
         currentCoroutineContext().ensureActive()
         val page = RoomsApi(api).discover(ticket.credential.token, null)
-        roomCommit(ticket, scope, revision) { validate -> storage.discovery(scope, identity, null, page, validate) }
+        roomCommit(ticket, scope, revision) { validate -> storage.discovery(scope, identity, null, page, validate).also { roomDirectory = it } }
     }
     override suspend fun moreRooms(scope: RoomsAccountScope, continuation: DiscoveryContinuation): Result<RoomDirectory> =
         roomOperation(scope, start = false) { ticket, revision ->
@@ -328,7 +340,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
             currentCoroutineContext().ensureActive()
             val page = RoomsApi(api).discover(ticket.credential.token, continuation.after)
             roomCommit(ticket, scope, revision) { validate ->
-                requireNotNull(roomsStore).discovery(scope, identity, continuation.after, page, validate)
+                requireNotNull(roomsStore).discovery(scope, identity, continuation.after, page, validate).also { roomDirectory = it }
             }
         }
     private suspend fun <T> roomCommit(ticket: Ticket, scope: RoomsAccountScope, revision: Long,
@@ -340,15 +352,17 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         checkRoomTicket(ticket, scope, revision)
         result
     }
-    private suspend fun <T> roomOperation(scope: RoomsAccountScope, start: Boolean,
+    private suspend fun <T> roomOperation(scope: RoomsAccountScope, start: Boolean, owner: RoomCommandTicket? = null,
                                           operation: suspend (Ticket, Long) -> T): Result<T> = outcome {
         currentCoroutineContext().ensureActive()
         val (ticket, revision) = lock.withLock {
+            if (activeRoomCommand != null && activeRoomCommand !== owner) throw RoomCommandInProgress()
+            if (owner != null && activeRoomCommand !== owner) throw CancellationException("room_command_changed")
             val saved = credential ?: throw CancellationException("room_scope_changed")
             if (!saved.expiresAt.isAfter(clock.instant())) { clearLocked(); throw CancellationException("session_expired") }
             val ticket = Ticket(epoch, saved, scope.accountId, profileRevision)
             checkRoomTicket(ticket, scope, roomRevision)
-            if (start) roomRevision++
+            if (start) { roomRevision++; roomDirectory = null }
             ticket to roomRevision
         }
         try { operation(ticket, revision) }
@@ -364,6 +378,123 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 }
             } }
             throw failure
+        }
+    }
+
+    /** Admission returns locally; the session owns the one-shot command across screen cancellation. */
+    override suspend fun submitRoomCommand(intent: RoomCommandIntent): Result<Unit> = outcome {
+        currentCoroutineContext().ensureActive()
+        lock.withLock {
+            if (activeRoomCommand != null) throw RoomCommandInProgress()
+            val saved = credential ?: throw CancellationException("room_scope_changed")
+            if (!saved.expiresAt.isAfter(clock.instant())) { clearLocked(); throw CancellationException("session_expired") }
+            val ticket = Ticket(epoch, saved, intent.scope.accountId, profileRevision)
+            checkRoomTicket(ticket, intent.scope, roomRevision)
+            val directory = roomDirectory ?: throw StaleRoomSelection()
+            if (directory.cycle != intent.cycle || roomIdentity?.cacheId != intent.cycle) throw StaleRoomSelection()
+            val selected = when (intent.action) {
+                RoomAction.JOIN -> intent.membership == null && directory.memberships.none { it.roomId == intent.roomId } &&
+                    directory.discovered.any { it.roomId == intent.roomId }
+                RoomAction.LEAVE -> directory.memberships.any { it.roomId == intent.roomId && it.membershipScope == intent.membership }
+            }
+            if (!selected) throw StaleRoomSelection()
+            val command = RoomCommandTicket(ticket, intent)
+            activeRoomCommand = command
+            roomRevision++; roomDirectory = null
+            mutableRoomCommands.value = RoomCommandState(intent.scope, RoomCommandPhase.SENDING, intent.action)
+            roomCommandScope.launch { executeRoomCommand(command) }
+            Unit
+        }
+    }
+    private suspend fun checkRoomCommandLocked(command: RoomCommandTicket) {
+        if (activeRoomCommand !== command) throw CancellationException("room_command_changed")
+        if (current(command.ticket) && !command.ticket.credential.expiresAt.isAfter(clock.instant())) {
+            clearLocked(); throw CancellationException("session_expired")
+        }
+        checkRoomTicket(command.ticket, command.intent.scope, roomRevision)
+    }
+    private suspend fun executeRoomCommand(command: RoomCommandTicket) {
+        try {
+            // Withdraw all-room authority before the POST; a failed commit sends nothing.
+            lock.withLock {
+                checkRoomCommandLocked(command)
+                roomIdentity = requireNotNull(roomsStore).begin(command.intent.scope) {
+                    checkRoomTicket(command.ticket, command.intent.scope, roomRevision)
+                }
+                checkRoomCommandLocked(command)
+            }
+            lock.withLock { checkRoomCommandLocked(command) }
+            currentCoroutineContext().ensureActive()
+            val network = RoomsApi(api)
+            when (command.intent.action) {
+                RoomAction.JOIN -> network.join(command.ticket.credential.token, command.intent.roomId)
+                RoomAction.LEAVE -> network.leave(command.ticket.credential.token, command.intent.roomId)
+            }
+            // An acknowledgement is not an all-room manifest and never becomes an optimistic row.
+            resolveRoomCommand(command)
+        } catch (failure: Exception) {
+            try { withContext(NonCancellable) { lock.withLock {
+                if (activeRoomCommand === command && current(command.ticket)) {
+                    if (!command.ticket.credential.expiresAt.isAfter(clock.instant()) || failure is ApiException && failure.statusCode == 401) clearLocked()
+                    else if (failure is ApiException && failure.statusCode == 403 && failure.code == "SOOP_LINK_REQUIRED") {
+                        val own = mutable.value.account
+                        epoch++; publish(ShellAccess.RESTORING); purgeRoomsLocked()
+                        own?.let { publish(ShellAccess.LINK_REQUIRED, it.copy(soopConnected = false)) }
+                    } else mutableRoomCommands.value = mutableRoomCommands.value.copy(
+                        phase = if (failure is CancellationException) RoomCommandPhase.UNVERIFIED else RoomCommandPhase.RECONCILING,
+                        issue = roomCommandIssue(failure))
+                }
+            } } } catch (_: Exception) { return } // Durable teardown already publishes its storage error.
+            if (failure !is CancellationException) resolveRoomCommand(command)
+        }
+    }
+    private fun roomCommandIssue(failure: Exception) = when {
+        failure is RoomsStorageException -> RoomCommandIssue.STORAGE
+        failure is ApiException && failure.statusCode == 409 -> RoomCommandIssue.CONFLICT
+        failure is ApiException && failure.statusCode == 403 -> RoomCommandIssue.FORBIDDEN
+        failure is ApiException && failure.statusCode == 404 -> RoomCommandIssue.NOT_FOUND
+        failure is ApiException && failure.statusCode in setOf(400, 413) -> RoomCommandIssue.REJECTED
+        else -> RoomCommandIssue.UNKNOWN
+    }
+    override suspend fun recheckRoomCommand(scope: RoomsAccountScope): Result<Unit> = outcome {
+        currentCoroutineContext().ensureActive()
+        lock.withLock {
+            val command = activeRoomCommand ?: throw StaleRoomSelection()
+            if (command.intent.scope != scope) throw CancellationException("room_scope_changed")
+            checkRoomCommandLocked(command)
+            if (mutableRoomCommands.value.phase != RoomCommandPhase.UNVERIFIED || command.reconciling) throw RoomCommandInProgress()
+            mutableRoomCommands.value = mutableRoomCommands.value.copy(phase = RoomCommandPhase.RECONCILING, verificationIssue = null)
+            roomCommandScope.launch { resolveRoomCommand(command) }
+            Unit
+        }
+    }
+    private suspend fun resolveRoomCommand(command: RoomCommandTicket) {
+        try {
+            lock.withLock {
+                checkRoomCommandLocked(command)
+                if (command.reconciling) return
+                command.reconciling = true
+                mutableRoomCommands.value = mutableRoomCommands.value.copy(phase = RoomCommandPhase.RECONCILING, verificationIssue = null)
+            }
+            val result = refreshRooms(command.intent.scope, command)
+            lock.withLock {
+                checkRoomCommandLocked(command)
+                command.reconciling = false
+                result.fold({ directory ->
+                    activeRoomCommand = null
+                    mutableRoomCommands.value = mutableRoomCommands.value.copy(phase = RoomCommandPhase.VERIFIED, directory = directory)
+                }, { failure ->
+                    mutableRoomCommands.value = mutableRoomCommands.value.copy(phase = RoomCommandPhase.UNVERIFIED,
+                        verificationIssue = if (failure is RoomsStorageException) RoomVerificationIssue.STORAGE else RoomVerificationIssue.UNAVAILABLE)
+                })
+            }
+        } catch (_: Exception) {
+            withContext(NonCancellable) { lock.withLock {
+                if (activeRoomCommand === command && current(command.ticket)) {
+                    command.reconciling = false
+                    mutableRoomCommands.value = mutableRoomCommands.value.copy(phase = RoomCommandPhase.UNVERIFIED, verificationIssue = RoomVerificationIssue.UNAVAILABLE)
+                }
+            } }
         }
     }
 
