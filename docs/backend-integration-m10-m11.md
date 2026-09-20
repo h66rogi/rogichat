@@ -2,6 +2,46 @@
 
 This source integration is not a QA release or a completed M10 purge.
 
+## Current source baseline (2026-09-20)
+
+The sections below record earlier integration stages. Their statements about
+18 migrations, an unregistered PURGE handler and a deferred C06 source cutover
+are historical, superseded by accepted integration
+`f3668aba120b4732e13ee024d13cebb3eb937bf3`. That baseline includes reconciled QA
+`129f378`, the full C04–C06 contracts, native/web product composition and the
+[bounded PURGE runtime](backend-purge-runtime.md), with **19 migrations**.
+It still does not establish complete physical account/media purge or restore
+release safety. No schema-20-or-later runtime is included in this checkpoint.
+
+The [genuine-owner bootstrap](backend-genuine-owner-bootstrap.md) adds an
+operator-only command and shared owned-room domain composition, normally merged
+from reviewed PR68 commit `9f0bcd38a59bdc1d0a49a47a72210eeaf317acb0`.
+Its exact-head hosted checks passed, including actual durable-COMMIT/driver-ACK
+loss and exact-request replay. It changes no schema, HTTP authorization gate or
+public login flow; genuine authentication and separate operator execution remain
+necessary. The integration preserves the baseline's membership and deletion
+contracts, worker composition, migrations and native/web source.
+
+The [M12 isolated quality suite](backend-m12-quality-evidence.md) is normally
+merged from PR69 commit `11cb2fa9485aa259c28e8dd204395bf295bd94f7`, whose required
+checks and [33-test quality run](https://github.com/h66rogi/rogichat/actions/runs/35506640207)
+passed. Its additions are test scaffolding, a credential-free hosted workflow
+and measured evidence; none enter serving runtime. The drill exercises 1,000
+sockets, API death/recovery, exact command replay and logical restore/session
+invalidation. It does not establish cross-node hint delivery, production restore
+release, per-client foreground latency or the entire M12 gate. Historical scalar
+measurements in its runbook remain attributed to their original tested merge SHA.
+
+Both inputs merged without conflict. Local bootstrap helper tests (three cases),
+shell/JavaScript syntax and M12 scalar/target-refusal checks cover this small
+integration step. Final combined hosted checks must pass on PR52; leaf results
+alone do not validate the composed tree. No dependency installation, local full
+mobile/container build or local database drill is part of this checkpoint.
+
+QA/main merge, immutable-image activation, provisioning and actual user-route
+verification remain with the designated infrastructure executor. Source evidence
+does not claim those operations happened.
+
 ## Reviewed inputs
 
 - Existing additive integration `b3dc1bf`: own-command reconciliation, account
