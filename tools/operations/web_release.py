@@ -263,7 +263,12 @@ def validate_compose(config, request):
                 'ROGICHAT_API_ORIGIN': 'https://api.qa.rogi.chat' if request['environment'] == 'qa' else 'https://api.rogi.chat'}
     require(service.get('environment') == expected)
     require(service.get('cap_drop') == ['ALL'] and 'no-new-privileges:true' in service.get('security_opt', []))
-    require(config['networks']['web'] == {'name': name, 'external': True})
+    network = config['networks']['web']
+    # Compose 2.40.3 emits an empty IPAM object for this external network.
+    require(network.get('external') is True and network in (
+        {'name': name, 'external': True},
+        {'name': name, 'external': True, 'ipam': {}},
+    ))
     return config
 
 
