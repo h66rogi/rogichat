@@ -1,7 +1,8 @@
 # 프론트엔드 웹 구현 계획
 
-2026-09-20. 상태: **구현 착수를 위한 계획**. 웹에는 계획·디자인 문서만 있으며,
-화면·실제 로그인·채팅·배포가 완료된 상태가 아니다. 초안 기준 `9a028b9`, 독립 리뷰 기준
+2026-09-20. 상태: **FW00/FW01 구현 완료, FW02 이후 진행 전**. `apps/web`에 scaffold·공개 홈·route·
+공통 UI·QA 미리보기·SW 기반이 있으며([진행 기록](frontend-web-foundation-progress.md)),
+실제 로그인·채팅 연결·배포는 완료된 상태가 아니다. 초안 기준 `9a028b9`, 독립 리뷰 기준
 `c110863`의 커밋된 소스·계약을 대조했다. 병행 중인 서버 작업의 미커밋 API를 확정 계약으로
 사용하지 않는다. [다층 리뷰와 반영 기록](frontend-web-implementation-review.md)을 함께 읽는다.
 
@@ -236,7 +237,8 @@ cacheId를 구분한다. 한 방 snapshot/events/history는 같은 timeline cach
 - resource version은 큰 십진 문자열로 비교하고 tombstone을 우선한다. 화면 정렬은 W05 계약을 따른다.
 - 모르는 필수 sync event/schema는 적용·cursor 전진을 중지하고 업데이트 필요 상태로 처리한다.
   모르는 메시지 콘텐츠는 안전한 placeholder로 표시하며 무한 reset/retry로 덮지 않는다.
-- Socket.IO transport는 API host의 `/socket.io`, namespace는 `/v1/realtime`이다.
+- Socket.IO 서버는 API host의 path `/v1/realtime`, transport는 `websocket` 전용, 기본 namespace다
+  (2026-09-20 FW01 리뷰에서 커밋된 `apps/api/src/modules/realtime/realtime.gateway.ts` 기준으로 정정. `/socket.io` path 아님).
   socket의 `sync.required`는 재조회 힌트이며 메시지 본문/커서의 원본이 아니다.
 - foreground 진입·온라인 복귀·socket 재접속에 sync한다. M06의 foreground 15초+jitter와
   socket 실패 시 3–5초 fallback, 힌트 병합 규칙을 따른다. 숨긴 탭의 영구 연결에 의존하지 않는다.
