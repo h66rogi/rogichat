@@ -248,7 +248,7 @@ export class ChatController {
       if (next && (recipientCursors.has(next) || recipientCursors.size >= 200)) throw new Error('INVALID_RESPONSE');
       if (next) recipientCursors.add(next);
     } while (next);
-    this.commands.quarantine(command => command.payload.intent === 'SHARED' ? found.role !== 'STREAMER' : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
+    this.commands.quarantine(command => command.payload.intent === 'ROOM_OWNER' ? found.role !== 'FAN' : command.payload.intent === 'SHARED' ? found.role !== 'STREAMER' : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
     const binding = JSON.stringify(recipients.map(recipient => recipient.actorId));
     if (this.recipientBinding && this.recipientBinding !== binding) throw new ResetRequired();
     guard();
@@ -542,7 +542,8 @@ export class ChatController {
     if (!('payload' in command) || !room || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== room.roomId || command.payload.membershipScope !== room.membershipScope || command.membershipGeneration !== this.memory.membershipGeneration) return false;
     return this.payloadAuthorized(command.payload, room);
   }
-  private payloadAuthorized(body: { intent: 'SHARED' | 'PRIVATE'; recipientActorId?: string; quoteId?: string }, room: RoomMembership, recipients = this.state.recipients): boolean {
+  private payloadAuthorized(body: { intent: 'SHARED' | 'PRIVATE' | 'ROOM_OWNER'; recipientActorId?: string; quoteId?: string }, room: RoomMembership, recipients = this.state.recipients): boolean {
+    if (body.intent === 'ROOM_OWNER') return room.role === 'FAN' && body.recipientActorId === undefined && body.quoteId === undefined;
     if (body.intent === 'SHARED' ? room.role !== 'STREAMER' : !recipients.some(p => p.actorId === body.recipientActorId && p.actorId !== room.actorId)) return false;
     if (body.quoteId) {
       const quote = this.messages.find(m => m.id === body.quoteId);
@@ -585,7 +586,7 @@ export class ChatController {
     const payload = command.payload;
     const recipient = this.state.recipients.find(item => item.actorId === payload.recipientActorId);
     if (payload.intent === 'PRIVATE' && !recipient) return;
-    const result = await this.send({ target: payload.intent === 'SHARED' ? { scope: 'SHARED' } : { scope: 'PRIVATE', recipient: recipient! }, body: payload.content.type === 'TEXT' ? payload.content.text : '', retryCommandId: id, ...(payload.quoteId ? { quoteMessageId: payload.quoteId } : {}) });
+    const result = await this.send({ target: payload.intent === 'SHARED' ? { scope: 'SHARED' } : payload.intent === 'ROOM_OWNER' ? { scope: 'ROOM_OWNER' } : { scope: 'PRIVATE', recipient: recipient! }, body: payload.content.type === 'TEXT' ? payload.content.text : '', retryCommandId: id, ...(payload.quoteId ? { quoteMessageId: payload.quoteId } : {}) });
     if (!this.dead && !signal.aborted && projection === this.projectionGeneration) this.publish({ notice: result.accepted ? result.note ?? '메시지 저장 결과를 확인했습니다.' : result.reason });
   };
   private commandResult(result: Receipt): ChatSubmitResult {
@@ -632,7 +633,7 @@ export class ChatController {
       catch { return { accepted: false, reason: '미확인 전송이 많습니다. 이전 전송 결과를 먼저 확인해 주세요.' }; }
     }
     const clientMessageId = command.clientMessageId;
-    const draftKey = body.intent === 'SHARED' ? 'shared' : `private:${body.recipientActorId}`;
+    const draftKey = body.intent === 'SHARED' ? 'shared' : body.intent === 'ROOM_OWNER' ? 'room-owner' : `private:${body.recipientActorId}`;
     const draft = this.memory.drafts[draftKey];
     if (content.type === 'TEXT' && draft && draft.body.trim().normalize('NFC') === text && draft.quote?.messageId === body.quoteId) this.memory.drafts = { ...this.memory.drafts, [draftKey]: { ...draft, retryCommandId: clientMessageId } };
     if (!this.commandAuthorized(command)) return { accepted: false, retryCommandId: clientMessageId, reason: '참여 상태나 보낼 대상이 변경되었습니다. 이전 전송을 새 참여 상태로 다시 보내지 않습니다.' };

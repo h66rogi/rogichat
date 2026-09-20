@@ -2,7 +2,7 @@ import type { Receipt, RoomMembership } from './contract';
 
 export interface SendPayload {
   readonly clientMessageId: string; readonly membershipScope: string;
-  readonly intent: 'SHARED' | 'PRIVATE'; readonly recipientActorId?: string; readonly quoteId?: string;
+  readonly intent: 'SHARED' | 'PRIVATE' | 'ROOM_OWNER'; readonly recipientActorId?: string; readonly quoteId?: string;
   readonly content: Readonly<{ type: 'TEXT'; text: string } | { type: 'PHOTO' | 'VIDEO'; assetIds: readonly string[] } | { type: 'STICKER'; stickerId: string }>;
 }
 export interface PendingCommand {

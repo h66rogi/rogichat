@@ -44,8 +44,9 @@ export function normalizePayload(value: OutboxPayload): OutboxPayload {
     content = Object.freeze({ type: value.content.type, assetIds: Object.freeze(assetIds) });
   } else if (value.content.type === 'STICKER') content = Object.freeze({ type: 'STICKER', stickerId: uuid(value.content.stickerId) });
   else throw new OutboxError('INVALID_COMMAND');
-  if (!['PRIVATE', 'SHARED'].includes(value.intent)) throw new OutboxError('INVALID_COMMAND');
-  if (value.intent === 'SHARED' && value.recipientActorId !== undefined) throw new OutboxError('INVALID_COMMAND');
+  if (!['PRIVATE', 'SHARED', 'ROOM_OWNER'].includes(value.intent)) throw new OutboxError('INVALID_COMMAND');
+  if (value.intent !== 'PRIVATE' && value.recipientActorId !== undefined) throw new OutboxError('INVALID_COMMAND');
+  if (value.intent === 'ROOM_OWNER' && value.quoteId !== undefined) throw new OutboxError('INVALID_COMMAND');
   return Object.freeze({ clientMessageId: uuid(value.clientMessageId), membershipScope: token(value.membershipScope), intent: value.intent,
     ...(value.intent === 'PRIVATE' ? { recipientActorId: uuid(value.recipientActorId) } : {}), ...(value.quoteId ? { quoteId: uuid(value.quoteId) } : {}), content });
 }
