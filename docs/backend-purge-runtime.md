@@ -58,6 +58,12 @@ before enqueue is repaired during the next full pass; one poison item cannot
 prevent cursor advancement or starve later intents. Missing rooms and malformed
 scope bindings stay unresolved and emit only a fixed recovery-unavailable signal.
 Multiple workers share the durable cursor and use the existing SKIP LOCKED queue.
+Every fourth claim reserves capacity for installed non-PURGE purposes; the other
+claims retain purge priority. This prevents a backlog of periodic deferred or
+drained purge rechecks from starving publication/media/push jobs. The production
+ten-claim tick contains reserved slots even after restart, and short ticks carry
+the reservation turn across calls. An empty reserved slot is not misreported as a
+completion and does not stop remaining purge slots in that tick.
 Recovery does not hold a queue lock while acquiring a later domain lock.
 
 All requested-at fields and the first-request deadline remain unchanged. Discovery
@@ -93,7 +99,9 @@ remain separate deployment gates owned by the coordinator.
 The hosted MySQL suite exercises actual selected account/message progression,
 TEXT and STICKER rows, two workers, restart, missed enqueue recovery, exhausted
 retry history/cooldown, strict fencing including expiry during a real job lock
-wait, unknown COMMIT acknowledgement, observer preservation, unsupported media
+wait, unknown ACCOUNT/MESSAGE COMMIT acknowledgement and subsequent restart, actual
+configured WorkerModule lifecycle, mixed-purpose fairness behind one thousand
+retained purge jobs across recheck eligibility epochs, observer preservation, unsupported media
 and missing external evidence. Composition tests cover deletion enabled/disabled
 with media enabled/disabled and retain publication and both PUSH routes.
 

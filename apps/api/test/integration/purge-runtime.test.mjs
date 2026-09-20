@@ -18,6 +18,7 @@ import { Jobs } from '../../dist/modules/jobs/jobs.service.js';
 import { JobsRepository } from '../../dist/modules/jobs/jobs.repository.js';
 import { JobsCoreService } from '../../dist/modules/jobs/jobs-core.service.js';
 import { purgeDedupe } from '../../dist/modules/jobs/jobs.policy.js';
+import { WorkerModule } from '../../dist/worker.module.js';
 import { WorkerLoop } from '../../dist/modules/jobs/worker-loop.js';
 import { deletionFixture } from '../support/deletion-fixture.mjs';
 import { createUser, createRoom, joinRoom, assignRoomOwner, sendMessage, sendInput } from '../support/domain-fixture.mjs';
@@ -28,7 +29,7 @@ async function fixture(t, sticker = false) {
   // Suite-owned disposable database only; previous tests have already settled.
   await db.transactions.write(tx => tx.prisma.jobs.deleteMany({ where: { purpose: 'PURGE' } }));
   const infrastructure = DatabaseModule.register({ database: db, lifecycle: new LifecycleState(), externallyOwned: true });
-  let contexts = [];
+  let contexts = []; const cleanups = [];
   const restart = async () => {
     for (const context of contexts) await context.close();
     contexts = await Promise.all([0, 1].map(() => NestFactory.createApplicationContext({ module: class RuntimeFixture {}, imports: [
@@ -36,7 +37,7 @@ async function fixture(t, sticker = false) {
     ] }, { logger: false, abortOnError: false })));
   };
   await restart();
-  t.after(async () => { for (const context of contexts) await context.close(); await db.close(); });
+  t.after(async () => { for (const cleanup of cleanups.reverse()) await cleanup(); for (const context of contexts) await context.close(); await db.close(); });
   const state = await db.transactions.write(async tx => {
     const account = await createUser(tx, 'private account'), author = await createUser(tx, 'message author'), peer = await createUser(tx, 'observer');
     for (const user_id of [author, peer]) await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id, provider_subject: randomBytes(24), verified_at: await tx.now() } });
@@ -79,7 +80,7 @@ async function fixture(t, sticker = false) {
     await tx.prisma.jobs.updateMany({ where: { purpose: 'PURGE', resource_id: { in: [messageIntent.requestId, accountIntent.requestId] }, state: 'PENDING' }, data: { available_at: new Date(Date.now() + 86400000) } });
     await tx.prisma.jobs.updateMany({ where: { purpose: 'PURGE', resource_id: { in: ids }, state: 'PENDING' }, data: { available_at: await tx.now(), max_attempts: 1 } });
   });
-  return { db, ledger, store, ...state, messageIntent, accountIntent, restart, recover, recoverAll, due, queues,
+  return { db, ledger, store, cleanup: fn => cleanups.push(fn), ...state, messageIntent, accountIntent, restart, recover, recoverAll, due, queues,
     service: (index = 0) => contexts[index].get(PurgeWorkerService), core: () => contexts[0].get(JobsCoreService),
     job: requestId => db.transactions.read(tx => tx.prisma.jobs.findUniqueOrThrow({ where: { purpose_dedupe_key: { purpose: 'PURGE', dedupe_key: purgeDedupe(requestId) } } })),
   };
@@ -89,7 +90,8 @@ for (const sticker of [false, true]) test(`real two-worker runtime makes bounded
   const f = await fixture(t, sticker), counts = { progress: 0, subsetDrained: 0, completed: 0 };
   const originalDeadline = f.accountIntent.requestedAt;
   for (let i = 0; i < 16; i++) {
-    await f.due();
+    const before = await Promise.all([f.job(f.messageIntent.requestId), f.job(f.accountIntent.requestId)]);
+    await f.due(before.filter(row => row.last_error_code !== 'PURGE_SUBSET_DRAINED').map(row => row.resource_id));
     const loops = f.queues().map((queue, index) => new WorkerLoop(queue, new LifecycleState(), { PURGE: lease => f.service(index).process(lease) }, { ready: async () => true, maxPerTick: 1 }));
     const results = await Promise.all(loops.map(loop => loop.tick()));
     for (const result of results) for (const key of Object.keys(counts)) counts[key] += result[key];
@@ -199,16 +201,19 @@ test('ACCOUNT fresh DB time after a competing job lock wait rejects expired clea
   assert.ok(await f.db.transactions.read(tx => tx.prisma.user_profiles.findUnique({ where: { user_id: f.account } })));
 });
 
-test('unknown MESSAGE COMMIT acknowledgement does not re-execute a committed page or mark it completed', { timeout: 15000 }, async t => {
-  const f = await fixture(t); await f.due([f.messageIntent.requestId]);
-  const service = f.service(), original = service.transactions; let executed = 0;
-  service.transactions = { rollbackConfirmed: () => false, write: async operation => {
+for (const scope of ['MESSAGE', 'ACCOUNT']) test(`unknown ${scope} COMMIT acknowledgement does not re-execute a committed page or mark it completed`, { timeout: 15000 }, async t => {
+  const f = await fixture(t), requestId = scope === 'MESSAGE' ? f.messageIntent.requestId : f.accountIntent.requestId; await f.due([requestId]);
+  const service = f.service(), target = scope === 'MESSAGE' ? service : service.accounts, original = target.transactions; let executed = 0;
+  target.transactions = { rollbackConfirmed: () => false, write: async operation => {
     executed++; await original.write(operation); throw new Error('commit_outcome_unknown');
   } };
   const loop = new WorkerLoop(f.queues()[0], new LifecycleState(), { PURGE: lease => service.process(lease) }, { ready: async () => true, maxPerTick: 1 });
   const result = await loop.tick(); await loop.stop();
   assert.equal(executed, 1); assert.equal(result.completed, 0); assert.equal(result.leaseLost, 1); assert.equal(result.retried, 0);
-  const job = await f.job(f.messageIntent.requestId); assert.equal(job.state, 'PENDING'); assert.equal(job.last_error_code, 'PURGE_PROGRESS');
+  const job = await f.job(requestId); assert.equal(job.state, 'PENDING'); assert.equal(job.last_error_code, 'PURGE_PROGRESS');
+  target.transactions = original; await f.restart(); await f.due([requestId]);
+  const [next] = await f.queues()[1].claim({ purposes: ['PURGE'], limit: 1 });
+  assert.ok(next.generation > job.generation); assert.equal(await f.service(1).process(next), 'progress');
 });
 
 test('a foreign MESSAGE resource or forged DB hash cannot delete an observer target', { timeout: 15000 }, async t => {
@@ -218,4 +223,85 @@ test('a foreign MESSAGE resource or forged DB hash cannot delete an observer tar
   await assert.rejects(f.service().process(lease), /invalid_message_purge_intent/);
   assert.equal((await f.db.transactions.read(tx => tx.prisma.messages.findUniqueOrThrow({ where: { id: f.observer } }))).text_content, 'observer content remains');
   assert.ok(await f.db.transactions.read(tx => tx.prisma.messages.findUnique({ where: { id: f.source } })));
+});
+
+test('one thousand retained purge obligations cannot starve mixed purposes across a recheck interval', { timeout: 30000 }, async t => {
+  const f = await fixture(t), receipts = [];
+  // Isolated external immutable test store, actual DB intents and runtime handler.
+  for (let i = 0; i < 1000; i++) receipts.push(await f.ledger.ensureIntent({ ...f.messageIntent, requestId: randomUUID() }));
+  await f.db.transactions.write(async tx => {
+    await tx.prisma.jobs.updateMany({ where: { purpose: 'PURGE' }, data: { available_at: new Date(Date.now() + 86400000) } });
+    const now = await tx.now();
+    await tx.prisma.deletion_intents.createMany({ data: receipts.map(({ intent, sha256 }) => ({
+      request_id: intent.requestId, environment: intent.environment, actor_user_id: intent.actorUserId, scope: intent.scope, target_id: intent.targetId,
+      room_id: intent.roomId, requested_at: new Date(intent.requestedAt), blocked_at: now, ledger_sha256: Buffer.from(sha256, 'hex'),
+    })) });
+    await tx.prisma.jobs.createMany({ data: receipts.map(({ intent }) => ({ id: randomUUID(), purpose: 'PURGE', room_id: intent.roomId,
+      resource_id: intent.requestId, dedupe_key: purgeDedupe(intent.requestId), available_at: new Date(now.getTime() - 1000), max_attempts: 1,
+    })) });
+  });
+  f.cleanup(async () => {
+    await f.db.transactions.write(async tx => {
+      const ids = receipts.map(receipt => receipt.intent.requestId);
+      await tx.prisma.jobs.deleteMany({ where: { purpose: 'PURGE', resource_id: { in: ids } } });
+      await tx.prisma.deletion_intents.deleteMany({ where: { request_id: { in: ids } } });
+    });
+  });
+  await f.db.transactions.write(tx => tx.prisma.jobs.updateMany({ where: { purpose: { not: 'PURGE' } }, data: { available_at: new Date(Date.now() + 86400000), lease_until: new Date(Date.now() + 86400000) } }));
+  const queue = f.queues()[0], completed = [], core = f.core();
+  const finish = async lease => { await f.db.transactions.write(async tx => {
+    await tx.rows('SELECT id FROM rooms WHERE id=? FOR UPDATE', [f.room]);
+    if (!await core.complete(tx, lease)) throw new Error('mixed_fence_lost');
+  }); completed.push(lease.id); return 'completed'; };
+  const loop = new WorkerLoop(queue, new LifecycleState(), { PURGE: lease => f.service().process(lease), PUBLICATION: finish, MEDIA: finish, PUSH: finish }, { ready: async () => true });
+  f.cleanup(() => loop.stop());
+  for (let pass = 0; pass < 2; pass++) {
+    const otherIds = await f.db.transactions.write(async tx => {
+      const now = await tx.now(), ids = [];
+      // Advance only this fixture's eligibility timestamps to the next recheck
+      // epoch, avoiding five-minute wall-clock sleeps or changing DB/host clocks.
+      await tx.prisma.jobs.updateMany({ where: { purpose: 'PURGE', resource_id: { in: receipts.map(receipt => receipt.intent.requestId) } }, data: { available_at: new Date(now.getTime() - 1000) } });
+      for (const purpose of ['PUBLICATION', 'MEDIA', 'PUSH']) ids.push(await core.enqueue(tx, { purpose, roomId: f.room, resourceId: randomUUID() }));
+      // Keep unrelated suite jobs out of this fixture's mixed scheduling window.
+      await tx.prisma.jobs.updateMany({ where: { purpose: { in: ['PUBLICATION', 'MEDIA', 'PUSH'] }, id: { notIn: ids }, state: 'PENDING' }, data: { available_at: new Date(now.getTime() + 86400000) } });
+      return ids;
+    });
+    let deferred = 0;
+    for (let i = 0; i < 3; i++) deferred += (await loop.tick()).deferred;
+    assert.ok(deferred >= 10); assert.ok(otherIds.every(id => completed.includes(id)), 'every non-purge purpose must progress despite the retained backlog');
+    const delayed = await f.db.transactions.read(async tx => {
+      const now = await tx.now(); return tx.prisma.jobs.count({ where: { purpose: 'PURGE', last_error_code: 'PURGE_DEFERRED', available_at: { gt: new Date(now.getTime() + 290000) } } });
+    });
+    assert.ok(delayed > 0); // The actual handler persisted the five-minute recheck.
+  }
+});
+
+test('actual configured WorkerModule lifecycle schedules account and message pages and resumes after shutdown', { timeout: 25000 }, async t => {
+  const f = await fixture(t), ids = [f.accountIntent.requestId, f.messageIntent.requestId];
+  let worker;
+  f.cleanup(async () => { if (worker) await worker.close(); });
+  const open = async () => {
+    await f.db.transactions.write(async tx => {
+      const later = new Date((await tx.now()).getTime() + 86400000);
+      await tx.prisma.jobs.updateMany({ where: { OR: [{ resource_id: { notIn: ids } }, { resource_id: null }] }, data: { available_at: later, lease_until: later } });
+    });
+    await f.due(ids);
+    worker = await NestFactory.createApplicationContext(WorkerModule.production({ config: readConfig('worker'), deletion: { ledger: f.ledger }, push: { audience: 'runtime-test', vapid: null } }), { logger: false, abortOnError: false });
+    assert.ok(worker.get(WorkerLoop).stats().installedPurposes.includes('PURGE'));
+  };
+  await open();
+  const waitForClaims = async generation => {
+    for (let i = 0; i < 90; i++) {
+      const jobs = await Promise.all(ids.map(id => f.job(id)));
+      if (jobs.every(job => job.generation > generation && job.state === 'PENDING')) return jobs;
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    assert.fail('configured lifecycle did not run both bounded handlers');
+  };
+  const before = await waitForClaims(0n);
+  await worker.close(); worker = undefined;
+  assert.equal(await f.db.transactions.read(tx => tx.prisma.user_profiles.findUnique({ where: { user_id: f.account } })), null);
+  await open(); const after = await waitForClaims(before.reduce((max, job) => job.generation > max ? job.generation : max, 0n));
+  assert.ok(after.every(job => job.last_error_code.startsWith('PURGE_')));
+  await worker.close(); worker = undefined;
 });

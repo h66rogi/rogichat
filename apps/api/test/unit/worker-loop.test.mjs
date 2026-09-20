@@ -102,3 +102,11 @@ test('bounded purge outcomes are counted truthfully without completion or retry'
   assert.deepEqual(await f.loop.tick(), { claimed: 3, completed: 0, leaseLost: 0, retried: 0, failed: 0, progress: 1, deferred: 1, subsetDrained: 1 });
   assert.equal(f.calls.some(call => call.operation !== 'claim'), false);
 });
+
+test('retained PURGE backlog reserves every fourth claim for other purposes, including short ticks', async () => {
+  const queue = [], f = fixture({ PURGE: async () => 'deferred', PUBLICATION: async () => 'completed', MEDIA: async () => 'completed', PUSH: async () => 'completed' }, [], { maxPerTick: 1 });
+  f.loop.jobs.claim = async input => { queue.push(input.purposes); return [lease(input.purposes.includes('PURGE') ? 'PURGE' : 'PUBLICATION')]; };
+  for (let i = 0; i < 12; i++) await f.loop.tick();
+  assert.equal(queue.filter(purposes => !purposes.includes('PURGE')).length, 3);
+  for (const purposes of queue.filter(purposes => !purposes.includes('PURGE'))) assert.deepEqual(purposes, ['MEDIA', 'PUBLICATION', 'PUSH']);
+});
