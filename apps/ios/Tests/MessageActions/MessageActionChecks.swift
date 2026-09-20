@@ -21,8 +21,15 @@ import Foundation
 }
 @MainActor final class TestBlockJournal: BlockJournal {
     var values: [UnblockRecord] = []
-    func records() -> [UnblockRecord] { values }
-    func put(_ record: UnblockRecord) { values.removeAll { $0.id == record.id }; values.append(record) }
+    var failRead = false; var failWrite = false
+    func records() throws -> [UnblockRecord] {
+        if failRead { throw MessageActionError.unavailable }
+        return values
+    }
+    func put(_ record: UnblockRecord) throws {
+        if failWrite { throw MessageActionError.unavailable }
+        values.removeAll { $0.id == record.id }; values.append(record)
+    }
 }
 @main struct MessageActionChecks {
     static let a = "11111111-1111-4111-8111-111111111111"
@@ -139,7 +146,7 @@ import Foundation
         rejects { _ = try manager.unblock(oldView, actorId: b) }
         let recovery = try manager.refresh()!
         check(try manager.accept(recovery, page: BlockPage(blocks: [], next: nil)) == BlockReset(scope: blockScope))
-        check(blockJournal.records().first?.outcome == .unknown && blockJournal.records().first?.observedBlocked == false)
+        check(try blockJournal.records().first?.outcome == .unknown && blockJournal.records().first?.observedBlocked == false)
         check(try journal.records().last?.phase == .unknown && journal.records().last?.observedBlocked == false)
         check(manager.complete && manager.blocks.isEmpty)
         let oldPage = try manager.refresh()!; try manager.select(nil); try manager.select(blockScope)
@@ -185,6 +192,39 @@ import Foundation
         check(manager.blocks.isEmpty)
         try manager.select(blockScope)
         check(try manager.accept(renamed, page: rows) == nil && manager.blocks.isEmpty)
+        // A receipt write/read failure cannot keep a completed dispatch in memory.
+        // Recovery performs GET only and observes current state without inventing ACK.
+        for readFailure in [false, true] {
+            let disk = TestBlockJournal()
+            let recovering = ActorBlocksState(journal: disk, actionJournal: journal)
+            try recovering.select(blockScope)
+            _ = try recovering.accept(recovering.refresh()!, page: rows)
+            let original = try recovering.unblock(recovering.capture()!, actorId: b)
+            var dispatchedMethods: [String] = []
+            try original.claim(); dispatchedMethods.append(original.request().method)
+            disk.failRead = readFailure; disk.failWrite = !readFailure
+            rejects { _ = try recovering.finish(original, outcome: .acknowledged) }
+            check(recovering.pending == nil && !recovering.complete && recovering.lastOutcome == .unknown)
+            check(disk.values.count == 1 && disk.values.first?.outcome == .unknown)
+            rejects { try original.claim() }
+            disk.failRead = false; disk.failWrite = false
+            let freshPage = try recovering.refresh()!
+            dispatchedMethods.append(try ActorBlocksWire.list(freshPage).method)
+            _ = try recovering.accept(freshPage, page: BlockPage(blocks: [], next: nil))
+            check(dispatchedMethods == ["DELETE", "GET"])
+            check(recovering.complete && recovering.blocks.isEmpty && recovering.lastOutcome == .unknown)
+            check(try disk.records().first?.outcome == .unknown && disk.records().first?.observedBlocked == false)
+
+            // An older finish must not clear a newer request in the same sheet.
+            _ = try recovering.accept(recovering.refresh()!, page: rows)
+            let newer = try recovering.unblock(recovering.capture()!, actorId: b)
+            disk.failWrite = true
+            rejects { _ = try recovering.finish(original, outcome: .acknowledged) }
+            check(recovering.pending === newer)
+            try newer.claim()
+            disk.failWrite = false
+            _ = try recovering.finish(newer, outcome: .unknown)
+        }
         try state.deleted(scope, messageId: b)
         check(try journal.records().first { $0.action == .report }?.phase == .unknown)
         print("MessageActionChecks: \(checks) checks passed (contract/state/disk-journal reconstruction/viewport)")
