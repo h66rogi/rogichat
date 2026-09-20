@@ -1,60 +1,87 @@
 # macOS Orca disk preservation guard
 
-This first rollout measures disk pressure and reviews worktrees. **It does not delete
-worktrees, dependencies, build artifacts, branches, AI history, or user data.** No
-reviewed, reproducible, exclusively inactive deletion target was available at rollout.
-Even a future `completed` card is insufficient to authorize automatic deletion.
-Reclamation remains deferred until a concrete target passes the preservation review.
-The only automatically removed files are this guard's own rotated logs.
+The guard monitors pressure and can archive then remove **root `node_modules` only**
+from explicitly completed, inactive, clean worktrees. It never removes a worktree,
+branch, conversation, source file, credential, database or uncertain result. Missing
+proof always preserves the whole worktree. Other build directories are inventory-only.
 
-## Behavior
+## Schedule and monitoring
 
-- One macOS user LaunchAgent samples at minute 00 and 30. It starts once at installation;
-  sleeping or logged-out Macs cannot promise exact wall-clock execution. Missed sleep
-  intervals coalesce on wake. No AI task is launched.
-- Normal samples use volume statistics and swap only. Detailed review runs every two
-  hours, or at each sample below 20 GiB. Manual `--audit` requests a detailed review.
-- One nonblocking `flock` covers both scheduled and manual execution. A crash releases
-  the lock. Inventory failures preserve everything and return nonzero.
-- Review compares Orca repo/worktree lists, runtime activity and terminal inventory
-  against Git worktrees and direct directories under configured roots. It records
-  HEAD/branch, tracked changes, untracked paths, commits absent from *other* local refs,
-  open files/cwd processes and sizes. Git uses `GIT_OPTIONAL_LOCKS=0`; it never fetches,
-  prunes, resets, cleans or changes working files. Detached HEADs are included.
-- `lsof` is current-user visibility, not proof that all other users or processes are
-  absent. Snapshots are sequential and may change during running AI work. A skipped or
-  inaccessible scan is uncertainty, never eligibility. Remote-host inventories are
-  not treated as local. Folder contexts outside measurement roots retain status evidence
-  but do not get a recursive size scan.
-- `node_modules`, build-like directories and lockfiles are inventoried, not authorized
-  for deletion. Symlinks are reported without traversing their targets. No ignored-file
-  deletion occurs. `du` totals are allocated-byte estimates; APFS clones, sparse files,
-  shared/hardlinked dependencies and concurrent writers can make actual reclaim differ.
-- Records include timestamps, remaining space, review targets/reasons and zero reclaimed
-  bytes. Subsequent reviews calculate per-worktree size changes. Capacity history retains
-  336 samples (about seven days), and each JSONL log rotates at 1 MiB with three backups.
-  Individual JSON snapshots are replaced in place. Operational records stay local and
-  must not be committed to this public repository.
-- Below 20 GiB warns; below 5 GiB is urgent. Native macOS notifications occur only on
-  state transitions (including sustained decline), never for normal unchanged state.
-  Alerts are also durably logged. Desktop delivery depends on macOS notification settings.
-  Repeated identical failures do not flood notifications.
-- At least three readings over an hour, all declining, are needed for estimated 20 GiB
-  and exhaustion times. These are extrapolations, not guarantees. Short first-session
-  measurements cannot establish a sustained depletion forecast.
-- No external-volume writes or archival copies occur. An absent `/Volumes/...` mount is
-  recorded as unavailable, never interpreted as free space on the root disk.
+One user LaunchAgent samples at minute 00 and 30, without starting AI sessions. Normal
+samples only query capacity and swap. A detailed review runs every two hours, or each
+sample below 20 GiB. `--audit` requests a manual review; actual cleanup remains limited
+to one attempt per two hours unless free space is below 20 GiB. A nonblocking `flock`
+serializes both manual and scheduled work. Crashes release the lock. Sleep/log-out may
+delay execution; launchd coalesces missed sleep intervals on wake.
 
-## Installation
+Review compares Orca registration, runtime and terminals with Git worktrees and actual
+directories. It records HEAD/branch, all nonignored tracked/untracked changes, commits
+absent from other local refs, sizes, build-like directories, lockfiles, open files/cwd
+processes and mismatches. Age/CPU/merged PRs are not completion proof. Ordinary audit
+uses current-user `lsof`; destructive cleanup additionally requires successful,
+warning-free `sudo -n lsof`. No password is requested and sudoers is never modified.
+Unavailable full process visibility blocks deletion even for completed work.
 
-Python 3.10+ and the currently installed Orca CLI are required. Read its installed
-`orca skills get orca-cli` guide and inspect existing launchd/crontab/Orca/Codex schedules
-first. The installer refuses an existing installation instead of restarting it.
+Below 20 GiB warns; below 5 GiB is urgent. Native macOS notifications are emitted only
+when entering a new warning/urgent/sustained-decline state. Normal unchanged runs stay
+quiet. Delivery depends on macOS notification settings; alerts are also logged. Three
+samples over at least an hour, all declining, are required for estimated 20 GiB and
+exhaustion times. These are extrapolations, not promises.
 
-Create a private JSON config outside the repository with `orca` (absolute executable),
-`state_dir`, `volumes` (internal first, external mount roots after it), `workspace_roots`
-(direct parents of worktrees), `measure_roots` (allowed recursive-measurement roots), and
-`notifications` (boolean). Do not commit machine paths or operational snapshots.
+The guard retains 336 capacity samples and rotates each own JSONL log at 1 MiB with
+three backups. Other snapshots replace themselves. Raw operational evidence, host paths
+and configuration stay private outside this public repository. `du` is allocated-byte
+estimation; clones/hardlinks/concurrent writers can affect actual reclaim. Cleanup logs
+record target, proof, retained recovery copy, observed free-space delta, remaining space,
+and skip reason. The delta is explicitly qualified for concurrent disk activity.
+
+## Automatic cleanup requirements
+
+`cleanup_enabled` defaults off; enabling it does not bypass any check:
+
+1. Orca registration and Git registration agree; both runtime and worktree detail say
+   `completed`, with inactive runtime, no terminal, no agent, no attached PTY, and no
+   main worktree. Dirty/untracked state or commits absent from independent refs blocks.
+2. Fresh full process inspection reports no open files/cwd in the whole worktree.
+   Another observed worktree linking to this worktree also blocks. No processes stop.
+3. Root `node_modules` is an ordinary ignored directory with no tracked content.
+   Tracked `package.json` and `pnpm-lock.yaml` exist; the configured pinned pnpm runs
+   with the exact declared version. The dependency installation's metadata agrees.
+   A frozen-lockfile reinstall command is recorded; no lifecycle scripts are run.
+4. Every file/link/mode/xattr is fingerprinted. Protected names, local databases, keys,
+   model-weight extensions and special files block the entire dependency directory.
+   Symlinks are never traversed for deletion, copying or fingerprinting.
+5. The configured external mount UUID/path must match, with at least the copy's size
+   plus 20 GiB reserve. A native `ditto` copy preserves resource forks, xattrs and ACLs.
+   Every copied byte/link/mode/xattr must match the unchanged source. Recovery copies
+   are never automatically deleted. Deterministic backup locations avoid duplicate
+   copies on failed retries; an incomplete/mismatched backup blocks.
+6. Completion/session/process/Git evidence is refreshed after copying. The dependency
+   directory is renamed to a unique temporary directory in the same inactive worktree;
+   full checks and fingerprinting run again immediately before symlink-safe deletion.
+   On failure it is restored if its original name is free; otherwise it remains intact
+   for recovery. Only the exact guard-created transient path is excluded from the
+   final untracked-file comparison. No persistent Git ignore rule changes.
+7. After successful cleanup Orca readiness, existing terminal connections and
+   `codex --version` are checked without sending input or launching an AI task.
+
+One worktree is attempted per review, rotating among eligible candidates. Mount or
+privilege failures do not relax safety. No safe target means zero deletion and logged
+reasons. The guard does not infer that an `in-progress` card has secretly completed.
+Snapshot rechecks reduce races but are not a lock obeyed by external editors/agents;
+verified external recovery copies remain mandatory.
+
+## Installation and verification
+
+Python 3.10+ and the installed Orca CLI are required. Read its version-matched
+`orca skills get orca-cli` guide. Inspect launchd/crontab/Orca/Codex schedules first.
+The installer refuses existing installs rather than restarting any service.
+
+Create private JSON config with `orca` (absolute executable), `state_dir`, `volumes`
+(internal first), `workspace_roots`, `measure_roots`, and `notifications`. For cleanup
+add `cleanup_enabled: true`, `cleanup_roots`, `pnpm_command` (absolute argv array),
+`codex_command`, `archive_volume`, `archive_volume_uuid` and `archive_dir`. Do not commit
+machine configuration. A broken pnpm shim must not count as a working reinstall tool.
 
 ```sh
 python3 -m unittest discover -s tools/disk_guard -p 'test_*.py'
@@ -63,27 +90,20 @@ python3 tools/disk_guard/install.py --config /absolute/private/config.json
 launchctl print gui/$(id -u)/com.rogichat.orca-disk-guard
 ```
 
-Confirm the installed hash receipt, launchd calendar entries, successful actual launchd
-execution and fresh `state.json`/`capacity.jsonl`. A loaded plist alone is not verification.
-Check Orca readiness, original terminal handles/connections and `codex --version` without
-sending terminal input or starting an AI session.
+Verify hashes of installed `guard.py` and `cleaner.py`, launchd calendar entries,
+actual successful execution and fresh state/capacity records. Loaded plists alone are
+not proof. To recover, verify a retained backup against `recovery.json` and restore the
+whole `node_modules` to its recorded original inactive worktree; do not follow its
+relative symlinks during copying. Source and branches were never removed.
 
-## Deferred destructive operations and external worktree placement
+## Whole worktrees and future placement
 
-There is deliberately no `--force`, deletion allowlist or delete command in this rollout.
-Before implementing reclamation, require explicit completion, no live/resumable or
-uncertain session, clean tracked/untracked state, independent commit preservation,
-verified reproduction instructions/lockfiles, protected-data checks, complete process
-visibility and a fresh identical state immediately before removal. Any changed evidence
-must skip the whole worktree. Never infer completion from age or CPU usage.
+Orca 1.4.205 documents `worktree rm --run-hooks`; failed archive hooks block removal.
+It also attempts to delete local branches, conflicting with branch preservation.
+The guard therefore never invokes this command, force options or a filesystem removal
+substitute. Whole-worktree removal remains disabled.
 
-Installed Orca 1.4.205 documents `worktree rm --run-hooks` as its official removal path,
-with failure blocking on archive-hook errors. It also attempts to delete local branches,
-which conflicts with the branch-preservation requirement. Therefore do not invoke it,
-`--force`, `--allow-failed-archive-hook`, or a direct filesystem-removal substitute.
-
-The installed CLI supports `project setup-update --setup <id> --worktree-base-path
-<external-path>` for future worktree placement. This is a separate proposed change;
-never move active worktrees or replace them with symlinks. Validate actual mount identity,
-free space and checksums before any future archive, and retain source until verification.
-Windows monitoring and all existing services are outside this tool's mutation scope.
+Official future placement is available via `project setup-update --setup <id>
+--worktree-base-path <external-path>`. This remains a separate proposed setting change.
+Never move active worktrees or replace them with symlinks. Windows monitoring and all
+existing services are outside this tool's mutation scope.

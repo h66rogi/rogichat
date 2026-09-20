@@ -37,6 +37,7 @@ def main():
             if any(x in text for x in [b'disk-guard', b'disk_guard', b'disk-clean', b'disk_clean', b'orca-clean', b'orca_clean']):
                 p.error(f'possible competing job: {path}; inspect first')
     source = Path(__file__).with_name('guard.py')
+    shutil.copyfile(source.with_name('cleaner.py'), state/'cleaner.py')
     shutil.copyfile(source, target)
     if args.config.resolve() != configpath:
         shutil.copyfile(args.config, configpath)
@@ -53,7 +54,8 @@ def main():
     subprocess.run(['launchctl', 'bootstrap', f'gui/{os.getuid()}', str(launchfile)], check=True)
     receipt = {'label': LABEL, 'source_sha256': hashlib.sha256(source.read_bytes()).hexdigest(),
                'installed_sha256': hashlib.sha256(target.read_bytes()).hexdigest(),
-               'interval_seconds': 1800, 'mode': 'preserve-and-report'}
+               'cleaner_sha256': hashlib.sha256((state/'cleaner.py').read_bytes()).hexdigest(),
+               'interval_seconds': 1800, 'mode': 'verified-backup-cleanup' if config.get('cleanup_enabled') else 'preserve-and-report'}
     (state/'installation.json').write_text(json.dumps(receipt, indent=2))
     print(json.dumps(receipt))
 

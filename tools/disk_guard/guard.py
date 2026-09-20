@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Read-only worktree preservation guard; only its own bounded logs are rotated.
+"""Monitor disk pressure and preserve work; verified completed dependencies only.
 
-No product/worktree/cache deletion is implemented: completion metadata is not a
-proof of reproducibility or an exclusive lease against resumed AI work.
+Optional cleanup retains a byte-verified external recovery copy. It never removes
+worktrees, branches, AI history, credentials or uncertain work.
 """
 import argparse
 import datetime as dt
@@ -239,7 +239,7 @@ def audit(config, state_dir):
                     row['artifacts'], row['lockfiles'] = artifacts(path)
                 except Exception as e:
                     row['size_error'] = str(e)
-        reasons.append('reproducibility and exclusive mutation lease not verified; preserve')
+        reasons.append('cleanup requires verified external backup and fresh safety checks')
         row['safe_reclaim_bytes'] = 0
         rows.append(row)
     previous_path = state_dir/'audit.json'
@@ -257,7 +257,7 @@ def audit(config, state_dir):
     report = {'time': started, 'time_local': dt.datetime.now().astimezone().isoformat(),
               'duration_seconds': time.time()-started, 'previous_sample_seconds': elapsed,
               'errors': errors, 'process_visibility': visibility, 'worktrees': rows,
-              'mode': 'preserve-and-report', 'deleted': [], 'reclaimed_bytes': 0}
+              'mode': 'preservation-first', 'deleted': [], 'reclaimed_bytes': 0}
     atomic(previous_path, report)
     return report
 
@@ -291,11 +291,11 @@ def tick(config, state_dir, full=False):
     state.update(samples=samples, last_tick=now, trend=estimate)
     atomic(oldpath, state)
     # Lightweight ticks never traverse worktrees. Review at most once per two hours,
-    # or each half hour under pressure. No force flag can authorize deletion.
+    # or each half hour under pressure. No force flag can relax cleanup checks.
     due = full or now-state.get('last_review', 0) >= 7200 or free < 20*GIB
     alert_key = level if level != 'normal' else ('declining' if estimate['sustained'] else 'normal')
     if alert_key != 'normal' and state.get('alert_key') != alert_key:
-        message = f'{level}: internal free {free/GIB:.1f} GiB. Work preserved; no verified deletion target. User review needed.'
+        message = f'{level}: internal free {free/GIB:.1f} GiB. Uncertain work stays protected; only verified completed dependencies may be cleaned.'
         if estimate['sustained']:
             eta = dt.datetime.fromtimestamp(estimate['estimated_20gib_epoch']).astimezone().isoformat(timespec='minutes')
             zero = dt.datetime.fromtimestamp(estimate['estimated_zero_epoch']).astimezone().isoformat(timespec='minutes')
@@ -311,14 +311,19 @@ def tick(config, state_dir, full=False):
     if due:
         report = audit(config, state_dir)
         state['last_review'] = time.time()
+        cleanup = []
+        if config.get('cleanup_enabled') and (free < 20*GIB or now-state.get('last_cleanup_attempt', 0) >= 7200):
+            import cleaner
+            cleanup = cleaner.review(sys.modules[__name__], config, state_dir, report)
+            state['last_cleanup_attempt'] = time.time()
         append_log(state_dir/'reviews.jsonl', {
-            'time': now, 'action': 'preserved', 'deleted': [], 'reclaimed_bytes': 0,
+            'time': now, 'action': 'reviewed', 'cleanup_outcomes': cleanup,
             'remaining_bytes': disk(config['volumes'][0])['free'],
             'targets': [{'path': w['path'], 'reasons': w['skip_reasons'],
                          'safe_reclaim_bytes': 0} for w in report['worktrees']]})
     atomic(oldpath, state)
     print(json.dumps({'level': level, 'free_gib': round(free/GIB, 2), 'reviewed': due,
-                      'mode': 'preserve-and-report'}))
+                      'mode': 'verified-backup-cleanup' if config.get('cleanup_enabled') else 'preserve-and-report'}))
 
 
 def main():
