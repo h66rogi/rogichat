@@ -2,7 +2,9 @@
 	admin localhost:2019
 }
 
-rogi.chat, api.rogi.chat {
+import /etc/caddy/sites/*.caddy
+
+api.rogi.chat {
 	# Staged only. Start after a separately reviewed DNS cutover.
 	# No access logs or application/OAuth routes at this foundation stage.
 	@infra path /_infra/health
