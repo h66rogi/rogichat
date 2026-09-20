@@ -97,7 +97,7 @@ void test('only exact status-bound safe codes survive; raw fields, expected scop
 
 void test('self profile separates provider display ID from internal ID and accepts legacy responses', async () => {
   const profile = { id: '33333333-3333-4333-8333-333333333333', nickname: '직접 설정한 이름', avatar: null, birthday: null, birthdayVisibleToStreamers: false };
-  for (const extra of [{}, { soop: null }, { soop: { displayId: 'synthetic_fan' } }]) {
+  for (const extra of [{}, { soop: null }, { soop: { displayId: 'synthetic_fan' } }, { soop: { displayId: 'legacy:fan' } }]) {
     const value = { ...profile, ...extra };
     const result = await new ApiClient(origin, async () => Response.json(value)).profile();
     assert.deepEqual(result, value);

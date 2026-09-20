@@ -67,7 +67,7 @@ export class ApiClient {
 
 export function validateProfile(value: Profile): Profile {
   if (!value || typeof value.id !== 'string' || !value.id || typeof value.nickname !== 'string' || typeof value.birthdayVisibleToStreamers !== 'boolean' || (value.avatar !== null && (!value.avatar || typeof value.avatar.assetId !== 'string')) || (value.birthday !== null && (!value.birthday || !Number.isInteger(value.birthday.month) || value.birthday.month < 1 || value.birthday.month > 12 || !Number.isInteger(value.birthday.day) || value.birthday.day < 1 || value.birthday.day > 31))) throw new ApiError(502, 'INVALID_PROFILE');
-  if (value.soop !== undefined && value.soop !== null && (typeof value.soop !== 'object' || Array.isArray(value.soop) || Object.keys(value.soop).some(key => key !== 'displayId') || typeof value.soop.displayId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(value.soop.displayId))) throw new ApiError(502, 'INVALID_PROFILE');
+  if (value.soop !== undefined && value.soop !== null && (typeof value.soop !== 'object' || Array.isArray(value.soop) || Object.keys(value.soop).some(key => key !== 'displayId') || typeof value.soop.displayId !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(value.soop.displayId))) throw new ApiError(502, 'INVALID_PROFILE');
   if (value.providerAvatarUrl !== undefined && value.providerAvatarUrl !== null && !isProviderAvatarUrl(value.providerAvatarUrl)) throw new ApiError(502, 'INVALID_PROFILE');
   return value;
 }
