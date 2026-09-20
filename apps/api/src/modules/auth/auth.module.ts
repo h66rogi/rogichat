@@ -11,8 +11,7 @@ import { AuthService } from './auth.service.js';
 import { AUTH_CONFIG } from './auth.tokens.js';
 import { SessionRepository } from './session.repository.js';
 import { SessionService } from './session.service.js';
-import { AuthController } from './auth.controller.js';
-import { NativeAuthController } from './native-auth.controller.js';
+import { RecoveryAuthController } from './recovery-auth.controller.js';
 import { NativeAuthRepository } from './native-auth.repository.js';
 import { NativeAuthService } from './native-auth.service.js';
 
@@ -30,7 +29,7 @@ export class AuthModule {
     return {
       module: AuthModule,
       imports: [infrastructure],
-      controllers: [AuthController, NativeAuthController],
+      controllers: [RecoveryAuthController],
       providers: [
         { provide: AUTH_CONFIG, useValue: options.config },
         options.sessions === undefined ? { provide: SessionService, inject: [SessionRepository, AUTH_CONFIG],

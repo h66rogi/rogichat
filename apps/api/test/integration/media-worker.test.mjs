@@ -1,3 +1,11 @@
+import 'reflect-metadata';
+import { Module } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
+import { Transactions } from '../../dist/infrastructure/database/transactions.js';
+import { MediaWorkerModule } from '../../dist/modules/media/media-worker.module.js';
+import { MediaWorkerService } from '../../dist/modules/media/media-worker.service.js';
+import { RecoveryMediaWorkerService } from '../../dist/modules/media/recovery-media-worker.service.js';
+import { MediaSpooler } from '../../dist/common/media/media-spool.js';
 import { createUser, createRoom, joinRoom, reserveMedia, beginUpload, finishUpload, failUpload, prepareMedia, processMedia, recoverMedia, enqueueJob } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -440,4 +448,24 @@ test('VIDEO poster failure before storage leaves video discoverable and cleanup 
   const after = await f.inspect(input.assetId);
   assert.equal(after.asset.state, 'DELETED'); assert.equal(f.objects.size, 0);
   assert.equal(f.calls.remove.length, 3); assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes));
+});
+
+
+test('recovery product worker rejects VIDEO transforms but retains deletion cleanup', async t => {
+  const f = await fixture(t, 'VIDEO'), attempt = await f.processing(), lease = await f.lease(attempt.assetId);
+  class FixtureInfrastructure {}
+  Module({})(FixtureInfrastructure);
+  const infrastructure = { module: FixtureInfrastructure, providers: [{ provide: Transactions, useValue: f.txs }], exports: [Transactions] };
+  const context = await NestFactory.createApplicationContext(MediaWorkerModule.register(infrastructure,
+    { store: f.store, prefix: 'test', spool: new MediaSpooler(), decoderSocket: '/tmp/unused-recovery-fixture.sock' }), { logger: false, abortOnError: false });
+  t.after(() => context.close());
+  const worker = context.get(MediaWorkerService); assert.ok(worker instanceof RecoveryMediaWorkerService);
+  await assert.rejects(worker.processMedia(lease), { code: 'INVALID_RESOURCE' });
+  const state = await f.inspect(attempt.assetId);
+  assert.equal(state.asset.state, 'PROCESSING'); assert.equal(state.objects.filter(row => row.variant !== 'input').length, 0);
+  assert.equal(f.calls.read.length, 0); assert.equal(f.calls.put.length, 0);
+  await f.txs.write(tx => tx.prisma.media_assets.update({ where: { id: attempt.assetId }, data: { state: 'DELETING' } }));
+  await f.age(attempt.assetId);
+  assert.equal(await worker.processMedia(lease), 'completed');
+  assert.equal((await f.inspect(attempt.assetId)).asset.state, 'DELETED');
 });
