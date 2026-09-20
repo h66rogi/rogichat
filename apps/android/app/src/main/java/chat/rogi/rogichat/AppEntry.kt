@@ -22,6 +22,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import chat.rogi.rogichat.core.auth.*
+import chat.rogi.rogichat.core.conversation.*
+import chat.rogi.rogichat.feature.conversation.*
 import chat.rogi.rogichat.core.deletion.*
 import chat.rogi.rogichat.core.design.*
 import chat.rogi.rogichat.core.navigation.*
@@ -108,6 +110,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     confirmReauthentication?.let { original -> ConfirmationPrompt("로그아웃 후 다시 로그인할까요?",
         "현재 기기에서 로그아웃해요. 로그인 화면에서 이용 안내를 확인한 뒤 SOOP 계정을 직접 선택해 주세요.", "로그아웃",
         onDismiss = { confirmReauthentication = null }, onConfirm = { confirmReauthentication = null; sessionModel.signOut(original) }, enabled = !operation.busy) }
+    val conversationNavigation: ConversationNavigation = viewModel { ConversationNavigation() }
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
@@ -153,7 +156,13 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                         ShellAccess.LINK_REQUIRED -> LinkAccountScreen(operation.busy || authState.active, if (services.actions?.canLinkSoop == true) sessionModel::linkSoop else null)
                         ShellAccess.READY -> if (services.rooms != null && session.accountPartition != null) {
                             val roomsModel: RoomsViewModel = viewModel { RoomsViewModel(services.rooms, RoomsAccountScope(requireNotNull(privateAccount).id, session.generation, requireNotNull(session.accountPartition))) }
-                            RoomsScreen(roomsModel)
+                            RoomsScreen(roomsModel, onOpen = services.conversations?.let {
+                                { membership, renderedCycle ->
+                                    conversationNavigation.selected = ConversationSelection(RoomsAccountScope(requireNotNull(privateAccount).id,
+                                        session.generation, requireNotNull(session.accountPartition)), membership, renderedCycle)
+                                    open("room/${membership.roomId.value}")
+                                }
+                            })
                         } else ScreenStatus("대화 목록을 확인할 수 없어요", "계정 정보를 다시 확인해 주세요.",
                             onRetry = if (services.actions?.canRestore == true && !operation.busy) sessionModel::restore else null)
                         ShellAccess.RESTORING -> ScreenStatus("계정을 확인하는 중", "잠시만 기다려 주세요.", loading = true)
@@ -201,7 +210,16 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 } else LaunchedEffect(Unit) { nav.popBackStack() }
             }
             composable("room/{roomId}") { backStack ->
-                if (session.access == ShellAccess.READY && roomContent != null) {
+                val selected = conversationNavigation.selected
+                val repository = services.conversations
+                if (session.access == ShellAccess.READY && selected != null && repository != null &&
+                    selected.account.localEpoch == session.generation && selected.account.accountId == privateAccount?.id &&
+                    selected.membership.roomId.value == backStack.arguments?.getString("roomId")) {
+                    val model: ConversationViewModel = viewModel(key = "conversation-${selected.directoryCycle.value}-${selected.membership.roomId.value}") {
+                        ConversationViewModel(repository, selected)
+                    }
+                    ProductPage(selected.membership.name, { nav.popBackStack() }, scroll = false) { ConversationScreen(model) }
+                } else if (session.access == ShellAccess.READY && roomContent != null) {
                     backStack.arguments?.getString("roomId")?.let { roomContent(it) { nav.popBackStack() } }
                 } else LaunchedEffect(Unit) { nav.popBackStack() }
             }
