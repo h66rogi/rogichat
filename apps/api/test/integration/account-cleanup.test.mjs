@@ -19,7 +19,7 @@ import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.ser
 import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { deletionFixture } from '../support/deletion-fixture.mjs';
-import { createRoom, joinRoom, assignRoomOwner, authorizedMediaObject, getMessage, sendMessage, sendInput } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, joinRoom, assignRoomOwner, authorizedMediaObject, getMessage, sendMessage, sendInput } from '../support/domain-fixture.mjs';
 
 const key = randomBytes(32); // Shared only across this isolated test file.
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -271,6 +271,14 @@ test('retained private pairs are history, not authoritative counterpart hints or
 
 test('room cleanup atomically resets other participants event/history/profile cursors without deleting their content', async t => {
   const f = await fixture(t); const r = await f.room();
+  // Keep two unchanged visible profiles after admission, so reaction cleanup
+  // isolates the epoch binding from profile-content/generation changes.
+  await f.db.transactions.write(async tx => {
+    const third = await createUser(tx, 'independent profile');
+    await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: third,
+      provider_subject: Buffer.from(randomUUID()), verified_at: await tx.now() } });
+    await joinRoom(tx, r.roomId, third);
+  });
   const messages = [];
   for (let i = 0; i < 2; i++) messages.push(await f.db.transactions.write(tx => sendMessage(tx, r.roomId, f.otherId,
     sendInput({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: 'independent surviving body' } }), f.config.key)));
@@ -308,10 +316,13 @@ test('room cleanup atomically resets other participants event/history/profile cu
     for (const [path, cursor] of [['events', snapshot.nextCursor], ['history', snapshot.historyCursor], ['profile-sync', profiles.nextCursor]]) {
       assert.equal((await sync(path, cursor)).resetRequired, true);
     }
-    const beforeReaction = await sync('snapshot');
+    const beforeReaction = await sync('snapshot'), beforeReactionProfiles = await sync('profile-sync');
+    assert.ok(beforeReactionProfiles.nextCursor);
     assert.equal((await f.step()).phase, 'reactions');
     assert.equal(await epoch(), before + 2n);
     assert.equal((await sync('events', beforeReaction.nextCursor)).resetRequired, true);
+    assert.equal((await sync('profile-sync', beforeReactionProfiles.nextCursor)).resetRequired, true);
+    assert.deepEqual((await sync('profile-sync')).profiles, beforeReactionProfiles.profiles);
     await f.drain();
     const drained = await epoch();
     assert.deepEqual(await f.step(), { phase: 'subset-drained', changed: 0, hasMore: false });

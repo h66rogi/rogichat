@@ -33,12 +33,13 @@ This source integration is not a QA release or a completed M10 purge.
   and global purge obligations remain outstanding. The composed candidate adds
   per-room content-epoch invalidation for actual membership/reaction/grant/period
   cleanup mutations; this does not make admission an immediate all-room purge.
-- Internal MESSAGE row purge `28145c8` (PR 60): bounded transaction/lease-fenced
+- Internal MESSAGE row purge `ac65632` (PR 60): bounded transaction/lease-fenced
   text/sticker row cleanup, detached dedupe receipts, exact atomic purge evidence,
   and room content epochs. It is not installed as a runtime job handler; media
-  targets defer with provenance intact. Initial hosted MySQL ran 281/282 passing,
-  including all 15 new purge cases; an old missing-root replay assertion is being
-  corrected before acceptance. Actual process-death tests are a separate task.
+  targets defer with provenance intact. Final Backend CI `35501023931` passed
+  all 282 MySQL cases, including all 15 new purge cases, and both image checks;
+  the old missing-root replay assertion was corrected without manufacturing
+  synthetic requests or purge proof. Actual process-death tests are a separate task.
 
 These input results do not substitute for final composed-tree validation.
 
