@@ -23,7 +23,7 @@ test('real single-connection pool exhaustion is classified without replay and re
     await assert.rejects(db.transactions.write(async () => { executed++; }), error => error instanceof DatabaseUnavailableError && error.reason === 'database_acquisition');
     assert.equal(executed, 0);
   } finally { unlock.release(); await blocker; }
-  assert.equal((await db.transactions.read(tx => tx.rows('SELECT 1 AS value')))[0].value, 1);
+  assert.equal((await db.transactions.read(tx => tx.rows('SELECT 1 AS value')))[0].value, '1');
 });
 
 test('MySQL transaction boundaries, scoped FKs, concurrent membership, counters, snapshots and limiter', { timeout: 30000 }, async t => {
