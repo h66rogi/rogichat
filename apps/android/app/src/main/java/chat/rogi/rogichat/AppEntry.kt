@@ -68,10 +68,20 @@ fun AppEntry(services: ProductServices? = null,
                     }
                 }
                 if (operation.consentNeeded) SoopConsentDialog(auth.rulesUrl, operation.busy,
-                    accountModel::dismissConsent, accountModel::confirmConsent)
+                    accountModel::dismissConsent, accountModel::confirmConsent, if (operation.consentProvider == SignInProvider.APPLE) "Apple" else "SOOP")
             }
             val foregroundEpoch = LocalForegroundEpoch.current
             LaunchedEffect(accountModel, foregroundEpoch) { if (foregroundEpoch > 0) accountModel.foreground() }
+            val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner, accountModel) {
+                val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                    if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) accountModel.background()
+                    if (event == androidx.lifecycle.Lifecycle.Event.ON_START) accountModel.foreground()
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                if (lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) accountModel.foreground()
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer); accountModel.background() }
+            }
             // Every account/access scope owns a fresh nav graph and feature ViewModels.
             // Restored private routes cannot cross a logout/relink/account boundary.
             val featureScope: SessionFeatureScope = viewModel { SessionFeatureScope() }
@@ -182,7 +192,14 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                     SettingsScreen(privateAccount, appearance, onSignIn = { open("talks") },
                         onProfile = if (privateAccount != null && services.profiles != null) ({ open("profile") }) else null,
                         onAccount = if (privateAccount != null) ({ open("account") }) else null,
-                        onAppearance = { open("appearance") }, onNotifications = { open("notifications") }, onAbout = { open("about") })
+                        onAppearance = { open("appearance") }, onNotifications = { open("notifications") }, onAbout = { open("about") },
+                        onBlocks = if (session.access == ShellAccess.READY && services.blocks != null && session.accountPartition != null) ({ open("blocks") }) else null)
+                }
+            }
+            composable("blocks") {
+                if (session.access == ShellAccess.READY && privateAccount != null && services.blocks != null && session.accountPartition != null) {
+                    val model: chat.rogi.rogichat.feature.messageactions.AccountBlocksModel = viewModel { chat.rogi.rogichat.feature.messageactions.AccountBlocksModel(services.blocks, renderedIdentity) }
+                    chat.rogi.rogichat.feature.messageactions.AccountBlocksScreen(model) { nav.popBackStack() }
                 }
             }
             composable("appearance") { ProductPage("화면 모드", { nav.popBackStack() }) { AppearanceScreen(appearance, onAppearance) } }
@@ -190,14 +207,16 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 val repository = services.notificationPreferences
                 val model: NotificationSettingsViewModel? = if (privateAccount != null && repository != null)
                     viewModel { NotificationSettingsViewModel(repository, NotificationAccountScope(privateAccount.id, session.generation)) } else null
-                ProductPage("알림 설정", { nav.popBackStack() }) { NotificationSettingsScreen(model) }
+                ProductPage("알림 설정", { nav.popBackStack() }) { NotificationSettingsScreen(model, services.push, privateAccount?.takeIf { session.access == ShellAccess.READY }?.let { NotificationAccountScope(it.id, session.generation) }) }
             }
             composable("about") { ProductPage("로기챗 정보", { nav.popBackStack() }) { AboutScreen { open("licenses") } } }
             composable("licenses") { ProductPage("오픈소스 라이선스", { nav.popBackStack() }) { LicensesScreen() } }
             composable("profile") {
                 if (privateAccount != null && services.profiles != null) {
                     val model: ProfileViewModel = viewModel { ProfileViewModel(services.profiles, privateAccount.id) }
-                    ProfileScreen(model) { nav.popBackStack() }
+                    val avatar: chat.rogi.rogichat.feature.media.AvatarSettingsModel? = if (session.access == ShellAccess.READY && services.accountMedia != null && session.accountPartition != null)
+                        viewModel { chat.rogi.rogichat.feature.media.AvatarSettingsModel(services.accountMedia, renderedIdentity, privateAccount.avatarAssetId) } else null
+                    ProfileScreen(model, avatar) { nav.popBackStack() }
                 } else LaunchedEffect(Unit) { nav.popBackStack() }
             }
             composable("account") {

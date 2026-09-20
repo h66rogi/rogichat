@@ -21,7 +21,10 @@ each candidate PR must pass its own checks. An exhaustive audit failure requires
 private triage and does not authorize ignoring a failure in the candidate itself.
 
 The guard uses the checksum-pinned Gitleaks release and its default detectors,
-plus the repository's public-key detectors. It rejects policy changes that do
+plus the repository's public-key and GitHub installation-token detectors.
+The additive installation-token rule covers legacy and variable-length formats
+with a 36-character minimum suffix and no upper length or assignment requirement.
+The independent image scanner embeds the same rule; regression tests check parity. It rejects policy changes that do
 not match the reviewed rule structure, index/worktree policy differences,
 implicit ignore files, scanner environment overrides and inline exemptions.
 Errors omit filenames, file contents and raw scanner diagnostics. Inspect a

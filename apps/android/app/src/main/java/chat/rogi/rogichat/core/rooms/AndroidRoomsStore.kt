@@ -6,6 +6,9 @@ import androidx.room.Room
 import androidx.room.withTransaction
 import chat.rogi.rogichat.core.network.*
 import chat.rogi.rogichat.core.conversation.*
+import chat.rogi.rogichat.core.media.*
+import chat.rogi.rogichat.core.messageactions.*
+import chat.rogi.rogichat.core.session.AccountFeatureStore
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
@@ -17,17 +20,56 @@ import kotlinx.coroutines.withContext
  * Adapted Meloming's IO dispatcher/constructor-injection lifetime; Room transactions are new.
  * A cleanup intent is durable before deletion, and is honored before any cold database open.
  */
-class AndroidRoomsStore(private val context: Context, environment: String,
+class AndroidRoomsStore(private val context: Context, private val environment: String,
                         private val directory: File = File(context.noBackupFilesDir, "rooms-$environment"),
                         private val io: CoroutineDispatcher = Dispatchers.IO,
                         private val openDatabase: (File) -> RoomsDatabase = { file ->
-                            Room.databaseBuilder(context, RoomsDatabase::class.java, file.absolutePath).addMigrations(RoomsDatabase.MIGRATION_1_2).build() }) : RoomsStore, ConversationStore {
+                            Room.databaseBuilder(context, RoomsDatabase::class.java, file.absolutePath).addMigrations(RoomsDatabase.MIGRATION_1_2, RoomsDatabase.MIGRATION_2_3).build() }) : RoomsStore, ConversationStore, AccountFeatureStore {
     init { require(environment in setOf("qa", "prod")) }
     private val cleanup = AtomicFile(File(directory, "cleanup"))
     private val device = AtomicFile(File(directory, "device"))
     private var active: RoomsAccountScope? = null
     private var database: RoomsDatabase? = null
 
+    /** Settings may open the same account DB before discovery. Never invalidate an already open authority. */
+    override suspend fun prepareAccount(scope: RoomsAccountScope, binding: String, generation: String, validate: () -> Unit) {
+        if (database == null || active != scope) authorize(scope, binding, generation, validate)
+        else validate()
+    }
+    override suspend fun <T> blockTransaction(scope: RoomsAccountScope, validate: () -> Unit,
+        operation: (BlockJournal, ActionJournal) -> T): T = storage {
+        db(scope).withTransaction {
+            validate(); val dao = db(scope).conversation()
+            val blocks = object : BlockJournal {
+                override fun records() = dao.unblocksNow().map { UnblockCodec.decode(it.body, environment, scope.accountId) }
+                override fun put(record: UnblockRecord) {
+                    valid(record.scope.accountId == scope.accountId)
+                    val rows = dao.unblocksNow(); valid(rows.size < 1000 || rows.any { it.id == record.id })
+                    dao.unblockNow(AccountUnblockRow(record.id, UnblockCodec.encode(record)))
+                }
+            }
+            val actions = object : ActionJournal {
+                override fun records() = dao.actionsNow().map { ConversationActionCodec.decode(it.body, environment, scope.accountId) }
+                override fun put(record: ActionRecord) {
+                    valid(record.selection.scope.accountId == scope.accountId)
+                    val old = dao.actionsNow().singleOrNull { it.id == record.id } ?: throw RoomsStorageException()
+                    dao.actionNow(old.copy(body = ConversationActionCodec.encode(record)))
+                }
+            }
+            operation(blocks, actions).also { validate() }
+        }
+    }
+    override suspend fun accountMedia(scope: RoomsAccountScope, validate: () -> Unit): List<PendingMedia> = storage {
+        db(scope).withTransaction { validate(); db(scope).conversation().accountMedia().map { PendingMedia(it.assetId, MediaKind.valueOf(it.kind)) }.also { validate() } }
+    }
+    override suspend fun accountMedia(scope: RoomsAccountScope, pending: PendingMedia, validate: () -> Unit): Unit = storage {
+        db(scope).withTransaction { validate(); valid(pending.kind == MediaKind.AVATAR); val dao = db(scope).conversation()
+            val rows = dao.accountMedia(); valid(rows.size < 100 || rows.any { it.assetId == pending.assetId })
+            dao.accountMedia(AccountMediaRow(pending.assetId, pending.kind.name)); validate() }
+    }
+    override suspend fun removeAccountMedia(scope: RoomsAccountScope, assetId: String, validate: () -> Unit): Unit = storage {
+        db(scope).withTransaction { validate(); db(scope).conversation().removeAccountMedia(assetId); validate() }
+    }
     override suspend fun begin(scope: RoomsAccountScope, validate: () -> Unit): RoomSyncIdentity = storage {
         validate()
         if (cleanup.existsRecord() || active != null && active != scope) erase()
@@ -77,10 +119,10 @@ class AndroidRoomsStore(private val context: Context, environment: String,
                     dao.memberships(dao.staged().map { it.room })
                     dao.clearStaging()
                     val conversation = db(scope).conversation()
-                    conversation.purgeAbsentCommands(); conversation.purgeAbsentMessages(); conversation.purgeAbsentProfiles()
+                    conversation.purgeAbsentAnchors(); conversation.purgeAbsentMedia(); conversation.purgeAbsentCommands(); conversation.purgeAbsentMessages(); conversation.purgeAbsentProfiles()
                     conversation.purgeAbsentStaging(); conversation.purgeAbsentCheckpoints(); conversation.purgeAbsentPages()
                     dao.memberships().forEach { member ->
-                        conversation.purgeOldMembership(member.roomId, member.membershipScope)
+                        conversation.purgeOldAnchor(member.roomId, member.membershipScope); conversation.purgeOldMedia(member.roomId, member.membershipScope); conversation.purgeOldMembership(member.roomId, member.membershipScope)
                         val previous = conversation.checkpoint(member.roomId)
                         if (previous != null && (previous.membership != member.membershipScope || previous.authorization != member.authorizationRevision)) {
                             // Confirmed scope rotation discards old private projections immediately.
@@ -158,7 +200,7 @@ class AndroidRoomsStore(private val context: Context, environment: String,
             val room = selection.membership.roomId.value; val dao = database.conversation()
             val scope = ConversationScope(selection, RoomId(UUID.randomUUID().toString()))
             dao.clearMessages(room); dao.clearProfiles(room); dao.clearStaging(room); dao.clearPages(room)
-            dao.purgeOldMembership(room, selection.membership.membershipScope.value)
+            dao.purgeOldMedia(room, selection.membership.membershipScope.value); dao.purgeOldMembership(room, selection.membership.membershipScope.value)
             dao.checkpoint(ConversationCheckpoint(room, scope.cacheId.value, selection.membership.membershipScope.value, selection.membership.authorizationRevision.value))
             validate(); scope
         }
@@ -188,7 +230,7 @@ class AndroidRoomsStore(private val context: Context, environment: String,
         val rows = dao.messages(room); valid(rows.size <= 10000)
         return ConversationData(scope, rows.filter { !it.deleted }.map { ConversationDtos.message(requireNotNull(it.body)) },
             if (checkpoint.profileComplete) dao.profiles(room).map { it.domain() } else emptyList(), checkpoint.profileComplete,
-            checkpoint.eventsCursor?.let(::SyncCursor), checkpoint.historyCursor?.let(::SyncCursor), dao.outbox(room).map { it.domain() })
+            checkpoint.eventsCursor?.let(::SyncCursor), checkpoint.historyCursor?.let(::SyncCursor), dao.outbox(room).map { it.domain() }, dao.media(room, checkpoint.membership, checkpoint.authorization).map { PendingMedia(it.assetId, MediaKind.valueOf(it.kind)) })
     }
     private fun matches(checkpoint: ConversationCheckpoint, membership: RoomScopeToken, authorization: RoomScopeToken) {
         valid(checkpoint.membership == membership.value && checkpoint.authorization == authorization.value)
@@ -235,12 +277,52 @@ class AndroidRoomsStore(private val context: Context, environment: String,
         dao.checkpoint(checkpoint.copy(profileGeneration = page.generation, profileCursor = page.next?.value, profileComplete = page.complete))
         data(dao, scope)
     }
+    override suspend fun <T> actionTransaction(scope: ConversationScope, validate: () -> Unit,
+                                              operation: (ActionJournal, ScrollAnchorStore) -> T): T = conversationTransaction(scope, validate) { dao, checkpoint ->
+        val journal = object : ActionJournal {
+            override fun records() = dao.actionsNow().map { ConversationActionCodec.decode(it.body, environment, scope.selection.account.accountId) }
+            override fun put(record: ActionRecord) {
+                val selected = record.selection; val captured = selected.scope
+                valid(captured.accountId == scope.selection.account.accountId && captured.roomId == checkpoint.roomId && captured.membershipScope == checkpoint.membership)
+                val rows = dao.actionsNow(); valid(rows.size < 1000 || rows.any { it.id == record.id })
+                dao.actionNow(ConversationActionRow(record.id, captured.roomId, captured.membershipScope, ConversationActionCodec.encode(record)))
+                if (record.phase == ActionPhase.BLOCKED) {
+                    val old = dao.messageNow(checkpoint.roomId, selected.messageId)
+                    // Drop linked projections/quotes before publication. Server access receipt is not physical erasure.
+                    dao.hideLiveNow(checkpoint.roomId)
+                    dao.messageNow(ConversationMessageRow(checkpoint.roomId, selected.messageId, old?.version ?: selected.version, old?.createdAtMs, true, null))
+                    dao.clearKnownCommandNow(checkpoint.roomId, selected.messageId)
+                    dao.clearAnchorNow(checkpoint.roomId)
+                }
+            }
+        }
+        val anchors = object : ScrollAnchorStore {
+            override fun load(scope: ActionScope): ScrollAnchor? {
+                valid(scope.roomId == checkpoint.roomId && scope.membershipScope == checkpoint.membership)
+                return dao.anchorNow(scope.roomId, scope.membershipScope)?.let { ScrollAnchor(it.messageId, it.offset) }
+            }
+            override fun save(scope: ActionScope, anchor: ScrollAnchor?) {
+                valid(scope.roomId == checkpoint.roomId && scope.membershipScope == checkpoint.membership)
+                if (anchor == null) dao.clearAnchorNow(scope.roomId)
+                else dao.anchorNow(ConversationAnchorRow(scope.roomId, scope.membershipScope, anchor.messageId, anchor.offset))
+            }
+        }
+        operation(journal, anchors)
+    }
+    override suspend fun saveMedia(scope: ConversationScope, value: PendingMedia, validate: () -> Unit): Unit = conversationTransaction(scope, validate) { dao, checkpoint ->
+        valid(checkpoint.snapshotComplete && value.kind != MediaKind.AVATAR)
+        valid(dao.media(checkpoint.roomId, checkpoint.membership, checkpoint.authorization).size < 100)
+        dao.media(ConversationMediaRow(checkpoint.roomId, value.assetId, checkpoint.membership, checkpoint.authorization, value.kind.name))
+    }
+    override suspend fun removeMedia(scope: ConversationScope, asset: RoomId, validate: () -> Unit): Unit = conversationTransaction(scope, validate) { dao, checkpoint ->
+        dao.removeMedia(checkpoint.roomId, asset.value)
+    }
     override suspend fun current(scope: ConversationScope, validate: () -> Unit): ConversationData = conversationTransaction(scope, validate) { dao, _ -> data(dao, scope) }
     override suspend fun enqueue(scope: ConversationScope, command: TextCommand, createdAtMs: Long, validate: () -> Unit): OutboxRecord = conversationTransaction(scope, validate) { dao, checkpoint ->
         valid(checkpoint.snapshotComplete && checkpoint.membership == command.membership.value)
         valid(dao.outboxCount() < 500 && dao.command(checkpoint.roomId, command.clientMessageId.value) == null)
         val row = ConversationOutboxRow(checkpoint.roomId, command.clientMessageId.value, command.membership.value, checkpoint.authorization,
-            command.intent, command.recipient?.value, command.quote?.value, command.text, createdAtMs, OutboxPhase.PREPARED.name)
+            command.intent, command.recipient?.value, command.quote?.value, command.text, createdAtMs, OutboxPhase.PREPARED.name, mediaContent = command.media?.json()?.toString())
         dao.enqueue(row); row.domain()
     }
     override suspend fun markSending(scope: ConversationScope, commandId: RoomId, validate: () -> Unit): Unit = conversationTransaction(scope, validate) { dao, checkpoint ->
@@ -257,6 +339,11 @@ class AndroidRoomsStore(private val context: Context, environment: String,
         valid(receipt.clientMessageId == commandId)
         val row = dao.command(checkpoint.roomId, commandId.value) ?: return@conversationTransaction data(dao, scope)
         valid(row.membership == checkpoint.membership && row.phase != OutboxPhase.PARKED.name)
+        val reportedId = when (receipt) {
+            is CommandReceipt.Committed -> receipt.messageId.value
+            is CommandReceipt.Deleted -> receipt.messageId?.value
+        }
+        valid(row.messageId == null || reportedId == null || row.messageId == reportedId)
         // An observed deleted receipt is terminal even if a delayed lookup still says committed.
         if (row.phase != OutboxPhase.DELETED.name) when (receipt) {
             is CommandReceipt.Committed -> dao.update(row.copy(phase = OutboxPhase.COMMITTED.name, messageId = receipt.messageId.value, version = receipt.version.value, errorCode = null))
@@ -270,6 +357,7 @@ class AndroidRoomsStore(private val context: Context, environment: String,
                 dao.retireDeletedCommand(checkpoint.roomId, commandId.value)
             }
         }
+        (row.mediaContent?.let(::storedMedia) as? MediaContent.Attachment)?.assetIds?.forEach { dao.removeMedia(checkpoint.roomId, it) }
         data(dao, scope)
     }
     override suspend fun unavailableProjection(scope: ConversationScope, commandId: RoomId, messageId: RoomId, validate: () -> Unit): ConversationData = conversationTransaction(scope, validate) { dao, checkpoint ->

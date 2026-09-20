@@ -5,6 +5,8 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import chat.rogi.rogichat.core.network.*
+import chat.rogi.rogichat.core.messageactions.*
+import chat.rogi.rogichat.core.media.*
 import chat.rogi.rogichat.core.rooms.*
 import java.io.File
 import java.time.Instant
@@ -23,7 +25,7 @@ class AndroidConversationStoreTest {
     private lateinit var context: Context
     private lateinit var directory: File
     private val databases = mutableListOf<RoomsDatabase>()
-    private val account = RoomsAccountScope("isolated-conversation", 1, AccountPartition("A".repeat(43)))
+    private val account = RoomsAccountScope("00000000-0000-4000-8000-000000000035", 1, AccountPartition("A".repeat(43)))
     private val room = RoomId("00000000-0000-4000-8000-000000000031")
     private val actor = RoomId("00000000-0000-4000-8000-000000000032")
     private val messageId = RoomId("00000000-0000-4000-8000-000000000033")
@@ -35,7 +37,7 @@ class AndroidConversationStoreTest {
     private fun message(version: String = "1", created: Instant = Instant.parse("2026-09-20T00:00:00Z")) = ConversationMessage(messageId, MessageVersion(version), created,
         "SHARED", MessageAuthor.Member(actor, "계측 사용자", null), MessageContent.Text("계측 메시지"), null, null, MessageActions(false, false, true))
     private fun newStore() = AndroidRoomsStore(context, "qa", directory, openDatabase = { file ->
-        Room.databaseBuilder(context, RoomsDatabase::class.java, file.absolutePath).addMigrations(RoomsDatabase.MIGRATION_1_2).build().also { databases += it }
+        Room.databaseBuilder(context, RoomsDatabase::class.java, file.absolutePath).addMigrations(RoomsDatabase.MIGRATION_1_2, RoomsDatabase.MIGRATION_2_3).build().also { databases += it }
     })
     private val db get() = databases.last()
     @Before fun setup() { context = ApplicationProvider.getApplicationContext(); directory = File(context.noBackupFilesDir, "conversation-instrumentation-${UUID.randomUUID()}") }
@@ -156,6 +158,46 @@ class AndroidConversationStoreTest {
         store.projection(scope, message("18446744073709551615")) {}
         assertTrue(store.current(scope) {}.messages.isEmpty()); assertEquals(0, db.conversation().outboxCount())
     }
+    @Test fun mediaAndActionJournalsCommitTogetherAndColdReopenKeepsUnknownWithoutPrivateLabels() = runBlocking {
+        val store = newStore(); store.authorize(account, "binding", "generation") {}
+        val scope = open(store, directory(store))
+        val asset = RoomId(UUID.randomUUID().toString())
+        store.saveMedia(scope, PendingMedia(asset.value, MediaKind.PHOTO)) {}
+        val actionScope = ActionScope("qa", account.accountId, UUID.randomUUID().toString(), room.value, actor.value, m.value, a.value, scope.cacheId.value)
+        val record = ActionRecord(UUID.randomUUID().toString(), ActionSelection(actionScope, messageId.value, "1", ActionHints(true, false), "TEXT", false, actor.value), MessageAction.DELETE, ActionPhase.UNKNOWN)
+        store.actionTransaction(scope, {}) { journal, anchors -> journal.put(record); anchors.save(actionScope, ScrollAnchor(messageId.value, 24)) }
+        store.enqueue(scope, TextCommand(commandId, m, "SHARED", null, null, "", MediaContent.Attachment(MediaKind.PHOTO, listOf(MediaReceipt(asset.value, MediaStatus.ready)))), 1) {}
+        store.withdrawAuthority()
+        val cold = newStore(); val freshAccount = account.copy(localEpoch = 2); cold.authorize(freshAccount, "binding", "generation") {}
+        assertEquals(record, ConversationActionCodec.decode(db.conversation().actionsNow().single().body, "qa", account.accountId))
+        assertFalse(db.conversation().actionsNow().single().body.contains("계측 사용자"))
+        val fresh = open(cold, directory(cold, freshAccount))
+        assertEquals(listOf(asset.value), (cold.current(fresh) {}.outbox.single().command.media as MediaContent.Attachment).assetIds)
+        assertEquals(asset.value, cold.current(fresh) {}.pendingMedia.single().assetId)
+        cold.receipt(fresh, commandId, CommandReceipt.Committed(commandId, messageId, MessageVersion("1"))) {}
+        assertTrue(cold.current(fresh) {}.pendingMedia.isEmpty())
+    }
+    @Test fun accountUnblockAndAvatarRecoverySurviveLeavingButArePurgedWithAccount() = runBlocking {
+        val store = newStore(); store.authorize(account, "binding", "generation") {}; directory(store)
+        val record = UnblockRecord(UUID.randomUUID().toString(), BlockScope("qa", account.accountId, UUID.randomUUID().toString(), room.value, UUID.randomUUID().toString()), actor.value, UnblockOutcome.UNKNOWN)
+        store.blockTransaction(account, {}) { journal, _ -> journal.put(record) }
+        val avatar = PendingMedia(UUID.randomUUID().toString(), MediaKind.AVATAR); store.accountMedia(account, avatar) {}
+        val identity = store.begin(account) {}; store.manifest(account, identity, null, MembershipPage.Success(emptyList(), "left", true, null)) {}
+        store.withdrawAuthority(); val cold = newStore(); val fresh = account.copy(localEpoch = 2)
+        cold.prepareAccount(fresh, "binding", "generation") {}
+        assertEquals(record, cold.blockTransaction(fresh, {}) { journal, _ -> journal.records().single() })
+        assertEquals(listOf(avatar), cold.accountMedia(fresh) {})
+        cold.clear(); val next = newStore(); next.prepareAccount(fresh.copy(localEpoch = 3), "other-binding", "generation") {}
+        assertTrue(next.blockTransaction(fresh.copy(localEpoch = 3), {}) { journal, _ -> journal.records().isEmpty() })
+        assertTrue(next.accountMedia(fresh.copy(localEpoch = 3)) {}.isEmpty())
+    }
+    @Test fun accountJournalFinalValidationFailureRollsBackEveryRow() = runBlocking {
+        val store = newStore(); store.authorize(account, "binding", "generation") {}
+        val record = UnblockRecord(UUID.randomUUID().toString(), BlockScope("qa", account.accountId, UUID.randomUUID().toString(), room.value, UUID.randomUUID().toString()), actor.value, UnblockOutcome.UNKNOWN)
+        var valid = true
+        assertTrue(runCatching { store.blockTransaction(account, { if (!valid) throw CancellationException("changed") }) { journal, _ -> journal.put(record); valid = false } }.isFailure)
+        assertTrue(db.conversation().unblocksNow().isEmpty())
+    }
     @Test fun existingVersionOneDatabaseMigratesOnDiskWithoutDestructiveFallback() = runBlocking {
         assertTrue(directory.mkdirs())
         val file = File(directory, "${account.partition.value}.db")
@@ -169,7 +211,7 @@ class AndroidConversationStoreTest {
         }
         val store = newStore()
         store.authorize(account, "binding", "generation") {}
-        assertEquals(2, db.openHelper.writableDatabase.version)
+        assertEquals(3, db.openHelper.writableDatabase.version)
         val scope = open(store, directory(store))
         store.enqueue(scope, TextCommand(commandId, m, "SHARED", null, null, "마이그레이션 뒤 작성"), 1) {}
         assertEquals(1, db.conversation().outboxCount())

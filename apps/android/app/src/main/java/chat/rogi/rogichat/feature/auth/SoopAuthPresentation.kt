@@ -17,11 +17,11 @@ import chat.rogi.rogichat.core.auth.*
  * Consent wording/version is shared with the reviewed web AuthPanel; no consent is persisted by UI.
  */
 @Composable
-fun SoopConsentDialog(rulesUrl: String, busy: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit) {
+fun SoopConsentDialog(rulesUrl: String, busy: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit, providerName: String = "SOOP") {
     var consent by remember { mutableStateOf(false) }
     var browserError by remember { mutableStateOf(false) }
     val context = LocalContext.current
-    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("SOOP으로 로그인") }, text = {
+    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("$providerName 로그인") }, text = {
         Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             TextButton(onClick = { browserError = !ExternalBrowserHandler.openUrl(context, rulesUrl) }) { Text("이용 안내 읽기") }
             Row(
@@ -43,11 +43,12 @@ fun SoopConsentDialog(rulesUrl: String, busy: Boolean, onDismiss: () -> Unit, on
 @Composable
 fun AuthStatusBanner(state: AuthUiState, onCancel: () -> Unit, onReauthenticate: (() -> Unit)?) {
     Surface(color = MaterialTheme.colorScheme.surfaceVariant) {
+        val provider = if (state.provider == AuthProvider.APPLE) "Apple" else "SOOP"
         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(state.error?.message ?: when (state.phase) {
-                AuthPhase.STARTING -> "SOOP 로그인을 시작하고 있어요."
-                AuthPhase.AWAITING_BROWSER -> "브라우저에서 SOOP 로그인을 진행해 주세요."
-                AuthPhase.EXCHANGING -> "SOOP 인증 결과를 확인하고 있어요."
+                AuthPhase.STARTING -> "$provider 로그인을 시작하고 있어요."
+                AuthPhase.AWAITING_BROWSER -> "브라우저에서 $provider 로그인을 진행해 주세요."
+                AuthPhase.EXCHANGING -> "$provider 인증 결과를 확인하고 있어요."
                 AuthPhase.IDLE -> ""
             }, style = MaterialTheme.typography.bodyMedium)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

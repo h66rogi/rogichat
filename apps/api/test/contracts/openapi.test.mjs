@@ -15,6 +15,7 @@ import { projectMessageDto } from '../../dist/modules/messages/message-projectio
 import { projectActorProfileDto } from '../../dist/modules/users/profile-projection.js';
 import { reactionEmoji } from '../../dist/modules/reactions/dto/reaction.dto.js';
 import { syncInput } from '../../dist/modules/sync/dto/sync.dto.js';
+import { nativeStartRequest, nativeExchangeRequest } from '../../dist/modules/auth/dto/native-auth.openapi.js';
 const ajv = new Ajv({ strict: false, allErrors: true });
 addFormats(ajv);
 const check = (schema, value, valid = true) => { const validate = ajv.compile(schema); assert.equal(validate(value), valid, JSON.stringify(validate.errors)); };
@@ -69,6 +70,38 @@ test('request schemas agree with parsers on message union, forbidden fields and 
   for (const body of [{ ...base, recipientActorId: null }, { ...base, unexpected: true }, { ...base, content: { type: 'STICKER', assetIds: [randomUUID()] } }, { ...base, content: { type: 'TEXT', text: 'hello', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE' }, { ...base, clientMessageId: base.clientMessageId.toUpperCase() }]) {
     check(sendRequest, body, false); assert.throws(() => sendInput(body));
   }
+});
+
+test('native issuance contract preserves conditional consent, strict proofs and native-only admission', async t => {
+  const proof = 'a'.repeat(43);
+  const base = { clientId: 'ios', intent: 'login', codeChallenge: proof, codeChallengeMethod: 'S256', returnState: proof, termsVersion: '2026-09-20' };
+  check(nativeStartRequest, base);
+  const link = { ...base }; delete link.termsVersion;
+  check(nativeStartRequest, { ...link, intent: 'link' });
+  for (const body of [link, { ...base, intent: 'link' }, { ...base, codeChallengeMethod: 'plain' }, { ...base, termsVersion: null }, { ...base, returnUrl: 'https://untrusted.invalid' }]) check(nativeStartRequest, body, false);
+  const exchange = { clientId: 'android', transactionId: randomUUID(), code: proof, codeVerifier: 'v'.repeat(128) };
+  check(nativeExchangeRequest, exchange);
+  for (const body of [{ ...exchange, codeVerifier: 'v'.repeat(129) }, { ...exchange, codeVerifier: 'short' }, { ...exchange, code: null }, { ...exchange, clientId: 'web' }, { ...exchange, subject: 'injected' }]) check(nativeExchangeRequest, body, false);
+  const { app, config } = await openApiFixture('native-feature'); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config);
+  for (const path of ['/v1/auth/native/soop/transactions', '/v1/auth/native/completions/exchange']) {
+    const operation = doc.paths[path].post;
+    assert.deepEqual(operation.security, [{ nativeClient: [] }, { nativeBearer: [], nativeClient: [] }]);
+    assert.equal(operation.parameters.find(x => x.name === 'X-Rogi-Client').required, true);
+    assert.equal(operation.parameters.find(x => x.name === 'Origin'), undefined);
+    assert.ok(operation.responses['503']);
+  }
+  const launch = doc.paths['/v1/auth/native/soop/launch'].get;
+  assert.deepEqual(launch.security, []);
+  assert.ok(launch.responses['303'].headers.Location);
+  assert.equal(launch.responses['303'].content, undefined);
+  const issued = { tokenType: 'Bearer', accessToken: proof, expiresAt: new Date().toISOString(), session: {
+    authenticated: true, account: { userId: randomUUID(), nickname: '사용자', avatarAssetId: null }, soopLinkStatus: 'VERIFIED',
+    onboardingState: 'READY', expiresAt: new Date().toISOString(), accountGeneration: proof, capabilities: { chat: true },
+  } };
+  const schema = doc.paths['/v1/auth/native/completions/exchange'].post.responses['200'].content['application/json'].schema;
+  check(schema, issued);
+  check(schema, { ...issued, session: { ...issued.session, providerSubject: 'hidden' } }, false);
 });
 
 test('OpenAPI describes real projections, auth alternatives, binary transport and bodyless status codes', async t => {

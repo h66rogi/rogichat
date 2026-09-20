@@ -1,6 +1,7 @@
 package chat.rogi.rogichat.core.conversation
 
 import chat.rogi.rogichat.core.auth.StrictAuthJson
+import chat.rogi.rogichat.core.media.*
 import chat.rogi.rogichat.core.network.*
 import chat.rogi.rogichat.core.rooms.RoomsAccountScope
 import chat.rogi.rogichat.feature.settings.ProfileEditor
@@ -75,16 +76,16 @@ sealed interface CommandReceipt {
 
 /** Immutable normalized user command. It is never rebound to another membership or recipient. */
 data class TextCommand(val clientMessageId: RoomId, val membership: RoomScopeToken, val intent: String,
-                       val recipient: RoomId?, val quote: RoomId?, val text: String) {
+                       val recipient: RoomId?, val quote: RoomId?, val text: String, val media: MediaContent? = null) {
     init {
         require(intent in setOf("SHARED", "PRIVATE") && ((intent == "PRIVATE") == (recipient != null)))
-        require(text == normalizeText(text))
+        require(if (media == null) text == normalizeText(text) else text.isEmpty())
     }
     override fun toString() = "TextCommand([redacted])"
     fun body() = buildJsonObject {
         put("membershipScope", membership.value); put("clientMessageId", clientMessageId.value); put("intent", intent)
         recipient?.let { put("recipientActorId", it.value) }; quote?.let { put("quoteId", it.value) }
-        put("content", buildJsonObject { put("type", "TEXT"); put("text", text) })
+        put("content", media?.json() ?: buildJsonObject { put("type", "TEXT"); put("text", text) })
     }.toString()
     companion object {
         private val trimSet = setOf(9, 10, 11, 12, 13, 32, 160, 5760, 8232, 8233, 8239, 8287, 12288, 65279) + (8192..8202)

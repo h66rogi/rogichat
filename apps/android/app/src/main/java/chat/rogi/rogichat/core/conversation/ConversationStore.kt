@@ -1,6 +1,8 @@
 package chat.rogi.rogichat.core.conversation
 
 import chat.rogi.rogichat.core.network.*
+import chat.rogi.rogichat.core.media.PendingMedia
+import chat.rogi.rogichat.core.messageactions.*
 import chat.rogi.rogichat.core.rooms.*
 
 /** No phase authorizes replay. Only the session-owned live admission may POST a new command once. */
@@ -12,10 +14,13 @@ data class OutboxRecord(val command: TextCommand, val authorization: RoomScopeTo
 }
 data class ConversationData(val scope: ConversationScope, val messages: List<ConversationMessage>,
                             val profiles: List<ConversationProfile>, val profileComplete: Boolean,
-                            val eventsCursor: SyncCursor?, val historyCursor: SyncCursor?, val outbox: List<OutboxRecord>)
+                            val eventsCursor: SyncCursor?, val historyCursor: SyncCursor?, val outbox: List<OutboxRecord>, val pendingMedia: List<PendingMedia> = emptyList())
 
 /** Implemented by the same account Room database. Caller holds the credential lifecycle mutex through COMMIT. */
 interface ConversationStore {
+    suspend fun <T> actionTransaction(scope: ConversationScope, validate: () -> Unit, operation: (ActionJournal, ScrollAnchorStore) -> T): T = throw IllegalStateException("operation_unavailable")
+    suspend fun saveMedia(scope: ConversationScope, value: PendingMedia, validate: () -> Unit): Unit = throw IllegalStateException("operation_unavailable")
+    suspend fun removeMedia(scope: ConversationScope, asset: RoomId, validate: () -> Unit): Unit = throw IllegalStateException("operation_unavailable")
     suspend fun authorize(scope: RoomsAccountScope, credentialBinding: String, serverGeneration: String, validate: () -> Unit)
     /** Withdraw UI/cache authority while keeping immutable pending commands parked for read-only recovery. */
     suspend fun withdrawAuthority()

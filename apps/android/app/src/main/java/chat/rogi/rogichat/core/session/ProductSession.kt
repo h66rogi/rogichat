@@ -2,6 +2,8 @@ package chat.rogi.rogichat.core.session
 
 import android.content.Context
 import chat.rogi.rogichat.core.auth.*
+import chat.rogi.rogichat.core.push.*
+import chat.rogi.rogichat.core.realtime.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,6 +55,7 @@ enum class SignInProvider(val title: String) { APPLE("Apple로 계속하기"), S
  * Cancelled sign-in is cancellation, never a successful Result<Unit>.
  */
 interface SessionActions {
+    fun setForeground(value: Boolean) = Unit
     val providers: Set<SignInProvider>
     val canLinkSoop: Boolean get() = false
     val canSignOut: Boolean get() = false
@@ -75,8 +78,12 @@ class ProductServices(
     val notificationPreferences: NotificationPreferencesRepository? = null,
     val deletion: chat.rogi.rogichat.core.deletion.AccountDeletionActions? = null,
     val conversations: chat.rogi.rogichat.core.conversation.ConversationRepository? = null,
+    val push: NativePushCoordinator? = null,
+    val blocks: chat.rogi.rogichat.core.messageactions.AccountBlocksCoordinator? = null,
+    val accountMedia: chat.rogi.rogichat.core.media.AccountMediaRepository? = null,
 ) {
     private val callbackScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
+    fun receiveSyncWake() { callbackScope.launch { actions?.revalidate(); conversations?.wake() } }
     fun receiveAuthCallback(url: String) {
         // Application graph owns completion; activity recreation must not cancel a one-shot exchange.
         auth?.let { actions -> callbackScope.launch { actions.handleCallback(url) } }
@@ -85,13 +92,25 @@ class ProductServices(
         @Volatile private var installedServices: ProductServices? = null
         // Application-scoped so activity recreation never pairs a retained ViewModel with a new gateway.
         fun installed(context: Context): ProductServices = installedServices ?: synchronized(this) {
-            installedServices ?: NativeSessionCoordinator(
+            installedServices ?: run {
+                val coordinator = NativeSessionCoordinator(
                 androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 ApiClient(BuildConfig.API_BASE_URL),
+                realtime = NativeRealtimeManager(SocketIORealtimeFactory()),
                 deletionStore = androidAccountDeletionStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 roomsStore = AndroidRoomsStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 auth = SoopAuthSupport(SoopAuthContract(BuildConfig.ENVIRONMENT), androidPendingAuthStore(context.applicationContext, BuildConfig.ENVIRONMENT)),
-            ).services().also { installedServices = it }
+                )
+                val owner = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+                owner.launch {
+                    try { chat.rogi.rogichat.core.media.MediaScratchPreparation.prepare(context.applicationContext.cacheDir) }
+                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { /* Media admission retries cleanup and fails closed; account operations stay available. */ }
+                }
+                val push = NativePushCoordinator(coordinator, androidPushInstallation(context.applicationContext, BuildConfig.ENVIRONMENT),
+                    FirebasePushProvider(context.applicationContext), AndroidPushPermission(context.applicationContext)::current, coordinator.session, owner)
+                coordinator.services(push).also { installedServices = it }
+            }
         }
     }
 }

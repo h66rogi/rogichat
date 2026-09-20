@@ -14,16 +14,18 @@ const val TERMS_CONSENT = "이용 안내를 확인했으며, 개인 메시지가
 enum class AuthIntent { LOGIN, LINK }
 enum class AuthPhase { IDLE, STARTING, AWAITING_BROWSER, EXCHANGING }
 data class AuthUiState(val phase: AuthPhase = AuthPhase.IDLE, val error: AuthProblem? = null,
-                       val expiresAt: Instant? = null) {
+                       val expiresAt: Instant? = null, val provider: AuthProvider = AuthProvider.SOOP) {
     val active get() = phase != AuthPhase.IDLE
 }
 enum class AuthProblem(val message: String) {
     UNAVAILABLE("지금은 SOOP 로그인에 연결할 수 없어요. 잠시 후 다시 시도해 주세요."),
+    APPLE_UNAVAILABLE("지금은 Apple 로그인에 연결할 수 없어요. 잠시 후 다시 시도해 주세요."),
+    APPLE_CONFLICT("이 Apple 계정은 다른 로기챗 계정에 연결되어 있어요. 현재 계정은 변경하지 않았어요."),
     NETWORK("연결을 확인하고 새로 로그인을 시작해 주세요."),
     EXPIRED("로그인 시간이 만료되었어요. 새로 시작해 주세요."),
     FAILED("로그인을 완료하지 못했어요. 새로 시작해 주세요."),
     SESSION_CHANGED("로그인 상태가 바뀌어 계정 연결을 중단했어요. 현재 계정을 확인해 주세요."),
-    RECENT_AUTH("계정을 연결하려면 다시 로그인이 필요해요. 로그아웃 후 SOOP으로 다시 로그인해 주세요."),
+    RECENT_AUTH("계정을 연결하려면 다시 로그인이 필요해요. 로그아웃 후 다시 로그인해 주세요."),
     TERMS("새 이용 안내 확인이 필요해요. 로그아웃 후 이용 안내에 동의하고 다시 로그인해 주세요."),
     CONFLICT("이 SOOP 계정은 다른 로기챗 계정에 연결되어 있어요. 현재 계정은 변경하지 않았어요."),
     RATE_LIMITED("요청이 많아 잠시 기다려야 해요. 잠시 후 새로 시작해 주세요."),

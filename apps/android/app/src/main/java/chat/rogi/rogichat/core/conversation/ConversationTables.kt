@@ -29,14 +29,49 @@ data class ConversationPage(val roomId: String, val purpose: String, val cursor:
 data class ConversationOutboxRow(val roomId: String, val clientMessageId: String, val membership: String, val authorization: String,
                                  val intent: String, val recipient: String?, val quote: String?, val text: String,
                                  val createdAtMs: Long, val phase: String, val messageId: String? = null, val version: String? = null,
-                                 val errorCode: String? = null) {
-    fun domain() = OutboxRecord(TextCommand(RoomId(clientMessageId), RoomScopeToken(membership), intent, recipient?.let(::RoomId), quote?.let(::RoomId), text),
+                                 val errorCode: String? = null, val mediaContent: String? = null) {
+    fun domain() = OutboxRecord(TextCommand(RoomId(clientMessageId), RoomScopeToken(membership), intent, recipient?.let(::RoomId), quote?.let(::RoomId), text, mediaContent?.let(::storedMedia)),
         RoomScopeToken(authorization), OutboxPhase.valueOf(phase), createdAtMs, messageId?.let(::RoomId), version?.let(::MessageVersion), errorCode)
     override fun toString() = "ConversationOutboxRow([redacted])"
 }
 
+@Entity(tableName = "conversation_media", primaryKeys = ["roomId", "assetId"])
+data class ConversationMediaRow(val roomId: String, val assetId: String, val membership: String, val authorization: String, val kind: String)
+
+@Entity(tableName = "conversation_actions")
+data class ConversationActionRow(@PrimaryKey val id: String, val roomId: String, val membership: String, val body: String)
+@Entity(tableName = "conversation_anchors")
+data class ConversationAnchorRow(@PrimaryKey val roomId: String, val membership: String, val messageId: String, val offset: Int)
+
+@Entity(tableName = "account_unblocks")
+data class AccountUnblockRow(@PrimaryKey val id: String, val body: String)
+@Entity(tableName = "account_media")
+data class AccountMediaRow(@PrimaryKey val assetId: String, val kind: String)
+
 @Dao
 interface ConversationDao {
+    @Query("SELECT * FROM account_unblocks ORDER BY rowid") fun unblocksNow(): List<AccountUnblockRow>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) fun unblockNow(row: AccountUnblockRow)
+    @Query("SELECT * FROM account_media ORDER BY assetId") suspend fun accountMedia(): List<AccountMediaRow>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun accountMedia(row: AccountMediaRow)
+    @Query("DELETE FROM account_media WHERE assetId=:asset") suspend fun removeAccountMedia(asset: String)
+    @Query("SELECT * FROM conversation_actions ORDER BY rowid") fun actionsNow(): List<ConversationActionRow>
+    @Insert(onConflict = OnConflictStrategy.REPLACE) fun actionNow(row: ConversationActionRow)
+    @Query("SELECT * FROM conversation_anchors WHERE roomId=:room AND membership=:membership") fun anchorNow(room: String, membership: String): ConversationAnchorRow?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) fun anchorNow(row: ConversationAnchorRow)
+    @Query("DELETE FROM conversation_anchors WHERE roomId=:room") fun clearAnchorNow(room: String)
+    @Query("SELECT * FROM conversation_messages WHERE roomId=:room AND messageId=:message") fun messageNow(room: String, message: String): ConversationMessageRow?
+    @Insert(onConflict = OnConflictStrategy.REPLACE) fun messageNow(row: ConversationMessageRow)
+    @Query("DELETE FROM conversation_messages WHERE roomId=:room AND deleted=0") fun hideLiveNow(room: String)
+    @Query("DELETE FROM conversation_outbox WHERE roomId=:room AND messageId=:message") fun clearKnownCommandNow(room: String, message: String)
+    @Query("DELETE FROM conversation_anchors WHERE roomId NOT IN (SELECT roomId FROM memberships)") suspend fun purgeAbsentAnchors()
+    @Query("DELETE FROM conversation_anchors WHERE roomId=:room AND membership!=:membership") suspend fun purgeOldAnchor(room: String, membership: String)
+    @Query("SELECT * FROM conversation_media WHERE roomId=:room AND membership=:membership AND authorization=:authorization")
+    suspend fun media(room: String, membership: String, authorization: String): List<ConversationMediaRow>
+    @Insert suspend fun media(row: ConversationMediaRow)
+    @Query("DELETE FROM conversation_media WHERE roomId=:room AND assetId=:asset") suspend fun removeMedia(room: String, asset: String)
+    @Query("DELETE FROM conversation_media WHERE roomId=:room AND membership!=:membership") suspend fun purgeOldMedia(room: String, membership: String)
+    @Query("DELETE FROM conversation_media WHERE roomId NOT IN (SELECT roomId FROM memberships)") suspend fun purgeAbsentMedia()
     @Query("SELECT * FROM conversation_owner WHERE id=1") suspend fun owner(): ConversationOwner?
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun owner(value: ConversationOwner)
     @Query("SELECT * FROM conversation_checkpoints WHERE roomId=:room") suspend fun checkpoint(room: String): ConversationCheckpoint?

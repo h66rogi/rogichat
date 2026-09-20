@@ -93,14 +93,27 @@ rendered runtime origin and real credentialed API behavior for that environment.
 
 ## Verified archive transport
 
-Hosts without registry credentials can use the reviewed `web-export.yml` manual
-workflow on QA. Supply the published source SHA and registry digest hex. The
-exporter verifies the five exact-source push checks plus web publication, checks
+`web-export.yml` automatically exports successful QA `Web image publication`
+workflow runs. The repository default branch is QA: the exporter checks out its
+actual `github.sha`, which may be newer than the published source. The source
+must be identical to or an ancestor of that exact exporter head. The workflow has
+only contents/actions/packages read permissions and performs no deployment.
+The manual QA workflow remains available with published source SHA and registry
+digest hex inputs; no caller-selected mode is accepted.
+
+Before pulling, the exporter validates the publisher payload against the original
+repository's exact run/attempt API, reads a bounded digest-verified publication
+proof, and resolves its immutable image/config and five unique CI identities.
+Each recorded CI attempt must independently be a successful exact-source QA push
+in the original repository and expected workflow path. Historical publisher and
+CI attempts are checked using attempt APIs, never replaced with a newer rerun.
+Expired proof, failed API calls and digest mismatches fail closed without another
+proof or registry fallback. The exporter checks
 that the exporter QA commit descends from the source, pulls only the immutable
 image, verifies its raw registry manifest and config, and logs out before saving.
 The producer and consumer additionally bind the requested digest and config ID
 to the successful publication run's exact-attempt proof artifact, verify its
-GitHub artifact digest and five CI run identities, and reject proofs created or
+GitHub artifact digest and five exact CI run/attempt identities, and reject proofs created or
 replaced after the export attempt began. Descriptor version 1 stays unchanged.
 Every exported layer is scanned before a one-day Actions artifact is uploaded.
 
@@ -110,6 +123,12 @@ member is the original GitHub publication artifact ZIP (at most 1 MiB), fetched
 with the producer credential off host and transported without reserialization.
 Hosts pass its bounded bytes explicitly as `publication_proof` to provenance
 verification; only public metadata is fetched on host, never a proof ZIP or token.
+Unattended receivers must pass `required_event="workflow_run"` to
+`verify_provenance(descriptor, approval, token=None, *, publication_proof=bytes,
+required_event=None)`. This rejects otherwise valid manual exports. Management
+helpers omit that keyword and retain both explicitly supported web events;
+backend archive defaults remain manual-only. Both paths verify the actual exact
+export attempt's event, identity and successful conclusion.
 Its original SHA-256 must match immutable GitHub artifact metadata. Missing,
 extra or malformed members and old three-member archives fail closed.
 Descriptor version 1 identifies the producer SHA/run/attempt, six verification runs, and one `images.runtime` object

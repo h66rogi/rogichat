@@ -34,7 +34,7 @@ claiming server logout or deleting the server account.
 The broker is still activation-gated. Actual signed App Links association and
 provider/device round trips remain external release gates; neither the manifest
 nor mocked tests establish deployment or provider success. Server 404/503/offline
-failures are displayed honestly. Apple and message/chat adapters remain unavailable. A fresh installation has no credential entry screen or
+failures are displayed honestly. Apple uses the same protected PKCE/state, explicit consent, browser callback and one-shot installation coordinator; provider/browser completion is never session success. A fresh installation has no credential entry screen or
 fixture adapter. Authoritative session 401 removes only the current session;
 LINK errors never clear a newer account. Offline logout removes the local
 credential and reports unconfirmed server revoke.
@@ -44,11 +44,14 @@ M11 GET preferences and explicit account-wide disable use real Bearer requests.
 Disabling explains its effect on other devices and the web, sends the latest
 positive uint64-string `expectedGeneration`, and only applies a confirmed response.
 Conflict or uncertain results trigger a read, never automatic write replay.
-Enabling native push, registration and FCM remain unavailable; no permission
-request, optimistic toggle, default-enabled state or synthetic success is added.
-Read-state UUID/context DTOs and closed transport are available for future C05/C06
-integration. No screen reports read progress, calculates unread counts or borrows
-Meloming chat UX from this foundation.
+Native push uses an explicit OS permission, protected per-installation ID/secret,
+real provider token, capability/resolve/register and a separate explicit account-wide
+ON action with the latest generation. Final HTTP admission rechecks the original
+account and OS permission. Missing SDK configuration disables only push; it creates
+no Firebase app or permission prompt. Unknown results are reconciled by reads, never
+automatic mutation replay. Read-state reports only newly displayed authorized rows
+after real read-context GET and user interaction, not restored scroll anchors.
+No unread count or Meloming chat UX is inferred.
 
 Use JDK 17 and the installed Android SDK. Examples:
 
@@ -100,7 +103,7 @@ Credential or partition changes hide private state before durable cleanup, and a
 failed cleanup marker prevents a cold open from reviving old authority. A fresh
 manifest is required after process restart. DB failures remain errors; no destructive
 migration fallback is configured. Versioned schema exports and isolated SQLite
-rollback/reopen tests live under `src/androidTest`. Database v2 adds conversation projections, profile staging, cursor checkpoints and immutable TEXT commands through a non-destructive v1 migration. No message draft or credential is stored in shared preferences.
+rollback/reopen tests live under `src/androidTest`. Database v2 adds conversation projections, profile staging, cursor checkpoints and immutable commands. Version 3 adds media payloads, pending assets, action/unblock journals and scroll anchors through explicit non-destructive migrations. No message draft or credential is stored in shared preferences.
 Source contract tests do not establish hosted schema-v2 rollout or live account success.
 
 
@@ -196,3 +199,45 @@ Source/unit/SQLite fixture checks do not establish backend rollout, native broke
 availability, a live two-account exchange or store distribution. Runtime samples,
 synthetic sessions, automatic POST replay, unread/read reporting and socket-based
 claims are not part of this implementation.
+
+
+The feature composition reuses the extracted non-chat picker, confirmation, permission,
+provider and Socket.IO lifecycle implementations. PHOTO/VIDEO/STICKER use the same
+immutable outbox, original M/A/credential admission and receipt recovery as TEXT.
+The picker accepts JPEG/PNG/WebP up to 10MB and MP4/MOV up to 50MB. Pending upload
+recovery reads status only; it never repeats reservation/upload automatically.
+Signed media access is short-lived and downloaded without bearer/cookies/redirects.
+Private scratch is cleaned once before any media work after process restart.
+Avatar application requires a ready receipt and explicit profile PATCH; uncertain
+results query the real profile without manufacturing success or discarding edits.
+
+Delete/publication/reactions/report/block use current C05 hints and the existing
+protected transport. Their original selection and session scope are checked at actual
+HTTP admission; durable UNKNOWN is committed first. Settings can discover own blocked
+rooms via the recovery-only endpoint, then display current nullable server labels and
+unblock even after leaving. Empty pages with a continuation are not completion; no
+UUID or old cached private label is used as a display name. Local journals are account
+partitioned and removed with account teardown; current labels remain memory-only.
+
+Socket.IO Java 2.1.2 (Engine.IO 2.1.0) uses a no-cookie/no-redirect client and numeric
+schema version 1. Lifecycle/background/credential changes close it synchronously.
+Reconnect requires REST revalidation. Socket and FCM payloads only request canonical
+sync; they never supply message bodies, read ACKs or unverified navigation.
+Firebase BoM 34.19.0 resolves Messaging 25.1.3. The pinned token API remains the native
+push contract even though this SDK deprecates it in favor of newer provider APIs.
+No automatic initialization, Analytics dependency or BigQuery delivery export is used.
+
+Optional private SDK inputs are `ROGICHAT_QA_FIREBASE_CONFIG_FILE` and
+`ROGICHAT_PROD_FIREBASE_CONFIG_FILE`. Present files must be canonical regular mode0600
+(single-link) JSON with exactly environment, packageName, applicationId, apiKey,
+projectId and gcmSenderId; duplicate/partial/mismatched values are rejected. Firebase
+SDK applicationId is distinct from the Android package, and its project number must
+match gcmSenderId. Values stay outside Git; absence leaves the four generated
+rogi_firebase_* resources empty and push unavailable. Trusted distribution tools
+independently verify packaged configuration. Prod signing uses only its dedicated
+ROGICHAT_PROD_KEYSTORE/ROGICHAT_PROD_STORE_PASSWORD/ROGICHAT_PROD_KEY_ALIAS inputs;
+there is no QA fallback.
+
+Local automated checks do not establish Apple/SOOP provider activation, Firebase
+configuration/delivery, media transcoding/object access, hosted feature rollout or a
+real two-account conversation. Those require separate runtime/release evidence.

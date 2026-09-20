@@ -108,6 +108,7 @@ class ProfileViewModel(private val repository: ProfileRepository, private val ac
             }
         }
     }
+    fun avatarApplied(assetId: String?) { mutable.update { it.copy(original = it.original?.copy(avatarAssetId = assetId)) } }
     fun dismissError() { mutable.update { it.copy(error = null) } }
     private fun loaded(profile: UserProfile) = ProfileUiState(isLoading = false, original = profile,
         editor = ProfileEditor(profile.nickname), month = profile.birthday?.month?.toString().orEmpty(),
