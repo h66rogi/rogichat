@@ -384,3 +384,12 @@ snapshot cannot authorize revocation). MEDIA cleanup uses bounded current lockin
 object pages and closure projections around external DELETE, then the final queue
 fence; no storage I/O runs in a DB transaction. These exceptions retain fixed SQL
 identifiers and bound values, with no second database pool.
+
+## Operator restore gate exceptions
+
+`modules/restore-gate/restore-gate.repository.ts` retains two fixed, bound SQL
+operations: `serialize` (also used by `lock`) takes the exact checkpoint row `FOR UPDATE`, and `fence` reads
+`IS_USED_LOCK`, `@@server_uuid` and `DATABASE()` to verify external MySQL custody
+on the current transaction connection. Prisma cannot express these server lock
+introspection/current-lock operations. All quarantine, observation, checkpoint
+progress and single-use release CAS writes use the generated Prisma client.

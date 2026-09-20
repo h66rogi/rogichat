@@ -1,3 +1,4 @@
+import { authorizationKey } from '../../infrastructure/config/authorization-epoch.js';
 import { MembershipScopeRepository } from './membership-scope.repository.js';
 import { Inject, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { createHmac } from 'node:crypto';
@@ -30,8 +31,8 @@ export class MembershipScopeService {
     const byRoom = new Map<string, string[]>();
     for (const row of revoked) { const ids = byRoom.get(row.room_id) ?? []; ids.push(row.id); byRoom.set(row.room_id, ids); }
     return new Map(members.map(m => [m.room_id, {
-      membershipScope: membershipScope(this.config.key, this.config.audience, userId, m.room_id, m.active_period_id!),
-      authorizationRevision: createHmac('sha256', this.config.key).update('authorization-revision:v1:').update(JSON.stringify([this.config.audience,
+      membershipScope: membershipScope(authorizationKey(this.config), this.config.audience, userId, m.room_id, m.active_period_id!),
+      authorizationRevision: createHmac('sha256', authorizationKey(this.config)).update('authorization-revision:v1:').update(JSON.stringify([this.config.audience,
         [m.id, m.role, m.room.mode, m.active_period_id, String(m.active_period!.visible_from_order), String(m.acl_epoch), m.room.policy_version, String(m.room.content_epoch), String(m.user.membership_generation), byMember.get(m.id) ?? [], byRoom.get(m.room_id) ?? []]])).digest('base64url'),
     }]));
   }
