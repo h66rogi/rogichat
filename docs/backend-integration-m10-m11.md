@@ -46,7 +46,7 @@ merged without runtime or schema changes. Its [hosted run 35512581548](https://g
 passed against pinned runtime `7b559b645ef2b71fc5492d79895142745d0d6ead` and dist
 hash `5c711fee7fc14edd42f121c9b8c38757ab3113a6633417919ee5e32f4c2a6057`.
 The result covers 18 fail-closed cases, actual HTTP epoch/ABA rejection and nonce
-CAS; the owner is publishing the durable receipt. The workflow's runtime-identity
+CAS; its durable receipt is retained below. The workflow's runtime-identity
 guard intentionally excludes aggregate cursor/transport deltas, so this is pinned
 runtime evidence rather than an exact-aggregate joined run or live Aurora/R2 proof.
 The only merge conflict keeps both `--restore` and `--expansion`, the 180-second
@@ -57,14 +57,19 @@ runtime/helper pins and adds forged-release rejection plus retry after a committ
 quarantine interrupted by actual custody loss. The accepted earlier [durable
 receipt](evidence/m12/2026-09-20-joined-restore.json) remains separate from
 [follow-up run 35512987788](https://github.com/h66rogi/rogichat/actions/runs/35512987788),
-whose result is pending at assembly. New controls are not marked passed in advance.
+which passed on the same pinned runtime with both additional controls. Neither
+run is an exact-aggregate or live-service restore claim.
+The follow-up measurement SHA-256 is
+`fa3fc6df0e65df7ceb13519d71dd0c587cc1b025fef307726d6cc61ff6e6770a`:
+20 rejections, observed durable quarantine, actual custody loss, same-epoch resume,
+stable unrelated account generations and one committed nonce among two contenders.
 
 Approved MOBILE `f103f01a8c124701de3091d5b264006b5d24447f` normally merges the
 parent's complete Android/iOS product, persistence, account deletion, media,
 moderation, realtime/push and signing/test-tool histories. Android/iOS source,
-mobile helpers and workflow remain byte-identical to the approved parent. Leaf
-and final aggregate hosted mobile checks plus the parent's integrated-tree review
-remain pending. Approved signing follow-up
+mobile helpers and workflow remain byte-identical to the approved parent before
+the signing follow-up below. The parent accepted the integrated product tree;
+final aggregate hosted checks remain pending. Approved signing follow-up
 `d097fa8156bcb9b48f8783a3321017286475d367` scopes QA/production provisioning to
 the app target, retaining SwiftPM resource-bundle signing. Its three focused
 mocked command/profile-mapping checks passed without invoking SDKs, signing or
