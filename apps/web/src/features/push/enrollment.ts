@@ -1,0 +1,352 @@
+import type { PushApi } from './api';
+import { forgetBinding, readAccountBinding, readBinding, rememberBinding } from './binding';
+import type { BindingStorage, StoredBinding } from './binding';
+import type { BrowserSubscription, PushBrowser, PushPermission, PushSupport } from './browser';
+import type { PushCapabilitiesAvailable, PushSubscriptionIdentity } from './contract';
+import { PushError, PushScopeChanged } from './errors';
+import type { PushScope } from './scope';
+
+/**
+ * Web Push enrollment lifecycle for one account/session scope.
+ *
+ * The state is what the browser and the server actually reported. There is no optimistic
+ * "on": the toggle reads enabled only after the server stored `pushEnabled` true for this
+ * account and this browser owns a registered subscription. Every failure keeps the real
+ * state and carries a reason.
+ *
+ * Server enrollment capability is not delivery. A registered subscription means the server
+ * may enqueue a wake for this browser; it proves nothing about the push service, the device
+ * or whether a notification was shown.
+ */
+export interface PushEnrollmentState {
+  support: PushSupport;
+  permission: PushPermission;
+  /** Server enrollment capability; null until read in this scope. */
+  serverAvailable: boolean | null;
+  /** Stored account preference; null until read in this scope. */
+  preferenceEnabled: boolean | null;
+  preferenceGeneration: string | null;
+  /** Server subscription this browser currently owns, or null. */
+  subscriptionId: string | null;
+  busy: boolean;
+  /** User-facing result of the last action; empty when there is nothing to say. */
+  notice: string;
+  /** A compare-and-set conflict happened: re-read state and take a fresh user decision. */
+  needsDecision: boolean;
+}
+
+const INITIAL: PushEnrollmentState = {
+  support: 'unknown',
+  permission: 'unknown',
+  serverAvailable: null,
+  preferenceEnabled: null,
+  preferenceGeneration: null,
+  subscriptionId: null,
+  busy: false,
+  notice: '',
+  needsDecision: false,
+};
+
+/**
+ * Presentation model for the notification settings section.
+ *
+ * It is structurally the settings screen's own notification model, declared here so this
+ * feature does not depend on the settings feature. The settings wiring assigns it directly,
+ * so any drift in either shape is a typecheck failure at the wiring site.
+ */
+export interface PushNotificationsModel {
+  support: PushSupport;
+  permission: PushPermission;
+  enabled: boolean | null;
+  toggle: { enabled: true } | { enabled: false; reason: string };
+}
+
+export interface PushEnrollmentOptions {
+  api: PushApi;
+  browser: PushBrowser;
+  storage: BindingStorage;
+  scope: PushScope;
+}
+
+export class PushEnrollment {
+  private readonly api: PushApi;
+  private readonly browser: PushBrowser;
+  private readonly storage: BindingStorage;
+  private readonly scope: PushScope;
+  private readonly listeners = new Set<() => void>();
+  private state: PushEnrollmentState = INITIAL;
+
+  constructor({ api, browser, storage, scope }: PushEnrollmentOptions) {
+    this.api = api;
+    this.browser = browser;
+    this.storage = storage;
+    this.scope = scope;
+  }
+
+  /** Stable snapshot; the reference changes only when the state changes. */
+  getState = (): PushEnrollmentState => this.state;
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+
+  /** Reads current browser and server state. Never prompts and never changes stored state. */
+  async refresh(): Promise<void> {
+    await this.perform(async () => {
+      this.set({ support: this.browser.support(), permission: this.browser.permission(), needsDecision: false, notice: '' });
+      const capabilities = await this.scope.run(signal => this.api.capabilities(signal));
+      this.set({ serverAvailable: capabilities.available });
+      const preferences = await this.scope.run(signal => this.api.preferences(signal));
+      this.set({ preferenceEnabled: preferences.pushEnabled, preferenceGeneration: preferences.generation });
+      await this.releaseForeignBinding();
+      this.set({ subscriptionId: await this.ownedSubscriptionId() });
+    });
+  }
+
+  /**
+   * Enrolls this browser. Call only from an explicit user gesture: it is the sole path that
+   * asks for the notification permission.
+   *
+   * Order matters. Capability and permission come first, then the subscription is registered,
+   * and only then is the account preference switched on, so the stored preference is never
+   * true while the server has no endpoint for this browser.
+   */
+  async enable(): Promise<void> {
+    await this.perform(async () => {
+      this.set({ support: this.browser.support(), permission: this.browser.permission(), needsDecision: false, notice: '' });
+      if (this.state.support !== 'supported') {
+        this.set({ notice: supportNotice(this.state.support) });
+        return;
+      }
+
+      const capabilities = await this.scope.run(signal => this.api.capabilities(signal));
+      this.set({ serverAvailable: capabilities.available });
+      if (!capabilities.available) {
+        this.set({ notice: '서버에서 웹 푸시가 아직 준비되지 않아 알림을 켤 수 없습니다.' });
+        return;
+      }
+
+      // Read the stored preference before prompting, so every branch below shows the real
+      // account state instead of an unknown one, and so the PUT carries a current generation.
+      const preferences = await this.scope.run(signal => this.api.preferences(signal));
+      this.set({ preferenceEnabled: preferences.pushEnabled, preferenceGeneration: preferences.generation });
+
+      if (this.browser.permission() === 'not-asked') {
+        this.set({ permission: await this.scope.run(() => this.browser.requestPermission()) });
+      }
+      if (this.state.permission !== 'granted') {
+        this.set({ notice: this.state.permission === 'denied' ? '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용한 뒤 다시 시도해 주세요.' : '알림 권한을 허용해야 알림을 켤 수 있습니다.' });
+        return;
+      }
+
+      const identity = await this.registerSubscription(capabilities);
+      if (identity === null) return;
+      this.set({ subscriptionId: identity.id });
+
+      try {
+        const stored = await this.scope.run(signal => this.api.setPreferences(true, preferences.generation, signal));
+        this.set({ preferenceEnabled: stored.pushEnabled, preferenceGeneration: stored.generation, notice: '이 브라우저에서 새 메시지 알림을 받습니다. 알림에는 메시지 내용이 들어가지 않습니다.' });
+      } catch (error) {
+        await this.handlePreferenceFailure(error);
+      }
+    });
+  }
+
+  /**
+   * Turns the account preference off, withdraws the server subscription this browser owns and
+   * unsubscribes from the push service. Disabling stays available even when the server has no
+   * Web Push configuration.
+   */
+  async disable(): Promise<void> {
+    await this.perform(async () => {
+      this.set({ support: this.browser.support(), permission: this.browser.permission(), needsDecision: false, notice: '' });
+      const expected = this.state.preferenceGeneration ?? (await this.scope.run(signal => this.api.preferences(signal))).generation;
+      let stopped = false;
+      try {
+        const stored = await this.scope.run(signal => this.api.setPreferences(false, expected, signal));
+        this.set({ preferenceEnabled: stored.pushEnabled, preferenceGeneration: stored.generation });
+        stopped = true;
+      } catch (error) {
+        await this.handlePreferenceFailure(error);
+      }
+      // The removal detail outranks the generic confirmation: a record this session could not
+      // withdraw must be reported rather than described as a clean removal. A preference
+      // failure outranks both, because the preference is what actually stops delivery.
+      const detail = await this.releaseSubscription();
+      if (stopped) this.set({ notice: detail ?? '이 브라우저에서 알림을 받지 않습니다.' });
+    });
+  }
+
+  /**
+   * Presentation model for the settings screen. `enabled` is true only when the account
+   * preference is on and this browser owns a registered subscription.
+   */
+  model(): PushNotificationsModel {
+    const { support, permission, preferenceEnabled, subscriptionId, serverAvailable, busy } = this.state;
+    const enabled = preferenceEnabled === null ? null : preferenceEnabled && subscriptionId !== null;
+    const reason = toggleBlock({ support, permission, serverAvailable, busy, enabled });
+    return { support, permission, enabled, toggle: reason === null ? { enabled: true } : { enabled: false, reason } };
+  }
+
+  // --- internals -------------------------------------------------------------------------
+
+  /**
+   * Obtains an endpoint and registers it, returning null when the state was already handled.
+   *
+   * A browser subscription created for a different application server key is rotated. An
+   * endpoint the server refuses for this account (404) or that needs a generation we do not
+   * hold (409) is withdrawn and replaced once by a fresh endpoint; if the push service hands
+   * back the same endpoint, registration stays unavailable rather than pretending to succeed.
+   */
+  private async registerSubscription(capabilities: PushCapabilitiesAvailable): Promise<PushSubscriptionIdentity | null> {
+    await this.releaseForeignBinding();
+    let current = await this.scope.run(() => this.browser.current());
+    if (current !== null && current.applicationServerKey !== null && current.applicationServerKey !== capabilities.applicationServerKey) {
+      await this.scope.run(() => this.browser.unsubscribe());
+      current = null;
+    }
+
+    const owned = readAccountBinding(this.storage, this.scope.identity);
+    if (current === null) current = await this.scope.run(() => this.browser.subscribe(capabilities.applicationServerKey));
+
+    try {
+      return this.remember(await this.registerEndpoint(current, owned));
+    } catch (error) {
+      if (!(error instanceof PushError) || !['not-found', 'conflict'].includes(error.kind)) throw error;
+      // The endpoint belongs to another account or to a binding whose generation we do not
+      // have. Only a genuinely new endpoint can be registered here.
+      const previous = current.endpoint;
+      forgetBinding(this.storage);
+      await this.scope.run(() => this.browser.unsubscribe());
+      const fresh = await this.scope.run(() => this.browser.subscribe(capabilities.applicationServerKey));
+      if (fresh.endpoint === previous) {
+        this.set({ subscriptionId: null, notice: '브라우저가 이전과 같은 알림 주소를 다시 발급해 지금은 알림을 켤 수 없습니다. 브라우저의 사이트 알림 권한을 해제한 뒤 다시 시도해 주세요.' });
+        return null;
+      }
+      return this.remember(await this.registerEndpoint(fresh, null));
+    }
+  }
+
+  /**
+   * One registration attempt. A same-account session rebinding sends the current generation;
+   * a new endpoint omits it. Only a lost response is retried, with the byte-identical initial
+   * body, which the server answers with the existing id and generation without mutating it.
+   */
+  private async registerEndpoint(subscription: BrowserSubscription, owned: StoredBinding | null): Promise<PushSubscriptionIdentity> {
+    const rebinding = owned !== null && owned.session !== this.scope.identity.session;
+    const input = rebinding && owned !== null
+      ? { endpoint: subscription.endpoint, keys: subscription.keys, generation: owned.generation }
+      : { endpoint: subscription.endpoint, keys: subscription.keys };
+    try {
+      return await this.scope.run(signal => this.api.register(input, signal));
+    } catch (error) {
+      if (rebinding || !(error instanceof PushError) || error.kind !== 'network') throw error;
+      return this.scope.run(signal => this.api.register(input, signal));
+    }
+  }
+
+  private remember(identity: PushSubscriptionIdentity): PushSubscriptionIdentity {
+    rememberBinding(this.storage, this.scope.identity, identity);
+    return identity;
+  }
+
+  /**
+   * Withdraws the subscription this browser owns, then unsubscribes from the push service.
+   * Returns what the user has to know when the server record could not be withdrawn here,
+   * or null when the removal was clean.
+   */
+  private async releaseSubscription(): Promise<string | null> {
+    const owned = readAccountBinding(this.storage, this.scope.identity);
+    let detail: string | null = null;
+    if (owned !== null && owned.session === this.scope.identity.session) {
+      try {
+        await this.scope.run(signal => this.api.remove(owned.id, owned.generation, signal));
+      } catch (error) {
+        if (error instanceof PushScopeChanged) throw error;
+        if (!(error instanceof PushError) || !['not-found', 'conflict'].includes(error.kind)) throw error;
+        // The server record is already gone or now belongs to a newer binding of this browser.
+        // The local record is stale either way; say so instead of reporting a clean removal.
+        detail = '서버의 알림 등록 정보가 이미 변경되어 이 브라우저의 기록만 정리했습니다.';
+      }
+    } else if (owned !== null) {
+      // Only the owning session may withdraw a subscription, so this one stops at the browser.
+      detail = '다른 로그인 세션에서 등록한 알림입니다. 이 브라우저의 구독만 해제했습니다.';
+    }
+    forgetBinding(this.storage);
+    await this.scope.run(() => this.browser.unsubscribe());
+    this.set({ subscriptionId: null });
+    return detail;
+  }
+
+  /**
+   * An account switch leaves a subscription bound to the previous account. The server never
+   * transfers endpoint ownership, so the old endpoint is withdrawn in the browser and the
+   * local record dropped before this account can enroll.
+   */
+  private async releaseForeignBinding(): Promise<void> {
+    const stored = readBinding(this.storage);
+    if (stored === null || stored.account === this.scope.identity.account) return;
+    forgetBinding(this.storage);
+    await this.scope.run(() => this.browser.unsubscribe());
+  }
+
+  private async ownedSubscriptionId(): Promise<string | null> {
+    const owned = readAccountBinding(this.storage, this.scope.identity);
+    if (owned === null) return null;
+    // A record without a live browser subscription describes nothing this browser can receive.
+    const current = await this.scope.run(() => this.browser.current());
+    return current === null ? null : owned.id;
+  }
+
+  private async handlePreferenceFailure(error: unknown): Promise<void> {
+    if (error instanceof PushScopeChanged) throw error;
+    if (!(error instanceof PushError) || error.kind !== 'conflict') throw error;
+    // A stale generation must never be replayed: read the stored value and ask again.
+    const current = await this.scope.run(signal => this.api.preferences(signal));
+    this.set({
+      preferenceEnabled: current.pushEnabled,
+      preferenceGeneration: current.generation,
+      needsDecision: true,
+      notice: '알림 설정이 다른 곳에서 변경되었습니다. 현재 설정을 확인한 뒤 다시 선택해 주세요.',
+    });
+  }
+
+  private async perform(operation: () => Promise<void>): Promise<void> {
+    if (this.state.busy || !this.scope.active) return;
+    this.set({ busy: true });
+    try {
+      await operation();
+    } catch (error) {
+      if (error instanceof PushScopeChanged) return;
+      this.set({ notice: error instanceof PushError ? error.message : '알림 설정을 확인하지 못했습니다. 다시 시도해 주세요.' });
+    } finally {
+      if (this.scope.active) this.set({ busy: false });
+    }
+  }
+
+  private set(patch: Partial<PushEnrollmentState>): void {
+    if (!this.scope.active) return;
+    this.state = { ...this.state, ...patch };
+    for (const listener of this.listeners) listener();
+  }
+}
+
+function supportNotice(support: PushSupport): string {
+  switch (support) {
+    case 'install-required': return '홈 화면에 로기챗을 추가한 뒤 알림을 켤 수 있습니다.';
+    case 'unsupported': return '이 브라우저는 웹 알림을 지원하지 않습니다.';
+    default: return '브라우저의 알림 지원 여부를 확인하지 못했습니다.';
+  }
+}
+
+function toggleBlock(view: { support: PushSupport; permission: PushPermission; serverAvailable: boolean | null; busy: boolean; enabled: boolean | null }): string | null {
+  if (view.busy) return '알림 설정을 변경하고 있습니다.';
+  if (view.enabled === null) return '알림 설정을 확인하는 중입니다.';
+  // Turning notifications off stays available even where this browser or the server cannot enroll.
+  if (view.enabled) return null;
+  if (view.support !== 'supported') return supportNotice(view.support);
+  if (view.permission === 'denied') return '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용해 주세요.';
+  if (view.serverAvailable === false) return '서버에서 웹 푸시가 아직 준비되지 않았습니다.';
+  return null;
+}
