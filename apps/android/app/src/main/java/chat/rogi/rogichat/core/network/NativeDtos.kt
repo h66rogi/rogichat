@@ -32,7 +32,15 @@ object NativeDtos {
             else -> value.jsonObject.let { Birthday(it.integer("month"), it.integer("day")) }
         }
         val avatar = when (val value = root.getValue("avatar")) { JsonNull -> null; else -> value.jsonObject.uuid("assetId") }
-        UserProfile(root.uuid("id"), root.nickname(), birthday, root.bool("birthdayVisibleToStreamers"), avatar)
+        // Additive self-only display identity; never used as a subject, account key or room owner.
+        val soop = when (val value = root["soop"]) {
+            null, JsonNull -> null
+            else -> value.jsonObject.string("displayId").also { require(it.isNotBlank()) }
+        }
+        UserProfile(root.uuid("id"), root.nickname(), birthday, root.bool("birthdayVisibleToStreamers"), avatar, soop,
+            when (root["providerAvatarUrl"]) { null, JsonNull -> null; else -> root.string("providerAvatarUrl").also {
+                val url = java.net.URI(it); require(url.scheme == "https" && !url.host.isNullOrBlank() && url.userInfo == null && url.fragment == null)
+            } })
     }
     fun profilePatch(changes: ProfileChanges): String {
         val value = buildJsonObject {

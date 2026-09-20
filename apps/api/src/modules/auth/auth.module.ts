@@ -23,6 +23,7 @@ import { AuthController } from './auth.controller.js';
 import { NativeAuthController } from './native-auth.controller.js';
 import { NativeAuthRepository } from './native-auth.repository.js';
 import { NativeAuthService } from './native-auth.service.js';
+import { JobsCoreModule } from '../jobs/jobs-core.module.js';
 
 export interface AuthModuleOptions {
   readonly config: AuthConfig;
@@ -38,7 +39,7 @@ export class AuthModule {
   static register(infrastructure: DynamicModule, options: AuthModuleOptions): DynamicModule {
     return {
       module: AuthModule,
-      imports: [IdentityGuardModule, infrastructure, AppleLifecycleModule.register(infrastructure, options.config, options.appleProvider)],
+      imports: [JobsCoreModule, IdentityGuardModule, infrastructure, AppleLifecycleModule.register(infrastructure, options.config, options.appleProvider)],
       controllers: [AuthController, NativeAuthController, AppleController],
       providers: [
         AppleRepository,

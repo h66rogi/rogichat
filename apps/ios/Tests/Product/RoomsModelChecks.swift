@@ -38,6 +38,14 @@ private actor ModelRoomsCoordinator: RoomsCoordinating {
     }
     static func check(_ condition: Bool) { precondition(condition) }
     @MainActor static func main() async throws {
+        let pending = try JSONDecoder().decode(DiscoveredRoom.self, from: JSONSerialization.data(withJSONObject: ["roomId": roomID, "name": "후로기", "mode": "FAN", "isDefault": true, "availability": "OWNER_PENDING"]))
+        let pendingListing = RoomsListing(memberships: [], discovery: [pending], membershipConfirmed: true, discoveryComplete: true, cycle: UUID().uuidString)
+        let pendingScope = try RoomsScope(partition: token(), clientScope: UUID(), expiresAt: Date().addingTimeInterval(3600))
+        let pendingCoordinator = ModelRoomsCoordinator(pendingListing)
+        let pendingOwner = RoomsFeatureOwner()
+        let pendingModel = pendingOwner.model(scope: pendingScope) { RoomsScreenModel(repository: pendingCoordinator, scope: pendingScope) }
+        await pendingModel.refresh()
+        check(pendingModel.selection(roomID: roomID, roomName: "후로기", displayedCycle: pendingListing.cycle, action: .join, membership: nil) == nil)
         for outcome in [RoomCommandOutcome.acknowledged, .unknown] {
             let scope = try RoomsScope(partition: token(), clientScope: UUID(), expiresAt: Date().addingTimeInterval(3600))
             let preserved = try listing(); let coordinator = ModelRoomsCoordinator(preserved)

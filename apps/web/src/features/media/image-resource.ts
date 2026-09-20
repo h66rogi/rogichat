@@ -13,8 +13,8 @@ export class MediaImageResource {
   private timer: ReturnType<typeof setTimeout> | undefined;
   private generation = 0;
   private releaseLease: (() => void) | undefined;
-  private readonly client: MediaClient;
-  constructor(client: MediaClient) {
+  private readonly client: Pick<MediaClient, 'lifetime' | 'image'>;
+  constructor(client: Pick<MediaClient, 'lifetime' | 'image'>) {
     this.client = client;
     client.lifetime.signal.addEventListener('abort', this.clear, { once: true });
   }

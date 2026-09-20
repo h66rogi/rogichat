@@ -145,3 +145,37 @@ test('a cookie changing between session and profile reads stays private until a 
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByTestId('settings-view')).toBeVisible();
 });
+
+test('home shows the configured real room without joining, and preserves unavailable and retry states', async ({ page }) => {
+  const state = await installApi(page, true);
+  await page.goto('/');
+  const room = page.getByRole('region', { name: '후로기 기본 채팅방' });
+  await expect(room.getByRole('link', { name: '채팅방 확인' })).toBeVisible();
+  expect(state.joined).toBe(false);
+  await room.getByRole('link', { name: '채팅방 확인' }).click();
+  await expect(page.getByRole('button', { name: '채팅방 입장', exact: true })).toBeVisible();
+  expect(state.joined).toBe(false);
+  state.joined = true;
+  await page.goto('/');
+  await expect(room.getByRole('link', { name: '대화 이어가기' })).toBeVisible();
+  state.rooms = false;
+  await page.reload();
+  await expect(room.getByText('지금은 채팅방에 접근할 수 없습니다.')).toBeVisible();
+  await expect(room.getByRole('link')).toHaveCount(0);
+  state.rooms = true;
+  await room.getByRole('button', { name: '채팅방 다시 확인' }).click();
+  await expect(room.getByRole('link', { name: '대화 이어가기' })).toBeVisible();
+});
+
+test('owner-pending genuine default room is visible but cannot be joined', async ({ page }) => {
+  const state = await installApi(page, true);
+  await page.route('**/v1/rooms', route => json(route, { rooms: [{ roomId: '11111111-1111-4111-8111-111111111111', name: '후로기', mode: 'FAN', joined: false, isDefault: true, availability: 'OWNER_PENDING' }], next: null }));
+  await page.goto('/');
+  const room = page.getByRole('region', { name: '후로기 기본 채팅방' });
+  await expect(room.getByText(/방장 계정을 확인하고 있습니다/)).toBeVisible();
+  await expect(room.getByRole('link')).toHaveCount(0);
+  await page.goto('/chat');
+  await expect(page.getByRole('heading', { name: '후로기 채팅방을 준비하고 있어요' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '채팅방 입장', exact: true })).toHaveCount(0);
+  expect(state.joined).toBe(false);
+});

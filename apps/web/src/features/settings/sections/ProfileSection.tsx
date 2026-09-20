@@ -18,10 +18,12 @@ export function ProfileSection({
   model,
   onChange,
   avatarEditor,
+  profileAvatar,
 }: {
   model: SettingsProfileModel;
   onChange?: ((patch: SettingsProfilePatch) => void | Promise<void>) | undefined;
   avatarEditor?: ReactNode;
+  profileAvatar?: ReactNode;
 }) {
   const state = effectiveState(model.edit, onChange);
   const editable = state.enabled;
@@ -61,14 +63,15 @@ export function ProfileSection({
       }
     >
       <div className="flex items-center gap-4">
-        <Avatar className="size-16">
+        {profileAvatar ?? <Avatar className="size-16">
           {model.avatarUrl && <AvatarImage src={model.avatarUrl} alt="" />}
           <AvatarFallback className="text-[20px]" aria-hidden="true">
             {model.nickname.charAt(0) || '·'}
           </AvatarFallback>
-        </Avatar>
-        <div className="flex flex-col gap-1 text-[14px]">
+        </Avatar>}
+        <div className="flex min-w-0 flex-col gap-1 text-[14px]">
           <span className="font-semibold text-ink">{model.nickname || '이름 없음'}</span>
+          {model.soopDisplayId && <span data-testid="settings-soop-display-id" className="break-all text-muted">SOOP ID · {model.soopDisplayId}</span>}
           {!avatarEditor && <span className="text-muted">프로필 사진 변경은 사진 업로드가 준비된 뒤 제공됩니다.</span>}
         </div>
       </div>

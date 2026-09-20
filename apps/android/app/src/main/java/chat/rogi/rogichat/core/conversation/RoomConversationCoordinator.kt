@@ -375,7 +375,7 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
             captured.check()
             gateway.conversationRequest(permit) { api, token -> captured.check(); api.media(token, request, captured) }
                 .also { captured.check() }
-        }, mediaScope)
+        }, mediaScope, chat.rogi.rogichat.BuildConfig.API_BASE_URL)
         val journal = object : MediaJournal {
             override suspend fun save(scope: MediaScope, pending: PendingMedia) {
                 require(scope === mediaScope); scope.check()

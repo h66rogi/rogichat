@@ -21,6 +21,7 @@ CONVERSATION_CONTRACTS = [
 MEDIA_SOURCES = [
     "Sources/Core/Media/MediaContract.swift", "Sources/Core/Media/MediaClient.swift",
     "Sources/Core/Media/MediaUpload.swift", "Sources/Core/Media/MediaDownload.swift",
+    "Sources/Core/Media/ProviderAvatarLoads.swift",
 ]
 ACTION_SOURCES = [
     "Sources/Core/MessageActions/MessageActions.swift", "Sources/Core/MessageActions/MessageActionWire.swift",

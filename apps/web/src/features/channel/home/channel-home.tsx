@@ -8,6 +8,7 @@ import type { ChannelDescriptor } from '../model/channel-descriptor';
 import { CHANNEL_FEATURES, channelHref } from '../model/channel-features';
 import { ChannelAvatar } from '../shell/channel-avatar';
 import { AccountStatus } from './account-status';
+import { DefaultRoomStatus } from './default-room-status';
 
 /**
  * Public channel home (Server Component).
@@ -47,6 +48,7 @@ export function ChannelHome({ channel }: { channel: ChannelDescriptor }) {
       </section>
 
       <AccountStatus />
+      <DefaultRoomStatus />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
         <div className={cn('flex flex-col gap-4', channel.officialLinks.length > 0 ? 'md:col-span-8' : 'md:col-span-12')}>
           <FeatureCard

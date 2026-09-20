@@ -56,6 +56,7 @@ services:
       PORT: "3000"
       DB_POOL_SIZE: "5"
       AUTH_SECRET_FILE: /run/secrets/auth.json
+      DEFAULT_ROOM_SECRET_FILE: /run/secrets/default-room.json
     # M03+: API only. Never add auth credentials to the shared runtime anchor or
     # worker/migration containers. Prepare the reviewed persistent host file first.
     volumes:
@@ -64,6 +65,12 @@ services:
       - type: bind
         source: /etc/rogichat/auth.json
         target: /run/secrets/auth.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/rogichat/default-room.json
+        target: /run/secrets/default-room.json
         read_only: true
         bind:
           create_host_path: false

@@ -117,8 +117,9 @@ struct ConversationActionTransport: MessageActionTransport {
         guard actionScope.valid else { throw ConversationError.invalidResponse }
         self.conversation = conversation; self.session = session; self.storage = storage; self.journal = storage.localFeatures
         self.actionScope = actionScope
+        guard let mediaEnvironment = NativeEnvironment(rawValue: environment) else { throw ConversationError.invalidResponse }
         mediaScope = ConversationMediaScope(original: original)
-        media = MediaClient(transport: ConversationMediaTransport(session: session, original: original), scope: mediaScope)
+        media = MediaClient(transport: ConversationMediaTransport(session: session, original: original), scope: mediaScope, apiBaseURL: mediaEnvironment.baseURL)
         uploader = MediaUpload(client: media, journal: ConversationMediaJournal(original: original, journal: storage.localFeatures))
         let actionJournal = ConversationActionJournal(original: original, actionScope: actionScope, journal: storage.localFeatures)
         self.actionJournal = actionJournal

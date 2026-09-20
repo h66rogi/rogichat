@@ -27,6 +27,7 @@ export interface SettingsViewProps {
   onDeleteAccount?: (() => void | Promise<void>) | undefined;
   className?: string | undefined;
   avatarEditor?: ReactNode;
+  profileAvatar?: ReactNode;
   accountControls?: ReactNode;
   privacyControls?: ReactNode;
 }
@@ -41,7 +42,7 @@ export function SettingsView({
   onLogout,
   onDeleteAccount,
   className,
-  avatarEditor, accountControls, privacyControls,
+  avatarEditor, profileAvatar, accountControls, privacyControls,
 }: SettingsViewProps) {
   return (
     <div className={cn('mx-auto flex w-full max-w-[40rem] flex-col gap-6 px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]', className)} data-testid="settings-view">
@@ -51,7 +52,7 @@ export function SettingsView({
       </header>
 
       {/* Keyed on the saved values so the local form resyncs after the harness applies a change. */}
-      <ProfileSection key={profileKey(model)} model={model.profile} onChange={onProfileChange} avatarEditor={avatarEditor} />
+      <ProfileSection key={profileKey(model)} model={model.profile} onChange={onProfileChange} avatarEditor={avatarEditor} profileAvatar={profileAvatar} />
       <SoopConnectionSection model={model.soop} onLink={onLinkSoop} />
       <NotificationSection model={model.notifications} onToggle={onToggleNotifications} onRetry={onRetryNotifications} />
       <RoomLeaveSection model={model.room} onLeave={onLeaveRoom} />
