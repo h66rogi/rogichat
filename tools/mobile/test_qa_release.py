@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import plistlib
+import shutil
 import tempfile
 import subprocess
 import unittest
@@ -11,6 +12,7 @@ import zipfile
 from release_common import APP_ID, API_URL, ROOT, AppStoreConnect, external, manifest, private_write, sha256, tree_sha256, version_number
 from release_ios import export_options, inspect_ipa
 import release_android
+import release_ios
 from product_guards import EXPECTED_IOS_PRIVACY
 
 
@@ -90,6 +92,66 @@ class ReleaseGuards(unittest.TestCase):
         resource.write_bytes(b"changed")
         with self.assertRaisesRegex(ValueError, "Archive contents"):
             manifest(self.path, "ios")
+
+    def test_xcode_upload_metadata_changes_only_independent_working_archive(self):
+        archive = self.root / "App.xcarchive"
+        archive.mkdir()
+        info = archive / "Info.plist"
+        info.write_bytes(plistlib.dumps({"ApplicationProperties": {"ApplicationPath": "Applications/App.app"}}))
+        ipa = self.root / "App.ipa"
+        ipa.write_bytes(b"validated IPA")
+        self.value.update(platform="ios", commit="a" * 40, archive_path=str(archive), archive_sha256=tree_sha256(archive), apple_validated=True,
+                          artifacts={"archive_info": {"path": str(info), "sha256": sha256(info)}, "ipa": {"path": str(ipa), "sha256": sha256(ipa)}})
+        self.write()
+        manifest_hash = sha256(self.path)
+
+        def xcode_upload(command, log):
+            working = Path(command[command.index("-archivePath") + 1])
+            self.assertNotEqual(working, archive)
+            self.assertEqual(tree_sha256(working), self.value["archive_sha256"])
+            metadata = plistlib.loads((working / "Info.plist").read_bytes())
+            metadata["Distributions"] = [{"destination": "upload"}]
+            (working / "Info.plist").write_bytes(plistlib.dumps(metadata))
+
+        with patch.object(release_ios, "AppStoreConnect") as apple, patch.object(release_ios, "unlock_signing"), \
+                patch.object(release_ios, "inspect_archive"), patch.object(release_ios, "run", side_effect=xcode_upload), patch("builtins.print"):
+            apple.return_value.builds.return_value = []
+            apple.return_value.signing_args.return_value = []
+            release_ios.upload({"ios": {"team_id": "fixture"}}, self.path)
+        self.assertEqual(sha256(self.path), manifest_hash)
+        self.assertEqual(tree_sha256(archive), self.value["archive_sha256"])
+        self.assertNotIn("Distributions", plistlib.loads(info.read_bytes()))
+        self.assertIn("Distributions", plistlib.loads((self.root / "UploadWorking.xcarchive/Info.plist").read_bytes()))
+        manifest(self.path, "ios", uploading=True)
+        receipt = json.loads((self.root / "testflight-upload-attempt.json").read_text())
+        self.assertEqual(receipt["state"], "transport_completed")
+        self.assertEqual(receipt["archive_sha256"], self.value["archive_sha256"])
+
+    def test_corrupted_upload_copy_is_rejected_before_external_upload(self):
+        archive = self.root / "App.xcarchive"
+        archive.mkdir()
+        (archive / "Info.plist").write_bytes(b"canonical metadata")
+        expected = tree_sha256(archive)
+        copytree = shutil.copytree
+
+        def damaged_copy(source, target, **options):
+            copytree(source, target, **options)
+            (target / "Info.plist").write_bytes(b"damaged copy")
+
+        with patch.object(release_ios.shutil, "copytree", side_effect=damaged_copy):
+            with self.assertRaisesRegex(ValueError, "working archive differs"):
+                release_ios.upload_working_archive(archive, self.root, expected)
+        self.assertEqual(tree_sha256(archive), expected)
+
+    def test_upload_copy_rejects_links_back_to_canonical_or_external_resources(self):
+        archive = self.root / "App.xcarchive"
+        archive.mkdir()
+        metadata = archive / "Info.plist"
+        metadata.write_bytes(b"canonical metadata")
+        (archive / "alias").symlink_to(metadata)
+        with self.assertRaisesRegex(ValueError, "independent working copy"):
+            release_ios.upload_working_archive(archive, self.root, tree_sha256(archive))
+        self.assertEqual(metadata.read_bytes(), b"canonical metadata")
 
     def test_firebase_target_is_checked_before_upload(self):
         self.write()

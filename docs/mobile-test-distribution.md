@@ -165,3 +165,10 @@ CI/PR에 제공하지 않으며 CI에서 Firebase/TestFlight 업로드를 수행
 [App Tester 설정](https://firebase.google.com/docs/app-distribution/get-set-up-as-a-tester?platform=android),
 [Apple 빌드 업로드](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/),
 [TestFlight](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview/).
+
+## 업로드 후 확인 명령
+
+APK 업로드와 TestFlight 전송 이후 승인된 테스터 분배, 원격 산출물·테스트 내용·내부 그룹
+확인은 [모바일 QA 업로드 후 확인](mobile-release-finalization.md)을 따른다. 명시적 로컬
+운영자 명령이며 업로드를 다시 실행하지 않는다. 외부 journal로 중복 실행과 불확실한
+응답을 관리하고, 실제 원격 읽기 확인까지 통과해야 해당 단계를 완료로 기록한다.

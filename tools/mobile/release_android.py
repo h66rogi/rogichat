@@ -6,7 +6,7 @@ import shutil
 import subprocess
 import urllib.request
 
-from release_common import APP_ID, API_URL, ROOT, capture, external, manifest, new_output, private_write, required, run, save_manifest, sha256
+from release_common import APP_ID, API_URL, ROOT, capture, cli_environment, external, manifest, new_output, private_write, required, run, save_manifest, sha256
 from product_guards import inspect_android_package, inspect_product_sources
 
 BUNDLETOOL_VERSION = "1.18.3"
@@ -90,7 +90,7 @@ def firebase_json(arguments, directory):
     directory = external(directory)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     result = subprocess.run(["firebase", *arguments, "--json", "--non-interactive"],
-                            cwd=directory, capture_output=True, text=True)
+                            cwd=directory, env=cli_environment(), capture_output=True, text=True)
     log = directory / ("firebase-" + arguments[0].replace(":", "-") + ".log")
     private_write(log, result.stdout + "\n" + result.stderr)
     if result.returncode:

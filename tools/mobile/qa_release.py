@@ -11,6 +11,7 @@ import sys
 from release_common import APP_ID, DEFAULT_CONFIG, AppStoreConnect, config, external, private_write, run, version_name, version_number
 import release_android
 import release_ios
+import release_finalize
 
 
 def init_android(cfg):
@@ -74,6 +75,13 @@ def main():
         sub.add_argument("--manifest", type=Path, required=True)
     sub = commands.add_parser("ios-status")
     sub.add_argument("--build-number", type=version_number)
+    sub = commands.add_parser("android-finalize", help="Verify uploaded APK and distribute only to the approved private tester file")
+    sub.add_argument("--manifest", type=Path, required=True)
+    sub.add_argument("--testers-file", type=Path, required=True)
+    sub = commands.add_parser("ios-finalize", help="Verify the uploaded QA build, Korean notes and configured internal group")
+    sub.add_argument("--manifest", type=Path, required=True)
+    sub.add_argument("--notes-file", type=Path, required=True)
+    sub.add_argument("--wait-seconds", type=int, default=0)
     args = parser.parse_args()
     os.umask(0o077)
     cfg = config(args.config)
@@ -93,6 +101,10 @@ def main():
         release_ios.upload(cfg, args.manifest)
     elif args.command == "ios-status":
         release_ios.status(cfg, args.build_number)
+    elif args.command == "android-finalize":
+        release_finalize.android(cfg, args.manifest, args.testers_file)
+    elif args.command == "ios-finalize":
+        release_finalize.ios(cfg, args.manifest, args.notes_file, args.wait_seconds)
 
 
 if __name__ == "__main__":
