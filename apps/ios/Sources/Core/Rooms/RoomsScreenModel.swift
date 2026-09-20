@@ -12,6 +12,8 @@ final class RoomsScreenModel {
     var listing: RoomsListing? { state.value }
     var loading: Bool { state.isLoading }
     private(set) var loadingMore = false
+    private(set) var openingConversation = false
+    private(set) var conversation: ConversationScreenModel?
     private(set) var error: String?
     private(set) var notice: String?
     private(set) var commandAction: RoomCommandAction?
@@ -22,7 +24,7 @@ final class RoomsScreenModel {
     private var commandTask: Task<Void, Never>?
     init(repository: any RoomsCoordinating, scope: RoomsScope) { self.repository = repository; self.scope = scope }
     var canAct: Bool {
-        actions.permits(cycle: listing?.cycle) && commandTask == nil && !loading && !loadingMore && (try? scope.check()) != nil
+        actions.permits(cycle: listing?.cycle) && commandTask == nil && !loading && !loadingMore && !openingConversation && (try? scope.check()) != nil
     }
     var needsConfirmation: Bool { listing != nil && !actions.permits(cycle: listing?.cycle) && !loading && commandTask == nil }
     func refreshIfNeeded() async {
@@ -63,6 +65,21 @@ final class RoomsScreenModel {
             guard ticket == revision, !Task.isCancelled else { return }
             self.error = Self.message(error)
         }
+    }
+    func openConversation(roomID: String, displayedCycle: String?) async -> Bool {
+        guard canAct, let cycle = displayedCycle, actions.permits(cycle: cycle),
+              let opener = repository as? any RoomsConversationOpening else { return false }
+        openingConversation = true; defer { openingConversation = false }
+        do {
+            let coordinator = try await opener.openConversation(roomID: roomID, cycle: cycle)
+            try scope.check()
+            guard actions.permits(cycle: cycle), !Task.isCancelled else { return false }
+            if conversation?.scope !== coordinator.scope { conversation = ConversationScreenModel(coordinator: coordinator) }
+            return true
+        } catch { self.error = (error as? LocalizedError)?.errorDescription ?? "대화를 열지 못했어요. 다시 확인해 주세요."; return false }
+    }
+    func closeConversation() {
+        conversation = nil; actions.close(working: false); error = nil
     }
     func selection(roomID: String, roomName: String, displayedCycle: String?, action: RoomCommandAction, membership: String?) -> RoomCommandIntent? {
         guard canAct, let cycle = displayedCycle, actions.permits(cycle: cycle) else { return nil }
@@ -112,5 +129,7 @@ final class RoomsFeatureOwner {
         current = (scope, model)
         return model
     }
+    var conversation: ConversationScreenModel? { current?.model.conversation }
+    func closeConversation() { current?.model.closeConversation() }
     func clear() { current = nil }
 }

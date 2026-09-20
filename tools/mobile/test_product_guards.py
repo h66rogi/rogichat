@@ -143,6 +143,22 @@ class ProductGuardsTest(unittest.TestCase):
         for format in (plistlib.FMT_XML, plistlib.FMT_BINARY):
             inspect_ios_privacy(plistlib.dumps(EXPECTED_IOS_PRIVACY, fmt=format), "fixture")
 
+    def test_pre_conversation_declaration_cannot_ship_in_app_or_ipa(self):
+        declaration = deepcopy(EXPECTED_IOS_PRIVACY)
+        declaration["NSPrivacyCollectedDataTypes"] = [
+            item for item in declaration["NSPrivacyCollectedDataTypes"]
+            if item["NSPrivacyCollectedDataType"] != "NSPrivacyCollectedDataTypeEmailsOrTextMessages"
+        ]
+        entries = {"Rogichat": b"real code", "PrivacyInfo.xcprivacy": plistlib.dumps(declaration), **sdk_resources()}
+        for name, data in entries.items():
+            self.write("Rogichat.app/" + name, data.decode())
+        with self.assertRaisesRegex(ValueError, "privacy manifest"):
+            inspect_ios_app(self.root / "Rogichat.app", "Rogichat")
+        prefix = "Payload/Rogichat.app/"
+        archive = self.package("old-privacy.ipa", {prefix + name: data for name, data in entries.items()})
+        with zipfile.ZipFile(archive) as package, self.assertRaisesRegex(ValueError, "privacy manifest"):
+            inspect_ios_package(package, prefix, "Rogichat")
+
     def test_wrong_reason_category_collection_and_tracking_fail_closed(self):
         mutations = []
         for key, value in (("NSPrivacyTracking", True), ("NSPrivacyTracking", 0),

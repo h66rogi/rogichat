@@ -55,7 +55,7 @@ final class NativeSessionDelegate: NSObject, URLSessionTaskDelegate, Sendable {
         } else { completionHandler(.cancelAuthenticationChallenge, nil) }
     }
 }
-actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsRequesting, RoomsCommandRequesting, AccountDeletionRequesting {
+actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsRequesting, RoomsCommandRequesting, AccountDeletionRequesting, ConversationRequesting {
     private let environment: NativeEnvironment
     private let session: URLSession
     init(environment: NativeEnvironment) {
@@ -171,6 +171,28 @@ actor NativeAPIClient: NativeRequesting, SOOPRequesting, M11Requesting, RoomsReq
         catch {
             if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
             throw RoomsError.connection
+        }
+    }
+    func performConversation(_ endpoint: ConversationEndpoint, credential: NativeCredential, scope: ConversationScope) async throws -> Data {
+        try scope.check()
+        let request = try endpoint.request(environment: environment, credential: credential, scope: scope)
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            try scope.check()
+            guard let response = response as? HTTPURLResponse, response.url == request.url else { throw ConversationError.invalidResponse }
+            if response.statusCode == 401 { throw ProductError.unauthenticated }
+            guard response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ConversationError.invalidResponse }
+            let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
+            try scope.check()
+            guard response.statusCode == 200 else { throw ConversationEndpoint.error(data: data, status: response.statusCode, writing: endpoint.isSending) }
+            return data
+        } catch let error as ConversationError { throw error }
+        catch let error as ProductError { throw error }
+        catch let error as RoomsError { throw error }
+        catch {
+            if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled { throw CancellationError() }
+            throw ConversationError.unavailable
         }
     }
     func performAccountDeletion(credential: NativeCredential, permit: AccountDeletionPermit) async throws -> AccountDeletionResponse {

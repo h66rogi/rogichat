@@ -136,7 +136,7 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
 }
 
 @Composable
-fun RoomsScreen(model: RoomsViewModel) {
+fun RoomsScreen(model: RoomsViewModel, onOpen: ((Membership, RoomId) -> Unit)? = null) {
     val state by model.state.collectAsStateWithLifecycle()
     val directory = state.directory
     val command = state.command
@@ -183,7 +183,8 @@ fun RoomsScreen(model: RoomsViewModel) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(directory.memberships, key = { "member-${it.roomId.value}" }) { room ->
-                    RoomRow(room.name, room.mode, "나가기", enabled = !state.loadingMore) {
+                    RoomRow(room.name, room.mode, "나가기", enabled = !state.loadingMore,
+                        onOpen = onOpen?.let { open -> { open(room, directory.cycle) } }) {
                         leaveTarget = room to model.leaveIntent(room, directory.cycle)
                     }
                 }
@@ -209,12 +210,13 @@ fun RoomsScreen(model: RoomsViewModel) {
 }
 
 @Composable
-private fun RoomRow(name: String, mode: RoomMode, action: String, enabled: Boolean, onAction: () -> Unit) {
-    // Keep long names and large-font actions on separate rows; no unimplemented chat navigation.
+private fun RoomRow(name: String, mode: RoomMode, action: String, enabled: Boolean, onOpen: (() -> Unit)? = null, onAction: () -> Unit) {
+    // Keep long names and large-font actions on separate rows.
     Column {
         ListItem(headlineContent = { Text(name) }, supportingContent = { Text(if (mode == RoomMode.FAN) "팬 대화" else "그룹 대화") },
             leadingContent = { Icon(PhosphorIcons.Regular.ChatCircle, null, Modifier.size(28.dp), MaterialTheme.colorScheme.primary) })
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.End) {
+            if (onOpen != null) TextButton(onClick = onOpen, enabled = enabled, modifier = Modifier.semantics { contentDescription = "$name 열기" }) { Text("열기") }
             TextButton(onClick = onAction, enabled = enabled, modifier = Modifier.semantics { contentDescription = "$name $action" }) { Text(action) }
         }
     }

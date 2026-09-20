@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 # Native profile writes transmit a screen name and optional birthday/preferences
 # to the account's server record. Sync also transmits an installation UUID bound
 # to the authenticated account; do not assume an unverified ephemeral exemption.
+# Native TEXT commands also send account-linked message bodies and recipients.
 # Appearance remains app-private UserDefaults.
 # New data flows or required-reason APIs must update declaration and policy together.
 EXPECTED_IOS_PRIVACY = {
@@ -28,7 +29,7 @@ EXPECTED_IOS_PRIVACY = {
             "NSPrivacyCollectedDataTypePurposes": ["NSPrivacyCollectedDataTypePurposeAppFunctionality"],
         }
         for category in ("NSPrivacyCollectedDataTypeUserID", "NSPrivacyCollectedDataTypeOtherDataTypes",
-                         "NSPrivacyCollectedDataTypeDeviceID")
+                         "NSPrivacyCollectedDataTypeDeviceID", "NSPrivacyCollectedDataTypeEmailsOrTextMessages")
     ],
     "NSPrivacyAccessedAPITypes": [{
         "NSPrivacyAccessedAPIType": "NSPrivacyAccessedAPICategoryUserDefaults",
@@ -78,7 +79,7 @@ def inspect_ios_privacy(data: bytes, label: str):
             or any(type(item[key]) is not bool
                    for item in declaration["NSPrivacyCollectedDataTypes"]
                    for key in ("NSPrivacyCollectedDataTypeLinked", "NSPrivacyCollectedDataTypeTracking"))):
-        raise ValueError(f"{label}: iOS privacy manifest must match profile/sync data and app-private UserDefaults use")
+        raise ValueError(f"{label}: iOS privacy manifest must match profile/sync/message data and app-private UserDefaults use")
 
 
 def inspect_ios_app(app: Path, executable_name: str):

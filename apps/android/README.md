@@ -91,8 +91,7 @@ room access stays closed and never falls back to `account.userId`. Discovery pag
 are separate from membership authority: only all pages of one complete manifest
 generation replace the account's membership set. Reset, duplicate/loop cursors,
 unknown schema, stale credentials and partial/error responses cannot manufacture
-an empty or joined state. Directory rows expose only the implemented participation commands; no unimplemented
-chat-opening action is shown.
+an empty or joined state. Joined directory rows open the native conversation with their originally rendered membership and directory cycle; participation commands retain the same original-scope admission.
 
 Room 2.8.5 with KSP 2.3.12 provides an actual on-disk, no-backup database per environment
 and account partition. Staging/effects/checkpoint changes commit in one transaction
@@ -101,8 +100,7 @@ Credential or partition changes hide private state before durable cleanup, and a
 failed cleanup marker prevents a cold open from reviving old authority. A fresh
 manifest is required after process restart. DB failures remain errors; no destructive
 migration fallback is configured. Versioned schema exports and isolated SQLite
-rollback/reopen tests live under `src/androidTest`. The room cache has no message/profile, outbox/draft or receipt tables. Timeline
-and socket implementations remain outside this slice.
+rollback/reopen tests live under `src/androidTest`. Database v2 adds conversation projections, profile staging, cursor checkpoints and immutable TEXT commands through a non-destructive v1 migration. No message draft or credential is stored in shared preferences.
 Source contract tests do not establish hosted schema-v2 rollout or live account success.
 
 
@@ -131,7 +129,7 @@ an earlier timed-out command has terminated. A later server commit remains possi
 The wire contract has no expected membership scope or idempotency receipt for
 join/leave; the app does not invent one or claim cross-device period-specific CAS.
 The user can issue a new explicit choice after current state is confirmed. Native
-message/timeline/composer and room policy-management flows remain outside this slice.
+room policy-management flows remain outside this slice.
 
 
 Account deletion admission uses one explicit native `DELETE /v1/me/account` with
@@ -164,3 +162,37 @@ The former unimplemented parameterless account-close action is removed.
 Provider, guard-key/ledger activation, physical deletion and backup retirement
 remain server/operations release gates. Tests use isolated namespaces and never
 submit a real account deletion request.
+
+
+The native conversation uses the same environment-scoped Bearer client and account
+Room database. Its wire contract is the combined C04/C05/C06 source
+`f9197a31d61b7c34256e92f0bcb73ee255275d40`: schema 2, opaque M/A, immutable
+millisecond/UUID display order and lossless decimal versions. Foreground polling,
+history pagination, actual private-recipient discovery and authorized quoted TEXT
+replies operate on the originally selected account, membership and directory cycle.
+Meloming Talk/TalkV2 UX is not reused. Existing common navigation, theme, repository,
+HTTP client and lifecycle implementations are reused.
+
+A user command commits to SQLite before one session-owned POST. UI cancellation
+cannot abandon ownership after that commit. Process recovery first verifies the
+credential binding, server generation and account partition, then obtains fresh
+complete membership authority; it never sends a stored command again. Unknown
+outcomes use receipt GET only, and receipt 404 remains unknown. Confirmed receipts
+map command IDs to message IDs without text/time matching. Stored is not delivered
+or read. Commands retire only after an authoritative projection or deleted receipt;
+unresolved payloads have no automatic eviction. A full pending store rejects new
+admission visibly rather than dropping an old command.
+
+A complete manifest's missing/changed M removes old room payload. A-only changes
+withdraw old projections while keeping the original unresolved command for receipt
+lookup; its M/recipient/body are never rebound. Room-authority errors close private
+content, whereas an individual message GET 403/404 hides only that projection and
+keeps its confirmed receipt without exposing the original command body as fallback.
+Equal-version C05 updates replace projections and refresh or remove quoted drafts.
+All UI publication shares a synchronous fence with account/directory invalidation,
+and all SQLite commits remain under the credential lifecycle mutex.
+
+Source/unit/SQLite fixture checks do not establish backend rollout, native broker
+availability, a live two-account exchange or store distribution. Runtime samples,
+synthetic sessions, automatic POST replay, unread/read reporting and socket-based
+claims are not part of this implementation.

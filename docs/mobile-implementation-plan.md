@@ -113,7 +113,8 @@ KMP/TCA 등 추가 아키텍처 프레임워크 도입은 이번 기반 작업 �
   재확인한다. 경고를 blanket `@unchecked Sendable`로 숨기지 않는다.
 - 제품 화면·상태 모델·앱 조립부는 main/shared 영역에 둔다. QA/prod는 같은 제품 경로를
   실행하고 endpoint·식별자·서명 등 환경 설정을 분리한다. 실제 계정/권한에 따른 분기는 유지한다.
-  합성 계정·방·역할 선택·preview 진입·fake adapter는 test 또는 개발 preview target에만 둔다.
+  합성 계정·방·역할 선택·fake adapter는 격리된 자동 테스트에만 둔다. 제품 runtime과
+  QA/prod target에 preview 진입이나 sample content를 넣지 않는다.
   QA flavor/`ROGICHAT_QA` 자체는 테스트 코드 격리 조건이 아니다. TestFlight/App Distribution
   산출물에도 합성 진입이 없어야 한다. 인증 전 private 화면은 양 환경 모두 실제 gate로 차단한다.
 - 원본 고정 endpoint/ID/브랜드/서명/분석·결제·방송·고객지원 SDK를 제거한다. 사용자 재사용
@@ -153,7 +154,7 @@ ID를 승계하지 않는다. 인증 completion은 content route hint와 별도 
 것과 사용자 변경 command를 분리하고, 빠른 연속 토글은 직렬화 또는 revision으로 최신 의도를
 보장한다. 실패 rollback이 더 최근 선택을 덮어쓰지 않아야 한다. destructive action은 확인
 화면을 거친다. 실제 API 미연결 기능을 `저장 준비 중`·가짜 성공·작동하지 않는 메뉴로
-배포하지 않는다. 화면/상태 모델은 완성하고 개발 preview와 테스트에서 상태를 검증한다.
+배포하지 않는다. 화면/상태 모델은 완성하고 격리된 자동 테스트에서 상태를 검증한다.
 필수 인증·계정 기능의 미연결은 통합 완료를 막는 블로커로 기록한다. 선택 기능은 완성될 때
 제품 탐색에 연결한다. 실제 서비스 오류·빈 상태는 사용자에게 필요한 안내와 가능한 행동을 제공한다.
 
@@ -289,8 +290,8 @@ mapper가 변환한다. 약관 필요 상태와 연결 진행/취소 상태는 A
 - Apple identity 철회·SOOP 재검증·정지·탈퇴 결과를 서버와 앱에 연결한다. 로그아웃/탈퇴 시
   socket, 진행 요청, DB 관찰, 전송 작업을 정지하고 계정 데이터를 제거한다.
 
-실제 provider 연동이 막혀 있는 동안 화면과 상태 처리는 제품 코드로 개발하고 test/개발
-preview에서 검증한다. **QA Release의 synthetic adapter 허용 정책은 폐기한다.**
+실제 provider 연동이 막혀 있는 동안 화면과 상태 처리는 제품 코드로 개발하고 격리된 자동
+테스트에서 검증한다. **QA Release의 synthetic adapter 허용 정책은 폐기한다.**
 QA/prod 배포 산출물 모두 fixture/preview 진입이 없어야 한다. QA에서만 가짜 로그인으로
 완성된 앱처럼 이동시키거나 prod를 별도의 축소된 시작 화면으로 유지하지 않는다.
 hosted QA의 mock login·고정 사용자 토큰·인증 우회도 금지한다.
@@ -499,6 +500,20 @@ manifest로 전체 참여 상태를 재확인한다. 표시한 원본 scope/cycl
 GET의 현재 상태는 이전 POST 종료나 실패의 증거가 아니다. 결과 불명 안내는 조회 오류와
 분리하고 old row callback·A→B→A·late response·DB 실패 회귀로 검증한다. 이 후속을 별도
 메시지 단계로 바꾸지 않으며 MB04b/c의 cache/outbox/SEND 범위와 gate는 유지한다.
+
+2026-09-20 실행에서는 MB04b/c의 실제 TEXT·수신·history·재시작 복구와 동시에 MB05–07의
+독립 구현을 진행한다. 미디어, 메시지 동작·읽음·스크롤 복원, Apple/SOOP·push worker는
+각자의 typed feature 코드를 소유한다. 각 OS의 기존 작성자가 보호 세션·원래 계정 DB·HTTP·
+앱 조립·navigation·플랫폼 설정을 단독 소유하며 이 코드를 실제 제품 경로에 연결한다.
+helper 작성·타입검사만으로 기능 완료라고 기록하지 않는다. 별도 테스트 배포를 작은 변경마다
+만들지 않고 사용할 수 있는 대화 흐름과 검증 결과를 묶어 서명·배포한다.
+
+현재 명령의 원래 M과 계정·credential 세대를 유지한다. 완전 manifest에서 M이 바뀌거나
+방이 빠지면 이전 본문·인용·프로필·outbox payload가 새 참여 화면에 나타나지 않도록 정리한다.
+A만 바뀌면 현재 projection/cache를 새로 확인하되 원래 M의 불명 전송을 새 SEND로 바꾸지
+않는다. 개별 메시지의 403/404는 해당 projection의 표시 중단이며 방 권한 상실·삭제 완료로
+추정하지 않는다. 서버 저장을 확인했더라도 현재 허용된 projection이 없는 메시지의 본문을
+옛 outbox에서 대신 표시하지 않는다. 이 경계는 양 OS 실제 저장소와 화면 모델 회귀로 확인한다.
 
 ### MB02 실행 분할과 현재 우선순위
 

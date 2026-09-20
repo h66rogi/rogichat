@@ -24,7 +24,7 @@ Swift 6 / SwiftUI, iOS 18 이상, iPhone 전용 앱이다. QA와 prod는 같은
   시스템 인증 브라우저의 HTTPS 반환을 검증한다. 보호된 임시 증명과 인증 epoch를 저장하며
   교환은 한 번만 요청한다. 취소·로그아웃·새 작업·프로세스 재시작과 늦은 응답을 구분한다.
   QA/prod의 `applinks`와 `webcredentials`는 각 환경 도메인에 한정된다.
-- Apple 로그인·채팅 발신은 실제 계약이 연결될 때까지 활성화하지 않는다. 토큰 입력·
+- Apple 로그인은 실제 계약이 연결될 때까지 활성화하지 않는다. 토큰 입력·
   합성 계정·샘플 방은 없다. 실제 SOOP 발급은 서버 배포, 도메인 연결 및 공식 provider subject
   검증에 달려 있다. 404/503이나 연결 오류를 성공으로 표시하지 않으며, 이 구현의 빌드·자동
   검증은 실제 기기/provider 로그인 성공을 의미하지 않는다.
@@ -55,17 +55,34 @@ Swift 6 / SwiftUI, iOS 18 이상, iPhone 전용 앱이다. QA와 prod는 같은
   응답 유실 뒤 GET은 그 시점의 참여 상태만 보여주며 앞선 POST 종료/실패를 증명하지 않는다.
   자동 POST 반복·취소 완료·낙관적 성공을 만들지 않는다. 서버의 현재 멤버십에 적용되는 `{}`
   계약을 따르며, 다른 기기의 leave/rejoin을 특정 참여 기간 CAS로 막았다고 주장하지 않는다.
-  메시지 저장/발송과 outbox는 포함하지 않는다. 서버 schema 2와 모바일·웹의
-  동시 전환 및 실제 사용자 세션 검증은 배포 단계의 별도 조건이다.
+  서버 schema 2와 모바일·웹의 동시 전환 및 실제 사용자 세션 검증은 배포 단계의 별도 조건이다.
+- 참여한 방은 확정 manifest의 계정·M/A·목록 세대에 묶어 열린다. 최초 snapshot, 이전 history,
+  foreground events 조회와 완전한 profile cycle을 실제 API에 연결한다. 메시지는 UTC 밀리초와
+  UUID 순서로 표시하며 uint64 버전을 숫자 손실 없이 저장한다. 권한 변경/reset은 해당 캐시를
+  닫고 새로운 목록 확인을 요구한다. 같은 캐시의 삭제 기록은 높은 버전의 늦은 응답도 거부한다.
+- TEXT 발송은 NFC 정규화한 원문과 원래 참여 기간·수신 대상·인용을 SQLite outbox에 먼저
+  COMMIT한 뒤 한 번 요청한다. 화면 이탈은 전송을 재시도하지 않는다. 응답 유실/재시작은
+  GET receipt로만 확인하고, 404는 확인 불가로 유지한다. 저장 ACK를 전달·읽음으로 표시하지
+  않는다. 삭제 receipt는 보존 본문을 제거하며, 재입장한 기간으로 이전 명령을 바꿔 보내지 않는다.
+- 비공개 새 수신자는 FAN의 실제 private-recipients API로 조회한다. 인용 답장은 최신 C05
+  allowedActions와 SHARED 작성자/PRIVATE counterpart를 검사한 후 원래 대상에 고정한다.
+  프로필 목록을 발송 권한으로 사용하지 않는다. 사진·영상·스티커는 수신 유형만 표시하며
+  이번 구현에서 업로드, 미디어 뷰어, 공개/삭제 조작, 읽음 보고, socket/push는 연결하지 않는다.
+  이 대화 기능의 계약 기준은 backend `f9197a31d61b7c34256e92f0bcb73ee255275d40`이며,
+  앱 자동화 통과와 운영 API 배포·실계정 대화 성공은 별도로 검증한다.
 - GRDB는 7.11.1을 고정한다. `Packages/RogichatRooms`가 실제 앱 dependency이며,
   라이선스는 앱 정보에 표시한다. 저장소는 WAL/FULL, 백업 제외와 iOS complete 파일 보호를
   사용한다. 종료 중 실패한 삭제는 다음 실행에서 완료해야 한다.
 - 동기화 `deviceId`는 첫 저장소 수명주기 작업에서 생성한 환경별 임의 UUID다. 백업 제외
   보호 파일에 저장하고, 로그아웃·계정 전환 후에도 유지하며 재설치·앱 데이터 삭제 시 바뀐다.
-  인증된 `GET /v1/sync`의 query로만 보내며 IDFA/IDFV나 분석 SDK를 사용하지 않는다.
+  인증된 manifest 및 방 snapshot/events/history/profile-sync query로 보내며 IDFA/IDFV나
+  분석 SDK를 사용하지 않는다.
   서버는 인증 계정과 함께 cursor를 묶는 데 사용한다. 로그의 모든 오류 경로까지 일시적
   처리만을 보장한다고 주장하지 않고, privacy manifest에는 계정에 연결된 Device ID를
   앱 기능 목적으로 보수적으로 선언한다. 추적에는 사용하지 않는다.
+- 실제 TEXT 요청에는 본문·보내는 계정·받는 actor·인용 식별자가 포함된다. PrivacyInfo에는
+  계정에 연결된 EmailsOrTextMessages를 앱 기능 목적으로 선언한다. 추적 또는 사진/영상
+  업로드 수집으로 확대하지 않으며 App Store 공개 응답의 제출·승인을 대신하지 않는다.
 - 테스트 fixture는 `Tests/Fixtures`, 제품 상태 검증은 `Tests/Product`에 있다.
   Xcode는 `Sources`, Resources와 `RogichatRooms` product만 포함하며 SwiftPM Tests는 배포하지 않는다.
 

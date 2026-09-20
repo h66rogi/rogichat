@@ -1,6 +1,9 @@
 package chat.rogi.rogichat.core.rooms
 
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
+import chat.rogi.rogichat.core.conversation.*
 import chat.rogi.rogichat.core.network.*
 
 // New schema: the reference application declares Room but contains no database/DAO implementation.
@@ -45,5 +48,23 @@ interface RoomsDao {
 }
 
 @Database(entities = [MembershipRow::class, StagedMembership::class, DiscoveryRow::class,
-    DirectoryCheckpoint::class, PageCheckpoint::class], version = 1, exportSchema = true)
-abstract class RoomsDatabase : RoomDatabase() { abstract fun rooms(): RoomsDao }
+    DirectoryCheckpoint::class, PageCheckpoint::class, ConversationOwner::class, ConversationCheckpoint::class,
+    ConversationMessageRow::class, ConversationProfileRow::class, ConversationProfileStage::class,
+    ConversationPage::class, ConversationOutboxRow::class], version = 2, exportSchema = true)
+abstract class RoomsDatabase : RoomDatabase() {
+    abstract fun rooms(): RoomsDao
+    abstract fun conversation(): ConversationDao
+    companion object {
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS conversation_owner (id INTEGER NOT NULL, credentialBinding TEXT NOT NULL, serverGeneration TEXT NOT NULL, PRIMARY KEY(id))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS conversation_checkpoints (roomId TEXT NOT NULL, cacheId TEXT NOT NULL, membership TEXT NOT NULL, authorization TEXT NOT NULL, snapshotComplete INTEGER NOT NULL, eventsCursor TEXT, historyCursor TEXT, profileGeneration TEXT, profileCursor TEXT, profileComplete INTEGER NOT NULL, PRIMARY KEY(roomId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS conversation_messages (roomId TEXT NOT NULL, messageId TEXT NOT NULL, version TEXT NOT NULL, createdAtMs INTEGER, deleted INTEGER NOT NULL, body TEXT, PRIMARY KEY(roomId, messageId))")
+                for (table in listOf("conversation_profiles", "conversation_profile_staging"))
+                    db.execSQL("CREATE TABLE IF NOT EXISTS $table (roomId TEXT NOT NULL, actorId TEXT NOT NULL, nickname TEXT NOT NULL, avatar TEXT, role TEXT NOT NULL, month INTEGER, day INTEGER, PRIMARY KEY(roomId, actorId))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS conversation_pages (roomId TEXT NOT NULL, purpose TEXT NOT NULL, cursor TEXT NOT NULL, PRIMARY KEY(roomId, purpose, cursor))")
+                db.execSQL("CREATE TABLE IF NOT EXISTS conversation_outbox (roomId TEXT NOT NULL, clientMessageId TEXT NOT NULL, membership TEXT NOT NULL, authorization TEXT NOT NULL, intent TEXT NOT NULL, recipient TEXT, quote TEXT, text TEXT NOT NULL, createdAtMs INTEGER NOT NULL, phase TEXT NOT NULL, messageId TEXT, version TEXT, errorCode TEXT, PRIMARY KEY(roomId, clientMessageId))")
+            }
+        }
+    }
+}

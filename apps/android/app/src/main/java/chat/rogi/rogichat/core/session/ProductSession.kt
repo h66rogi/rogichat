@@ -74,6 +74,7 @@ class ProductServices(
     val auth: NativeAuthActions? = null,
     val notificationPreferences: NotificationPreferencesRepository? = null,
     val deletion: chat.rogi.rogichat.core.deletion.AccountDeletionActions? = null,
+    val conversations: chat.rogi.rogichat.core.conversation.ConversationRepository? = null,
 ) {
     private val callbackScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     fun receiveAuthCallback(url: String) {

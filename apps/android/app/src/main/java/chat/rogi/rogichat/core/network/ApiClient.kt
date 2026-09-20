@@ -1,5 +1,6 @@
 package chat.rogi.rogichat.core.network
 
+import chat.rogi.rogichat.core.conversation.*
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
@@ -27,7 +28,15 @@ import okhttp3.CookieJar
 enum class ApiRoute(val path: String) { SESSION("auth/session"), LOGOUT("auth/logout"), PROFILE("me/profile"), NOTIFICATION_PREFERENCES("me/notification-preferences"), SOOP_START("auth/native/soop/transactions"), SOOP_EXCHANGE("auth/native/completions/exchange") }
 class ApiException(val statusCode: Int, val code: String?) : Exception("api_request_failed")
 class InvalidResponse : Exception("invalid_response")
+enum class ConversationRoute(val path: String, val cursorRequired: Boolean) {
+    SNAPSHOT("snapshot", false), EVENTS("events", true), HISTORY("history", true), PROFILES("profile-sync", false)
+}
 interface NativeApi {
+    suspend fun getConversation(token: String, room: RoomId, route: ConversationRoute, query: ManifestRequest): String = throw IllegalStateException("operation_unavailable")
+    suspend fun getMessage(token: String, room: RoomId, message: RoomId): String = throw IllegalStateException("operation_unavailable")
+    suspend fun getMessageReceipt(token: String, room: RoomId, command: RoomId): String = throw IllegalStateException("operation_unavailable")
+    suspend fun getPrivateRecipients(token: String, room: RoomId, after: RoomId?): String = throw IllegalStateException("operation_unavailable")
+    suspend fun sendText(token: String, room: RoomId, command: TextCommand): String = throw IllegalStateException("operation_unavailable")
     suspend fun deleteAccount(token: String): String = throw IllegalStateException("operation_unavailable")
     suspend fun joinRoom(token: String, room: RoomId): String = throw IllegalStateException("operation_unavailable")
     suspend fun leaveRoom(token: String, room: RoomId): Unit = throw IllegalStateException("operation_unavailable")
@@ -51,6 +60,24 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         followRedirects = false
         install(HttpTimeout) { requestTimeoutMillis = 20_000; connectTimeoutMillis = 10_000; socketTimeoutMillis = 20_000 }
     }
+    override suspend fun getConversation(token: String, room: RoomId, route: ConversationRoute, query: ManifestRequest): String {
+        require(route != ConversationRoute.SNAPSHOT || query.cursor == null)
+        require(!route.cursorRequired || query.cursor != null)
+        return call(HttpMethod.Get, "rooms/${room.value}/${route.path}", token, query = buildMap {
+            put("deviceId", query.deviceId.value); put("cacheId", query.cacheId.value)
+            // Full message + quote can each contain the maximum TEXT payload; stay below the bounded body reader.
+            put("limit", if (route == ConversationRoute.PROFILES) "100" else "20")
+            query.cursor?.let { put("cursor", it.value) }
+        })
+    }
+    override suspend fun getMessage(token: String, room: RoomId, message: RoomId): String =
+        call(HttpMethod.Get, "rooms/${room.value}/messages/${message.value}", token)
+    override suspend fun getMessageReceipt(token: String, room: RoomId, command: RoomId): String =
+        call(HttpMethod.Get, "rooms/${room.value}/message-commands/${command.value}", token)
+    override suspend fun getPrivateRecipients(token: String, room: RoomId, after: RoomId?): String =
+        call(HttpMethod.Get, "rooms/${room.value}/private-recipients", token, query = after?.let { mapOf("after" to it.value) }.orEmpty())
+    override suspend fun sendText(token: String, room: RoomId, command: TextCommand): String =
+        call(HttpMethod.Post, "rooms/${room.value}/messages", token, command.body())
     override suspend fun deleteAccount(token: String): String = call(HttpMethod.Delete, "me/account", token, "{}", strictDeletion = true)
     override suspend fun joinRoom(token: String, room: RoomId): String = call(HttpMethod.Post, "rooms/${room.value}/join", token, "{}")
     override suspend fun leaveRoom(token: String, room: RoomId) {

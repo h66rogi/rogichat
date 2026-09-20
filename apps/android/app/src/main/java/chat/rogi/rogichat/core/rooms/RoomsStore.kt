@@ -13,7 +13,8 @@ class RoomsResetRequired : Exception("rooms_reset_required")
 
 /** All calls belong to the session coordinator's serialized lifecycle, including transaction commit.
  * validate runs inside the SQLite transaction after writes and before commit. It must not suspend.
- * No credential, account user ID, message or outbox payload is persisted here.
+ * This directory interface has no message payload. The separate ConversationStore extends the same
+ * account database; credentials and raw account user IDs are never persisted in either interface.
  */
 interface RoomsStore {
     suspend fun begin(scope: RoomsAccountScope, validate: () -> Unit): RoomSyncIdentity

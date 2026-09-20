@@ -11,7 +11,10 @@ Apple validation → TestFlight 업로드 순서다. `4e222de`까지의
 이 설명은 기존 TestFlight/App Tester 업로드가 최신 소스라는 뜻이 아니다. 배포된 source SHA와
 build number는 개별 release manifest로 확인한다. 이 도구는 `chat.rogi.rogichat.qa`만 처리한다.
 
-사용자 운영 지시: 단계별 구현·검증·커밋 후 두 QA 배포 경로에 업로드하고 처리/테스터 접근을 확인한다.
+사용자 최신 운영 지시: 로그인·실제 대화·복구처럼 함께 사용할 수 있는 기능 묶음을 구현·검증·
+커밋한 뒤 두 QA 배포 경로에 업로드하고 처리/테스터 접근을 확인한다. 작은 변경마다 별도
+테스터 빌드를 만들거나 그 업로드를 기다리느라 다음 구현을 중단하지 않는다. 순수 검사와
+격리된 hosted CI는 코드 작업과 병렬로 진행하고 로컬 Gradle/Xcode/에뮬레이터는 공유 자원을 조율한다.
 테스터 식별자는 공개 문서에 기록하지 않는다.
 
 `product_guards.py`가 제품 소스와 APK/AAB·iOS 앱/IPA의 기존 합성 host·샘플 계정/방·미리보기
@@ -47,6 +50,11 @@ python3 tools/mobile/qa_release.py doctor
 
 인증 코드는 Mac 터미널에만 입력한다. `doctor`는 Apple QA Bundle ID/App Store Connect
 앱 레코드와 Firebase Android 앱의 package name까지 확인한다.
+
+`zsh: command not found: firebase`는 인증 실패가 아니라 CLI 탐색 경로 문제다. NVM으로
+설치했다면 해당 셸에서 NVM을 불러오고 Firebase CLI를 설치한 Node 버전을 선택한다.
+또는 설치된 `node`와 `firebase-tools/lib/bin/firebase.js`의 절대 경로로 같은 login 명령을
+실행한다. 다른 Node 버전에 중복 설치하거나 기존 로그인·배포 기록을 지울 필요는 없다.
 
 새 환경에서는 QA 전용 Firebase 프로젝트와 Android 앱을 CLI/콘솔로 등록한 후 외부 설정에
 ID를 넣는다. App Store Connect에는 iOS 앱을 이름 `로기챗 QA`, 기본 언어 한국어,

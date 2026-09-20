@@ -6,11 +6,18 @@ The historical command name remains compatible with existing local scripts.
 import argparse
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 from product_guards import inspect_product_sources
 from ios_dependencies import inspect_ios_dependencies
 
 ROOT = Path(__file__).resolve().parents[2]
+CONVERSATION_CONTRACTS = [
+    "Packages/RogichatRooms/Sources/RogichatRooms/ConversationContract.swift",
+    "Packages/RogichatRooms/Sources/RogichatRooms/ConversationSync.swift",
+    "Packages/RogichatRooms/Sources/RogichatRooms/ConversationProfiles.swift",
+    "Packages/RogichatRooms/Sources/RogichatRooms/TextCommand.swift",
+]
 
 
 def run_checks(sdk, directory, name, sources):
@@ -47,6 +54,7 @@ def main():
             "Sources/Features/Settings/ProfileDraft.swift",
             "Sources/Core/Notifications/M11Contract.swift",
             "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
+            *CONVERSATION_CONTRACTS,
             "Sources/Core/AccountDeletion/AccountDeletionState.swift",
             "Sources/Core/Session/AppSession.swift",
             "Tests/Product/ProductStateChecks.swift",
@@ -58,7 +66,9 @@ def main():
             "Sources/Core/Notifications/M11Contract.swift",
             "Sources/Core/Notifications/M11Endpoint.swift",
             "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
+            *CONVERSATION_CONTRACTS,
             "Sources/Core/Rooms/RoomsEndpoint.swift",
+            "Sources/Core/Conversation/ConversationEndpoint.swift",
             "Sources/Core/AccountDeletion/AccountDeletionState.swift",
             "Sources/Core/Session/AppSession.swift",
             "Sources/Core/AccountDeletion/AccountDeletionContract.swift",
@@ -84,6 +94,9 @@ def main():
         run_checks(sdk, Path(temporary), "rooms-transport-checks", [
             *native_sources, "Tests/Product/RoomsTransportChecks.swift",
         ])
+        run_checks(sdk, Path(temporary), "conversation-transport-checks", [
+            *native_sources, "Tests/Product/ConversationTransportChecks.swift",
+        ])
         run_checks(sdk, Path(temporary), "account-deletion-checks", [
             *native_sources, "Tests/Product/AccountDeletionChecks.swift",
         ])
@@ -93,11 +106,20 @@ def main():
             "Sources/Features/Settings/ProfileDraft.swift",
             "Sources/Core/Notifications/M11Contract.swift",
             "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
+            *CONVERSATION_CONTRACTS,
             "Sources/Core/AccountDeletion/AccountDeletionState.swift",
             "Sources/Core/Session/AppSession.swift",
             "Sources/Core/State/Loadable.swift",
             "Sources/Core/Rooms/RoomsScreenModel.swift",
+            "Sources/Features/Conversation/ConversationScreenModel.swift",
             "Tests/Product/RoomsModelChecks.swift",
+        ])
+        run_checks(sdk, Path(temporary), "conversation-model-checks", [
+            "Packages/RogichatRooms/Sources/RogichatRooms/RoomsContract.swift",
+            *CONVERSATION_CONTRACTS,
+            "Sources/Core/State/Loadable.swift",
+            "Sources/Features/Conversation/ConversationScreenModel.swift",
+            "Tests/Product/ConversationModelChecks.swift",
         ])
     # Run real on-disk SQLite/GRDB regressions on the macOS host. The device SDK
     # build separately validates iOS packaging; no simulator or app test mode.
@@ -106,6 +128,10 @@ def main():
         "--scratch-path", str(args.package_scratch.resolve()), "--force-resolved-versions",
         "--cache-path", str(args.package_cache.resolve()), "--manifest-cache", "local",
         "--jobs", "2", "-Xswiftc", "-strict-concurrency=complete",
+    ], check=True)
+    subprocess.run([
+        sys.executable, str(ROOT / "tools/mobile/check_ios_conversation_recovery.py"),
+        "--package-scratch", str(args.package_scratch.resolve()),
     ], check=True)
 
 

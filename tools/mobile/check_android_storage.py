@@ -22,6 +22,7 @@ REQUIRED_CLASSES = {
     "chat.rogi.rogichat.core.session.AndroidCredentialStoreTest",
     "chat.rogi.rogichat.core.session.AndroidPendingAuthStoreTest",
     "chat.rogi.rogichat.core.session.AndroidAccountDeletionStoreTest",
+    "chat.rogi.rogichat.core.conversation.AndroidConversationStoreTest",
     "chat.rogi.rogichat.core.rooms.AndroidRoomsStoreTest",
 }
 

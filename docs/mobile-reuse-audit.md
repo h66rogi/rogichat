@@ -309,3 +309,20 @@ GRDB host 시험과 Xcode 앱의 서로 다른 resolved 파일이 같은 revisio
 | R47 | Android `feature/more/.../{ProfileSettingsScreen,MoreNavigation,MoreScreen}.kt`의 onNavigateToWithdrawal·getWithdrawalUrl·destructive confirm; iOS `Meloming/Presentation/More/{MoreView,MyPageView}.swift`의 설정 section·withdrawal entry·logout alert | 양 OS AccountScreen과 기존 ConfirmationPrompt/native alert, 탈퇴 결과 화면 | **부분 수정 재사용**: 설정 위치·선택 대상·cancel/destructive·진행/오류 UI. 원본 탈퇴는 authenticated WebView 진입이다. URL·cookie/token bridge나 웹 business는 이식하지 않음 |
 | R48 | Android `core/network/.../api/ApiClient.kt`, `auth/TokenStorage.kt`의 TokenStorage/StoredMfaChallengeRecordCodec; iOS `Core/Network/APIClient.swift`, `Core/Auth/KeychainService.swift` | 기존 closed HTTP·Android credential/pending·iOS credential envelope와 DB purge 경계 | **기존 추출 확장**: typed DELETE 경로와 보호 저장 primitive·주입·직렬화 경계를 재사용. 기존 원본의 refresh·운영 주소·analytics는 가져오지 않음 |
 | R49 | 원본 웹 탈퇴와 native 저장소 책임 대조 | 양 OS AccountDeletion contract/journal/state, NativeSessionCoordinator/NativeSessionService의 admission·owned request·복구 | **신규**: strict blocked receipt·unknown·최근 인증, 원래 scope CAS, 보호 admission과 DB 정리, crash no-replay·ACK 보존·기록과 표시 분리는 원본에 대응 구현이 없음. 원본을 읽은 사실을 native transaction 재사용으로 집계하지 않음 |
+
+## 실제 추출 확장 — TEXT 대화와 복구
+
+원본은 Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, iOS
+`18a33bbf96fe52b28d0de361916e20549bdcce6b`이며 읽기 전용으로 확인했다.
+[진행 기록](mobile-conversation-progress.md)은 작성·실행·배포 상태를 구분한다.
+이번 변경에 대응하는 별도 Meloming 채팅 UX나 outbox를 이식했다고 주장하지 않는다.
+
+| ID | source 파일·심볼 | 대상 | 실제 재사용와 신규 구현의 경계 |
+|---|---|---|---|
+| R50 | Android `core/network/.../api/ApiClient.kt`의 get/post/handleResponse, ChannelApi·ChannelRepositoryImpl의 getMyChannels/getChannel; iOS `Core/Network/APIClient.swift`, `Domain/Repositories/NotificationRepository.swift`의 protocol/client 생성자 주입 | 기존 NativeApi/NativeAPIClient, NativeRoomsRemote·ConversationGateway·ConversationFetching | **기존 추출 확장**: 단일 HTTP client, typed 요청·응답과 주입된 repository 경계를 실제 재사용. 원본 route·정수 ID·empty-on-error·payload logging은 이식하지 않음. C04/C05/C06 endpoint·DTO·실제 계정 인가는 신규 계약 |
+| R51 | Android MoreNavigation·MoreScreen·ProfileSettingsScreen에서 이미 추출한 공통 navigation/StateFlow/lifecycle; iOS `Presentation/Notifications/NotificationsViewModel.swift`의 init·Loadable·load/refresh/next-page 구조 | AppEntry/기존 ProductPage 및 ConversationViewModel, 기존 NavigationStack·Loadable과 ConversationScreenModel | **기존 추출 확장 + 제한된 수정 재사용**: 공통 화면 진입·계정 gate·loading/error·constructor 주입을 유지. iOS 알림 모델의 실제 load-if-empty/refresh/다음 페이지 구조를 적용하되 낙관적 mark-read는 제외. 새 timeline·composer·인용 UX를 원본 채팅 UX 재사용으로 집계하지 않음 |
+| R52 | 양 OS 원본 비채팅 저장소·상태 책임 대조 | ConversationContract, 실제 Room/GRDB timeline·profiles·outbox 및 coordinator, cold recovery harness | **신규**: immutable command·원래 M·receipt-only 복구·동일 version 전체 projection 교체·terminal tombstone·실제 COMMIT fence는 대응 원본 구현이 없음. 기존 보호 세션·계정별 DB를 확장하며 두 번째 인증 client나 cache 체계를 추가하지 않음 |
+
+TEXT sender/recipient/body에 맞춘 iOS messages 개인정보 선언과 Android 메시지 데이터 고지
+검토는 로기챗 데이터 흐름의 책임이다. 새 대화 단계 자체는 외부 SDK를 추가하지 않는다.
+원본 운영 ID·endpoint·서명·analytics·Talk/TalkV2는 제품에 포함하지 않는다.

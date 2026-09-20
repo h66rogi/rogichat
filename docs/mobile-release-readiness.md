@@ -62,15 +62,23 @@ Android 빌드 14는 서명 APK/AAB 검증을 마쳤지만 Firebase 인증 만�
 서명 비밀 취급은 [키체인 보호](mobile-signing-security.md)를 따른다.
 UserDefaults 선언 근거는 [Apple required-reason API 문서](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacyaccessedapitypes/nsprivacyaccessedapitype)다.
 
+다음 실제 TEXT 전송 묶음은 계정에 연결된 메시지 본문·수신자·인용 식별자를 서버로 보낸다.
+iOS manifest와 실제 앱/IPA 검사는 기존 선언에 `EmailsOrTextMessages`, linked=true,
+tracking=false, AppFunctionality를 함께 추가해야 한다. 이 분류는 발신자·수신자·본문을
+포함한다는 [Apple의 수집 데이터 정의](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacycollecteddatatypes/nsprivacycollecteddatatype)에 따른다.
+Play의 대응 분류는 [Data safety의 Other in-app messages](https://support.google.com/googleplay/android-developer/answer/10787469?hl=en)다.
+실제 스토어 공개 설명·수집/공유 답변도 연결해 확인하며, manifest 변경을 스토어 설정 완료로
+집계하지 않는다. 아직 전송하지 않는 사진/동영상 업로드까지 구현됐다고 선언하지 않는다.
+
 ## Production 서명과 등록
 
 | 항목 | 확인된 준비 | 남은 준비·검증 |
 |---|---|---|
-| Android | `chat.rogi.rogichat` prodRelease, Prod API origin, min29/target37, R8 및 패키지 검사 통과 | 의도적으로 unsigned. 전용 Prod/upload key, Play 앱·Play App Signing 및 업로드 권한, 별도 외부 Prod 설정의 검증 증거 없음 |
-| iOS 앱 구성 | `Rogichat-Prod` Release-Prod, `chat.rogi.rogichat`, iPhone 전용·Prod API origin 검사 통과 | 2026-09-20 18:37 KST 읽기 전용 재조회에서 정확히 일치하는 Prod Bundle ID/App Store Connect 앱 각각 0개 |
-| iOS 서명 | 기존 배포 인증서와 대응 로컬 개인 키가 사용 가능하며 2027-09-19 UTC까지 유효 | Prod Bundle ID에 연결된 provisioning profile·외부 Prod 설정 없음. 새 인증서 발급 자체가 필수라고 판단하지 않음 |
-| Apple 권한 | QA Bundle ID의 Associated Domains capability 추가와 새 IOS_APP_STORE profile 생성·재조회까지 성공 | 이 권한을 모든 Production 리소스의 생성·변경 권한으로 확대 해석하지 않음. Production 리소스를 쓰기 시험으로 생성하지 않음 |
-| native 기능 등록 | QA Associated Domains와 새 profile 설치, 빌드 10 실제 archive/IPA의 두 callback entitlement, 공개 AASA/assetlinks와 실제 QA 서명 식별 일치 검증 | 실제 기기/provider 복귀는 후속 검증. Apple 로그인, Services ID, APNs 및 Prod capability/profile은 별도 준비 |
+| Android | `chat.rogi.rogichat` Prod 구성·R8 검사, Git 밖의 별도 RSA 3072 PKCS12 upload key/인증서와 외부 Prod 설정 준비 | 새 키를 사용한 실제 Prod APK/AAB 빌드·서명 검증, Play 앱 등록·Play App Signing·업로드 권한 확인 |
+| iOS 앱 구성 | `Rogichat-Prod` Release-Prod와 정확한 `chat.rogi.rogichat` Bundle ID 생성·재조회 완료 | App Store Connect의 정확한 Prod 앱 레코드는 아직 없음. 기존 CLI의 앱 등록 세션도 확인되지 않음 |
+| iOS 서명 | 유효한 기존 배포 인증서/로컬 개인 키와 연결된 별도 Prod App Store profile, 외부 Prod 설정 준비 | 실제 Prod archive/IPA의 서명·entitlement·App Store 검증은 새 기능 묶음에서 실행 |
+| Apple capability | QA/Prod 모두 Associated Domains·Apple 로그인·Push capability와 별도 Capabilities v2 App Store profile 생성·재조회·설치 완료 | 프로파일의 Apple Default·aps production 허용은 실제 앱 entitlement나 provider 전달 성공의 증거가 아님 |
+| native 기능 등록 | 기존 QA HTTPS callback 서명·AASA/assetlinks 검증, QA/Prod v2 profile의 정확한 bundle/team/cert 연결 및 외부 설정 참조 확인 | Apple Services ID·APNs/FCM provider 설정·실제 기기 복귀와 알림 전달은 별도 검증 |
 
 Apple API의 `filter[identifier]` / `filter[bundleId]`는 접두사가 겹치는 QA 레코드를 반환할 수
 있었다. **응답 개수만으로 앱을 판정하지 않고 실제 identifier/bundleId의 정확한 일치**를
@@ -134,3 +142,8 @@ API 가동 여부는 QA `api.qa.rogi.chat`과 Prod `api.rogi.chat`의 실제 경
 2026-09-20 모바일 세션의 독립 재확인에서 QA `/live`는 `200 {status:ok}`, `/ready`는
 `200 {status:ready}`, 인증 정보 없는 `/v1/auth/session`은 `401`이었다.
 이전 503 관측 이후 QA 경로가 살아난 증거이며, 앱 credential 발급·로그인 성공의 증거는 아니다.
+
+QA native 인증은 서버 `397d2f0b59868c1a0579c92ef74a1852c5ce66e6` 배포로
+transaction·launch·completion-exchange 경로가 활성화됐다. 실제 provider의 최종 인증과
+네이티브 credential 발급·기기 간 채팅은 아직 별도 검증 대상이다. 진행 중인 native23,
+Apple·미디어·채팅 전체 계약을 이 배포로 활성화됐다고 간주하지 않는다.

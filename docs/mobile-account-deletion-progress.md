@@ -40,10 +40,16 @@ callback 경계는 동결 소스에 반영했다. 소스 리뷰에서 남은 P1/
 
 | 대상 | 확인한 결과 | 남은 범위 |
 |---|---|---|
-| iOS 최종 동결 소스 | 부모 통합에서 strict Swift 6 실행 여덟 묶음과 실제 GRDB on-disk 16개 통과. reset 중 cold callback과 오래된 초기화 확인 회귀 포함 | 마지막 reset 변경의 기기 SDK 증분 빌드, 실제 격리 iOS Keychain 실행 |
-| Android 이전 checkpoint | QA 171개·Prod 163개 JVM, 실패/error/skip 0; QA lint와 app/androidTest 컴파일 통과 | 최종 동결 소스의 추가 회귀와 실제 ViewModel 취소·typed reset 검사 재실행. 예상 178/170은 아직 실행 결과가 아님 |
-| Android 실제 저장소 | credential/pending/Room/deletion을 포함한 19개 계측을 작성·runner 준비 | 최종 앱/test APK 빌드와 소유한 격리 Android 인스턴스에서 실행. 작성·컴파일을 실행 증거로 집계하지 않음 |
-| 제품·배포 | 양 OS 동결 소스의 security/commit/push 검사 통과, 원격 SHA 확인 | 통합 빌드·제품 패키지 검사·서명·배포는 실제 대화 기능 묶음에서 수행 |
+| iOS 최종 동결 소스 | strict Swift 6 실행 여덟 묶음, 실제 GRDB on-disk 16개, QA/Prod Debug/Release 기기 SDK 네 구성과 제품 패키지 검사 통과. reset 중 cold callback과 오래된 초기화 확인 회귀 포함 | 실제 격리 iOS 앱 Keychain 실행 |
+| Android 최종 동결 소스 | QA/Prod Debug/Release 네 구성의 JVM 테스트·lint·빌드 및 실제 APK 설정 검사 통과 | 원격 로그에 개별 JVM 테스트 총수는 출력되지 않아 예상 개수를 실행 개수로 표기하지 않음 |
+| Android 실제 저장소 | credential/pending/Room/deletion을 포함한 실제 Keystore·SQLite 계측 19개를 격리된 hosted API 36 인스턴스에서 실행, 실패·skip 0 | 실제 사용자 인증과 기기 간 왕복 |
+| 제품·배포 | 양 OS security/commit/push, 도구 테스트 108개와 원격 필수 검사 통과. CI 임시 키 Android APK/AAB 검증 포함 | 실제 배포용 서명·업로드는 실제 대화 기능 묶음에서 수행 |
+
+부모 통합 SHA `8216b8f35b45a1ab1a2e3c1b570a42a17b5178fe`의
+[원격 실행 35504846246](https://github.com/h66rogi/rogichat/actions/runs/35504846246)이
+모두 성공했다. 이 기록은 동결된 계정 삭제 구현에 대한 증거이며 이후 작성 중인 대화 구현의
+검증 결과로 재사용하지 않는다. CI의 disposable signing keychain 검사는 앱 Keychain 검사와
+별개다.
 
 iOS host 시험은 명시적으로 주입한 격리 ByteStore와 실제 marker 파일/GRDB를 사용한다.
 실제 QA Keychain이나 사용자 계정에는 접근하지 않았고, 이를 iOS Keychain 실행 증거로
