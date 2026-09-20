@@ -176,6 +176,38 @@ Migration image가 있다는 이유만으로 이 경로가 구축됐다고 보�
    M01의 빈 schema 전용 readiness는 M02 migration 이후 호환 rollback 대상이 아니다.
    bootstrap 503 또는 같은 schema manifest와 호환되는 M02 이후 digest를 사용한다.
 
+### 이미 배포된 웹 보존
+
+백엔드 helper는 API-only 초기 구성과 별도 웹 network가 연결된 구성을 구분한다.
+후자는 기존 API network와 웹 network **두 개만** 허용하고, root 소유 sites 디렉터리의
+read-only bind mount를 요구한다. 웹 container가 API network에 들어오는 것은 계속 금지한다.
+추가 network, 잘못된/쓰기 가능한 sites mount, 중복 mount destination, site와 실제 웹
+container의 불일치, 건강하지 않은 기존 웹은 배포 전 거부한다. 준비된 빈 sites 디렉터리는
+정상적인 미배포 상태이며 웹 서비스가 가동 중이라고 기록하지 않는다.
+
+사전 검사에서 Caddy ID/image, 전체 mount/HostConfig, network ID, bootstrap Compose hash,
+site bytes hash, 기존 웹 ID/image·network·mount를 메모리에 보관한다. 공통 배포 lock을 얻은 뒤
+요청 소비나 첫 서버 파일 변경 **전**에 동일성을 다시 검증한다. API 활성화 전과 외부 검증 후,
+실패 시 유지보수 전환 후에도 동일성을 대조한다. 성공·유지보수 template 모두 sites import를
+보존해야 하며 helper는 웹 Compose, Caddy container/network/volume/site를 변경하지 않는다.
+
+기존 웹이 있으면 `/healthz`, 실제 첫 화면, 그 화면이 참조한 같은 origin의 정적 JS/CSS 하나를
+TLS·HTTP 200으로 검증한다. redirect/proxy 사용 없이 요청당 10초, body 1 MiB로 제한한다.
+배포 전과 성공/실패 복구 후 검증하며 실패 시 완료 marker를 만들지 않는다. 이는 로그인/전체
+웹 기능의 E2E 증거를 대체하지 않는다. Caddy reload 자체가 실패해도 API와 worker 종료는 각각
+시도한다. 이때 유지보수 경로와 웹의 실제 가용성은 미검증으로 남기고 별도 복구 판단을 받는다.
+
+이 검증은 `backend_release.py`의 수동 배포 경로에 적용된다. 별도
+`backend_automatic_release.py`는 자동 설치되는 같은 실행 경로가 아니므로 이 문서만으로
+자동배포 보호까지 완료됐다고 간주하지 않는다.
+
+helper source 변경은 자동 서버 설치가 아니다. private ops의 수동 delivery는 승인된
+helper commit·파일 hash가 들어간 새 manifest로 검토·설치한다. 웹 자동배포 policy는
+`tools/operations/` 아래 helper와 **테스트를 포함한 Git blob 전체**를 고정하므로, 후속 웹
+candidate를 받기 전에 별도 policy 생성·설치가 필요하다. 이는 설치된 웹 helper의 파일 hash
+검사와 다른 계약이다. 오래된 pin을 우회하거나 검증을 제거하지 않는다. 자동 백엔드 경로의
+별도 helper 사본/policy도 독립적으로 검토한다. DB 승인·QA host 소유권·요청 만료 조건은 유지한다.
+
 프로파일·OAuth query·Cookie·Authorization·Signed URL을 Caddy access log나 오류 원문에
 기록하지 않는다. API DNS-only 경로에서 Caddy는 `X-Forwarded-For`를 `{remote_host}`로
 정확히 덮어쓰고 CF-Connecting-IP/Forwarded를 제거한다. hosted API는 정확히 한 프록시
