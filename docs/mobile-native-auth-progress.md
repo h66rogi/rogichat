@@ -1,8 +1,27 @@
 # 네이티브 SOOP 인증 구현과 운영 준비
 
-2026-09-20. MB03의 독립 구현을 진행 중이다. 이 기록은 제공자 로그인 성공이나
+2026-09-20. MB03 SOOP 클라이언트와 QA 서명 경계를 구현했다. 이 기록은 제공자 로그인 성공이나
 MB03 전체 완료를 의미하지 않는다. [통합 계획](mobile-implementation-plan.md)의
 meloming 구현 재사용·QA/prod 공통 제품·합성 데이터의 테스트 격리 원칙을 유지한다.
+
+Android 구현 `3fa9ea8`은 독립 검토와 QA 91개/Prod 83개 단위 시험을 통과해 통합했다.
+QA lint·Prod 컴파일과 QA APK의 실제 App Link filter·환경·서명 검사를 통과했다.
+iOS 구현 `6e5ffa0`과 합친 제품 소스에서 아래 검증을 마쳤다. 새 서명 배포 결과는
+실제 외부 검증이 끝난 뒤 별도로 기록한다.
+
+- Android QA/Prod Debug/Release 네 구성, R8·resource shrink·전체 lint·패키지의 환경/링크/fixture
+  제외 검사 통과. 테스트 값은 시험 소스에만 있으며 제품에 계정·proof를 주입하지 않았다.
+- Android API 36.1의 격리된 읽기 전용 에뮬레이터에서 계측 시험 7개 통과(skip 0).
+  실제 비추출 KeyStore 키·AtomicFile로 pending proof 복원, 환경 AAD·변조·크기 제한,
+  영속 소비 후 오래된 암호문 거부, logout clear stamp 변경을 검증했다. 기존 credential
+  저장·Activity 재생성도 포함한다. 시험 전용 UUID 경로/키만 사용하고 소유 emulator를 종료했다.
+- iOS QA/Prod Debug/Release 네 구성을 iPhone 기기 SDK로 빌드하고 개인정보·제품 fixture
+  제외·식별자·최소 OS를 검사했다. Xcode GUI/Simulator는 사용하지 않았다.
+- 공통 runner에서 Swift 6 strict concurrency 실행 파일 네 종(탐색·제품 상태·native transport·
+  SOOP auth)을 통과했다. 실제 iPhone Keychain·접근성·provider 왕복 결과를 대신하지 않는다.
+- 독립 코드 리뷰에서 선예약 이전/설치 이후 취소, 브라우저 operation 전달, 만료 timer 자기
+  취소, cold LINK 오류와 최신 세션 보호를 수정하고 회귀 시험을 추가했다. 해당 범위의
+  잔여 P1/P2는 없으며 외부 활성화 gate는 유지한다.
 
 ## 고정된 이전 단계
 
@@ -35,6 +54,11 @@ native Bearer에 묶인다. 웹 cookie·Origin·CSRF·URL에 포함된 token을 
 - UI는 웹의 검토된 이용 안내와 `/rules`를 따른다. 확정되지 않은 법적 약관이나
   Apple 로그인·계정 삭제 성공을 만들어내지 않는다.
 
+추가 계약 `4002329`의 `session.accountPartition`은 있을 때 canonical base64url
+32바이트로 검증하고 없던 응답도 수용한다. 기존 `account.userId` UUID와 프로필 binding은
+유지하며 이 값을 credential이나 revocation generation으로 사용하지 않는다. 알려진
+필드의 타입/필수값을 검사하되 session의 호환 가능한 추가 필드는 거부하지 않는다.
+
 ## QA 서명 준비
 
 기존 QA Bundle ID에 [Associated Domains capability](https://developer.apple.com/documentation/appstoreconnectapi/post-v1-bundleidcapabilities)를
@@ -48,6 +72,14 @@ CMS 내부 app/team/certificate, associated-domain permission, 배포 종류와 
 archive의 development profile과 TestFlight IPA의 distribution profile을 구분하며,
 IPA는 정확한 QA app ID, 디버깅 불가, 기기 제한 없는 배포 profile이어야 한다.
 새 제품 산출물로 실제 서명 검사를 통과하는 것은 앱 코드 통합 후의 별도 검증이다.
+
+Android는 실제 APK의 compiled manifest를 읽어 같은 환경의 HTTPS host와 정확한
+`/mobile/auth/complete`, 단일 `autoVerify` filter, 활성화된 exported MainActivity를
+검사한다. 다른 meta-data에 같은 문자열이 있는 것으로 통과하지 않는다. 비활성화나
+추가 permission으로 브라우저 진입이 막힌 app/activity도 거부한다. 최종 QA debug APK에
+검사를 적용했다. 이는 호스팅된 assetlinks나 서명된 실기기 복귀의 증거를 대신하지 않는다.
+
+배포 도구의 순수 검증과 격리 Keychain 검증은 83개를 통과했다(skip 0).
 
 ## 계속 남는 실제 gate
 

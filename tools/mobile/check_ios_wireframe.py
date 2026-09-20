@@ -41,7 +41,7 @@ def main():
             "Sources/Core/Session/AppSession.swift",
             "Tests/Product/ProductStateChecks.swift",
         ])
-        run_checks(sdk, Path(temporary), "native-transport-checks", [
+        native_sources = [
             "Sources/Core/Navigation/ShellNavigation.swift",
             "Sources/Features/Settings/ProfileEditor.swift",
             "Sources/Features/Settings/ProfileDraft.swift",
@@ -50,7 +50,15 @@ def main():
             "Sources/Core/Session/NativeCredentialStore.swift",
             "Sources/Core/Session/NativeSessionDTO.swift",
             "Sources/Core/Session/NativeSessionService.swift",
-            "Tests/Product/NativeTransportChecks.swift",
+            "Sources/Core/Auth/SOOPAuthContract.swift",
+            "Sources/Core/Auth/SOOPPending.swift",
+            "Sources/Core/Auth/SOOPAuthCoordinator.swift",
+        ]
+        run_checks(sdk, Path(temporary), "native-transport-checks", [
+            *native_sources, "Tests/Product/NativeTransportChecks.swift",
+        ])
+        run_checks(sdk, Path(temporary), "native-auth-checks", [
+            *native_sources, "Tests/Product/SOOPAuthChecks.swift",
         ])
 
 
