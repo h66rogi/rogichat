@@ -23,6 +23,7 @@ export class RoomsController {
   @roomDocs.provision()
   provision(@Req() request: Request) { return this.rooms.provision(readCommandCredentials(request, this.config), request.body); }
   @Get('rooms/:roomId/private-recipients')
+  @roomDocs.privateRecipients()
   privateRecipients(@Req() request: Request, @Param('roomId') roomId: string) {
     const query = object(request.query, ['after']);
     return this.rooms.privateRecipients(readSessionCredentials(request, this.config), identifier(roomId), query.after === undefined ? undefined : identifier(query.after));

@@ -111,7 +111,9 @@ QA: <https://api.qa.rogi.chat/docs>. 검색과 태그별 탐색을 지원하며 
 문서는 실제 활성화된 Nest 모듈의 REST 경로만 포함한다. 소켓 복구 계약은
 [백엔드 설계](../../docs/backend-design.md)를 함께 참고한다.
 
-쿠키 세션을 사용하며 보호된 쓰기에는 CSRF 토큰과 허용 Origin도 필요하다.
+웹은 쿠키 세션을 사용하며 보호된 쓰기에는 CSRF 토큰과 허용 Origin도 필요하다.
+네이티브는 Bearer 토큰과 `X-Rogi-Client: ios|android`를 함께 사용하며 웹 인증과 혼용할 수 없다.
+네이티브 토큰 발급용 공개 로그인·refresh endpoint는 아직 제공되지 않는다.
 각 작업에 로그인 예외, 방 권한, 조회 범위와 오류를 표시한다. 문서 조회 권한은 API 실행 권한이 아니다.
 
 ```sh

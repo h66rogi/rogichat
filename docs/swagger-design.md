@@ -1,7 +1,7 @@
 # 로기챗 Swagger / OpenAPI 설계와 구현계획
 
 상태: 승인된 설계와 리뷰를 구현에 반영 · 2026-09-20 · QA 배포 검증은 PR 완료 조건이다.
-최초 검토: QA `8aa0ccaf03e61fe52c6e5c9b9ec138ba20a3b05c`. 리뷰 시 최신 QA `8ece99d`를 반영했다.
+최초 검토: QA `8aa0ccaf03e61fe52c6e5c9b9ec138ba20a3b05c`. 리뷰 시 QA `8ece99d`, 구현 시 QA `84e1538`의 네이티브 인증·수신자 계약을 반영했다.
 
 ## 목적과 범위
 
@@ -44,8 +44,9 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
   해당 요청에서 동시에 필요한 조건이다. security requirement를 OR로 잘못 표현하지 않는다.
   인증 조건은 작업별로 지정한다. health에는 인증이 없고 SOOP start의 login/link는 조건이 다르다.
   login 시작에 기존 세션을 요구하거나 callback에 일반 쓰기 인증을 일괄 적용하지 않는다.
-  현재 별도 백엔드 대화에서 변경 중인 네이티브 인증은 최신 QA에 병합된 구현에 맞춰 기술한다.
-  아직 없는 Bearer/JWT 지원을 문서에서 먼저 약속하지 않는다.
+  QA에 병합된 네이티브 인증은 Bearer opaque 토큰과 `X-Rogi-Client`의 AND 조건으로 표시하며,
+  웹 쿠키(+쓰기 CSRF) 방식과는 OR 관계다. Origin은 웹 쓰기에서만 필수다. 두 방식의 혼용은 거부한다.
+  네이티브 세션 응답은 웹 응답과 oneOf로 분리한다. 아직 없는 네이티브 공개 로그인·refresh 경로는 만들지 않는다.
 - 브라우저는 임의 Cookie/Origin 헤더 설정에 제한이 있고 현재 API 호스트의 문서 Origin은
   웹 앱의 허용 Origin과 다를 수 있다. 실행 기능을 위해 CORS/CSRF 허용 범위를 넓히지 않는다.
   후속 실행 지원은 확정된 인증 계약, 실제 로그인 흐름, 허용 문서 origin을 함께 검증하는 별도 작업이다.
@@ -64,7 +65,7 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
 - 실제 메서드·경로에서 자동 수집하며 operationId는 작업별 명시적 고유 이름으로 고정한다.
   수동으로 별도 paths 목록을 유지하지 않는다. 누락 방지는 route inventory와 생성 결과 비교로 확인한다.
 - 첫 배포에 등록된 모든 공개 HTTP 컨트롤러를 포함한다: health, auth,
-  users, rooms, messages, sync, reactions, publications, 활성화된 media/stickers.
+  users, rooms, messages, sync, reactions, publications, 활성화된 media/stickers. FAN 방의 `private-recipients`와 현재 권한·50개 페이지 조건을 포함한다.
   현재 별도 terms/account 컨트롤러는 없다. 약관 동의는 기존 auth 요청으로 설명하며,
   계정 관련 신규 endpoint는 QA에 실제 등록된 뒤 포함한다.
   동적 기능이 비활성 상태라면 실행 중인 문서에 해당 route가 나타나지 않아야 한다.
@@ -131,7 +132,7 @@ ops 배포 경로에 반영하고 실제 적용 여부를 확인한다. producti
 로그인 인증 예외와 redirect 응답도 보완했다. 구현은 아래 검증을 포함한다. 실제 배포 상태는 PR과 원격 릴리스 증거로 확인한다.
 
 - health/auth/full 세 구성에서 실제 REST route와 고유 operationId를 대조하고 OpenAPI 3.0 표준을 검사한다.
-- 메시지 parser 및 공개 projection과 schema를 비교하며, 기존 MySQL HTTP 통합 테스트의 응답도 schema로 검증한다.
+- 메시지 parser 및 공개 projection과 schema를 비교하며, 기존 MySQL HTTP 통합 테스트 및 네이티브 세션·비공개 수신자 응답도 schema로 검증한다.
 - local/qa UI·JSON·자산 노출, test/production 404, Helmet·no-store와 실행 비활성을 검사한다.
 - offline export는 lifecycle/I/O 호출 없이 종료하며 CI artifact를 생성한다.
 

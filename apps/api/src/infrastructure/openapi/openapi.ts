@@ -9,6 +9,8 @@ export function createOpenApiDocument(app: NestExpressApplication, auth?: AuthCo
   const config = new DocumentBuilder().setTitle('로기챗 API').setVersion('1.0')
     .setDescription('로기챗 REST 계약입니다. 실제 등록된 기능만 표시합니다. 문서 조회용이며 브라우저 실행은 제공하지 않습니다.\n\n방별 권한을 매 요청 재검사합니다. 관리자 권한만으로 비공개 대화를 열람할 수 없습니다. 메시지 저장 완료는 상대 전달·읽음 완료가 아닙니다. 소켓은 변경 알림이며 재접속/주기적 REST sync로 복구해야 합니다.\n\nJSON 본문은 최대 64 KiB입니다. 모든 응답은 no-store이며 X-Request-Id는 서버가 생성합니다. 503은 의존성 장애 또는 종료 중 상태입니다.')
     .addServer('/')
+    .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'opaque 43-character base64url', description: '네이티브 토큰과 X-Rogi-Client를 함께 사용합니다. 웹 세션 쿠키 및 CSRF와 혼용하면 400입니다. 토큰 발급용 공개 네이티브 로그인/refresh endpoint는 아직 없습니다.' }, 'nativeBearer')
+    .addApiKey({ type: 'apiKey', in: 'header', name: 'X-Rogi-Client', description: 'ios 또는 android. 네이티브 토큰의 client binding과 일치해야 합니다.' }, 'nativeClient')
     .addCookieAuth(auth ? cookieName(auth, 'session') : 'rogi_session', { type: 'apiKey', in: 'cookie' }, 'browserSession')
     .addApiKey({ type: 'apiKey', in: 'header', name: 'X-CSRF-Token', description: '세션 조회에서 받은 CSRF 토큰. 보호된 쓰기 요청은 쿠키와 이 토큰, 허용 Origin이 모두 필요합니다.' }, 'csrf')
     .build();

@@ -83,7 +83,10 @@ test('OpenAPI describes real projections, auth alternatives, binary transport an
   const actorSchema = response('/v1/rooms/{roomId}/actors/{actorId}/profile');
   check(actorSchema, { replace: true, profile: { ...profile, revision: 'visible-revision' } });
   check(actorSchema, { replace: true, profile: { ...profile, birthday: null, revision: 'visible-revision' } }, false);
-  assert.deepEqual(doc.paths['/v1/rooms/{roomId}/messages'].post.security, [{ browserSession: [], csrf: [] }]);
+  assert.deepEqual(doc.paths['/v1/rooms/{roomId}/messages'].post.security, [{ browserSession: [], csrf: [] }, { nativeBearer: [], nativeClient: [] }]);
+  assert.equal(doc.paths['/v1/rooms/{roomId}/messages'].post.parameters.find(x => x.name === 'Origin').required, false);
+  assert.equal(doc.components.securitySchemes.nativeClient.name, 'X-Rogi-Client');
+  check(response('/v1/auth/session'), { authenticated: true, account: { userId: id, nickname: '사용자', avatarAssetId: null }, soopLinkStatus: 'REQUIRED', onboardingState: 'SOOP_LINK_REQUIRED', expiresAt: new Date().toISOString(), accountGeneration: 'a'.repeat(43), capabilities: { chat: false } });
   assert.deepEqual(doc.paths['/v1/auth/soop/start'].post.security, []);
   assert.equal(doc.components.securitySchemes.browserSession.name, '__Host-rogi_session');
   assert.ok(doc.paths['/v1/auth/soop/callback'].get.responses['303'].headers.Location);

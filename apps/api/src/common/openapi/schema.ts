@@ -27,15 +27,16 @@ interface Operation {
 /** Documentation only. Authorization and validation remain in the existing application services. */
 export function contract(options: Operation): MethodDecorator {
   const auth = options.auth ?? 'read';
-  const security = auth === 'none' ? [] : auth === 'write' ? [{ browserSession: [], csrf: [] }] : [{ browserSession: [] }];
+  const security = auth === 'none' ? [] : [...(auth === 'write' ? [{ browserSession: [], csrf: [] }] : [{ browserSession: [] }]), { nativeBearer: [], nativeClient: [] }];
   return applyDecorators(
     ApiOperation({ operationId: options.id, summary: options.summary, description: options.description ?? options.summary, security }),
     ...((options.params ?? []).map(name => ApiParam({ name, schema: uuid }))),
     ...((options.query ?? []).map(query => ApiQuery(query))),
-    ...(auth === 'write' ? [ApiHeader({ name: 'Origin', required: true, description: '배포된 웹 앱의 허용 Origin과 일치해야 합니다.', schema: text })] : []),
+    ...(auth === 'write' ? [ApiHeader({ name: 'Origin', required: false, description: '웹 쿠키 요청에서는 필수이며 허용 웹 Origin과 일치해야 합니다. 네이티브 요청에는 필수가 아닙니다.', schema: text })] : []),
+    ...(auth !== 'none' ? [ApiHeader({ name: 'X-Rogi-Client', required: false, schema: enumeration('ios', 'android'), description: '네이티브 Bearer 요청에서는 필수입니다. 토큰에 바인딩된 클라이언트와 일치해야 하며 웹 쿠키/CSRF와 혼용할 수 없습니다.' })] : []),
     ...(options.binary ? [ApiConsumes('application/octet-stream')] : []),
     ...(options.body ? [ApiBody({ required: options.bodyRequired ?? true, schema: options.body })] : []),
     ApiResponse({ status: options.status ?? 200, description: options.status === 204 ? '처리 완료. 본문 없음.' : '처리 결과', ...(options.response ? { schema: options.response } : {}) }),
-    ...[...new Set([...(options.errors ?? [400, 401, 403, 404]), 500, 503])].map(status => ApiResponse({ status, description: errorDescriptions[status]!, schema: errorSchema })),
+    ...[...new Set([...(options.errors ?? [400, 401, 403, 404]), ...(auth === 'none' ? [] : [400]), 500, 503])].map(status => ApiResponse({ status, description: errorDescriptions[status]!, schema: errorSchema })),
   );
 }
