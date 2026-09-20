@@ -11,6 +11,7 @@ export type ChatDraftKey = 'shared' | `private:${string}`;
 export interface ChatDraft {
   body: string;
   quote: ChatQuotePreview | null;
+  retryCommandId?: string | undefined;
 }
 
 export type ChatDrafts = Readonly<Record<string, ChatDraft>>;

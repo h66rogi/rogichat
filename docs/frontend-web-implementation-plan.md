@@ -414,3 +414,10 @@ FW00에서는 위 기준으로 화면을 구체화하고, 다음 사실/계약�
 [Next 서버/클라이언트 경계](https://nextjs.org/docs/app/getting-started/server-and-client-components),
 [IndexedDB](https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API),
 [shadcn/ui Next 설치](https://ui.shadcn.com/docs/installation/next).
+
+### FW04 후속 v2 소스 작업 — 배포 차단
+
+[명령·sync v2 소스 보고서](web-command-sync-v2.md)는 명시적 메모리 SEND 기록,
+C04 조회, C05 counterpart/actions, C06 M/A·schema 2와 tombstone fencing을 다룬다.
+IndexedDB·프로세스 재시작 복구 완료를 뜻하지 않는다. 운영 schema 1과 호환되지
+않으므로 backend 2 + web/native 동시 전환 및 짝지은 rollback 검증 전에는 배포하지 않는다.

@@ -9,7 +9,7 @@ const assetId = '22222222-2222-4222-8222-222222222222';
 const csrf = 'A'.repeat(43);
 void test('account changes during image transfer abort the scope before any blob can display', async t => {
   let changed = false; let invalidations = 0;
-  const api = new ApiClient(origin, async () => Response.json({ authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: changed ? 'B'.repeat(43) : csrf }));
+  const api = new ApiClient(origin, async () => Response.json({ authenticated: true, soopLinkStatus: 'VERIFIED', accountPartition: 'C'.repeat(42) + 'A', csrfToken: changed ? 'B'.repeat(43) : csrf }));
   t.mock.method(globalThis, 'fetch', async (input: unknown) => {
     if (String(input).startsWith(origin)) return Response.json({ url: 'https://storage.example/image', expiresIn: 60 });
     changed = true;
@@ -24,7 +24,7 @@ void test('account changes during image transfer abort the scope before any blob
 });
 void test('parent room invalidation synchronously revokes displayed bytes', async t => {
   const parent = new AbortController();
-  const api = new ApiClient(origin, async () => Response.json({ authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: csrf }));
+  const api = new ApiClient(origin, async () => Response.json({ authenticated: true, soopLinkStatus: 'VERIFIED', accountPartition: 'C'.repeat(42) + 'A', csrfToken: csrf }));
   t.mock.method(globalThis, 'fetch', async (input: unknown) => String(input).startsWith(origin) ? Response.json({ url: 'https://storage.example/image', expiresIn: 60 }) : new Response(new Blob(['image'], { type: 'image/png' })));
   const scope = new MediaSessionScope(api, csrf, ['https://storage.example'], () => {}, { signal: parent.signal, isCurrent: () => !parent.signal.aborted });
   const image = new MediaImageResource(scope.client);

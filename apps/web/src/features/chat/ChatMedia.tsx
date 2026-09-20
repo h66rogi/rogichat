@@ -28,19 +28,20 @@ function PhotoDraft({ upload, roomId, target, onSubmit, onClose }: { upload: Med
   const [busy, setBusy] = useState(false); const pending = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const retryId = useRef<string | undefined>(undefined);
   const ready = selected && state.phase === 'ready' && state.receipt?.assetId === selected;
   const send = async () => {
     if (!ready || pending.current) return;
     pending.current = true; setBusy(true); setError(''); setNotice('');
     try {
-      const result = await onSubmit({ target, body: '', photo: upload });
+      const result = await onSubmit({ target, body: '', photo: upload, ...(retryId.current ? { retryCommandId: retryId.current } : {}) });
       if (!upload.lifetime.isCurrent()) return;
-      if (result.accepted) {
+      if (result.accepted) { retryId.current = undefined;
         upload.clear(); setSelected(null);
         if (result.note) setNotice(result.note);
         else onClose();
       }
-      else setError(result.reason);
+      else { retryId.current = result.retryCommandId; setError(result.reason); }
     } catch { setError('사진 전송을 확인하지 못했습니다. 같은 사진으로 다시 확인해 주세요.'); }
     finally { pending.current = false; setBusy(false); }
   };

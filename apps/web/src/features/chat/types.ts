@@ -39,6 +39,8 @@ export interface ChatQuotePreview {
 
 export interface ChatMessageItemModel {
   kind: 'message';
+  counterpartActorId?: string | null;
+  allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
   id: string;
   scope: ChatScope;
   author: ChatActorRef;
@@ -61,6 +63,7 @@ export interface ChatMessageItemModel {
  */
 export interface ChatPublicationItemModel {
   kind: 'publication';
+  allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
   id: string;
   body: string;
   media?: ChatImageContent;
@@ -70,6 +73,7 @@ export interface ChatPublicationItemModel {
 /** Content the client cannot render yet. Shown as a safe placeholder, never as raw data. */
 export interface ChatUnsupportedItemModel {
   kind: 'unsupported';
+  allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
   id: string;
   scope: ChatScope;
   createdAt: string;
@@ -86,7 +90,8 @@ export interface ChatComposerSubmission {
   /** Actual READY upload owned by this draft, never a caller-invented asset ID. */
   photo?: MediaUpload;
   sticker?: StickerCatalog;
+  retryCommandId?: string;
 }
 
 /** Returned by the controller `onSubmit`. On `accepted: false` the composer keeps the draft. */
-export type ChatSubmitResult = { accepted: true; note?: string } | { accepted: false; reason: string };
+export type ChatSubmitResult = { accepted: true; note?: string } | { accepted: false; reason: string; retryCommandId?: string };

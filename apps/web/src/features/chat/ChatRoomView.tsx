@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { WifiOff } from 'lucide-react';
 
 import { Badge } from '@/shared/ui/badge';
@@ -10,6 +10,7 @@ import { PhotoDraftComposer } from './ChatMedia';
 import { StickerPicker } from './StickerPicker';
 import { cn } from '@/shared/lib/cn';
 
+import type { ComposerStore } from './chat-memory';
 import { ChatComposer } from './ChatComposer';
 import type { ChatComposerNotice } from './ChatComposer';
 import { ChatTimeline } from './ChatTimeline';
@@ -55,6 +56,8 @@ export interface ChatRoomViewProps {
    * Changing it resets drafts, quote, target, notices and scroll position.
    */
   conversationScopeKey: string;
+  composerMemory?: ComposerStore | undefined;
+  composerEpoch?: number | undefined;
   roomName: string;
   viewer: ChatActorRef;
   viewerRole: ChatViewerRole;
@@ -87,6 +90,7 @@ const EMPTY_RECIPIENTS: readonly ChatActorRef[] = [];
 
 function ScopedChatRoom({
   conversationScopeKey,
+  composerMemory, composerEpoch,
   roomName,
   viewer,
   viewerRole,
@@ -123,10 +127,13 @@ function ScopedChatRoom({
   const defaultTarget = viewerRole === 'FAN' && targetOptions.length !== 1 ? null : targetOptions[0] ?? null;
 
   const [requestedTarget, setRequestedTarget] = useState<ChatComposerTarget | null>(() => {
+    const parked = composerMemory?.getComposer().target;
+    if (parked && isAuthorizedTarget(parked, authorization)) return parked;
     if (initialTarget && isAuthorizedTarget(initialTarget, authorization)) return initialTarget;
     return defaultTarget;
   });
-  const [drafts, setDrafts] = useState<ChatDrafts>({});
+  const [drafts, setDrafts] = useState<ChatDrafts>(() => composerMemory?.getComposer().drafts ?? {});
+  useLayoutEffect(() => { if (composerEpoch !== undefined) composerMemory?.saveComposer(drafts, requestedTarget, composerEpoch); }, [composerMemory, composerEpoch, drafts, requestedTarget]);
   /** Draft key whose send is pending, or null. */
   const [submittingKey, setSubmittingKey] = useState<ChatDraftKey | null>(null);
   /** Result/guidance per draft key, so a late result lands on the target it belongs to. */
@@ -198,7 +205,7 @@ function ScopedChatRoom({
     (value: string) => {
       if (!draftKeyTarget || !currentKey) return;
       commitTarget();
-      setDrafts((prev) => writeDraft(prev, draftKeyTarget, { body: value }));
+      setDrafts((prev) => writeDraft(prev, draftKeyTarget, { body: value, retryCommandId: undefined }));
       setNoticeFor(currentKey, null);
     },
     [draftKeyTarget, currentKey, commitTarget, setNoticeFor],
@@ -226,16 +233,17 @@ function ScopedChatRoom({
       setNoticeFor(currentKey, { tone: 'info', text: '보내는 중에는 인용을 바꿀 수 없습니다.' });
       return;
     }
-    setDrafts((prev) => writeDraft(prev, draftKeyTarget, { quote: null }));
+    setDrafts((prev) => writeDraft(prev, draftKeyTarget, { quote: null, retryCommandId: undefined }));
   }, [draftKeyTarget, currentKey, isSubmittingCurrent, setNoticeFor]);
 
   const handleReplyPrivate = useCallback(
     (item: ChatMessageItemModel) => {
+      if (!item.allowedActions?.reply) return;
       const quote = { messageId: item.id, authorName: item.author.displayName, excerpt: truncateExcerpt(item.body) };
 
-      const recipient = (viewerRole === 'FAN' ? permittedFans : streamerRecipients).find((r) => r.actorId === item.author.actorId);
+      const recipient = (viewerRole === 'FAN' ? permittedFans : streamerRecipients).find((r) => r.actorId === (item.scope === 'PRIVATE' ? item.counterpartActorId : item.author.actorId));
       if (!recipient) {
-        if (currentKey) setNoticeFor(currentKey, { tone: 'error', text: `${item.author.displayName}님에게는 지금 개인 답장을 보낼 수 없습니다.` });
+        if (currentKey) setNoticeFor(currentKey, { tone: 'error', text: `${item.recipient?.displayName ?? (item.isOwn ? '상대방' : item.author.displayName)}님에게는 지금 개인 답장을 보낼 수 없습니다.` });
         return;
       }
       const next: ChatComposerTarget = { scope: 'PRIVATE', recipient };
@@ -247,7 +255,7 @@ function ScopedChatRoom({
         return;
       }
       if (!isSameTarget(next, requestedTarget)) changeTarget(next);
-      setDrafts((prev) => writeDraft(prev, next, { quote }));
+      setDrafts((prev) => writeDraft(prev, next, { quote, retryCommandId: undefined }));
     },
     [viewerRole, permittedFans, currentKey, streamerRecipients, requestedTarget, changeTarget, submittingKey, setNoticeFor],
   );
@@ -263,6 +271,7 @@ function ScopedChatRoom({
     if (!body) return;
     const quoteId = submittedDraft.quote?.messageId;
     const submission: ChatComposerSubmission = quoteId ? { target, body, quoteMessageId: quoteId } : { target, body };
+    if (submittedDraft.retryCommandId) submission.retryCommandId = submittedDraft.retryCommandId;
     const submittedTarget = target;
     const submittedKey = currentKey;
 
@@ -281,6 +290,11 @@ function ScopedChatRoom({
       if (result.accepted) {
         // Clear only the exact draft that was sent. Any other draft (or a changed one) stays.
         setDrafts((prev) => (prev[submittedKey] === submittedDraft ? clearDraft(prev, submittedTarget) : prev));
+      }
+
+      if (!result.accepted && result.retryCommandId) {
+        const retryCommandId = result.retryCommandId;
+        setDrafts(prev => prev[submittedKey] === submittedDraft ? writeDraft(prev, submittedTarget, { retryCommandId }) : prev);
       }
 
       const resultNotice: ChatComposerNotice | null = result.accepted

@@ -25,14 +25,15 @@ function CatalogPicker({ catalog, roomId, target, onSubmit, onClose }: { catalog
   const state = useSyncExternalStore(catalog.subscribe, catalog.getSnapshot, catalog.getSnapshot);
   const [busy, setBusy] = useState(false); const pending = useRef(false);
   const [notice, setNotice] = useState('');
+  const retryId = useRef<string | undefined>(undefined);
   const send = async () => {
     if (!state.selected || pending.current) return;
     pending.current = true; setBusy(true); setNotice('');
     try {
-      const result = await onSubmit({ target, body: '', sticker: catalog });
+      const result = await onSubmit({ target, body: '', sticker: catalog, ...(retryId.current ? { retryCommandId: retryId.current } : {}) });
       if (!catalog.lifetime.isCurrent()) return;
-      if (result.accepted) { catalog.clear(); if (result.note) setNotice(result.note); else onClose(); }
-      else setNotice(result.reason);
+      if (result.accepted) { retryId.current = undefined; catalog.clear(); if (result.note) setNotice(result.note); else onClose(); }
+      else { retryId.current = result.retryCommandId; setNotice(result.reason); }
     } catch { setNotice('스티커 전송을 확인하지 못했습니다. 다시 확인해 주세요.'); }
     finally { pending.current = false; setBusy(false); }
   };

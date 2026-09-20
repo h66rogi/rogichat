@@ -34,5 +34,5 @@ function AuthorizedChat({ session, scope, refresh }: { session: Session; scope: 
   if (state.kind === 'unavailable') return <StatePanel title="지금은 채팅방에 접근할 수 없어요" retry={refresh}>채팅방이 열려 있는지 다시 확인해 주세요.</StatePanel>;
   if (state.kind === 'error') return <StatePanel title="채팅방 정보를 가져오지 못했어요" retry={refresh}>연결 상태를 확인하고 다시 시도해 주세요.</StatePanel>;
   if (!state.room.joined) return <StatePanel title="후로기 채팅방에 참여하기"><p>팬은 후로기에게 개인 메시지를 보낼 수 있습니다. 개인 메시지는 방장이 전체 공개할 수 있습니다.</p>{error && <p role="alert">{error}</p>}<Button className="mt-4" disabled={busy} onClick={() => void join(state.room.roomId)}>{busy ? '입장 확인 중' : '채팅방 입장'}</Button></StatePanel>;
-  return <RealChatRoom key={scope + state.room.roomId} roomId={state.room.roomId} sessionScopeKey={scope} apiOrigin={api.origin} csrfToken={session.csrfToken} request={request} onInvalidate={refresh} />;
+  return <RealChatRoom key={scope + state.room.roomId} roomId={state.room.roomId} sessionScopeKey={scope} accountPartition={session.accountPartition} apiOrigin={api.origin} csrfToken={session.csrfToken} request={request} onInvalidate={refresh} />;
 }

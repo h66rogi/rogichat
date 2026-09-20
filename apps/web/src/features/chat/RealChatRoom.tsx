@@ -6,12 +6,14 @@ import { io } from 'socket.io-client';
 import { Button } from '@/shared/ui/button';
 import { ReactionContext } from './ReactionControl';
 import { ChatRoomView } from './ChatRoomView';
+import { sessionChatMemory } from './chat-memory';
 import { ChatController } from './chat-controller';
 import type { ChatRequest } from './contract';
 
 export interface RealChatRoomProps {
   roomId: string;
   sessionScopeKey: string;
+  accountPartition: string;
   apiOrigin: string;
   csrfToken: string;
   request: ChatRequest;
@@ -19,14 +21,14 @@ export interface RealChatRoomProps {
 }
 
 export function RealChatRoom(props: RealChatRoomProps) {
-  return <ScopedRealChatRoom key={`${props.sessionScopeKey}:${props.roomId}`} {...props} />;
+  return <ScopedRealChatRoom key={`${props.accountPartition}:${props.sessionScopeKey}:${props.roomId}`} {...props} />;
 }
 
-function ScopedRealChatRoom({ roomId, apiOrigin, csrfToken, request, onInvalidate }: RealChatRoomProps) {
+function ScopedRealChatRoom({ roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate }: RealChatRoomProps) {
   const [controller, setController] = useState<ChatController | null>(null);
   const [connected, setConnected] = useState(false);
   useEffect(() => {
-    const current = new ChatController(roomId, request, onInvalidate, csrfToken);
+    const current = new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition, sessionChatMemory(accountPartition, csrfToken, roomId));
     let active = true;
     void current.refresh().then(() => { if (active) setController(current); });
     // The namespace is '/', with Engine.IO on this path. This is a lossy wake-up
@@ -45,7 +47,7 @@ function ScopedRealChatRoom({ roomId, apiOrigin, csrfToken, request, onInvalidat
     });
     socket.on('connect_error', () => { setConnected(false); void current.refresh(); });
     const timer = window.setInterval(() => { void current.refresh(); }, 15000);
-    const foreground = () => { if (document.visibilityState === 'visible') void current.refresh(); };
+    const foreground = () => { if (document.visibilityState === 'visible') void current.refreshHints(); };
     window.addEventListener('online', foreground);
     document.addEventListener('visibilitychange', foreground);
     return () => {
@@ -53,7 +55,7 @@ function ScopedRealChatRoom({ roomId, apiOrigin, csrfToken, request, onInvalidat
       window.clearInterval(timer); window.removeEventListener('online', foreground);
       document.removeEventListener('visibilitychange', foreground);
     };
-  }, [roomId, apiOrigin, csrfToken, request, onInvalidate]);
+  }, [roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate]);
   if (!controller) return <p className="p-6 text-muted" role="status">채팅을 불러오는 중입니다.</p>;
   return <LiveRoom controller={controller} connected={connected} csrf={csrfToken} roomId={roomId} />;
 }
@@ -72,7 +74,8 @@ function LiveRoom({ controller, connected, csrf, roomId }: { controller: ChatCon
   const viewer = state.profiles.find(profile => profile.actorId === room.actorId);
   if (!viewer) return <p className="p-6" role="alert">내 참여 정보를 확인하지 못했습니다. 다시 접속해 주세요.</p>;
   const recipients = state.recipients;
-  return <SessionMediaProvider key={state.epoch} csrf={csrf} lifetime={lifetime} roomId={roomId}><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
+  return <SessionMediaProvider key={state.epoch} csrf={csrf} lifetime={lifetime} roomId={roomId}><div className="flex h-full min-h-0 flex-col"><section aria-label="전송 결과 확인" className="shrink-0">{state.commands.map((command, index) => <div key={command.id} role="group" aria-label={`결과 미확인 전송 ${index + 1}`} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm"><span>결과 미확인 전송 {index + 1}</span><Button variant="outline" aria-label={`전송 ${index + 1} 결과 조회`} disabled={state.commandBusy} onClick={() => { void controller.reconcile(command.id); }}>결과 조회</Button>{command.canRetry && <Button variant="outline" aria-label={`전송 ${index + 1} 같은 전송 다시 시도`} disabled={state.commandBusy} onClick={() => { void controller.retry(command.id); }}>같은 전송 다시 시도</Button>}</div>)}</section><div className="min-h-0 flex-1"><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
+    composerMemory={controller} composerEpoch={state.epoch}
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
     fanRecipients={recipients}
@@ -80,5 +83,5 @@ function LiveRoom({ controller, connected, csrf, roomId }: { controller: ChatCon
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}
     onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} isLoadingOlder={state.loadingOlder}
     connectionNotice={connected ? undefined : '실시간 연결을 다시 시도하고 있습니다. 메시지는 주기적으로 확인합니다.'}
-  /></ReactionContext.Provider></SessionMediaProvider>;
+  /></ReactionContext.Provider></div></div></SessionMediaProvider>;
 }

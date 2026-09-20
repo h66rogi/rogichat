@@ -9,13 +9,15 @@ import { StickerCatalog } from '../media/sticker-catalog';
 const roomId = '11111111-1111-4111-8111-111111111111';
 const assetId = '22222222-2222-4222-8222-222222222222';
 const otherRoomId = '33333333-3333-4333-8333-333333333333';
-const target = { scope: 'PRIVATE' as const, recipient: { actorId: 'streamer', displayName: '운영자', avatarUrl: null } };
+const target = { scope: 'PRIVATE' as const, recipient: { actorId: otherRoomId, displayName: '운영자', avatarUrl: null } };
 function server(post: ChatRequest): ChatRequest {
   return async (path, options) => {
-    const base = { schemaVersion: 1, resetRequired: false };
-    if (path.startsWith('/v1/sync?')) return { ...base, generation: 'a', complete: true, nextCursor: null, rooms: [{ roomId, actorId: 'fan', name: '테스트 방', mode: 'FAN', role: 'FAN' }] };
-    if (path.includes('/profile-sync?')) return { ...base, generation: 'p', complete: true, nextCursor: null, profiles: [{ actorId: 'fan', role: 'FAN', nickname: '팬' }] };
-    if (path.includes('/private-recipients')) return { recipients: [{ actorId: 'streamer', nickname: '운영자' }], next: null };
+    const base = { schemaVersion: 2, resetRequired: false, membershipScope: 'A'.repeat(43), authorizationRevision: 'B'.repeat(42) + 'A' };
+    if (path === '/v1/auth/session') return { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: 'A'.repeat(43), accountPartition: 'C'.repeat(42) + 'A' };
+    if (path.includes('/message-commands/')) throw Object.assign(new Error('unknown'), { status: 404 });
+    if (path.startsWith('/v1/sync?')) return { schemaVersion: 2, resetRequired: false, generation: 'a', complete: true, nextCursor: null, rooms: [{ roomId, actorId: assetId, name: '테스트 방', mode: 'FAN', role: 'FAN', membershipScope: base.membershipScope, authorizationRevision: base.authorizationRevision }] };
+    if (path.includes('/profile-sync?')) return { ...base, generation: 'p', complete: true, nextCursor: null, profiles: [{ actorId: assetId, role: 'FAN', nickname: '팬', avatar: null }] };
+    if (path.includes('/private-recipients')) return { recipients: [{ actorId: otherRoomId, nickname: '운영자', avatar: null }], next: null };
     if (path.includes('/snapshot?')) return { ...base, messages: [], nextCursor: 'events', historyCursor: null };
     if (path.includes('/events?')) return { ...base, events: [], nextCursor: 'events-next', hasMore: false };
     return post(path, options);
@@ -31,7 +33,7 @@ void test('PHOTO waits for READY and ambiguous send reuses exact ID and payload'
   const controller = new ChatController(roomId, server(async (_path, options) => {
     const body = options!.body as Record<string, unknown>; writes.push(body);
     if (writes.length === 1) throw new TypeError('lost ACK');
-    return { clientMessageId: body.clientMessageId, messageId: 'saved', status: 'committed', version: '1' };
+    return { clientMessageId: body.clientMessageId, messageId: otherRoomId, status: 'committed', version: '1' };
   }));
   await controller.refresh();
   let status = 'processing'; const upload = uploadFor(controller, () => status);
@@ -40,11 +42,11 @@ void test('PHOTO waits for READY and ambiguous send reuses exact ID and payload'
   assert.equal((await controller.send({ target, body: '', photo: upload })).accepted, false);
   assert.equal(writes.length, 0);
   status = 'ready'; await upload.refresh();
-  assert.equal((await controller.send({ target, body: '', photo: upload })).accepted, false);
-  assert.equal((await controller.send({ target, body: '', photo: upload })).accepted, true);
+  const unknown = await controller.send({ target, body: '', photo: upload }); assert.equal(unknown.accepted, false);
+  assert.equal((await controller.send({ target, body: '', photo: upload, ...(!unknown.accepted && unknown.retryCommandId ? { retryCommandId: unknown.retryCommandId } : {}) })).accepted, true);
   assert.deepEqual(writes[0], writes[1]);
   assert.deepEqual(writes[0]?.content, { type: 'PHOTO', assetIds: [assetId] });
-  assert.equal(writes[0]?.recipientActorId, 'streamer');
+  assert.equal(writes[0]?.recipientActorId, otherRoomId);
   assert.deepEqual(controller.getSnapshot().items, []); // Receipt never creates a fake photo row.
   controller.dispose(); assert.equal(upload.getSnapshot().phase, 'empty'); upload.dispose();
 });
@@ -67,13 +69,13 @@ void test('room scope disposal clears READY photo and fences late ACK', async ()
   await controller.refresh(); const upload = uploadFor(controller, () => 'ready');
   await upload.start('PHOTO', new Blob(['test'], { type: 'image/png' }), roomId);
   const work = controller.send({ target, body: '', photo: upload });
-  controller.dispose();
+  await new Promise(resolve => setImmediate(resolve)); controller.dispose();
   assert.equal(upload.getSnapshot().phase, 'empty');
-  release({ clientMessageId: sent?.clientMessageId, messageId: 'saved', status: 'committed', version: '1' });
+  release({ clientMessageId: sent?.clientMessageId, messageId: otherRoomId, status: 'committed', version: '1' });
   assert.equal((await work).accepted, false); upload.dispose();
 });
 void test('PHOTO/STICKER retain exact references without anonymous author linkage; VIDEO stays unsupported', () => {
-  const base = { id: 'message', version: '1', createdAt: '2026-09-20T00:00:00Z', audience: 'SHARED', author: { kind: 'anonymous' }, quote: null };
+  const base = { id: roomId, version: '1', createdAt: '2026-09-20T00:00:00.000Z', audience: 'SHARED', author: { kind: 'anonymous' }, quote: null, counterpart: null, allowedActions: { reply: false, publish: false, delete: false } };
   const photo = message({ ...base, content: { type: 'PHOTO', attachments: [{ assetId, width: 10, height: 20, variant: 'image' }] } });
   const item = projectMessages([photo], 'fan', [])[0]!;
   assert.equal(item.kind, 'publication'); assert.equal('author' in item, false);
@@ -82,8 +84,8 @@ void test('PHOTO/STICKER retain exact references without anonymous author linkag
   const sticker = message({ ...base, content: { type: 'STICKER', stickerId: otherRoomId, assetId, width: 10, height: 20 } });
   const stickerItem = projectMessages([sticker], 'fan', [])[0]!;
   assert.equal(stickerItem.kind === 'publication' && stickerItem.media?.stickerId, otherRoomId);
-  assert.throws(() => message({ ...base, content: { type: 'PHOTO', attachments: [{ assetId, width: 10, height: 20, variant: 'video' }] } }));
-  assert.equal(projectMessages([message({ ...base, content: { type: 'VIDEO' } })], 'fan', [])[0]?.kind, 'unsupported');
+  assert.equal(projectMessages([message({ ...base, content: { type: 'PHOTO', attachments: [{ assetId, width: 10, height: 20, variant: 'video' }] } })], assetId, [])[0]?.kind, 'unsupported');
+  assert.equal(projectMessages([message({ ...base, content: { type: 'VIDEO', attachments: [] } })], 'fan', [])[0]?.kind, 'unsupported');
 });
 
 void test('STICKER requires explicit catalog selection and retries exact catalog ID, never image asset ID', async () => {
@@ -91,7 +93,7 @@ void test('STICKER requires explicit catalog selection and retries exact catalog
   const controller = new ChatController(roomId, server(async (_path, options) => {
     const body = options!.body as Record<string, unknown>; writes.push(body);
     if (writes.length === 1) throw new TypeError('lost ACK');
-    return { clientMessageId: body.clientMessageId, messageId: 'saved', status: 'committed', version: '1' };
+    return { clientMessageId: body.clientMessageId, messageId: otherRoomId, status: 'committed', version: '1' };
   }));
   await controller.refresh();
   const catalog = new StickerCatalog(new MediaClient({ apiOrigin: 'https://api.qa.rogi.chat', storageOrigins: [], csrf: () => 'A'.repeat(43), lifetime: controller.mediaLifetime(),
@@ -101,8 +103,8 @@ void test('STICKER requires explicit catalog selection and retries exact catalog
   assert.equal((await controller.send({ target, body: '', sticker: catalog })).accepted, false); assert.equal(writes.length, 0);
   catalog.select(otherRoomId);
   assert.equal((await controller.send({ target, body: 'mixed', sticker: catalog })).accepted, false);
-  assert.equal((await controller.send({ target, body: '', sticker: catalog })).accepted, false);
-  assert.equal((await controller.send({ target, body: '', sticker: catalog })).accepted, true);
+  const unknown = await controller.send({ target, body: '', sticker: catalog }); assert.equal(unknown.accepted, false);
+  assert.equal((await controller.send({ target, body: '', sticker: catalog, ...(!unknown.accepted && unknown.retryCommandId ? { retryCommandId: unknown.retryCommandId } : {}) })).accepted, true);
   assert.deepEqual(writes[0], writes[1]); assert.deepEqual(writes[0]?.content, { type: 'STICKER', stickerId: otherRoomId });
   assert.deepEqual(controller.getSnapshot().items, []); controller.dispose(); assert.equal(catalog.getSnapshot().selected, null); catalog.dispose();
 });
