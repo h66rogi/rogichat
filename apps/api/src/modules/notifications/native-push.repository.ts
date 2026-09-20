@@ -16,7 +16,14 @@ export class NativePushRepository {
   async lockPreviousAccount(tx: Transaction, userId: string) {
     // Registration already holds the new account lock. NOWAIT prevents a
     // crossed A→B/B→A rebind from forming an inverse account-lock cycle.
-    await tx.rows('SELECT id FROM users WHERE id=? FOR UPDATE NOWAIT', [userId]);
+    try { await tx.rows('SELECT id FROM users WHERE id=? FOR UPDATE NOWAIT', [userId]); return true; }
+    catch (error) {
+      const known = error as { code?: unknown; meta?: { code?: unknown; driverAdapterError?: { cause?: { kind?: unknown; code?: unknown; originalCode?: unknown } } } } | null;
+      const cause = known?.meta?.driverAdapterError?.cause;
+      if ((known?.code === 'P2010' && known.meta?.code === '3572') ||
+        (cause?.kind === 'mysql' && cause.code === 3572 && cause.originalCode === '3572')) return false;
+      throw error;
+    }
   }
   async lock(tx: Transaction, installation: string) {
     const [row] = await tx.rows<NativeBindingRow>('SELECT id,user_id,session_id,audience,provider,native_client_id,installation_id,binding_digest,endpoint_digest,native_token,generation,account_generation,revoked_at FROM push_subscriptions WHERE installation_id=? FOR UPDATE', [installation]);

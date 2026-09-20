@@ -50,7 +50,7 @@ export class NativePushService {
       const binding = await this.repository.session(tx, actor.userId, actor.sessionId, credentials.clientId, config.audience);
       if (!binding) throw new ApiError('UNAUTHENTICATED', 401);
       const hint = await this.repository.hint(tx, input.installationId);
-      if (hint && hint.user_id !== actor.userId) await this.repository.lockPreviousAccount(tx, hint.user_id);
+      if (hint && hint.user_id !== actor.userId && !await this.repository.lockPreviousAccount(tx, hint.user_id)) throw new ApiError('CONFLICT', 409);
       const prior = await this.repository.lock(tx, input.installationId);
       if (prior && prior.user_id !== actor.userId && prior.user_id !== hint?.user_id) throw new ApiError('CONFLICT', 409);
       const endpointDigest = nativeTokenDigest(config.audience, credentials.clientId, input.provider, input.token);

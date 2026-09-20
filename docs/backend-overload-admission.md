@@ -21,6 +21,12 @@ Invalid credentials still receive the existing namespace authentication denial.
 Current session, terms, SOOP and room ACL checks remain in place. No account or
 message is invented to recover availability.
 
+Cross-account native push rebinding retains its NOWAIT lock order. Only the
+pinned MySQL 3572 lock-contention error becomes a controlled 409 `CONFLICT`;
+unrelated database and programming failures propagate unchanged. A deterministic
+hosted regression holds the previous account lock, verifies the driver category,
+checks the 409 result and proves the original generation survives rollback.
+
 The reviewed MVP uses one API with local, lossy hints. Competing API job consumers
 do not form a distributed fanout bus. Foreground/reconnect/periodic REST recovery
 remains required; this change does not add Redis or a cross-node delivery promise.
