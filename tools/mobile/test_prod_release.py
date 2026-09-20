@@ -82,6 +82,8 @@ class ProdReleaseTests(unittest.TestCase):
                     f"package: name='{prod.APP_ID}' versionCode='1' versionName='0.1.0'\napplication-label:'로기챗'\n",
                     prod.xmltree(XML), "", XML, "jar verified.", pem]
         with patch.object(prod, "android_certificate", return_value=expected), patch.object(prod, "inspect_android_package"), \
+                patch.object(prod.android_firebase, "load"), patch.object(prod.android_firebase, "inspect_apk"), \
+                patch.object(prod.android_firebase, "inspect_aab"), \
                 patch.object(prod, "sdk_tool", side_effect=lambda value: value), patch.object(prod, "bundletool", return_value=["bundletool"]):
             with patch.object(prod, "command", side_effect=commands(expected, CERT)):
                 prod.inspect_android(Path("app.apk"), Path("app.aab"), self.config("/tmp/test"), 1, "0.1.0")

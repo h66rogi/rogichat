@@ -7,7 +7,8 @@ for review, upload a binary, promote QA to Production, or prove provider login.
 ## Operator tool
 
 `tools/mobile/prod_signing.py` is a separate preparation command. Existing
-`qa_release.py` and its QA identity, upload and artifact guards are unchanged.
+`qa_release.py` keeps its separate QA identity and upload boundary. The current
+batch's stricter signed capability and Firebase guards are described below.
 It reuses the existing App Store Connect transport and external-file boundary,
 but performs its own exact Prod resource selection. Prefix matches are rejected.
 No profile or certificate is revoked; existing signing material is never replaced.
@@ -208,3 +209,53 @@ the historical release result. `ios-status` remains a read-only remote status qu
 This change is verified with injected metadata and SDK commands. A real signed
 archive/export of the combined Apple/push feature batch remains the parent
 integration's validation step; no SDK build or upload ran in this guard task.
+
+## Signed Android Firebase input
+
+The trusted QA and Prod release CLI builds require an external Firebase SDK JSON file before
+reading signing material, creating a build output directory or invoking Gradle.
+The private release config must already identify its approved `firebase.app_id`
+and `firebase.project_id`. A missing Prod target is an explicit preparation
+blocker; the tooling never substitutes the QA target.
+
+Supply the file with `ROGICHAT_QA_FIREBASE_CONFIG_FILE` or
+`ROGICHAT_PROD_FIREBASE_CONFIG_FILE`, or with `firebase.config_file` in the
+corresponding private release config. If both are present they must identify the
+same canonical absolute file. The file must be outside Git, regular, mode 600,
+have one hard link, and be between 1 and 16,384 bytes. Match Gradle's UTF-8 flat
+identifier format: JSON string escapes are not accepted. Its exact six string
+fields are:
+
+| Field | Gate |
+| --- | --- |
+| `environment` | Exact `qa` or `prod` for the selected build |
+| `packageName` | Exact `chat.rogi.rogichat.qa` or `chat.rogi.rogichat` |
+| `applicationId` | Firebase Android SDK app ID, equal to approved `firebase.app_id` |
+| `apiKey` | Restricted string syntax; supplied only in the external file |
+| `projectId` | Valid project ID, equal to approved `firebase.project_id` |
+| `gcmSenderId` | Numeric project number, equal to the SDK app ID's project number |
+
+Duplicate/extra/missing fields, ambiguous paths and mismatched environments are
+rejected without printing their values. Child Gradle processes receive only the
+selected config path, together with that environment's signing variables.
+Isolated hosted CI can omit this private config, including its temporary-key
+signing checks; those artifacts are not distributed. Gradle validates any config
+that is supplied. The trusted release CLI's build, upload and finalization gates
+require real approved config and matching resources, so a config-free CI binary
+cannot pass those distribution boundaries. No fake Firebase identity or bypass
+flag is added for CI. Build preflight is local and does not request a fresh
+Firebase login.
+
+After signing, both APK and AAB must contain exactly the four expected
+`rogi_firebase_*` string values, with no translated override or empty fallback.
+APK resource inspection uses aapt2; AAB inspection follows the pinned
+[bundletool 1.18.3 resource dump format](https://github.com/google/bundletool/blob/1.18.3/src/main/java/com/android/tools/build/bundletool/commands/DumpManagerUtils.java).
+Resource output is captured in memory and is never printed or written to a log.
+QA upload and finalization recheck the APK's configured values before their
+existing exact remote-target, hash and distribution checks. This establishes
+configuration consistency, not provider credentials, token registration or push
+delivery success. Actual signed SDK artifacts remain a parent integration check.
+The resource parser shapes were also checked read-only against `app_name` in
+the historical QA 14 APK/AAB using aapt2 37.0.0 and the checksum-pinned bundletool.
+That verifies dump syntax only; it does not apply the new Firebase requirement
+to, alter, or reclassify those historical artifacts.

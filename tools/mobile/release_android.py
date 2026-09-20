@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import urllib.request
+import android_firebase
 
 from release_common import APP_ID, API_URL, ROOT, capture, cli_environment, external, manifest, new_output, private_write, required, run, save_manifest, sha256
 from product_guards import inspect_android_package, inspect_product_sources
@@ -51,6 +52,7 @@ def verify_apk(path, number, version):
 
 
 def build(cfg, number, version):
+    firebase = android_firebase.load(cfg, "qa")
     inspect_product_sources(platforms=("android",))
     android = cfg["android"]
     required(android, "keystore", "password_file", "key_alias")
@@ -62,8 +64,8 @@ def build(cfg, number, version):
     if not password:
         raise ValueError("QA signing password is empty")
     directory = new_output(cfg, "android", number)
-    env = dict(os.environ, ROGICHAT_QA_KEYSTORE=str(keystore), ROGICHAT_QA_STORE_PASSWORD=password,
-               ROGICHAT_QA_KEY_ALIAS=android["key_alias"])
+    env = dict(android_firebase.build_environment(), ROGICHAT_QA_KEYSTORE=str(keystore), ROGICHAT_QA_STORE_PASSWORD=password,
+               ROGICHAT_QA_KEY_ALIAS=android["key_alias"], ROGICHAT_QA_FIREBASE_CONFIG_FILE=str(firebase.path))
     run(["./gradlew", ":app:assembleQaRelease", ":app:bundleQaRelease",
          f"-ProgichatBuildNumber={number}", f"-ProgichatVersion={version}", "--no-daemon"],
         directory / "build.log", cwd=ROOT / "apps/android", env=env)
@@ -84,6 +86,8 @@ def build(cfg, number, version):
     signing = capture(["jarsigner", "-verify", str(artifacts["aab"])])
     if "jar verified." not in signing:
         raise ValueError("AAB signature missing")
+    android_firebase.inspect_apk(artifacts["apk"], firebase, sdk_tool("aapt2"), capture)
+    android_firebase.inspect_aab(artifacts["aab"], firebase, bundletool(), capture)
     path = save_manifest(directory, "android", number, version, artifacts)
     print("Signed QA APK and AAB verified. Manifest:", path)
 
@@ -104,8 +108,15 @@ def firebase_json(arguments, directory):
     return value.get("result", value)
 
 
+def verify_firebase_apk(path, cfg):
+    settings = android_firebase.load(cfg, "qa")
+    android_firebase.inspect_apk(path, settings, sdk_tool("aapt2"), capture)
+
+
 def upload(cfg, manifest_path, notes_file):
     value = manifest(manifest_path, "android", uploading=True)
+    apk = external(value["artifacts"]["apk"]["path"])
+    verify_firebase_apk(apk, cfg)
     firebase = cfg["firebase"]
     required(firebase, "project_id", "app_id")
     directory = external(manifest_path).parent
@@ -113,7 +124,6 @@ def upload(cfg, manifest_path, notes_file):
     matches = [app for app in apps if app["appId"] == firebase["app_id"] and app.get("packageName") == APP_ID]
     if len(matches) != 1:
         raise ValueError("Firebase target is not the Rogichat QA Android app")
-    apk = external(value["artifacts"]["apk"]["path"])
     verify_apk(apk, value["build_number"], value["version"])
     # No --testers/--groups: uploading does not send tester invitations or distribute a release.
     receipt = firebase_json(["appdistribution:distribute", str(apk), "--project", firebase["project_id"],

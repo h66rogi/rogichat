@@ -114,6 +114,7 @@ class FinalizationTests(unittest.TestCase):
         self.stack = self.enterContext(ExitStack())
         self.stack.enter_context(patch("builtins.print"))
         self.stack.enter_context(patch("release_finalize.verify_apk"))
+        self.stack.enter_context(patch("release_finalize.verify_firebase_apk"))
         self.stack.enter_context(patch("release_finalize.inspect_archive"))
         self.stack.enter_context(patch("release_finalize.inspect_ipa"))
 
@@ -148,6 +149,16 @@ class FinalizationTests(unittest.TestCase):
         self.assertEqual(len(api.posts), 1)
         self.assertEqual(api.posts[0][1], {"testerEmails": ["approved@example.invalid"]})
         self.assertEqual(self.journal("android")["steps"]["verification"]["state"], "verified")
+
+    def test_android_config_resource_rejection_blocks_distribution(self):
+        path, value = self.release("android")
+        api = FirebaseFake(value["artifacts"]["apk"]["sha256"])
+        with patch("release_finalize.verify_firebase_apk", side_effect=ValueError("resource mismatch")) as guard:
+            with self.assertRaisesRegex(ValueError, "resource mismatch"):
+                android(self.cfg, path, self.testers_file, client=api)
+            guard.assert_called_once_with(Path(value["artifacts"]["apk"]["path"]), self.cfg)
+        self.assertEqual(api.posts, [])
+        self.assertNotEqual(self.journal("android")["steps"]["verification"]["state"], "verified")
         self.assertEqual((path.parent / "finalization.json").stat().st_mode & 0o777, 0o600)
 
     def test_android_unknown_post_response_blocks_all_retries(self):

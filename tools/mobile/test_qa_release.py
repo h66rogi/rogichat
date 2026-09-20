@@ -211,11 +211,20 @@ class ReleaseGuards(unittest.TestCase):
     def test_firebase_target_is_checked_before_upload(self):
         self.write()
         cfg = {"firebase": {"project_id": "fixture", "app_id": "fixture"}}
-        with patch.object(release_android, "firebase_json", return_value=[{"appId": "fixture", "packageName": "wrong.app"}]) as cli:
+        with patch.object(release_android, "verify_firebase_apk"), \
+                patch.object(release_android, "firebase_json", return_value=[{"appId": "fixture", "packageName": "wrong.app"}]) as cli:
             with self.assertRaisesRegex(ValueError, "Firebase target"):
                 release_android.upload(cfg, self.path, self.root / "notes.txt")
             self.assertEqual(cli.call_count, 1)
             self.assertEqual(cli.call_args.args[0][0], "apps:list")
+
+    def test_firebase_packaged_config_rejection_blocks_upload_before_remote_requests(self):
+        self.write()
+        with patch.object(release_android, "verify_firebase_apk", side_effect=ValueError("resource mismatch")), \
+                patch.object(release_android, "firebase_json") as cli:
+            with self.assertRaisesRegex(ValueError, "resource mismatch"):
+                release_android.upload({}, self.path, self.root / "notes.txt")
+            cli.assert_not_called()
 
     def test_firebase_upload_success_can_omit_result(self):
         response = subprocess.CompletedProcess([], 0, '{"status":"success"}', 'upload succeeded')

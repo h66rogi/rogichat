@@ -6,7 +6,7 @@ import time
 import urllib.parse
 
 from release_common import AppStoreConnect, external, manifest, required
-from release_android import verify_apk
+from release_android import verify_apk, verify_firebase_apk
 from release_ios import inspect_archive, inspect_ipa
 from release_journal import finalization_lock, private_text
 from release_firebase import Firebase
@@ -45,6 +45,7 @@ def android(cfg, manifest_path, testers_file, *, client=None):
         journal.record("verification", "checking")
         apk = external(value["artifacts"]["apk"]["path"])
         verify_apk(apk, value["build_number"], value["version"])
+        verify_firebase_apk(apk, cfg)
         api = client or Firebase(cfg)
         matches = [item for item in api.collection(api.app + "/releases", "releases")
                    if item.get("buildVersion") == str(value["build_number"])

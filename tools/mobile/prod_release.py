@@ -13,6 +13,7 @@ import stat
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+import android_firebase
 
 from android_associations import verify_callback_manifest
 from ios_dependencies import inspect_ios_dependencies, XCODE_RESOLVED_FLAGS
@@ -270,7 +271,8 @@ def android_certificate(cfg):
     return sha256(external(cfg["artifact_root"]) / "signing/android-prod-upload.der")
 
 
-def inspect_android(apk, aab, cfg, number, version):
+def inspect_android(apk, aab, cfg, number, version, *, firebase=None):
+    firebase = firebase or android_firebase.load(cfg, "prod")
     certificate = android_certificate(cfg)
     for path in (apk, aab): inspect_android_package(path)
     signed = command([sdk_tool("apksigner"), "verify", "--print-certs", str(apk)])
@@ -297,23 +299,27 @@ def inspect_android(apk, aab, cfg, number, version):
     certificates = re.findall(r"-----BEGIN CERTIFICATE-----\s*([A-Za-z0-9+/=\s]+)-----END CERTIFICATE-----", cert)
     if len(certificates) != 1 or hashlib.sha256(base64.b64decode(certificates[0])).hexdigest() != certificate:
         raise ValueError("AAB signer is not the dedicated Prod upload certificate")
+    android_firebase.inspect_apk(apk, firebase, sdk_tool("aapt2"), command)
+    android_firebase.inspect_aab(aab, firebase, args, command)
 
 
 def android_build(cfg, number, version, commit):
     require_prod(cfg)
+    firebase = android_firebase.load(cfg, "prod")
     source(commit); inspect_product_sources(platforms=("android",)); android_certificate(cfg)
     android = cfg["android"]; password = external(android["password_file"]).read_text().strip()
     if not password: raise ValueError("Prod upload password is empty")
     directory = output(cfg, "android", number)
     env = dict(environment(), ROGICHAT_PROD_KEYSTORE=str(external(android["keystore"])),
-               ROGICHAT_PROD_STORE_PASSWORD=password, ROGICHAT_PROD_KEY_ALIAS=android["key_alias"])
+               ROGICHAT_PROD_STORE_PASSWORD=password, ROGICHAT_PROD_KEY_ALIAS=android["key_alias"],
+               ROGICHAT_PROD_FIREBASE_CONFIG_FILE=str(firebase.path))
     run(["./gradlew", ":app:assembleProdRelease", ":app:bundleProdRelease", f"-ProgichatBuildNumber={number}",
          f"-ProgichatVersion={version}", "--no-daemon", "--max-workers=2"], directory / "build.log", cwd=ROOT / "apps/android", env=env)
     artifacts = {}
     for kind, relative in {"apk": "apk/prod/release/app-prod-release.apk", "aab": "bundle/prodRelease/app-prod-release.aab"}.items():
         target = directory / f"rogichat-prod-{version}-{number}.{kind}"
         shutil.copy2(ROOT / "apps/android/app/build/outputs" / relative, target); target.chmod(0o600); artifacts[kind] = target
-    inspect_android(artifacts["apk"], artifacts["aab"], cfg, number, version)
+    inspect_android(artifacts["apk"], artifacts["aab"], cfg, number, version, firebase=firebase)
     save(directory, "android", number, version, commit, artifacts)
 
 
@@ -324,6 +330,7 @@ def main():
     parser.add_argument("--source-sha"); parser.add_argument("--build-number", type=version_number)
     parser.add_argument("--version", type=version_name); parser.add_argument("--manifest", type=Path)
     args = parser.parse_args(); os.umask(0o077); cfg = prod_config(args.config)
+    if args.action == "android-build": android_firebase.load(cfg, "prod")
     directory = external(cfg["artifact_root"]); directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (directory / "prod-release.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
