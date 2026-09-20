@@ -12,7 +12,8 @@ export class AccountContentRepository {
     await tx.rows('SELECT id FROM rooms WHERE id=? FOR UPDATE', [found.room_id]);
     const [row] = await tx.rows<{ id: string; room_id: string; content_owner_user_id: string; deletion_root_id: string | null; deleted_at: Date | null }>(
       'SELECT id,room_id,content_owner_user_id,deletion_root_id,deleted_at FROM messages WHERE id=? AND room_id=? FOR UPDATE', [found.id, found.room_id]);
-    if (!row || row.content_owner_user_id !== userId) throw new Error('account_content_scope');
+    if (!row) return { ...found, missing: true as const };
+    if (row.content_owner_user_id !== userId) throw new Error('account_content_scope');
     return row;
   }
   async restoredDependencies(tx: Transaction, receipt: DeletionReceipt) {

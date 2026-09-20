@@ -145,8 +145,8 @@ test('cleanup inventory uses bounded current locking reads including legacy dele
   const tx = { async rows(sql, values) { queries.push({ sql, values }); return []; } };
   await repository.objects(tx, 'asset'); await repository.currentObjects(tx, 'asset');
   for (const { sql, values } of queries) {
-    assert.match(sql, /ORDER BY id LIMIT 501 FOR UPDATE$/);
-    assert.match(sql, /object_key,state,byte_length,sha256/); assert.doesNotMatch(sql, /state<>/);
+    assert.match(sql, /ORDER BY o.id LIMIT 501 FOR UPDATE$/);
+    assert.match(sql, /object_key,o.state,o.byte_length,o.sha256/); assert.doesNotMatch(sql, /state<>/);
     assert.equal(values.length, 1); assert.equal(values[0], 'asset');
   }
   await repository.recoverable(tx);

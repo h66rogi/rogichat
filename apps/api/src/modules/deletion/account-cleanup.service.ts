@@ -9,7 +9,7 @@ import { ReadStateCoreService } from '../read-state/read-state-core.service.js';
 import { AccountCleanupRepository } from './account-cleanup.repository.js';
 import { DeletionLedger, deletionIntentKey } from './deletion-ledger.js';
 
-export type AccountCleanupPhase = 'private-fields' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'profile-changes' | 'content' | 'media' | 'subset-drained';
+export type AccountCleanupPhase = 'private-fields' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'profile-changes' | 'content' | 'media' | 'media-usage' | 'subset-drained';
 export interface AccountCleanupResult { phase: AccountCleanupPhase; changed: number; hasMore: boolean }
 
 /** Internal bounded ACCOUNT step composed by the durable PURGE worker. */
@@ -55,6 +55,8 @@ export class AccountCleanupService {
     const content = await this.content.page(tx, receipt, limit);
     if (content) return content;
     if (await this.media.page(tx, receipt)) return { phase: 'media', changed: 1, hasMore: true };
+    const usage = await this.repository.mediaUsage(tx, userId, limit);
+    if (usage) return { phase: 'media-usage', changed: usage, hasMore: true };
     // No persistent phase flag: after restart, re-check the first remaining
     // page in every phase. Storage/provider/backup closure remains independent.
     return { phase: 'subset-drained', changed: 0, hasMore: false };

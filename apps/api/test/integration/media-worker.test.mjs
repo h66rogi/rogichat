@@ -143,7 +143,7 @@ for (const kind of ['PHOTO', 'VIDEO']) test(`${kind}: two concurrent MEDIA jobs 
   assert.equal(BigInt(after.asset.reserved_bytes) - BigInt(before.asset.reserved_bytes), BigInt((kind === 'VIDEO' ? 52 : 10) * MiB));
 });
 
-test('owner deletion committed during external PUT wins READY race; unknown writer retains quota after bounded deletion', { timeout: 20000 }, async t => {
+test('owner deletion committed during external PUT wins READY race; actual late PUT acknowledgement permits later ordered cleanup', { timeout: 20000 }, async t => {
   const f = await fixture(t); const attempt = await f.processing(); const lease = await f.lease(attempt.assetId);
   const entered = barrier(), resume = barrier(); f.hooks.put = async () => { entered.release(); await resume.wait; };
   const running = f.process(lease); await entered.wait;
@@ -153,11 +153,11 @@ test('owner deletion committed during external PUT wins READY race; unknown writ
   const before = await f.inspect(attempt.assetId); assert.equal(before.asset.state, 'PROCESSING'); assert.equal(before.objects.some(object => object.state === 'READY'), false);
   assert.equal(f.calls.dispose, 1);
   delete f.hooks.put;
-  assert.equal(await f.process(lease), 'progress');
+  assert.equal(await f.process(lease), 'completed');
   const after = await f.inspect(attempt.assetId);
-  assert.equal(after.asset.state, 'DELETING'); assert.equal(after.reserved, before.reserved); assert.ok(f.calls.remove.length > 0);
-  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 1);
-  assert.equal(after.jobs.filter(job => job.state === 'COMPLETED').length, 0);
+  assert.equal(after.asset.state, 'DELETED'); assert.equal(before.reserved - after.reserved, BigInt(before.asset.reserved_bytes)); assert.ok(f.calls.remove.length > 0);
+  assert.equal(after.jobs.filter(job => job.state === 'PENDING').length, 0);
+  assert.equal(after.jobs.filter(job => job.state === 'COMPLETED').length, 1);
 });
 
 test('external deletion failure retains reservation; successful cleanup releases it once and atomically completes the job', { timeout: 20000 }, async t => {
@@ -323,7 +323,7 @@ for (const failingVariant of ['video', 'poster']) test(`VIDEO unknown ${failingV
   assert.equal(new Set(f.calls.put).size, f.calls.put.length); assert.equal(f.calls.dispose, 4);
 });
 
-test('VIDEO stale generation cannot finalize either output; fresh retry and expired cleanup cannot refund quota', { timeout: 20000 }, async t => {
+test('VIDEO stale generation cannot finalize outputs; expired cleanup rolls back and acknowledged writers later close', { timeout: 20000 }, async t => {
   const f = await fixture(t, 'VIDEO'); const input = await f.processing(); const first = await f.lease(input.assetId);
   let next;
   f.hooks.put = async key => { if (key.endsWith('/poster')) next = await f.lease(input.assetId, first.id); };
@@ -339,10 +339,10 @@ test('VIDEO stale generation cannot finalize either output; fresh retry and expi
   assert.equal(await f.process(cleanup), 'lease_lost'); state = await f.inspect(input.assetId);
   assert.equal(state.reserved, before.reserved); assert.equal(state.asset.state, 'DELETING');
   delete f.hooks.remove; const current = await f.lease(input.assetId, cleanup.id);
-  assert.equal(await f.process(current), 'progress'); state = await f.inspect(input.assetId);
-  assert.equal(state.asset.state, 'DELETING'); assert.equal(f.objects.size, 0);
-  assert.equal(state.reserved, before.reserved);
-  assert.ok(state.objects.some(row => row.state === 'ALLOCATED'));
+  assert.equal(await f.process(current), 'completed'); state = await f.inspect(input.assetId);
+  assert.equal(state.asset.state, 'DELETED'); assert.equal(f.objects.size, 0);
+  assert.equal(before.reserved - state.reserved, BigInt(before.asset.reserved_bytes));
+  assert.ok(state.objects.every(row => row.state === 'DELETED'));
 });
 
 for (const revoked of ['owner', 'linked', 'membership', 'room', 'asset']) test(`VIDEO fresh ${revoked} revocation during PUT blocks READY`, { timeout: 20000 }, async t => {

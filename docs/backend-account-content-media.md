@@ -49,6 +49,11 @@ jobs remain historical records; recovery adds at most one stable asset identity.
 Counters do not exhaust durable cleanup solely because many pages are required.
 Worker outcomes distinguish progress/deferred from completed cleanup.
 
+All three registered writers (upload, decoder variants and publication copies)
+record successful PUT acknowledgements in an evidence-only transaction before
+normal domain finalization. Revocation still prevents READY/publication success,
+but does not discard proof that the provider finished that exact write.
+
 Successful DELETE/404 is only an observed deletion at that instant. ALLOCATED,
 missing/invalid acknowledged-write metadata, failed storage operations and late
 writers retain their keys and quota obligation. A write acknowledgement arriving
