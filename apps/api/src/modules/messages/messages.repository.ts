@@ -67,6 +67,27 @@ export class MessagesRepository {
     await tx.prisma.stream_grants.createMany({ data: members.map(member_id => ({ id: randomUUID(), room_id: roomId, stream_id: streamId, member_id, can_read: true, can_send: true })) });
     await tx.prisma.room_members.updateMany({ where: { room_id: roomId, id: { in: members } }, data: { acl_epoch: { increment: 1n } } });
   }
+  async pendingOwner(tx: Transaction, roomId: string): Promise<boolean> {
+    // Before the room lock, matching bootstrap order; current read avoids RR
+    // snapshots and serializes sends with actual owner/inbox grant attachment.
+    return (await tx.rows("SELECT room_id FROM default_room_bindings WHERE room_id=? AND owner_bound=0 FOR UPDATE", [roomId])).length === 1;
+  }
+  async pendingInbox(tx: Transaction, roomId: string, actorId: string): Promise<string> {
+    // Only ROOM_OWNER creates an unpaired restricted stream, with one real fan
+    // grant. The room lock serializes discovery/creation and later owner binding.
+    const rows = await tx.rows<{ id: string }>(`SELECT s.id FROM message_streams s
+      JOIN stream_grants g ON g.room_id=s.room_id AND g.stream_id=s.id
+      LEFT JOIN stream_pairs p ON p.room_id=s.room_id AND p.stream_id=s.id
+      WHERE s.room_id=? AND s.kind='RESTRICTED' AND g.member_id=? AND p.id IS NULL FOR UPDATE`, [roomId, actorId]);
+    if (rows.length > 1) throw new Error('owner_inbox_conflict');
+    if (rows[0]) return rows[0].id;
+    const id = randomUUID();
+    await tx.prisma.message_streams.create({ data: { id, room_id: roomId, kind: 'RESTRICTED' }, select: { id: true } });
+    await tx.prisma.stream_grants.create({ data: { id: randomUUID(), room_id: roomId, stream_id: id,
+      member_id: actorId, can_read: true, can_send: true }, select: { id: true } });
+    await tx.prisma.room_members.update({ where: { id: actorId }, data: { acl_epoch: { increment: 1n } }, select: { id: true } });
+    return id;
+  }
   sendGrants(tx: Transaction, roomId: string, streamId: string, members: [string, string]): Promise<MessageSendGrantRow[]> {
     return tx.rows<MessageSendGrantRow>('SELECT member_id,can_read,can_send FROM stream_grants WHERE room_id=? AND stream_id=? AND member_id IN (?,?) AND revoked_at IS NULL AND valid_from<=UTC_TIMESTAMP(3) AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP(3)) ORDER BY member_id FOR UPDATE', [roomId, streamId, ...members]);
   }

@@ -109,6 +109,9 @@ export class MessagesCoreService {
 
   // Caller revalidates the current session/account/SOOP on this SAME transaction handle.
   async send(tx: Transaction, roomId: string, userId: string, input: SendInput, key: Buffer, audience: string) {
+    // Match bootstrap's binding→room lock order; never acquire the binding
+    // after holding the room while bootstrap is waiting to attach inboxes.
+    const awaitingOwner = input.intent === 'ROOM_OWNER' && await this.repository.pendingOwner(tx, identifier(roomId));
     const owner = await this.access.lockRoomSendOwner(tx, identifier(roomId));
     const room = await this.repository.room(tx, roomId);
     if (!room) throw new ApiError('NOT_FOUND', 404);
@@ -128,9 +131,21 @@ export class MessagesCoreService {
       if (!previous || !await this.readable(tx, viewer, previous)) throw new ApiError('NOT_FOUND', 404);
       return { clientMessageId: input.clientMessageId, messageId: previous.id, status: 'committed' as const, version: String(previous.version) };
     }
-    // Existing receipts reconcile history; only a new commit requires a live owner.
-    await this.access.requireRoomSendOwner(tx, roomId, room.owner_member_id, owner);
-    const streamId = await this.sendStream(tx, viewer, input);
+    // ROOM_OWNER addresses a real room inbox, not an invented recipient actor.
+    // Only the never-bound default catalog admits it before owner onboarding.
+    let streamId: string;
+    if (input.intent === 'SHARED' && viewer.mode === 'FAN' && viewer.role !== 'STREAMER') throw new ApiError('FORBIDDEN', 403);
+    if (input.intent === 'ROOM_OWNER' && viewer.mode === 'FAN' && viewer.role === 'FAN' && !room.owner_member_id) {
+      if (!awaitingOwner) throw new ApiError('NOT_FOUND', 404);
+      streamId = await this.repository.pendingInbox(tx, roomId, viewer.id);
+      const grant = await this.repository.sendGrants(tx, roomId, streamId, [viewer.id, viewer.id]);
+      if (grant.length !== 1 || Number(grant[0]!.can_read) !== 1 || Number(grant[0]!.can_send) !== 1) throw new ApiError('FORBIDDEN', 403);
+    } else {
+      await this.access.requireRoomSendOwner(tx, roomId, room.owner_member_id, owner);
+      if (input.intent === 'ROOM_OWNER' && (viewer.mode !== 'FAN' || viewer.role !== 'FAN')) throw new ApiError('FORBIDDEN', 403);
+      streamId = await this.sendStream(tx, viewer, input.intent === 'ROOM_OWNER'
+        ? { ...input, intent: 'PRIVATE', recipientActorId: room.owner_member_id } : input);
+    }
     if (input.quoteId) {
       const quote = await this.load(tx, roomId, input.quoteId);
       if (!quote || !await this.readable(tx, viewer, quote) || (quote.stream_kind !== 'ROOM_SHARED' && quote.stream_id !== streamId)) throw new ApiError('NOT_FOUND', 404);

@@ -4,6 +4,15 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 
 const input = () => ({ membershipScope: 'A'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 메시지' } });
+test('ROOM_OWNER has no fabricated recipient and preserves all typed content contracts', () => {
+  const body = { ...input(), intent: 'ROOM_OWNER' };
+  for (const content of [body.content, { type: 'PHOTO', assetIds: [randomUUID()] },
+    { type: 'VIDEO', assetIds: [randomUUID()] }, { type: 'STICKER', stickerId: randomUUID() }]) {
+    assert.deepEqual(sendInput({ ...body, content }), { ...body, content, recipientActorId: null, quoteId: null });
+  }
+  for (const recipientActorId of [null, randomUUID(), 'owner']) assert.throws(() => sendInput({ ...body, recipientActorId }), { code: 'INVALID_REQUEST' });
+  for (const intent of [['ROOM_OWNER'], {}, null, 1]) assert.throws(() => sendInput({ ...body, intent }), { code: 'INVALID_REQUEST' });
+});
 test('sticker sends require one catalog UUID, never caller-supplied assets or mixed content', () => {
   const body = input(), stickerId = randomUUID();
   assert.deepEqual(sendInput({ ...body, content: { type: 'STICKER', stickerId } }).content, { type: 'STICKER', stickerId });

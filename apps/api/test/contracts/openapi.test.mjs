@@ -101,7 +101,7 @@ for (const shape of ['health', 'auth', 'full']) test(`OpenAPI matches the actual
 
 test('request schemas agree with parsers on message union, forbidden fields and null semantics', () => {
   const base = { membershipScope: 'A'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '안녕하세요' } };
-  for (const body of [base, { ...base, content: { type: 'STICKER', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE', recipientActorId: randomUUID() }, { ...base, content: { type: 'PHOTO', assetIds: [randomUUID()] } }, { ...base, quoteId: null }]) {
+  for (const body of [base, { ...base, intent: 'ROOM_OWNER' }, { ...base, content: { type: 'STICKER', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE', recipientActorId: randomUUID() }, { ...base, content: { type: 'PHOTO', assetIds: [randomUUID()] } }, { ...base, quoteId: null }]) {
     check(sendRequest, body); assert.doesNotThrow(() => sendInput(body));
   }
   for (const body of [{ ...base, recipientActorId: null }, { ...base, unexpected: true }, { ...base, content: { type: 'STICKER', assetIds: [randomUUID()] } }, { ...base, content: { type: 'TEXT', text: 'hello', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE' }, { ...base, clientMessageId: base.clientMessageId.toUpperCase() }]) {

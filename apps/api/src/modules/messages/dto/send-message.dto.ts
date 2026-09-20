@@ -5,7 +5,7 @@ import { identifier } from '../../../common/validation/identifier.js';
 export interface SendInput {
   membershipScope: string;
   clientMessageId: string;
-  intent: 'SHARED' | 'PRIVATE';
+  intent: 'SHARED' | 'PRIVATE' | 'ROOM_OWNER';
   recipientActorId: string | null;
   quoteId: string | null;
   content: { type: 'TEXT'; text: string } | { type: 'PHOTO' | 'VIDEO'; assetIds: string[] } | { type: 'STICKER'; stickerId: string };
@@ -13,8 +13,8 @@ export interface SendInput {
 
 export function sendInput(body: unknown): SendInput {
   const input = object(body, ['membershipScope', 'clientMessageId', 'intent', 'recipientActorId', 'quoteId', 'content']);
-  if (input.intent !== 'SHARED' && input.intent !== 'PRIVATE') throw new ApiError('INVALID_REQUEST', 400);
-  if (input.intent === 'SHARED' && input.recipientActorId !== undefined) throw new ApiError('INVALID_REQUEST', 400);
+  if (input.intent !== 'SHARED' && input.intent !== 'PRIVATE' && input.intent !== 'ROOM_OWNER') throw new ApiError('INVALID_REQUEST', 400);
+  if (input.intent !== 'PRIVATE' && input.recipientActorId !== undefined) throw new ApiError('INVALID_REQUEST', 400);
   const content = object(input.content, ['type', 'text', 'assetIds', 'stickerId']);
   let parsed: SendInput['content'];
   if (content.type === 'TEXT') {

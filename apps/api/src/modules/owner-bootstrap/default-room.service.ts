@@ -38,10 +38,9 @@ export class DefaultRoomService implements OnApplicationBootstrap, OnModuleDestr
       if (room && binding.created) throw new Error('default_room_conflict'); // Never adopt an unrelated preexisting room.
       if (!room) {
         await this.rooms.createRoom(tx, '후로기', 'FAN', binding.room_id);
-        await this.repository.reserve(tx, binding.room_id);
         room = await this.repository.room(tx, binding.room_id);
       }
-      if (!room || room.name !== '후로기' || room.mode !== 'FAN' || room.status !== 'CLOSED' || room.owner_member_id) throw new Error('default_room_conflict');
+      if (!room || room.name !== '후로기' || room.mode !== 'FAN' || room.status !== 'ACTIVE' || room.owner_member_id) throw new Error('default_room_conflict');
       if (catalogOnly) return 'awaiting_owner' as const;
       if (!subject || !digest) return 'awaiting_owner' as const;
       await this.repository.bindSpec(tx, digest);

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 @Injectable()
 export class DefaultRoomRepository {
@@ -12,9 +13,6 @@ export class DefaultRoomRepository {
     // Validate current locked state, not a pre-activation repeatable-read snapshot.
     const [room] = await tx.rows<{ id: string; name: string; status: string; mode: string; owner_member_id: string | null }>('SELECT id,name,status,mode,owner_member_id FROM rooms WHERE id=? FOR UPDATE', [roomId]);
     return room ?? null;
-  }
-  async reserve(tx: Transaction, roomId: string) {
-    await tx.prisma.rooms.update({ where: { id: roomId }, data: { status: 'CLOSED' }, select: { id: true } });
   }
   async bindSpec(tx: Transaction, digest: Buffer) {
     await tx.prisma.default_room_bindings.updateMany({ where: { key: 'primary', owner_subject_digest: null }, data: { owner_subject_digest: new Uint8Array(digest) } });
@@ -37,6 +35,28 @@ export class DefaultRoomRepository {
     await tx.prisma.rooms.update({ where: { id: roomId }, data: { status: 'ACTIVE' }, select: { id: true } });
   }
   async finish(tx: Transaction, roomId: string, ownerId: string, actorId: string, receiptId: string) {
+    // Pending ROOM_OWNER streams have one real sender grant and no pair. Bind
+    // them atomically to the actual owner, retaining stream/message IDs and ACLs.
+    // Current locking read is required after owner discovery's earlier RR snapshot.
+    const inboxes = await tx.rows<{ stream_id: string; member_id: string }>(`SELECT s.id AS stream_id,g.member_id
+      FROM message_streams s JOIN stream_grants g ON g.room_id=s.room_id AND g.stream_id=s.id
+      LEFT JOIN stream_pairs p ON p.room_id=s.room_id AND p.stream_id=s.id
+      WHERE s.room_id=? AND s.kind='RESTRICTED' AND p.id IS NULL ORDER BY s.id FOR UPDATE`, [roomId]);
+    if (new Set(inboxes.map(row => row.stream_id)).size !== inboxes.length) throw new Error('owner_inbox_conflict');
+    const pending = inboxes.filter(row => row.member_id !== actorId);
+    if (pending.length) {
+      await tx.prisma.stream_pairs.createMany({ data: pending.map(row => {
+        const members = [actorId, row.member_id].sort();
+        return { id: randomUUID(), room_id: roomId, stream_id: row.stream_id, left_member_id: members[0]!, right_member_id: members[1]! };
+      }) });
+      await tx.prisma.stream_grants.createMany({ data: pending.map(row => ({ id: randomUUID(), room_id: roomId,
+        stream_id: row.stream_id, member_id: actorId, can_read: true, can_send: true })) });
+      await tx.prisma.room_members.updateMany({ where: { room_id: roomId, id: { in: pending.map(row => row.member_id) } }, data: { acl_epoch: { increment: 1n } } });
+    }
+    // First owner receives the inbox backlog. Existing fan period/history
+    // boundaries and revoked sender grants are never repaired or rewritten.
+    await tx.prisma.membership_periods.updateMany({ where: { room_id: roomId, member_id: actorId, left_at: null },
+      data: { visible_from_order: 0n, history_policy: 'ALL_AVAILABLE' } });
     await tx.prisma.room_members.update({ where: { id: actorId }, data: { role: 'STREAMER' }, select: { id: true } });
     await tx.prisma.rooms.update({ where: { id: roomId }, data: { owner_member_id: actorId }, select: { id: true } });
     await tx.prisma.default_room_bindings.update({ where: { key: 'primary' }, data: { owner_bound: true }, select: { key: true } });
