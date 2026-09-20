@@ -10,7 +10,7 @@ import addFormats from 'ajv-formats';
 import { openApiFixture } from '../support/openapi-fixture.mjs';
 import { createOpenApiDocument } from '../../dist/infrastructure/openapi/openapi.js';
 import { sendInput } from '../../dist/modules/messages/dto/send-message.dto.js';
-import { sendRequest } from '../../dist/modules/messages/dto/message.openapi.js';
+import { sendRequest, deletionReceipt } from '../../dist/modules/messages/dto/message.openapi.js';
 import { projectMessageDto } from '../../dist/modules/messages/message-projection.js';
 import { projectActorProfileDto } from '../../dist/modules/users/profile-projection.js';
 import { reactionEmoji } from '../../dist/modules/reactions/dto/reaction.dto.js';
@@ -184,4 +184,12 @@ test('C05 shared fixtures require minimal action fields only on complete live DT
   check(event, { ...fixtures.tombstone, allowedActions: fixtures.privateOutgoing.allowedActions }, false);
   assert.equal(fixtures.privateOutgoing.version, fixtures.stalePrivateOutgoing.version);
   assert.notDeepEqual(fixtures.privateOutgoing.allowedActions, fixtures.stalePrivateOutgoing.allowedActions);
+});
+
+test('deletion receipt alone permits legacy UUIDv4 or deterministic UUIDv5 and stays minimal', () => {
+  const v5 = 'b74685d3-0c46-558e-8b2d-12512b102949';
+  for (const requestId of [randomUUID(), v5]) check(deletionReceipt, { requestId, status: 'blocked' });
+  for (const requestId of [v5.toUpperCase(), v5.replace('-558e-', '-758e-'), 'invalid']) check(deletionReceipt, { requestId, status: 'blocked' }, false);
+  check(deletionReceipt, { requestId: v5, status: 'purged' }, false);
+  check(deletionReceipt, { requestId: v5, status: 'blocked', actorUserId: randomUUID() }, false);
 });

@@ -93,7 +93,7 @@ async function fixture(t) {
     };
   };
   const get = id => txs.read(tx => getMessage(tx, room, other.id, id));
-  const remove = id => txs.write(tx => deleteMessage(tx, room, fan.id, id));
+  const remove = id => deleteMessage(txs, room, fan.id, id);
   const cleanup = async assetId => { const lease = await claim(assetId, 'MEDIA'); return processMedia(txs, store, {}, 'test', lease); };
   const age = id => txs.write(async tx => { await tx.prisma.media_objects.updateMany({ where: { asset_id: id }, data: { created_at: new Date(0) } }); });
   return { db, txs, core, worker, source, request, status, claim, expire, inspect, http, get, remove, owner, fan, other, room, objects, hooks, puts, removes, signs, cleanup, age };
@@ -212,7 +212,7 @@ test('original author leaving preserves published history; deleting the public c
   assert.equal(await f.worker.processPublication(await f.claim(publication.publicationId)), 'completed');
   const published = await f.status(publication.publicationId), dto = await f.get(published.messageId);
   const copyId = dto.content.attachments[0].assetId;
-  await f.txs.write(tx => deleteMessage(tx, f.room, f.owner.id, published.messageId));
+  await deleteMessage(f.txs, f.room, f.owner.id, published.messageId);
   await f.age(copyId); await f.cleanup(copyId);
   const original = await f.txs.read(tx => tx.prisma.media_assets.findUnique({ where: { id: source.assets[0] }, select: { state: true, deleted_at: true, objects: { select: { object_key: true } } } }));
   assert.equal(original.state, 'READY'); assert.equal(original.deleted_at, null);

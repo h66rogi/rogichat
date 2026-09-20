@@ -1,3 +1,4 @@
+import { deletionFixture } from '../support/deletion-fixture.mjs';
 import { createUser, createRoom, joinRoom, sendInput, sendMessage, getMessage, deleteMessage, requestPublication, publishText, publicationStatus, setReaction, Jobs, enqueueJob } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
@@ -13,7 +14,7 @@ import { child, waitFor, stopChild } from '../helpers.mjs';
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
-  const db = new MysqlDatabase(readConfig('api')); let app; const children = [];
+  const db = new MysqlDatabase(readConfig('api')); const deletion = deletionFixture(); let app; const children = [];
   t.after(async () => { try { for (const proc of children) await stopChild(proc); await app?.close(); } finally { await db.close(); } });
   const config = { audience: `pub-${randomBytes(8).toString('hex')}`, origin: 'http://localhost:3001', secure: false, key: randomBytes(32) };
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
@@ -38,7 +39,7 @@ async function fixture(t) {
   const request = (id, user = owner, targetRoom = room) => write(user, tx => requestPublication(tx, targetRoom, user.id, id));
   const status = (id, user = owner) => read(user, tx => publicationStatus(tx, room, user.id, id));
   const get = (id, user = other) => read(user, tx => getMessage(tx, room, user.id, id));
-  const remove = (id, user = fan) => write(user, tx => deleteMessage(tx, room, user.id, id));
+  const remove = (id, user = fan) => deleteMessage(db.transactions, room, user.id, id, tx => sessions.require(tx, user.token, user.csrf, true));
   const queue = new Jobs(db.transactions, 'worker');
   const claim = async id => {
     const leases = await queue.claim({ purposes: ['PUBLICATION'] });
@@ -55,7 +56,7 @@ async function fixture(t) {
     return { ...row };
   });
   const http = async () => {
-    app = await createApi(db, new SafeLogger('api', () => {}), undefined, { config, sessions });
+    app = await createApi(db, new SafeLogger('api', () => {}), undefined, { config, sessions }, undefined, 'test', deletion);
     await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
     return async (user, method, path, body, overrides = {}) => {
       const response = await fetch(`${base}/v1${path}`, { method, headers: { Origin: config.origin, Cookie: `rogi_session=${user.token}`,

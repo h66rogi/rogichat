@@ -1,4 +1,6 @@
 import { MessageEligibilityService } from './message-eligibility.service.js';
+import { messageDeletionId } from '../deletion/deletion-ledger.js';
+import type { DeletionIntent, LedgerEnvironment } from '../deletion/deletion-ledger.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
@@ -137,23 +139,39 @@ export class MessagesCoreService {
     return { clientMessageId: input.clientMessageId, messageId: id, status: 'committed' as const, version: '1' };
   }
 
-  async remove(tx: Transaction, roomId: string, userId: string, messageId: string) {
-    // Ownership-only deletion intentionally does not require an ACTIVE room/member or SOOP link.
+  async authorizeDeletion(tx: Transaction, roomId: string, userId: string, messageId: string, environment: LedgerEnvironment): Promise<DeletionIntent> {
+    // Ownership survives leaving/closed rooms; fresh session validation is the caller's responsibility.
     if (!await this.repository.room(tx, identifier(roomId))) throw new ApiError('NOT_FOUND', 404);
     const row = await this.repository.ownedMessage(tx, roomId, identifier(messageId), userId);
     if (!row) throw new ApiError('NOT_FOUND', 404);
     const prior = await this.repository.deletionRequest(tx, userId, messageId);
-    if (prior) return { requestId: String(prior.id), status: 'blocked' as const };
-    const requestId = randomUUID();
-    await this.repository.blockMessageAndCopies(tx, roomId, messageId, userId, requestId);
-    for (const asset of await this.repository.attachedAssets(tx, roomId, messageId)) {
-      await this.repository.blockAsset(tx, String(asset.id));
-      await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: String(asset.id), dedupeKey: digest(`media-message-delete:${asset.id}:${requestId}`) });
+    return { schemaVersion: 1, environment, actorUserId: userId, scope: 'MESSAGE', roomId, targetId: row.id,
+      requestId: prior?.id ?? messageDeletionId(environment, userId, roomId, row.id),
+      requestedAt: (prior?.requested_at ?? await tx.now()).toISOString() };
+  }
+
+  // Trusted durable-intent port, shared by admission and independent replay. No mutable session/member reauthorization.
+  async remove(tx: Transaction, intent: DeletionIntent): Promise<boolean> {
+    const { roomId, targetId: messageId, actorUserId: userId, requestId } = intent;
+    if (intent.scope !== 'MESSAGE' || !roomId) throw new Error('unsupported_deletion_scope');
+    if (!await this.repository.room(tx, roomId)) return false;
+    const row = await this.repository.ownedMessage(tx, roomId, messageId, userId);
+    if (!row) return false; // Restored target/actor may be absent. The opaque checkpoint remains an obligation.
+    const prior = await this.repository.deletionRequest(tx, userId, messageId);
+    if (prior) {
+      if (prior.id !== requestId || prior.requested_at.toISOString() !== intent.requestedAt) throw new Error('deletion_receipt_conflict');
     }
-    const order = await this.repository.nextDeletionOrder(tx, roomId);
-    await this.recordEvent(tx, { id: messageId, room_id: roomId, stream_id: String(row.stream_id) }, (BigInt(row.version as string) + 1n).toString(), order, 'MESSAGE_DELETED');
+    await this.repository.blockMessageAndCopies(tx, roomId, messageId, userId, requestId, new Date(intent.requestedAt), Boolean(prior));
+    const assets = await this.repository.attachedAssets(tx, roomId, messageId);
+    // All domain rows are locked/mutated before the first job lock.
+    for (const asset of assets) await this.repository.blockAsset(tx, String(asset.id));
+    if (!row.deleted_at) {
+      const order = await this.repository.nextDeletionOrder(tx, roomId);
+      await this.recordEvent(tx, { id: messageId, room_id: roomId, stream_id: String(row.stream_id) }, (BigInt(row.version as string) + 1n).toString(), order, 'MESSAGE_DELETED');
+    }
+    for (const asset of assets) await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: String(asset.id), dedupeKey: digest(`media-message-delete:${asset.id}:${requestId}`) });
     await this.jobs.enqueue(tx, { purpose: 'PURGE', roomId, resourceId: requestId, dedupeKey: digest(`purge:${requestId}`) });
-    return { requestId, status: 'blocked' as const };
+    return true;
   }
 
   // Trusted worker port. Caller must fence its lease and continuation atomically

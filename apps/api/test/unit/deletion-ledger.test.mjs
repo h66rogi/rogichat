@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { setImmediate } from 'node:timers';
-import { DeletionLedger, checkedDeletionIntent, encodeDeletionIntent, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
+import { DeletionLedger, messageDeletionId, checkedDeletionIntent, encodeDeletionIntent, decodeDeletionIntent, deletionIntentKey } from '../../dist/modules/deletion/deletion-ledger.js';
 import { R2DeletionLedgerStore } from '../../dist/modules/deletion/adapters/r2-deletion-ledger.js';
 
 const intent = () => ({ schemaVersion: 1, environment: 'qa', requestId: randomUUID(), actorUserId: randomUUID(),
@@ -139,4 +139,72 @@ test('Nest ledger module owns real adapter shutdown without creating any externa
   t.mock.method(store.client, 'destroy', () => { closed++; });
   assert.ok(app.get(DeletionLedger) instanceof DeletionLedger);
   await app.close(); assert.equal(closed, 1);
+});
+
+test('bounded R2 inventory fixes environment prefix and validates every key, size and continuation', async () => {
+  const cfg = config(); const store = new R2DeletionLedgerStore(cfg); const value = intent(); const key = deletionIntentKey('qa', value.requestId);
+  let response = { IsTruncated: true, Contents: [{ Key: key, Size: 400 }], NextContinuationToken: 'next' };
+  const commands = [];
+  store.client.send = async command => { commands.push(command); return response; };
+  try {
+    assert.deepEqual(await store.list(null, 5, signal()), { keys: [key], cursor: 'next' });
+    assert.equal(commands[0].constructor.name, 'ListObjectsV2Command');
+    assert.deepEqual(commands[0].input, { Bucket: cfg.bucket, Prefix: 'qa/', MaxKeys: 5 });
+    await store.list('prior', 5, signal()); assert.equal(commands[1].input.ContinuationToken, 'prior');
+    for (const invalid of [0, 101, 1.5]) await assert.rejects(store.list(null, invalid, signal()));
+    for (const page of [
+      { IsTruncated: true }, { IsTruncated: true, NextContinuationToken: 'prior' },
+      { IsTruncated: false, NextContinuationToken: 'hidden' },
+      { IsTruncated: false, Contents: [{ Key: 'production/' + value.requestId + '/intent.json', Size: 400 }] },
+      { IsTruncated: false, Contents: [{ Key: key, Size: 1025 }] },
+      { IsTruncated: false, Contents: [{ Key: key, Size: 400 }, { Key: key, Size: 400 }] },
+    ]) { response = page; await assert.rejects(store.list('prior', 5, signal()), { code: 'INVALID_LEDGER_INTENT' }); }
+  } finally { store.close(); }
+});
+
+test('inventory read-by-key refuses body/key mismatch and does not turn missing objects into success', async () => {
+  const value = intent(), store = new Store(), ledger = new DeletionLedger(store, 'qa');
+  const key = deletionIntentKey('qa', value.requestId);
+  await assert.rejects(ledger.readByKey(key), { code: 'LEDGER_UNAVAILABLE' });
+  store.rows.set(key, encodeDeletionIntent({ ...value, requestId: randomUUID() }));
+  await assert.rejects(ledger.readByKey(key), { code: 'LEDGER_CONFLICT' });
+  store.rows.set(key, encodeDeletionIntent(value));
+  assert.equal((await ledger.readByKey(key)).intent.requestId, value.requestId);
+});
+
+test('message deletion IDs are standard UUIDv5 scoped to environment and immutable target, independent of time/device', () => {
+  const actor = '11111111-1111-4111-8111-111111111111', room = '22222222-2222-4222-8222-222222222222', target = '33333333-3333-4333-8333-333333333333';
+  // Independently computed with Python uuid.uuid5 and the documented fixed namespace.
+  assert.equal(messageDeletionId('qa', actor, room, target), 'b74685d3-0c46-558e-8b2d-12512b102949');
+  assert.notEqual(messageDeletionId('qa', actor, room, target), messageDeletionId('production', actor, room, target));
+});
+
+test('already-aborted inventory/read never calls storage, and replay never starts apply after deadline', async t => {
+  const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
+  let calls = 0, applied = 0;
+  const value = intent(), key = deletionIntentKey('qa', value.requestId);
+  const store = { close() {}, putIfAbsent: async () => {},
+    list: async () => { calls++; return { keys: [key], cursor: null }; },
+    read: async () => { calls++; await new Promise(resolve => setTimeout(resolve, 20)); return encodeDeletionIntent(value); } };
+  const ledger = new DeletionLedger(store, 'qa'), abort = new globalThis.AbortController(); abort.abort();
+  await assert.rejects(ledger.inventory(null, 50, abort.signal));
+  await assert.rejects(ledger.readByKey(key, abort.signal));
+  assert.equal(calls, 0);
+  const original = AbortSignal.timeout;
+  t.mock.method(AbortSignal, 'timeout', ms => original(ms === 30000 ? 5 : ms));
+  await assert.rejects(new DeletionReconciler(ledger, { apply: async () => { applied++; } }).tick());
+  assert.equal(applied, 0);
+});
+
+test('unsupported ACCOUNT and malformed records stop replay safely without advancing its page', async () => {
+  const { DeletionReconciler } = await import('../../dist/modules/deletion/deletion-reconciler.js');
+  const value = intent(); const account = { ...value, scope: 'ACCOUNT', targetId: value.actorUserId, roomId: null };
+  const key = deletionIntentKey('qa', value.requestId); let applied = 0; const cursors = [];
+  const store = { close() {}, putIfAbsent: async () => {}, list: async cursor => { cursors.push(cursor); return { keys: [key], cursor: 'next' }; },
+    read: async () => encodeDeletionIntent(account) };
+  const replay = new DeletionReconciler(new DeletionLedger(store, 'qa'), { apply: async () => { applied++; } });
+  await assert.rejects(replay.tick(), /unsupported_deletion_scope/);
+  store.read = async () => Buffer.from('private malformed data');
+  await assert.rejects(replay.tick(), { message: 'INVALID_LEDGER_INTENT' });
+  assert.equal(applied, 0); assert.deepEqual(cursors, [null, null]);
 });

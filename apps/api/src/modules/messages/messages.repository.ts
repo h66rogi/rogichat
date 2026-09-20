@@ -120,16 +120,15 @@ export class MessagesRepository {
     return row;
   }
 
-  async deletionRequest(tx: Transaction, userId: string, messageId: string): Promise<MessageIdRow | undefined> {
-    const [row] = await tx.rows<MessageIdRow>('SELECT id FROM deletion_requests WHERE actor_user_id=? AND message_id=? FOR UPDATE', [userId, messageId]);
+  async deletionRequest(tx: Transaction, userId: string, messageId: string): Promise<{ id: string; requested_at: Date } | undefined> {
+    const [row] = await tx.rows<{ id: string; requested_at: Date }>('SELECT id,requested_at FROM deletion_requests WHERE actor_user_id=? AND message_id=? FOR UPDATE', [userId, messageId]);
     return row;
   }
 
-  async blockMessageAndCopies(tx: Transaction, roomId: string, messageId: string, userId: string, requestId: string): Promise<void> {
+  async blockMessageAndCopies(tx: Transaction, roomId: string, messageId: string, userId: string, requestId: string, requestedAt: Date, existing: boolean): Promise<void> {
     const now = await tx.now();
-    await tx.prisma.deletion_requests.create({ data: { id: requestId, actor_user_id: userId, room_id: roomId, message_id: messageId }, select: { id: true } });
-    await tx.prisma.messages.updateMany({ where: { room_id: roomId, id: messageId, deleted_at: null }, data: { deleted_at: now } });
-    await tx.prisma.messages.updateMany({ where: { room_id: roomId, id: messageId }, data: { text_content: null, version: { increment: 1n } } });
+    if (!existing) await tx.prisma.deletion_requests.create({ data: { id: requestId, actor_user_id: userId, room_id: roomId, message_id: messageId, requested_at: requestedAt }, select: { id: true } });
+    await tx.prisma.messages.updateMany({ where: { room_id: roomId, id: messageId, deleted_at: null }, data: { deleted_at: now, text_content: null, version: { increment: 1n } } });
     await tx.prisma.command_receipts.updateMany({ where: { room_id: roomId, message_id: messageId }, data: { deleted: true, payload_digest: null } });
     await tx.prisma.message_publications.updateMany({ where: { room_id: roomId, OR: [{ source_message_id: messageId }, { published_message_id: messageId }] }, data: { state: 'REVOKED' } });
     await tx.prisma.messages.updateMany({ where: { room_id: roomId, deletion_root_id: messageId, deleted_at: null }, data: { deleted_at: now, text_content: null, version: { increment: 1n } } });

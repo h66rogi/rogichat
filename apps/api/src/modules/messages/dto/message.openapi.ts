@@ -27,12 +27,12 @@ export const sendReceipt: Schema = { oneOf: [
   object({ clientMessageId: uuid, messageId: uuid, status: enumeration('committed'), version: decimal }),
   object({ clientMessageId: uuid, messageId: uuid, status: enumeration('deleted') }),
 ] };
-export const deletionReceipt = object({ requestId: uuid, status: enumeration('blocked') });
+export const deletionReceipt = object({ requestId: { ...uuid, pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' }, status: enumeration('blocked') });
 export const messageDocs = {
   send: () => contract({ id: 'sendMessage', summary: '메시지 발송', auth: 'write', params: ['roomId'], body: sendRequest, response: sendReceipt,
     description: '활성 방 구성원과 SOOP 연동이 필요합니다. FAN 방의 SHARED 발송은 스트리머만 가능합니다. PRIVATE는 같은 방의 허용된 수신 actor를 지정합니다. SHARED에서는 recipientActorId를 생략합니다. 같은 clientMessageId와 같은 내용으로 재시도하며 내용이 다르면 409입니다. committed는 DB 저장 완료이며 전달·읽음 ACK가 아닙니다.', errors: [400, 401, 403, 404, 409, 413, 429] }),
   get: () => contract({ id: 'getMessage', summary: '권한에 맞는 메시지 조회', params: ['roomId', 'messageId'], response: message,
     description: '팬은 공유 메시지와 자신에게 허용된 비공개 메시지만 조회합니다. 공개본의 작성자는 anonymous이며 원본 ID와 작성자 식별자를 노출하지 않습니다. 인용과 첨부도 현재 권한을 검사합니다.' }),
   remove: () => contract({ id: 'deleteMessage', summary: '작성자 메시지 삭제 요청', auth: 'write', params: ['roomId', 'messageId'], body: empty, response: deletionReceipt,
-    description: '작성자만 요청할 수 있습니다. blocked는 접근 차단 완료이며 물리 삭제 완료가 아닙니다. 연결된 공개본과 첨부 접근도 회수합니다.', errors: [400, 401, 403, 404, 413, 429] }),
+    description: '작성자만 요청할 수 있습니다. blocked는 접근 차단 완료이며 물리 삭제 완료가 아닙니다. 연결된 공개본과 첨부 접근도 회수합니다. 외부 삭제 원장 미설정·기록 실패는 503이며 접수 성공으로 응답하지 않습니다.', errors: [400, 401, 403, 404, 413, 429, 503] }),
 };

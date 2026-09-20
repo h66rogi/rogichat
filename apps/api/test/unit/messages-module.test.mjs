@@ -135,15 +135,15 @@ test('first authentication or rate denial never begins a command; domain failure
   }
 });
 
-test('get requires SOOP on its read handle while author removal uses its write handle without SOOP admission', async t => {
+test('get requires SOOP; unconfigured deletion truthfully fails without content mutation', async t => {
   const f = await fixture(t);
   assert.deepEqual(await f.service.get(f.credentials, f.roomId, f.messageId), { id: f.messageId });
-  assert.deepEqual(await f.service.remove(f.credentials, f.roomId, f.messageId), { requestId: 'synthetic-request', status: 'blocked' });
+  await assert.rejects(f.service.remove(f.credentials, f.roomId, f.messageId), error => error.getStatus() === 503);
   assert.deepEqual(f.handles.map(tx => tx.writable), [false, true]);
   const checks = f.calls.filter(call => call.kind === 'require');
   assert.deepEqual(checks.map(call => call.requireSoop), [true, false]);
   assert.equal(f.calls.find(call => call.kind === 'get').tx, checks[0].tx);
-  assert.equal(f.calls.find(call => call.kind === 'remove').tx, checks[1].tx);
+  assert.equal(f.calls.some(call => call.kind === 'remove'), false);
   assert.equal(f.calls.some(call => ['rows', 'execute', 'prisma.createMany', 'prisma.updateMany', 'prisma.findMany'].includes(call.kind)), false);
 });
 
@@ -152,7 +152,7 @@ test('application commands reject missing or malformed CSRF before opening any t
   for (const csrf of [undefined, '', 'invalid', ['b'.repeat(43)]]) {
     const credentials = { token: f.credentials.token, csrf };
     await assert.rejects(f.service.send(credentials, f.roomId, f.input), { code: 'INVALID_REQUEST' });
-    assert.throws(() => f.service.remove(credentials, f.roomId, f.messageId), { code: 'INVALID_REQUEST' });
+    await assert.rejects(f.service.remove(credentials, f.roomId, f.messageId), { code: 'INVALID_REQUEST' });
   }
   assert.equal(f.handles.length, 0); assert.deepEqual(f.calls, []);
 });

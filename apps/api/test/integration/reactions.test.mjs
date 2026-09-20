@@ -32,7 +32,7 @@ async function fixture(t) {
   const send = (person, target) => authenticated(person, true, tx => sendMessage(tx, room, person.id, sendInput({ clientMessageId: randomUUID(), intent: target ? 'PRIVATE' : 'SHARED', ...(target ? { recipientActorId: target.actor } : {}), content: { type: 'TEXT', text: '반응용 합성 메시지' } }), key));
   const set = (person, messageId, emoji, roomId = room) => authenticated(person, true, tx => setReaction(tx, roomId, person.id, messageId, emoji));
   const read = (person, messageId, roomId = room) => authenticated(person, false, tx => readReactions(tx, roomId, person.id, messageId));
-  const remove = (person, messageId) => authenticated(person, true, tx => deleteMessage(tx, room, person.id, messageId));
+  const remove = (person, messageId) => deleteMessage(db.transactions, room, person.id, messageId, tx => sessions.require(tx, person.token, person.csrf, true));
   return { db, sessions, owner, a, b, outside, room, authenticated, send, set, read, remove };
 }
 const denied = promise => assert.rejects(promise, { code: 'NOT_FOUND' });

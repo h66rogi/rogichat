@@ -35,7 +35,8 @@ async function fixture(t) {
   const get = (person, roomId = room) => authenticated(person, false, (tx, binding) => core.get(tx, roomId, person.id, binding));
   const put = (person, messageId, readContext, roomId = room) => authenticated(person, true, (tx, binding) => core.put(tx, roomId, person.id, { messageId, readContext }, binding));
   const send = (person, target) => authenticated(person, true, tx => sendMessage(tx, room, person.id, sendInput({ clientMessageId: randomUUID(), intent: target ? 'PRIVATE' : 'SHARED', ...(target ? { recipientActorId: target.actor } : {}), content: { type: 'TEXT', text: '실제 표시 진행 테스트' } }), key));
-  const remove = (person, messageId) => authenticated(person, true, tx => deleteMessage(tx, room, person.id, messageId));
+  const remove = (person, messageId) => deleteMessage(db.transactions, room, person.id, messageId,
+    tx => sessions.require(tx, person.token, person.csrf, true));
   return { db, core, sessions, owner, a, b, outside, room, authenticated, get, put, send, remove };
 }
 const denied = promise => assert.rejects(promise, { code: 'NOT_FOUND' });

@@ -1,3 +1,6 @@
+import { DeletionRepository } from '../../dist/modules/deletion/deletion.repository.js';
+import { deletionFixture } from './deletion-fixture.mjs';
+import { DeletionApplyService } from '../../dist/modules/deletion/deletion-apply.service.js';
 // Fixtures use the real Nest domain graph. No alternative domain implementation lives here.
 import 'reflect-metadata';
 import { after } from 'node:test';
@@ -33,7 +36,12 @@ after(() => context.close());
 const bind = (token, name) => context.get(token)[name].bind(context.get(token));
 export const sendMessage = bind(MessagesCoreService, 'send');
 export const getMessage = bind(MessagesCoreService, 'get');
-export const deleteMessage = bind(MessagesCoreService, 'remove');
+export async function deleteMessage(transactions, room, actor, message, authorize = async () => {}) {
+  const core = context.get(MessagesCoreService);
+  const { ledger } = deletionFixture();
+  const intent = await transactions.write(async tx => { await authorize(tx); return core.authorizeDeletion(tx, room, actor, message, 'qa'); });
+  return new DeletionApplyService(transactions, core, new DeletionRepository()).apply(await ledger.ensureIntent(intent));
+}
 export const loadMessage = bind(MessagesCoreService, 'load');
 export const readable = bind(MessagesCoreService, 'readable');
 export const recordMessageEvent = bind(MessagesCoreService, 'recordEvent');
