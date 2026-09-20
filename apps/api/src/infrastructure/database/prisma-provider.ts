@@ -23,6 +23,7 @@ export function poolOptions(config: Config) {
     connectionLimit: db.poolSize, acquireTimeout: 1200, connectTimeout: 1000,
     initializationTimeout: 1000, socketTimeout: 3000, timezone: '+00:00',
     multipleStatements: false, resetAfterUse: true, prepareCacheLength: 0,
+    charset: 'utf8mb4', permitRedirect: false,
     allowPublicKeyRetrieval: !db.tls && ['local', 'test'].includes(config.environment) && ['localhost', '127.0.0.1', '::1'].includes(db.host),
     ...(db.tls ? { ssl: {
       rejectUnauthorized: true, servername: db.host,

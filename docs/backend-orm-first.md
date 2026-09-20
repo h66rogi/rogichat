@@ -14,8 +14,9 @@ a Prisma limitation for ordinary CRUD. Locking requirements justify individual r
 queries, not replacing every SQL call with `$queryRawUnsafe` or keeping a parallel
 mysql2 production pool.
 
-Prisma CLI, Client and MariaDB adapter stay pinned to 7.10.0, with mariadb 3.4.5
-pinned directly as the sole pool driver and shared with the adapter. Node 24.21.0 and pnpm 12.4.2 remain unchanged. The existing
+Prisma CLI, Client and MariaDB adapter stay pinned to 7.10.0, with mariadb 3.4.7
+pinned directly as the sole pool driver and shared with the adapter through a
+scoped dependency override. Node 24.21.0 and pnpm 12.4.2 remain unchanged. The existing
 1,440-minute release-age policy and explicitly reviewed build-script allowlist
 remain enforced. Generated TypeScript is deterministic, ignored by Git and emitted
 before compilation; no generated client files are committed.
@@ -108,10 +109,10 @@ rather than a newer documentation version, govern the compatibility decision.
 The installed mariadb 3.4.5 `destroy()` attempted cancellation through a new KILL
 connection, then queued QUIT if that connection failed. That did not establish
 bounded local transport teardown and could exceed the configured pool limit.
-`patches/mariadb@3.4.5.patch` replaces only this method with the driver's existing
+The correction is preserved in `patches/mariadb@3.4.7.patch`, replacing this method with the driver's existing
 fatal-error cleanup, which synchronously destroys the socket, disables commands,
-and rejects queued work. The public API and ordinary connection/TLS/authentication
-paths are unchanged; application code does not extract private sockets. The patch
+and rejects queued work. The public API is unchanged; application code does not
+extract private sockets. The security follow-up below adds one separate TLS guard. The patch
 is pinned by SHA256 in pnpm-lock.yaml, applied by frozen install and copied into
 the Docker install stages. No install lifecycle scripts were added.
 
@@ -121,6 +122,38 @@ close. Actual MySQL tests verify timeout rollback and rejected cached/lazy handl
 TCP close guarantees local transport teardown, not immediate cancellation of
 arbitrary server-side execution. A commit already submitted remains unknown and
 must never be replayed. Driver upgrades must re-review or remove this patch.
+
+## Connector security follow-up (2026-09-20)
+
+Version 3.4.5 is affected by GHSA-cqhc-2h57-wpxf, GHSA-42r5-vhpq-m858 and
+GHSA-g5xc-5w98-jfvm. The selected published same-minor release is 3.4.7; 3.4.6
+was unavailable from the npm registry at verification time. The adapter's exact
+3.4.5 transitive requirement is overridden to 3.4.7, and the installed runtime
+and publisher assert that direct and adapter imports resolve the same driver.
+Frozen lockfile integrity and the reviewed installation-script policy remain.
+
+Hosted configuration already requires a CA file and explicit chain/hostname
+verification. That configuration alone is not proof against an attacker-controlled
+greeting: the connector's MariaDB branch could override `rejectUnauthorized`
+before authentication. The narrow patch preserves explicit SSL-object policy;
+fingerprint fallback remains possible only for the driver's boolean `ssl:true`,
+which product configuration never uses. The pool also pins `utf8mb4` and disables
+server-requested redirects. No production credential, key or certificate is
+embedded in tests or images; no exposure or credential rotation is inferred.
+
+Verification: frozen install, API build/typecheck/lint, 222 unit/HTTP/contract
+tests and 130 isolated real-MySQL integration tests passed. The actual driver TLS
+transition is tested against freshly generated local certificates: valid chain
+and hostname reach its authentication callback; wrong CA or hostname reach
+neither that callback nor credential transmission, including the MariaDB branch.
+This tests the driver TLS boundary, not an entire provider or hosted DB login.
+Remote image verification and actual patched QA rollout remain separate gates;
+the previously running foundation image still contains 3.4.5 until replaced.
+
+Sources: [upstream TLS advisory](https://github.com/mariadb-corporation/mariadb-connector-nodejs/security/advisories/GHSA-cqhc-2h57-wpxf),
+[PAM advisory](https://github.com/mariadb-corporation/mariadb-connector-nodejs/security/advisories/GHSA-42r5-vhpq-m858),
+[Buffer escaping advisory](https://github.com/mariadb-corporation/mariadb-connector-nodejs/security/advisories/GHSA-g5xc-5w98-jfvm),
+[3.4.7 release](https://github.com/mariadb-corporation/mariadb-connector-nodejs/releases/tag/3.4.7).
 
 ## Method-level inventory
 
@@ -248,7 +281,7 @@ its actual image build remains a remote CI gate.
 ## Coordinated ownership map
 
 The ORM correction owns `apps/api/package.json` Prisma/runtime dependency changes,
-`pnpm-lock.yaml`, `pnpm-workspace.yaml` patch declaration, `patches/mariadb@3.4.5.patch`,
+`pnpm-lock.yaml`, `pnpm-workspace.yaml` patch declaration, `patches/mariadb@3.4.7.patch`,
 `apps/api/prisma.generate.config.ts`, `.gitignore` generated-client entry, the schema
 **generator block only**, build/typecheck generation scripts, generated-code lint
 ignore, and Docker `COPY patches` wiring. The two API-only Docker install-filter
