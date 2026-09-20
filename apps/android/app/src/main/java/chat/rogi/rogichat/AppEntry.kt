@@ -25,6 +25,7 @@ import chat.rogi.rogichat.core.auth.*
 import chat.rogi.rogichat.core.design.*
 import chat.rogi.rogichat.core.navigation.*
 import chat.rogi.rogichat.core.session.*
+import chat.rogi.rogichat.core.rooms.RoomsAccountScope
 import chat.rogi.rogichat.feature.auth.*
 import chat.rogi.rogichat.feature.rooms.*
 import chat.rogi.rogichat.feature.settings.*
@@ -138,10 +139,11 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                     when (session.access) {
                         ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy || authState.active, sessionModel::signIn, session.notice)
                         ShellAccess.LINK_REQUIRED -> LinkAccountScreen(operation.busy || authState.active, if (services.actions?.canLinkSoop == true) sessionModel::linkSoop else null)
-                        ShellAccess.READY -> if (services.rooms != null && roomContent != null) {
-                            val roomsModel: RoomsViewModel = viewModel { RoomsViewModel(services.rooms, requireNotNull(privateAccount).id) }
-                            RoomsScreen(roomsModel) { open("room/${android.net.Uri.encode(it)}") }
-                        } else ScreenStatus("대화를 열 수 없어요", "대화 서비스에 연결할 수 없어요.")
+                        ShellAccess.READY -> if (services.rooms != null && session.accountPartition != null) {
+                            val roomsModel: RoomsViewModel = viewModel { RoomsViewModel(services.rooms, RoomsAccountScope(requireNotNull(privateAccount).id, session.generation, requireNotNull(session.accountPartition))) }
+                            RoomsScreen(roomsModel)
+                        } else ScreenStatus("대화 목록을 확인할 수 없어요", "계정 정보를 다시 확인해 주세요.",
+                            onRetry = if (services.actions?.canRestore == true && !operation.busy) sessionModel::restore else null)
                         ShellAccess.RESTORING -> ScreenStatus("계정을 확인하는 중", "잠시만 기다려 주세요.", loading = true)
                         ShellAccess.RETRYABLE_FAILURE -> {
                             ScreenStatus("계정을 확인하지 못했어요", if (session.storageFailure) "기기에 저장된 로그인 정보를 읽거나 지우지 못했어요." else "연결 상태를 확인하고 다시 시도해 주세요.",
