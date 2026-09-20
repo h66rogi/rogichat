@@ -2,8 +2,10 @@
 
 2026-09-20. 사용자 결정: 기존 앱 버전에 구속되지 않고 최신 안정 라이브러리와 구조를
 사용한다. 최소 지원 OS 선정은 위임받았다. Apple 로그인과 SOOP 필수 연결을 채택한다.
-이 문서는 구현 기준이다. QA/prod 기본 프로젝트와 빌드 검증은
-[모바일 환경 구성](mobile-environments.md)에 구현했고, 인증·채팅 기능과 스토어 배포는 남아 있다.
+이 문서는 기반 설계다. QA/prod 기본 프로젝트와 빌드 검증은
+[모바일 환경 구성](mobile-environments.md), 테스트 배포 기반은
+[테스트 배포 절차](mobile-test-distribution.md)에 구현했다. 인증·채팅 기능의 실제 계약과
+작업 순서는 [세부 구현 계획](mobile-implementation-plan.md)을 따른다.
 
 ## 지원 기준
 
@@ -86,8 +88,11 @@ UI → Repository → 로컬 DB/REST, socket hint → SyncCoordinator → REST �
    sequence를 cursor로 사용하지 않는다. snapshot reset과 오래된 응답의 generation도 검증한다.
 4. 기기당 한 sync만 실행하고 힌트를 합친다. foreground·재연결·명령 완료·주기적 sync로
    복구한다. 백그라운드 상시 socket/polling에 의존하지 않는다.
-5. 계정·환경·방 참여 기간별로 캐시를 격리한다. 로그아웃/철회/reset 시 본문·미디어·검색
-   파생 데이터·전송 큐를 정리한다. 탈퇴/접근 철회 후 큐를 자동 재전송하지 않는다.
+5. 계정·환경·방 참여 기간별로 캐시를 격리한다. 로그아웃/접근 철회 시 본문·미디어·검색
+   파생 데이터·전송 큐를 정리한다. sync reset은 해당 cache를 폐기하고 송신을 중지한다.
+   reset 사유를 추정하지 않고 현재 권한/참여 scope를 재확인한 뒤 기존 명령의 결과를 확인한다.
+   단순 cache 교체와 권한 철회의 범위는 [세부 계획의 reset 정책](mobile-implementation-plan.md#6-로컬-데이터전송-상태복구)을 따른다.
+   탈퇴/접근 철회 후 큐를 자동 재전송하지 않는다.
 6. 첫 출시는 private 기록의 완전한 오프라인 열람을 보장하지 않는다. cold start와 권한
    변경 후에는 현재 세션/방 인가 확인을 우선한다. 이미 열람한 데이터의 소급 회수는 보장하지 않는다.
 
