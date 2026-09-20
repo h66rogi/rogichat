@@ -8,6 +8,20 @@ import type { ChatRequest, ServerMessage } from './contract';
 const scopes = { membershipScope: 'A'.repeat(43), authorizationRevision: 'B'.repeat(42) + 'A' };
 const sync = { schemaVersion: 2, resetRequired: false, ...scopes };
 const session = { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: 'synthetic-csrf-session-A', accountPartition: 'C'.repeat(42) + 'A' };
+void test('six-field API session authorizes chat and a later capability denial clears it', async () => {
+  let allowed = true;
+  const controller = new ChatController(room.roomId, backend(async path => path === '/v1/auth/session'
+    ? { ...session, onboardingState: 'READY', capabilities: { chat: allowed } } : undefined));
+  try {
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().phase, 'ready');
+    assert.ok(controller.getSnapshot().items.length > 0);
+    allowed = false;
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().phase, 'error');
+    assert.deepEqual(controller.getSnapshot().items, []);
+  } finally { controller.dispose(); }
+});
 const room = { roomId: '00000000-0000-4000-8000-000000000001', name: '테스트 채널', actorId: '00000000-0000-4000-8000-000000000002', mode: 'FAN', role: 'FAN', ...scopes };
 const profiles = [{ actorId: '00000000-0000-4000-8000-000000000002', nickname: '테스트 팬', role: 'FAN', avatar: null }, { actorId: '00000000-0000-4000-8000-000000000003', nickname: '테스트 운영자', role: 'STREAMER', avatar: null }];
 const source = (id = '00000000-0000-4000-8000-000000000004', date = '2026-09-01T00:00:00.000Z'): ServerMessage => ({ id, version: '1', createdAt: date, audience: 'PRIVATE', author: { kind: 'member', actorId: '00000000-0000-4000-8000-000000000003', nickname: '테스트 운영자', avatar: null }, counterpart: { actorId: profiles[1]!.actorId }, allowedActions: { reply: true, publish: false, delete: false }, content: { type: 'TEXT', text: '테스트 메시지' }, quote: null });
@@ -199,13 +213,13 @@ void test('profile visibility never authorizes a recipient omitted from private-
   await controller.refresh(); assert.deepEqual(controller.getSnapshot().commands, []); controller.dispose();
 });
 void test('changed cookie session cannot publish another account into the original scope', async () => {
-  let session = 'session-a'; let invalidations = 0;
+  let session = 'synthetic-csrf-session-a'; let invalidations = 0;
   const controller = new ChatController(room.roomId, backend(async path => {
     if (path === '/v1/auth/session') return { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: session, accountPartition: 'C'.repeat(42) + 'A' };
     return undefined;
   }), () => { invalidations++; }, session);
   await controller.refresh(); assert.equal(controller.getSnapshot().items.length, 1);
-  session = 'session-b'; await controller.refresh();
+  session = 'synthetic-csrf-session-b'; await controller.refresh();
   assert.equal(invalidations, 1); assert.deepEqual(controller.getSnapshot().items, []); assert.equal(controller.getSnapshot().room, null); controller.dispose();
 });
 

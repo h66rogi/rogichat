@@ -14,7 +14,7 @@ export async function installApi(page: Page, authenticated = false) {
   await page.route('https://api.qa.rogi.chat/v1/**', async route => {
     if (route.request().method() === 'OPTIONS') { await json(route, null, 204); return; }
     const path = new URL(route.request().url()).pathname;
-    if (path === '/v1/auth/session') { await json(route, state.authenticated ? { authenticated: true, accountPartition: TEST_PARTITION, csrfToken: state.sessionToken, soopLinkStatus: 'VERIFIED' } : {}, state.authenticated ? state.sessionStatus : 401); return; }
+    if (path === '/v1/auth/session') { await json(route, state.authenticated ? { authenticated: true, accountPartition: TEST_PARTITION, csrfToken: state.sessionToken, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true } } : {}, state.authenticated ? state.sessionStatus : 401); return; }
     if (!state.authenticated && path !== '/v1/auth/soop/start') { await json(route, {}, 401); return; }
     if (path === '/v1/me/profile') {
       if (route.request().method() === 'PATCH') {

@@ -1,4 +1,6 @@
-import { exact, token } from '../../features/chat/contract';
+import { exact } from '../../features/chat/contract';
+import { parseSession, type Session } from './session-contract';
+export type { Session } from './session-contract';
 import type { ServerMessage } from '../../features/chat/contract';
 export class ApiError extends Error {
   readonly status: number;
@@ -8,7 +10,6 @@ export class ApiError extends Error {
     this.status = status; this.code = code;
   }
 }
-export interface Session { authenticated: true; soopLinkStatus: 'VERIFIED' | 'REQUIRED'; csrfToken: string; accountPartition: string }
 export interface Profile { id: string; nickname: string; avatar: { assetId: string } | null; birthday: { month: number; day: number } | null; birthdayVisibleToStreamers: boolean }
 export interface Room { roomId: string; name: string; mode: string; joined: boolean; actorId?: string }
 export type Message = ServerMessage;
@@ -50,10 +51,8 @@ export class ApiClient {
     return response.json() as Promise<T>;
   }
   async session(signal?: AbortSignal): Promise<Session> {
-    const value = await this.request<Session>('/v1/auth/session', signal ? { signal } : {});
-    if (!value || value.authenticated !== true || typeof value.csrfToken !== 'string' || value.csrfToken.length < 16 || !['VERIFIED', 'REQUIRED'].includes(value.soopLinkStatus)) throw new ApiError(502, 'INVALID_SESSION');
-    try { exact(value, ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition']); token(value.accountPartition); } catch { throw new ApiError(502, 'INVALID_SESSION'); }
-    return value;
+    const value = await this.request<unknown>('/v1/auth/session', signal ? { signal } : {});
+    try { return parseSession(value); } catch { throw new ApiError(502, 'INVALID_SESSION'); }
   }
   async profile(signal?: AbortSignal): Promise<Profile> {
     return validateProfile(await this.request<Profile>('/v1/me/profile', signal ? { signal } : {}));

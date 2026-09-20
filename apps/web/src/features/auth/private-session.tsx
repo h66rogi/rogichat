@@ -49,7 +49,7 @@ export function usePrivateSession() {
     active.current?.abort();
     const current = ++generation.current;
     if (!mounted.current) return;
-    if (document.visibilityState === 'hidden') { setState({ kind: 'hidden' }); return; }
+    if (document.visibilityState === 'hidden') { setState(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }); return; }
     try {
       if (isAccountDeletionPending(browserPrivacyStore)) {
         suspendChatOutboxes(); forgetChatMemory();
@@ -58,7 +58,10 @@ export function usePrivateSession() {
       }
       if (localStorage.getItem(LOGOUT_PENDING)) { forgetChatMemory(); setState({ kind: 'logoutPending' }); return; }
     } catch { setState({ kind: 'error', message: '브라우저 저장소에 접근할 수 없어 안전하게 로그인 상태를 확인할 수 없습니다.' }); return; }
-    setState({ kind: 'checking' });
+    // Public sign-in controls contain no private data. Keep them mounted while
+    // rechecking so window focus cannot swallow a click or reset terms consent.
+    // Every state carrying account data still locks before the fresh read.
+    setState(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'checking' });
     const controller = new AbortController();
     active.current = controller;
     void (async () => {
@@ -90,7 +93,7 @@ export function usePrivateSession() {
     mounted.current = true;
     const hide = () => {
       active.current?.abort(); ++generation.current;
-      flushSync(() => setState({ kind: 'hidden' }));
+      flushSync(() => setState(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }));
     };
     const visibility = () => document.visibilityState === 'hidden' ? hide() : refresh();
     const storage = (event: StorageEvent) => { if (event.key === ACCOUNT_DELETION_PENDING || event.key === LOGOUT_PENDING || event.key === CURRENT_BINDING || event.key === null) refresh(); };
