@@ -70,6 +70,6 @@ def inspect_signed_callback(executable, profile_data, cfg):
     profile = _plist(["security", "cms", "-D"], data=profile_data)
     with tempfile.TemporaryDirectory(prefix="rogichat-qa-certificate-") as temporary:
         prefix = str(Path(temporary) / "signer")
-        _run(["codesign", "-d", "--extract-certificates", prefix, str(executable)])
+        _run(["codesign", "-d", "--extract-certificates=" + prefix, str(executable)])
         certificate = Path(prefix + "0").read_bytes()
     verify_binding(signed, profile, cfg, certificate)
