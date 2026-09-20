@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+umask 077
+exec >/var/log/rogichat-worker-bootstrap.log 2>&1
+# This independent timer is armed before probes; instance shutdown terminates it.
+systemd-run --unit=rogichat-worker-deadline --on-active=15m /usr/bin/systemctl poweroff
+systemctl disable --now sshd.service amazon-ssm-agent.service || true
+install -d -m 0700 /opt/rogichat-worker
+printf '%s' '${canary_base64}' | base64 -d >/opt/rogichat-worker/canary.py
+printf '%s' '${config_base64}' | base64 -d >/opt/rogichat-worker/config.json
+python3 /opt/rogichat-worker/canary.py
+systemctl poweroff
