@@ -1,4 +1,5 @@
 'use client';
+import { revokeChatOutboxes } from '@/features/chat/chat-controller';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError, type Profile, type Session } from '@/core/api/client';
@@ -24,7 +25,7 @@ export function invalidateSession() {
   channel?.close();
 }
 export function setLogoutPending(binding: string) {
-  forgetChatMemory();
+  revokeChatOutboxes(); forgetChatMemory();
   const marker = beginLogout(localStorage, binding, crypto.randomUUID());
   invalidateSession();
   return marker;
@@ -70,7 +71,7 @@ export function usePrivateSession() {
         if (current === generation.current && mounted.current) setState({ kind: 'ready', session, profile, generation: current });
       } catch (error) {
         if (current !== generation.current || !mounted.current) return;
-        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) forgetChatMemory();
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) { revokeChatOutboxes(); forgetChatMemory(); }
         if (error instanceof ApiError && error.status === 401) { try { publishSessionBinding('signed-out'); } catch { /* Locked state below remains authoritative. */ } }
         setState(error instanceof ApiError && error.status === 401 ? { kind: 'unauthenticated' } : { kind: 'error', message: error instanceof ApiError ? error.message : '연결을 확인할 수 없습니다. 다시 시도해 주세요.' });
       }

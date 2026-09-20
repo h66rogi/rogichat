@@ -43,7 +43,7 @@ function CatalogPicker({ catalog, roomId, target, onSubmit, onClose }: { catalog
     {state.phase === 'error' && <p role="alert">스티커 목록을 확인하지 못했습니다. 다시 시도해 주세요.</p>}
     {state.phase === 'ready' && state.items.length === 0 && <p role="status">사용할 수 있는 스티커가 없습니다.</p>}
     <div className="flex flex-wrap gap-2">{state.items.map(item => <Button key={item.id} type="button" variant="outline" aria-pressed={state.selected?.id === item.id} disabled={busy} onClick={() => {
-      try { catalog.select(item.id); setNotice(''); } catch { setNotice('스티커 목록을 다시 확인해 주세요.'); }
+      try { if (state.selected?.id !== item.id) retryId.current = undefined; catalog.select(item.id); setNotice(''); } catch { setNotice('스티커 목록을 다시 확인해 주세요.'); }
     }}>{item.label}</Button>)}</div>
     {state.selected && <ScopedMediaImage assetId={state.selected.assetId} context={{ variant: 'image', roomId, stickerId: state.selected.id }} alt={`선택한 스티커: ${state.selected.label}`} />}
     <div className="flex flex-wrap gap-2">

@@ -34,6 +34,17 @@ export class SendCommands {
       payload: Object.freeze({ ...body, content: Object.freeze('assetIds' in body.content ? { ...body.content, assetIds: Object.freeze([...body.content.assetIds]) } : { ...body.content }), clientMessageId, membershipScope: room.membershipScope }) });
     this.records.set(clientMessageId, command); return command;
   }
+  /** Import only records already fenced and sanitized by durable storage. Never populate composer drafts. */
+  restore(command: CommandRecord) {
+    const prior = this.records.get(command.clientMessageId);
+    if (prior?.status === 'deleted') return;
+    if (this.records.size >= 256 && !prior) throw new Error('COMMAND_CAPACITY');
+    if (command.status === 'unknown' && 'payload' in command) {
+      const content = command.payload.content;
+      this.records.set(command.clientMessageId, Object.freeze({ ...command, payload: Object.freeze({ ...command.payload,
+        content: Object.freeze('assetIds' in content ? { ...content, assetIds: Object.freeze([...content.assetIds]) } : { ...content }) }) }));
+    } else this.records.set(command.clientMessageId, Object.freeze({ ...command }));
+  }
   settle(result: Receipt) {
     const prior = this.records.get(result.clientMessageId);
     if (!prior || prior.status === 'deleted') return;

@@ -48,7 +48,7 @@ function PhotoDraft({ upload, roomId, target, onSubmit, onClose }: { upload: Med
   return <section aria-label={`사진 보내기: ${targetLabel(target)}`} className="space-y-3 border-t border-line p-4">
     <p className="font-semibold">사진 · {targetLabel(target)}</p>
     <p className="text-sm">사진은 글과 별도로 보냅니다. 사진이 준비된 뒤 전송을 눌러 주세요.</p>
-    <fieldset disabled={busy}><MediaUploadPanel upload={upload} lifetime={upload.lifetime} kind="PHOTO" roomId={roomId} onReady={setSelected} /></fieldset>
+    <fieldset disabled={busy}><MediaUploadPanel upload={upload} lifetime={upload.lifetime} kind="PHOTO" roomId={roomId} onReady={id => { if (selected !== id) retryId.current = undefined; setSelected(id); }} /></fieldset>
     {ready && <ScopedMediaImage assetId={selected} context={{ variant: 'image' }} alt="보낼 사진 미리보기" />}
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
