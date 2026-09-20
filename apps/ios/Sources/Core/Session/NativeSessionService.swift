@@ -1,7 +1,10 @@
 import Foundation
+#if canImport(RogichatRooms)
+import RogichatRooms
+#endif
 
 // Real native transport and one-shot provider completion; no bootstrap credentials.
-actor NativeSessionService: SessionServing, AccountNotificationsServing {
+actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAuthorizing {
     nonisolated let capabilities: SessionCapabilities
     private let auth: (any SOOPAuthenticating)?
     private var authenticating = false
@@ -10,7 +13,9 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
     private let store: any NativeCredentialStoring
     private let now: @Sendable () -> Date
     private var clientScope = UUID()
-    private var epoch: UInt64 = 0 { didSet { clientScope = UUID() } }
+    private var roomsScope: RoomsScope?
+    private let purgeRooms: @Sendable () throws -> Void
+    private var epoch: UInt64 = 0 { didSet { roomsScope?.invalidate(); roomsScope = nil; clientScope = UUID() } }
     private var validated: SessionSnapshot?
     private var activeCredential: NativeCredential?
     private var writingProfile = false
@@ -19,8 +24,8 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
     private var preferenceRevision: UInt64 = 0
     private var preferenceWrite: (epoch: UInt64, id: UUID)?
     init(environment: NativeEnvironment, api: any NativeRequesting, store: any NativeCredentialStoring,
-         now: @escaping @Sendable () -> Date = { Date() }, auth: (any SOOPAuthenticating)? = nil) {
-        self.environment = environment; self.api = api; self.store = store; self.now = now; self.auth = auth
+         now: @escaping @Sendable () -> Date = { Date() }, auth: (any SOOPAuthenticating)? = nil, purgeRooms: @escaping @Sendable () throws -> Void = {}) {
+        self.environment = environment; self.api = api; self.store = store; self.now = now; self.auth = auth; self.purgeRooms = purgeRooms
         self.capabilities = SessionCapabilities(signInMethods: auth == nil ? [] : [.soop], canLinkSOOP: auth != nil,
                                                canEditProfile: true, canSignOut: true, canResetLocalSession: store is any SOOPAuthStoring)
     }
@@ -36,12 +41,18 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
         if try logoutRequested || store.logoutPending() {
             try store.setLogoutPending(true)
             try store.completePendingLogout()
+            try purgeRoomStorage()
             logoutRequested = false
             return SessionSnapshot(access: .signedOut, account: nil,
                                    notice: ProductError.remoteLogoutUnconfirmed.errorDescription)
         }
         let recoveryNotice = try (store as? any SOOPAuthStoring)?.recoverAuth(now: now())
-        guard let credential = try currentCredential() else { return SessionSnapshot(access: .signedOut, account: nil, notice: recoveryNotice) }
+        guard let credential = try currentCredential() else {
+            // Completes cache deletion after a crash between Keychain removal and
+            // durable SQLite purge intent. No credential never admits old caches.
+            try purgeRoomStorage()
+            return SessionSnapshot(access: .signedOut, account: nil, notice: recoveryNotice)
+        }
         do {
             let data = try await api.perform(.session, credential: credential)
             try requireCurrent(ticket, credential)
@@ -49,7 +60,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
             var snapshot = try dto.snapshot(credential: credential, now: now())
             try (store as? any SOOPAuthStoring)?.reconcileAuth(accountID: snapshot.account?.id, serverGeneration: snapshot.serverGeneration)
             snapshot.notice = recoveryNotice
-            snapshot.clientScope = clientScope
+            try attachRooms(&snapshot)
             validated = snapshot; activeCredential = credential
             return snapshot
         } catch {
@@ -72,13 +83,13 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
             try requireCurrent(ticket, credential)
             var snapshot = try decode(NativeSessionDTO.self, data).snapshot(credential: credential, now: now())
             let sameScope = snapshot.account?.id == previous.account?.id && snapshot.access == previous.access
-                && snapshot.serverGeneration == previous.serverGeneration
+                && snapshot.serverGeneration == previous.serverGeneration && snapshot.accountPartition == previous.accountPartition
             if !sameScope {
                 try (store as? any SOOPAuthStoring)?.cancelAuth(id: nil)
                 epoch &+= 1
             }
             else if revision != profileRevision { snapshot.account = validated?.account }
-            snapshot.clientScope = clientScope
+            try attachRooms(&snapshot)
             validated = snapshot; activeCredential = credential
             return snapshot
         } catch {
@@ -118,6 +129,36 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
             try Task.checkCancellation()
             if error as? ProductError == .unauthenticated { try clear(credential) }
             if error as? ProductError == .linkRequired { validated = nil }
+            throw error
+        }
+    }
+    private func purgeRoomStorage() throws {
+        do { try purgeRooms() } catch { throw ProductError.secureStorage }
+    }
+    private func attachRooms(_ snapshot: inout SessionSnapshot) throws {
+        snapshot.clientScope = clientScope
+        if snapshot.access == .ready, let partition = snapshot.accountPartition, let expiry = snapshot.expiresAt {
+            if roomsScope?.partition != partition { roomsScope?.invalidate(); roomsScope = nil }
+            if roomsScope == nil { roomsScope = try RoomsScope(partition: partition, clientScope: clientScope, expiresAt: expiry, now: now) }
+            snapshot.roomsScope = roomsScope
+        } else { roomsScope?.invalidate(); roomsScope = nil; snapshot.roomsScope = nil }
+    }
+    func roomsData(_ endpoint: RoomsEndpoint, scope: RoomsScope) async throws -> Data {
+        guard scope === roomsScope, scope.clientScope == clientScope, scope.partition == validated?.accountPartition,
+              validated?.access == .ready, let credential = activeCredential, let api = api as? any RoomsRequesting else { throw RoomsError.staleScope }
+        try scope.check()
+        let ticket = epoch
+        try requireCurrent(ticket, credential)
+        do {
+            let data = try await api.performRooms(endpoint, credential: credential, scope: scope)
+            try requireCurrent(ticket, credential); try scope.check()
+            guard scope === roomsScope else { throw RoomsError.staleScope }
+            return data
+        } catch {
+            guard ticket == epoch, scope === roomsScope else { throw RoomsError.staleScope }
+            try requireCurrent(ticket, credential); try scope.check()
+            if error as? ProductError == .unauthenticated { try clear(credential) }
+            if error as? ProductError == .linkRequired { roomsScope?.invalidate(); roomsScope = nil; validated = nil; try purgeRoomStorage() }
             throw error
         }
     }
@@ -187,6 +228,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
         try store.setLogoutPending(true)
         let credential = try store.read()
         guard try store.replace(expected: credential, with: nil) else { throw ProductError.sessionChanged }
+        try purgeRoomStorage()
         try store.setLogoutPending(false)
         logoutRequested = false
         await auth?.closeBrowser()
@@ -227,7 +269,8 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
                 await auth.discard(result); throw ProductError.sessionChanged
             }
             activeCredential = result.credential; validated = result.snapshot
-            return publication(result, auth: auth, store: authStore, attempt: attempt)
+            do { return try publication(result, auth: auth, store: authStore, attempt: attempt) }
+            catch { await auth.discard(result); throw error }
         } catch {
             guard ticket == epoch else { throw ProductError.sessionChanged }
             if intent == .link, let original, error as? SOOPAuthError == .unauthenticated {
@@ -243,9 +286,10 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
             throw error
         }
     }
-    private func publication(_ result: SOOPAuthResult, auth: any SOOPAuthenticating, store: any SOOPAuthStoring, attempt: SessionAttempt = SessionAttempt()) -> SessionSnapshot {
+    private func publication(_ result: SOOPAuthResult, auth: any SOOPAuthenticating, store: any SOOPAuthStoring, attempt: SessionAttempt = SessionAttempt()) throws -> SessionSnapshot {
         var snapshot = result.snapshot
-        snapshot.clientScope = clientScope
+        try attachRooms(&snapshot)
+        validated = snapshot
         let clock = now
         snapshot.publication = SessionPublication(acknowledge: {
             try attempt.check()
@@ -264,7 +308,8 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
                 await auth.discard(result); throw ProductError.sessionChanged
             }
             epoch &+= 1; activeCredential = result.credential; validated = result.snapshot
-            return publication(result, auth: auth, store: authStore)
+            do { return try publication(result, auth: auth, store: authStore) }
+            catch { await auth.discard(result); throw error }
         } catch {
             guard ticket == epoch else { throw ProductError.sessionChanged }
             if pending?.intent == .link, let original = pending?.originalCredential,
@@ -295,6 +340,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
         guard let authStore = store as? any SOOPAuthStoring else { throw ProductError.unavailable }
         try authStore.resetConfirmed()
         logoutRequested = false
+        try purgeRoomStorage()
         await auth?.closeBrowser()
     }
     func deleteAccount() async throws { throw ProductError.unavailable }
@@ -314,7 +360,9 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing {
         if current != nil {
             guard current == credential, try store.replace(expected: credential, with: nil) else { throw ProductError.sessionChanged }
         }
+        roomsScope?.invalidate(); roomsScope = nil
         activeCredential = nil; validated = nil
+        try purgeRoomStorage()
     }
     private func decode<T: Decodable>(_ type: T.Type, _ data: Data) throws -> T {
         do { return try JSONDecoder().decode(type, from: data) }

@@ -84,6 +84,10 @@ struct AppearanceScreen: View {
 }
 
 struct AboutScreen: View {
+    private var grdbLicense: String {
+        guard let url = Bundle.main.url(forResource: "GRDB-LICENSE", withExtension: "txt"), let text = try? String(contentsOf: url, encoding: .utf8) else { return "라이선스 정보를 불러오지 못했어요." }
+        return text
+    }
     private var version: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—" }
     private var build: String { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—" }
     var body: some View {
@@ -97,6 +101,14 @@ struct AboutScreen: View {
                 }.frame(maxWidth: .infinity).padding(.vertical, 24)
                 LabeledContent("버전", value: version)
                 LabeledContent("빌드", value: build)
+                NavigationLink("오픈소스 라이선스") {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            Text("GRDB 7.11.1").font(.headline)
+                            Text(grdbLicense).font(.footnote).textSelection(.enabled)
+                        }.padding().frame(maxWidth: .infinity, alignment: .leading)
+                    }.navigationTitle("오픈소스 라이선스")
+                }
             }
         }
     }

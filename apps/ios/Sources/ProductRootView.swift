@@ -1,22 +1,26 @@
 import SwiftUI
+import RogichatRooms
 
 struct ProductRootView: View {
     @State private var session: AppSession
     @State private var confirmLocalReset = false
     private let nativeEnvironment: NativeEnvironment
     @State private var navigation = ShellNavigation()
-    private let rooms: any RoomsServing
+    @State private var roomsStorage: RoomsStorage
     @Environment(\.scenePhase) private var scenePhase
 
-    init(service: (any SessionServing)? = nil, rooms: any RoomsServing = UnavailableRoomsService()) {
+    init(service: (any SessionServing)? = nil) {
         let environment = NativeEnvironment(rawValue: AppEnvironment().name.rawValue)!
         nativeEnvironment = environment
         let api = NativeAPIClient(environment: environment)
         let store = NativeCredentialStore(environment: environment)
         let auth = SOOPAuthCoordinator(environment: environment, store: store, api: api, browser: SOOPBrowserSession())
-        let native = service ?? NativeSessionService(environment: environment, api: api, store: store, auth: auth)
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("rooms-" + environment.rawValue, isDirectory: true)
+        let roomsStorage = RoomsStorage(root: directory)
+        let native = service ?? NativeSessionService(environment: environment, api: api, store: store, auth: auth, purgeRooms: { try roomsStorage.purge() })
         _session = State(initialValue: AppSession(service: native))
-        self.rooms = rooms
+        _roomsStorage = State(initialValue: roomsStorage)
     }
     var body: some View {
         AppShell(navigation: navigation, onTab: { navigation.selectTab($0) }, onPop: { navigation.pop(to: $0, in: $1) }) { page in
@@ -91,10 +95,14 @@ struct ProductRootView: View {
                            onLink: { Task { await session.linkSOOP() } }, onAccount: { navigation.selectTab(.settings); navigation.open(.account) },
                            onCancel: { Task { await session.cancelAuthentication() } })
         case .rooms:
-            // Room entry is intentionally not exposed until a real chat coordinator is installed.
-            // This screen is reachable only from an authenticated, SOOP-linked session service.
-            if let account = session.account, session.access == .ready {
-                RoomsScreen(accountID: account.id, service: rooms, onOpen: nil).id(session.generation)
+            if session.account != nil, session.access == .ready {
+                if let scope = session.roomsScope {
+                    RoomsScreen(repository: RoomsRepository(remote: NativeRoomsRemote(session: session), storage: roomsStorage, scope: scope), scope: scope)
+                        .id(scope.clientScope)
+                } else {
+                    ContentUnavailableView("대화방을 확인할 수 없어요", systemImage: "bubble.left.and.bubble.right", description: Text("계정 정보를 다시 확인해 주세요."))
+                        .safeAreaInset(edge: .bottom) { Button("다시 확인") { Task { await session.revalidate() } }.buttonStyle(.bordered).padding() }
+                }
             }
         case .status:
             if session.access == .restoring {

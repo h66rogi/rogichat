@@ -27,6 +27,9 @@ settings:
     LOCALIZATION_PREFERS_STRING_CATALOGS: YES
     DEVELOPMENT_LANGUAGE: ko
     ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+packages:
+  RogichatRooms:
+    path: Packages/RogichatRooms
 targets:
   Rogichat:
     type: application
@@ -36,10 +39,15 @@ targets:
         TARGETED_DEVICE_FAMILY: "1"
         SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    dependencies:
+      - package: RogichatRooms
+        product: RogichatRooms
     sources:
       - Sources
       - Resources/Assets.xcassets
       - path: Resources/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: Resources/GRDB-LICENSE.txt
         buildPhase: resources
     configFiles:
       Debug-QA: Config/QA.xcconfig

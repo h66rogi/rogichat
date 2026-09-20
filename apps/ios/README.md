@@ -33,14 +33,30 @@ Swift 6 / SwiftUI, iOS 18 이상, iPhone 전용 앱이다. QA와 prod는 같은
   않는다. 기기의 권한 조회·시스템 설정 이동과 독립적이며, 로그인하지 않아도 기기 영역은 유지된다.
   네이티브 푸시 켜기·등록·권한 요청은 연결하지 않는다. 읽음 상태는 타입과 닫힌 전송만 있으며
   실제 메시지 표시·순서·읽음 UI와의 연결은 C05/C06 계약 이후에 진행한다.
+- 대화방 목록은 실제 discovery와 schema 2 complete manifest를 구분한다. 일부 탐색 페이지의
+  누락이나 참여 표시로 확정 멤버십을 삭제/덮어쓰지 않는다. 환경·서버 accountPartition별
+  GRDB SQLite에 저장하고, 전체 manifest 교체와 checkpoint를 같은 transaction에 반영한다.
+  계정 전환/만료 시 HTTP·DB commit·화면 반영을 원래 scope에서 차단한다. 방 입장·퇴장,
+  메시지 저장/발송과 outbox는 이번 단계에 포함하지 않는다. 서버 schema 2와 모바일·웹의
+  동시 전환 및 실제 사용자 세션 검증은 배포 단계의 별도 조건이다.
+- GRDB는 7.11.1을 고정한다. `Packages/RogichatRooms`가 실제 앱 dependency이며,
+  라이선스는 앱 정보에 표시한다. 저장소는 WAL/FULL, 백업 제외와 iOS complete 파일 보호를
+  사용한다. 종료 중 실패한 삭제는 다음 실행에서 완료해야 한다.
+- 동기화 `deviceId`는 첫 저장소 수명주기 작업에서 생성한 환경별 임의 UUID다. 백업 제외
+  보호 파일에 저장하고, 로그아웃·계정 전환 후에도 유지하며 재설치·앱 데이터 삭제 시 바뀐다.
+  인증된 `GET /v1/sync`의 query로만 보내며 IDFA/IDFV나 분석 SDK를 사용하지 않는다.
+  서버는 인증 계정과 함께 cursor를 묶는 데 사용한다. 로그의 모든 오류 경로까지 일시적
+  처리만을 보장한다고 주장하지 않고, privacy manifest에는 계정에 연결된 Device ID를
+  앱 기능 목적으로 보수적으로 선언한다. 추적에는 사용하지 않는다.
 - 테스트 fixture는 `Tests/Fixtures`, 제품 상태 검증은 `Tests/Product`에 있다.
-  `Sources`와 Resources만 Xcode 앱 target에 포함한다.
+  Xcode는 `Sources`, Resources와 `RogichatRooms` product만 포함하며 SwiftPM Tests는 배포하지 않는다.
 
 CLI로 검증한다. Xcode GUI와 실행 중인 시뮬레이터를 사용하지 않는다.
 
 ```sh
 xcodegen generate --spec apps/ios/project.yml
 python3 tools/mobile/check_ios_wireframe.py
+swift test --package-path apps/ios/Packages/RogichatRooms --scratch-path /Volumes/hyeonwoo-ext/rogichat-build-cache/mobile-rooms-ios/swiftpm --cache-path /Volumes/hyeonwoo-ext/rogichat-build-cache/mobile-rooms-ios/swiftpm-cache --force-resolved-versions --jobs 2
 python3 tools/mobile/build_ios.py --derived-data /Volumes/hyeonwoo-ext/DerivedData/rogichat-ios
 ```
 
