@@ -2,11 +2,52 @@ import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { mkdtemp, realpath, writeFile, chmod, symlink, rm } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { readDefaultRoomConfig } from '../../dist/modules/owner-bootstrap/default-room.config.js';
 import { canonicalProfileId, parseSoopProfile } from '../../dist/modules/auth/soop-profile.contract.js';
 import { sealAvatarTicket, openAvatarTicket, fetchProviderAvatar } from '../../dist/modules/users/provider-avatar.service.js';
+import { ProviderAvatarReader } from '../../dist/modules/users/provider-avatar-reader.js';
 const { Response } = globalThis;
 const subject = 'Test_Viewer';
 const imageUrl = 'https://stimg.sooplive.com/LOGO/Te/Test_Viewer/m/Test_Viewer.webp';
+test('owner config is optional but configured custody, size and shape fail closed without leaking values', async t => {
+  assert.deepEqual(readDefaultRoomConfig({}), {});
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'default-room-config-'))); t.after(() => rm(directory, { recursive: true }));
+  const file = join(directory, 'owner.json'), alias = join(directory, 'alias.json');
+  const value = { expectedSubject: 'isolated_owner' };
+  await writeFile(file, JSON.stringify(value), { mode: 0o600 });
+  assert.deepEqual(readDefaultRoomConfig({ DEFAULT_ROOM_SECRET_FILE: file }), value);
+  await symlink(file, alias); assert.throws(() => readDefaultRoomConfig({ DEFAULT_ROOM_SECRET_FILE: alias }), { message: 'default_room_configuration' });
+  await chmod(file, 0o644); assert.throws(() => readDefaultRoomConfig({ DEFAULT_ROOM_SECRET_FILE: file })); await chmod(file, 0o600);
+  for (const invalid of [{ ...value, extra: true }, { expectedSubject: 'unverified:subject' }, { ...value, roomId: 'bad' }, { expectedSubject: 'a'.repeat(3000) }]) {
+    await writeFile(file, JSON.stringify(invalid)); assert.throws(() => readDefaultRoomConfig({ DEFAULT_ROOM_SECRET_FILE: file }), { message: 'default_room_configuration' });
+  }
+});
+test('many authorized viewers of one avatar share one download; distinct images queue within four active reads', async () => {
+  let calls = 0, active = 0, peak = 0;
+  const reader = new ProviderAvatarReader(async () => {
+    calls++; active++; peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 10)); active--;
+    return { bytes: Buffer.from([255, 216, 255, 217]), contentType: 'image/jpeg' };
+  }, () => new Error('bounded_capacity'));
+  const burst = await Promise.all(Array.from({ length: 30 }, () => reader.get(imageUrl)));
+  assert.equal(calls, 1); assert.equal(burst.length, 30);
+  await reader.get(imageUrl); assert.equal(calls, 1);
+  await Promise.all(Array.from({ length: 12 }, (_, index) => reader.get(`${imageUrl}?t=${index}`)));
+  assert.equal(calls, 13); assert.equal(peak, 4);
+});
+test('avatar reader does not cache failures and bounds distinct queued reads', async () => {
+  let attempts = 0;
+  const failed = new ProviderAvatarReader(async () => { attempts++; throw new Error('provider_failed'); }, () => new Error('bounded_capacity'));
+  await assert.rejects(failed.get(imageUrl)); await assert.rejects(failed.get(imageUrl)); assert.equal(attempts, 2);
+  const release = Promise.withResolvers();
+  const reader = new ProviderAvatarReader(async () => { await release.promise; return { bytes: Buffer.alloc(4), contentType: 'image/jpeg' }; }, () => new Error('bounded_capacity'));
+  const requests = Array.from({ length: 36 }, (_, index) => reader.get(`${imageUrl}?t=${index}`));
+  await assert.rejects(reader.get(`${imageUrl}?t=100`), /bounded_capacity/);
+  release.resolve(); await Promise.all(requests);
+});
 test('token-bound display profile is a closed projection, never an identity inference', () => {
   const profile = { displayId: subject, nickname: '검증된 별명', imageUrl };
   assert.deepEqual(parseSoopProfile(profile, subject), profile);

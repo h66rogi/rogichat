@@ -7,21 +7,22 @@ import type { SoopProfile } from './soop-profile.contract.js';
 @Injectable()
 export class IdentityRepository {
   async initializeProfile(tx: Transaction, userId: string, profile: SoopProfile) {
-    await tx.rows('SELECT user_id FROM user_profiles WHERE user_id=? FOR UPDATE', [userId]);
-    const current = await tx.prisma.user_profiles.findUnique({ where: { user_id: userId }, select: {
-      nickname: true, revision: true, avatar_asset_id: true, provider_profile_initialized: true, nickname_customized: true, avatar_customized: true,
-    } });
+    // Provenance must be read from the current locking read itself. Under RR,
+    // a later ordinary Prisma read can retain a pre-lock customization snapshot.
+    const [current] = await tx.rows<{ nickname: string; revision: string; avatar_asset_id: string | null;
+      provider_profile_initialized: number; nickname_customized: number; avatar_customized: number }>(
+      'SELECT nickname,revision,avatar_asset_id,provider_profile_initialized,nickname_customized,avatar_customized FROM user_profiles WHERE user_id=? FOR UPDATE', [userId]);
     if (!current) return;
     // Initial metadata only: future OAuth exchanges never silently synchronize
     // an already initialized profile or resurrect a cleared provider avatar.
-    if (current.provider_profile_initialized) return;
-    const legacy = !current.provider_profile_initialized && current.revision > 1n;
-    const nameChanged = !current.nickname_customized && !legacy && current.nickname === '새 사용자' && profile.nickname !== null;
+    if (Number(current.provider_profile_initialized) === 1) return;
+    const legacy = BigInt(current.revision) > 1n;
+    const nameChanged = Number(current.nickname_customized) === 0 && !legacy && current.nickname === '새 사용자' && profile.nickname !== null;
     await tx.prisma.platform_soop.updateMany({ where: { user_id: userId, status: 'VERIFIED' },
       data: { profile_nickname: profile.nickname, profile_image_url: profile.imageUrl } });
     // Legacy revision>1 may already represent a user edit, including selecting
     // the same placeholder or deliberately clearing an avatar. Never overwrite.
-    const avatarChanged = !legacy && !current.avatar_customized && current.avatar_asset_id === null && profile.imageUrl !== null;
+    const avatarChanged = !legacy && Number(current.avatar_customized) === 0 && current.avatar_asset_id === null && profile.imageUrl !== null;
     const publicChanged = nameChanged || avatarChanged;
     await tx.prisma.user_profiles.updateMany({ where: { user_id: userId }, data: {
       provider_profile_initialized: true,

@@ -42,7 +42,10 @@ Tickets contain no plaintext identity or source URL. Do not persist or log them.
 
 Only exact canonical HTTPS SOOP profile CDN paths are fetched; redirects and
 arbitrary URLs are forbidden. Maximum response is 2 MiB, deadline five seconds,
-four concurrent reads per API process. JPEG/WebP MIME and magic are required.
+four concurrent reads per API process. After each current ACL check, identical
+source reads share one download and a 30-second byte cache (max 32 entries/16 MiB).
+At most 32 distinct downloads wait, with a four-second queue deadline. No cached
+authorization or credentials are reused. JPEG/WebP MIME and magic are required.
 Issue/read quotas are committed independently (120 per viewer/minute each).
 Responses are private/no-store, nosniff and no-referrer. Clients retain image bytes
 only within the admitted lease and discard them on account/scope changes. This

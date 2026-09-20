@@ -10,6 +10,7 @@ import { IdentityRepository } from '../../dist/modules/auth/identity.repository.
 import { IdentityService } from '../../dist/modules/auth/identity.service.js';
 import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.service.js';
 import { IdentityGuardRepository } from '../../dist/modules/auth/identity-guard.repository.js';
+import { ProviderAvatarService } from '../../dist/modules/users/provider-avatar.service.js';
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
   const db = new MysqlDatabase(readConfig('api')); t.after(() => db.close());
@@ -59,9 +60,16 @@ test('provider metadata never widens actor DTO; fan privacy, revocation and clea
   const actor = await f.db.transactions.read(tx => users.roomProfile(tx, room, fan, ownerActor, f.key));
   assert.equal(actor.providerAvatarAvailable, true); assert.ok(!JSON.stringify(actor).includes(f.identity.subject));
   assert.equal(await f.db.transactions.read(tx => users.providerAvatar(tx, fan, room, ownerActor)), f.profile.imageUrl);
+  let downloads = 0;
+  t.mock.method(globalThis, 'fetch', async () => { downloads++; return new globalThis.Response(Buffer.from([255, 216, 255, 217]), { headers: { 'content-type': 'image/jpeg' } }); });
+  const proxy = new ProviderAvatarService(f.db.transactions, { require: async () => ({ userId: fan }) }, { key: f.key, audience: 'isolated-proxy', callback: 'https://api.example/v1/auth/soop/callback' }, users);
+  const lease = await proxy.access({}, room, ownerActor), ticket = new URL(lease.url).searchParams.get('ticket');
+  assert.equal(lease.expiresIn, 60); assert.ok(!lease.url.includes(f.identity.subject));
+  await proxy.image(ticket); await proxy.image(ticket); assert.equal(downloads, 1);
   await assert.rejects(f.db.transactions.read(tx => users.providerAvatar(tx, other, room, fanActor)), { code: 'NOT_FOUND' });
   await f.db.transactions.write(tx => users.updateProfile(tx, owner, { avatarAssetId: null }));
   assert.equal((await f.self(owner)).providerAvatarUrl, null);
+  await assert.rejects(proxy.image(ticket), { code: 'NOT_FOUND' }); assert.equal(downloads, 1, 'cached bytes never bypass current avatar authorization');
   await assert.rejects(f.db.transactions.read(tx => users.providerAvatar(tx, fan, room, ownerActor)), { code: 'NOT_FOUND' });
   await f.resolve({ ...f.identity, profile: f.profile }); assert.equal((await f.self(owner)).providerAvatarUrl, null);
   assert.equal(await f.changes(owner), 2);
@@ -73,4 +81,19 @@ test('invalid token-bound metadata cannot create an account or modify an existin
   const id = await f.resolve(f.identity), before = await f.self(id);
   await assert.rejects(f.resolve({ ...f.identity, profile: { ...f.profile, imageUrl: 'https://evil.invalid/image.jpg' } }));
   assert.deepEqual(await f.self(id), before);
+});
+
+test('a preexisting RR snapshot cannot overwrite a subsequently committed manual profile edit', async t => {
+  const f = await fixture(t), id = await f.resolve(f.identity), read = Promise.withResolvers(), updated = Promise.withResolvers();
+  const initialization = f.db.transactions.write(async tx => {
+    await tx.prisma.user_profiles.findUnique({ where: { user_id: id }, select: { revision: true } }); read.resolve();
+    await updated.promise;
+    await new IdentityRepository().initializeProfile(tx, id, f.profile);
+  });
+  try {
+    await read.promise;
+    await f.db.transactions.write(tx => users.updateProfile(tx, id, { nickname: '경합 중 직접 변경', avatarAssetId: null }));
+  } finally { updated.resolve(); }
+  await initialization;
+  const profile = await f.self(id); assert.equal(profile.nickname, '경합 중 직접 변경'); assert.equal(profile.providerAvatarUrl, null);
 });

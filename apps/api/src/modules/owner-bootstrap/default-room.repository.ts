@@ -6,7 +6,7 @@ export class DefaultRoomRepository {
     const inserted = await tx.prisma.default_room_bindings.createMany({ data: [{ key: 'primary', room_id: roomId }], skipDuplicates: true });
     const [row] = await tx.rows<{ room_id: string; owner_bound: number; owner_subject_digest: Buffer | null }>('SELECT room_id,owner_bound,owner_subject_digest FROM default_room_bindings WHERE `key`=? FOR UPDATE', ['primary']);
     if (!row) throw new Error('default_room_conflict');
-    return { ...row, created: inserted.count === 1 };
+    return { ...row, owner_bound: Number(row.owner_bound) === 1, created: inserted.count === 1 };
   }
   async room(tx: Transaction, roomId: string) {
     // Validate current locked state, not a pre-activation repeatable-read snapshot.

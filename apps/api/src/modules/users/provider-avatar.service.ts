@@ -10,6 +10,7 @@ import { ApiError } from '../auth/auth-primitives.js';
 import type { CommandCredentials } from '../auth/auth-context.js';
 import { canonicalProfileId } from '../auth/soop-profile.contract.js';
 import { UsersCoreService } from './users-core.service.js';
+import { ProviderAvatarReader } from './provider-avatar-reader.js';
 
 interface AvatarTicket { userId: string; roomId?: string; actorId?: string; expires: number; sourceHash: string }
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -56,7 +57,7 @@ export async function fetchProviderAvatar(url: string, fetcher: typeof fetch = f
 @Injectable()
 export class ProviderAvatarService {
   private readonly key: Buffer;
-  private inFlight = 0;
+  private readonly reader = new ProviderAvatarReader(fetchProviderAvatar, () => new ApiError('MEDIA_UNAVAILABLE', 503));
   constructor(@Inject(Transactions) private readonly transactions: Transactions,
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
@@ -81,11 +82,10 @@ export class ProviderAvatarService {
     await this.rate(`read:${ticket.userId}`);
     const url = await this.transactions.read(tx => this.users.providerAvatar(tx, ticket.userId, ticket.roomId, ticket.actorId));
     if (sha(url) !== ticket.sourceHash) throw new ApiError('NOT_FOUND', 404);
-    if (this.inFlight >= 4) throw new ApiError('MEDIA_UNAVAILABLE', 503);
-    this.inFlight++;
-    try { return await fetchProviderAvatar(url); }
+    // Only after current authorization: same-source reads share a bounded
+    // download/cache, never viewer credentials or a prior authorization result.
+    try { return await this.reader.get(url); }
     catch (error) { if (error instanceof ApiError) throw error; throw new ApiError('MEDIA_UNAVAILABLE', 503); }
-    finally { this.inFlight--; }
   }
   private async rate(scope: string) {
     const accepted = await this.transactions.write(tx => consumeRate(tx, createHmac('sha256', this.key).update(scope).digest(), 120, 60));
