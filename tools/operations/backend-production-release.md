@@ -74,6 +74,9 @@ is needed. The instance `/run` must be tmpfs.
    templates own only `api.rogi.chat` and import `/etc/caddy/sites/*.caddy`; the
    coordinator supplies the root-owned read-only site mount/edge overlay for the
    apex web route. These backend templates do not claim or duplicate `rogi.chat`.
+   Access logging remains disabled; the default runtime/error logger also deletes
+   request URI and headers, preserving error/status metadata without OAuth query
+   strings, cookies or request headers.
    Missing optional site files are allowed for backend validation, but a complete
    product release still requires the coordinator's real web release and checks.
 

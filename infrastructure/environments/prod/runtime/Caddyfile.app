@@ -1,5 +1,16 @@
 {
 	admin localhost:2019
+	# Runtime reverse-proxy errors may carry OAuth URI/header data even when
+	# access logs are disabled. Filter the default runtime logger as well.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers delete
+			}
+		}
+	}
 }
 
 import /etc/caddy/sites/*.caddy

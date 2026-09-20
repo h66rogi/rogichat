@@ -213,7 +213,12 @@ class ProductionBoundaries(unittest.TestCase):
                 args=['docker','run','--rm','-i','--network','none',
                       'caddy:2.11.4-alpine@sha256:de23def33b17fb5d1290b0f6c2add1d70780e52341896c00a4c8a2a2fe9d355e',
                       'caddy','adapt','--config','-','--adapter','caddyfile','--validate']
-            subprocess.run(args,input=raw,check=True,capture_output=True)
+            result=subprocess.run(args,input=raw,check=True,capture_output=True)
+            encoder=json.loads(result.stdout)['logging']['logs']['default']['encoder']
+            self.assertEqual(encoder['format'],'filter')
+            self.assertEqual(encoder['wrap'],{'format':'json'})
+            self.assertEqual(encoder['fields'],{'request>uri':{'filter':'delete'},
+                                               'request>headers':{'filter':'delete'}})
 
     def test_boot_order_and_no_qa_paths(self):
         unit=(ROOT/prod.ARTIFACTS['unit']).read_text()
