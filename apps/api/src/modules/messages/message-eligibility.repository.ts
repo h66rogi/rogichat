@@ -29,8 +29,8 @@ export class MessageEligibilityRepository {
       { right_member_id: viewerId, left_member_id: { in: targets } },
     ] }, select: { room_id: true, stream_id: true, left_member_id: true, right_member_id: true } });
   }
-  async grants(tx: Transaction, roomId: string, streamIds: string[], members: string[]) {
-    const now = await tx.now();
+  async grants(tx: Transaction, roomId: string, streamIds: string[], members: string[], capturedNow?: Date) {
+    const now = capturedNow ?? await tx.now();
     return tx.prisma.stream_grants.findMany({ where: { room_id: roomId, stream_id: { in: streamIds }, member_id: { in: members },
       revoked_at: null, valid_from: { lte: now }, OR: [{ expires_at: null }, { expires_at: { gt: now } }],
     }, select: { stream_id: true, member_id: true, can_read: true, can_send: true } });

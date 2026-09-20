@@ -1,4 +1,6 @@
 import { deletionFixture } from '../support/deletion-fixture.mjs';
+
+import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
 import { createUser, createRoom, joinRoom, nextOrder } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
@@ -32,6 +34,7 @@ async function fixture(t) {
   app = await createApi(db, new SafeLogger('api', () => {}), undefined, { sessions, config }, undefined, 'test', deletion);
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const call = async (who, method, path, body) => {
+    await scopeNewHttpIntent(db, config, who.id, method, path, body);
     const response = await fetch(`${base}/v1${path}`, { method, headers: { Origin: config.origin,
       Cookie: `rogi_session=${who.token}`, 'X-CSRF-Token': who.csrf,
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
@@ -121,7 +124,7 @@ test('room manifest pages are one generation and membership changes invalidate i
   const next = (await f.sync(f.fan1, '/sync', { limit: '100', cursor: first.nextCursor })).body;
   assert.equal(next.complete, true); assert.equal(next.generation, first.generation); assert.equal(next.rooms.length, 2);
   assert.equal(new Set([...first.rooms, ...next.rooms].map(room => room.roomId)).size, 3);
-  for (const room of next.rooms) assert.deepEqual(Object.keys(room).sort(), ['actorId', 'mode', 'name', 'role', 'roomId']);
+  for (const room of next.rooms) assert.deepEqual(Object.keys(room).sort(), ['actorId', 'authorizationRevision', 'membershipScope', 'mode', 'name', 'role', 'roomId']);
   await f.call(f.fan1, 'POST', `/rooms/${f.room}/leave`, {});
   const invalid = (await f.sync(f.fan1, '/sync', { cursor: first.nextCursor })).body;
   assert.equal(invalid.resetRequired, true); assert.equal(invalid.complete, false); assert.deepEqual(invalid.rooms, []);
@@ -217,4 +220,64 @@ test('private root deletion produces only id-less reset for eligible publication
   const final = (await f.roomSync(f.fan2, 'snapshot')).body;
   assert.ok(!ids(final.messages).includes(publication));
   assert.equal(final.messages.find(message => message.id === quotedPublication).quote, null);
+});
+
+test('C06 shared M/A agrees across join, discovery, manifest, snapshots and profiles; other-room join invalidates only A', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  const join = (await f.call(f.fan1, 'POST', `/rooms/${f.room}/join`, {})).body;
+  const snapshot = (await f.roomSync(f.fan1, 'snapshot')).body;
+  const profile = (await f.roomSync(f.fan1, 'profile-sync')).body;
+  const manifest = (await f.sync(f.fan1, '/sync')).body;
+  let discovery, after;
+  do { const page = (await f.call(f.fan1, 'GET', `/rooms${after ? `?after=${after}` : ''}`)).body; discovery = page.rooms.find(r => r.roomId === f.room); after = page.next; } while (!discovery && after);
+  assert.ok(discovery);
+  for (const value of [snapshot, profile, manifest.rooms.find(r => r.roomId === f.room), discovery]) {
+    assert.equal(value.membershipScope, join.membershipScope); assert.equal(value.authorizationRevision, join.authorizationRevision);
+  }
+  assert.equal(snapshot.schemaVersion, 2); assert.equal(manifest.schemaVersion, 2);
+  assert.equal('membershipScope' in manifest, false); assert.equal('visibleFromOrder' in join, false);
+  await f.send(f.fan2, 'hidden activity', f.owner);
+  const hidden = (await f.roomSync(f.fan1, 'snapshot')).body;
+  assert.equal(hidden.authorizationRevision, snapshot.authorizationRevision); assert.equal(hidden.membershipScope, snapshot.membershipScope);
+  const other = await f.db.transactions.write(tx => createRoom(tx, 'scope other room', 'GROUP'));
+  await f.call(f.fan1, 'POST', `/rooms/${other}/join`, {});
+  const changed = (await f.roomSync(f.fan1, 'snapshot')).body;
+  assert.equal(changed.membershipScope, snapshot.membershipScope); assert.notEqual(changed.authorizationRevision, snapshot.authorizationRevision);
+  const reset = (await f.roomSync(f.fan1, 'events', { cursor: snapshot.nextCursor })).body;
+  assert.deepEqual(reset, { schemaVersion: 2, resetRequired: true, membershipScope: null, authorizationRevision: null, events: [], hasMore: false, nextCursor: null });
+});
+
+test('C06 sorts authorized selected messages by millisecond time and UUID without losing the internal history edge', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  const old = await f.send(f.owner, 'old internal edge'), middle = await f.send(f.owner, 'middle'), newest = await f.send(f.owner, 'newest');
+  await f.db.transactions.write(async tx => {
+    await tx.execute('UPDATE messages SET created_at=? WHERE id=?', [new Date('2026-09-20T00:00:00.100Z'), old]);
+    await tx.execute('UPDATE messages SET created_at=? WHERE id=?', [new Date('2026-09-20T00:00:00.200Z'), middle]);
+    await tx.execute('UPDATE messages SET created_at=? WHERE id=?', [new Date('2026-09-20T00:00:00.100Z'), newest]);
+  });
+  const page = (await f.roomSync(f.fan1, 'snapshot', { limit: '2' })).body;
+  assert.deepEqual(ids(page.messages), [newest, middle]);
+  const history = (await f.roomSync(f.fan1, 'history', { cursor: page.historyCursor })).body;
+  assert.deepEqual(ids(history.messages), [old]);
+  await f.db.transactions.write(tx => tx.execute('UPDATE messages SET created_at=? WHERE room_id=?', [new Date('2026-09-20T00:00:00.123Z'), f.room]));
+  const ties = (await f.roomSync(f.fan1, 'snapshot')).body;
+  assert.deepEqual(ids(ties.messages), [old, middle, newest].sort());
+});
+
+test('C06 MySQL authorization revision preserves original ACL serialization byte-for-byte within audience domain', { timeout: 20000 }, async t => {
+  const f = await fixture(t); await f.send(f.fan1, 'grant for parity', f.owner);
+  const { createHmac } = await import('node:crypto');
+  const { SyncRepository } = await import('../../dist/modules/sync/sync.repository.js');
+  const { MembershipRepository } = await import('../../dist/modules/access/membership.repository.js');
+  const { MessagesQueryRepository } = await import('../../dist/modules/messages/messages-query.repository.js');
+  const expected = await f.db.transactions.read(async tx => {
+    const viewer = await new MembershipRepository().findActive(tx, f.room, f.fan1.id);
+    const repo = new SyncRepository(); const [state] = await repo.state(tx, viewer.id);
+    const grants = await repo.grants(tx, f.room, viewer.id);
+    const revoked = (await new MessagesQueryRepository().stickerRevocations(tx, f.room, viewer.id, viewer.visible_from_order)).map(row => row.id);
+    const vector = [viewer.id, viewer.role, viewer.mode, viewer.active_period_id, viewer.visible_from_order, String(state.acl_epoch), state.policy_version, String(state.content_epoch), String(state.membership_generation), grants, revoked];
+    return createHmac('sha256', f.config.key).update('authorization-revision:v1:').update(JSON.stringify([f.config.audience, vector])).digest('base64url');
+  });
+  const snapshot = (await f.roomSync(f.fan1, 'snapshot')).body;
+  assert.equal(snapshot.authorizationRevision, expected);
 });

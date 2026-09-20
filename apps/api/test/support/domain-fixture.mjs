@@ -4,6 +4,9 @@ import { IdentityGuardService } from '../../dist/modules/auth/identity-guard.ser
 import { DeletionRepository } from '../../dist/modules/deletion/deletion.repository.js';
 import { deletionFixture } from './deletion-fixture.mjs';
 import { DeletionApplyService } from '../../dist/modules/deletion/deletion-apply.service.js';
+
+import { newIntentScope } from './membership-scope-fixture.mjs';
+import { sendInput as parseSendInput } from '../../dist/modules/messages/dto/send-message.dto.js';
 // Fixtures use the real Nest domain graph. No alternative domain implementation lives here.
 import 'reflect-metadata';
 import { after } from 'node:test';
@@ -37,7 +40,11 @@ Module({ imports: [MessagesCoreModule, UsersCoreModule, RoomStateModule, Reactio
 const context = await NestFactory.createApplicationContext(DomainFixtureModule, { logger: false, abortOnError: false });
 after(() => context.close());
 const bind = (token, name) => context.get(token)[name].bind(context.get(token));
-export const sendMessage = bind(MessagesCoreService, 'send');
+export const sendMessageScoped = bind(MessagesCoreService, 'send');
+export const sendMessage = async (tx, roomId, userId, input, key) => {
+  const scoped = { ...input, membershipScope: await newIntentScope(tx, key, 'domain-fixture', userId, roomId) };
+  return context.get(MessagesCoreService).send(tx, roomId, userId, scoped, key, 'domain-fixture');
+};
 export const getMessage = bind(MessagesCoreService, 'get');
 export async function deleteMessage(transactions, room, actor, message, authorize = async () => {}) {
   const core = context.get(MessagesCoreService);
@@ -94,7 +101,7 @@ export async function createUser(tx, nickname) {
 }
 export { consumeRate, collectExpiredRates } from '../../dist/infrastructure/rate-limit/rate-limit.repository.js';
 export { uuid, identifier } from '../../dist/common/validation/identifier.js';
-export { sendInput } from '../../dist/modules/messages/dto/send-message.dto.js';
+export const sendInput = body => parseSendInput({ membershipScope: 'A'.repeat(43), ...body });
 export { reactionEmoji } from '../../dist/modules/reactions/dto/reaction.dto.js';
 export { syncInput } from '../../dist/modules/sync/dto/sync.dto.js';
 export { resetSync } from '../../dist/modules/sync/sync-core.service.js';

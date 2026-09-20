@@ -63,7 +63,7 @@ for (const shape of ['health', 'auth', 'full']) test(`OpenAPI matches the actual
 });
 
 test('request schemas agree with parsers on message union, forbidden fields and null semantics', () => {
-  const base = { clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '안녕하세요' } };
+  const base = { membershipScope: 'A'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '안녕하세요' } };
   for (const body of [base, { ...base, content: { type: 'STICKER', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE', recipientActorId: randomUUID() }, { ...base, content: { type: 'PHOTO', assetIds: [randomUUID()] } }, { ...base, quoteId: null }]) {
     check(sendRequest, body); assert.doesNotThrow(() => sendInput(body));
   }
@@ -179,7 +179,7 @@ test('C05 shared fixtures require minimal action fields only on complete live DT
   for (const counterpart of [{}, { actorId: null }, { actorId: 'not-a-uuid' }, []]) check(schema, { ...fixtures.privateOutgoing, counterpart }, false);
   for (const allowedActions of [null, {}, { reply: true, publish: false }, { reply: 'true', publish: false, delete: false },
     { reply: null, publish: false, delete: false }]) check(schema, { ...fixtures.privateOutgoing, allowedActions }, false);
-  const event = doc.paths['/v1/rooms/{roomId}/events'].get.responses['200'].content['application/json'].schema.properties.events.items;
+  const event = doc.paths['/v1/rooms/{roomId}/events'].get.responses['200'].content['application/json'].schema.oneOf[0].properties.events.items;
   check(event, fixtures.tombstone);
   check(event, { ...fixtures.tombstone, allowedActions: fixtures.privateOutgoing.allowedActions }, false);
   assert.equal(fixtures.privateOutgoing.version, fixtures.stalePrivateOutgoing.version);
@@ -192,4 +192,30 @@ test('deletion receipt alone permits legacy UUIDv4 or deterministic UUIDv5 and s
   for (const requestId of [v5.toUpperCase(), v5.replace('-558e-', '-758e-'), 'invalid']) check(deletionReceipt, { requestId, status: 'blocked' }, false);
   check(deletionReceipt, { requestId: v5, status: 'purged' }, false);
   check(deletionReceipt, { requestId: v5, status: 'blocked', actorUserId: randomUUID() }, false);
+
+});
+
+test('C06 v2 envelopes encode exact scope/reset/discovery shapes and canonical SEND token bits', async t => {
+  const { app, config } = await openApiFixture(); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config);
+  const response = (path, method = 'get') => doc.paths[path][method].responses['200'].content['application/json'].schema;
+  const tokens = { membershipScope: 'A'.repeat(43), authorizationRevision: 'E'.repeat(42) + 'A' };
+  const base = { schemaVersion: 2, resetRequired: false, ...tokens };
+  check(response('/v1/rooms/{roomId}/snapshot'), { ...base, messages: [], nextCursor: 'opaque', historyCursor: null });
+  check(response('/v1/rooms/{roomId}/snapshot'), { ...base, membershipScope: null, messages: [], nextCursor: 'opaque', historyCursor: null }, false);
+  for (const [path, field, extra] of [['events', 'events', { hasMore: false }], ['history', 'messages', {}], ['profile-sync', 'profiles', { generation: null, complete: false }]]) {
+    const reset = { schemaVersion: 2, resetRequired: true, membershipScope: null, authorizationRevision: null, [field]: [], nextCursor: null, ...extra };
+    const schema = response(`/v1/rooms/{roomId}/${path}`);
+    check(schema, reset); check(schema, { ...reset, membershipScope: tokens.membershipScope }, false); check(schema, { ...reset, [field]: [{}] }, false);
+  }
+  const manifest = { schemaVersion: 2, resetRequired: false, generation: 'g', complete: true, nextCursor: null, rooms: [{ roomId: randomUUID(), actorId: randomUUID(), name: 'fixture', mode: 'GROUP', role: 'MEMBER', ...tokens }] };
+  check(response('/v1/sync'), manifest); check(response('/v1/sync'), { ...manifest, membershipScope: null }, false);
+  check(response('/v1/sync'), { schemaVersion: 2, resetRequired: true, generation: null, complete: false, nextCursor: null, rooms: [] });
+  const room = { roomId: randomUUID(), name: 'fixture', mode: 'GROUP', joined: false };
+  check(response('/v1/rooms'), { rooms: [room], next: null });
+  check(response('/v1/rooms'), { rooms: [{ ...room, ...tokens }], next: null }, false);
+  check(response('/v1/rooms'), { rooms: [{ ...room, joined: true, actorId: randomUUID(), ...tokens }], next: null });
+  check(response('/v1/rooms'), { rooms: [{ ...room, joined: true, actorId: randomUUID() }], next: null }, false);
+  const body = { membershipScope: 'x'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: 'fixture' } };
+  check(sendRequest, body, false); assert.throws(() => sendInput(body));
 });

@@ -1,4 +1,6 @@
 import { deletionFixture } from '../support/deletion-fixture.mjs';
+
+import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
 import { responseContract } from '../support/openapi-response.mjs';
 import { createUser, createRoom, joinRoom, Jobs, publishText } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
@@ -35,6 +37,7 @@ async function fixture(t) {
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const validateResponse = responseContract(app, config);
   const call = async (person, method, path, body, headers = {}) => {
+    await scopeNewHttpIntent(db, config, person.id, method, path, body);
     const response = await fetch(`${base}/v1${path}`, { method, headers: { Origin: config.origin, Cookie: `rogi_session=${person.token}`,
       'X-CSRF-Token': person.csrf, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) });

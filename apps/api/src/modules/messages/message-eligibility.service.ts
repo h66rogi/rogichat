@@ -14,7 +14,7 @@ export class MessageEligibilityService {
 
   // IDs must already be authorized LIVE messages. Hints never authorize a mutation
   // or broaden read access. Batch once per page, excluding tombstones/lookahead.
-  async project(tx: Transaction, viewer: ActiveMember, ids: string[]): Promise<Map<string, MessageEligibility>> {
+  async project(tx: Transaction, viewer: ActiveMember, ids: string[], now?: Date): Promise<Map<string, MessageEligibility>> {
     const result = new Map(ids.map(id => [id, noMessageActions()]));
     if (!ids.length) return result;
     const messages = await this.repository.messages(tx, viewer.room_id, ids);
@@ -32,7 +32,7 @@ export class MessageEligibilityService {
       member.active_period_id === viewer.active_period_id && member.active_period?.member_id === viewer.id &&
       String(member.active_period.visible_from_order) === viewer.visible_from_order);
     const pairs = current ? await this.repository.pairs(tx, viewer.room_id, viewer.id, [...targetIds]) : [];
-    const grants = pairs.length ? await this.repository.grants(tx, viewer.room_id, pairs.map(pair => pair.stream_id), [viewer.id, ...targetIds]) : [];
+    const grants = pairs.length ? await this.repository.grants(tx, viewer.room_id, pairs.map(pair => pair.stream_id), [viewer.id, ...targetIds], now) : [];
     const eligibleTarget = (targetId: string, requiredStream?: string): boolean => {
       if (!current || targetId === viewer.id || !actorUuid.test(targetId)) return false;
       const target = members.find(member => member.id === targetId && member.active_period_id && member.active_period?.member_id === targetId);

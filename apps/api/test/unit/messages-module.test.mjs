@@ -25,7 +25,7 @@ async function fixture(t, options = {}) {
   const principal = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true };
   const roomId = randomUUID(), messageId = randomUUID();
   const credentials = Object.freeze({ token: 'a'.repeat(43), csrf: 'b'.repeat(43) });
-  const input = sendInput({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 모듈 메시지' } });
+  const input = sendInput({ membershipScope: 'A'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 모듈 메시지' } });
   const run = async (writable, operation) => {
     let pendingCharges = 0;
     const tx = { writable, id: handles.length + 1,
@@ -163,7 +163,7 @@ test('real controller maps cookies and CSRF into explicit credentials without ac
   f.service.get = async (...args) => { received.push(['get', ...args]); return { id: f.messageId }; };
   f.service.remove = async (...args) => { received.push(['remove', ...args]); return { status: 'blocked' }; };
   const headers = { cookie: `rogi_session=${f.credentials.token}`, origin: f.settings.origin, 'x-csrf-token': f.credentials.csrf };
-  const body = { clientMessageId: f.input.clientMessageId, intent: 'SHARED', content: { type: 'TEXT', text: '합성 모듈 메시지' } };
+  const body = { membershipScope: f.input.membershipScope, clientMessageId: f.input.clientMessageId, intent: 'SHARED', content: { type: 'TEXT', text: '합성 모듈 메시지' } };
   await f.controller.send({ headers, body }, f.roomId);
   await f.controller.get({ headers: { cookie: headers.cookie } }, f.roomId, f.messageId);
   await f.controller.remove({ headers, body: {} }, f.roomId, f.messageId);

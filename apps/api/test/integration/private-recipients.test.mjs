@@ -1,3 +1,4 @@
+import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
 import { responseContract } from '../support/openapi-response.mjs';
 import { createUser, createRoom, joinRoom, leaveRoom, sendMessage } from '../support/domain-fixture.mjs';
 import { test } from 'node:test';
@@ -33,6 +34,7 @@ async function fixture(t) {
   await app.listen(0, '127.0.0.1'); const base = await app.getUrl();
   const validateResponse = responseContract(app, config);
   const call = async (person, method, path, body) => {
+    await scopeNewHttpIntent(db, config, person?.id, method, path, body);
     const response = await fetch(`${base}/v1${path}`, { method, headers: { Origin: config.origin,
       ...(person ? { Cookie: `rogi_session=${person.token}`, 'X-CSRF-Token': person.csrf } : {}),
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
