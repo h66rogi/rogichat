@@ -66,7 +66,7 @@ export const completeJob = bind(JobsCoreService, 'complete');
 export const users = context.get(UsersCoreService);
 export const stickers = context.get(StickersCoreService);
 export function Jobs(transactions, consumer, ownerId) { return new Queue(transactions, consumer, context.get(JobsRepository), context.get(JobsCoreService), ownerId); }
-const worker = (transactions, store, decoder, prefix) => new MediaWorkerService(transactions, store, decoder, prefix, context.get(MediaWorkerRepository), context.get(JobsCoreService), context.get(AccessService));
+const worker = (transactions, store, decoder, prefix) => new MediaWorkerService(transactions, store, decoder, prefix, context.get(MediaWorkerRepository), context.get(JobsCoreService), context.get(AccessService), context.get(MessagesCoreService));
 export const processMedia = (transactions, store, decoder, prefix, lease) => worker(transactions, store, decoder, prefix).processMedia(lease);
 export const prepareMedia = (tx, lease, prefix) => worker(undefined, undefined, undefined, prefix).prepareMedia(tx, lease);
 export const recoverMedia = tx => worker().recoverMedia(tx);

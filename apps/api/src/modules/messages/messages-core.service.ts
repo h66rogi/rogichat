@@ -13,19 +13,21 @@ import type { MessageRow } from './message.types.js';
 import type { SendInput } from './dto/send-message.dto.js';
 import { projectMessageDto } from './message-projection.js';
 import { RoomMediaCoreService } from '../media/room-media-core.service.js';
+import { StickersCoreService } from '../stickers/stickers-core.service.js';
+import type { MessageReadModel } from './message-projection.js';
 
 // Transaction-scoped domain operations. Does not own a pool, session, request, or transaction.
 // HTTP admission belongs to MessagesService; workers use explicit trusted transaction ports.
 @Injectable()
 export class MessagesCoreService {
   constructor(@Inject(MessagesRepository) private readonly repository: MessagesRepository,
-    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService) {}
+    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService, @Inject(StickersCoreService) private readonly stickers: StickersCoreService) {}
 
   load(tx: Transaction, roomId: string, messageId: string) { return this.repository.load(tx, roomId, messageId); }
 
   async readable(tx: Transaction, viewer: ActiveMember, row: MessageRow): Promise<boolean> {
     const grant = row.stream_kind === 'RESTRICTED' ? await this.repository.grant(tx, row.room_id, row.stream_id, viewer.id) : undefined;
-    return canReadMessage({ accountActive: true, soopLinked: true, roomId: viewer.room_id, memberRoomId: viewer.room_id,
+    const allowed = canReadMessage({ accountActive: true, soopLinked: true, roomId: viewer.room_id, memberRoomId: viewer.room_id,
       roomActive: true, memberId: viewer.id, memberActive: true, periodActive: true,
       visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: null }, {
       roomId: row.room_id, streamId: row.stream_id, streamRoomId: row.room_id, streamKind: row.stream_kind,
@@ -33,6 +35,9 @@ export class MessagesCoreService {
       deletionRootBlocked: Number(row.root_blocked) === 1 || ['DELETING', 'DELETED'].includes(row.content_owner_status),
       grant: grant ? { roomId: String(grant.room_id), streamId: String(grant.stream_id), memberId: String(grant.member_id), canRead: Number(grant.can_read) === 1, active: true } : null,
     });
+    if (!allowed || row.content_kind !== 'STICKER') return allowed;
+    try { await this.stickers.messageContent(tx, row.room_id, row.id); return true; }
+    catch (error) { if (error instanceof ApiError && error.code === 'NOT_FOUND') return false; throw error; }
   }
 
   async project(tx: Transaction, viewer: ActiveMember, row: MessageRow) {
@@ -44,9 +49,10 @@ export class MessagesCoreService {
         quote = { id: source.id, content: { type: 'TEXT', text: source.text_content } };
       }
     }
-    let content: { type: 'TEXT'; text: string | null } | { type: 'PHOTO' | 'VIDEO' | 'STICKER'; attachments: { assetId: string; width: number; height: number; variant: string }[] };
+    let content: MessageReadModel['content'];
     if (row.content_kind === 'TEXT') content = { type: 'TEXT', text: row.text_content };
-    else if (row.content_kind === 'PHOTO' || row.content_kind === 'VIDEO' || row.content_kind === 'STICKER') {
+    else if (row.content_kind === 'STICKER') content = { type: 'STICKER', ...await this.stickers.messageContent(tx, row.room_id, row.id) };
+    else if (row.content_kind === 'PHOTO' || row.content_kind === 'VIDEO') {
       const attachments = await this.repository.attachments(tx, row.room_id, row.id);
       content = { type: row.content_kind, attachments: attachments.map(a => ({ assetId: String(a.id), width: Number(a.width), height: Number(a.height), variant: String(a.variant) })) };
     } else throw new ApiError('NOT_FOUND', 404);
@@ -111,7 +117,8 @@ export class MessagesCoreService {
       if (!quote || !await this.readable(tx, viewer, quote) || (quote.stream_kind !== 'ROOM_SHARED' && quote.stream_id !== streamId)) throw new ApiError('NOT_FOUND', 404);
     }
     const id = randomUUID(); const order = await this.roomState.nextOrder(tx, roomId);
-    if (input.content.type !== 'TEXT') {
+    if (input.content.type === 'STICKER') await this.stickers.requireSend(tx, roomId, input.content.stickerId);
+    else if (input.content.type !== 'TEXT') {
       for (const assetId of [...input.content.assetIds].sort()) {
         const asset = await this.repository.requireAsset(tx, roomId, userId, input.content.type, assetId);
         if (!asset) throw new ApiError('NOT_FOUND', 404);
@@ -119,6 +126,7 @@ export class MessagesCoreService {
       }
     }
     await this.repository.insertMessage(tx, { id, roomId, streamId, actorId: viewer.id, userId, quoteId: input.quoteId, content: input.content, order });
+    if (input.content.type === 'STICKER') await this.stickers.attach(tx, roomId, id, input.content.stickerId);
     await this.repository.insertReceipt(tx, { roomId, actorId: viewer.id, clientMessageId: input.clientMessageId, messageId: id, payloadDigest: hash });
     await this.recordEvent(tx, { id, room_id: roomId, stream_id: streamId }, '1', order, 'MESSAGE_CREATED');
     return { clientMessageId: input.clientMessageId, messageId: id, status: 'committed' as const, version: '1' };
@@ -141,5 +149,21 @@ export class MessagesCoreService {
     await this.recordEvent(tx, { id: messageId, room_id: roomId, stream_id: String(row.stream_id) }, (BigInt(row.version as string) + 1n).toString(), order, 'MESSAGE_DELETED');
     await this.jobs.enqueue(tx, { purpose: 'PURGE', roomId, resourceId: requestId, dedupeKey: digest(`purge:${requestId}`) });
     return { requestId, status: 'blocked' as const };
+  }
+
+  // Trusted worker port. Caller must fence its lease and continuation atomically
+  // after these domain locks. A permanently moderated row is the durable cursor.
+  async invalidateRevokedSticker(tx: Transaction, assetId: string): Promise<string | null> {
+    const candidate = await this.repository.stickerInvalidationCandidate(tx, identifier(assetId));
+    if (!candidate) return null;
+    if (!await this.repository.room(tx, candidate.room_id)) throw new Error('room_unavailable');
+    const rows = await this.repository.stickerInvalidationBatch(tx, candidate.room_id, assetId);
+    for (const row of rows) {
+      if ((await this.repository.moderateSticker(tx, row.room_id, row.id)).count !== 1) throw new Error('sticker_invalidation_conflict');
+      // Closed rooms still receive durable deletion events, ready for any later reopening.
+      const order = await this.repository.nextDeletionOrder(tx, row.room_id);
+      await this.recordEvent(tx, row, (BigInt(row.version) + 1n).toString(), order, 'MESSAGE_DELETED');
+    }
+    return rows.at(-1)?.id ?? candidate.message_id;
   }
 }
