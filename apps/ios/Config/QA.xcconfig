@@ -6,3 +6,5 @@ ROGICHAT_ENVIRONMENT = qa
 ROGICHAT_API_BASE_URL = https:/$()/api.qa.rogi.chat/v1/
 // Preview code and fixtures are absent from both production configurations.
 SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) ROGICHAT_QA
+
+CODE_SIGN_ENTITLEMENTS = Config/QA.entitlements

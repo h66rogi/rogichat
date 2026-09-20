@@ -300,7 +300,9 @@ export class ChatController {
       if (ack.clientMessageId !== clientMessageId || (typeof ack.messageId !== 'string' || !ack.messageId) || (ack.status === 'committed' && (typeof ack.version !== 'string' || !/^\d+$/.test(ack.version))) || !['committed', 'deleted'].includes(String(ack.status))) throw new Error('INVALID_ACK');
       this.attempts.delete(fingerprint);
       // A commit ACK proves persistence. The next sync, not fabricated local content, updates the timeline.
-      void this.refresh();
+      // An existing read may have captured the timeline before this commit.
+      // Let it settle, then fetch again instead of coalescing into that old read.
+      void this.revalidate();
       return { accepted: true, ...(ack.status === 'deleted' ? { note: '이 메시지는 이미 삭제되었습니다.' } : {}) };
     } catch (error) {
       if (!this.dead && inaccessible(error)) {

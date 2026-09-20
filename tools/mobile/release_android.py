@@ -8,6 +8,7 @@ import urllib.request
 
 from release_common import APP_ID, API_URL, ROOT, capture, cli_environment, external, manifest, new_output, private_write, required, run, save_manifest, sha256
 from product_guards import inspect_android_package, inspect_product_sources
+from android_associations import verify_callback_manifest
 
 BUNDLETOOL_VERSION = "1.18.3"
 BUNDLETOOL_SHA = "a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29"
@@ -44,6 +45,7 @@ def verify_apk(path, number, version):
     if "application-debuggable" in info:
         raise ValueError("Tester APK must be the signed QA release variant")
     xml = capture([sdk_tool("aapt2"), "dump", "xmltree", str(path), "--file", "AndroidManifest.xml"])
+    verify_callback_manifest(xml, "qa")
     if f'"{API_URL}"' not in xml:
         raise ValueError("Wrong API endpoint in APK")
 
