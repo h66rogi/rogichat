@@ -7,7 +7,7 @@ response fencing remain consumer integration gates.
 ## HTTP receipt lookup
 
 `GET /v1/rooms/{roomId}/message-commands/{clientMessageId}` takes UUID path
-parameters and the existing session read credentials (web cookie or native
+parameters (lowercase UUIDv4, RFC variant `8`, `9`, `a` or `b`) and the existing session read credentials (web cookie or native
 bearer plus `X-Rogi-Client`). It takes no sender, account partition, or payload.
 Authentication, active room membership, sender-scoped receipt lookup, and live
 message readability are checked on the same bounded read transaction snapshot.
@@ -40,8 +40,10 @@ Errors use the existing `{ "error": { "code": "..." } }` envelope:
 | 403 | FORBIDDEN | Transport origin rejected by existing credential rules |
 | 404 | NOT_FOUND | Absent own receipt, other sender, inaccessible message, inactive membership or room |
 
-After leaving, lookup is `404`. Rejoin does not restore old visibility or revoked
-grants: an unreadable live receipt remains `404`. An own deleted receipt is
+After leaving, lookup is `404`. Rejoin evaluates the new membership period's
+history boundary and current ACL: `ALL_AVAILABLE` can allow an old shared
+message, while a newer history boundary can exclude it. Revoked private grants
+remain revoked; an unreadable live receipt remains `404`. An own deleted receipt is
 terminal once the caller again has active membership; it reveals no old message
 metadata. Closed rooms and revoked accounts cannot use lookup. Reads use the
 existing snapshot semantics; a read already in flight can precede a concurrent
