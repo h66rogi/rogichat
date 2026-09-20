@@ -163,6 +163,74 @@ class ValidationTests(unittest.TestCase):
             w.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://elsewhere.invalid')
 
 
+class EdgeSnapshotTests(unittest.TestCase):
+    def setUp(self):
+        self.r = request()
+        self.caddyfile = b'import /etc/caddy/sites/*.caddy'
+        self.r.update(caddy_sha256=w.digest(self.caddyfile), bootstrap_sha256=w.digest(b'bootstrap'))
+        self.caddy = {
+            'Id': 'existing-caddy', 'Image': 'existing-image', 'Name': '/caddy',
+            'State': {'Running': True}, 'HostConfig': {'ReadonlyRootfs': True},
+            'NetworkSettings': {'Networks': {'rogichat-qa-web': {}, 'api-network': {}}},
+            'Mounts': [
+                {'Type': 'bind', 'Source': str(w.SITE.parent), 'Destination': '/etc/caddy/sites', 'RW': False},
+                {'Type': 'bind', 'Source': str(w.CADDY), 'Destination': '/etc/caddy/Caddyfile', 'RW': False},
+                {'Type': 'volume', 'Source': '/volumes/data', 'Destination': '/data', 'RW': True,
+                 'Name': 'caddy-data', 'Driver': 'local', 'Mode': 'z', 'Propagation': ''},
+                {'Type': 'volume', 'Source': '/volumes/config', 'Destination': '/config', 'RW': True}],
+        }
+        self.network = {'Driver': 'bridge', 'Internal': False, 'Containers': {'caddy': {'Name': 'caddy'}}}
+
+    def snapshot(self, caddy):
+        def read(path):
+            return self.caddyfile if path == w.CADDY else b'bootstrap'
+        with patch.object(w, 'protected', side_effect=read), patch.object(w, 'docker', side_effect=[
+                b'caddy', json.dumps([caddy]).encode(), json.dumps([self.network]).encode()]):
+            return w.snapshot_edge(self.r)
+
+    def test_mount_order_only_is_accepted_without_dropping_values(self):
+        baseline = self.snapshot(self.caddy)
+        reordered = copy.deepcopy(self.caddy)
+        reordered['Mounts'].reverse()
+        w.require(self.snapshot(reordered) == baseline, 'edge changed')
+        self.assertEqual(baseline[0]['Mounts'], sorted(self.caddy['Mounts'], key=lambda m: m['Destination']))
+
+    def test_actual_mount_changes_are_rejected(self):
+        baseline = self.snapshot(self.caddy)
+        for index in (0, 2):
+            for key, value in [('Source', '/changed'), ('Type', 'tmpfs'), ('RW', index == 0),
+                               ('Destination', '/changed'), ('Mode', 'changed'), ('Driver', 'changed'),
+                               ('Propagation', 'changed'), ('Name', 'changed')]:
+                changed = copy.deepcopy(self.caddy)
+                changed['Mounts'][index][key] = value
+                with self.subTest(index=index, key=key), self.assertRaises(w.Rejected):
+                    w.require(self.snapshot(changed) == baseline, 'edge changed')
+
+    def test_duplicate_mount_destinations_are_rejected(self):
+        for conflicting in (False, True):
+            changed = copy.deepcopy(self.caddy)
+            duplicate = dict(changed['Mounts'][0])
+            if conflicting:
+                duplicate.update(Source='/changed', RW=True)
+            changed['Mounts'].append(duplicate)
+            with self.subTest(conflicting=conflicting), self.assertRaisesRegex(w.Rejected, 'duplicate Caddy mount'):
+                self.snapshot(changed)
+
+    def test_identity_host_config_and_network_changes_are_rejected(self):
+        baseline = self.snapshot(self.caddy)
+        for key, value in [('Id', 'replacement'), ('Image', 'replacement'), ('HostConfig', {}),
+                           ('State', {'Running': False}),
+                           ('NetworkSettings', {'Networks': {'rogichat-qa-web': {}, 'changed-network': {}}})]:
+            changed = dict(self.caddy, **{key: value})
+            with self.subTest(key=key), self.assertRaises(w.Rejected):
+                w.require(self.snapshot(changed) == baseline, 'edge changed')
+
+    def test_unowned_network_member_is_rejected(self):
+        self.network['Containers']['foreign'] = {'Name': 'foreign'}
+        with self.assertRaises(w.Rejected):
+            self.snapshot(self.caddy)
+
+
 class ArchiveTests(unittest.TestCase):
     def approval(self):
         return {'artifact_id': 1, 'artifact_sha256': 'sha256:' + 'a' * 64, 'export_sha': 'a' * 40,
