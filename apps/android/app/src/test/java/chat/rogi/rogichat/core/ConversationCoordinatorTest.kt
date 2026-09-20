@@ -54,6 +54,7 @@ private class ConversationTransport : NativeApi {
     var eventFailure: Exception? = null; var messageFailure: Exception? = null
     var sending: suspend (TextCommand) -> String = { """{"clientMessageId":"${it.clientMessageId.value}","status":"committed","messageId":"${MESSAGE_ID.value}","version":"7"}""" }
     var lookup: suspend (RoomId) -> String = { throw ApiException(404, "NOT_FOUND") }
+    override suspend fun getPrivateRecipients(token: String, room: RoomId, after: RoomId?) = """{"recipients":[],"next":null}"""
     override suspend fun sendText(token: String, room: RoomId, command: TextCommand): String { sends++; return sending(command) }
     override suspend fun getMessageReceipt(token: String, room: RoomId, command: RoomId): String { lookups++; return lookup(command) }
     override suspend fun getMessage(token: String, room: RoomId, message: RoomId): String { messageFailure?.let { throw it }; return messageProjection() }
@@ -81,6 +82,22 @@ private class ConversationAccess(private val api: NativeApi) : ConversationGatew
 }
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConversationCoordinatorTest {
+    @Test fun roomOwnerAdmitsOnlyFanAndUnknownSendReconcilesWithoutResending() = runTest {
+        for ((mode, role) in listOf(RoomMode.FAN to RoomRole.FAN, RoomMode.FAN to RoomRole.STREAMER, RoomMode.GROUP to RoomRole.MEMBER)) {
+            val api = ConversationTransport(); val store = ConversationMemory()
+            api.sending = { throw java.io.IOException("uncertain") }
+            val model = RoomConversationCoordinator(ConversationAccess(api), store, backgroundScope)
+            val selected = selection.copy(membership = selection.membership.copy(mode = mode, role = role))
+            val handle = model.open(selected); runCurrent(); val scope = requireNotNull(handle.state.value.data).scope
+            val command = TextCommand(ACTOR_ID, SCOPE_M, "ROOM_OWNER", null, null, "원본 수신함 메시지")
+            val result = model.send(handle, TextSendIntent(scope, command, null)); runCurrent()
+            if (role == RoomRole.FAN) {
+                assertTrue(result.isSuccess); assertEquals(1, api.sends); assertEquals(command, store.rows.single().command)
+                assertEquals(OutboxPhase.UNKNOWN, store.rows.single().phase)
+                model.reconcile(handle); runCurrent(); assertEquals(1, api.sends); assertTrue(api.lookups > 0)
+            } else { assertTrue(result.isFailure); assertEquals(0, api.sends); assertTrue(store.rows.isEmpty()) }
+        }
+    }
     @Test fun reopeningImmediatelyWithdrawsCachedBodyAndLoadsFreshHints() = runTest {
         val api = ConversationTransport(); val store = ConversationMemory()
         val model = RoomConversationCoordinator(ConversationAccess(api), store, backgroundScope)

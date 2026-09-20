@@ -82,3 +82,13 @@ void test('settled receipts can yield capacity without dropping any unknown comm
   assert.ok(!state.records.some(record => record.clientMessageId === settled.clientMessageId));
   assert.deepEqual(state.records.filter(record => record.clientMessageId !== newId).map(record => record.clientMessageId), unknownIds);
 });
+
+void test('ROOM_OWNER is durable without an invented actor and rejects recipient or quote injection', () => {
+  const owner = normalizePayload({ ...payload, intent: 'ROOM_OWNER' });
+  assert.equal(owner.intent, 'ROOM_OWNER'); assert.equal('recipientActorId' in owner, false);
+  assert.throws(() => normalizePayload({ ...owner, recipientActorId: id }));
+  assert.throws(() => normalizePayload({ ...owner, quoteId: id }));
+  const state = emptyState(); applyAuthority(state, authority, 1);
+  insert(state, roomId, owner, 2);
+  assert.equal(state.records[0]?.payload?.intent, 'ROOM_OWNER');
+});

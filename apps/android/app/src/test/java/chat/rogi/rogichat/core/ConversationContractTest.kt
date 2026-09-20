@@ -19,6 +19,22 @@ internal val SCOPE_A = RoomScopeToken("B".repeat(42) + "A")
 internal fun messageProjection(id: RoomId = MESSAGE_ID, version: String = "7") = """{"id":"${id.value}","version":"$version","createdAt":"2026-09-20T00:00:00.000Z","audience":"SHARED","author":{"kind":"member","actorId":"${ACTOR_ID.value}","nickname":"이름","avatar":null},"content":{"type":"TEXT","text":"실제 본문"},"quote":null,"counterpart":null,"allowedActions":{"reply":true,"publish":false,"delete":false}}"""
 internal fun snapshotProjection() = """{"schemaVersion":2,"resetRequired":false,"membershipScope":"${SCOPE_M.value}","authorizationRevision":"${SCOPE_A.value}","messages":[${messageProjection()}],"nextCursor":"events-one","historyCursor":null}"""
 class ConversationContractTest {
+    @Test fun roomOwnerCommandIsActorFreeAndRoundTripsThroughDurableOutbox() {
+        val pending = ConversationDtos.message(messageProjection().replace("\"SHARED\"", "\"PRIVATE\"").replace("\"reply\":true", "\"reply\":false"))
+        assertNull(pending.counterpart); assertNull(pending.replyTarget)
+        val command = TextCommand(CONVERSATION_ID, SCOPE_M, "ROOM_OWNER", null, null, "방장에게")
+        val body = command.body()
+        assertFalse("recipientActorId" in body); assertFalse("quoteId" in body)
+        val row = ConversationOutboxRow(CONVERSATION_ID.value, command.clientMessageId.value, SCOPE_M.value, SCOPE_A.value,
+            command.intent, null, null, command.text, 1, OutboxPhase.UNKNOWN.name)
+        assertEquals(command, row.domain().command)
+        for ((recipient, quote) in listOf(ACTOR_ID to null, null to MESSAGE_ID)) {
+            assertTrue(runCatching { TextCommand(CONVERSATION_ID, SCOPE_M, "ROOM_OWNER", recipient, quote, "본문") }.isFailure)
+        }
+        val media = chat.rogi.rogichat.core.media.MediaContent.Attachment(chat.rogi.rogichat.core.media.MediaKind.PHOTO,
+            listOf(chat.rogi.rogichat.core.media.MediaReceipt(MESSAGE_ID.value, chat.rogi.rogichat.core.media.MediaStatus.ready)))
+        assertFalse("recipientActorId" in TextCommand(CONVERSATION_ID, SCOPE_M, "ROOM_OWNER", null, null, "", media).body())
+    }
     @Test fun c05RequiredHintsAndPrivateVersusSharedReplyTargetsAreExact() {
         val shared = ConversationDtos.message(messageProjection())
         assertEquals(ACTOR_ID, shared.replyTarget); assertNull(shared.counterpart)
