@@ -189,3 +189,23 @@ test('confirmed revoke crosses same-session lease handoff but cannot cross autho
   });
   expect(result).toEqual({ fenced: true, erased: true, retained: true });
 });
+
+test('same-instance authority ABA aborts the original transport before late ACK can settle', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js', transportPath = '/__outbox_test/outbox/transport.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const { sendOutbox } = await import(transportPath) as typeof TransportModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID(), clientMessageId = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const outbox = await DurableOutbox.open('transport-aba'); await outbox.authorize(authority);
+    const failed = await sendOutbox(outbox, roomId, { clientMessageId, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'old transport body' } }, {
+      verify: async () => {}, lookup: async () => {}, send: async () => {
+        await outbox.authorize({ ...authority, sessionKey: 'b'.repeat(64) }); await outbox.authorize(authority);
+        return { clientMessageId, status: 'committed', messageId: crypto.randomUUID(), version: '1' };
+      },
+    }).then(() => false, () => true);
+    const record = (await outbox.recover(roomId))[0]!; outbox.close();
+    return { failed, hasResult: Boolean(record.result), hasPayload: Boolean(record.payload) };
+  });
+  expect(result).toEqual({ failed: true, hasResult: false, hasPayload: false });
+});
