@@ -1,0 +1,68 @@
+{
+    admin off
+    auto_https disable_redirects
+    # Standalone validation template; preserve the real edge's admin/ACME setup
+    # when the operator integrates the site and privacy policy.
+    log default {
+        output discard
+    }
+    servers {
+        timeouts {
+            read_header 10s
+            read_body 10s
+            write 20s
+            idle 30s
+        }
+        max_header_size 16KB
+    }
+}
+auth.rogi.chat {
+    log {
+        output stdout
+        format filter {
+            wrap json
+            fields {
+                request delete
+                resp_headers delete
+                user_id delete
+                bytes_read delete
+                size delete
+            }
+        }
+    }
+    header {
+        Cache-Control "no-store"
+        Pragma "no-cache"
+        -Server
+    }
+    @post {
+        method POST
+        expression {http.request.uri}.matches('^/v1/platform/oauth/rogichat/(requests|exchange)([?].*)?$')
+        path /v1/platform/oauth/rogichat/requests /v1/platform/oauth/rogichat/exchange
+    }
+    @get {
+        method GET
+        expression {http.request.uri}.matches('^/v1/platform/oauth/rogichat/(authorize|callback)([?].*)?$')
+        path /v1/platform/oauth/rogichat/authorize /v1/platform/oauth/rogichat/callback
+    }
+    handle @post {
+        request_body {
+            max_size 16KB
+        }
+        @FORWARD@
+    }
+    handle @get {
+        request_body {
+            max_size 16KB
+        }
+        @FORWARD@
+    }
+    handle {
+        respond 404
+    }
+}
+
+# Unknown hosts must not produce an empty success response.
+https:// {
+    respond 404
+}

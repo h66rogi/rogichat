@@ -1,0 +1,35 @@
+# New dedicated listener; include only in the existing nginx http context.
+# Never include in or modify a shared server block.
+log_format rogichat_auth escape=json '{"time":"$time_iso8601","status":$status,"duration":$request_time}';
+map "$request_method:$request_uri" $rogichat_auth_route {
+    default 0;
+    ~^POST:/v1/platform/oauth/rogichat/requests(?:\?.*)?$ 1;
+    ~^POST:/v1/platform/oauth/rogichat/exchange(?:\?.*)?$ 1;
+    ~^GET:/v1/platform/oauth/rogichat/authorize(?:\?.*)?$ 1;
+    ~^GET:/v1/platform/oauth/rogichat/callback(?:\?.*)?$ 1;
+}
+server {
+    listen @NODE_TAILNET_IP@:8310 default_server;
+    server_name auth.rogi.chat;
+    access_log /var/log/nginx/rogichat-auth-access.log rogichat_auth;
+    # nginx request errors cannot be safely formatted: status remains in access log.
+    error_log /dev/null;
+    server_tokens off;
+    if ($http_host != auth.rogi.chat) { return 404; }
+    if ($remote_addr != @PROD_TAILNET_IP@) { return 404; }
+    if ($rogichat_auth_route = 0) { return 404; }
+    allow @PROD_TAILNET_IP@;
+    deny all;
+    client_max_body_size 16k;
+    client_body_buffer_size 16k;
+    client_body_timeout 10s;
+    client_header_timeout 10s;
+    large_client_header_buffers 2 8k;
+    send_timeout 15s;
+    keepalive_timeout 15s;
+    add_header Cache-Control "no-store" always;
+    add_header Pragma "no-cache" always;
+    location / {
+        @FORWARD@
+    }
+}
