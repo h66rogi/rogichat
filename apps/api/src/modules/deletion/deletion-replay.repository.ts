@@ -127,10 +127,10 @@ export class DeletionReplayRepository {
     await tx.prisma.deletion_replay_entries.update({ where: this.where(claim.sourceId, claim.keySha256),
       data: { receipt_sha256: digest }, select: { key_sha256: true } });
   }
-  async finish(tx: Transaction, claim: ReplayClaim, digest: string, status: 'observed' | 'pending' | 'scrub') {
+  async finish(tx: Transaction, claim: ReplayClaim, digest: string, status: 'observed' | 'pending' | 'scrub' | 'reapply') {
     const { row, now } = await this.fence(tx, claim, digest);
     await tx.prisma.deletion_replay_entries.update({ where: this.where(claim.sourceId, claim.keySha256), data: {
-      receipt_sha256: digest, state: status === 'observed' ? 'OBSERVED' : 'RETRY', phase: status === 'scrub' ? 'SCRUB' : claim.phase,
+      receipt_sha256: digest, state: status === 'observed' ? 'OBSERVED' : 'RETRY', phase: status === 'reapply' ? 'APPLY' : status === 'scrub' ? 'SCRUB' : claim.phase,
       ...(status === 'observed' ? { processed_generation: BigInt(row.discovered_generation) } : {}),
       next_attempt_at: new Date(now.getTime() + RETRY_MS), claim_token: null, claim_until: null,
     }, select: { key_sha256: true } });

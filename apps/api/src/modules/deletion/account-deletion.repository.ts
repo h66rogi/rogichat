@@ -36,9 +36,9 @@ export class AccountDeletionRepository {
     }, select: { user_id: true } });
     return covered;
   }
-  async scrubBindings(tx: Transaction, userId: string) {
+  async scrubBindings(tx: Transaction, userId: string): Promise<{ status: 'reapply' | 'remaining' | 'observed' }> {
     const account = await tx.prisma.users.findUnique({ where: { id: userId }, select: { status: true } });
-    if (!account || !['DELETING', 'DELETED'].includes(account.status)) return { pending: true, remaining: true };
+    if (!account || !['DELETING', 'DELETED'].includes(account.status)) return { status: 'reapply' };
     // Separate bounded transaction, without account/guard locks: callbacks already
     // hold their login row before acquiring those locks. Status denied them at commit.
     const logins = await tx.prisma.login_transactions.findMany({ where: { user_id: userId, status: { in: ['PENDING', 'PROCESSING'] } },
@@ -50,6 +50,6 @@ export class AccountDeletionRepository {
     const sessions = await tx.prisma.auth_sessions.findMany({ where: { user_id: userId, revoked_at: null }, orderBy: { id: 'asc' }, take: 100, select: { id: true } });
     if (sessions.length) await tx.prisma.auth_sessions.updateMany({ where: { id: { in: sessions.map(row => row.id) }, revoked_at: null }, data: { revoked_at: await tx.now() } });
     // Conservative continuation: a full batch requires another bounded observation.
-    return { pending: false, remaining: logins.length === 100 || sessions.length === 100 };
+    return { status: logins.length === 100 || sessions.length === 100 ? 'remaining' : 'observed' };
   }
 }

@@ -46,12 +46,12 @@ export class DeletionApplyService {
       signal.throwIfAborted();
       await replay.fence(tx, claim, receipt.sha256);
       signal.throwIfAborted();
-      let status: 'observed' | 'pending' | 'scrub';
+      let status: 'observed' | 'pending' | 'scrub' | 'reapply';
       if (claim.phase === 'SCRUB') {
         if (intent.scope !== 'ACCOUNT') throw new Error('invalid_deletion_replay_phase');
         // Do not lock account/guard before login rows: callbacks lock in the opposite order.
         const progress = await this.accounts.scrubBindings(tx, intent.targetId);
-        status = progress.pending || progress.remaining ? 'pending' : 'observed';
+        status = progress.status === 'reapply' ? 'reapply' : progress.status === 'remaining' ? 'pending' : 'observed';
       } else {
         const applied = await this.applyInTransaction(tx, { intent, sha256: receipt.sha256 });
         status = applied.status === 'pending' ? 'pending' : intent.scope === 'ACCOUNT' ? 'scrub' : 'observed';

@@ -102,7 +102,10 @@ No external ledger I/O occurs inside a SQL transaction.
 
 ACCOUNT apply and scrub are separate transactions to preserve callback lock
 ordering. A full 100-login or 100-session batch reports conservative continuation;
-a missing/nonblocked account remains pending. OBSERVED means one bounded replay
+a missing/nonblocked account returns explicit `reapply`. That scrub transaction
+only returns the fenced replay phase to APPLY, then yields; the next claimed
+transaction re-establishes the guard/account deny using the existing lock order.
+Ordinary bounded remaining work stays in SCRUB. OBSERVED means one bounded replay
 observation, never physical purge. Later discovery generations schedule another
 observation, and full prefix scans discover insertions behind prior cursors.
 `inventoryPassEnded`, empty inventory and per-tick discovered/invalid/attempted/
