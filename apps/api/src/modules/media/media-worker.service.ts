@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { MediaWorkerRepository } from './media-worker.repository.js';
+import { MediaWorkerRepository, acknowledgedWrite } from './media-worker.repository.js';
 import { JobsCoreService } from '../jobs/jobs-core.service.js';
 import { AccessService } from '../access/access.service.js';
 import { MessagesCoreService } from '../messages/messages-core.service.js';
@@ -41,7 +41,17 @@ export class MediaWorkerService {
   async prepareMedia(tx: Transaction, lease: JobLease): Promise<TransformAttempt | 'cleanup' | 'completed'> {
     if (lease.purpose !== 'MEDIA' || !lease.resourceId) throw new JobFailure('INVALID_RESOURCE', true);
     const { asset, owner } = await this.assetLock(tx, lease.resourceId);
-    if (['READY', 'DELETED'].includes(String(asset.state))) { await this.finish(tx, lease); return 'completed'; }
+    if (asset.state === 'DELETED') {
+      const objects = await this.repository.currentObjects(tx, asset.id);
+      if (objects.length > 500 || objects.some(row => !acknowledgedWrite(row))) {
+        // Old cleanup may have refunded quota without writer termination proof.
+        // Recover the key obligation; never invent the lost historical charge.
+        await this.repository.block(tx, asset.id);
+        return 'cleanup';
+      }
+      await this.finish(tx, lease); return 'completed';
+    }
+    if (asset.state === 'READY') { await this.finish(tx, lease); return 'completed'; }
     // Deletion needs no membership grant. Do not acquire a room lock after
     // owner/asset locks: publication and message deletion lock room before assets.
     if (asset.state === 'DELETING') return 'cleanup';
@@ -91,6 +101,11 @@ export class MediaWorkerService {
     await this.repository.readyAsset(tx, asset.id);
     await this.finish(tx, lease);
   }
+  private async deferCleanup(tx: Transaction, lease: JobLease, assetId: string): Promise<void> {
+    await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: assetId, delayMs: 20 * 60 * 1000,
+      dedupeKey: digest(`media-cleanup-deferred:${assetId}:${lease.id}`) });
+    await this.finish(tx, lease);
+  }
   private async cleanupMedia(lease: JobLease, signal: AbortSignal) {
     const plan = await this.transactions.write(async tx => {
       const { asset } = await this.assetLock(tx, lease.resourceId!);
@@ -102,19 +117,30 @@ export class MediaWorkerService {
       const uploading = await this.repository.uploading(tx, asset.id);
       const recent = await this.repository.recentAttempts(tx, asset.id);
       if (uploading.length || recent.length) {
-        await this.jobs.enqueue(tx, { purpose: 'MEDIA', resourceId: String(asset.id), delayMs: 20 * 60 * 1000, dedupeKey: digest(`media-cleanup-deferred:${asset.id}:${lease.id}`) });
-        await this.finish(tx, lease); return null;
+        await this.deferCleanup(tx, lease, String(asset.id)); return null;
       }
       const objects = await this.repository.objects(tx, asset.id);
-      return objects.map(row => ({ id: String(row.id), key: String(row.object_key) }));
+      // Overflow needs a separately durable page checkpoint; retain rather than
+      // silently ignoring keys or performing unbounded storage work.
+      if (objects.length > 500) throw new JobFailure('TEMPORARY_UNAVAILABLE');
+      return objects;
     });
     if (!plan) return;
-    for (const object of plan) await this.store.remove(object.key, signal);
+    for (const object of plan) await this.store.remove(object.object_key, signal);
     await this.transactions.write(async tx => {
       const { asset } = await this.assetLock(tx, lease.resourceId!);
       if (asset.state !== 'DELETING') throw new JobFailure('SOURCE_UNAVAILABLE');
       const objects = await this.repository.currentObjects(tx, asset.id);
-      if (objects.length !== plan.length || objects.some(row => !plan.some(item => item.id === row.id))) throw new JobFailure('SOURCE_UNAVAILABLE');
+      if (objects.length !== plan.length || objects.some((row, index) => {
+        const planned = plan[index]!;
+        return row.id !== planned.id || row.object_key !== planned.object_key || row.state !== planned.state ||
+          String(row.byte_length) !== String(planned.byte_length) || row.sha256 !== planned.sha256;
+      })) throw new JobFailure('SOURCE_UNAVAILABLE');
+      if (objects.some(row => !acknowledgedWrite(row))) {
+        // DELETE/404 cannot close an unknown provider-side PUT. Keep every key,
+        // state and reservation, with durable restartable orphan reconciliation.
+        await this.deferCleanup(tx, lease, String(asset.id)); return;
+      }
       await this.repository.deleteObjects(tx, asset.id);
       const changed = await this.repository.releaseBudget(tx, asset.reserved_bytes, asset.reserved_bytes);
       if (changed.affectedRows !== 1) throw new JobFailure('INVALID_RESOURCE', true);

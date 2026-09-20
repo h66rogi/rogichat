@@ -132,9 +132,8 @@ test('PHOTO publication HTTP and anonymous DTO use independent keys, and every d
   assert.ok(state.copies.every(copy => copy.destination.state === 'READY' && copy.destination.objects[0].state === 'READY'));
 });
 
-test('source deletion during PUT revokes publication and defers cleanup; cleanup releases reservation exactly once', async t => {
+test('source deletion during PUT revokes publication and retains unresolved cleanup reservation', async t => {
   const f = await fixture(t), source = await f.source(), publication = await f.request(source.messageId), lease = await f.claim(publication.publicationId);
-  const before = await f.inspect(publication.publicationId);
   f.hooks.put = () => f.remove(source.messageId);
   assert.equal(await f.worker.processPublication(lease), 'completed');
   assert.equal((await f.status(publication.publicationId)).status, 'revoked');
@@ -143,7 +142,10 @@ test('source deletion during PUT revokes publication and defers cleanup; cleanup
   assert.equal(await f.cleanup(copy.destination_asset_id), 'completed');
   assert.equal((await f.inspect(publication.publicationId)).budget, state.budget); assert.equal(f.removes.length, 0);
   await f.age(copy.destination_asset_id); assert.equal(await f.cleanup(copy.destination_asset_id), 'completed');
-  assert.equal((await f.inspect(publication.publicationId)).budget, before.budget);
+  const reconciled = await f.inspect(publication.publicationId);
+  assert.equal(reconciled.budget, state.budget);
+  assert.equal(reconciled.copies[0].destination.state, 'DELETING');
+  assert.equal(reconciled.copies[0].destination.objects[0].state, 'ALLOCATED');
   assert.ok(!f.objects.has(copy.destination.objects[0].object_key));
 });
 
@@ -166,7 +168,7 @@ test('owner, membership, SOOP, original revision, source asset and moderation ch
   }
 });
 
-test('expired generation after PUT rolls back READY; retry uses a new destination and reclaims only orphan reservation', async t => {
+test('expired generation after PUT rolls back READY; retry uses a new destination and retains unresolved orphan reservation', async t => {
   const f = await fixture(t), source = await f.source(), publication = await f.request(source.messageId), first = await f.claim(publication.publicationId);
   const baseline = await f.inspect(publication.publicationId);
   f.hooks.put = () => f.expire(first); assert.equal(await f.worker.processPublication(first), 'lease_lost');
@@ -176,7 +178,9 @@ test('expired generation after PUT rolls back READY; retry uses a new destinatio
   const current = (await f.inspect(publication.publicationId)).copies[0]; assert.notEqual(old.destination_asset_id, current.destination_asset_id);
   assert.notEqual(f.puts[0], f.puts[1]); assert.equal(await f.worker.processPublication(first), 'lease_lost');
   await f.age(old.destination_asset_id); await f.cleanup(old.destination_asset_id);
-  assert.equal((await f.inspect(publication.publicationId)).budget - baseline.budget, BigInt(bytes.length));
+  assert.equal((await f.inspect(publication.publicationId)).budget - baseline.budget, 2n * BigInt(bytes.length));
+  const retained = await f.txs.read(tx => tx.prisma.media_assets.findUnique({ where: { id: old.destination_asset_id }, select: { state: true, reserved_bytes: true } }));
+  assert.equal(retained.state, 'DELETING'); assert.equal(retained.reserved_bytes, BigInt(bytes.length));
   assert.ok(f.objects.has(current.destination.objects[0].object_key));
   const original = await f.txs.read(tx => tx.prisma.media_assets.findUnique({ where: { id: source.assets[0] }, select: { state: true, deleted_at: true } }));
   assert.deepEqual(original, { state: 'READY', deleted_at: null });
@@ -192,8 +196,18 @@ test('uncertain PUT and exhausted worker recovery retain discoverable attempts a
   assert.equal((await f.status(publication.publicationId)).status, 'revoked');
   assert.equal((await f.inspect(publication.publicationId)).budget, state.budget);
   await f.age(copy.destination_asset_id); await f.cleanup(copy.destination_asset_id);
-  assert.equal((await f.inspect(publication.publicationId)).budget, state.budget - BigInt(bytes.length));
+  assert.equal((await f.inspect(publication.publicationId)).budget, state.budget);
   assert.equal(f.objects.size, 1); assert.equal(f.removes.length, 1);
+  // A lost acknowledgment can conceal a provider write completing after 404.
+  const key = copy.destination.objects[0].object_key;
+  f.objects.set(key, bytes);
+  await f.cleanup(copy.destination_asset_id);
+  const reconciled = await f.inspect(publication.publicationId);
+  assert.equal(reconciled.budget, state.budget);
+  assert.equal(reconciled.copies[0].destination.state, 'DELETING');
+  assert.equal(reconciled.copies[0].destination.objects[0].object_key, key);
+  assert.equal(reconciled.copies[0].destination.objects[0].state, 'ALLOCATED');
+  assert.equal(f.objects.size, 1); assert.equal(f.removes.length, 2);
 });
 
 test('source deletion after successful copy blocks DTO and URL immediately and deletes only the independent public attachment', async t => {

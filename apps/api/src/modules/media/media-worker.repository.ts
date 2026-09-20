@@ -2,6 +2,14 @@ import { affected } from '../../infrastructure/database/transactions.js';
 import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
+export interface CleanupObject { id: string; object_key: string; state: string; byte_length: string | null; sha256: string | null }
+// Only acknowledged PUT finalization populates both fields in registered writers.
+// ALLOCATED never proves termination, including after abort or lease expiry.
+export function acknowledgedWrite(row: CleanupObject): boolean {
+  return ['STORED', 'READY', 'DELETED'].includes(row.state) && row.byte_length !== null &&
+    /^[1-9][0-9]*$/.test(String(row.byte_length)) && typeof row.sha256 === 'string' && /^[a-f0-9]{64}$/.test(row.sha256);
+}
+const unprovenWrite = "(o.state NOT IN ('STORED','READY','DELETED') OR o.byte_length IS NULL OR o.byte_length=0 OR o.sha256 IS NULL OR NOT REGEXP_LIKE(o.sha256,'^[a-f0-9]{64}$','c'))";
 @Injectable()
 export class MediaWorkerRepository {
   reference(tx: Transaction, assetId: string) {
@@ -53,10 +61,10 @@ export class MediaWorkerRepository {
     return tx.rows("SELECT id FROM media_objects WHERE asset_id=? AND created_at>TIMESTAMPADD(MINUTE,-10,UTC_TIMESTAMP(3)) LIMIT 1 FOR UPDATE", [assetId]);
   }
   objects(tx: Transaction, assetId: unknown) {
-    return tx.rows<RowDataPacket>("SELECT id,object_key FROM media_objects WHERE asset_id=? AND state<>'DELETED' FOR UPDATE", [assetId]);
+    return tx.rows<CleanupObject>("SELECT id,object_key,state,byte_length,sha256 FROM media_objects WHERE asset_id=? ORDER BY id LIMIT 501 FOR UPDATE", [assetId]);
   }
   currentObjects(tx: Transaction, assetId: unknown) {
-    return tx.rows<RowDataPacket>("SELECT id FROM media_objects WHERE asset_id=? AND state<>'DELETED' FOR UPDATE", [assetId]);
+    return this.objects(tx, assetId);
   }
   deleteObjects(tx: Transaction, assetId: unknown) {
     return affected(tx.prisma.media_objects.updateMany({ where: { asset_id: String(assetId) }, data: { state: 'DELETED' } }));
@@ -74,7 +82,8 @@ export class MediaWorkerRepository {
       AND NOT EXISTS (SELECT 1 FROM user_profiles p WHERE p.avatar_asset_id=a.id)
       AND NOT EXISTS (SELECT 1 FROM sticker_catalog c WHERE c.asset_id=a.id AND c.status IN ('ACTIVE','RETIRED') AND c.approved_at IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM publication_media pm JOIN message_publications p ON p.room_id=pm.room_id AND p.id=pm.publication_id WHERE pm.destination_asset_id=a.id AND p.state='PREPARING')) OR
-    (a.state='UPLOADING' AND a.upload_until<=UTC_TIMESTAMP(3)) OR a.state='DELETING')
+    (a.state='UPLOADING' AND a.upload_until<=UTC_TIMESTAMP(3)) OR a.state='DELETING' OR
+    (a.state='DELETED' AND EXISTS (SELECT 1 FROM media_objects o WHERE o.asset_id=a.id AND ${unprovenWrite})))
     AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.purpose='MEDIA' AND j.resource_id=a.id AND
       (j.state='PENDING' OR (j.state='RUNNING' AND j.lease_until>UTC_TIMESTAMP(3)) OR
        j.dedupe_key=UNHEX(SHA2(CONCAT('media-recovery:',a.id,':',DATE_FORMAT(UTC_TIMESTAMP(3),'%Y%m%d%H')),256))))

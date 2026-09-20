@@ -19,6 +19,12 @@ This source integration is not a QA release or a completed M10 purge.
   324 unit, 18 e2e, 18 contract and 255 MySQL tests, including 11 owner races and
   receipt/read/deletion regressions. Existing receipts remain reconcilable;
   new sends require the current room owner and membership to remain eligible.
+- Media late-write containment `43606ce` (PR 55): Backend CI `35499582753`
+  passed tests, disposable MySQL and image safety. Cleanup retains keys, states,
+  quota and durable continuation when provider-write termination is unproven;
+  legacy DELETED rows are not sufficient proof. This is the bounded safety slice
+  described in [its closure review](backend-media-late-write-closure.md), not
+  complete external-storage purge.
 
 These input results do not substitute for final composed-tree validation.
 
@@ -45,12 +51,22 @@ QA runtime has **12**. Approval for one is not approval for another. No SQL was
 hand-edited, no shared database was changed, and no production promotion occurred.
 
 The earlier MESSAGE/push integration `46bca35` passed all required hosted gates,
-including Backend CI `35498258627`. That result does not cover this subsequent
-ACCOUNT/owner composition. The local resource gate defers new heavy suites.
-The final integration needs its
-own hosted build, generated-client/schema, unit, HTTP/OpenAPI, real-MySQL and image
-checks before acceptance. The existing source tests are retained and explicit
-API/worker push-plus-deletion composition regressions were added.
+including Backend CI `35498258627`. ACCOUNT/owner composition `388c9d0` then
+passed Backend CI `35499262730`; its docs-only follow-up `d9614ed` passed all
+required gates, including Backend CI `35499608318`. These results do not cover
+the subsequent media composition, which needs its own hosted build,
+generated-client/schema, unit, HTTP/OpenAPI, real-MySQL and image checks.
+The local resource gate defers new heavy suites. Existing tests and explicit
+API/worker push-plus-deletion composition regressions are retained. The media
+merge changes no HTTP contract, configuration key or migration; consumer and
+private-operations source scans found no dependency on its internal helper or
+object-state representation.
+
+Ordinary app-only QA source merges were cleared after web delivery commissioning.
+This candidate still changes the root dependency lockfile and API image build,
+so its QA merge remains subject to a coordinated reviewed delivery-policy refresh.
+That source/trust gate is separate from concrete QA schema-change approval and
+does not authorize any host write or migration.
 
 ## Still outstanding
 
