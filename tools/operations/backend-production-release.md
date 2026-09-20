@@ -156,7 +156,8 @@ After separately reviewing the concrete request and activation impact:
 sudo /usr/bin/python3 /opt/rogichat/operations/backend_production_release.py --apply
 ```
 
-The activation takes the same exclusive lock and reruns preflight. It durably
+The activation takes the same exclusive `/run/lock/rogichat-deploy.lock` as the
+web releaser and reruns preflight; API and web Caddy mutations cannot overlap. It durably
 consumes the UUID, backs up previous runtime files, drains only API traffic to the
 reviewed bootstrap response, stops owned production units, recreates only stopped
 owned API/worker containers using `--no-build --pull never`, enables their units,

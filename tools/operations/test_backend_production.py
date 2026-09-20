@@ -150,6 +150,12 @@ class ProductionBoundaries(unittest.TestCase):
                 self.assertEqual([c.args[0][-1] for c in stop.call_args_list],['rogichat-prod-app@api','rogichat-prod-app@worker'])
                 with self.assertRaises(ValueError): prod.deploy(r,{'bootstrap':b'bootstrap'},'edge')
 
+    def test_failure_cleanup_continues_after_first_stop_timeout(self):
+        with patch.object(prod.subprocess,'run',side_effect=[subprocess.TimeoutExpired('systemctl',40),None]) as stop:
+            prod.stop_after_failure()
+        self.assertEqual([c.args[0][-1] for c in stop.call_args_list],['rogichat-prod-app@api','rogichat-prod-app@worker'])
+        self.assertEqual(prod.LOCK,Path('/run/lock/rogichat-deploy.lock'))
+
     def test_readiness_node_contracts(self):
         subprocess.run(['node','--test','tools/operations/test_production_readiness.mjs'],cwd=ROOT,check=True,capture_output=True)
 

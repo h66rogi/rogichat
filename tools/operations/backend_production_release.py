@@ -41,7 +41,8 @@ CADDY = Path('/opt/rogichat/bootstrap/Caddyfile')
 DATABASE = Path('/run/rogichat-prod/secrets/database.json')
 AUTH = Path('/etc/rogichat/prod/auth.json')
 CA = Path('/etc/rogichat/prod/rds-global-bundle.pem')
-LOCK = Path('/run/lock/rogichat-prod-deploy.lock')
+# Shared with the web releaser: both mutate the same Caddy configuration.
+LOCK = Path('/run/lock/rogichat-deploy.lock')
 PREFIX = 'infrastructure/environments/prod/runtime/'
 ARTIFACTS = {
     'compose': PREFIX + 'compose.app.yaml', 'unit': PREFIX + 'rogichat-prod-app@.service',
@@ -260,6 +261,17 @@ def stop_units():
         run(['/usr/bin/systemctl','stop','rogichat-prod-app@'+role],timeout=40)
 
 
+def stop_after_failure():
+    # Best effort after an already-failed release; always try both, even when a
+    # systemctl client times out. No completion marker is written on this path.
+    for role in ('api','worker'):
+        try:
+            subprocess.run(['/usr/bin/systemctl','stop','rogichat-prod-app@'+role],
+                           stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=40)
+        except Exception:
+            pass
+
+
 def deploy(request, files, container):
     receipt = RECEIPTS / ('receipt-'+request['request_id'])
     require(not receipt.exists())
@@ -297,10 +309,7 @@ def deploy(request, files, container):
         try:
             caddy_config(container,files['bootstrap'])
         finally:
-            # Both stop attempts must run even if one unit operation fails.
-            for role in ('api','worker'):
-                subprocess.run(['/usr/bin/systemctl','stop','rogichat-prod-app@'+role],
-                               stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,timeout=40)
+            stop_after_failure()
         raise
 
 
@@ -334,6 +343,8 @@ def preflight():
     shared.verify_ci(request)
     shared.verify_release_images(request)
     container = get_caddy(request['edge_network'])
+    for role in ('api','worker'):
+        inspect_container(role)  # Reject foreign name ownership before draining.
     validate_templates(request,release,files,container)
     verify_runtime(request,release)
     require(get_caddy(request['edge_network']) == container)
