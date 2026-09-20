@@ -290,3 +290,29 @@ test('actual controller recovers an uncertain native record after a cold restart
   expect(result.after.storageError).toBeNull(); expect(result.after.phase).toBe('ready');
   expect(result.after.commands).toHaveLength(1); expect(result.lookups).toBeGreaterThan(0);
 });
+
+test('suspend during reauthorization releases the previous lease without waiting for expiry', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const payload = { clientMessageId: crypto.randomUUID(), membershipScope: token, intent: 'SHARED' as const, content: { type: 'TEXT' as const, text: 'preserved command' } };
+    const first = await DurableOutbox.open('reauthorize-close');
+    await first.authorize(authority); await first.prepare(roomId, payload);
+    const interrupted = first.authorize(authority).catch(() => {});
+    first.close(); await interrupted;
+    const second = await DurableOutbox.open('reauthorize-close');
+    try {
+      await second.authorize(authority);
+      const records = await second.recover(roomId);
+      const receiptFirst = await second.beforeSend(payload.clientMessageId).then(() => false, error => error.code === 'RECEIPT_FIRST');
+      // Repeated suspension must not release a later grant queued behind cleanup.
+      second.suspend(); second.suspend(); await second.authorize(authority);
+      await second.assertCurrent();
+      return { recovered: records[0]?.payload, receiptFirst };
+    } finally { second.close(); }
+  });
+  expect(result.recovered?.content).toEqual({ type: 'TEXT', text: 'preserved command' });
+  expect(result.receiptFirst).toBe(true);
+});
