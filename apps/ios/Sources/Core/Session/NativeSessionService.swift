@@ -22,6 +22,7 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
     private var profileRevision: UInt64 = 0
     private var logoutRequested = false
     private var preferenceRevision: UInt64 = 0
+    private var roomCommand: (epoch: UInt64, id: UUID)?
     private var preferenceWrite: (epoch: UInt64, id: UUID)?
     init(environment: NativeEnvironment, api: any NativeRequesting, store: any NativeCredentialStoring,
          now: @escaping @Sendable () -> Date = { Date() }, auth: (any SOOPAuthenticating)? = nil, purgeRooms: @escaping @Sendable () throws -> Void = {}) {
@@ -151,6 +152,29 @@ actor NativeSessionService: SessionServing, AccountNotificationsServing, RoomsAu
         try requireCurrent(ticket, credential)
         do {
             let data = try await api.performRooms(endpoint, credential: credential, scope: scope)
+            try requireCurrent(ticket, credential); try scope.check()
+            guard scope === roomsScope else { throw RoomsError.staleScope }
+            return data
+        } catch {
+            guard ticket == epoch, scope === roomsScope else { throw RoomsError.staleScope }
+            try requireCurrent(ticket, credential); try scope.check()
+            if error as? ProductError == .unauthenticated { try clear(credential) }
+            if error as? ProductError == .linkRequired { roomsScope?.invalidate(); roomsScope = nil; validated = nil; try purgeRoomStorage() }
+            throw error
+        }
+    }
+    func roomsCommand(_ intent: RoomCommandIntent) async throws -> Data {
+        let scope = intent.scope
+        guard scope === roomsScope, scope.clientScope == clientScope, scope.partition == validated?.accountPartition,
+              validated?.access == .ready, let credential = activeCredential, let api = api as? any RoomsCommandRequesting else { throw RoomsError.staleScope }
+        guard roomCommand?.epoch != epoch else { throw RoomCommandError.inProgress }
+        try scope.check()
+        let ticket = epoch; let operation = UUID()
+        try requireCurrent(ticket, credential)
+        roomCommand = (ticket, operation)
+        defer { if roomCommand?.epoch == ticket, roomCommand?.id == operation { roomCommand = nil } }
+        do {
+            let data = try await api.performRoomsCommand(RoomsCommandEndpoint(action: intent.action, roomID: intent.roomID), credential: credential, scope: scope)
             try requireCurrent(ticket, credential); try scope.check()
             guard scope === roomsScope else { throw RoomsError.staleScope }
             return data

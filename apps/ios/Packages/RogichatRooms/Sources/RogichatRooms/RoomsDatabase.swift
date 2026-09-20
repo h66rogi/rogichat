@@ -1,18 +1,6 @@
 import Foundation
 import GRDB
 
-public struct RoomsListing: Sendable, Equatable {
-    public let memberships: [MembershipRoom]
-    public let discovery: [DiscoveredRoom]
-    public let membershipConfirmed: Bool
-    public let discoveryComplete: Bool
-}
-public struct ManifestRequest: Sendable {
-    public let run: String
-    public let deviceID: String
-    public let cacheID: String
-    public let cursor: String?
-}
 // All access is owned by RoomsRepository. The extra scope gate covers the actual
 // COMMIT, not only the SQL closure. No HTTP or actor suspension occurs in SQL.
 public final class RoomsDatabase: @unchecked Sendable {
@@ -159,7 +147,26 @@ public final class RoomsDatabase: @unchecked Sendable {
             let memberships = confirmed ? try Data.fetchAll(db, sql: "SELECT value FROM memberships ORDER BY id COLLATE BINARY").map { try JSONDecoder().decode(MembershipRoom.self, from: $0) } : []
             let discovery = try Data.fetchAll(db, sql: "SELECT value FROM discovery ORDER BY id COLLATE BINARY").map { try JSONDecoder().decode(DiscoveredRoom.self, from: $0) }
             return RoomsListing(memberships: memberships, discovery: discovery, membershipConfirmed: confirmed,
-                                discoveryComplete: try Bool.fetchOne(db, sql: "SELECT discoveryComplete FROM metadata")!)
+                                discoveryComplete: try Bool.fetchOne(db, sql: "SELECT discoveryComplete FROM metadata")!,
+                                cycle: confirmed ? try String.fetchOne(db, sql: "SELECT run FROM manifest WHERE complete=1") : nil)
+        }
+    }
+    public func prepareCommand(_ intent: RoomCommandIntent) throws -> ManifestRequest {
+        try write { db in
+            guard intent.scope === scope,
+                  try Bool.fetchOne(db, sql: "SELECT confirmed FROM metadata") == true,
+                  try String.fetchOne(db, sql: "SELECT run FROM manifest WHERE complete=1") == intent.cycle else { throw RoomCommandError.confirmationChanged }
+            let value = try Data.fetchOne(db, sql: "SELECT value FROM memberships WHERE id=?", arguments: [intent.roomID])
+            switch intent.action {
+            case .join:
+                guard value == nil, try Bool.fetchOne(db, sql: "SELECT EXISTS(SELECT 1 FROM discovery WHERE id=?)", arguments: [intent.roomID]) == true else { throw RoomCommandError.confirmationChanged }
+            case .leave:
+                guard let value, try JSONDecoder().decode(MembershipRoom.self, from: value).membershipScope == intent.membershipScope else { throw RoomCommandError.confirmationChanged }
+            }
+            // All room A values can change. Keep old membership rows unconfirmed;
+            // never use a partial/rejected mutation to delete membership evidence.
+            try db.execute(sql: "DELETE FROM discovery; UPDATE metadata SET discoveryRevision=NULL,discoveryNext=NULL,discoveryComplete=0")
+            return try startManifest(db)
         }
     }
     public func durabilitySettings() throws -> (String, Int) {

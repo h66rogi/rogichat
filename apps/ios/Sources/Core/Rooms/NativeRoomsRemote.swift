@@ -14,4 +14,8 @@ struct NativeRoomsRemote: RoomsFetching {
         do { return try JSONDecoder().decode(MembershipPage.self, from: data) }
         catch { throw RoomsError.invalidResponse }
     }
+    func command(_ intent: RoomCommandIntent) async throws {
+        // The closed transport validates the exact join DTO / empty 204 response.
+        _ = try await session.roomsCommand(intent)
+    }
 }

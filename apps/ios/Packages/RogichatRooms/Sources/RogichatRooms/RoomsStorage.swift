@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import GRDB
 
 // App-owned no-backup marker; never UserDefaults. A pending purge is completed
 // before another database can open, including after process death.
@@ -10,7 +11,8 @@ public final class RoomsStorage: @unchecked Sendable {
     private var active: RoomsDatabase?
     private let beforeDelete: @Sendable () throws -> Void
     private let beforeSave: @Sendable () throws -> Void
-    public init(root: URL, beforeDelete: @escaping @Sendable () throws -> Void = {}, beforeSave: @escaping @Sendable () throws -> Void = {}) { self.root = root; self.beforeDelete = beforeDelete; self.beforeSave = beforeSave }
+    private let beforeDatabaseCommit: @Sendable (Database) throws -> Void
+    public init(root: URL, beforeDelete: @escaping @Sendable () throws -> Void = {}, beforeSave: @escaping @Sendable () throws -> Void = {}, beforeDatabaseCommit: @escaping @Sendable (Database) throws -> Void = { _ in }) { self.root = root; self.beforeDelete = beforeDelete; self.beforeSave = beforeSave; self.beforeDatabaseCommit = beforeDatabaseCommit }
     public func open(scope: RoomsScope) throws -> RoomsDatabase {
         try lock.withLock {
             try scope.check()
@@ -25,7 +27,7 @@ public final class RoomsStorage: @unchecked Sendable {
             let directory = root.appendingPathComponent("accounts", isDirectory: true).appendingPathComponent(scope.partition, isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try RoomsDatabase.protectFiles(directory: directory)
-            let database = try RoomsDatabase(url: directory.appendingPathComponent("rooms.sqlite"), scope: scope, deviceID: marker.deviceID)
+            let database = try RoomsDatabase(url: directory.appendingPathComponent("rooms.sqlite"), scope: scope, deviceID: marker.deviceID, beforeCommit: beforeDatabaseCommit)
             active = database
             return database
         }

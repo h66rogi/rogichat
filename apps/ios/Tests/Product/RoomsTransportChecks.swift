@@ -12,12 +12,13 @@ final class RoomsPurgeProbe: @unchecked Sendable {
     func purge() throws { try lock.withLock { calls += 1; if failure { throw RoomsError.persistence } } }
     var count: Int { lock.withLock { calls } }
 }
-actor RoomsTestAPI: NativeRequesting, RoomsRequesting {
+actor RoomsTestAPI: NativeRequesting, RoomsRequesting, RoomsCommandRequesting {
     var session = Data()
     private var blocked = false
     private var pending: CheckedContinuation<Data, any Error>?
     private var waiter: CheckedContinuation<Void, Never>?
     private(set) var requests = 0
+    private(set) var commands = 0
     func configure(_ data: Data) { session = data }
     func delay() { blocked = true }
     func perform(_ endpoint: NativeEndpoint, credential: NativeCredential) async throws -> Data {
@@ -27,6 +28,11 @@ actor RoomsTestAPI: NativeRequesting, RoomsRequesting {
         try scope.check(); requests += 1
         if blocked { blocked = false; return try await withCheckedThrowingContinuation { pending = $0; waiter?.resume(); waiter = nil } }
         return Data(#"{"rooms":[],"next":null}"#.utf8)
+    }
+    func performRoomsCommand(_ endpoint: RoomsCommandEndpoint, credential: NativeCredential, scope: RoomsScope) async throws -> Data {
+        try scope.check(); commands += 1
+        if blocked { blocked = false; return try await withCheckedThrowingContinuation { pending = $0; waiter?.resume(); waiter = nil } }
+        return Data()
     }
     func wait() async { if pending != nil { return }; await withCheckedContinuation { waiter = $0 } }
     func fail() { pending?.resume(throwing: ProductError.unauthenticated); pending = nil }
@@ -59,6 +65,11 @@ struct DelayedRoomsSession: SessionServing, RoomsAuthorizing {
         await gate.enter()
         return try await base.roomsData(endpoint, scope: scope)
     }
+    func roomsCommand(_ intent: RoomCommandIntent) async throws -> Data {
+        await gate.enter()
+        return try await base.roomsCommand(intent)
+    }
+
 }
 @main struct RoomsTransportChecks {
     static let now = Date(timeIntervalSince1970: 2_000_000_000)
@@ -120,6 +131,48 @@ struct DelayedRoomsSession: SessionServing, RoomsAuthorizing {
         await api.fail()
         do { _ = try await old.value; preconditionFailure() } catch { check(error as? RoomsError == .staleScope) }
         check(try store.read() == credential && app.access == .ready && app.roomsScope !== a)
+        let commandScope = app.roomsScope!
+        let selected = try RoomCommandIntent(scope: commandScope, roomID: "00000000-0000-4000-8000-000000000001", roomName: "방", action: .leave, cycle: UUID().uuidString, membershipScope: token(2))
+        let post = try RoomsCommandEndpoint(action: .leave, roomID: selected.roomID).request(environment: .qa, credential: credential)
+        check(post.httpMethod == "POST" && post.url?.path == "/v1/rooms/00000000-0000-4000-8000-000000000001/leave")
+        check(post.httpBody == Data("{}".utf8) && post.value(forHTTPHeaderField: "X-Rogi-Client") == "ios")
+        for field in ["Cookie", "Origin", "X-CSRF-Token"] { check(post.value(forHTTPHeaderField: field) == nil) }
+        check(RoomsCommandEndpoint.error(data: Data(), status: 409) as? RoomCommandError == .conflict)
+        let join: [String: Any] = ["actorId": selected.roomID, "historyPolicy": "SINCE_JOIN", "policyVersion": UInt32.max, "membershipScope": token(2), "authorizationRevision": token(3)]
+        let acknowledgement = try JSONDecoder().decode(RoomJoinAcknowledgement.self, from: JSONSerialization.data(withJSONObject: join))
+        check(acknowledgement.policyVersion == UInt32.max)
+        let invalidVersions: [Any] = ["1", -1, UInt64(UInt32.max) + 1, true]
+        for invalid in invalidVersions {
+            var bad = join; bad["policyVersion"] = invalid
+            do { _ = try JSONDecoder().decode(RoomJoinAcknowledgement.self, from: JSONSerialization.data(withJSONObject: bad)); preconditionFailure() } catch {}
+        }
+        let leaveEndpoint = RoomsCommandEndpoint(action: .leave, roomID: selected.roomID)
+        check(try leaveEndpoint.validated(Data(), status: 204).isEmpty)
+        for (body, status) in [(Data(" ".utf8), 204), (Data("{}".utf8), 204), (Data(), 200), (Data(), 202)] {
+            do { _ = try leaveEndpoint.validated(body, status: status); preconditionFailure() } catch {}
+        }
+        do { _ = try RoomsCommandEndpoint(action: .join, roomID: selected.roomID).validated(Data("{}".utf8), status: 200); preconditionFailure() } catch {}
+        // Approved command crosses a delayed MainActor -> service hop, then the
+        // same account has a new local epoch/partition. No current-token recapture.
+        await entry.block()
+        let pendingCommand = Task { try await app.roomsCommand(selected) }
+        await entry.wait()
+        await api.configure(try session(partition: token(3))); await app.restore()
+        await api.configure(try session(partition: token(2))); await app.restore()
+        await entry.release()
+        do { _ = try await pendingCommand.value; preconditionFailure() } catch { check(error as? RoomsError == .staleScope) }
+        check(await api.commands == 0)
+        let currentCommand = try RoomCommandIntent(scope: app.roomsScope!, roomID: selected.roomID, roomName: "방", action: .leave, cycle: UUID().uuidString, membershipScope: token(2))
+        await api.delay()
+        let delayedCommand = Task { try await app.roomsCommand(currentCommand) }
+        await api.wait()
+        do { _ = try await service.roomsCommand(currentCommand); preconditionFailure() } catch { check(error as? RoomCommandError == .inProgress) }
+        await app.restore(); await api.fail()
+        do { _ = try await delayedCommand.value; preconditionFailure() } catch { check(error as? RoomsError == .staleScope) }
+        check(await api.commands == 1)
+        check(try store.read() == credential && app.access == .ready)
+        var live = RoomsActionState(); live.confirmed(cycle: selected.cycle); live.close(working: false)
+        check(!live.permits(cycle: selected.cycle)) // Old Loadable.previous is not command authority.
         purge.fail(true)
         do { try await service.signOut(); preconditionFailure() } catch { check(error as? ProductError == .secureStorage) }
         check(try store.read() == nil && store.logoutPending())
@@ -131,6 +184,6 @@ struct DelayedRoomsSession: SessionServing, RoomsAuthorizing {
         let before = purge.count
         let noCredential = NativeSessionService(environment: .qa, api: api, store: store, now: { now }, purgeRooms: { try purge.purge() })
         check(try await noCredential.restore().access == .signedOut && purge.count > before)
-        print("iOS rooms transport: partition capability, immutable scope, late 401 isolation and cold purge recovery passed")
+        print("iOS rooms transport: partition capability, immutable scope, late 401 isolation cold purge recovery, one-command admission and strict join/leave contracts passed")
     }
 }

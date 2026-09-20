@@ -39,3 +39,42 @@ extension RoomsQuery {
     }
 }
 protocol RoomsRequesting: Sendable { func performRooms(_ endpoint: RoomsEndpoint, credential: NativeCredential, scope: RoomsScope) async throws -> Data }
+
+struct RoomsCommandEndpoint: Sendable {
+    let action: RoomCommandAction
+    let roomID: String
+    var successStatus: Int { action == .join ? 200 : 204 }
+    func request(environment: NativeEnvironment, credential: NativeCredential) throws -> URLRequest {
+        guard credential.isValid, credential.environment == environment else { throw ProductError.secureStorage }
+        guard RoomsWire.uuid(roomID) else { throw RoomsError.invalidResponse }
+        var request = URLRequest(url: environment.baseURL.appendingPathComponent("rooms/\(roomID)/\(action.rawValue)"))
+        request.httpMethod = "POST"; request.httpBody = Data("{}".utf8)
+        request.cachePolicy = .reloadIgnoringLocalCacheData; request.httpShouldHandleCookies = false
+        request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
+        request.setValue("ios", forHTTPHeaderField: "X-Rogi-Client")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return request
+    }
+    func validated(_ data: Data, status: Int) throws -> Data {
+        guard status == successStatus else { throw Self.error(data: data, status: status) }
+        if action == .leave {
+            guard data.isEmpty else { throw RoomsError.invalidResponse }
+        } else {
+            do { _ = try JSONDecoder().decode(RoomJoinAcknowledgement.self, from: data) }
+            catch { throw RoomsError.invalidResponse }
+        }
+        return data
+    }
+    static func error(data: Data, status: Int) -> any Error {
+        if status == 400 { return RoomCommandError.invalidRequest }
+        if status == 404 { return RoomCommandError.notFound }
+        if status == 409 { return RoomCommandError.conflict }
+        let error = RoomsEndpoint.error(data: data, status: status)
+        if error as? RoomsError == .forbidden { return RoomCommandError.forbidden }
+        return error
+    }
+}
+protocol RoomsCommandRequesting: Sendable {
+    func performRoomsCommand(_ endpoint: RoomsCommandEndpoint, credential: NativeCredential, scope: RoomsScope) async throws -> Data
+}

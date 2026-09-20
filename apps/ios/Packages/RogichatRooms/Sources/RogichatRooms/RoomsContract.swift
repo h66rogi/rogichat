@@ -153,3 +153,94 @@ public enum RoomsQuery: Sendable {
     case discovery(after: String?)
     case manifest(deviceID: String, cacheID: String, cursor: String?)
 }
+
+public enum RoomCommandAction: String, Sendable { case join, leave }
+public struct RoomCommandIntent: Sendable {
+    public let scope: RoomsScope
+    public let roomID: String
+    public let roomName: String
+    public let action: RoomCommandAction
+    public let cycle: String
+    public let membershipScope: String?
+    public init(scope: RoomsScope, roomID: String, roomName: String, action: RoomCommandAction, cycle: String, membershipScope: String?) throws {
+        let validMembership = action == .leave ? membershipScope.map(RoomsWire.token) == true : membershipScope == nil
+        guard RoomsWire.uuid(roomID), UUID(uuidString: cycle) != nil, validMembership else { throw RoomsError.staleScope }
+        self.scope = scope; self.roomID = roomID; self.roomName = roomName; self.action = action; self.cycle = cycle; self.membershipScope = membershipScope
+    }
+}
+public struct RoomJoinAcknowledgement: Decodable, Sendable {
+    public let actorId: String
+    public let historyPolicy: String
+    public let policyVersion: UInt32
+    public let membershipScope: String
+    public let authorizationRevision: String
+    enum CodingKeys: CodingKey { case actorId, historyPolicy, policyVersion, membershipScope, authorizationRevision }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        actorId = try c.decode(String.self, forKey: .actorId); historyPolicy = try c.decode(String.self, forKey: .historyPolicy)
+        policyVersion = try c.decode(UInt32.self, forKey: .policyVersion)
+        membershipScope = try c.decode(String.self, forKey: .membershipScope); authorizationRevision = try c.decode(String.self, forKey: .authorizationRevision)
+        guard RoomsWire.uuid(actorId), ["ALL_AVAILABLE", "SINCE_JOIN"].contains(historyPolicy), RoomsWire.token(membershipScope), RoomsWire.token(authorizationRevision) else { throw RoomsError.invalidResponse }
+    }
+}
+public enum RoomCommandError: Error, Equatable, LocalizedError, Sendable {
+    case inProgress, confirmationChanged, forbidden, notFound, conflict, invalidRequest
+    public var errorDescription: String? {
+        switch self {
+        case .inProgress: "앞선 참여 요청을 확인하고 있어요."
+        case .confirmationChanged: "참여 상태가 변경되었어요. 목록을 다시 확인한 뒤 선택해 주세요."
+        case .forbidden: "현재 이 요청을 처리할 수 없어요. 참여 상태를 다시 확인해 주세요."
+        case .notFound: "이 대화방을 확인할 수 없어요. 참여 상태를 다시 확인해 주세요."
+        case .conflict: "현재 상태에서는 요청을 처리할 수 없어요."
+        case .invalidRequest: "요청을 확인하지 못했어요. 참여 상태를 다시 확인해 주세요."
+        }
+    }
+}
+public enum RoomCommandOutcome: Sendable, Equatable {
+    case acknowledged, unknown, rejected(RoomCommandError)
+    public var notice: String? {
+        switch self {
+        case .acknowledged: nil
+        case .unknown: "현재 참여 상태를 확인했어요. 앞선 요청의 처리 결과는 확인하지 못했어요."
+        case .rejected(let error): error.errorDescription
+        }
+    }
+}
+public struct RoomCommandReconciliationError: Error, LocalizedError, Sendable {
+    public let outcome: RoomCommandOutcome
+    public var errorDescription: String? { "참여 상태를 확인하지 못했어요. 다시 확인해 주세요." }
+}
+// This live gate belongs to the feature coordinator, never to a preserved listing.
+public struct RoomsActionState: Sendable {
+    public private(set) var cycle: String?
+    public private(set) var working = false
+    public init() {}
+    public mutating func close(working: Bool) { cycle = nil; self.working = working }
+    public mutating func confirmed(cycle: String) { self.cycle = cycle; working = false }
+    public func permits(cycle: String?) -> Bool { !working && cycle != nil && self.cycle == cycle }
+}
+
+public struct RoomsListing: Sendable, Equatable {
+    public let memberships: [MembershipRoom]
+    public let discovery: [DiscoveredRoom]
+    public let membershipConfirmed: Bool
+    public let discoveryComplete: Bool
+    public let cycle: String?
+}
+public struct ManifestRequest: Sendable {
+    public let run: String
+    public let deviceID: String
+    public let cacheID: String
+    public let cursor: String?
+}
+
+public struct RoomCommandResult: Sendable {
+    public let listing: RoomsListing
+    public let outcome: RoomCommandOutcome
+}
+
+public protocol RoomsCoordinating: Sendable {
+    func refresh() async throws -> RoomsListing
+    func loadMore() async throws -> RoomsListing
+    func command(_ intent: RoomCommandIntent) async throws -> RoomCommandResult
+}
