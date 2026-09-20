@@ -42,7 +42,7 @@ export class PrismaDatabase implements Database {
   async close(): Promise<void> {
     if (this.closed) return;
     this.closed = true;
-    await this.runtime.client.$disconnect();
+    await this.runtime.close();
   }
 }
 // Same Prisma provider, retained during the coordinated Nest/test import move.

@@ -1,11 +1,14 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFileSync } from 'node:fs';
 import { checkServerIdentity } from 'node:tls';
+import mariadb from 'mariadb';
+import type { Pool, PoolConnection } from 'mariadb';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { PrismaClient } from '../../generated/prisma/client.js';
 import type { Config } from '../config/config.js';
 
 export interface TransactionState {
+  discovery?: boolean;
   writable: boolean;
   closed: boolean;
   commitStarted: boolean;
@@ -42,43 +45,90 @@ async function statement<T>(operation: () => Promise<T>, state?: TransactionStat
   finally { clearTimeout(timer!); }
 }
 
-// The pinned official adapter owns the sole pool and query encoding. This
+// Install ownership before official capability discovery touches this sole pool.
+function ownedPool(options: ReturnType<typeof poolOptions>, context: AsyncLocalStorage<TransactionState>): Pool {
+  const pool = mariadb.createPool(options);
+  const acquire = pool.getConnection.bind(pool);
+  pool.getConnection = async () => {
+    const state = context.getStore();
+    if (!state) throw new Error('transaction_required');
+    const connection = await acquire();
+    // Public destroy is patched and integrity-tested for this pinned driver.
+    let owned = true;
+    const abort = () => { if (owned) { owned = false; connection.destroy(); } };
+    const release = connection.release.bind(connection);
+    connection.release = async () => {
+      // Disarm before handing the connection back, even if rollback/release
+      // fails: a later caller timer must never destroy another checkout.
+      owned = false;
+      if (state?.abort === abort) delete state.abort;
+      await release();
+    };
+    try {
+      if (state) state.abort = abort;
+      const check = () => { if (state?.closed) throw new Error('transaction_finished'); };
+      check();
+      if (state?.discovery) return connection;
+      await statement(() => connection.query("SET SESSION time_zone = '+00:00'"), state); check();
+      await statement(() => connection.query('SET SESSION innodb_lock_wait_timeout = 2'), state); check();
+      await statement(() => connection.query(state?.writable === false ? 'SET TRANSACTION READ ONLY' : 'SET TRANSACTION READ WRITE'), state); check();
+      return connection;
+    } catch (error) {
+      // Never return a connection with unconsumed next-transaction settings.
+      abort();
+      throw error;
+    }
+  };
+
+  const pooled = async <T>(method: 'query' | 'execute', sql: Parameters<Pool['query']>[0], values?: unknown): Promise<T> => {
+    const state = context.getStore();
+    // Only official capability discovery may use the pool directly. Domain
+    // Client operations must use the interactive transaction connection.
+    if (!state?.discovery || method !== 'query' || typeof sql !== 'object' || sql.sql !== 'SELECT VERSION()' || values !== undefined) throw new Error('transaction_required');
+    return (async () => {
+      let connection: PoolConnection | undefined;
+      try {
+        return await statement(async () => {
+          connection = await pool.getConnection();
+          if (state.closed) throw new Error('transaction_finished');
+          return connection[method]<T>(sql, values);
+        }, state);
+      } finally {
+        // Discovery is one startup query: discard its connection even after
+        // success. No release-time reset/rollback can escape the deadline, and
+        // no bootstrap state can reach a later transaction checkout.
+        state.abort?.();
+        if (connection) await connection.release();
+      }
+    })();
+  };
+  pool.query = <T>(sql: Parameters<Pool['query']>[0], values?: unknown) => pooled<T>('query', sql, values);
+  pool.execute = <T>(sql: Parameters<Pool['execute']>[0], values?: unknown) => pooled<T>('execute', sql, values);
+  return pool;
+}
+
+// The official adapter disposes the sole guarded pool and owns encoding. This
 // checkout hook configures the NEXT transaction before its normal BEGIN; it
 // never restarts a transaction or executes a domain statement.
 export class TransactionAdapter extends PrismaMariaDb {
-  constructor(options: ReturnType<typeof poolOptions>, private readonly context: AsyncLocalStorage<TransactionState>) { super(options); }
+  private readonly pool: Pool;
+  constructor(options: ReturnType<typeof poolOptions>, private readonly context: AsyncLocalStorage<TransactionState>) {
+    const pool = ownedPool(options, context);
+    const end = pool.end.bind(pool);
+    let closing: Promise<void> | undefined;
+    pool.end = () => closing ??= end();
+    super(pool, { disposeExternalPool: true });
+    this.pool = pool;
+  }
+  close(): Promise<void> { return this.pool.end(); }
   override async connect() {
-    const adapter = await super.connect();
-    const pool = adapter.underlyingDriver();
-    const acquire = pool.getConnection.bind(pool);
-    pool.getConnection = async () => {
-      const state = this.context.getStore();
-      const connection = await acquire();
-      // Public destroy is patched and integrity-tested for this pinned driver.
-      let owned = true;
-      const abort = () => { if (owned) { owned = false; connection.destroy(); } };
-      const release = connection.release.bind(connection);
-      connection.release = async () => {
-        // Disarm before handing the connection back, even if rollback/release
-        // fails: a later caller timer must never destroy another checkout.
-        owned = false;
-        if (state?.abort === abort) delete state.abort;
-        await release();
-      };
-      try {
-        if (state) state.abort = abort;
-        const check = () => { if (state?.closed) throw new Error('transaction_finished'); };
-        check();
-        await statement(() => connection.query("SET SESSION time_zone = '+00:00'"), state); check();
-        await statement(() => connection.query('SET SESSION innodb_lock_wait_timeout = 2'), state); check();
-        await statement(() => connection.query(state?.writable === false ? 'SET TRANSACTION READ ONLY' : 'SET TRANSACTION READ WRITE'), state); check();
-        return connection;
-      } catch (error) {
-        // Never return a connection with unconsumed next-transaction settings.
-        abort();
-        throw error;
-      }
-    };
+    // Prisma shares this promise across callers; discovery must not inherit
+    // the first caller's shorter readiness transaction state.
+    const discovery: TransactionState = { discovery: true, writable: false, closed: false, commitStarted: false, rollbackConfirmed: false };
+    const adapter = await this.context.run(discovery, async () => {
+      try { return await super.connect(); }
+      finally { discovery.closed = true; discovery.abort?.(); delete discovery.abort; }
+    });
     const start = adapter.startTransaction.bind(adapter);
     adapter.startTransaction = async isolation => {
       const state = this.context.getStore();
@@ -117,5 +167,6 @@ export function createPrisma(config: Config) {
   const context = new AsyncLocalStorage<TransactionState>();
   const adapter = new TransactionAdapter(poolOptions(config), context);
   const client = new PrismaClient({ adapter, transactionOptions: { maxWait: 1200, timeout: 8000, isolationLevel: 'RepeatableRead' } });
-  return { client, context };
+  const close = async () => { try { await client.$disconnect(); } finally { await adapter.close(); } };
+  return { client, context, close };
 }

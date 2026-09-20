@@ -231,7 +231,7 @@ shared-snapshot evidence, including preserved coordinator feature work and the O
 | Gate | Current result |
 |---|---|
 | Clean build and typecheck | PASS |
-| Unit, including architecture/privacy/UoW boundaries | 189 PASS |
+| Unit, including architecture/privacy/UoW boundaries | 192 PASS |
 | HTTP/process, including outage, kill and shutdown | 14 PASS |
 | API/schema/runtime-consumer contracts | 4 PASS |
 | Explicit native decoder regression | 5 PASS |
@@ -239,7 +239,7 @@ shared-snapshot evidence, including preserved coordinator feature work and the O
 | ESLint | PASS |
 | Public-repository scanner | Worktree checkpoint PASS; exact staged hook gate required for publication |
 
-These local suites total 318 passing tests. Publication additionally requires the exact staged
+These local suites total 321 passing tests. Publication additionally requires the exact staged
 security scan and the task PR checks against current QA; the PR carries those publication results.
 
 Remote CI exposed that cold Prisma initialization and connection acquisition could spend separate
@@ -248,8 +248,16 @@ read transaction, while ordinary domain transactions retain their 8,000 ms limit
 2,500 ms handshake assertion passes under standard unit-test parallelism; new checks prove pending
 handshake sockets close and a timed-out startup cannot invoke a late domain callback. The full unit,
 MySQL and HTTP/contract suites passed after this correction, and independent re-review found no
-P1/P2 cancellation or coalescing regression. The native decoder test is an explicit local dependency
-gate; these results do not establish production R2/decoder operation.
+P1/P2 cancellation or coalescing regression.
+
+Cold capability discovery also uses the same single guarded MariaDB pool, installed before the
+official adapter first queries `VERSION()`. Its independent 3,000 ms budget bounds a trickling
+response without inheriting one readiness caller's shorter lifetime. The discovery connection is
+destroyed before release, and idempotent pool shutdown covers both used and never-connected clients.
+Authenticated protocol tests prove physical transport closure, later recovery, normal capability
+inference and bounded shutdown. The adapter retains encoding and supported external-pool disposal;
+there is no second runtime pool or separate SQL-first persistence path. The native decoder test is an
+explicit local dependency gate; these results do not establish production R2/decoder operation.
 
 The user assigned the separate ORM-first conversion during this correction. Its worker owns database
 runtime and repository data access; the structure worker owns architecture tests/documentation, while

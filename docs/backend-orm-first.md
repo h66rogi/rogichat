@@ -14,8 +14,8 @@ a Prisma limitation for ordinary CRUD. Locking requirements justify individual r
 queries, not replacing every SQL call with `$queryRawUnsafe` or keeping a parallel
 mysql2 production pool.
 
-Prisma CLI, Client and MariaDB adapter stay pinned to 7.10.0, with mariadb 3.4.5 as
-the adapter dependency. Node 24.21.0 and pnpm 12.4.2 remain unchanged. The existing
+Prisma CLI, Client and MariaDB adapter stay pinned to 7.10.0, with mariadb 3.4.5
+pinned directly as the sole pool driver and shared with the adapter. Node 24.21.0 and pnpm 12.4.2 remain unchanged. The existing
 1,440-minute release-age policy and explicitly reviewed build-script allowlist
 remain enforced. Generated TypeScript is deterministic, ignored by Git and emitted
 before compilation; no generated client files are committed.
@@ -180,6 +180,42 @@ retain their 8-second budget. Cancellation closes any owned transport and blocks
 late callbacks; the original timing assertion remains unchanged. Tests also prove
 that closing a failed readiness pool releases its pending handshake sockets.
 
+## Cold capability discovery and pool ownership
+
+The official adapter queries `SELECT VERSION()` during its shared connection
+promise, before it returns the transaction adapter. A peer sending an incomplete
+result continuously can defeat idle socket timeouts. Guarding only interactive
+transactions therefore left startup and disconnect with an unbounded wait.
+
+The provider creates **one** MariaDB pool and installs ownership guards before
+passing it to the official adapter with `disposeExternalPool: true`. Discovery has
+its own 3-second absolute lifetime, independent of the first caller's 2-second
+readiness deadline. Its explicit checkout is destroyed on timeout or late arrival;
+the single discovery connection is also discarded after success, so release-time
+reset work and bootstrap session state cannot outlive discovery. This is a startup
+cost only; ordinary transactions continue to reuse the bounded pool.
+
+The official VERSION query and capability inference are unchanged. Direct pooled
+query/execute is restricted to that exact discovery operation; domain Prisma calls
+must use Transactions. Discovery skips NEXT-transaction settings; normal checkouts
+retain UTC, lock timeout and READ ONLY/READ WRITE setup. Pool shutdown is explicitly
+idempotent and runs even when Prisma was never connected, because the external
+pool can create connections eagerly.
+
+An authenticated synthetic MySQL server sends valid result metadata followed by an
+unfinished row packet every 50 milliseconds. The test observes actual transport
+closure by the absolute deadline, later connection recovery, bounded shutdown,
+and correct relation capability inference on a healthy VERSION response. Separate
+tests cover acquisition arriving after discovery expires and never-used database
+shutdown with pending handshakes. These are timing/resource regressions, not relaxed
+assertions or forced capability fallbacks.
+
+A separate disposable MySQL TLS spike accepted a synthetic trusted CA/IP-SAN
+certificate and confirmed an encrypted session; it rejected a wrong CA and recorded
+the native hostname-verification error for a trusted certificate with a mismatched
+hostname. Its temporary keys, certificates and datadir were deleted. Actual QA TLS
+verification remains the coordinator's release gate.
+
 ## Verification checkpoint
 
 The final coordinated clean artifact build passed all **106 real MySQL integration
@@ -228,7 +264,7 @@ service changes are the AuthFlow confirmed-rollback retry predicate and publicat
 receipt typing; Nest module wiring, cross-feature ports and structural moves belong
 to the architecture worker. Root retains all functional M08–M12 semantics.
 
-New ORM regression files are `test/unit/{prisma-provider,mariadb-abort-patch,auth-retry}.test.mjs`
+New ORM regression files are `test/unit/{prisma-provider,prisma-discovery,mariadb-abort-patch,auth-retry}.test.mjs`
 and `test/integration/prisma-runtime.test.mjs`. Runtime unit transaction/database/session
 tests were adapted to the Prisma boundary. Integration transaction/message/reaction
 error assertions recognize Prisma's actual driver metadata; the media-worker race

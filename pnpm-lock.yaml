@@ -201,6 +201,9 @@ importers:
       helmet:
         specifier: 8.3.0
         version: 8.3.0
+      mariadb:
+        specifier: 3.4.5
+        version: 3.4.5(patch_hash=b5a8f2a6c7e1a8f0e005f7f93bcd04eefd89a6de226198d8f79dbb94e069501d)
       reflect-metadata:
         specifier: 0.2.2
         version: 0.2.2

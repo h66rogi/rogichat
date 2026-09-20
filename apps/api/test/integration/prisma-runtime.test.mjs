@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createConnection } from 'mysql2/promise';
+import mariadb from 'mariadb';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { PrismaDatabase } from '../../dist/infrastructure/database/database.js';
 import { createPrisma } from '../../dist/infrastructure/database/prisma-provider.js';
@@ -56,7 +57,7 @@ test('database read-only RR begins before domain reads, maintains snapshot and r
 });
 
 test('outer deadline aborts the connection and rejects cached delegate and pre-created lazy promise', { timeout: 5000 }, async t => {
-  const runtime = createPrisma(readConfig('api')); t.after(() => runtime.client.$disconnect());
+  const runtime = createPrisma(readConfig('api')); t.after(() => runtime.close());
   const transactions = new Transactions(runtime.client, runtime.context);
   const id = randomUUID();
   await transactions.write(tx => tx.prisma.users.create({ data: { id }, select: { id: true } }));
@@ -113,10 +114,10 @@ test('statement wall deadline aborts real MySQL query and rolls back preceding O
 });
 
 test('failed real-session checkout is discarded and next writer receives clean settings', async t => {
-  const original = PrismaMariaDb.prototype.connect;
+  const original = mariadb.createPool;
   let fail = true;
-  t.mock.method(PrismaMariaDb.prototype, 'connect', async function () {
-    const adapter = await original.call(this), pool = adapter.underlyingDriver(), acquire = pool.getConnection.bind(pool);
+  t.mock.method(mariadb, 'createPool', options => {
+    const pool = original(options), acquire = pool.getConnection.bind(pool);
     pool.getConnection = async () => {
       const connection = await acquire(), query = connection.query.bind(connection);
       connection.query = (...args) => {
@@ -125,10 +126,11 @@ test('failed real-session checkout is discarded and next writer receives clean s
       };
       return connection;
     };
-    return adapter;
+    return pool;
   });
   const config = readConfig('api', { ...process.env, DB_POOL_SIZE: '1' });
   const db = new PrismaDatabase(config); t.after(() => db.close());
+  await db.transactions.write(tx => tx.now());
   let called = false;
   await assert.rejects(db.transactions.read(async () => { called = true; }));
   assert.equal(called, false);

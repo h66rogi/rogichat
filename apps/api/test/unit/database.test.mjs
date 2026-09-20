@@ -6,7 +6,7 @@ import { setTimeout } from 'node:timers';
 import { performance } from 'node:perf_hooks';
 import { MysqlDatabase, poolOptions } from '../../dist/infrastructure/database/database.js';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
-import { sampleEnv } from '../helpers.mjs';
+import { sampleEnv, waitFor } from '../helpers.mjs';
 
 test('driver explicitly verifies certificate chain and hostname, bounds pool and disallows multiple statements', () => {
   const options = poolOptions(readConfig('api', { ...sampleEnv, DB_TLS_MODE: 'required' }, []));
@@ -37,4 +37,16 @@ test('unresponsive DB handshake is bounded and simultaneous probes are coalesced
   await database.close();
   await new Promise(resolve => setTimeout(resolve, 20));
   assert.equal(sockets.size, 0, 'closed readiness pool must release pending handshake sockets');
+});
+
+test('never-used database closes eagerly-created pool and pending handshake without starting Prisma', { timeout: 5000 }, async t => {
+  const sockets = new Set();
+  const server = createServer(socket => { sockets.add(socket); socket.once('close', () => sockets.delete(socket)); });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const database = new MysqlDatabase(readConfig('api', { ...sampleEnv, DATABASE_URL: `mysql://fixture:fixture-only@127.0.0.1:${server.address().port}/rogichat_test` }, []));
+  t.after(async () => { for (const socket of sockets) socket.destroy(); await database.close(); await new Promise(resolve => server.close(resolve)); });
+  await waitFor(() => sockets.size > 0, 1000);
+  await database.close(); await waitFor(() => sockets.size === 0, 1500);
+  assert.deepEqual(await database.check(), { ready: false, reason: 'database_unavailable' });
+  await database.close();
 });

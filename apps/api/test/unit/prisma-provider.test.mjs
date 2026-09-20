@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import mariadb from 'mariadb';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import { TransactionAdapter, poolOptions } from '../../dist/infrastructure/database/prisma-provider.js';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
@@ -9,8 +10,11 @@ import { sampleEnv } from '../helpers.mjs';
 function fixture(t, options = {}) {
   const statements = [], counts = { destroyed: 0, committed: 0, rolledBack: 0, submitted: 0 };
   const info = {}; const connection = { info, release: async () => {}, query: async sql => { statements.push(sql); await options.query?.(sql); }, destroy: () => { counts.destroyed++; } };
-  const pool = { getConnection: async () => { await options.acquire?.(); return connection; } };
-  t.mock.method(PrismaMariaDb.prototype, 'connect', async () => ({
+  const pool = { end: async () => {}, getConnection: async () => { await options.acquire?.(); return connection; } };
+  t.mock.method(mariadb, 'createPool', () => pool);
+  t.mock.method(PrismaMariaDb.prototype, 'connect', async () => {
+    if (options.discovery) await pool.query({ sql: 'SELECT VERSION()' });
+    return ({
     underlyingDriver: () => pool,
     startTransaction: async () => {
       const conn = await pool.getConnection();
@@ -22,7 +26,7 @@ function fixture(t, options = {}) {
         rollback: async () => { counts.rolledBack++; await options.rollback?.(); await conn.release(); },
       };
     },
-  }));
+  }); });
   const context = new AsyncLocalStorage(), state = { writable: false, closed: false, commitStarted: false, rollbackConfirmed: false };
   const factory = new TransactionAdapter(poolOptions(readConfig('api', sampleEnv, [])), context);
   return { context, state, factory, statements, counts };
@@ -91,4 +95,14 @@ test('successful release disarms both saved abort closure and shared state handl
   const tx = await f.context.run(f.state, () => adapter.startTransaction());
   const abort = f.state.abort; await tx.commit();
   assert.equal(f.state.abort, undefined); abort(); assert.equal(f.counts.destroyed, 0);
+});
+
+test('expired discovery destroys a connection acquired after its absolute deadline', async t => {
+  const schedule = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', (callback, ms, ...args) => schedule(callback, ms === 3000 ? 20 : ms, ...args));
+  let release; const pending = new Promise(resolve => { release = resolve; });
+  const f = fixture(t, { discovery: true, acquire: () => pending });
+  await assert.rejects(f.factory.connect(), /database_statement_timeout/);
+  release(); await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.counts.destroyed, 1); assert.deepEqual(f.statements, []);
 });
