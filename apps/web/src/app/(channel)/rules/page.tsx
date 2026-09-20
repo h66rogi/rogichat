@@ -1,0 +1,61 @@
+import type { Metadata } from 'next';
+
+import { resolveDefaultChannel } from '@/features/channel/model/channel-descriptor';
+
+export const metadata: Metadata = {
+  title: '이용 안내',
+};
+
+/**
+ * Public usage guide. This is not the terms of service or the privacy policy; those documents are
+ * linked here once their final text and public paths are confirmed.
+ */
+export default function RulesPage() {
+  const channel = resolveDefaultChannel();
+  return (
+    <article className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 md:px-8 md:py-12">
+      <header className="flex flex-col gap-2">
+        <h1 className="text-[28px] font-bold text-ink">이용 안내</h1>
+        <p className="text-[16px] text-body">{channel.displayName} 채팅방을 이용할 때 알아 두면 좋은 내용입니다.</p>
+      </header>
+
+      <Section title="채팅은 이렇게 동작해요">
+        <ul className="flex list-disc flex-col gap-2 pl-5">
+          <li>팬은 {channel.displayName}에게 개인 메시지를 보낼 수 있어요. 다른 팬에게는 보이지 않아요.</li>
+          <li>{channel.displayName}는 전체 메시지를 보내거나 특정 팬에게 개인답장을 보낼 수 있어요.</li>
+          <li>내 타임라인에는 전체 메시지와 나에게 온 개인답장이 함께 보여요.</li>
+          <li>메시지가 서버에 저장된 것과 상대가 읽은 것은 달라요. 읽음 여부는 표시하지 않아요.</li>
+        </ul>
+      </Section>
+
+      <Section title="개인답장이 공개될 수 있어요">
+        <p>
+          {channel.displayName}는 자신의 방에서 받은 개인 메시지를 이 방의 참여자 전체에게 공개할 수 있어요.
+          공개본에는 보낸 사람 정보가 붙지 않지만, 내용 자체로 누가 보냈는지 짐작될 수 있어요. 공개되면 곤란한 내용은
+          보내지 않는 것이 좋아요.
+        </p>
+      </Section>
+
+      <Section title="삭제, 방 나가기, 계정 탈퇴">
+        <ul className="flex list-disc flex-col gap-2 pl-5">
+          <li>내가 보낸 메시지는 언제든 삭제할 수 있어요. 삭제하면 연결된 공개본도 함께 사라져요.</li>
+          <li>방을 나가도 계정은 유지되고, 이미 보낸 메시지는 지워지지 않아요. 다시 들어오면 새로 참여하는 것으로 시작해요.</li>
+          <li>계정 탈퇴는 방 나가기와 달라요. 내 설정에서 따로 진행해요.</li>
+        </ul>
+      </Section>
+
+      <Section title="신고와 문의">
+        <p>부적절한 메시지의 신고 방법과 문의 경로는 담당 절차가 확정되는 대로 이 페이지에 안내해요.</p>
+      </Section>
+    </article>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h2 className="text-[22px] font-semibold text-ink">{title}</h2>
+      <div className="text-[16px] leading-normal text-body">{children}</div>
+    </section>
+  );
+}
