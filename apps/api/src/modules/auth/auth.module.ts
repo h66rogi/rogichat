@@ -12,12 +12,16 @@ import { AUTH_CONFIG } from './auth.tokens.js';
 import { SessionRepository } from './session.repository.js';
 import { SessionService } from './session.service.js';
 import { AuthController } from './auth.controller.js';
+import { NativeAuthController } from './native-auth.controller.js';
+import { NativeAuthRepository } from './native-auth.repository.js';
+import { NativeAuthService } from './native-auth.service.js';
 
 export interface AuthModuleOptions {
   readonly config: AuthConfig;
   // Composition-root/test overrides only. Consumers receive AuthService, never these instances.
   readonly sessions?: SessionService;
   readonly flow?: AuthFlow;
+  readonly nativeFlow?: NativeAuthService;
 }
 
 @Module({})
@@ -26,7 +30,7 @@ export class AuthModule {
     return {
       module: AuthModule,
       imports: [infrastructure],
-      controllers: [AuthController],
+      controllers: [AuthController, NativeAuthController],
       providers: [
         { provide: AUTH_CONFIG, useValue: options.config },
         options.sessions === undefined ? { provide: SessionService, inject: [SessionRepository, AUTH_CONFIG],
@@ -36,7 +40,11 @@ export class AuthModule {
           provide: AuthFlow, inject: [SessionService, Transactions, AUTH_CONFIG, HttpBroker, LoginRepository, IdentityService],
           useFactory: (sessions: SessionService, transactions: Transactions, config: AuthConfig, broker: HttpBroker, repository: LoginRepository, identities: IdentityService) => new AuthFlow(sessions, transactions, config, broker, repository, identities),
         } : { provide: AuthFlow, useValue: options.flow },
-        SessionRepository, LoginRepository, IdentityRepository, IdentityService, AuthService,
+        options.nativeFlow === undefined ? {
+          provide: NativeAuthService, inject: [SessionService, Transactions, AUTH_CONFIG, HttpBroker, NativeAuthRepository, IdentityService, LoginRepository],
+          useFactory: (sessions: SessionService, transactions: Transactions, config: AuthConfig, broker: HttpBroker, repository: NativeAuthRepository, identities: IdentityService, logins: LoginRepository) => new NativeAuthService(sessions, transactions, config, broker, repository, identities, logins),
+        } : { provide: NativeAuthService, useValue: options.nativeFlow },
+        NativeAuthRepository, SessionRepository, LoginRepository, IdentityRepository, IdentityService, AuthService,
       ],
       exports: [AuthService, AUTH_CONFIG],
     };

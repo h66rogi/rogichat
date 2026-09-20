@@ -4,13 +4,15 @@ import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { ApiError, object, opaque, secret } from '../../modules/auth/auth-primitives.js';
 import { AuthService } from './auth.service.js';
 import { AUTH_CONFIG } from './auth.tokens.js';
+import { NativeAuthService } from './native-auth.service.js';
 import { cookie, cookieName, oauthCookieName, sessionToken, csrf, readSessionCredentials, readCommandCredentials } from './auth-context.js';
 
 const options = (config: AuthConfig): CookieOptions => ({ httpOnly: true, secure: config.secure, sameSite: 'lax', path: '/' });
 
 @Controller('v1/auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(AUTH_CONFIG) private readonly config: AuthConfig) {}
+  constructor(@Inject(AuthService) private readonly auth: AuthService, @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
+    @Inject(NativeAuthService) private readonly native: NativeAuthService) {}
 
   @Get('session')
   session(@Req() request: Request) { return this.auth.session(readSessionCredentials(request, this.config)); }
@@ -48,6 +50,12 @@ export class AuthController {
     const state = opaque(query.state);
     const name = oauthCookieName(this.config, state);
     const browser = opaque(cookie(request, name));
+    if (await this.native.handles(state)) {
+      if (query.error !== undefined && (query.code !== undefined || typeof query.error !== 'string' || !['PROVIDER_DENIED', 'PROVIDER_AUTH_FAILED'].includes(query.error))) throw new ApiError('INVALID_REQUEST', 400);
+      const location = await this.native.callback(state, browser, query.error === undefined ? opaque(query.code) : undefined);
+      response.clearCookie(name, options(this.config));
+      response.redirect(303, location); return;
+    }
     // Clear only this transaction's binding; another tab has its own cookie.
     response.clearCookie(name, options(this.config));
     if (query.error !== undefined) {
