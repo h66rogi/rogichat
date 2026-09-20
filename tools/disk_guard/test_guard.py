@@ -21,7 +21,9 @@ class PreservationTests(unittest.TestCase):
         self.assertEqual(r['bytes_per_hour'], 2*gib)
         self.assertEqual(r['estimated_20gib_epoch'], 18000)
         points.append({'time': 5400, 'free': 29*gib})
-        self.assertFalse(g.trend(points, 5400, 29*gib)['sustained'])
+        mixed = g.trend(points, 5400, 29*gib)
+        self.assertFalse(mixed['sustained'])
+        self.assertAlmostEqual(mixed['observed_bytes_per_hour'], gib/1.5)
 
     def test_external_missing_mount_never_falls_back(self):
         with patch.object(Path, 'exists', return_value=True), patch.object(g.os.path, 'ismount', return_value=False), patch.object(g.shutil, 'disk_usage') as stat:

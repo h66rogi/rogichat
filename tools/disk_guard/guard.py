@@ -86,14 +86,16 @@ def disk(path):
 
 def trend(samples, now, free):
     points = [s for s in samples if now - s['time'] <= 4 * 3600]
-    if len(points) < 3 or points[-1]['time'] - points[0]['time'] < 3600:
-        return {'sustained': False, 'reason': 'need >=3 samples spanning >=1 hour'}
+    span = points[-1]['time'] - points[0]['time'] if len(points) >= 2 else 0
+    observed = {'observed_bytes_per_hour': (points[0]['free']-points[-1]['free'])/span*3600 if span else None, 'observation_seconds': span}
+    if len(points) < 3 or span < 3600:
+        return dict(observed, sustained=False, reason='need >=3 samples spanning >=1 hour')
     rates = [(a['free'] - b['free']) / (b['time'] - a['time'])
              for a, b in zip(points, points[1:]) if b['time'] > a['time']]
     if len(rates) < 2 or not all(r > 0 for r in rates):
-        return {'sustained': False, 'reason': 'decline not continuous'}
+        return dict(observed, sustained=False, reason='decline not continuous')
     rate = (points[0]['free'] - points[-1]['free']) / (points[-1]['time'] - points[0]['time'])
-    return {'sustained': True, 'estimated': True, 'bytes_per_hour': rate * 3600,
+    return {**observed, 'sustained': True, 'estimated': True, 'bytes_per_hour': rate * 3600,
             'estimated_20gib_epoch': now + max(0, free - 20 * GIB) / rate,
             'estimated_zero_epoch': now + free / rate}
 
