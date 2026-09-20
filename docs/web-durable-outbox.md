@@ -113,3 +113,23 @@ fresh server projection read. Storage failures retain input and expose an explic
 reconnect control. Logout/confirmed authentication loss synchronously fences
 active stores, then completes the authority-fenced erasure before closing them.
 Product browser cold-restart evidence remains pending aggregate PR verification.
+
+### Recovery test checkpoint
+
+The outbox test branch normally merged the first immutable controller mount
+`92af9ac64ee99f1e92093fcc9a24c5e4f6cd40d7`, preserving the reviewed v2 and media
+history. The final adapter additionally captures its original abort signal so a
+same-instance authority A→B→A cycle cannot settle a late transport response.
+Nine native IndexedDB/adapter cases passed in the existing Chromium browser with
+one worker; no dependency install, Next build or product server was used for that
+isolated native-storage run. The preceding exact `6cfd92c` leaf also passed the
+135-test web unit suite and an independent eight-case native Chromium review.
+
+`test/e2e/outbox-production.spec.ts` adds six actual production-route cases:
+reload with receipt-first recovery and immutable explicit retry, receipt-only
+recovery requiring a fresh projection, same-account new-session payload scrub,
+BFCache foreground reauthorization/input preservation, second-tab BUSY recovery,
+and a real native prepare-write failure followed by storage reconnect and an
+actual user retry. Fixtures and native storage fault injection are isolated to
+tests. These product cases require the composed PR67 production artifact; authoring,
+typechecking or passing the isolated store suite does not count as product-UI proof.
