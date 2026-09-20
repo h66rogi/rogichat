@@ -50,7 +50,7 @@ test('SessionService uses only the explicit repository/transaction and preserves
 
 test('SessionService revalidates account/SOOP/CSRF each call and returns only the minimal principal', async () => {
   const f = fixture();
-  const expected = { userId: f.session.user_id, sessionId: f.session.id, soopLinked: true };
+  const expected = { userId: f.session.user_id, sessionId: f.session.id, soopLinked: true, chatEnabled: true };
   assert.deepEqual(await f.service.require(f.tx, token, proof, true), expected);
   assert.deepEqual(f.calls[0], ['find', f.tx, digest(token), audience, { transport: 'WEB' }]);
   for (const invalid of [undefined, '', 'a'.repeat(42), '+'.repeat(43)]) {
@@ -81,13 +81,13 @@ test('SessionService revocation shares the authenticated command handle and does
 
 test('SessionRepository uses same-handle ORM reads/writes, DB clock and command locking', async () => {
   const calls = []; const repository = new SessionRepository(); const now = new Date('2026-09-20T00:00:00.123Z');
-  const row = { id: randomUUID(), user_id: randomUUID(), csrf_digest: new Uint8Array(digest(proof)), user: { status: 'ACTIVE', soop: { status: 'VERIFIED' } } };
-  const tx = { writable: false, now: async () => now, rows: async (...args) => { calls.push(['raw', ...args]); return [{ id: row.id }]; }, prisma: { auth_sessions: {
+  const row = { id: randomUUID(), user_id: randomUUID(), csrf_digest: new Uint8Array(digest(proof)), user: { status: 'ACTIVE', reviewer_expires_at: null, soop: { status: 'VERIFIED' } } };
+  const tx = { writable: false, now: async () => now, rows: async (...args) => { calls.push(['raw', ...args]); return [{ id: row.id, user_id: row.user_id, soop_status: 'VERIFIED' }]; }, prisma: { auth_sessions: {
     findFirst: async input => { calls.push(['find', input]); return row; },
     create: async input => { calls.push(['create', input]); return { id: input.data.id }; },
     updateMany: async input => { calls.push(['update', input]); return { count: 1 }; },
   } } };
-  assert.deepEqual(await repository.findCurrent(tx, digest(token), audience), { id: row.id, user_id: row.user_id, csrf_digest: digest(proof), status: 'ACTIVE', soop_status: 'VERIFIED' });
+  assert.deepEqual(await repository.findCurrent(tx, digest(token), audience), { id: row.id, user_id: row.user_id, csrf_digest: digest(proof), status: 'ACTIVE', soop_status: 'VERIFIED', reviewer_expires_at: null, apple_verified: false });
   assert.deepEqual(calls[0][1].where, { token_digest: new Uint8Array(digest(token)), audience, transport: 'WEB', client_id: null, revoked_at: null, expires_at: { gt: now } });
   tx.writable = true; await repository.findCurrent(tx, digest(token), audience);
   assert.match(calls[1][1], /s\.transport=\? AND s\.client_id <=> \?/);

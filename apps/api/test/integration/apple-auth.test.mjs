@@ -69,21 +69,22 @@ async function fixture(t) {
   return { db, config, providerFixture, service, lifecycle, sessions, sessionRepo, guards, soop, auth, start, login, credentials };
 }
 
-test('Apple native/Services ID share only explicitly scoped identity; restricted account requires verified SOOP', async t => {
+test('Apple native/Services ID share only explicitly scoped identity and independently enable chat', async t => {
   const f = await fixture(t); const first = await f.login();
-  assert.equal(first.session.soopLinkStatus, 'REQUIRED'); assert.equal(first.session.capabilities.chat, false);
+  assert.equal(first.session.soopLinkStatus, 'REQUIRED'); assert.equal(first.session.capabilities.chat, true);
   const userId = first.session.account.userId;
   assert.equal((await f.db.transactions.read(tx => tx.prisma.apple_auth_transactions.findUniqueOrThrow({ where: { id: first.pending.transactionId } }))).user_id, userId);
   const second = await f.login('android', first.subject); assert.equal(second.session.account.userId, userId);
   const web = await f.login('web', first.subject); assert.equal((await f.db.transactions.read(tx => f.auth.require(tx, { token: web.token }))).userId, userId);
-  await assert.rejects(f.db.transactions.read(tx => f.auth.require(tx, f.credentials(first), true)), denied('SOOP_LINK_REQUIRED'));
+  assert.equal((await f.db.transactions.read(tx => f.auth.require(tx, f.credentials(first), true))).userId, userId);
   const subject = `soop-${randomUUID()}`;
   const soopProof = { schemaVersion: 1, provider: 'soop', subject, clientId: 'fixture', transactionId: randomUUID(), authenticatedAt: new Date().toISOString() };
   await f.db.transactions.write(async tx => { await f.auth.require(tx, f.credentials(first)); assert.equal(await f.soop.resolve(tx, soopProof, userId), userId); });
   const linked = await f.login('ios', first.subject); assert.equal(linked.session.soopLinkStatus, 'VERIFIED');
   assert.equal(await f.db.transactions.write(tx => f.soop.resolve(tx, soopProof)), userId);
   await f.db.transactions.write(tx => tx.prisma.platform_soop.update({ where: { user_id: userId }, data: { status: 'REVOKED' } }));
-  await assert.rejects(f.db.transactions.read(tx => f.auth.require(tx, f.credentials(linked), true)), denied('SOOP_LINK_REQUIRED'));
+  // Revoking SOOP does not revoke the independently verified Apple identity.
+  assert.equal((await f.db.transactions.read(tx => f.auth.require(tx, f.credentials(linked), true))).chatEnabled, true);
   assert.equal(await f.db.transactions.write(tx => f.soop.resolve(tx, soopProof, userId)), userId);
 });
 
@@ -149,14 +150,14 @@ test('Apple-only account deletion records v3 guards and blocks late login, witho
   const pending = await f.db.transactions.write(tx => f.lifecycle.purgeAccount(tx, receipt)); assert.equal(pending.hasMore, true);
 });
 
-test('real Nest HTTP account/room/session gates work with Apple issued restricted credential and optional config absent', async t => {
+test('real Nest HTTP retains verified Apple chat entitlement while absent provider config blocks new login', async t => {
   const f = await fixture(t); const user = await f.login();
   const app = await createApi(f.db, new SafeLogger('api', () => {}), undefined, { config: { ...f.config, apple: undefined } });
   t.after(() => app.close()); await app.listen(0, '127.0.0.1'); const origin = await app.getUrl();
   const headers = { authorization: `Bearer ${user.accessToken}`, 'x-rogi-client': 'ios' };
-  const me = await fetch(`${origin}/v1/me/profile`, { headers }); assert.equal(me.status, 200); assert.equal((await me.json()).onboardingState, 'SOOP_LINK_REQUIRED');
+  const me = await fetch(`${origin}/v1/me/profile`, { headers }); assert.equal(me.status, 200); assert.equal((await me.json()).onboardingState, 'READY');
   for (const path of ['/v1/rooms', `/v1/sync?deviceId=${randomUUID()}&cacheId=${randomUUID()}`]) {
-    const response = await fetch(`${origin}${path}`, { headers }); assert.equal(response.status, 403, path); assert.equal((await response.json()).error.code, 'SOOP_LINK_REQUIRED');
+    const response = await fetch(`${origin}${path}`, { headers }); assert.equal(response.status, 200, path);
   }
   const disabled = await fetch(`${origin}/v1/auth/apple/start`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-rogi-client': 'ios' },
     body: JSON.stringify({ clientId: 'ios', intent: 'login', codeChallenge: hash(secret()), returnState: secret(), termsVersion: '2026-09-20' }) }); assert.equal(disabled.status, 503);
@@ -224,7 +225,7 @@ test('Android Services ID HTTP callback validates Apple form post and binds the 
     clientId: 'android', transactionId: pending.transactionId, code: target.searchParams.get('code'), codeVerifier: verifier,
   }) });
   assert.equal(response.status, 200); const issued = await response.json();
-  assert.equal(issued.session.soopLinkStatus, 'REQUIRED'); assert.equal(issued.session.capabilities.chat, false);
+  assert.equal(issued.session.soopLinkStatus, 'REQUIRED'); assert.equal(issued.session.capabilities.chat, true);
 });
 
 test('restore quarantine is bounded, retryable and config-independent while retaining upstream obligations and blocking late responses', async t => {

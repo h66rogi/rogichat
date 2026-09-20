@@ -23,7 +23,7 @@ export class MessageEligibilityService {
     const targetIds = new Set<string>();
     for (const message of messages) {
       if (message.deletion_root_id) continue;
-      if (message.stream.kind === 'ROOM_SHARED') targetIds.add(message.sender_member_id);
+      if (message.stream.kind === 'ROOM_SHARED' || viewer.temporaryGrantId) targetIds.add(message.sender_member_id);
       else if (message.stream.pair) {
         targetIds.add(message.stream.pair.left_member_id); targetIds.add(message.stream.pair.right_member_id);
       }
@@ -49,18 +49,21 @@ export class MessageEligibilityService {
       if (requiredStream !== undefined && pair.stream_id !== requiredStream) return false;
       const ownGrant = grants.find(grant => grant.stream_id === pair.stream_id && grant.member_id === viewer.id);
       const peerGrant = grants.find(grant => grant.stream_id === pair.stream_id && grant.member_id === targetId);
-      return ownGrant?.can_read === true && ownGrant.can_send === true && peerGrant?.can_read === true;
+      return Boolean(ownGrant && peerGrant && (current.delegated || ownGrant.can_read && ownGrant.can_send) && (target.delegated || peerGrant.can_read));
     };
     for (const message of messages) {
       const hints = noMessageActions();
       // Publication sender is the publisher; content_owner is deliberately unused.
       hints.allowedActions.delete = message.sender.user_id === viewer.user_id;
-      hints.allowedActions.publish = Boolean(current && current.role === 'STREAMER' && current.room.owner_member_id === viewer.id &&
+      hints.allowedActions.publish = Boolean(current && current.role === 'STREAMER' && (current.room.owner_member_id === viewer.id || viewer.temporaryGrantId) &&
         message.stream.kind === 'RESTRICTED' && !message.deletion_root_id &&
         (message.content_kind === 'PHOTO' || (message.content_kind === 'TEXT' && message.text_content !== null)));
       if (!message.deletion_root_id && message.stream.room_id === viewer.room_id) {
         if (message.stream.kind === 'ROOM_SHARED') hints.allowedActions.reply = eligibleTarget(message.sender_member_id);
-        else {
+        else if (viewer.temporaryGrantId && message.sender_member_id !== viewer.id && eligibleTarget(message.sender_member_id)) {
+          // Delegate reply addresses the actual fan, not the absent real owner.
+          hints.counterpart = { actorId: message.sender_member_id }; hints.allowedActions.reply = true;
+        } else {
           const pair = message.stream.pair;
           if (pair && pair.room_id === viewer.room_id && pair.stream_id === message.stream.id &&
             [pair.left_member_id, pair.right_member_id].includes(message.sender_member_id)) {

@@ -1,17 +1,20 @@
 import { exact, token } from '../../features/chat/contract';
 
-export interface Session { authenticated: true; soopLinkStatus: 'VERIFIED' | 'REQUIRED'; csrfToken: string; accountPartition: string }
+export interface Session { authenticated: true; soopLinkStatus: 'VERIFIED' | 'REQUIRED'; csrfToken: string; accountPartition: string; onboardingState?: 'READY' | 'SOOP_LINK_REQUIRED'; capabilities?: { chat: boolean } }
 
-/** One cookie-session contract for account, chat and privacy consumers. */
+/** Explicit server admission may authorize a real reviewer without claiming SOOP linkage. */
+export function sessionAllowsChat(session: Session): boolean {
+  return session.capabilities ? session.capabilities.chat === true && session.onboardingState === 'READY' : session.soopLinkStatus === 'VERIFIED';
+}
 export function parseSession(value: unknown): Session {
   const data = exact(value, ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition'], ['onboardingState', 'capabilities']);
   if (data.authenticated !== true || typeof data.csrfToken !== 'string' || data.csrfToken.length < 16 || (data.soopLinkStatus !== 'VERIFIED' && data.soopLinkStatus !== 'REQUIRED')) throw new Error('INVALID_SESSION');
   const accountPartition = token(data.accountPartition);
-  // Admission fields are additive as a pair, but must agree with linkage.
+  const base: Session = { authenticated: true, soopLinkStatus: data.soopLinkStatus, csrfToken: data.csrfToken, accountPartition };
   if ('onboardingState' in data || 'capabilities' in data) {
     const capabilities = exact(data.capabilities, ['chat']);
-    const linked = data.soopLinkStatus === 'VERIFIED';
-    if (data.onboardingState !== (linked ? 'READY' : 'SOOP_LINK_REQUIRED') || capabilities.chat !== linked) throw new Error('INVALID_SESSION');
+    if (typeof capabilities.chat !== 'boolean' || data.onboardingState !== (capabilities.chat ? 'READY' : 'SOOP_LINK_REQUIRED')) throw new Error('INVALID_SESSION');
+    return { ...base, onboardingState: capabilities.chat ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: capabilities.chat } };
   }
-  return { authenticated: true, soopLinkStatus: data.soopLinkStatus, csrfToken: data.csrfToken, accountPartition };
+  return base;
 }

@@ -25,4 +25,5 @@ export interface Principal {
   userId: string;
   sessionId: string;
   soopLinked: boolean;
+  chatEnabled: boolean;
 }

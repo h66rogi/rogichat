@@ -25,8 +25,8 @@ export class PublicationsCoreService {
     if (!room || room.status !== 'ACTIVE') throw new ApiError('NOT_FOUND', 404);
     const viewer = await this.access.requireActiveMember(tx, roomId, userId);
     const source = await this.messages.load(tx, roomId, identifier(messageId));
-    if (!source || !canPublishSource({ accountActive: true, soopLinked: true, roomId, memberRoomId: roomId, roomActive: true,
-      memberId: viewer.id, memberActive: true, periodActive: true, visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: String(room.owner_member_id) }, {
+    if (!source || !canPublishSource({ accountActive: true, chatEnabled: true, roomId, memberRoomId: roomId, roomActive: true,
+      memberId: viewer.id, memberActive: true, periodActive: true, visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: String(room.owner_member_id), delegated: Boolean(viewer.temporaryGrantId) }, {
       roomId: source.room_id, streamId: source.stream_id, streamRoomId: source.room_id, streamKind: source.stream_kind, order: BigInt(source.created_order),
       deleted: source.deleted_at !== null, moderated: Number(source.moderated) === 1, deletionRootBlocked: Number(source.root_blocked) === 1 || ['DELETING', 'DELETED'].includes(source.content_owner_status), grant: null })) throw new ApiError('NOT_FOUND', 404);
     if (!['TEXT', 'PHOTO'].includes(source.content_kind) || (source.content_kind === 'TEXT' && source.text_content === null) || source.deletion_root_id) throw new ApiError('INVALID_REQUEST', 400);

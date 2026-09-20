@@ -42,7 +42,7 @@ export class MessagesQueryService {
     return (await this.repository.affected(tx, viewer.room_id, viewer.id, viewer.visible_from_order, from, high, now ?? await tx.now())).length > 0;
   }
   async stickerRevocations(tx: Transaction, viewer: ActiveMember) {
-    const rows = await this.repository.stickerRevocations(tx, viewer.room_id, viewer.id, viewer.visible_from_order);
+    const rows = await this.repository.stickerRevocations(tx, viewer.room_id, viewer.id, viewer.visible_from_order, Boolean(viewer.temporaryGrantId));
     if (rows.length > 10000) throw new ServiceUnavailableException();
     return rows.map(row => row.id);
   }

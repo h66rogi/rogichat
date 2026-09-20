@@ -87,7 +87,7 @@ export class UsersCoreService {
     const [profile] = await this.repository.actor(tx, viewer.room_id, uuid(actorId));
     if (!profile || await this.access.actorBlocked(tx, viewer.room_id, viewer.id, actorId) || !this.canViewActor(viewer, profile.actor_id, profile.role)) throw new ApiError('NOT_FOUND', 404);
     const visibleBirthday = viewer.role === 'STREAMER' && Number(profile.birthday_visible_to_streamers) === 1 && profile.birthday_month !== null && profile.birthday_day !== null ? { month: profile.birthday_month, day: profile.birthday_day } : null;
-    const projection = projectActorProfileDto({ actorId: profile.actor_id, nickname: profile.nickname, avatar: profile.visible_avatar_id ? { assetId: profile.visible_avatar_id } : null, role: profile.role, visibleBirthday, providerAvatarAvailable: Boolean(profile.provider_avatar_url) });
+    const projection = projectActorProfileDto({ actorId: profile.actor_id, nickname: profile.nickname, avatar: profile.visible_avatar_id ? { assetId: profile.visible_avatar_id } : null, role: profile.actor_id === viewer.id ? viewer.role : profile.role, visibleBirthday, providerAvatarAvailable: Boolean(profile.provider_avatar_url) });
     // Opaque viewer-specific revision of visible fields only: hidden birthdays never signal activity to fans.
     const revision = createHmac('sha256', key).update(JSON.stringify([viewer.room_id, viewer.id, viewer.active_period_id, profile.active_period_id, projection])).digest('base64url');
     return { ...projection, revision };
@@ -116,7 +116,7 @@ export class UsersCoreService {
   async syncProfiles(tx: Transaction, viewer: ActiveMember) {
     const rows = await this.repository.syncProfiles(tx, viewer.role, viewer.role, viewer.room_id, viewer.mode, viewer.role, viewer.id);
     return rows.map(row => projectActorProfileDto({ actorId: row.id, nickname: row.nickname,
-      avatar: row.avatar_id ? { assetId: row.avatar_id } : null, role: row.role,
+      avatar: row.avatar_id ? { assetId: row.avatar_id } : null, role: row.id === viewer.id ? viewer.role : row.role,
       providerAvatarAvailable: row.provider_avatar_available,
       visibleBirthday: row.month === null || row.day === null ? null : { month: row.month, day: row.day } }));
   }

@@ -1,4 +1,5 @@
 import { affected } from '../../infrastructure/database/transactions.js';
+import { chatAccountSql } from '../auth/chat-entitlement.js';
 import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
 import type { JobLease } from '../jobs/jobs.policy.js';
@@ -17,7 +18,7 @@ export class MediaWorkerRepository {
     return tx.prisma.media_assets.findMany({ where: { id: assetId }, select: { owner_user_id: true } });
   }
   lockOwner(tx: Transaction, userId: unknown) {
-    return tx.rows<RowDataPacket>("SELECT u.status,s.status AS linked FROM users u LEFT JOIN platform_soop s ON s.user_id=u.id WHERE u.id=? FOR UPDATE", [userId]);
+    return tx.rows<RowDataPacket>(`SELECT u.status,s.status AS linked,${chatAccountSql('u', 's')} AS chat_allowed FROM users u LEFT JOIN platform_soop s ON s.user_id=u.id WHERE u.id=? FOR UPDATE`, [userId]);
   }
   lockAsset(tx: Transaction, assetId: string) {
     return tx.rows<RowDataPacket>('SELECT id,owner_user_id,room_id,kind,content_type,declared_bytes,reserved_bytes,state,deleted_at FROM media_assets WHERE id=? FOR UPDATE', [assetId]);

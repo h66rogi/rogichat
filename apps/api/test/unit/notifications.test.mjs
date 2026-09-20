@@ -12,7 +12,7 @@ const native = { transport: 'NATIVE', token: web.token, clientId: 'ios' };
 function input() { const key = createECDH('prime256v1'); key.generateKeys(); return { endpoint: 'https://fcm.googleapis.com/send/unit-fixture', keys: { p256dh: key.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') } }; }
 function fixture(overrides = {}) {
   const events = []; const read = { writable: false }, write = { writable: true };
-  const actor = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true };
+  const actor = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true, chatEnabled: true };
   const auth = { async require(tx) { events.push(tx === write ? 'write-auth' : 'read-auth'); if (overrides.auth) return overrides.auth(tx); return actor; } };
   const transactions = { read: fn => fn(read), write: fn => fn(write) };
   const core = { async register(tx) { assert.equal(tx, write); events.push('register'); return { id: randomUUID(), generation: '1' }; }, async setPreferences(tx, userId, enabled) { assert.equal(tx, write); assert.equal(userId, actor.userId); events.push('preferences'); return { pushEnabled: enabled, generation: '2' }; } };
@@ -64,14 +64,14 @@ test('on-curve validation and bounded destination policy reject registration wit
 test('worker authorization rejects stale binding after initial lookup and current preference opt-out', async () => {
   const base = { id: 'subscription', user_id: 'user', session_id: 'session', audience: 'rogi-test', endpoint: 'private', p256dh: 'private', auth_secret: 'private', generation: '2', account_generation: '3', revoked_at: null };
   for (const replacement of [{ session_id: 'replacement' }, { user_id: 'replacement' }, { audience: 'rogi-qa' }, { account_generation: '4' }, { revoked_at: new Date() }]) {
-    const core = new NotificationsCoreService({ async byId() { return base; }, async binding() { return { audience: 'rogi-test', membership_generation: '3', soop_status: 'VERIFIED' }; }, async lockPreferences() { return { push_enabled: 1, generation: '2' }; }, async lockSubscription() { return { ...base, ...replacement }; } });
+    const core = new NotificationsCoreService({ async byId() { return base; }, async binding() { return { audience: 'rogi-test', membership_generation: '3', soop_status: 'VERIFIED', chat_allowed: 1 }; }, async lockPreferences() { return { push_enabled: 1, generation: '2' }; }, async lockSubscription() { return { ...base, ...replacement }; } });
     assert.equal(await core.authorizeSubscription({ writable: true }, base.id), null);
   }
   for (const soop_status of [null, 'REVOKED']) {
     const core = new NotificationsCoreService({ async byId() { return base; }, async binding() { return { audience: 'rogi-test', membership_generation: '3', soop_status }; } });
     assert.equal(await core.authorizeSubscription({ writable: true }, base.id), null);
   }
-  const optedOut = new NotificationsCoreService({ async byId() { return base; }, async binding() { return { audience: 'rogi-test', membership_generation: '3', soop_status: 'VERIFIED' }; }, async lockPreferences() { return { push_enabled: 0, generation: '3' }; }, async lockSubscription() { return base; } });
+  const optedOut = new NotificationsCoreService({ async byId() { return base; }, async binding() { return { audience: 'rogi-test', membership_generation: '3', soop_status: 'VERIFIED', chat_allowed: 1 }; }, async lockPreferences() { return { push_enabled: 0, generation: '3' }; }, async lockSubscription() { return base; } });
   assert.equal(await optedOut.authorizeSubscription({ writable: true }, base.id), null);
   await assert.rejects(optedOut.authorizeSubscription({ writable: false }, base.id), /requires_write_transaction/);
 });

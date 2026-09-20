@@ -40,3 +40,7 @@ protocol AppleAuthStoring: SOOPAuthStoring {
     func beginApple(intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending
     func finishAppleStart(id: UUID, transaction: String, nonce: String, state: String, now: Date) throws -> SOOPPending
 }
+
+protocol PasswordAuthStoring: SOOPAuthStoring {
+    func beginPassword(expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending
+}
