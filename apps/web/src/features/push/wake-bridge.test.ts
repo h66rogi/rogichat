@@ -7,13 +7,23 @@ import type { WakeBinding } from './wake';
 
 const BINDING: WakeBinding = { account: 'account-one', session: 'session-one', generation: 1 };
 
-function bridge(options: { visible?: boolean } = {}) {
+function bridge(options: { visible?: boolean; controlled?: boolean } = {}) {
   const posted: unknown[] = [];
-  const listeners = new Set<(event: { data: unknown }) => void>();
+  const listeners = new Map<string, Set<(event: { data?: unknown }) => void>>();
+  const controller = { postMessage: (message: unknown) => { posted.push(message); } };
+  let live: typeof controller | null = options.controlled === false ? null : controller;
   const worker: WakeWorkerPort = {
-    controller: { postMessage: message => { posted.push(message); } },
-    addEventListener: (_type, listener) => { listeners.add(listener); },
-    removeEventListener: (_type, listener) => { listeners.delete(listener); },
+    get controller() { return live; },
+    addEventListener: (type, listener) => {
+      const set = listeners.get(type) ?? new Set();
+      set.add(listener);
+      listeners.set(type, set);
+    },
+    removeEventListener: (type, listener) => { listeners.get(type)?.delete(listener); },
+  };
+  const control = (next: typeof controller | null): void => {
+    live = next;
+    for (const listener of [...(listeners.get('controllerchange') ?? [])]) listener({});
   };
   const resume = new EventTarget();
   let visible = options.visible ?? true;
@@ -23,13 +33,16 @@ function bridge(options: { visible?: boolean } = {}) {
     started += 1;
     return new Promise<void>(resolve => { runs.push(resolve); });
   };
-  const deliver = (data: unknown): void => { for (const listener of [...listeners]) listener({ data }); };
+  const deliver = (data: unknown): void => { for (const listener of [...(listeners.get('message') ?? [])]) listener({ data }); };
   return {
     posted,
     resume,
     deliver,
     runs,
     listeners,
+    control,
+    controller,
+    attached: (): number => [...listeners.values()].reduce((total, set) => total + set.size, 0),
     started: () => started,
     show: (value: boolean) => { visible = value; },
     start: () => startWakeBridge({ binding: BINDING, sync, worker, resume, visible: () => visible }),
@@ -115,7 +128,7 @@ void test('stopping detaches every listener so a later wake reaches nothing', as
   const context = bridge({ visible: false });
   const stop = context.start();
   stop();
-  assert.equal(context.listeners.size, 0);
+  assert.equal(context.attached(), 0);
   context.deliver(sync());
   context.show(true);
   context.resume.dispatchEvent(new Event('focus'));
@@ -150,4 +163,32 @@ void test('a page without a worker or window still syncs on open', () => {
   const stop = startWakeBridge({ binding: BINDING, sync: async () => { started += 1; }, worker: null, resume: null, visible: () => true });
   assert.equal(started, 1);
   stop();
+});
+
+void test('a page with no controller yet binds as soon as one takes over', () => {
+  const context = bridge({ visible: false, controlled: false });
+  const stop = context.start();
+  assert.deepEqual(context.posted, [], 'there is no worker to bind to on a first load');
+
+  context.control(context.controller);
+  assert.deepEqual(context.posted, [{ type: WAKE_BIND, account: 'account-one', session: 'session-one', generation: 1 }]);
+  stop();
+});
+
+void test('a worker update rebinds the replacement', () => {
+  const context = bridge({ visible: false });
+  const stop = context.start();
+  assert.equal(context.posted.length, 1);
+  context.control(context.controller);
+  assert.equal(context.posted.length, 2, 'the new worker knows nothing until it is told');
+  stop();
+  assert.deepEqual(context.posted.at(-1), { type: WAKE_UNBIND });
+});
+
+void test('a controller that appears after stopping is not bound', () => {
+  const context = bridge({ visible: false, controlled: false });
+  const stop = context.start();
+  stop();
+  context.control(context.controller);
+  assert.ok(context.posted.every(message => (message as { type: string }).type !== WAKE_BIND), 'no stale listener rebinds a closed page');
 });

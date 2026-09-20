@@ -125,3 +125,15 @@ void test('an unusable browser storage is reported, never treated as an empty on
   rememberBinding(guardedStorage(working), identity, { id: ID, generation: '1', fingerprint: FINGERPRINT });
   assert.equal(readBinding(guardedStorage(working))?.id, ID, 'a usable storage behaves exactly as before');
 });
+
+void test('a storage that throws on access is guarded too, not only on its methods', () => {
+  const blocked = guardedStorage((): never => { throw new DOMException('blocked'); });
+  for (const operation of [() => readBinding(blocked), () => { forgetBinding(blocked); }]) {
+    try {
+      operation();
+      assert.fail('the access itself must be guarded');
+    } catch (error) {
+      assert.ok(error instanceof PushError && error.kind === 'storage');
+    }
+  }
+});

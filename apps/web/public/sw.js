@@ -27,8 +27,13 @@ const NOTIFICATION = {
   renotify: false,
 };
 
-/** Which account and session this worker is doing work for; memory only. */
-let binding = null;
+/**
+ * Which account and session each open page is signed in as; memory only, keyed by client id.
+ *
+ * One page must not speak for another: a stale tab unbinding itself cannot silence a tab that
+ * is still signed in, and a page that never bound is never told to sync.
+ */
+const bindings = new Map();
 let running = false;
 let pending = false;
 
@@ -42,15 +47,17 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('message', (event) => {
   const data = event.data;
-  if (!data || typeof data !== 'object') return;
+  const sender = event.source;
+  // A message speaks only for the page that sent it.
+  if (!data || typeof data !== 'object' || !sender || typeof sender.id !== 'string') return;
   if (data.type === WAKE_UNBIND) {
-    // Logout: no binding, so no page is told to sync until one signs in again.
-    binding = null;
+    // Logout in that page: it stops being told to sync; other pages keep their own binding.
+    bindings.delete(sender.id);
     return;
   }
   if (data.type !== WAKE_BIND) return;
   if (typeof data.account !== 'string' || typeof data.session !== 'string' || !Number.isInteger(data.generation)) return;
-  binding = { account: data.account, session: data.session, generation: data.generation };
+  bindings.set(sender.id, { account: data.account, session: data.session, generation: data.generation });
 });
 
 self.addEventListener('push', (event) => {
@@ -107,13 +114,23 @@ async function wake() {
   }
 }
 
-/** Tells the open pages of this account to sync. A page decides what to read, with its own credentials. */
+/**
+ * Tells each signed-in page to sync, with the binding that page is on. A page decides what to
+ * read, with its own credentials. Bindings are read after the await, so a page that signed out
+ * or rebound while this ran is not told to sync under what it used to be, and records of pages
+ * that have gone are dropped.
+ */
 async function notify() {
-  if (binding === null) return;
-  const current = binding;
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  const live = new Set();
   for (const client of clients) {
+    live.add(client.id);
+    const current = bindings.get(client.id);
+    if (current === undefined) continue;
     client.postMessage({ type: WAKE_SYNC, account: current.account, session: current.session, generation: current.generation });
+  }
+  for (const id of [...bindings.keys()]) {
+    if (!live.has(id)) bindings.delete(id);
   }
 }
 
@@ -123,7 +140,10 @@ async function open() {
   const existing = clients.find((client) => client.url.startsWith(`${self.location.origin}/`));
   if (existing) {
     await existing.focus();
-    await notify();
+    const current = bindings.get(existing.id);
+    if (current !== undefined) {
+      existing.postMessage({ type: WAKE_SYNC, account: current.account, session: current.session, generation: current.generation });
+    }
     return;
   }
   await self.clients.openWindow('/');

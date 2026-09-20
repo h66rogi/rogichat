@@ -13,13 +13,17 @@ import { WAKE_NOTIFICATION, WAKE_ONLY_PUSH } from './wake';
  */
 const SOURCE = readFileSync(fileURLToPath(new URL('../../../public/sw.js', import.meta.url)), 'utf8');
 
-interface Client { url: string; focused: boolean; messages: unknown[]; focus(): Promise<void>; postMessage(message: unknown): void }
+interface Client { id: string; url: string; focused: boolean; messages: unknown[]; focus(): Promise<void>; postMessage(message: unknown): void }
 
 /** Values built inside the sandbox have their own intrinsics; compare them by content. */
 const plain = (value: unknown): unknown => JSON.parse(JSON.stringify(value ?? null));
 
+let ids = 0;
+
 function client(url: string): Client {
+  ids += 1;
   const value: Client = {
+    id: `client-${ids}`,
     url,
     focused: false,
     messages: [],
@@ -34,6 +38,8 @@ function worker(clients: Client[] = []) {
   const notifications: { title: string; options: Record<string, unknown> }[] = [];
   const opened: string[] = [];
   const waits: Promise<unknown>[] = [];
+  // Runs while the worker is awaiting its client list, so state can change mid-wake.
+  let interleave: (() => Promise<void>) | null = null;
   const self = {
     location: { origin: 'https://qa.rogi.chat' },
     addEventListener: (type: string, handler: (event: unknown) => void) => { handlers.set(type, handler); },
@@ -43,7 +49,12 @@ function worker(clients: Client[] = []) {
     },
     clients: {
       claim: async () => undefined,
-      matchAll: async () => clients,
+      matchAll: async () => {
+        const during = interleave;
+        interleave = null;
+        if (during) await during();
+        return clients;
+      },
       openWindow: async (url: string) => { opened.push(url); },
     },
   };
@@ -57,7 +68,8 @@ function worker(clients: Client[] = []) {
     await Promise.all(pending);
   };
   const push = (payload: unknown): Record<string, unknown> => ({ data: { text: () => (typeof payload === 'string' ? payload : JSON.stringify(payload)) } });
-  return { handlers, notifications, opened, fire, push, clients };
+  const delay = (during: () => Promise<void>): void => { interleave = during; };
+  return { handlers, notifications, opened, fire, push, clients, delay };
 }
 
 const bind = { type: WAKE_BIND, account: 'account-one', session: 'session-one', generation: 1 };
@@ -73,7 +85,7 @@ void test('the worker registers only wake handlers and caches nothing', () => {
 void test('a wake shows the generic notification and asks the bound pages to sync', async () => {
   const page = client('https://qa.rogi.chat/settings');
   const context = worker([page]);
-  await context.fire('message', { data: bind });
+  await context.fire('message', { data: bind, source: page });
   await context.fire('push', context.push(WAKE_ONLY_PUSH));
 
   assert.equal(context.notifications.length, 1);
@@ -93,7 +105,7 @@ void test('anything that is not the exact wake payload is ignored', async () => 
   ]) {
     const page = client('https://qa.rogi.chat/');
     const context = worker([page]);
-    await context.fire('message', { data: bind });
+    await context.fire('message', { data: bind, source: page });
     await context.fire('push', context.push(payload));
     assert.equal(context.notifications.length, 0, JSON.stringify(payload));
     assert.deepEqual(page.messages, []);
@@ -111,8 +123,8 @@ void test('a wake without a binding still notifies the user but tells no page to
 void test('a logout unbinds the worker so a later wake reaches no page', async () => {
   const page = client('https://qa.rogi.chat/');
   const context = worker([page]);
-  await context.fire('message', { data: bind });
-  await context.fire('message', { data: { type: WAKE_UNBIND } });
+  await context.fire('message', { data: bind, source: page });
+  await context.fire('message', { data: { type: WAKE_UNBIND }, source: page });
   await context.fire('push', context.push(WAKE_ONLY_PUSH));
   assert.deepEqual(plain(page.messages), []);
 });
@@ -120,12 +132,12 @@ void test('a logout unbinds the worker so a later wake reaches no page', async (
 void test('the binding follows the account and its generation', async () => {
   const page = client('https://qa.rogi.chat/');
   const context = worker([page]);
-  await context.fire('message', { data: bind });
-  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-two', session: 'session-two', generation: 2 } });
+  await context.fire('message', { data: bind, source: page });
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-two', session: 'session-two', generation: 2 }, source: page });
   await context.fire('push', context.push(WAKE_ONLY_PUSH));
   assert.deepEqual(plain(page.messages), [{ type: WAKE_SYNC, account: 'account-two', session: 'session-two', generation: 2 }]);
 
-  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-two', session: 'session-two' } });
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-two', session: 'session-two' }, source: page });
   await context.fire('push', context.push(WAKE_ONLY_PUSH));
   assert.equal(page.messages.length, 2, 'a malformed binding message changes nothing');
 });
@@ -133,7 +145,7 @@ void test('the binding follows the account and its generation', async () => {
 void test('a click focuses this origin app and never a URL from a payload', async () => {
   const page = client('https://qa.rogi.chat/chat');
   const context = worker([page]);
-  await context.fire('message', { data: bind });
+  await context.fire('message', { data: bind, source: page });
   let closed = false;
   await context.fire('notificationclick', { notification: { close: () => { closed = true; } } });
   assert.ok(closed);
@@ -154,4 +166,71 @@ void test('a page of another origin is not treated as this app', async () => {
   await context.fire('notificationclick', { notification: { close: () => undefined } });
   assert.equal(foreign.focused, false);
   assert.deepEqual(plain(context.opened), ['/']);
+});
+
+void test('one page unbinding never silences another that is still signed in', async () => {
+  const pageA = client('https://qa.rogi.chat/');
+  const pageB = client('https://qa.rogi.chat/chat');
+  const context = worker([pageA, pageB]);
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-one', generation: 1 }, source: pageA });
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-two', generation: 2 }, source: pageB });
+
+  // The first tab signs out. It speaks only for itself.
+  await context.fire('message', { data: { type: WAKE_UNBIND }, source: pageA });
+  await context.fire('push', context.push(WAKE_ONLY_PUSH));
+
+  assert.deepEqual(plain(pageA.messages), [], 'the page that signed out is not told to sync');
+  assert.deepEqual(plain(pageB.messages), [{ type: WAKE_SYNC, account: 'account-one', session: 'session-two', generation: 2 }]);
+});
+
+void test('each page is told to sync on its own binding', async () => {
+  const pageA = client('https://qa.rogi.chat/');
+  const pageB = client('https://qa.rogi.chat/chat');
+  const context = worker([pageA, pageB]);
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-one', generation: 1 }, source: pageA });
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-two', session: 'session-two', generation: 5 }, source: pageB });
+  await context.fire('push', context.push(WAKE_ONLY_PUSH));
+  assert.deepEqual(plain(pageA.messages), [{ type: WAKE_SYNC, account: 'account-one', session: 'session-one', generation: 1 }]);
+  assert.deepEqual(plain(pageB.messages), [{ type: WAKE_SYNC, account: 'account-two', session: 'session-two', generation: 5 }]);
+});
+
+void test('a message with no sending page binds nothing', async () => {
+  const page = client('https://qa.rogi.chat/');
+  const context = worker([page]);
+  await context.fire('message', { data: bind });
+  await context.fire('push', context.push(WAKE_ONLY_PUSH));
+  assert.deepEqual(plain(page.messages), [], 'a binding must belong to a page');
+});
+
+void test('a page that unbinds while a wake is in flight is not told to sync', async () => {
+  const page = client('https://qa.rogi.chat/');
+  const context = worker([page]);
+  await context.fire('message', { data: bind, source: page });
+  // The page signs out between the wake arriving and the client list resolving.
+  context.delay(async () => { await context.fire('message', { data: { type: WAKE_UNBIND }, source: page }); });
+  await context.fire('push', context.push(WAKE_ONLY_PUSH));
+  assert.deepEqual(plain(page.messages), [], 'the binding is read after the await, not before');
+});
+
+void test('a page that rebinds while a wake is in flight is told its new binding', async () => {
+  const page = client('https://qa.rogi.chat/');
+  const context = worker([page]);
+  await context.fire('message', { data: bind, source: page });
+  context.delay(async () => {
+    await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-next', generation: 9 }, source: page });
+  });
+  await context.fire('push', context.push(WAKE_ONLY_PUSH));
+  assert.deepEqual(plain(page.messages), [{ type: WAKE_SYNC, account: 'account-one', session: 'session-next', generation: 9 }]);
+});
+
+void test('a click tells only the focused page, on its own binding', async () => {
+  const pageA = client('https://qa.rogi.chat/');
+  const pageB = client('https://qa.rogi.chat/chat');
+  const context = worker([pageA, pageB]);
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-one', generation: 1 }, source: pageA });
+  await context.fire('message', { data: { type: WAKE_BIND, account: 'account-one', session: 'session-two', generation: 2 }, source: pageB });
+  await context.fire('notificationclick', { notification: { close: () => undefined } });
+  assert.ok(pageA.focused);
+  assert.deepEqual(plain(pageA.messages), [{ type: WAKE_SYNC, account: 'account-one', session: 'session-one', generation: 1 }]);
+  assert.deepEqual(plain(pageB.messages), [], 'the page that was not focused is left alone');
 });

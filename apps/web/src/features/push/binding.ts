@@ -106,17 +106,20 @@ export function forgetBinding(storage: BindingStorage): void {
  * so enrollment cannot honestly proceed: the failure is reported as its own state instead of
  * being swallowed into an apparently working toggle.
  */
-export function guardedStorage(storage: BindingStorage): BindingStorage {
-  const guard = <T>(operation: () => T): T => {
+export function guardedStorage(storage: BindingStorage | (() => BindingStorage)): BindingStorage {
+  // Reading `localStorage` can itself throw where site data is blocked, so a factory is
+  // resolved inside the guard rather than before it.
+  const resolve = typeof storage === 'function' ? storage : (): BindingStorage => storage;
+  const guard = <T>(operation: (target: BindingStorage) => T): T => {
     try {
-      return operation();
+      return operation(resolve());
     } catch {
       throw new PushError('storage');
     }
   };
   return {
-    getItem: key => guard(() => storage.getItem(key)),
-    setItem: (key, value) => { guard(() => { storage.setItem(key, value); }); },
-    removeItem: key => { guard(() => { storage.removeItem(key); }); },
+    getItem: key => guard(target => target.getItem(key)),
+    setItem: (key, value) => { guard(target => { target.setItem(key, value); }); },
+    removeItem: key => { guard(target => { target.removeItem(key); }); },
   };
 }

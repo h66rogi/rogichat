@@ -17,9 +17,10 @@ export const WAKE_UNBIND = 'rogichat.push.unbind';
 export const WAKE_SYNC = 'rogichat.push.sync';
 
 export interface WakeWorkerPort {
+  /** Read on every use: it is null until a worker controls the page, and changes on update. */
   readonly controller: { postMessage(message: unknown): void } | null;
-  addEventListener(type: 'message', listener: (event: { data: unknown }) => void): void;
-  removeEventListener(type: 'message', listener: (event: { data: unknown }) => void): void;
+  addEventListener(type: 'message' | 'controllerchange', listener: (event: { data?: unknown }) => void): void;
+  removeEventListener(type: 'message' | 'controllerchange', listener: (event: { data?: unknown }) => void): void;
 }
 
 export interface WakeBridgeOptions {
@@ -44,7 +45,16 @@ export function startWakeBridge({ binding, sync, worker, resume, visible }: Wake
     });
   };
 
-  const onMessage = (event: { data: unknown }): void => {
+  /**
+   * Binds the worker that controls this page now. At first load there is none until the
+   * registration activates, and a worker update replaces it, so this runs again on
+   * `controllerchange` rather than only once at mount.
+   */
+  const bind = (): void => {
+    worker?.controller?.postMessage({ type: WAKE_BIND, account: binding.account, session: binding.session, generation: binding.generation });
+  };
+
+  const onMessage = (event: { data?: unknown }): void => {
     const message = event.data;
     if (!message || typeof message !== 'object') return;
     const { type, account, session, generation } = message as Record<string, unknown>;
@@ -55,7 +65,8 @@ export function startWakeBridge({ binding, sync, worker, resume, visible }: Wake
   };
 
   worker?.addEventListener('message', onMessage);
-  worker?.controller?.postMessage({ type: WAKE_BIND, account: binding.account, session: binding.session, generation: binding.generation });
+  worker?.addEventListener('controllerchange', bind);
+  bind();
 
   const onResume = (): void => {
     if (visible()) run();
@@ -68,6 +79,7 @@ export function startWakeBridge({ binding, sync, worker, resume, visible }: Wake
 
   return () => {
     worker?.removeEventListener('message', onMessage);
+    worker?.removeEventListener('controllerchange', bind);
     resume?.removeEventListener('visibilitychange', onResume);
     resume?.removeEventListener('focus', onResume);
     worker?.controller?.postMessage({ type: WAKE_UNBIND });

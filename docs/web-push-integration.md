@@ -129,7 +129,9 @@ const stop = startWakeBridge({ binding, sync, worker: navigator.serviceWorker, r
 ```
 
 `binding` is `{account, session, generation}` from `WakeBindingRegistry`, `sync` is the app's
-authenticated sync. The bridge posts the binding to the worker, syncs when the worker reports a
+authenticated sync. The bridge posts the binding to the worker that controls the page — and
+again on `controllerchange`, because there is none until the first registration activates and a
+worker update replaces it — syncs when the worker reports a
 wake for this binding, syncs on open, `visibilitychange` and `focus`, collapses a burst into one
 run, ignores a wake for another account, session or generation, and on stop unbinds the worker
 and abandons the running cycle. A wake delivered while no page was running is covered by the
@@ -152,10 +154,14 @@ What it does, and nothing else:
    the user something visible; the shared tag collapses a burst into one. It says only that
    there may be something to check and never claims a message, a sender or content.
 3. Coalesces the sync work: while one run is in flight, further wakes are covered by one more.
-4. Tells the open pages of the bound account to sync, through `WAKE_SYNC`. The worker itself
-   fetches no private data, keeps no Cache API storage and reads no cookie, token or account
-   identifier; the binding is memory only and arrives from the page as `WAKE_BIND`, with
-   `WAKE_UNBIND` on logout.
+4. Tells each signed-in page to sync, through `WAKE_SYNC`, on that page's own binding. Bindings
+   are kept per client id and a message binds only the page that sent it, so a stale tab
+   signing out cannot silence a tab that is still signed in, and a page that never bound is
+   never told to sync. They are re-read after the client list resolves, so a page that signed
+   out or rebound mid-wake is not addressed under what it used to be, and records of pages that
+   have gone are dropped. The worker fetches no private data, keeps no Cache API storage and
+   reads no cookie, token or account identifier; bindings are memory only, arriving as
+   `WAKE_BIND` and removed by `WAKE_UNBIND`.
 5. `notificationclick`: focuses an existing page of this origin, or opens this origin's root.
    The target is fixed; no URL is ever taken from a payload.
 
@@ -182,6 +188,8 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
   asks for permission before any await, re-reads the capability for its current key, reads the
   stored preference, registers the endpoint, and only then writes `pushEnabled: true`. The
   preference the server keeps is never true while it has no endpoint for this browser.
+- **Per-page binding.** The worker keeps one binding per page and trusts only the page that
+  sent a message, so no tab can bind or unbind on another's behalf.
 - **Unread is not off.** A failed read leaves `enabled` null with `failure` set, so the UI
   offers a retry; only a server that answered decides that Web Push is unavailable.
 - **Storage.** An unusable `localStorage` — a private window, blocked site data, a full quota —
@@ -256,7 +264,7 @@ node --import ./src/features/chat/testing/register-ts.mjs --test src/features/pu
 Node 24.21.0, TypeScript 5.9.3 (the repository pin), from `apps/web`:
 
 - `node --import ./src/features/chat/testing/register-ts.mjs --test src/features/push/*.test.ts`
-  — 112 tests, 112 pass, 0 fail.
+  — 122 tests, 122 pass, 0 fail.
 - `tsc --noEmit` over `src/features/push/**` with the repository's strict options
   (`strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`, `verbatimModuleSyntax`) — clean.
 - ESLint 10.11.0 with the repository's type-aware rule set over the module's 18 files — 0 errors,

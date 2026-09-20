@@ -36,29 +36,46 @@ export interface PushSettings {
   notice: string;
   /** A compare-and-set conflict needs a fresh choice against the value now stored. */
   needsDecision: boolean;
-  /** Re-reads browser and server state after an error. Never prompts. */
+  /** Pass as `onRetryNotifications`. Re-reads state, or rebuilds after a failed start. */
   refresh: () => void;
 }
 
-const LOADING: PushNotificationsModel = {
+const CHECKING = '알림 설정을 확인하는 중입니다.';
+const UNAVAILABLE = '이 브라우저에서 알림 설정을 준비하지 못했습니다. 다시 확인해 주세요.';
+
+const blocked = (reason: string, notice = ''): PushNotificationsModel => ({
   support: 'unknown',
   permission: 'unknown',
   enabled: null,
-  toggle: { enabled: false, reason: '알림 설정을 확인하는 중입니다.' },
-};
+  toggle: { enabled: false, reason },
+  action: null,
+  busy: false,
+  notice,
+});
 
 export function usePushSettings(session: Session, accountId: string): PushSettings {
   const api = useApi();
-  const [enrollment, setEnrollment] = useState<PushEnrollment | null>(null);
+  const [attempt, retry] = useReducer((count: number) => count + 1, 0);
   const [, changed] = useReducer((count: number) => count + 1, 0);
+  /** A lifecycle belongs to one origin, account, session and attempt; null means it failed to start. */
+  const [built, setBuilt] = useState<{ key: string; enrollment: PushEnrollment | null } | null>(null);
   const scope = useRef<PushScope | null>(null);
   const csrf = useRef(session.csrfToken);
+
   // Kept current so every request carries the session's latest token rather than the one this
   // screen opened with. Written in an effect, never during render.
   useEffect(() => { csrf.current = session.csrfToken; }, [session.csrfToken]);
 
+  const key = `${api.origin}|${accountId}|${session.csrfToken}|${attempt}`;
+  // Derived, not stored: the moment the account or session changes, the previous lifecycle
+  // stops being read, so one account's enrollment is never shown while another is preparing.
+  const active = built?.key === key ? built : null;
+  const enrollment = active?.enrollment ?? null;
+  const failed = active !== null && active.enrollment === null;
+
   useEffect(() => {
     let current = true;
+
     const start = async (): Promise<void> => {
       const [account, sessionId] = await Promise.all([sessionBinding(accountId), sessionBinding(csrf.current)]);
       if (!current) return;
@@ -67,13 +84,18 @@ export function usePushSettings(session: Session, accountId: string): PushSettin
       const controller = new PushEnrollment({
         api: new PushApi(pushHttp({ apiOrigin: api.origin, csrf: () => csrf.current })),
         browser: new WebPushBrowser(),
-        storage: guardedStorage(localStorage),
+        // Acquired inside the guard: reading `localStorage` itself throws where site data is blocked.
+        storage: guardedStorage(() => localStorage),
         scope: identity,
       });
-      setEnrollment(controller);
+      setBuilt({ key, enrollment: controller });
       await controller.refresh();
     };
-    void start();
+
+    // A failed start — blocked storage, an unavailable digest — is a stated result with a
+    // retry, never an indefinite "checking" or an unhandled rejection.
+    start().catch(() => { if (current) setBuilt({ key, enrollment: null }); });
+
     return () => {
       current = false;
       // The account or session changed, or the screen closed: end the scope so requests abort
@@ -81,7 +103,7 @@ export function usePushSettings(session: Session, accountId: string): PushSettin
       scope.current?.end();
       scope.current = null;
     };
-  }, [api.origin, accountId, session.csrfToken]);
+  }, [key, api.origin, accountId]);
 
   useEffect(() => enrollment?.subscribe(changed), [enrollment]);
 
@@ -92,7 +114,11 @@ export function usePushSettings(session: Session, accountId: string): PushSettin
   }, [enrollment]);
 
   const refresh = useCallback(() => {
-    void enrollment?.refresh();
+    if (enrollment === null) {
+      retry();
+      return;
+    }
+    void enrollment.refresh();
   }, [enrollment]);
 
   const state = enrollment?.getState();
@@ -100,9 +126,11 @@ export function usePushSettings(session: Session, accountId: string): PushSettin
   return {
     // `action`, `busy` and `notice` let the section name the real press and show the real
     // result, instead of inferring either from the displayed value.
-    model: model === undefined ? LOADING : { ...model, action: enrollment?.intent() ?? null, busy: state?.busy ?? false, notice: state?.notice ?? '' },
+    model: model === undefined || enrollment === null
+      ? (failed ? blocked(UNAVAILABLE, UNAVAILABLE) : blocked(CHECKING))
+      : { ...model, action: enrollment.intent(), busy: state?.busy ?? false, notice: state?.notice ?? '' },
     toggle,
-    notice: state?.notice ?? '',
+    notice: failed ? UNAVAILABLE : state?.notice ?? '',
     needsDecision: state?.needsDecision ?? false,
     refresh,
   };
