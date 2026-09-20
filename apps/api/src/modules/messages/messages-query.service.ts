@@ -16,9 +16,9 @@ export interface MessagePage { readonly items: readonly MessagePageItem[]; reado
 export class MessagesQueryService {
   constructor(@Inject(MessagesQueryRepository) private readonly repository: MessagesQueryRepository) {}
 
-  async page(tx: Transaction, viewer: ActiveMember, window: MessageWindow, limit: number): Promise<MessagePage> {
+  async page(tx: Transaction, viewer: ActiveMember, window: MessageWindow, limit: number, now?: Date): Promise<MessagePage> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ServiceUnavailableException();
-    const rows = await this.repository.page(tx, viewer.id, viewer.room_id, viewer.visible_from_order, window, limit + 1);
+    const rows = await this.repository.page(tx, viewer.id, viewer.room_id, viewer.visible_from_order, window, limit + 1, now ?? await tx.now());
     // The repository applies ACL before LIMIT. Project only the page, never the lookahead
     // row, and never expose source identifiers, grants, SQL rows or storage keys to Sync.
     const items = rows.slice(0, limit).map((row): MessagePageItem => {
@@ -33,8 +33,8 @@ export class MessagesQueryService {
     return { items, hasMore: rows.length > limit };
   }
 
-  async affected(tx: Transaction, viewer: ActiveMember, from: string, high: string): Promise<boolean> {
-    return (await this.repository.affected(tx, viewer.room_id, viewer.id, viewer.visible_from_order, from, high)).length > 0;
+  async affected(tx: Transaction, viewer: ActiveMember, from: string, high: string, now?: Date): Promise<boolean> {
+    return (await this.repository.affected(tx, viewer.room_id, viewer.id, viewer.visible_from_order, from, high, now ?? await tx.now())).length > 0;
   }
   async stickerRevocations(tx: Transaction, viewer: ActiveMember) {
     const rows = await this.repository.stickerRevocations(tx, viewer.room_id, viewer.id, viewer.visible_from_order);

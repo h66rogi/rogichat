@@ -86,8 +86,13 @@ try {
   } else {
   stage = 'tests';
   // Discover committed test names so newly added regressions cannot silently miss CI.
-  const integrationFiles = (await readdir(new URL('./integration/', import.meta.url)))
+  let integrationFiles = (await readdir(new URL('./integration/', import.meta.url)))
     .filter(name => name.endsWith('.test.mjs')).sort().map(name => join('test', 'integration', name));
+  const requested = process.argv.filter(arg => arg.startsWith('--test-file=')).map(arg => arg.slice('--test-file='.length));
+  if (requested.length) {
+    if (requested.some(name => !/^[a-z0-9-]+\.test\.mjs$/.test(name) || !integrationFiles.includes(join('test', 'integration', name)))) throw new Error('unknown integration test');
+    integrationFiles = requested.map(name => join('test', 'integration', name));
+  }
   if (!integrationFiles.length) throw new Error('integration tests missing');
   testProcess = spawn(process.execPath, ['--test', '--test-concurrency=1', ...integrationFiles], {
     stdio: 'inherit', env: {

@@ -1,3 +1,4 @@
+import { newIntentScope } from '../support/membership-scope-fixture.mjs';
 import { createUser, createRoom, joinRoom } from '../support/domain-fixture.mjs';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { test } from 'node:test';
@@ -34,7 +35,7 @@ test('lost client ACK plus actual API SIGKILL is recovered by the same command i
   const first = child('api', { DATABASE_URL: process.env.DATABASE_URL, PORT: String(port), AUTH_SECRET_FILE: authFile });
   t.after(() => stopChild(first));
   await waitFor(() => first.output().includes('started'));
-  const body = { clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: `ACK-loss-${randomUUID()}` } };
+  const body = { membershipScope: await database.transactions.read(tx => newIntentScope(tx, key, 'rogi-test', fixture.user, fixture.room)), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: `ACK-loss-${randomUUID()}` } };
   const path = `/v1/rooms/${fixture.room}/messages`;
   const headers = { Origin: 'http://localhost:3001', Cookie: `rogi_session=${fixture.token}`, 'X-CSRF-Token': fixture.csrf, 'Content-Type': 'application/json' };
   let holdResponse;

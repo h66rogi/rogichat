@@ -1,3 +1,4 @@
+import { scopeNewHttpIntent } from '../support/membership-scope-fixture.mjs';
 import { responseContract } from '../support/openapi-response.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -37,7 +38,7 @@ async function fixture(t, http = false) {
   const credentials = { transport: 'NATIVE', token: native.token, clientId: 'ios' };
   const headers = { Authorization: `Bearer ${native.token}`, 'X-Rogi-Client': 'ios' };
   const validateResponse = app ? responseContract(app, config) : undefined;
-  const call = async (method, path, body, extra = {}) => { const response = await fetch(`${base}${path}`, { method, headers: { ...headers,
+  const call = async (method, path, body, extra = {}) => { await scopeNewHttpIntent(db, config, userId, method, path, body); const response = await fetch(`${base}${path}`, { method, headers: { ...headers,
     ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...extra }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
     validateResponse(method, path, response.status, response.headers.get('content-type')?.includes('application/json') ? await response.clone().json() : undefined);
     return response;

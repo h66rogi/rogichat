@@ -306,3 +306,9 @@ barrier observes the new ORM owner-reference read while retaining the original
 concurrency assertion. Other unit fixture adapters and moved imports are coordinated
 with the Nest worker. This ownership list does not transfer unrelated source,
 mobile, infrastructure or security edits to the ORM worker.
+
+C06 exception: `membership-scope/membership-scope.repository.ts` uses one bound
+ACL-before-DISTINCT/LIMIT query for revoked sticker IDs across the selected room
+set. This preserves the exact viewer ACL vector with aggregate 10,001-row bounds
+and no per-room fanout; ordinary reads remain generated Prisma operations. The
+captured DB time is passed to all temporal predicates for response consistency.

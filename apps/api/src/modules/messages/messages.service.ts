@@ -29,7 +29,7 @@ export class MessagesService {
     if (!allowed) throw new ApiError('RATE_LIMITED', 429);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
-      return this.messages.send(tx, roomId, actor.userId, input, this.config.key);
+      return this.messages.send(tx, roomId, actor.userId, input, this.config.key, this.config.audience);
     });
   }
 
