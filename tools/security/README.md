@@ -48,10 +48,13 @@ A Gradle upgrade requires verifying the new upstream artifact and reviewing the
 pin change together. Do not allow all JAR files or all files in that directory.
 
 UTF-8 source and structurally checked PNG assets are supported. PNG text, EXIF,
-unknown chunks, invalid checksums and trailing payloads are rejected. New binary
-asset formats need a reviewed validator; build products belong in the separate
-artifact/image validation and distribution path. This does not prevent builds
-from producing local ignored archives, native packages or generated files.
+unknown chunks, invalid checksums and trailing payloads are rejected. The five
+official NanumSquare Neo static WOFF2 files are separately bound to exact source
+paths, published SHA-256 values, and minimally valid WOFF2/TrueType headers; a
+changed or renamed font fails closed. New binary asset formats need a reviewed
+validator; build products belong in the separate artifact/image validation and
+distribution path. This does not prevent builds from producing local ignored
+archives, native packages or generated files.
 
 Limits are explicit: 16 MiB per blob, 512 MiB total materialized input, 25,000
 objects/commits/materialized files, 64 nested annotated tags, 120 seconds per Git command and 600 seconds for Gitleaks.

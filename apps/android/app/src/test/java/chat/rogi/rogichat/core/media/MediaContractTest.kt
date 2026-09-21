@@ -48,6 +48,17 @@ class MediaContractTest {
         // General uploaded PNGs retain their original contract.
         MediaDownload.validateResponse(MediaVariant.image, 200, 3 * 1024 * 1024, "image/png", null, null)
     }
+    @Test fun providerGifAdmissionPreservesResponseGuards() {
+        for (size in listOf(1L, 1_869_605L, 2_097_152L))
+            MediaDownload.validateResponse(MediaVariant.image, 200, size, "image/gif", null, "identity", provider = true)
+        for (size in listOf(-1L, 0L, 2_097_153L))
+            assertThrows(IllegalArgumentException::class.java) { MediaDownload.validateResponse(MediaVariant.image, 200, size, "image/gif", null, null, provider = true) }
+        assertThrows(IllegalArgumentException::class.java) { MediaDownload.validateResponse(MediaVariant.image, 200, 1, "image/gif", null, "gzip", provider = true) }
+        for (status in listOf(302, 503))
+            assertThrows(MediaFailure::class.java) { MediaDownload.validateResponse(MediaVariant.image, status, 1, "image/gif", null, null, provider = true) }
+        assertThrows(IllegalArgumentException::class.java) { MediaDownload.validateResponse(MediaVariant.image, 200, 1, "image/gif", null, null) }
+        assertThrows(IllegalArgumentException::class.java) { MediaDownload.validateResponse(MediaVariant.video, 200, 1, "image/gif", null, null, provider = true) }
+    }
     @Test fun providerLoadsDeduplicateBoundTransfersAndRelease() = runBlocking {
         val loads = ProviderAvatarLoads(10); val scope = Scope()
         val started = java.util.concurrent.atomic.AtomicInteger(); val active = java.util.concurrent.atomic.AtomicInteger()

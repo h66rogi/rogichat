@@ -325,6 +325,24 @@ void test('provider avatar reads use exact API ticket URL without cookie or CSRF
   assert.equal(calls[1]?.init.referrerPolicy, 'no-referrer');
   result.release?.();
 });
+void test('provider GIF response preserves bytes and MIME without enabling GIF uploads or general media', async () => {
+  // Hand-authored one-pixel GIF; no provider/user image is copied into tests.
+  const bytes = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+  const gif = () => new Response(bytes, { headers: { 'Content-Type': 'image/gif' } });
+  const url = 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64);
+  const { client } = setup([json({ url, expiresIn: 60 }), gif()]);
+  const lease = await client.providerAvatar(room, asset, idleSignal());
+  assert.equal(lease.blob.type, 'image/gif');
+  assert.deepEqual(new Uint8Array(await lease.blob.arrayBuffer()), new Uint8Array(bytes));
+  lease.release?.();
+  for (const kind of ['AVATAR', 'PHOTO', 'STICKER'] as const) {
+    assert.throws(() => uploadInput(kind, new Blob([bytes], { type: 'image/gif' }), kind === 'PHOTO' ? room : undefined), /INVALID_FILE/);
+  }
+  const general = setup([access(), gif()]);
+  await assert.rejects(general.client.image(asset, { variant: 'image' }, idleSignal()), /INVALID_RESPONSE/);
+  const oversized = setup([json({ url, expiresIn: 60 }), new Response(new Uint8Array(2 * 1024 * 1024 + 1), { headers: { 'Content-Type': 'image/gif' } })]);
+  await assert.rejects(oversized.client.providerAvatar(room, asset, idleSignal()), /INVALID_RESPONSE/);
+});
 void test('provider avatar rejects untrusted origins, paths, extra query, wrong type and oversized body', async () => {
   const base = 'https://api.qa.rogi.chat/v1/profile-images?ticket=' + 'A'.repeat(64);
   for (const url of [base.replace('api.qa.rogi.chat', 'evil.example'), base.replace('profile-images', 'me/profile'), base + '&extra=1', base + '#hash', base.replace('https:', 'http:')]) {

@@ -31,7 +31,7 @@ struct WelcomeScreen: View {
 
                 VStack(alignment: .leading, spacing: 20) {
                     benefit("bubble.left.and.bubble.right", title: "함께 나누는 대화", message: "스트리머의 이야기와 소식을 한곳에서 만나요.")
-                    benefit("person.crop.circle.badge.checkmark", title: "내 계정으로 연결", message: "SOOP 계정을 연결해 대화를 시작해요.")
+                    benefit("person.crop.circle.badge.checkmark", title: "내 계정으로 연결", message: "내 프로필로 대화를 시작해요.")
                     benefit("lock.shield", title: "나를 위한 답장", message: "공개 대화와 개인 답장을 구분해 확인해요.")
                 }
                 .padding(22)
@@ -75,7 +75,7 @@ struct WelcomeScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if methods.contains(.apple) {
-                        Text("Apple로 로그인한 경우에도 SOOP 계정 연결이 필요해요.")
+                        Text("계정 연결이 필요한 경우 로그인 후 안내해 드려요.")
                             .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                 }

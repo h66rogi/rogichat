@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { readDefaultRoomConfig } from '../../dist/modules/owner-bootstrap/default-room.config.js';
 import { canonicalProfileId, parseSoopProfile } from '../../dist/modules/auth/soop-profile.contract.js';
 import { sealAvatarTicket, openAvatarTicket, fetchProviderAvatar } from '../../dist/modules/users/provider-avatar.service.js';
+import { providerAvatarContentType } from '../../dist/modules/users/provider-avatar-format.js';
 import { ProviderAvatarReader } from '../../dist/modules/users/provider-avatar-reader.js';
 const { Response } = globalThis;
 const subject = 'Test_Viewer';
@@ -80,4 +81,50 @@ test('provider reader never follows redirects or accepts arbitrary hosts, SVG, o
   }
   const jpeg = Buffer.from([255, 216, 255, 217]);
   assert.deepEqual((await fetchProviderAvatar(imageUrl, async () => new Response(jpeg, { headers: { 'content-type': 'image/jpeg' } }))).bytes, jpeg);
+});
+
+// Isolated synthetic GIF, never copied from an account or shipped in the product.
+const gifHeader = Buffer.from([71, 73, 70, 56, 57, 97, 1, 0, 1, 0, 128, 0, 0, 0, 0, 0, 255, 255, 255]);
+const gifFrame = Buffer.from([44, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 68, 1, 0]);
+const gif = (...parts) => Buffer.concat([gifHeader, ...parts, Buffer.from([59])]);
+test('SOOP JPEG-labelled GIF body is served with its actual raster MIME and unchanged bytes', async () => {
+  for (const header of ['image/jpeg', 'image/webp', 'image/gif']) {
+    const body = gif(gifFrame);
+    const result = await fetchProviderAvatar(imageUrl, async (_url, options) => {
+      assert.equal(options.redirect, 'error'); assert.ok(options.signal);
+      return new Response(body, { headers: { 'content-type': header, 'content-length': String(body.length) } });
+    });
+    assert.equal(result.contentType, 'image/gif'); assert.deepEqual(result.bytes, body);
+  }
+  const legacy = gif(gifFrame); legacy.write('GIF87a');
+  assert.equal(providerAvatarContentType(legacy), 'image/gif');
+  const animation = gif(Buffer.from([33, 249, 4, 0, 1, 0, 0, 0]), gifFrame,
+    Buffer.from([33, 254, 3, 97, 98, 99, 0]), gifFrame);
+  assert.equal(providerAvatarContentType(animation), 'image/gif');
+  assert.equal(providerAvatarContentType(gif(Buffer.concat([Buffer.from([33, 255, 11]),
+    Buffer.from('NETSCAPE2.0'), Buffer.from([3, 1, 0, 0, 0])]), gifFrame)), 'image/gif');
+  const localTable = Buffer.from(gifFrame); localTable[9] = 128;
+  assert.equal(providerAvatarContentType(gif(Buffer.concat([localTable.subarray(0, 10), Buffer.alloc(6), localTable.subarray(10)]))), 'image/gif');
+});
+test('GIF proxy rejects truncated containers, forged bodies, invalid frames and excessive dimensions', async () => {
+  const valid = gif(gifFrame);
+  for (let length = 0; length < valid.length; length++) assert.equal(providerAvatarContentType(valid.subarray(0, length)), null);
+  const changed = (offset, value) => { const copy = Buffer.from(valid); copy[offset] = value; return copy; };
+  const bad = [gif(), Buffer.from('GIF89a<script>alert(1)</script>;'), Buffer.from('<svg/>'),
+    Buffer.concat([valid, Buffer.from('<html/>')]), changed(6, 0), changed(7, 32),
+    changed(24, 0), changed(24, 2), changed(29, 1), changed(30, 0),
+    gif(Buffer.from([33, 0, 0]), gifFrame), gif(Buffer.from([33, 249, 0]), gifFrame),
+    gif(Buffer.from([33, 255, 1, 0, 0]), gifFrame), gif(...Array(513).fill(gifFrame))];
+  for (const body of bad) {
+    assert.equal(providerAvatarContentType(body), null);
+    await assert.rejects(fetchProviderAvatar(imageUrl, async () => new Response(body,
+      { headers: { 'content-type': 'image/jpeg' } })), { code: 'MEDIA_UNAVAILABLE' });
+  }
+  // Even valid GIF bytes do not authorize non-image provider responses or huge bodies.
+  for (const header of ['text/html', 'image/svg+xml', 'application/octet-stream']) {
+    await assert.rejects(fetchProviderAvatar(imageUrl, async () => new Response(valid,
+      { headers: { 'content-type': header } })), { code: 'MEDIA_UNAVAILABLE' });
+  }
+  await assert.rejects(fetchProviderAvatar(imageUrl, async () => new Response(Buffer.concat([valid, Buffer.alloc(2097152)]),
+    { headers: { 'content-type': 'image/gif' } })), { code: 'MEDIA_UNAVAILABLE' });
 });

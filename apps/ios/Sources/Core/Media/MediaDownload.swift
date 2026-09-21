@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 private final class MediaDownloadDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
@@ -47,7 +48,7 @@ enum MediaDownload {
         let cap: Int64 = provider ? 2 * 1024 * 1024 : (video ? 52 * 1024 * 1024 : 10 * 1024 * 1024)
         guard status == 200 || (video && status == 206) else { throw MediaError.response(status, nil) }
         guard length > 0, length <= cap,
-              provider ? (!video && ["image/jpeg", "image/webp"].contains(type ?? "")) : (video ? type == "video/mp4" : ["image/jpeg", "image/png", "image/webp"].contains(type ?? "")) else { throw MediaError.invalid }
+              provider ? (!video && ["image/jpeg", "image/webp", "image/gif"].contains(type ?? "")) : (video ? type == "video/mp4" : ["image/jpeg", "image/png", "image/webp"].contains(type ?? "")) else { throw MediaError.invalid }
         if let encoding, encoding != "identity" { throw MediaError.invalid }
         if status == 206, range != "bytes 0-\(length - 1)/\(length)" { throw MediaError.invalid }
     }
@@ -77,5 +78,21 @@ final class MediaScratchLifecycle: @unchecked Sendable {
             try purgeMediaScratchAtProcessStart()
             prepared = true
         }
+    }
+}
+
+// Provider avatars display only the first frame, never an unbounded animation.
+enum ProviderAvatarDecoder {
+    static func decode(_ data: Data) throws -> CGImage {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0, width <= 20_000_000 / height,
+              let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 256] as CFDictionary) else { throw MediaError.invalid }
+        return decoded
     }
 }
