@@ -3,6 +3,22 @@ import { installApi } from './api-fixture';
 test.beforeEach(async ({ page }) => { await installApi(page); });
 
 test.describe('public routes', () => {
+  test('NanumSquare Neo is the application-wide default font', async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(async () => {
+      await document.fonts.load('400 16px nanumSquareNeo', '로기챗');
+      await document.fonts.ready;
+    });
+    const font = await page.evaluate(() => ({
+      variable: getComputedStyle(document.documentElement).getPropertyValue('--font-nanum-square-neo'),
+      body: getComputedStyle(document.body).fontFamily,
+      loaded: document.fonts.check('400 16px nanumSquareNeo', '로기챗'),
+    }));
+    expect(font.variable).toContain('nanumSquareNeo');
+    expect(font.body).toMatch(/^nanumSquareNeo,/);
+    expect(font.loaded).toBe(true);
+  });
+
   test('/ is 후로기 home and does not redirect', async ({ page }) => {
     const response = await page.goto('/');
     expect(response?.status()).toBe(200);
