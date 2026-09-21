@@ -99,6 +99,26 @@ class AndroidStorageChecks(unittest.TestCase):
             with self.assertRaises(ValueError):
                 storage.inspect_results(self.results)
 
+    def test_failure_summary_never_emits_raw_messages_or_unknown_identifiers(self):
+        suite = self.report()
+        ET.SubElement(suite[0], "failure", message="secret-message").text = "secret-stack"
+        ET.SubElement(suite, "system-out").text = "secret-key"
+        ET.SubElement(suite, "testcase", classname="secret-class", name="secret-name")
+        self.save_report(suite)
+        summary = storage.failure_summary(self.results)
+        self.assertEqual(summary[0]["status"], "failure")
+        self.assertEqual(summary[-1]["class"], "unrecognized")
+        self.assertNotIn("secret", str(summary))
+        with self.assertRaises(ValueError):
+            storage.inspect_results(self.results)
+
+    def test_failure_summary_missing_malformed_and_oversize_reports_are_bounded(self):
+        self.assertEqual(storage.failure_summary(self.results), [{"report": "no-testcases"}])
+        report = self.results / "TEST-invalid.xml"
+        for content in ["not XML", "x" * (1024 * 1024 + 1)]:
+            report.write_text(content)
+            self.assertEqual(storage.failure_summary(self.results), [{"report": "unreadable"}])
+
     def test_device_inventory_requires_exact_unambiguous_adb_output(self):
         self.assertEqual(storage.devices("List of devices attached\n"), {})
         self.assertEqual(storage.devices("List of devices attached\nemulator-5554\tdevice\n"), {"emulator-5554": "device"})
