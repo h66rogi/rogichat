@@ -13,7 +13,7 @@ FROM tooling AS build
 # in the creating layer so unused registry metadata is not retained in image history.
 RUN pnpm --filter @rogichat/api... install --frozen-lockfile --ignore-scripts \
     && rm -f node_modules/.pnpm/web-push@3.6.7/node_modules/web-push/README.md \
-    && rm -rf /root/.cache/pnpm/v11/metadata /root/.local/share/pnpm/store
+    && rm -rf /root/.cache/pnpm /root/.local/share/pnpm/store
 COPY apps/api ./apps/api
 RUN pnpm --filter @rogichat/api build
 
@@ -23,7 +23,7 @@ FROM tooling AS production-dependencies
 # retaining the hard-linked runtime source and license in node_modules.
 RUN pnpm --filter @rogichat/api... install --prod --frozen-lockfile --ignore-scripts \
     && rm -f node_modules/.pnpm/web-push@3.6.7/node_modules/web-push/README.md \
-    && rm -rf /root/.cache/pnpm/v11/metadata /root/.local/share/pnpm/store
+    && rm -rf /root/.cache/pnpm /root/.local/share/pnpm/store
 
 FROM build AS migration
 # Prisma CLI/engine are confined to this explicitly selected image target.
