@@ -1,3 +1,4 @@
+import ImageIO
 import Foundation
 
 private let testAPIBaseURL = URL(string: "https://api.qa.rogi.chat/v1/")!
@@ -71,6 +72,19 @@ private func expectFailure(_ body: () throws -> Void) throws {
         try expectFailure { try MediaDownload.validateResponse(variant: .image, status: 200, length: 2 * 1024 * 1024 + 1, type: "image/jpeg", range: nil, encoding: nil, provider: true) }
         try expectFailure { try MediaDownload.validateResponse(variant: .image, status: 200, length: 1, type: "image/png", range: nil, encoding: nil, provider: true) }
         try MediaDownload.validateResponse(variant: .image, status: 200, length: 3 * 1024 * 1024, type: "image/png", range: nil, encoding: nil)
+        for size: Int64 in [1, 1_869_605, 2_097_152] {
+            try MediaDownload.validateResponse(variant: .image, status: 200, length: size, type: "image/gif", range: nil, encoding: "identity", provider: true)
+        }
+        for size: Int64 in [-1, 0, 2_097_153] {
+            try expectFailure { try MediaDownload.validateResponse(variant: .image, status: 200, length: size, type: "image/gif", range: nil, encoding: nil, provider: true) }
+        }
+        for status in [302, 503] {
+            try expectFailure { try MediaDownload.validateResponse(variant: .image, status: status, length: 1, type: "image/gif", range: nil, encoding: nil, provider: true) }
+        }
+        try expectFailure { try MediaDownload.validateResponse(variant: .image, status: 200, length: 1, type: "image/gif", range: nil, encoding: "gzip", provider: true) }
+        try expectFailure { try MediaDownload.validateResponse(variant: .image, status: 200, length: 1, type: "image/gif", range: nil, encoding: nil) }
+        try expectFailure { try MediaDownload.validateResponse(variant: .video, status: 200, length: 1, type: "image/gif", range: nil, encoding: nil, provider: true) }
+        try providerGifDecoderRegression()
         try await providerSharingRegression()
         try await providerCancellationRegression()
         let scope = Scope()
@@ -236,4 +250,29 @@ private func providerCancellationRegression() async throws {
     try await loads.retry(scope: scope, actor: asset)
     for await state in reader.states { if case .ready(let bytes, _) = state { precondition(bytes == Data([2])); break } }
     await loads.release(reader)
+}
+
+// Tiny generated red-first/green-second GIFs, isolated test data only.
+private func providerGifDecoderRegression() throws {
+    for version in ["87a", "89a"] {
+        var bytes = Array("GIF\(version)".utf8) + [UInt8](arrayLiteral:
+            1,0,1,0,128,0,0, 255,0,0, 0,255,0,
+            44,0,0,0,0,1,0,1,0,0,2,2,68,1,0,
+            44,0,0,0,0,1,0,1,0,0,2,2,76,1,0,59)
+        let source = CGImageSourceCreateWithData(Data(bytes) as CFData, nil)!
+        precondition(CGImageSourceGetCount(source) == 2)
+        let image = try ProviderAvatarDecoder.decode(Data(bytes))
+        precondition(image.width == 1 && image.height == 1)
+        var pixel = [UInt8](repeating: 0, count: 4)
+        pixel.withUnsafeMutableBytes { buffer in
+            let context = CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                    space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        precondition(pixel == [255,0,0,255], "must render first red frame, never second green frame")
+        for offset in [6, 8, 24, 26] { bytes[offset] = 136; bytes[offset + 1] = 19 } // 5000 x 5000
+        try expectFailure { _ = try ProviderAvatarDecoder.decode(Data(bytes)) }
+    }
+    try expectFailure { _ = try ProviderAvatarDecoder.decode(Data("not an image".utf8)) }
+    print("Provider GIF87a/GIF89a first-frame decoder and rejection checks passed")
 }

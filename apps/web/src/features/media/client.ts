@@ -176,7 +176,7 @@ export class MediaClient {
       if (typeof access.url !== 'string' || access.expiresIn !== 60) throw new MediaError('INVALID_RESPONSE');
       const url = new URL(access.url);
       if (url.origin !== this.origin || url.username || url.password || url.hash || url.pathname !== '/v1/profile-images' || !/^\?ticket=[A-Za-z0-9_-]{64,1024}$/.test(url.search)) throw new MediaError('INVALID_RESPONSE');
-      const result = await this.fetchImage(url, expiresAt, signal, 2 * 1024 * 1024, ['image/jpeg', 'image/webp']);
+      const result = await this.fetchImage(url, expiresAt, signal, 2 * 1024 * 1024, ['image/jpeg', 'image/webp', 'image/gif']);
       owned.throwIfAborted(); reservation?.(); reservation = this.budget?.reserve(result.blob.size);
       return { ...result, release };
     } catch (error) { release(); throw error; }

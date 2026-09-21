@@ -102,11 +102,7 @@ fun AuthorizedProviderAvatar(client: MediaClient, modifier: Modifier = Modifier,
                         state.lease.checkedURL(client.scope)
                         val decoded = withContext(Dispatchers.Default) {
                             val bytes = state.bytes
-                            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-                            require(bounds.outWidth > 0 && bounds.outHeight > 0 && bounds.outWidth.toLong() * bounds.outHeight <= 20_000_000)
-                            val options = BitmapFactory.Options().apply { inSampleSize = maxOf(1, maxOf(bounds.outWidth, bounds.outHeight) / 256) }
-                            requireNotNull(BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)).asImageBitmap()
+                            chat.rogi.rogichat.core.media.ProviderAvatarDecoder.decode(bytes).asImageBitmap()
                         }
                         state.lease.checkedURL(client.scope); bitmap = decoded
                     }

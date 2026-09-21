@@ -118,15 +118,7 @@ private struct ProviderAvatarBody: View {
                     case .failed: failed = true
                     case .ready(let data, let lease):
                         _ = try lease.checkedURL(scope: client.scope)
-                        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-                              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-                              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-                              let height = properties[kCGImagePropertyPixelHeight] as? Int,
-                              width > 0, height > 0, width <= 20_000_000 / height,
-                              let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                                kCGImageSourceCreateThumbnailFromImageAlways: true,
-                                kCGImageSourceCreateThumbnailWithTransform: true,
-                                kCGImageSourceThumbnailMaxPixelSize: 256] as CFDictionary) else { throw MediaError.invalid }
+                        let decoded = try ProviderAvatarDecoder.decode(data)
                         _ = try lease.checkedURL(scope: client.scope); image = UIImage(cgImage: decoded)
                     }
                 }
