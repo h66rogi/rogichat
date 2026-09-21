@@ -6,6 +6,7 @@ import io
 import json
 import re
 import selectors
+import struct
 import time
 import tomllib
 import zipfile
@@ -26,6 +27,13 @@ MAX_OBJECTS = 25000
 # https://services.gradle.org/distributions/gradle-9.7.1-wrapper.jar.sha256
 WRAPPER = "apps/android/gradle/wrapper/gradle-wrapper.jar"
 WRAPPER_SHA256 = "7a9ce74cff467ca1bf60a4fcd9f05185acceda4d0f382434d393e17864262c5d"
+REVIEWED_FONTS = {
+    "apps/web/public/fonts/NanumSquareNeoTTF-aLt.woff2": "f0da0f2329935d3f88f7e4162b68fcdc0be393f74398736ea0967594282ca4e2",
+    "apps/web/public/fonts/NanumSquareNeoTTF-bRg.woff2": "d13846b612acc829078aff4f91c272c637c08441b409d46bb1a4c802eb2967c3",
+    "apps/web/public/fonts/NanumSquareNeoTTF-cBd.woff2": "97dfe9720fbed813fc988fcedbcf741e97eef9353515b2043717484ec0b90aa1",
+    "apps/web/public/fonts/NanumSquareNeoTTF-dEb.woff2": "f27c0741248dba9a543520ff27eb32f9433de3ca50ac7ba4ccb5f5ede673c535",
+    "apps/web/public/fonts/NanumSquareNeoTTF-eHv.woff2": "090b017020c0b5a8fd517460c5dfdf33819b726e1c860313c75bf0624162242d",
+}
 SSH_REGEX = r"(?:ssh-(?:rsa|ed25519|dss)(?:-cert-v01@openssh\.com)?|ecdsa-sha2-nistp(?:256|384|521)(?:-cert-v01@openssh\.com)?|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/]{20,}={0,3}"
 PUBLIC_REGEX = r"(?:-----BEGIN (?:RSA |EC )?PUBLIC KEY-----|---- BEGIN SSH2 PUBLIC KEY ----)\r?\n"
 KEY_PATH = r"(^|/)access/qa/keys/[a-z0-9_-]+\.pub$"
@@ -80,6 +88,18 @@ def inspect_blob(name, data):
                 blocked("Gradle wrapper expansion exceeds scan budget")
             if archive.testzip() is not None:
                 blocked("Gradle wrapper integrity failure")
+        return
+    if not PRIVATE_OPS and name in REVIEWED_FONTS:
+        if hashlib.sha256(data).hexdigest() != REVIEWED_FONTS[name]:
+            blocked("font differs from reviewed upstream artifact")
+        if len(data) < 48:
+            blocked("reviewed font header is truncated")
+        header = struct.unpack(">4s4sIHHIIHHIIIII", data[:48])
+        signature, flavor, length, tables, reserved, sfnt_size, compressed_size = header[:7]
+        if (signature != b"wOF2" or flavor != b"\0\1\0\0" or length != len(data) or
+                not 0 < tables <= 63 or reserved != 0 or sfnt_size == 0 or
+                compressed_size == 0 or 48 + compressed_size > len(data)):
+            blocked("reviewed font structure is invalid")
         return
     if is_archive(data):
         blocked("archive content is forbidden in source")
