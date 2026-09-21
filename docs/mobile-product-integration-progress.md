@@ -181,7 +181,7 @@ DB v4 적용 후 이전 v3 전용 Android 바이너리로의 단순 downgrade는
 
 독립 리뷰 후 provider 사진 경계를 보완했다. 설정된 QA/Prod API origin의 정확한
 `/v1/profile-images?ticket=...`만 허용하며 추가 query·인코딩 우회·외부 origin을 거절한다.
-기본 사진은 JPEG/WebP 2 MiB, 일반 업로드 미디어는 기존 형식·크기 계약을 유지한다.
+기본 사진은 JPEG/WebP/GIF 2 MiB, 일반 업로드 미디어는 기존 형식·크기 계약을 유지한다.
 동일한 원래 scope/actor의 화면들은 조회권·다운로드를 공유하며 전역 동시 전송은 2개,
 대기 한도는 15초다. 마지막 화면 종료, scope 무효화, 만료 때 bytes를 폐기하고 갱신에는
 새 다운로드를 수행한다. 티켓·원본 URL·이미지 bytes를 영속 캐시에 남기지 않는다.
@@ -194,3 +194,22 @@ BACKEND 최종 독립 리뷰는 중앙 지시에 따라 기존 WEB 담당에게 
 수정했다. API base URL은 이제 Swift 생성자의 기본값 없는 필수 값이므로 설정 헤더·
 프로필 편집·대화 중 어느 경로라도 전달을 빠뜨리면 실제 앱 빌드가 실패한다. QA와 Prod
 각각의 기본 사진 ticket 경로를 회귀 검사하며 다른 환경 origin은 허용하지 않는다.
+
+
+## QA21 provider GIF compatibility
+
+QA20 rejects truthful `image/gif` responses before decoding. This component admits
+GIF only for provider-avatar downloads; ordinary upload/download MIME policies
+remain unchanged. API-origin/ticket/HTTPS, no redirects/cookies/credentials,
+identity encoding, positive exact Content-Length, 2 MiB and 20 MP limits remain.
+The existing Android BitmapFactory and iOS ImageIO first-frame implementations
+are extracted for direct testing and still produce a static avatar. No animation
+loop, third-party decoder, provider URL fetch, or persistent image cache is added.
+
+Isolated synthetic GIF87a/GIF89a inputs contain a red first frame and green second
+frame. Tests check the actual decoded red pixel, malformed input and oversized
+pixel rejection; response regressions check GIF admission, byte limits, encoding,
+HTTP failure and continued generic-media rejection. No actual user image is used.
+The source-approved PR105 welcome wording is included in the same necessary fix;
+QA19/20 artifacts remain immutable. QA21 app builds and distribution wait for the
+INFRA-owned shared API/web/native integration source to be frozen.

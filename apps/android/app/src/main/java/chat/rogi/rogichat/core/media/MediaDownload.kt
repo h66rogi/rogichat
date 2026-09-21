@@ -55,7 +55,7 @@ object MediaDownload {
         val video = variant == MediaVariant.video
         val cap = if (provider) 2L * 1024 * 1024 else if (video) 52L * 1024 * 1024 else 10L * 1024 * 1024
         if (status !in (if (video) setOf(200, 206) else setOf(200))) throw MediaFailure(status, null)
-        require(if (provider) !video && type in setOf("image/jpeg", "image/webp") else if (video) type == "video/mp4" else type in setOf("image/jpeg", "image/png", "image/webp"))
+        require(if (provider) !video && type in setOf("image/jpeg", "image/webp", "image/gif") else if (video) type == "video/mp4" else type in setOf("image/jpeg", "image/png", "image/webp"))
         require(encoding == null || encoding == "identity")
         require(length in 1..cap)
         if (status == 206) require(range == "bytes 0-${length - 1}/$length")

@@ -564,7 +564,12 @@ test('READY video sends one real asset reference and mounted timeline plays scop
   expect(await page.evaluate(async url => fetch(url!).then(() => true, () => false), blob)).toBe(false);
 });
 
-test('chat provider avatars use scoped opaque tickets, deduplicate actors, and vanish on pagehide', async ({ page }) => {
+for (const providerImage of [
+  { type: 'image/webp', bytes: TEST_IMAGE.buffer },
+  // Synthetic one-pixel GIF, isolated from production and unrelated to user images.
+  { type: 'image/gif', bytes: Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64') },
+]) {
+test(`chat provider avatars decode ${providerImage.type}, use scoped tickets, deduplicate, and vanish on pagehide`, async ({ page }) => {
   const { account, state } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
   state.messages.push({ ...incoming, id: '66666666-6666-4666-8666-666666666666' });
   let admissions = 0;
@@ -580,16 +585,19 @@ test('chat provider avatars use scoped opaque tickets, deduplicate actors, and v
     expect(route.request().headers()['x-csrf-token']).toBeUndefined();
     expect(route.request().headers().cookie).toBeUndefined();
     expect(route.request().headers().referer).toBeUndefined();
-    return route.fulfill({ status: 200, headers: { 'Content-Type': 'image/webp', 'Access-Control-Allow-Origin': '*' }, body: TEST_IMAGE.buffer });
+    return route.fulfill({ status: 200, headers: { 'Content-Type': providerImage.type, 'Access-Control-Allow-Origin': '*' }, body: providerImage.bytes });
   });
   await page.goto('/chat');
   const images = page.getByRole('img', { name: '참여자 프로필 사진' });
   await expect(images).toHaveCount(2);
   await expect(images.first()).toHaveAttribute('src', /^blob:/);
+  await expect.poll(() => images.first().evaluate(img => (img as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
+  expect(await images.first().evaluate(async img => (await (await fetch((img as HTMLImageElement).src)).blob()).type)).toBe(providerImage.type);
   expect(admissions).toBe(1);
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
   await expect(images).toHaveCount(0);
 });
+}
 
 
 test('fan enters the real ready catalog before any owner exists and persists an owner-inbox send across reload', async ({ page }) => {

@@ -401,3 +401,8 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | R72 | R01 이후 이식된 SettingsSection/SettingsRow와 MyPage/More 전체 설정 허브; 원본 `Presentation/More/MfaSecuritySettingsView.swift`, `feature/more/.../MfaSecuritySettingsScreen.kt` 추가 대조 | 양쪽 AccountAccessSettings는 기존 설정 허브·section/row·실제 비동기 권한/오류 재조회 구조 직접 확장 | MFA 자체는 복사하지 않는다. self-only 임시 grant/서버 만료·role/revision 계약은 원본에 없어 새 closed request와 scope 철회 구현이 필요하다. 기존 SOOP 신원이나 방 소유자를 덮어쓰지 않는다. |
 
 상세 경계와 검증은 [비밀번호·관리자 구현 기록](mobile-password-admin-progress.md)에 있다.
+
+
+| ID | 원본·대상 | 재사용과 변경 경계 |
+|---|---|---|
+| R73 | QA20 `d95a34adf71c38f888ddddc759bd6fce7d921046`의 Android/iOS `AuthorizedMedia` provider-avatar decoder | **기존 구현 직접 재사용**: BitmapFactory bounds/downsample와 ImageIO index-0 thumbnail을 테스트 가능한 ProviderAvatarDecoder로 옮긴다. 기존 20 MP/256 기준을 보존하고 provider MIME에만 GIF를 추가한다. 멜로밍 채팅 UX·다른 이미지 라이브러리·원본 설정을 가져오지 않는다. 합성 GIF는 테스트 소스에만 둔다. |

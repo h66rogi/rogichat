@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run platform storage regressions only on an owned ephemeral hosted-runner emulator."""
 import os
+import json
+import re
 from pathlib import Path
 import shutil
 import signal
@@ -19,6 +21,7 @@ IMAGE_REVISION = 7
 BOOT_TIMEOUT = 240
 TEST_TIMEOUT = 900
 REQUIRED_CLASSES = {
+    "chat.rogi.rogichat.core.media.ProviderAvatarDecoderTest",
     "chat.rogi.rogichat.core.session.AndroidCredentialStoreTest",
     "chat.rogi.rogichat.core.session.AndroidPendingAuthStoreTest",
     "chat.rogi.rogichat.core.session.AndroidAccountDeletionStoreTest",
@@ -98,6 +101,27 @@ def inspect_results(directory):
     return len(seen)
 
 
+def failure_summary(directory):
+    """Bounded metadata only: never emit messages, stack traces or emulator/key logs."""
+    summary = []
+    reports = sorted(directory.rglob("TEST-*.xml"))[:20]
+    for report in reports:
+        try:
+            if report.is_symlink() or report.stat().st_size > 1024 * 1024:
+                summary.append({"report": "unreadable"}); continue
+            root = ET.parse(report).getroot()
+            for case in list(root.iter("testcase"))[:100]:
+                name = case.get("name", "")
+                kind = next((tag for tag in ("failure", "error", "skipped") if case.find(tag) is not None), "passed")
+                classname = case.get("classname", "")
+                summary.append({"class": classname if classname in REQUIRED_CLASSES else "unrecognized",
+                                "test": name if classname in REQUIRED_CLASSES and re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,149}", name) else "unrecognized",
+                                "status": kind})
+        except (OSError, ET.ParseError, ValueError):
+            summary.append({"report": "unreadable"})
+    return summary or [{"report": "no-testcases"}]
+
+
 def devices(output):
     lines = output.strip().splitlines()
     if not lines or lines[0].strip() != "List of devices attached":
@@ -167,6 +191,7 @@ def run_instrumentation(sdk, owned):
         return subprocess.check_output([*adb_command, *args], env=env, text=True, timeout=15).strip()
 
     emulator = gradle = None
+    results = None
     server_started = False
     with (owned / "emulator.log").open("w") as log:
         try:
@@ -209,8 +234,8 @@ def run_instrumentation(sdk, owned):
             count = inspect_results(results)
             print(f"Owned API 36 revision 7 emulator: {count} storage tests passed, zero skips")
         except BaseException:
-            log.flush()
-            print((owned / "emulator.log").read_text(errors="replace")[-4000:], file=sys.stderr)
+            summary = failure_summary(results) if results is not None else [{"report": "no-testcases"}]
+            print("Isolated instrumentation result summary: " + json.dumps(summary), file=sys.stderr)
             raise
         finally:
             try:
