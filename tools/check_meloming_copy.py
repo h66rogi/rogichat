@@ -16,6 +16,8 @@ MANIFEST = ROOT / 'docs/meloming-source-manifest.tsv'
 FRONTEND = ROOT / 'apps/web/src/meloming'
 BACKEND = ROOT / 'references/meloming-back'
 ASSETS = ROOT / 'apps/web/public'
+FRONTEND_ROUTES = ROOT / 'apps/web/src/app/(meloming-channel)/channel/[user]'
+SOURCE_ROUTES = FRONTEND / 'app/(default)/channel/[user]'
 TEXT_SUFFIXES = {'.ts', '.tsx', '.js', '.jsx', '.css'}
 CSS_CLASS_ALIAS_FILE = 'domains/channel/components/musicbook/song-request-price-pills.tsx'
 
@@ -49,10 +51,14 @@ def main() -> None:
         manifest[groups[kind]][relative] = expected_hash
     verify_files(FRONTEND, manifest['frontend'], namespace=True)
     verify_files(BACKEND, manifest['backend'])
+    routes = [path for path in FRONTEND_ROUTES.rglob('*') if path.is_file()]
+    for path in routes:
+        source = SOURCE_ROUTES / path.relative_to(FRONTEND_ROUTES)
+        assert source.is_file() and path.read_bytes() == source.read_bytes(), f'Copied route diverged: {path}'
     for relative, expected_hash in manifest['assets'].items():
         path = ASSETS / relative
         assert digest(path.read_bytes()) == expected_hash, f'Copied asset diverged: {path}'
-    print(f"Verified {len(manifest['frontend'])} frontend files, {len(manifest['backend'])} backend files, and {len(manifest['assets'])} assets.")
+    print(f"Verified {len(manifest['frontend'])} frontend files, {len(manifest['backend'])} backend files, {len(routes)} mounted routes, and {len(manifest['assets'])} assets.")
 
 
 if __name__ == '__main__':

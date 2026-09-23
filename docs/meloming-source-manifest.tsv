@@ -5,6 +5,9 @@ F	c2fea293680eed486cfe9863fd766f3590ec6e777fadf6423ef6cc75c3f6b125	app/(default)
 F	582ecd0ac27d88447f32017b15d57afe06796962bf55549717e74e2ce013b79d	app/(default)/channel/[user]/(channel)/musicbook/page.tsx
 F	b4ac39176850978ceedde87378d4613148a68358fc7c9374090418f4e750b90d	app/(default)/channel/[user]/(channel)/schedule/opengraph-image.tsx
 F	3798b8ec552090e9da661406df0173db22195e51a81a63a37793660e872bc9a7	app/(default)/channel/[user]/(channel)/schedule/page.tsx
+F	c2152626cc4968408aa82faf49c6c5006076bd6b003ca8ae7b3257ef018b1b90	app/(default)/channel/[user]/(channel)/setlist/[sessionId]/page.tsx
+F	d142a2f87ee20b0d3ccb69d254767b0c1ac562ffba2accbfca0a18427ecc6f23	app/(default)/channel/[user]/(channel)/setlist/opengraph-image.tsx
+F	16c69761c7c6897f188ee1d85d67094f085be341d4f82b5e95a0da2381f42078	app/(default)/channel/[user]/(channel)/setlist/page.tsx
 F	279d11911f3ecd1c38a053dc81bf8296e771577ec97bdcd2ff6273d1fc19f8e1	app/(default)/channel/[user]/(channel)/wardrobe/[itemId]/page.tsx
 F	ba0ef7b535d4719fcb97ca5c9beaddef79add2bc33f4f250d77793552bfa88da	app/(default)/channel/[user]/(channel)/wardrobe/page.tsx
 F	971c7240302eab1b440ea6fc0d0efcba34f05a0f56bcd264cbf1334ad89c8694	app/(default)/channel/[user]/(manage)/layout.tsx
@@ -94,6 +97,8 @@ F	758c8fbcac875c91d4621e554e71fb9618c4385ca1382f54d1fcf131ae630260	domains/chann
 F	f8e740aaa279ff14a0248b40f5ff1ba8beb993bd08750583b42fe810e831fa52	domains/channel/components/channel-manage-content.tsx
 F	0a3efeb39a8c87d4f5281bf55fb5e674898c3845b1123eeeac33a708975ddaa3	domains/channel/components/channel-musicbook-content.tsx
 F	c3c1750efdbb67fd8117054fc301b00c612cc8684586a17f02496f3f00b97ef9	domains/channel/components/channel-schedule-content.tsx
+F	1feb91bc2d6ebdd536de96ad4657fe2b8f9a9caa8f37b66e31d1a9b6769aeb5a	domains/channel/components/channel-setlist-content.tsx
+F	dcb576ded63c49db2209dfb21224cb9ef765254fee7cfb3d634ce85bc6616926	domains/channel/components/channel-setlist-detail-content.tsx
 F	9252de0dcd2698491c667bcca9ca1669fd0bb660bf2d6799e9cb48724dc1e0bc	domains/channel/components/channel-wardrobe-content.tsx
 F	071ef4a7e2d0c18e49e4e84c319d1cfb146df50d6c3addd8180cebc979650a75	domains/channel/components/channel-wardrobe-detail-content.tsx
 F	7672a838b6d45a7a3d96f557b204eae51b6a95a5e4ed38d3edf98c734f2552e9	domains/channel/components/channel/channel-banner-editable.tsx
@@ -200,6 +205,7 @@ F	5c957bc08cba90b9f8da8d69bb68752516d5c450f2c8d6b53219548b88cbc0ac	domains/chann
 F	9108f499b3e8b45d9aed4e022d3e491073944e68f884902a84d375a3c80bbc70	domains/channel/components/section/random-songs-dialog.tsx
 F	95362868c3c5d47c297c5e3fa3b731aa73315e4409634e8f7ab122d8b487192d	domains/channel/components/section/schedule.tsx
 F	b638aadb0e1aa076d01e280123aca36fdb52328feb08f81eeeab4cfc9890f0b9	domains/channel/components/section/song-list.tsx
+F	eacd4e7fe54b0b82e0e294df3dc768e47a947019b5a21b0dd06fa95e839bf15f	domains/channel/components/setlist-shared.tsx
 F	8a813e8800ea555175c86cee9300f1fb9984cdc1977da5c4c5951e5d76391bb4	domains/channel/components/sheet-music/SheetMusicCanvas.tsx
 F	cfb76770555ce5a0b79be0a36b70f0565b6852ed3608667a80b2fb0a25d922ed	domains/channel/components/sheet-music/SheetMusicDropzone.tsx
 F	99ae09719cd8f3c6ac832e730ea1a948f413a36da8a87cb22b2dac0f0f7c8ed7	domains/channel/components/sheet-music/SheetMusicSection.tsx
