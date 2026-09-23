@@ -17,6 +17,31 @@ async function openReactionControl(page: Page) {
   await page.getByTestId('chat-reaction-trigger').first().click();
 }
 
+test('in-app navigation keeps one chat instance and revocation still clears it', async ({ page, isMobile }) => {
+  const { account } = await chatApi(page);
+  await page.goto('/chat');
+  const input = page.getByTestId('chat-composer-input');
+  await expect(input).toBeVisible();
+  await input.fill('다른 메뉴를 다녀와도 유지되는 초안');
+  await input.evaluate(element => { element.setAttribute('data-navigation-mount', 'retained'); });
+  if (isMobile) await page.getByRole('link', { name: '채널 홈으로 이동' }).click();
+  else await page.locator('[data-shell-aside]').getByRole('link', { name: '프로필' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(input).toBeHidden();
+  if (isMobile) {
+    await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
+    await page.getByRole('dialog', { name: '채널 메뉴' }).getByRole('link', { name: '채팅' }).click();
+  } else await page.locator('[data-shell-aside]').getByRole('link', { name: '채팅' }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue('다른 메뉴를 다녀와도 유지되는 초안');
+  await expect(input).toHaveAttribute('data-navigation-mount', 'retained');
+  account.sessionStatus = 401;
+  await page.evaluate(() => window.dispatchEvent(new Event('rogichat-session-invalidated')));
+  await expect(input).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
+});
+
 test('routine window focus preserves the chat composer and timeline', async ({ page }) => {
   const { state } = await chatApi(page);
   await page.goto('/chat');
