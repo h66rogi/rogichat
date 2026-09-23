@@ -52,8 +52,9 @@ async function fixture(t) {
 test('ported channel schema serves empty content, persists wardrobe/songbook, generates recurring dates and purges account data',async t=>{
   const {db,roomId,ownerId,fanId}=await fixture(t);
   const repository=new ChannelContentRepository();
-  const channel=new MelomingChannelService(db.transactions,{require:async(_tx,credentials)=>({userId:credentials.token})},repository);
-  const schedule=new ChannelScheduleService(db.transactions,{},repository);
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token})};
+  const channel=new MelomingChannelService(db.transactions,auth,repository);
+  const schedule=new ChannelScheduleService(db.transactions,auth,repository);
   const songbook=new SongbookService(db.transactions,{},repository);
   const recurring=new RecurringScheduleService(db.transactions,{},repository);
   const allocated=await Promise.all(Array.from({length:8},()=>db.transactions.write(tx=>nextChannelContentId(tx.prisma))));
@@ -70,6 +71,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const first=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
   assert.deepEqual(first.categories.map(row=>row.name),['의상','헤어']);
   assert.equal(first.items.length,0);
+  let privateScheduleId;
   await db.transactions.write(async tx=>{
     const wardrobe=new ChannelWardrobeService(tx.prisma);
     await wardrobe.createItem(roomId,{title:'검증 의상',imageUrl:'https://example.org/outfit.png',categoryId:first.categories[0].id,tags:['검증']});
@@ -80,7 +82,8 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
     await tx.prisma.song.create({data:{id:songId,title:'테 스트 노래',titleSearchable:'테스트노래',artistId,channelId:roomId}});
     await tx.prisma.songCategory.create({data:{id:await nextChannelContentId(tx.prisma),songId,categoryId}});
     await tx.prisma.userSongLike.create({data:{id:await nextChannelContentId(tx.prisma),userId:fanId,songId}});
-    await tx.prisma.channelSchedule.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,authorUserId:ownerId,title:'비공개',startAt:new Date(),visibility:'PRIVATE'}});
+    privateScheduleId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.channelSchedule.create({data:{id:privateScheduleId,channelId:roomId,authorUserId:ownerId,title:'비공개',startAt:new Date(),visibility:'PRIVATE'}});
     await tx.prisma.channelRecurringSchedule.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,dayOfWeek:new Date(Date.now()+86400000+9*3600000).getUTCDay(),title:'정기 방송',startTime:'20:00',status:'LIVE'}});
   });
   const publicWardrobe=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
@@ -89,6 +92,12 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.deepEqual((await channel.detail())._count,{songs:1,artists:1,categories:1});
   assert.equal((await songbook.list({search:'가수'})).total,1);
   assert.equal((await schedule.list({})).total,0);
+  assert.equal((await schedule.listForViewer({},{})).total,0);
+  assert.equal((await schedule.listForViewer({token:fanId},{})).total,0);
+  assert.equal((await schedule.listForViewer({token:ownerId},{})).total,1);
+  await assert.rejects(schedule.getOne({},privateScheduleId));
+  await assert.rejects(schedule.getOne({token:fanId},privateScheduleId));
+  assert.equal((await schedule.getOne({token:ownerId},privateScheduleId)).channelId,1);
   await recurring.refreshUpcoming();
   const generated=await schedule.list({limit:100});
   assert.ok(generated.total>=4);

@@ -46,7 +46,7 @@ function generationRange() {
   return {from,to};
 }
 function response(row:ChannelRecurringSchedule) {
-  return {id:row.id,channelId:'hurogi',dayOfWeek:row.dayOfWeek,title:row.title,startTime:row.startTime,
+  return {id:row.id,channelId:1,dayOfWeek:row.dayOfWeek,title:row.title,startTime:row.startTime,
     status:row.status,isActive:row.isActive,createdAt:row.createdAt.toISOString(),updatedAt:row.updatedAt.toISOString()};
 }
 
