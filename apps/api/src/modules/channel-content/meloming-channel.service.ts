@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
-import type { SessionCredentials } from '../auth/auth-context.js';
+import type { CommandCredentials, SessionCredentials } from '../auth/auth-context.js';
 import { AuthService } from '../auth/auth.service.js';
+import { ApiError } from '../auth/auth-primitives.js';
 import { ChannelContentRepository } from './channel-content.repository.js';
 
 // Meloming's public channel contract uses an integer id. Rogichat has exactly
@@ -33,7 +34,7 @@ export class MelomingChannelService {
   detail() {
     return this.transactions.read(async tx => {
       const { roomId } = await this.repository.primary(tx);
-      const room = await tx.prisma.rooms.findUniqueOrThrow({ where: { id: roomId }, select: { name: true, created_at: true } });
+      const room = await tx.prisma.rooms.findUniqueOrThrow({ where: { id: roomId }, select: { name: true, created_at: true, schedule_notice: true } });
       const [songs, artists, categories] = await Promise.all([
         tx.prisma.song.count({ where: { channelId: roomId } }),
         tx.prisma.artist.count({ where: { channelId: roomId } }),
@@ -46,11 +47,26 @@ export class MelomingChannelService {
         rightBannerLink: null, additionalLinks: [], themeColor: '#ff8c9d',
         channelDescription: '', createdAt: room.created_at.toISOString(),
         updatedAt: room.created_at.toISOString(), _count: { songs, artists, categories },
-        layoutType: 'new', visibility: 'PUBLIC', scheduleNotice: null,
+        layoutType: 'new', visibility: 'PUBLIC', scheduleNotice: room.schedule_notice,
         isOwnerProSubscriber: false, isOwnerAmbassador: false, isFounder: false,
         isVerified: false, verifications: [],
       };
     });
+  }
+
+  async updateScheduleNotice(credentials: CommandCredentials, value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError('INVALID_REQUEST', 400);
+    const raw = value as Record<string, unknown>;
+    if (Object.keys(raw).length !== 1 || !Object.hasOwn(raw, 'scheduleNotice') ||
+      (raw.scheduleNotice !== null && (typeof raw.scheduleNotice !== 'string' || raw.scheduleNotice.length > 65535))) {
+      throw new ApiError('INVALID_REQUEST', 400);
+    }
+    await this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { schedule_notice: raw.scheduleNotice as string | null } });
+    });
+    return this.detail();
   }
 
   permission(credentials: SessionCredentials) {

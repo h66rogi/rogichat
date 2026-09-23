@@ -1,9 +1,9 @@
 import { ApiTags } from '@nestjs/swagger';
-import { Controller, Get, Inject, Param, Req } from '@nestjs/common';
+import { Controller, Get, Inject, Param, Patch, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
-import { readSessionCredentials } from '../auth/auth-context.js';
+import { readCommandCredentials, readSessionCredentials } from '../auth/auth-context.js';
 import { ApiError } from '../auth/auth-primitives.js';
 import { channelDoc } from './channel-content.openapi.js';
 import { MelomingChannelService } from './meloming-channel.service.js';
@@ -36,5 +36,11 @@ export class MelomingChannelController {
   features(@Param('identifier') identifier: string) {
     channel(identifier);
     return this.service.features();
+  }
+
+  @Patch('schedule-notice') @channelDoc('melomingChannelScheduleNotice', '원본 일정 공지 수정', 'write')
+  scheduleNotice(@Param('identifier') identifier: string, @Req() request: Request) {
+    channel(identifier);
+    return this.service.updateScheduleNotice(readCommandCredentials(request, this.config), request.body);
   }
 }

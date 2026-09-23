@@ -553,6 +553,7 @@ model admin_capabilities {
 model rooms {
   id              String       @id @db.Char(36)
   name            String       @db.VarChar(80)
+  schedule_notice String?      @db.Text
   mode            RoomMode
   status          RoomStatus   @default(ACTIVE)
   policy_version  Int          @default(1) @db.UnsignedInt

@@ -70,6 +70,10 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.deepEqual((await channel.features()).items.filter(item=>item.isEnabled).map(item=>item.key),['musicbook','schedule','setlist','wardrobe']);
   assert.equal((await channel.permission({token:ownerId})).manageContent,true);
   assert.equal((await channel.permission({token:fanId})).manageContent,false);
+  assert.equal((await channel.detail()).scheduleNotice,null);
+  await assert.rejects(channel.updateScheduleNotice({token:fanId},{scheduleNotice:'private'}));
+  assert.equal((await channel.updateScheduleNotice({token:ownerId},{scheduleNotice:'이번 주 휴방'})).scheduleNotice,'이번 주 휴방');
+  assert.equal((await channel.detail()).scheduleNotice,'이번 주 휴방');
   assert.deepEqual(await profile.public(),{channelId:1});
   await assert.rejects(profile.save({token:fanId},{birthday:'2000-09-25'}));
   const savedProfile=await profile.save({token:ownerId},{birthday:'2000-09-25',debutDate:'2024-05-01'});

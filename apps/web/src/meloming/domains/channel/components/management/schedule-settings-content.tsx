@@ -25,6 +25,8 @@ import {
 } from '@/meloming/shared/components/ui/select';
 import { Alert, AlertDescription } from '@/meloming/shared/components/ui/alert';
 import { ManagementHeader } from '@/meloming/domains/channel/components/management/management-header';
+import { ChannelInfoEditModal } from '@/meloming/domains/channel/components/section/channel-info-edit-modal';
+import { useChannelProfile } from '@/meloming/domains/channel-profile';
 import { PillTabs, type PillTabItem } from '@/meloming/shared/components/ui/pill-tabs';
 import {
   SettingsPanel,
@@ -73,11 +75,13 @@ interface ScheduleSettingsContentProps {
 
 export function ScheduleSettingsContent({ user }: ScheduleSettingsContentProps) {
   const [activeTab, setActiveTab] = useState<ScheduleSettingsTab>('recurring');
+  const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
 
   const { data: channelData } = useChannel(user);
   const channelId = channelData?.id;
+  const { data: profile } = useChannelProfile(channelId ?? 0, { enabled: !!channelId });
 
   const { data: recurringData, isLoading: isRecurringLoading } = useRecurringSchedules(
     channelId ?? 0,
@@ -241,6 +245,20 @@ export function ScheduleSettingsContent({ user }: ScheduleSettingsContentProps) 
         description="반복 일정과 일정 공지를 설정합니다."
         icon={CalendarCog}
       />
+
+      {channelId && (
+        <div className="mb-6">
+          <Button variant="outline" onClick={() => setIsProfileDialogOpen(true)}>
+            생일·데뷔일 설정
+          </Button>
+          <ChannelInfoEditModal
+            open={isProfileDialogOpen}
+            onOpenChange={setIsProfileDialogOpen}
+            channelId={channelId}
+            profile={profile}
+          />
+        </div>
+      )}
 
       <PillTabs
         tabs={SCHEDULE_SETTINGS_TABS}
