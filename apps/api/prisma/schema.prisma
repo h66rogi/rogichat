@@ -422,6 +422,23 @@ model MelomingUserAlias {
   @@map("meloming_user_aliases")
 }
 
+// Copied from meloming-back ChannelOverlayLayout. Only the Channel integer FK
+// becomes the owner-bound Rogichat room UUID; musicbook-settings uses this row.
+model ChannelOverlayLayout {
+  id         Int      @id
+  channelId  String   @map("channel_id") @db.Char(36)
+  layoutType String   @map("layout_type") @db.VarChar(32)
+  layout     Json     @map("layout_json")
+  version    Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  channel    rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@unique([channelId, layoutType], map: "uq_channel_overlay_layouts_channel_type")
+  @@index([channelId], map: "idx_channel_overlay_layouts_channel_id")
+  @@map("channel_overlay_layouts")
+}
+
 model users {
   id                    String     @id @db.Char(36)
   status                UserStatus @default(ACTIVE)
@@ -587,6 +604,7 @@ model rooms {
   artists Artist[]
   songs Song[]
   channelProfile ChannelProfile?
+  channelOverlayLayouts ChannelOverlayLayout[]
 }
 
 model room_counters {

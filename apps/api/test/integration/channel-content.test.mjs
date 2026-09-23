@@ -11,6 +11,7 @@ import { ChannelContentRepository } from '../../dist/modules/channel-content/cha
 import { MelomingChannelService } from '../../dist/modules/channel-content/meloming-channel.service.js';
 import { MelomingProfileService } from '../../dist/modules/channel-content/meloming-profile.service.js';
 import { MelomingUserService } from '../../dist/modules/channel-content/meloming-user.service.js';
+import { MelomingMusicbookSettingsService } from '../../dist/modules/channel-content/meloming-musicbook-settings.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -57,6 +58,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
   const channel=new MelomingChannelService(db.transactions,auth,repository);
   const users=new MelomingUserService(db.transactions,auth,repository);
+  const musicbookSettings=new MelomingMusicbookSettingsService(db.transactions,auth,repository);
   const profile=new MelomingProfileService(db.transactions,auth,repository);
   const schedule=new ChannelScheduleService(db.transactions,auth,repository);
   const songbook=new SongbookService(db.transactions,{},repository);
@@ -65,6 +67,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(new Set(allocated).size,8);
   assert.equal((await schedule.list({})).total,0);
   assert.equal((await songbook.list({})).total,0);
+  assert.deepEqual(await musicbookSettings.getSettings(),{useProficiencyAsPrimary:false,hasExplicitUseProficiencyAsPrimary:false,canEnableProficiencyAsPrimary:true,totalSongs:0,songsMissingProficiency:0});
   const ownerAlias=await users.me({token:ownerId});
   const fanAlias=await users.me({token:fanId});
   assert.equal((await users.me({token:ownerId})).id,ownerAlias.id);
@@ -118,6 +121,12 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal((await songbook.artists())[0].songCount,1);
   assert.deepEqual((await channel.detail())._count,{songs:1,artists:1,categories:1});
   assert.equal((await songbook.list({search:'가수'})).total,1);
+  assert.equal((await musicbookSettings.getSettings()).songsMissingProficiency,1);
+  await assert.rejects(musicbookSettings.updateSettings({token:ownerId},{useProficiencyAsPrimary:true}));
+  await assert.rejects(musicbookSettings.copyDifficultyToProficiency({token:fanId}));
+  assert.equal((await musicbookSettings.copyDifficultyToProficiency({token:ownerId})).updatedCount,1);
+  assert.equal((await musicbookSettings.updateSettings({token:ownerId},{useProficiencyAsPrimary:true})).useProficiencyAsPrimary,true);
+  assert.equal((await musicbookSettings.getSettings()).hasExplicitUseProficiencyAsPrimary,true);
   assert.equal((await schedule.list({})).total,0);
   assert.equal((await schedule.listForViewer({},{})).total,0);
   assert.equal((await schedule.listForViewer({token:fanId},{})).total,0);
@@ -137,8 +146,8 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
     const changed=await db.transactions.write(tx=>cleanup.channelContent(tx,ownerId,100));
     if(!changed)break;
   }
-  const remaining=await db.transactions.read(async tx=>({songs:await tx.prisma.song.count(),schedules:await tx.prisma.channelSchedule.count(),items:await tx.prisma.channelWardrobeItem.count(),profiles:await tx.prisma.channelProfile.count()}));
-  assert.deepEqual(remaining,{songs:0,schedules:0,items:0,profiles:0});
+  const remaining=await db.transactions.read(async tx=>({songs:await tx.prisma.song.count(),schedules:await tx.prisma.channelSchedule.count(),items:await tx.prisma.channelWardrobeItem.count(),profiles:await tx.prisma.channelProfile.count(),layouts:await tx.prisma.channelOverlayLayout.count()}));
+  assert.deepEqual(remaining,{songs:0,schedules:0,items:0,profiles:0,layouts:0});
   await db.transactions.write(tx=>cleanup.privateFields(tx,ownerId));
   assert.equal(await db.transactions.read(tx=>tx.prisma.melomingUserAlias.count({where:{userId:ownerId}})),0);
 });

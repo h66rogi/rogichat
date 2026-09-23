@@ -80,6 +80,8 @@ export class AccountCleanupRepository {
     if (schedules.length) return (await tx.prisma.channelSchedule.deleteMany({ where: { channelId, id: { in: schedules.map(row => row.id) } } })).count;
     const recurring = await tx.prisma.channelRecurringSchedule.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (recurring.length) return (await tx.prisma.channelRecurringSchedule.deleteMany({ where: { channelId, id: { in: recurring.map(row => row.id) } } })).count;
+    const layouts = await tx.prisma.channelOverlayLayout.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (layouts.length) return (await tx.prisma.channelOverlayLayout.deleteMany({ where: { channelId, id: { in: layouts.map(row => row.id) } } })).count;
     const profile = await tx.prisma.channelProfile.deleteMany({ where: { channelId } });
     if (profile.count) return profile.count;
     return 0;

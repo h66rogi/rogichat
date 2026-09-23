@@ -31,4 +31,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260923230000_meloming_channel_profile', checksum: '91d92477867ecc9f7277db1a96089dfd59891c1f9e118af007c30a64d0a2aac6' },
   { name: '20260923231000_meloming_schedule_notice', checksum: '633bd2298dd38940e754d311f6bc3b1e3ea12048d4e1b7c45e22064cae8f209e' },
   { name: '20260923232000_meloming_user_alias', checksum: 'eed4619c2ebe6800f1159cd3ee2a6e34c42f13385dc1da2a63ae9b17dedfa6bc' },
+  { name: '20260923233000_meloming_musicbook_settings', checksum: '4fd6cbbd679ac6c72ba57e2b92c3e1e6bdc05cc7d3821ce417b971f715a80111' },
 ];
