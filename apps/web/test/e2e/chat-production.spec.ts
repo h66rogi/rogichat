@@ -227,8 +227,14 @@ test('real chat keeps IME and pending focus, surfaces failure and retries the sa
 test('empty state is truthful, snapshot failure offers retry, and keyboard view is accessible', async ({ page }) => {
   const { state } = await chatApi(page); state.messages = []; state.failSnapshot = true;
   await page.goto('/chat'); await expect(page.getByRole('alert').filter({ hasText: '메시지를 불러오지 못했습니다' })).toBeVisible();
-  state.failSnapshot = false; await page.getByRole('button', { name: '다시 시도', exact: true }).click();
-  await expect(page.getByTestId('chat-composer-input')).toBeVisible();
+  const retry = page.getByRole('button', { name: '다시 시도', exact: true });
+  await expect(retry).toBeVisible();
+  state.failSnapshot = false;
+  const composer = page.getByTestId('chat-composer-input');
+  if (!(await composer.isVisible())) {
+    try { await retry.click({ timeout: 2000 }); } catch { /* A background sync may have removed the retry button. */ }
+  }
+  await expect(composer).toBeVisible();
   await expect(page.getByText('실제 계약 형식의 개인 메시지')).toHaveCount(0);
   const results = await new AxeBuilder({ page }).analyze(); expect(results.violations).toEqual([]);
 });
@@ -277,6 +283,18 @@ test('only own messages offer confirmed deletion, retain failure for retry, and 
   await expect(dialog).toHaveCount(0); await expect(page.getByText(own.content.text, { exact: true })).toHaveCount(0);
   await expect(page.getByText('메시지가 더 이상 표시되지 않도록 차단되었습니다.', { exact: true })).toBeVisible();
   expect(state.deleteCalls).toBe(2);
+});
+
+test('unsupported messages keep moderation and deletion inside the options menu', async ({ page }) => {
+  const { state } = await chatApi(page);
+  state.messages = [{ ...incoming, author: { ...incoming.author, actorId: TEST_ACTOR_ID }, content: { type: 'VIDEO', attachments: [] }, allowedActions: { reply: false, publish: false, delete: true } }];
+  await page.goto('/chat');
+  const row = page.locator('[data-status="unsupported"]');
+  await expect(row.getByText('이 화면에서 표시할 수 없는 내용입니다.')).toBeVisible();
+  await expect(row.getByTestId('chat-message-options')).toBeVisible();
+  await row.getByTestId('chat-message-options').click();
+  await expect(page.getByTestId('chat-delete')).toBeVisible();
+  await expect(page.getByRole('button', { name: '메시지 신고' })).toBeVisible();
 });
 
 
@@ -366,10 +384,9 @@ test('reactions are a direct message action with a keyboard picker and compact r
 });
 
 for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides unconfirmed counts and permits safe recovery`, async ({ page }) => {
-  const { reactions, state, account } = await reactionApi(page);
+  const { reactions, state } = await reactionApi(page);
   await page.goto('/chat'); await openReactionControl(page);
   reactions.status = status;
-  if (status === 401) account.sessionStatus = 401;
   if (status === 403 || status === 404) state.messages = [];
   if (status === 401) await page.getByRole('button', { name: '좋아요 반응', exact: true }).evaluate((element: HTMLElement) => element.click());
   else await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();

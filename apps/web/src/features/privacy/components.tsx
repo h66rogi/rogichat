@@ -1,9 +1,12 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { AlertDialog } from 'radix-ui';
+import { Megaphone } from 'lucide-react';
 import type { Session } from '../../core/api/client';
 import { forgetChatMemory } from '../chat/chat-memory';
 import { invalidateSession } from '../auth/private-session';
 import { Button } from '../../shared/ui/button';
+import { actionDialogContentClass, actionDialogFooterClass, actionDialogOverlayClass, actionMenuItemClass } from '../../shared/ui/action-dialog';
 import { PrivacyClient } from './client';
 import { ACCOUNT_DELETION_PENDING, PRIVACY_CHANGED, DeletionFlow, browserPrivacyStore, type DeletionState, type DeletionPreparation } from './deletion';
 import { PublicationFlow, canOfferPublication, publicationKey, type PublicationContext, type PublicationState } from './publication';
@@ -112,6 +115,7 @@ export function PublicationControl(props: PublicationControlProps) {
 function PublicationForm(props: PublicationControlProps) {
   const [state, setState] = useState<PublicationState>('idle');
   const [confirmed, setConfirmed] = useState(false);
+  const [open, setOpen] = useState(false);
   const [canCheck, setCanCheck] = useState(false);
   const flow = useRef<PublicationFlow | null>(null);
   const latest = useRef(props);
@@ -124,7 +128,17 @@ function PublicationForm(props: PublicationControlProps) {
     const timer = window.setInterval(() => { if (instance.state === 'preparing' && polls < 5) { polls++; void instance.check(); } }, 2000);
     return () => { window.clearInterval(timer); instance.dispose(); flow.current = null; };
   }, []);
-  return <div className="space-y-3" aria-label="개인 메시지 익명 공개"><p role="status">{publicationText[state]}</p>{state === 'idle' && <><label className="flex gap-3"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>이 메시지의 방 전체 공개 범위를 확인했습니다.</span></label><Button variant="outline" disabled={!confirmed} onClick={() => void flow.current?.publish(confirmed)}>익명으로 전체 공개</Button></>}{(state === 'preparing' || state === 'unknown') && canCheck && <Button variant="outline" onClick={() => void flow.current?.check()}>공개 상태 다시 확인</Button>}</div>;
+  return <AlertDialog.Root open={open} onOpenChange={next => { if (state !== 'sending') setOpen(next); }}>
+    <AlertDialog.Trigger asChild><button type="button" className={actionMenuItemClass}><Megaphone className="size-4" aria-hidden="true" />익명으로 전체 공개</button></AlertDialog.Trigger>
+    <AlertDialog.Portal><AlertDialog.Overlay className={actionDialogOverlayClass} /><AlertDialog.Content className={actionDialogContentClass} aria-busy={state === 'sending'}>
+      <AlertDialog.Title className="text-lg font-semibold text-ink">이 메시지를 공개할까요?</AlertDialog.Title>
+      <AlertDialog.Description className="mt-3 text-sm leading-6 text-muted">{publicationText.idle}</AlertDialog.Description>
+      {state !== 'idle' && <p role="status" className="mt-4 text-sm text-body">{publicationText[state]}</p>}
+      {state === 'idle' && <label className="mt-5 flex items-start gap-3 text-sm leading-6 text-body"><input type="checkbox" className="mt-1 size-4" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>이 메시지의 방 전체 공개 범위를 확인했습니다.</span></label>}
+      {(state === 'preparing' || state === 'unknown') && canCheck && <Button className="mt-4" variant="outline" onClick={() => void flow.current?.check()}>공개 상태 다시 확인</Button>}
+      <div className={actionDialogFooterClass}><AlertDialog.Cancel asChild><Button variant="outline" disabled={state === 'sending'}>{state === 'idle' ? '취소' : '닫기'}</Button></AlertDialog.Cancel>{state === 'idle' && <Button disabled={!confirmed} onClick={() => void flow.current?.publish(confirmed)}>익명으로 전체 공개</Button>}</div>
+    </AlertDialog.Content></AlertDialog.Portal>
+  </AlertDialog.Root>;
 }
 export function ModerationUnavailable() {
   return <section aria-label="신고 및 차단" className="space-y-3"><h2 className="font-semibold">신고 및 차단</h2><p>현재 신고 접수와 사용자 차단을 이용할 수 없습니다. 이 화면에서 신고가 전송되거나 사용자가 차단되지는 않습니다.</p></section>;
