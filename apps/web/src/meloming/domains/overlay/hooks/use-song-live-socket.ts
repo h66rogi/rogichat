@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
-
-const SOCKET_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3000';
+import { rogichatApiOrigin } from '@/core/meloming-api-bridge';
 
 const SOCKET_PATH = process.env.NEXT_PUBLIC_API_SOCKET_PATH || '/socket.io';
 
@@ -122,7 +120,7 @@ export function useSongLiveSocket(
 
     updateConnectionStatus('connecting');
 
-    const socket = io(`${SOCKET_BASE_URL}/song-live`, {
+    const socket = io(`${rogichatApiOrigin()}/song-live`, {
       path: SOCKET_PATH,
       transports: ['websocket', 'polling'],
       reconnection: true,
