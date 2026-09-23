@@ -250,9 +250,10 @@ def names(request):
 
 
 QA_MEDIA_STORAGE_ORIGINS = '["https://36875e4c357ab3a6fcfabe48f617dfb7.r2.cloudflarestorage.com"]'
+PREVIOUS_QA_IMAGE_WITHOUT_MEDIA_ORIGIN = 'ghcr.io/h66rogi/rogichat-web@sha256:d568a8069d37875d301d3c036bbef7727ebf0948924a77f3df52fb23c0221b46'
 
 
-def validate_compose(config, request):
+def validate_compose(config, request, *, previous_qa_without_media_origin=False):
     _, name, _ = names(request)
     require(set(config.get('services', {})) == {'web'} and config.get('name') == name)
     service = config['services']['web']
@@ -264,8 +265,9 @@ def validate_compose(config, request):
     expected = {'NODE_ENV': 'production', 'NEXT_TELEMETRY_DISABLED': '1', 'HOSTNAME': '0.0.0.0', 'PORT': '3000',
                 'ROGICHAT_WEB_ENV': request['environment'], 'ROGICHAT_DEFAULT_ROOM_ID': request['default_room_id'],
                 'ROGICHAT_API_ORIGIN': 'https://api.qa.rogi.chat' if request['environment'] == 'qa' else 'https://api.rogi.chat'}
-    if request['environment'] == 'qa':
+    if request['environment'] == 'qa' and not previous_qa_without_media_origin:
         expected['ROGICHAT_MEDIA_STORAGE_ORIGINS'] = QA_MEDIA_STORAGE_ORIGINS
+    require(not previous_qa_without_media_origin or request['environment'] == 'qa')
     require(service.get('environment') == expected)
     require(service.get('cap_drop') == ['ALL'] and 'no-new-privileges:true' in service.get('security_opt', []))
     network = config['networks']['web']
@@ -373,7 +375,7 @@ def reload_caddy(caddy_id):
     docker('exec', caddy_id, 'caddy', 'reload', '--config', '/etc/caddy/Caddyfile', '--adapter', 'caddyfile')
 
 
-def healthy(request, image_id):
+def healthy(request, image_id, *, previous_qa_without_media_origin=False):
     _, name, _ = names(request)
     deadline = time.monotonic() + 120
     while time.monotonic() < deadline:
@@ -385,7 +387,7 @@ def healthy(request, image_id):
         require(env.get('ROGICHAT_DEFAULT_ROOM_ID') == request['default_room_id'])
         require(env.get('ROGICHAT_WEB_ENV') == request['environment'])
         require(env.get('ROGICHAT_API_ORIGIN') == ('https://api.qa.rogi.chat' if request['environment'] == 'qa' else 'https://api.rogi.chat'))
-        require(env.get('ROGICHAT_MEDIA_STORAGE_ORIGINS') == (QA_MEDIA_STORAGE_ORIGINS if request['environment'] == 'qa' else None))
+        require(env.get('ROGICHAT_MEDIA_STORAGE_ORIGINS') == (QA_MEDIA_STORAGE_ORIGINS if request['environment'] == 'qa' and not previous_qa_without_media_origin else None))
         if value['State']['Running'] and value['State'].get('Health', {}).get('Status') == 'healthy':
             return
         time.sleep(2)
@@ -500,9 +502,12 @@ def apply(prepared):
             require(old_config['x-rogichat-release']['execution_image'] == old_execution)
             old_request['archive'] = {'execution_id': old_execution}
         require(matches(IMAGE, old_request['image']))
-        validate_compose(old_config, old_request)
+        previous_qa_without_media_origin = (old_request['environment'] == 'qa' and
+            old_request['image'] == PREVIOUS_QA_IMAGE_WITHOUT_MEDIA_ORIGIN and
+            'ROGICHAT_MEDIA_STORAGE_ORIGINS' not in old_config['services']['web']['environment'])
+        validate_compose(old_config, old_request, previous_qa_without_media_origin=previous_qa_without_media_origin)
         old_image = decode(docker('image', 'inspect', execution(old_request)))[0]['Id']
-        healthy(old_request, old_image)
+        healthy(old_request, old_image, previous_qa_without_media_origin=previous_qa_without_media_origin)
         external(old_request)
     # Recheck all bindings after slow network checks and before any activation.
     require(validate_request(decode(protected(REQUEST, 0o600))) == request)
@@ -550,7 +555,7 @@ def apply(prepared):
             else:
                 atomic(CURRENT, previous)
                 compose('up', '-d', '--no-deps', '--no-build', '--pull', 'never', 'web')
-                healthy(old_request, old_image)
+                healthy(old_request, old_image, previous_qa_without_media_origin=previous_qa_without_media_origin)
             require(snapshot_edge(request) == edge, 'edge changed; restored web files but reload requires operator review')
             reload_caddy(caddy_id)
             if previous is not None:
