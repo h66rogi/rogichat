@@ -109,6 +109,73 @@ enum ScheduleVisibility {
   PRIVATE
 }
 
+// Copied from meloming-back's Live Session & Song Request domain. External
+// sync-room, clip-extraction and donation relations are omitted from this
+// channel port; the original source remains in references/meloming-back.
+enum StreamPlatform {
+  SOOP     @map("soop")
+  CHZZK    @map("chzzk")
+  CIME     @map("cime")
+  YOUTUBE  @map("youtube")
+  MELOMING @map("meloming")
+  OTHER    @map("other")
+}
+
+enum LiveSessionStatus {
+  ACTIVE @map("active")
+  ENDED  @map("ended")
+  PAUSED @map("paused")
+}
+
+enum LiveSessionType {
+  STANDARD @map("standard")
+  SYNC     @map("sync")
+}
+
+enum KaraokePlaybackMode {
+  DIRECT  @map("direct")
+  YOUTUBE @map("youtube")
+}
+
+enum KaraokeVideoType {
+  KARAOKE  @map("karaoke")
+  ORIGINAL @map("original")
+}
+
+enum SongRequestStatus {
+  PENDING   @map("pending")
+  ACCEPTED  @map("accepted")
+  REJECTED  @map("rejected")
+  PLAYING   @map("playing")
+  COMPLETED @map("completed")
+}
+
+enum SongRequestSource {
+  CHAT       @map("chat")
+  DONATION   @map("donation")
+  MANUAL     @map("manual")
+  COMPETITOR @map("competitor")
+}
+
+enum SongRequestType {
+  NORMAL @map("normal")
+  RANDOM @map("random")
+}
+
+enum SongRequestMode {
+  EVERYONE      @map("everyone")
+  VERIFIED_ONLY @map("verified_only")
+  CHAT_ONLY     @map("chat_only")
+}
+
+enum PriceSource {
+  SONG       @map("song")
+  CATEGORY   @map("category")
+  DIFFICULTY @map("difficulty")
+  DEFAULT    @map("default")
+  FREE       @map("free")
+}
+
 enum ScheduleStatus {
   LIVE   @map("live")
   COLLAB @map("collab")
@@ -330,12 +397,157 @@ model Song {
   sheetMusics             SongSheetMusic[]
   videoPreferences        SongVideoPreference[]
   approvedAddRequest      SongAddRequest? @relation("SongAddRequestApprovedSong")
+  liveSongRequests        SongRequest[]
 
   @@unique([channelId, globalSongId], map: "unique_songs_channel_globalsong")
   @@index([channelId], map: "idx_songs_channel_id")
   @@index([artistId], map: "idx_songs_artist_id")
   @@index([titleSearchable], map: "idx_songs_title_searchable")
   @@map("songs")
+}
+
+/// 라이브 세션 (방송 세션). Copied from meloming-back LiveSession; channel/user
+/// keys are Rogichat UUIDs and external sync/recording integrations are absent.
+model LiveSession {
+  id                Int                @id
+  channelId         String             @map("channel_id") @db.Char(36)
+  userId            String             @map("user_id") @db.Char(36)
+  platform          StreamPlatform?
+  platformChannelId String?            @map("platform_channel_id") @db.VarChar(64)
+  status            LiveSessionStatus  @default(ACTIVE)
+  sessionType       LiveSessionType    @default(STANDARD) @map("session_type")
+  visibility        ScheduleVisibility @default(PUBLIC)
+  overlayToken      String             @map("overlay_token") @db.VarChar(64)
+  startedAt         DateTime           @default(now()) @map("started_at") @db.DateTime(0)
+  endedAt           DateTime?          @map("ended_at") @db.DateTime(0)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.DateTime(0)
+  playbackRevision  Int                @default(0) @map("playback_revision")
+
+  channel      rooms                @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  user         users                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  songRequests SongRequest[]
+  settings     LiveSessionSettings?
+
+  @@index([channelId, status], map: "idx_live_session_channel_status")
+  @@index([channelId, sessionType, status], map: "idx_live_session_channel_type_status")
+  @@index([channelId, status, visibility], map: "idx_live_session_channel_status_visibility")
+  @@index([userId], map: "idx_live_session_user_id")
+  @@index([overlayToken], map: "idx_live_session_overlay_token")
+  @@index([platform, platformChannelId, status], map: "idx_live_session_platform_channel_status")
+  @@map("live_sessions")
+}
+
+/// 신청곡. Copied from meloming-back SongRequest; requester and optional user
+/// keys are adapted to Rogichat accounts while numeric public IDs are retained.
+model SongRequest {
+  id                   Int               @id
+  liveSessionId        Int               @map("live_session_id")
+  songId               Int?              @map("song_id")
+  sourceChannelId      String?           @map("source_channel_id") @db.Char(36)
+  rawArtist            String            @map("raw_artist") @db.VarChar(255)
+  rawTitle             String            @map("raw_title") @db.VarChar(255)
+  rawMessage           String?           @map("raw_message") @db.Text
+  requesterPlatformId  String            @map("requester_platform_id") @db.VarChar(64)
+  requesterNickname    String            @map("requester_nickname") @db.VarChar(255)
+  status               SongRequestStatus @default(PENDING)
+  source               SongRequestSource @default(CHAT)
+  requestType          SongRequestType   @default(NORMAL) @map("request_type")
+  donationAmount       Int?              @map("donation_amount")
+  donationNativeAmount Int?              @map("donation_native_amount")
+  donationCurrency     String?           @map("donation_currency")
+  donationRateVersion  Int?              @map("donation_rate_version")
+  streamMessageId      String?           @unique @map("stream_message_id") @db.VarChar(128)
+  priority             Int               @default(0)
+  queueOrder           Int               @default(0) @map("queue_order")
+  calculatedPrice      Int?              @map("calculated_price")
+  priceSource          PriceSource?      @map("price_source")
+  playedAt             DateTime?         @map("played_at") @db.DateTime(0)
+  completedAt          DateTime?         @map("completed_at") @db.DateTime(0)
+  rejectionReason      String?           @map("rejection_reason") @db.VarChar(255)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt            DateTime          @updatedAt @map("updated_at") @db.DateTime(0)
+  requestUserId        String?           @map("request_user_id") @db.Char(36)
+  isAnonymous          Boolean           @default(false) @map("is_anonymous")
+
+  liveSession   LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  song          Song?       @relation(fields: [songId], references: [id], onDelete: SetNull)
+  sourceChannel rooms?      @relation("SongRequestSourceChannel", fields: [sourceChannelId], references: [id], onDelete: SetNull)
+  requestUser   users?      @relation("userSongRequests", fields: [requestUserId], references: [id], onDelete: SetNull)
+
+  @@index([liveSessionId, status], map: "idx_song_request_session_status")
+  @@index([liveSessionId, queueOrder], map: "idx_song_request_queue_order")
+  @@index([sourceChannelId], map: "idx_song_request_source_channel")
+  @@index([songId], map: "idx_song_request_song_id")
+  @@index([songId, createdAt(sort: Desc)], map: "idx_song_request_song_created")
+  @@index([liveSessionId, requesterPlatformId, status], map: "idx_song_request_session_requester_status")
+  @@index([requestUserId], map: "idx_song_request_user_id")
+  @@map("song_requests")
+}
+
+/// 라이브 세션 설정. Copied from meloming-back LiveSessionSettings.
+model LiveSessionSettings {
+  id                              Int                 @id
+  liveSessionId                   Int                 @unique @map("live_session_id")
+  requestEnabled                  Boolean             @default(true) @map("request_enabled")
+  paused                          Boolean             @default(false) @map("paused")
+  requestCommand                  String              @default("!신청") @map("request_command") @db.VarChar(50)
+  maxQueueSize                    Int                 @default(50) @map("max_queue_size")
+  donationPriorityEnabled         Boolean             @default(true) @map("donation_priority_enabled")
+  enforceDonationMinimumPrice     Boolean             @default(true) @map("enforce_donation_minimum_price")
+  karaokePlaybackMode             KaraokePlaybackMode @default(DIRECT) @map("karaoke_playback_mode")
+  karaokeVideoType                KaraokeVideoType    @default(KARAOKE) @map("karaoke_video_type")
+  donationOnlyEnabled             Boolean             @default(false) @map("donation_only_enabled")
+  requestMode                     SongRequestMode     @default(EVERYONE) @map("request_mode")
+  chatRequestEnabled              Boolean             @default(true) @map("chat_request_enabled")
+  donationRequestEnabled          Boolean             @default(true) @map("donation_request_enabled")
+  allowAnonymous                  Boolean             @default(false) @map("allow_anonymous")
+  requireSongMatch                Boolean             @default(true) @map("require_song_match")
+  randomRequestEnabled            Boolean             @default(true) @map("random_request_enabled")
+  syncChatRequestsEnabled         Boolean             @default(true) @map("sync_chat_requests_enabled")
+  syncRandomSongCommand           String              @default("!노래랜덤") @map("sync_random_song_command") @db.VarChar(50)
+  syncRandomSongMinDonation       Int                 @default(100) @map("sync_random_song_min_donation")
+  syncRandomStreamerCommand       String              @default("!스트리머랜덤") @map("sync_random_streamer_command") @db.VarChar(50)
+  syncRandomStreamerMinDonation   Int                 @default(100) @map("sync_random_streamer_min_donation")
+  preventDuplicateSongs           Boolean             @default(false) @map("prevent_duplicate_songs")
+  blockedCategoryIds              Json                @default("[]") @map("blocked_category_ids")
+  maxRequestsPerUser              Int                 @default(0) @map("max_requests_per_user")
+  maxTotalRequests                Int                 @default(50) @map("max_total_requests")
+  showRequesterName               Boolean             @default(true) @map("show_requester_name")
+  createdAt                       DateTime            @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                       DateTime            @updatedAt @map("updated_at") @db.DateTime(0)
+  liveSession                     LiveSession         @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@map("live_session_settings")
+}
+
+/// 채널 단위 신청곡 설정. Copied from meloming-back ChannelSongRequestSettings.
+model ChannelSongRequestSettings {
+  id                              Int                 @id
+  channelId                       String              @unique @map("channel_id") @db.Char(36)
+  requestCommand                  String              @default("!신청") @map("request_command") @db.VarChar(50)
+  maxQueueSize                    Int                 @default(50) @map("max_queue_size")
+  donationPriorityEnabled         Boolean             @default(true) @map("donation_priority_enabled")
+  enforceDonationMinimumPrice     Boolean             @default(true) @map("enforce_donation_minimum_price")
+  karaokePlaybackMode             KaraokePlaybackMode @default(DIRECT) @map("karaoke_playback_mode")
+  karaokeVideoType                KaraokeVideoType    @default(KARAOKE) @map("karaoke_video_type")
+  donationOnlyEnabled             Boolean             @default(false) @map("donation_only_enabled")
+  requestMode                     SongRequestMode     @default(EVERYONE) @map("request_mode")
+  chatRequestEnabled              Boolean             @default(true) @map("chat_request_enabled")
+  donationRequestEnabled          Boolean             @default(true) @map("donation_request_enabled")
+  allowAnonymous                  Boolean             @default(false) @map("allow_anonymous")
+  requireSongMatch                Boolean             @default(true) @map("require_song_match")
+  randomRequestEnabled            Boolean             @default(true) @map("random_request_enabled")
+  preventDuplicateSongs           Boolean             @default(false) @map("prevent_duplicate_songs")
+  blockedCategoryIds              Json                @default("[]") @map("blocked_category_ids")
+  maxRequestsPerUser              Int                 @default(0) @map("max_requests_per_user")
+  maxTotalRequests                Int                 @default(50) @map("max_total_requests")
+  showRequesterName               Boolean             @default(true) @map("show_requester_name")
+  createdAt                       DateTime            @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                       DateTime            @updatedAt @map("updated_at") @db.DateTime(0)
+  channel                         rooms               @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@map("channel_song_request_settings")
 }
 
 // Copied from meloming-back SongVideoPreference. Song keeps its existing
@@ -496,6 +708,8 @@ model users {
   sessions              auth_sessions[]
   songAddRequests       SongAddRequest[] @relation("SongAddRequestRequester")
   processedSongRequests SongAddRequest[] @relation("SongAddRequestProcessor")
+  liveSessions          LiveSession[]
+  liveSongRequests      SongRequest[] @relation("userSongRequests")
   members               room_members[]
   creator               creator_accounts?
   admin                 admin_capabilities?
@@ -652,6 +866,9 @@ model rooms {
   channelProfile ChannelProfile?
   channelOverlayLayouts ChannelOverlayLayout[]
   songAddRequests SongAddRequest[]
+  liveSessions LiveSession[]
+  liveRequestSettings ChannelSongRequestSettings?
+  sourcedSongRequests SongRequest[] @relation("SongRequestSourceChannel")
 }
 
 model room_counters {
