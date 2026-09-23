@@ -43,7 +43,7 @@
   /* 최상단 서비스 종료 안내 바의 높이. 안내 바가 자기 높이를 이 값으로 잡고
      sticky thin header 가 같은 값만큼 아래에서 고정된다. 안내를 걷어낼 때는
      이 한 줄만 0px 으로 바꾸면 헤더가 원래대로 뷰포트 상단에 붙는다. */
-  --meloming-top-notice-height: 3rem;
+  --meloming-top-notice-height: 0px;
   font-family: "Pretendard Variable", Pretendard, -apple-system,
     BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI",
     "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji",

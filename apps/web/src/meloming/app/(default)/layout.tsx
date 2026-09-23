@@ -1,15 +1,5 @@
-import { Suspense } from "react";
 import { headers } from "next/headers";
-import MarketingConsentDialog from "@/meloming/domains/user/components/marketing-consent-dialog";
-import MarketingReconsentNudgeDialog from "@/meloming/domains/user/components/marketing-reconsent-nudge-dialog";
 import { GlobalShell } from "@/meloming/shared/components/layout/global-shell";
-import { ServiceShutdownNotice } from "@/meloming/shared/components/common/service-shutdown-notice";
-import Footer from "@/meloming/shared/components/layout/footer";
-import { InAppAuthHandler } from "@/meloming/shared/components/common/inapp-auth-handler";
-import { MobileAppBanner } from "@/meloming/shared/components/common/mobile-app-banner";
-import { GlobalClipPlayer } from "@/meloming/domains/clip/components/global-clip-player";
-import { MarketingPopupProvider } from "@/meloming/domains/marketing-popup/components/marketing-popup-provider";
-import { getMenuViewer } from "@/meloming/features/home-new/auth/get-menu-viewer";
 import {
   getChannelFeatureSettingsServer,
   getChannelIdentifierPermissionServer,
@@ -62,36 +52,11 @@ export default async function DefaultLayout({
   const requestHeaders = await headers();
   const pathname = requestHeaders.get(REQUEST_PATHNAME_HEADER);
   const initialChannelUser = resolveInitialPublicChannelUser(pathname);
-  const [{ viewer, profile }, initialChannelShellData] = await Promise.all([
-    getMenuViewer(),
-    getInitialChannelShellData(initialChannelUser),
-  ]);
+  const initialChannelShellData = await getInitialChannelShellData(initialChannelUser);
 
   return (
-    <>
-      <Suspense fallback={null}>
-        <InAppAuthHandler />
-      </Suspense>
-      <ServiceShutdownNotice />
-      <GlobalShell
-        viewer={viewer}
-        profile={profile}
-        initialChannelShellData={initialChannelShellData}
-        footer={<Footer />}
-      >
-        {children}
-      </GlobalShell>
-
-      <MarketingConsentDialog />
-      <MarketingReconsentNudgeDialog />
-      <MarketingPopupProvider />
-      <Suspense fallback={null}>
-        <MobileAppBanner />
-      </Suspense>
-
-      {/* 글로벌 클립 플레이어 (Layout에 있어서 페이지 이동해도 유지됨) */}
-      <GlobalClipPlayer />
-
-    </>
+    <GlobalShell initialChannelShellData={initialChannelShellData}>
+      {children}
+    </GlobalShell>
   );
 }

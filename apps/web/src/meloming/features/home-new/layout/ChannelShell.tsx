@@ -4,7 +4,6 @@ import { type CSSProperties, type ReactNode } from 'react';
 import { SidebarProvider } from '@/meloming/shared/components/ui/sidebar';
 import { ChannelMenuSidebar } from '@/meloming/domains/channel/components/channel/channel-menu-sidebar';
 import { GlobalThinHeader } from '@/meloming/shared/components/layout/global-thin-header';
-import { HeaderProfileMenu } from '@/meloming/shared/components/layout/header-profile-menu';
 import { ChannelMobileTopBar } from './ChannelMobileTopBar';
 import type { ChannelShellInitialData } from './channel-shell-initial-data';
 
@@ -79,12 +78,9 @@ export function ChannelShell({
         {/* ThinHeader: sticky, bg-muted, z-[60] */}
         <div className="sticky top-[var(--meloming-top-notice-height)] z-[60] bg-muted py-0.5">
           <GlobalThinHeader
-            activeService="portal"
-            logoSrc="/logo/meloming-logo-full.png"
-            logoAlt="멜로밍"
-            userSlot={
-              <HeaderProfileMenu />
-            }
+            logoSrc="/icons/rogichat-icon.svg"
+            logoAlt="로기챗"
+            userSlot={<a href="/settings" className="text-sm text-foreground">설정</a>}
           />
         </div>
 

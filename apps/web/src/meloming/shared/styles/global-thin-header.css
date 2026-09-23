@@ -1,11 +1,5 @@
 /* ===== GlobalThinHeader 전용 스타일 ===== */
 
-/* NanumSquareNeo 웹폰트 */
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-bRg.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-cBd.woff2') format('woff2'); font-weight: 700; font-display: swap; }
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-dEb.woff2') format('woff2'); font-weight: 800; font-display: swap; }
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-eHv.woff2') format('woff2'); font-weight: 900; font-display: swap; }
-
 /* ── 헤더 본체 ── */
 .thin-header {
   --fg: #1e1e1e;
@@ -19,7 +13,7 @@
   --primary-soft: #edecff;
   --danger: #dc2626;
 
-  font-family: 'NanumSquareNeo', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   width: 100%;
   height: 42px;
   background: transparent;

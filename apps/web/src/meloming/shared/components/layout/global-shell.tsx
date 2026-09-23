@@ -3,24 +3,17 @@
 import type { ReactNode } from 'react';
 import { usePathname } from 'next/navigation';
 import { useInAppMode } from '@/meloming/shared/hooks/use-inapp-mode';
-import { NewShell } from '@/meloming/features/home-new/layout/NewShell';
 import { ManageShell } from '@/meloming/features/home-new/layout/ManageShell';
 import { ChannelShell } from '@/meloming/features/home-new/layout/ChannelShell';
 import {
   MANAGEMENT_MENU_ITEMS,
   type ManagementSection,
 } from '@/meloming/domains/channel/components/management/types';
-import type { MenuViewer } from '@/meloming/features/home-new/menu/menu-types';
-import type { ProfileSummary } from '@/meloming/features/home-new/auth/get-menu-viewer';
 import type { ChannelShellInitialData } from '@/meloming/features/home-new/layout/channel-shell-initial-data';
 import { resolvePublicChannelRoute } from '@/meloming/shared/lib/public-channel-route';
 
 type Props = {
-  viewer: MenuViewer;
-  profile?: ProfileSummary;
   initialChannelShellData?: ChannelShellInitialData;
-  /** Manage / Normal 모드에서 하단에 노출할 Footer */
-  footer: ReactNode;
   children: ReactNode;
 };
 
@@ -41,11 +34,9 @@ function resolveManageSection(afterManage: string | undefined): ManagementSectio
  */
 function ChannelShellGate({
   user,
-  profile,
   initialChannelShellData,
-  footer,
   children,
-}: Omit<Props, 'viewer'> & { user: string }) {
+}: Props & { user: string }) {
   const matchedInitialData =
     initialChannelShellData?.user === user ? initialChannelShellData : undefined;
   // 기존 분기: if ((channel.layoutType ?? 'new') === 'legacy') return <NewShell ... />;
@@ -53,10 +44,9 @@ function ChannelShellGate({
 
   return (
     <ChannelShell
-      profile={profile}
       user={user}
       initialData={matchedInitialData}
-      footer={footer}
+      footer={null}
     >
       {children}
     </ChannelShell>
@@ -64,10 +54,7 @@ function ChannelShellGate({
 }
 
 export function GlobalShell({
-  viewer,
-  profile,
   initialChannelShellData,
-  footer,
   children,
 }: Props) {
   const pathname = usePathname() ?? '';
@@ -93,10 +80,9 @@ export function GlobalShell({
     const activeSection = resolveManageSection(manageMatch[2]);
     return (
       <ManageShell
-        profile={profile}
         user={user}
         activeSection={activeSection}
-        footer={footer}
+        footer={null}
       >
         {children}
       </ManageShell>
@@ -110,19 +96,12 @@ export function GlobalShell({
     return (
       <ChannelShellGate
         user={publicChannelRoute.user}
-        profile={profile}
         initialChannelShellData={initialChannelShellData}
-        footer={footer}
       >
         {children}
       </ChannelShellGate>
     );
   }
 
-  // 일반 모드: NewShell + GlobalThinHeader
-  return (
-    <NewShell viewer={viewer} profile={profile} footer={footer}>
-      {children}
-    </NewShell>
-  );
+  return <>{children}</>;
 }
