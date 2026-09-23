@@ -7,6 +7,8 @@ import { readCommandCredentials, readSessionCredentials } from '../auth/auth-con
 import { ApiError } from '../auth/auth-primitives.js';
 import { channelDoc } from './channel-content.openapi.js';
 import { SongbookService } from './songbook.service.js';
+import { SongSuggestService } from './upstream/song-suggest.service.js';
+import { SongAutocompleteService } from './upstream/song-autocomplete.service.js';
 
 function channel(identifier: string): void {
   if (identifier !== 'hurogi' && identifier !== '1') throw new ApiError('NOT_FOUND', 404);
@@ -49,6 +51,8 @@ function query(request: Request) {
 export class MelomingSongsController {
   constructor(
     @Inject(SongbookService) private readonly songs: SongbookService,
+    @Inject(SongSuggestService) private readonly suggestions: SongSuggestService,
+    @Inject(SongAutocompleteService) private readonly autocomplete: SongAutocompleteService,
     @Inject(AUTH_CONFIG) private readonly config: AuthConfig,
   ) {}
 
@@ -56,6 +60,51 @@ export class MelomingSongsController {
   list(@Param('identifier') identifier: string, @Req() request: Request) {
     channel(identifier);
     return this.songs.list(query(request), readSessionCredentials(request, this.config));
+  }
+
+  @Get('random') @channelDoc('melomingSongsRandom','원본 채널 무작위 노래')
+  random(@Param('identifier') identifier:string,@Req() request:Request) {
+    channel(identifier);
+    const raw=request.query as Record<string,unknown>;
+    if (Object.keys(raw).some(key=>!['count','categoryIds'].includes(key))) throw new ApiError('INVALID_REQUEST',400);
+    const count=raw.count===undefined?5:id(String(raw.count));
+    if (count>100) throw new ApiError('INVALID_REQUEST',400);
+    return this.songs.random(count,numbers(raw.categoryIds)??[],readSessionCredentials(request,this.config));
+  }
+
+  @Get('suggest') @channelDoc('melomingSongsSuggest','원본 클립 제목 노래 추천')
+  suggest(@Param('identifier') identifier:string,@Req() request:Request) {
+    channel(identifier);
+    const raw=request.query as Record<string,unknown>;
+    if (Object.keys(raw).some(key=>!['text','limit'].includes(key)) || typeof raw.text!=='string' || !raw.text.trim() || raw.text.length>500) throw new ApiError('INVALID_REQUEST',400);
+    const limit=raw.limit===undefined?5:id(String(raw.limit));
+    if (limit>20) throw new ApiError('INVALID_REQUEST',400);
+    return this.suggestions.suggestSongs(1,raw.text,limit);
+  }
+
+  @Get('autocomplete') @channelDoc('melomingSongsAutocomplete','원본 노래 제목 자동완성','read')
+  async titleAutocomplete(@Param('identifier') identifier:string,@Req() request:Request) {
+    channel(identifier);
+    const raw=request.query as Record<string,unknown>;
+    if(Object.keys(raw).some(key=>!['query','limit','scope'].includes(key)) ||
+      (raw.query!==undefined&&(typeof raw.query!=='string'||raw.query.length>255)) ||
+      (raw.scope!==undefined&&!['channel','global'].includes(String(raw.scope)))) throw new ApiError('INVALID_REQUEST',400);
+    const limit=raw.limit===undefined?8:id(String(raw.limit));
+    if(limit>20) throw new ApiError('INVALID_REQUEST',400);
+    await this.songs.manage(readSessionCredentials(request,this.config));
+    return this.autocomplete.autocompleteTitles(1,raw.query as string|undefined,limit);
+  }
+
+  @Get('artist-suggest') @channelDoc('melomingSongsArtistSuggest','원본 노래 제목 기반 가수 추천','read')
+  async artistSuggest(@Param('identifier') identifier:string,@Req() request:Request) {
+    channel(identifier);
+    const raw=request.query as Record<string,unknown>;
+    if(Object.keys(raw).some(key=>!['title','limit','scope'].includes(key)) || typeof raw.title!=='string'||raw.title.length>255||
+      (raw.scope!==undefined&&!['channel','global'].includes(String(raw.scope)))) throw new ApiError('INVALID_REQUEST',400);
+    const limit=raw.limit===undefined?5:id(String(raw.limit));
+    if(limit>20) throw new ApiError('INVALID_REQUEST',400);
+    await this.songs.manage(readSessionCredentials(request,this.config));
+    return this.autocomplete.suggestArtists(1,raw.title,limit);
   }
 
   @Post('bulk') @channelDoc('melomingSongsBulkCreate', '원본 노래 엑셀 일괄 등록', 'write', 201)

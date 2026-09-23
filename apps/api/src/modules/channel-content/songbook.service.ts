@@ -146,6 +146,30 @@ export class SongbookService {
     });
   }
 
+  /** SongQueryService.getRandomSongsByChannelId sampling and response contract. */
+  random(count: number, categoryIds: number[], credentials?: SessionCredentials) {
+    return this.transactions.read(async tx => {
+      const {roomId,ownerId} = await this.repository.primary(tx);
+      const actor = credentials?.token ? await this.auth.require(tx,credentials,true) : null;
+      const where: Prisma.SongWhereInput = {channelId:roomId};
+      if (categoryIds.length) where.songCategories = {some:{categoryId:{in:categoryIds}}};
+      const pool = (await tx.prisma.song.findMany({where,select:{id:true}})).map(row=>row.id);
+      if (!pool.length) return {songs:[],total:0,page:1,limit:count};
+      const take = Math.min(count,pool.length);
+      for (let index=pool.length-1; index>pool.length-1-take; index--) {
+        const position = Math.floor(Math.random()*(index+1));
+        [pool[index],pool[position]] = [pool[position]!,pool[index]!];
+      }
+      const chosen = pool.slice(pool.length-take);
+      const rows = await tx.prisma.song.findMany({where:{id:{in:chosen},channelId:roomId},select});
+      const order = new Map(chosen.map((id,index)=>[id,index]));
+      rows.sort((left,right)=>(order.get(left.id)??0)-(order.get(right.id)??0));
+      const likes = actor && rows.length ? await tx.prisma.userSongLike.findMany({where:{userId:actor.userId,songId:{in:chosen}},select:{songId:true}}) : [];
+      const favorites = new Set(likes.map(like=>like.songId));
+      return {songs:rows.map(row=>songResponse(row,favorites.has(row.id),actor?.userId===ownerId)),total:take,page:1,limit:take};
+    });
+  }
+
   detail(id: number, credentials?: SessionCredentials) {
     return this.transactions.read(async tx => {
       const { roomId, ownerId } = await this.repository.primary(tx);

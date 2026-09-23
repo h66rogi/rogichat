@@ -29,6 +29,8 @@ import { AccountCleanupRepository } from '../../dist/modules/deletion/account-cl
 import { MelomingUploadService } from '../../dist/modules/channel-content/meloming-upload.service.js';
 import { MelomingFavoritesService } from '../../dist/modules/channel-content/meloming-favorites.service.js';
 import { MelomingSheetMusicService } from '../../dist/modules/channel-content/meloming-sheet-music.service.js';
+import { SongSuggestService } from '../../dist/modules/channel-content/upstream/song-suggest.service.js';
+import { SongAutocompleteService } from '../../dist/modules/channel-content/upstream/song-autocomplete.service.js';
 import { Readable } from 'node:stream';
 
 async function fixture(t) {
@@ -219,6 +221,13 @@ test('Meloming manual and Excel song registration creates categories and skips d
   assert.equal(result.skippedCount,2);
   assert.equal(result.newCategoriesCount,1);
   assert.equal((await songs.list({})).total,2);
+  const random=await songs.random(2,[],{token:ownerId});
+  assert.equal(random.songs.length,2);
+  assert.equal(new Set(random.songs.map(song=>song.id)).size,2);
+  assert.equal((await new SongSuggestService(db.transactions,repository).suggestSongs(1,'새 노래',5)).suggestions[0].title,'새 노래');
+  const autocomplete=new SongAutocompleteService(db.transactions,repository);
+  assert.equal((await autocomplete.autocompleteTitles(1,'새',5)).suggestions[0].title,'새 노래');
+  assert.equal((await autocomplete.suggestArtists(1,'수동',5)).suggestions[0].artistName,'가수');
   const exported=await songs.exportCsv({token:ownerId});
   assert.equal(exported.songCount,2);
   assert.match(exported.csv,/노래,가수,카테고리,난이도,숙련도/);
