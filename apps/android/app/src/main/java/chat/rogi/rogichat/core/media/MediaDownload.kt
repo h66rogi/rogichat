@@ -12,12 +12,12 @@ import kotlinx.coroutines.delay
 /** Credential-free, redirect-free object download. Video uses a real Range GET and is staged
  * privately so native seek does not retain an expired signed URL. Never persist this scratch path. */
 object MediaDownload {
-    suspend fun fetch(lease: MediaLease, scope: MediaScope, cacheDirectory: File): File {
+    suspend fun fetch(lease: MediaLease, scope: MediaScope, cacheDirectory: File, provider: Boolean = false): File {
         MediaScratchPreparation.prepare(cacheDirectory)
         var scratch: File? = null
         try { return withContext(Dispatchers.IO) {
         val video = lease.variant == MediaVariant.video
-        val cap = if (video) 52L * 1024 * 1024 else 10L * 1024 * 1024
+        val cap = if (provider) 2L * 1024 * 1024 else if (video) 52L * 1024 * 1024 else 10L * 1024 * 1024
         val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .cookieJar(CookieJar.NO_COOKIES).authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)
             .retryOnConnectionFailure(false).cache(null).callTimeout(java.time.Duration.ofMinutes(3)).build()
@@ -35,7 +35,7 @@ object MediaDownload {
             val status = response.code
             val expected = response.body.contentLength()
             validateResponse(lease.variant, status, expected, response.header("Content-Type")?.substringBefore(';'),
-                response.header("Content-Range"), response.header("Content-Encoding"))
+                response.header("Content-Range"), response.header("Content-Encoding"), provider)
             requireNotNull(response.body).byteStream().use { source -> file.outputStream().use { sink ->
                 val buffer = ByteArray(65536); var total = 0L
                 while (true) {
@@ -51,11 +51,11 @@ object MediaDownload {
         finally { monitor.cancel(); call.cancel(); client.connectionPool.evictAll(); client.dispatcher.executorService.shutdown() }
         } } catch (error: Throwable) { scratch?.delete(); throw error }
     }
-    internal fun validateResponse(variant: MediaVariant, status: Int, length: Long, type: String?, range: String?, encoding: String?) {
+    internal fun validateResponse(variant: MediaVariant, status: Int, length: Long, type: String?, range: String?, encoding: String?, provider: Boolean = false) {
         val video = variant == MediaVariant.video
-        val cap = if (video) 52L * 1024 * 1024 else 10L * 1024 * 1024
+        val cap = if (provider) 2L * 1024 * 1024 else if (video) 52L * 1024 * 1024 else 10L * 1024 * 1024
         if (status !in (if (video) setOf(200, 206) else setOf(200))) throw MediaFailure(status, null)
-        require(if (video) type == "video/mp4" else type in setOf("image/jpeg", "image/png", "image/webp"))
+        require(if (provider) !video && type in setOf("image/jpeg", "image/webp", "image/gif") else if (video) type == "video/mp4" else type in setOf("image/jpeg", "image/png", "image/webp"))
         require(encoding == null || encoding == "identity")
         require(length in 1..cap)
         if (status == 206) require(range == "bytes 0-${length - 1}/$length")

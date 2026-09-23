@@ -15,6 +15,8 @@ extension ConversationFeatureRequest {
         } else if parts == ["blocked-rooms"] {
             guard method == "GET", body == nil, upload == nil, expectedStatus == 200,
                   query.keys.allSatisfy({ $0 == "cursor" }), query.values.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 2200 && !$0.unicodeScalars.contains(where: { CharacterSet.whitespacesAndNewlines.union(.controlCharacters).contains($0) }) }) else { throw ProductError.invalidResponse }
+        } else if parts == ["me", "provider-avatar", "access"] {
+            guard method == "POST", body == nil, upload == nil, expectedStatus == 200, query.isEmpty else { throw ProductError.invalidResponse }
         } else if parts == ["me", "profile"] {
             guard method == "PATCH", upload == nil, expectedStatus == 200, let body,
                   let object = try JSONSerialization.jsonObject(with: body) as? [String: Any], Set(object.keys) == ["avatarAssetId"],

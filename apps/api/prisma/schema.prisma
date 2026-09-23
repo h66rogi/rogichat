@@ -101,19 +101,927 @@ enum PublicationState {
   REVOKED
 }
 
+// Ported from meloming-back a91393b2 prisma/schema.prisma. The source Channel/User
+// integer keys map to Rogichat's primary room and UUID users; content fields,
+// statuses and table names retain Meloming's channel data contract.
+enum ScheduleVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+// Copied from meloming-back's Live Session & Song Request domain. External
+// sync-room, clip-extraction and donation relations are omitted from this
+// channel port; original source commit and hashes are recorded in docs/meloming-source-manifest.tsv.
+enum StreamPlatform {
+  SOOP     @map("soop")
+  CHZZK    @map("chzzk")
+  CIME     @map("cime")
+  YOUTUBE  @map("youtube")
+  MELOMING @map("meloming")
+  OTHER    @map("other")
+}
+
+enum LiveSessionStatus {
+  ACTIVE @map("active")
+  ENDED  @map("ended")
+  PAUSED @map("paused")
+}
+
+enum LiveSessionType {
+  STANDARD @map("standard")
+  SYNC     @map("sync")
+}
+
+enum KaraokePlaybackMode {
+  DIRECT  @map("direct")
+  YOUTUBE @map("youtube")
+}
+
+enum KaraokeVideoType {
+  KARAOKE  @map("karaoke")
+  ORIGINAL @map("original")
+}
+
+enum SongRequestStatus {
+  PENDING   @map("pending")
+  ACCEPTED  @map("accepted")
+  REJECTED  @map("rejected")
+  PLAYING   @map("playing")
+  COMPLETED @map("completed")
+}
+
+enum SongRequestSource {
+  CHAT       @map("chat")
+  DONATION   @map("donation")
+  MANUAL     @map("manual")
+  COMPETITOR @map("competitor")
+}
+
+enum OmakaseLedgerType {
+  CHAT_PAID        @map("chat_paid")
+  MANUAL_INCREMENT @map("manual_increment")
+  MANUAL_DECREMENT @map("manual_decrement")
+  MANUAL_SET       @map("manual_set")
+  CONSUME_QUEUE    @map("consume_queue")
+  CONSUME_PLAY_NOW @map("consume_play_now")
+}
+
+enum SongRequestType {
+  NORMAL @map("normal")
+  RANDOM @map("random")
+}
+
+enum SongRequestMode {
+  EVERYONE      @map("everyone")
+  VERIFIED_ONLY @map("verified_only")
+  CHAT_ONLY     @map("chat_only")
+}
+
+enum PriceSource {
+  SONG       @map("song")
+  CATEGORY   @map("category")
+  DIFFICULTY @map("difficulty")
+  DEFAULT    @map("default")
+  FREE       @map("free")
+}
+
+enum ScheduleStatus {
+  LIVE   @map("live")
+  COLLAB @map("collab")
+  OFF    @map("off")
+  ETC    @map("etc")
+  TBD    @map("tbd")
+}
+
+enum RecurringScheduleStatus {
+  LIVE @map("live")
+  OFF  @map("off")
+}
+
+// Meloming channel profile vocabulary, preserved for anniversary calculations.
+enum Gender {
+  MALE
+  FEMALE
+  NONBINARY
+  OTHER
+  SECRET
+}
+
+enum MBTI {
+  ISTJ
+  ISTP
+  ISFJ
+  ISFP
+  INTJ
+  INTP
+  INFJ
+  INFP
+  ESTP
+  ESTJ
+  ESFP
+  ESFJ
+  ENTP
+  ENTJ
+  ENFP
+  ENFJ
+}
+
+model ChannelProfile {
+  id                    Int       @id
+  channelId             String    @unique @map("channel_id") @db.Char(36)
+  birthday              DateTime? @db.DateTime(0)
+  residence             String?   @db.VarChar(255)
+  heightCm              String?   @db.VarChar(32)
+  weightKg              String?   @db.VarChar(32)
+  nationality           String?   @db.VarChar(100)
+  gender                Gender?
+  symbolColor           String?   @db.VarChar(20)
+  agency                String?   @db.VarChar(255)
+  nickname              String?   @db.VarChar(100)
+  description           String?   @db.LongText
+  affiliatedGroups      Json?
+  fandomName            String?   @db.VarChar(100)
+  religion              String?   @db.VarChar(100)
+  education             Json?
+  mbti                  MBTI?
+  alias                 Json?
+  debutDate             DateTime? @db.DateTime(0)
+  broadcastingPlatforms Json?
+  bio                   String?   @db.Text
+  links                 Json?
+  homeDescription       String?   @map("home_description") @db.LongText
+  createdAt             DateTime  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.DateTime(0)
+
+  channel rooms @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId], map: "idx_channel_profile_channel_id")
+  @@map("channel_profiles")
+}
+
+model ChannelFeatureSettings {
+  channelId String @id @map("channel_id") @db.Char(36)
+  items Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  channel rooms @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_feature_settings")
+}
+
+/// Copied from Meloming ChannelPricingSettings. The channel key maps to the
+/// owner-bound Rogichat room while the pricing JSON keeps the original shape.
+model ChannelPricingSettings {
+  id               Int      @id
+  channelId        String   @unique @map("channel_id") @db.Char(36)
+  defaultPrice     Int?     @map("default_price")
+  difficultyPrices Json?    @map("difficulty_prices")
+  pricingEnabled   Boolean  @default(false) @map("pricing_enabled")
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  channel rooms @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_pricing_settings")
+}
+
+model ChannelSchedule {
+  id                  Int                       @id
+  channelId           String                    @map("channel_id") @db.Char(36)
+  authorUserId        String                    @map("author_user_id") @db.Char(36)
+  recurringScheduleId Int?                      @map("recurring_schedule_id")
+  title               String                    @db.VarChar(100)
+  content             String?                   @db.Text
+  startAt             DateTime                  @map("start_at") @db.DateTime(0)
+  endAt               DateTime?                 @map("end_at") @db.DateTime(0)
+  allDay              Boolean                   @default(false) @map("all_day")
+  isCanceled          Boolean                   @default(false) @map("is_canceled")
+  status              ScheduleStatus            @default(TBD)
+  visibility          ScheduleVisibility        @default(PUBLIC)
+  location            String?                   @db.VarChar(255)
+  externalUrl         String?                   @map("external_url") @db.VarChar(500)
+  isDeleted           Boolean                   @default(false) @map("is_deleted")
+  deletedAt           DateTime?                 @map("deleted_at") @db.DateTime(0)
+  createdAt           DateTime                  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt           DateTime                  @updatedAt @map("updated_at") @db.DateTime(0)
+  channel             rooms                     @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  author              users                     @relation(fields: [authorUserId], references: [id], onDelete: Restrict)
+  recurringSchedule   ChannelRecurringSchedule? @relation(fields: [recurringScheduleId], references: [id], onDelete: SetNull)
+
+  @@index([channelId, startAt], map: "idx_channel_schedule_channel_start")
+  @@index([authorUserId, startAt], map: "idx_channel_schedule_author_start")
+  @@index([isDeleted], map: "idx_channel_schedule_is_deleted")
+  @@index([recurringScheduleId], map: "idx_channel_schedule_recurring")
+  @@map("channel_schedules")
+}
+
+model ChannelRecurringSchedule {
+  id        Int                     @id
+  channelId String                  @map("channel_id") @db.Char(36)
+  dayOfWeek Int                     @map("day_of_week")
+  title     String                  @db.VarChar(100)
+  startTime String?                 @map("start_time") @db.VarChar(5)
+  status    RecurringScheduleStatus @default(LIVE)
+  isActive  Boolean                 @default(true) @map("is_active")
+  createdAt DateTime                @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt DateTime                @updatedAt @map("updated_at") @db.DateTime(0)
+  channel   rooms                   @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  schedules ChannelSchedule[]
+
+  @@unique([channelId, dayOfWeek])
+  @@map("channel_recurring_schedules")
+}
+
+model ChannelWardrobeCategory {
+  id                 Int      @id
+  channelId          String   @map("channel_id") @db.Char(36)
+  name               String   @db.VarChar(40)
+  defaultAspectRatio String   @default("1:1") @map("default_aspect_ratio") @db.VarChar(8)
+  isEnabled          Boolean  @default(true) @map("is_enabled")
+  sortOrder          Int      @default(0) @map("sort_order")
+  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  channel            rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  items              ChannelWardrobeItem[]
+
+  @@index([channelId, sortOrder], map: "idx_channel_wardrobe_categories_channel_order")
+  @@map("channel_wardrobe_categories")
+}
+
+model ChannelWardrobeItem {
+  id          Int      @id
+  channelId   String   @map("channel_id") @db.Char(36)
+  categoryId  Int      @map("category_id")
+  title       String   @db.VarChar(40)
+  imageUrl    String   @map("image_url") @db.Text
+  description String?  @db.Text
+  tags        Json?
+  isVisible   Boolean  @default(true) @map("is_visible")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  channel     rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  category    ChannelWardrobeCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([channelId, sortOrder], map: "idx_channel_wardrobe_items_channel_order")
+  @@index([categoryId, sortOrder], map: "idx_channel_wardrobe_items_category_order")
+  @@map("channel_wardrobe_items")
+}
+
+model Category {
+  id             Int      @id
+  name           String   @db.VarChar(255)
+  color          String   @db.VarChar(32)
+  channelId      String   @map("channel_id") @db.Char(36)
+  displayOrder   Int?     @map("display_order")
+  price          Int?
+  currencyPrices Json?    @map("currency_prices")
+  createdAt      DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  channel        rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  songCategories SongCategory[]
+
+  @@index([channelId], map: "idx_categories_channel_id")
+  @@index([channelId, displayOrder], map: "idx_categories_channel_display_order")
+  @@map("categories")
+}
+
+model Artist {
+  id             Int      @id
+  name           String   @db.VarChar(255)
+  nameSearchable String   @default("") @map("name_searchable") @db.VarChar(255)
+  channelId      String   @map("channel_id") @db.Char(36)
+  createdAt      DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  channel        rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  songs          Song[]
+
+  @@index([channelId], map: "idx_artists_channel_id")
+  @@index([nameSearchable], map: "idx_artists_name_searchable")
+  @@map("artists")
+}
+
+model Song {
+  id                      Int     @id
+  title                   String  @db.VarChar(255)
+  titleSearchable         String  @default("") @map("title_searchable") @db.VarChar(255)
+  artistId                Int     @map("artist_id")
+  channelId               String  @map("channel_id") @db.Char(36)
+  albumArt                String? @map("album_art") @db.Text
+  karaokeUrl              String? @map("karaoke_url") @db.Text
+  coverUrl                String? @map("cover_url") @db.Text
+  originalUrl             String? @map("original_url") @db.Text
+  globalSongId            Int?    @map("global_song_id")
+  r2CacheKey              String? @map("r2_cache_key") @db.VarChar(200)
+  mrVideoUrl              String? @map("mr_video_url") @db.Text
+  mrVideoKey              String? @map("mr_video_key") @db.VarChar(500)
+  difficulty              Int?    @default(1)
+  proficiency             Int?
+  songKey                 String? @map("song_key") @db.VarChar(40)
+  bpm                     Int?
+  preferredPitchSemitones Int?    @map("preferred_pitch_semitones")
+  preferredLyricsOffsetMs Int?    @map("preferred_lyrics_offset_ms")
+  lyricsLink              String? @map("lyrics_link") @db.Text
+  lyricsText              String? @map("lyrics_text") @db.Text
+  description             String? @db.Text
+  price                   Int?
+  currencyPrices          Json?   @map("currency_prices")
+  createdAt               DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  channel                 rooms   @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  artist                  Artist  @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  songCategories          SongCategory[]
+  userLikes               UserSongLike[]
+  sheetMusics             SongSheetMusic[]
+  videoPreferences        SongVideoPreference[]
+  approvedAddRequest      SongAddRequest? @relation("SongAddRequestApprovedSong")
+  liveSongRequests        SongRequest[]
+  clipChannels            ClipChannel[]
+  clipRequests            ClipRequest[]
+  globalSong              GlobalSong? @relation(fields: [globalSongId], references: [id], onDelete: SetNull)
+
+  @@unique([channelId, globalSongId], map: "unique_songs_channel_globalsong")
+  @@index([channelId], map: "idx_songs_channel_id")
+  @@index([artistId], map: "idx_songs_artist_id")
+  @@index([titleSearchable], map: "idx_songs_title_searchable")
+  @@map("songs")
+}
+
+// Copied from Meloming's Clip/ClipChannel/ClipStat/ClipRequest contract.
+// The one Rogichat room and UUID account replace Meloming's integer FKs.
+enum ClipPlatform {
+  YOUTUBE  @map("youtube")
+  SOOP     @map("soop")
+  CHZZK    @map("chzzk")
+  MELOMING @map("meloming")
+}
+
+enum ClipMediaType {
+  EMBED       @map("embed")
+  DIRECT_FILE @map("direct_file")
+}
+
+enum ClipContentType {
+  SONG_CLIP     @map("song_clip")
+  UPLOADED_CLIP @map("uploaded_clip")
+}
+
+enum ClipPostStatus {
+  VISIBLE @map("visible")
+  HIDDEN  @map("hidden")
+  DELETED @map("deleted")
+}
+
+enum ClipRequestStatus {
+  PENDING  @map("pending")
+  APPROVED @map("approved")
+  REJECTED @map("rejected")
+  CANCELED @map("canceled")
+}
+
+model Clip {
+  id               Int             @id
+  title            String          @db.VarChar(255)
+  description      String?         @db.Text
+  platform         ClipPlatform    @default(MELOMING)
+  videoId          String?         @map("video_id") @db.VarChar(100)
+  videoUrl         String?         @map("video_url") @db.Text
+  thumbnailUrl     String?         @map("thumbnail_url") @db.Text
+  duration         Int?
+  status           ClipPostStatus  @default(VISIBLE)
+  contentType      ClipContentType @default(SONG_CLIP) @map("content_type")
+  publishToHotClip Boolean         @default(true) @map("publish_to_hot_clip")
+  mediaType        ClipMediaType   @default(EMBED) @map("media_type")
+  selfHosted       Boolean         @default(false) @map("self_hosted")
+  autoGenerated    Boolean         @default(false) @map("auto_generated")
+  createdAt        DateTime        @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  deletedAt        DateTime?       @map("deleted_at") @db.DateTime(0)
+  clipChannels     ClipChannel[]
+  stat             ClipStat?
+  approvedRequest  ClipRequest?
+  @@index([status, createdAt], map: "idx_clips_status_created")
+  @@index([platform, videoId], map: "idx_clips_platform_video_id")
+  @@index([contentType, status, createdAt], map: "idx_clips_content_type_status_created")
+  @@map("clips")
+}
+
+model ClipChannel {
+  id        Int      @id
+  clipId    Int      @map("clip_id")
+  channelId String   @map("channel_id") @db.Char(36)
+  songId    Int?     @map("song_id")
+  isPrimary Boolean  @default(false) @map("is_primary")
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  clip      Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  channel   rooms    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  song      Song?    @relation(fields: [songId], references: [id], onDelete: SetNull)
+  @@unique([clipId, channelId], map: "uq_clip_channel")
+  @@index([songId], map: "idx_clip_channels_song_id")
+  @@map("clip_channels")
+}
+
+model ClipStat {
+  clipId       Int   @id @map("clip_id")
+  likeCount    Int   @default(0) @map("like_count")
+  commentCount Int   @default(0) @map("comment_count")
+  viewCount    Int   @default(0) @map("view_count")
+  hotScore     Float @default(0) @map("hot_score")
+  clip         Clip  @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  @@index([hotScore], map: "idx_clip_stats_hot_score")
+  @@map("clip_stats")
+}
+
+model ClipRequest {
+  id               Int               @id
+  requesterId      String            @map("requester_id") @db.Char(36)
+  channelId        String            @map("channel_id") @db.Char(36)
+  songId           Int               @map("song_id")
+  title            String            @db.VarChar(255)
+  description      String?           @db.Text
+  platform         ClipPlatform      @default(MELOMING)
+  videoId          String?           @map("video_id") @db.VarChar(100)
+  videoUrl         String?           @map("video_url") @db.Text
+  thumbnailUrl     String?           @map("thumbnail_url") @db.Text
+  duration         Int?
+  publishToHotClip Boolean           @default(true) @map("publish_to_hot_clip")
+  status           ClipRequestStatus @default(PENDING)
+  processedById    String?           @map("processed_by_id") @db.Char(36)
+  processedAt      DateTime?         @map("processed_at") @db.DateTime(0)
+  rejectionReason  String?           @map("rejection_reason") @db.VarChar(500)
+  approvedClipId   Int?              @unique @map("approved_clip_id")
+  createdAt        DateTime          @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime          @default(now()) @updatedAt @map("updated_at") @db.DateTime(0)
+  requester        users             @relation("ClipRequestRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  channel          rooms             @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  song             Song              @relation(fields: [songId], references: [id], onDelete: Cascade)
+  processedBy      users?            @relation("ClipRequestProcessor", fields: [processedById], references: [id], onDelete: SetNull)
+  approvedClip     Clip?             @relation(fields: [approvedClipId], references: [id], onDelete: SetNull)
+  @@index([requesterId, status], map: "idx_clip_requests_requester_status")
+  @@index([channelId, status], map: "idx_clip_requests_channel_status")
+  @@map("clip_requests")
+}
+
+// Copied from Meloming's global-song registry. Only Rogichat-created songs
+// populate these tables; no Meloming catalog or content rows are imported.
+model GlobalArtist {
+  id            Int      @id
+  canonicalName String   @map("canonical_name") @db.VarChar(255)
+  normKey       String   @unique @map("norm_key") @db.VarChar(255)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  aliases      GlobalArtistAlias[]
+  songs        GlobalSong[]
+  @@map("global_artists")
+}
+
+model GlobalArtistAlias {
+  id             Int      @id
+  globalArtistId Int      @map("global_artist_id")
+  alias          String   @db.VarChar(255)
+  normAlias      String   @map("norm_alias") @db.VarChar(255)
+  frequency      Int      @default(1)
+  createdAt      DateTime @default(now()) @map("created_at")
+  globalArtist GlobalArtist @relation(fields: [globalArtistId], references: [id])
+  @@unique([globalArtistId, normAlias])
+  @@index([normAlias])
+  @@map("global_artist_aliases")
+}
+
+model GlobalSong {
+  id               Int                  @id
+  title            String               @db.VarChar(255)
+  normTitle        String               @map("norm_title") @db.VarChar(255)
+  globalArtistId   Int                  @map("global_artist_id")
+  albumArt         String?              @map("album_art") @db.Text
+  channelCount     Int                  @default(0) @map("channel_count")
+  normVersion      Int                  @default(1) @map("norm_version") @db.SmallInt
+  entityConfidence GlobalSongConfidence @default(MEDIUM) @map("entity_confidence")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at")
+  globalArtist GlobalArtist    @relation(fields: [globalArtistId], references: [id])
+  aliases      GlobalSongAlias[]
+  songs        Song[]
+  @@unique([normTitle, globalArtistId])
+  @@index([normTitle])
+  @@index([globalArtistId])
+  @@index([channelCount(sort: Desc)])
+  @@map("global_songs")
+}
+
+model GlobalSongAlias {
+  id             Int      @id
+  globalSongId   Int      @map("global_song_id")
+  aliasTitle     String   @map("alias_title") @db.VarChar(255)
+  normAliasTitle String   @map("norm_alias_title") @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at")
+  globalSong GlobalSong @relation(fields: [globalSongId], references: [id])
+  @@unique([globalSongId, normAliasTitle])
+  @@index([normAliasTitle])
+  @@map("global_song_aliases")
+}
+
+enum GlobalSongConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+/// 라이브 세션 (방송 세션). Copied from meloming-back LiveSession; channel/user
+/// keys are Rogichat UUIDs and external sync/recording integrations are absent.
+model LiveSession {
+  id                Int                @id
+  channelId         String             @map("channel_id") @db.Char(36)
+  userId            String             @map("user_id") @db.Char(36)
+  platform          StreamPlatform?
+  platformChannelId String?            @map("platform_channel_id") @db.VarChar(64)
+  status            LiveSessionStatus  @default(ACTIVE)
+  sessionType       LiveSessionType    @default(STANDARD) @map("session_type")
+  visibility        ScheduleVisibility @default(PUBLIC)
+  overlayToken      String             @map("overlay_token") @db.VarChar(64)
+  startedAt         DateTime           @default(now()) @map("started_at") @db.DateTime(0)
+  endedAt           DateTime?          @map("ended_at") @db.DateTime(0)
+  createdAt         DateTime           @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt         DateTime           @updatedAt @map("updated_at") @db.DateTime(0)
+  playbackRevision  Int                @default(0) @map("playback_revision")
+
+  channel      rooms                @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  user         users                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  songRequests SongRequest[]
+  settings     LiveSessionSettings?
+  omakaseLedgerEntries OmakaseLedgerEntry[]
+
+  @@index([channelId, status], map: "idx_live_session_channel_status")
+  @@index([channelId, sessionType, status], map: "idx_live_session_channel_type_status")
+  @@index([channelId, status, visibility], map: "idx_live_session_channel_status_visibility")
+  @@index([userId], map: "idx_live_session_user_id")
+  @@index([overlayToken], map: "idx_live_session_overlay_token")
+  @@index([platform, platformChannelId, status], map: "idx_live_session_platform_channel_status")
+  @@map("live_sessions")
+}
+
+/// 신청곡. Copied from meloming-back SongRequest; requester and optional user
+/// keys are adapted to Rogichat accounts while numeric public IDs are retained.
+model SongRequest {
+  id                   Int               @id
+  liveSessionId        Int               @map("live_session_id")
+  songId               Int?              @map("song_id")
+  sourceChannelId      String?           @map("source_channel_id") @db.Char(36)
+  rawArtist            String            @map("raw_artist") @db.VarChar(255)
+  rawTitle             String            @map("raw_title") @db.VarChar(255)
+  rawMessage           String?           @map("raw_message") @db.Text
+  requesterPlatformId  String            @map("requester_platform_id") @db.VarChar(64)
+  requesterNickname    String            @map("requester_nickname") @db.VarChar(255)
+  status               SongRequestStatus @default(PENDING)
+  source               SongRequestSource @default(CHAT)
+  requestType          SongRequestType   @default(NORMAL) @map("request_type")
+  donationAmount       Int?              @map("donation_amount")
+  donationNativeAmount Int?              @map("donation_native_amount")
+  donationCurrency     String?           @map("donation_currency")
+  donationRateVersion  Int?              @map("donation_rate_version")
+  streamMessageId      String?           @unique @map("stream_message_id") @db.VarChar(128)
+  priority             Int               @default(0)
+  queueOrder           Int               @default(0) @map("queue_order")
+  calculatedPrice      Int?              @map("calculated_price")
+  priceSource          PriceSource?      @map("price_source")
+  playedAt             DateTime?         @map("played_at") @db.DateTime(0)
+  completedAt          DateTime?         @map("completed_at") @db.DateTime(0)
+  rejectionReason      String?           @map("rejection_reason") @db.VarChar(255)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt            DateTime          @updatedAt @map("updated_at") @db.DateTime(0)
+  requestUserId        String?           @map("request_user_id") @db.Char(36)
+  isAnonymous          Boolean           @default(false) @map("is_anonymous")
+
+  liveSession   LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  song          Song?       @relation(fields: [songId], references: [id], onDelete: SetNull)
+  sourceChannel rooms?      @relation("SongRequestSourceChannel", fields: [sourceChannelId], references: [id], onDelete: SetNull)
+  requestUser   users?      @relation("userSongRequests", fields: [requestUserId], references: [id], onDelete: SetNull)
+  omakaseLedgerEntries OmakaseLedgerEntry[]
+
+  @@index([liveSessionId, status], map: "idx_song_request_session_status")
+  @@index([liveSessionId, queueOrder], map: "idx_song_request_queue_order")
+  @@index([sourceChannelId], map: "idx_song_request_source_channel")
+  @@index([songId], map: "idx_song_request_song_id")
+  @@index([songId, createdAt(sort: Desc)], map: "idx_song_request_song_created")
+  @@index([liveSessionId, requesterPlatformId, status], map: "idx_song_request_session_requester_status")
+  @@index([requestUserId], map: "idx_song_request_user_id")
+  @@map("song_requests")
+}
+
+/// Copied from meloming-back ChannelOmakaseSettings. The original integer
+/// channel foreign key maps to Rogichat's primary room UUID.
+model ChannelOmakaseSettings {
+  id             Int     @id
+  channelId      String  @unique @map("channel_id") @db.Char(36)
+  enabled        Boolean @default(false)
+  displayName    String? @map("display_name") @db.VarChar(50)
+  price          Int     @default(0)
+  currencyPrices Json?   @map("currency_prices")
+  count          Int     @default(0)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  channel        rooms   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_omakase_settings")
+}
+
+/// Original omakase balance journal, with account and channel keys mapped to UUIDs.
+model OmakaseLedgerEntry {
+  id                   Int @id
+  channelId            String @map("channel_id") @db.Char(36)
+  liveSessionId        Int? @map("live_session_id")
+  songRequestId        Int? @map("song_request_id")
+  type                 OmakaseLedgerType
+  delta                Int
+  balanceAfter         Int @map("balance_after")
+  requesterPlatformId  String? @map("requester_platform_id") @db.VarChar(64)
+  requesterNickname    String? @map("requester_nickname") @db.VarChar(255)
+  requestUserId        String? @map("request_user_id") @db.Char(36)
+  streamMessageId      String? @unique @map("stream_message_id") @db.VarChar(128)
+  rawMessage           String? @map("raw_message") @db.Text
+  donationAmount       Int? @map("donation_amount")
+  donationNativeAmount Int? @map("donation_native_amount")
+  donationCurrency     String? @map("donation_currency") @db.VarChar(32)
+  actorUserId          String? @map("actor_user_id") @db.Char(36)
+  reason               String? @db.VarChar(255)
+  createdAt            DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  channel      rooms @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  liveSession  LiveSession? @relation(fields: [liveSessionId], references: [id], onDelete: SetNull)
+  songRequest  SongRequest? @relation(fields: [songRequestId], references: [id], onDelete: SetNull)
+  requestUser  users? @relation("omakase_request_user", fields: [requestUserId], references: [id], onDelete: SetNull)
+  actorUser    users? @relation("omakase_actor_user", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([channelId, createdAt], map: "idx_omakase_ledger_channel_created")
+  @@index([liveSessionId, createdAt], map: "idx_omakase_ledger_session_created")
+  @@index([songRequestId], map: "idx_omakase_ledger_song_request")
+  @@index([requestUserId], map: "idx_omakase_ledger_request_user")
+  @@index([actorUserId], map: "idx_omakase_ledger_actor_user")
+  @@map("omakase_ledger_entries")
+}
+
+/// 라이브 세션 설정. Copied from meloming-back LiveSessionSettings.
+model LiveSessionSettings {
+  id                              Int                 @id
+  liveSessionId                   Int                 @unique @map("live_session_id")
+  requestEnabled                  Boolean             @default(true) @map("request_enabled")
+  paused                          Boolean             @default(false) @map("paused")
+  requestCommand                  String              @default("!신청") @map("request_command") @db.VarChar(50)
+  maxQueueSize                    Int                 @default(50) @map("max_queue_size")
+  donationPriorityEnabled         Boolean             @default(true) @map("donation_priority_enabled")
+  enforceDonationMinimumPrice     Boolean             @default(true) @map("enforce_donation_minimum_price")
+  karaokePlaybackMode             KaraokePlaybackMode @default(DIRECT) @map("karaoke_playback_mode")
+  karaokeVideoType                KaraokeVideoType    @default(KARAOKE) @map("karaoke_video_type")
+  donationOnlyEnabled             Boolean             @default(false) @map("donation_only_enabled")
+  requestMode                     SongRequestMode     @default(EVERYONE) @map("request_mode")
+  chatRequestEnabled              Boolean             @default(true) @map("chat_request_enabled")
+  donationRequestEnabled          Boolean             @default(true) @map("donation_request_enabled")
+  allowAnonymous                  Boolean             @default(false) @map("allow_anonymous")
+  requireSongMatch                Boolean             @default(true) @map("require_song_match")
+  randomRequestEnabled            Boolean             @default(true) @map("random_request_enabled")
+  syncChatRequestsEnabled         Boolean             @default(true) @map("sync_chat_requests_enabled")
+  syncRandomSongCommand           String              @default("!노래랜덤") @map("sync_random_song_command") @db.VarChar(50)
+  syncRandomSongMinDonation       Int                 @default(100) @map("sync_random_song_min_donation")
+  syncRandomStreamerCommand       String              @default("!스트리머랜덤") @map("sync_random_streamer_command") @db.VarChar(50)
+  syncRandomStreamerMinDonation   Int                 @default(100) @map("sync_random_streamer_min_donation")
+  preventDuplicateSongs           Boolean             @default(false) @map("prevent_duplicate_songs")
+  blockedCategoryIds              Json                @default("[]") @map("blocked_category_ids")
+  maxRequestsPerUser              Int                 @default(0) @map("max_requests_per_user")
+  maxTotalRequests                Int                 @default(50) @map("max_total_requests")
+  showRequesterName               Boolean             @default(true) @map("show_requester_name")
+  createdAt                       DateTime            @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                       DateTime            @updatedAt @map("updated_at") @db.DateTime(0)
+  liveSession                     LiveSession         @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+
+  @@map("live_session_settings")
+}
+
+/// 채널 단위 신청곡 설정. Copied from meloming-back ChannelSongRequestSettings.
+model ChannelSongRequestSettings {
+  id                              Int                 @id
+  channelId                       String              @unique @map("channel_id") @db.Char(36)
+  requestCommand                  String              @default("!신청") @map("request_command") @db.VarChar(50)
+  maxQueueSize                    Int                 @default(50) @map("max_queue_size")
+  donationPriorityEnabled         Boolean             @default(true) @map("donation_priority_enabled")
+  enforceDonationMinimumPrice     Boolean             @default(true) @map("enforce_donation_minimum_price")
+  karaokePlaybackMode             KaraokePlaybackMode @default(DIRECT) @map("karaoke_playback_mode")
+  karaokeVideoType                KaraokeVideoType    @default(KARAOKE) @map("karaoke_video_type")
+  donationOnlyEnabled             Boolean             @default(false) @map("donation_only_enabled")
+  requestMode                     SongRequestMode     @default(EVERYONE) @map("request_mode")
+  chatRequestEnabled              Boolean             @default(true) @map("chat_request_enabled")
+  donationRequestEnabled          Boolean             @default(true) @map("donation_request_enabled")
+  allowAnonymous                  Boolean             @default(false) @map("allow_anonymous")
+  requireSongMatch                Boolean             @default(true) @map("require_song_match")
+  randomRequestEnabled            Boolean             @default(true) @map("random_request_enabled")
+  preventDuplicateSongs           Boolean             @default(false) @map("prevent_duplicate_songs")
+  blockedCategoryIds              Json                @default("[]") @map("blocked_category_ids")
+  maxRequestsPerUser              Int                 @default(0) @map("max_requests_per_user")
+  maxTotalRequests                Int                 @default(50) @map("max_total_requests")
+  showRequesterName               Boolean             @default(true) @map("show_requester_name")
+  createdAt                       DateTime            @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt                       DateTime            @updatedAt @map("updated_at") @db.DateTime(0)
+  channel                         rooms               @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@map("channel_song_request_settings")
+}
+
+// Copied from meloming-back SongVideoPreference. Song keeps its existing
+// Rogichat room key; the per-video fields and uniqueness match the source.
+model SongVideoPreference {
+  id                      Int      @id @default(autoincrement())
+  songId                  Int      @map("song_id")
+  videoKey                String   @map("video_key") @db.VarChar(128)
+  videoId                 String?  @map("video_id") @db.VarChar(20)
+  videoUrl                String?  @map("video_url") @db.Text
+  preferredLyricsOffsetMs Int?     @map("preferred_lyrics_offset_ms")
+  createdAt               DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  song                    Song     @relation(fields: [songId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([songId, videoKey], map: "unique_song_video_preferences_song_video")
+  @@index([videoId], map: "idx_song_video_preferences_video_id")
+  @@map("song_video_preferences")
+}
+
+enum SheetMusicType {
+  PDF
+  IMAGE
+  MUSICXML
+}
+
+// Copied from meloming-back SongSheetMusic, including multi-slot ordering.
+model SongSheetMusic {
+  id        Int            @id @default(autoincrement())
+  songId    Int
+  url       String         @db.Text
+  type      SheetMusicType
+  fileName  String?        @db.VarChar(255)
+  fileSize  Int?
+  sortOrder Int            @default(0)
+  isPrimary Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  song      Song           @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@index([songId, sortOrder])
+}
+
+model UserSongLike {
+  id        Int      @id
+  userId    String   @map("user_id") @db.Char(36)
+  songId    Int      @map("song_id")
+  createdAt DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  user      users    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  song      Song     @relation(fields: [songId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, songId], map: "unique_user_song_like")
+  @@index([userId, createdAt], map: "idx_user_song_likes_user_created")
+  @@index([songId, createdAt], map: "idx_user_song_likes_song_created")
+  @@map("user_song_likes")
+}
+
+// Meloming UserChannelFavorite with UUID account/room FKs and stable numeric DTO IDs.
+model UserChannelFavorite {
+  id        Int       @id
+  userId    String    @map("user_id") @db.Char(36)
+  channelId String    @map("channel_id") @db.Char(36)
+  sortOrder Int?      @map("sort_order")
+  createdAt DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  user      users     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  channel   rooms     @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, channelId], map: "unique_user_channel_favorite")
+  @@index([userId, sortOrder], map: "idx_user_channel_favorites_user_sort")
+  @@index([userId, createdAt], map: "idx_user_channel_favorites_user_created")
+  @@index([channelId, createdAt], map: "idx_user_channel_favorites_channel_created")
+  @@map("user_channel_favorites")
+}
+
+// Copied from Meloming SongExportLog; IDs map to Rogichat account and room keys.
+model SongExportLog {
+  id        Int      @id
+  userId    String   @map("user_id") @db.Char(36)
+  channelId String   @map("channel_id") @db.Char(36)
+  songCount Int      @map("song_count")
+  ipAddress String?  @map("ip_address") @db.VarChar(45)
+  userAgent String?  @map("user_agent") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  @@index([userId], map: "idx_song_export_log_user_id")
+  @@index([channelId], map: "idx_song_export_log_channel_id")
+  @@index([createdAt], map: "idx_song_export_log_created_at")
+  @@map("song_export_logs")
+}
+
+model SongCategory {
+  id         Int      @id
+  songId     Int      @map("song_id")
+  categoryId Int      @map("category_id")
+  song       Song     @relation(fields: [songId], references: [id], onDelete: Restrict)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@unique([songId, categoryId])
+  @@index([categoryId], map: "idx_song_categories_category_id")
+  @@index([songId], map: "idx_song_categories_song_id")
+  @@map("song_categories")
+}
+
+/** Serialized integer IDs preserve Meloming DTOs without AUTO_INCREMENT. */
+model ChannelContentCounter {
+  key   String @id @db.VarChar(32)
+  value Int
+
+  @@map("channel_content_counters")
+}
+
+model MelomingUserAlias {
+  id        Int      @id
+  userId    String   @unique @map("user_id") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  user      users    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("meloming_user_aliases")
+}
+
+enum SongAddRequestStatus {
+  PENDING  @map("pending")
+  APPROVED @map("approved")
+  REJECTED @map("rejected")
+  CANCELED @map("canceled")
+}
+
+// Copied from meloming-back SongAddRequest. Channel and User integer FKs
+// become Rogichat room/account UUIDs; the public DTO uses numeric aliases.
+model SongAddRequest {
+  id              Int                  @id
+  requesterId     String               @map("requester_id") @db.Char(36)
+  channelId       String               @map("channel_id") @db.Char(36)
+  title           String               @db.VarChar(255)
+  artistName      String               @map("artist_name") @db.VarChar(255)
+  albumArt        String?              @map("album_art") @db.Text
+  karaokeUrl      String?              @map("karaoke_url") @db.Text
+  coverUrl        String?              @map("cover_url") @db.Text
+  originalUrl     String?              @map("original_url") @db.Text
+  difficulty      Int?
+  proficiency     Int?
+  songKey         String?              @map("song_key") @db.VarChar(20)
+  bpm             Int?
+  lyricsLink      String?              @map("lyrics_link") @db.Text
+  lyricsText      String?              @map("lyrics_text") @db.Text
+  categoryNames   String?              @map("category_names") @db.Text
+  status          SongAddRequestStatus @default(PENDING)
+  processedById   String?              @map("processed_by_id") @db.Char(36)
+  processedAt     DateTime?            @map("processed_at") @db.DateTime(0)
+  rejectionReason String?              @map("rejection_reason") @db.VarChar(500)
+  approvedSongId  Int?                 @unique @map("approved_song_id")
+  createdAt       DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.DateTime(0)
+  requester       users                @relation("SongAddRequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  channel         rooms                @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  processedBy     users?               @relation("SongAddRequestProcessor", fields: [processedById], references: [id], onDelete: SetNull)
+  approvedSong    Song?                @relation("SongAddRequestApprovedSong", fields: [approvedSongId], references: [id], onDelete: SetNull)
+
+  @@index([requesterId, status], map: "idx_song_add_requests_requester_status")
+  @@index([channelId, status], map: "idx_song_add_requests_channel_status")
+  @@map("song_add_requests")
+}
+
+// Copied from meloming-back ChannelOverlayLayout. Only the Channel integer FK
+// becomes the owner-bound Rogichat room UUID; musicbook-settings uses this row.
+model ChannelOverlayLayout {
+  id         Int      @id
+  channelId  String   @map("channel_id") @db.Char(36)
+  layoutType String   @map("layout_type") @db.VarChar(32)
+  layout     Json     @map("layout_json")
+  version    Int      @default(1)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  channel    rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@unique([channelId, layoutType], map: "uq_channel_overlay_layouts_channel_type")
+  @@index([channelId], map: "idx_channel_overlay_layouts_channel_id")
+  @@map("channel_overlay_layouts")
+}
+
 model users {
   id                    String     @id @db.Char(36)
   status                UserStatus @default(ACTIVE)
   membership_generation BigInt     @default(0) @db.UnsignedBigInt
   terms_version         String?    @db.VarChar(32)
+  reviewer_expires_at   DateTime?  @db.DateTime(3)
   created_at            DateTime   @default(now()) @db.DateTime(3)
   profile               user_profiles?
   soop                  platform_soop?
   identities            auth_identities[]
   sessions              auth_sessions[]
+  songAddRequests       SongAddRequest[] @relation("SongAddRequestRequester")
+  processedSongRequests SongAddRequest[] @relation("SongAddRequestProcessor")
+  clipRequests          ClipRequest[] @relation("ClipRequestRequester")
+  processedClipRequests ClipRequest[] @relation("ClipRequestProcessor")
+  liveSessions          LiveSession[]
+  liveSongRequests      SongRequest[] @relation("userSongRequests")
+  omakaseRequests       OmakaseLedgerEntry[] @relation("omakase_request_user")
+  omakaseActions        OmakaseLedgerEntry[] @relation("omakase_actor_user")
   members               room_members[]
   creator               creator_accounts?
   admin                 admin_capabilities?
+  password_account      password_accounts?
   owned_messages        messages[]
   deletions             deletion_requests[]
   media                 media_assets[]
@@ -123,6 +1031,10 @@ model users {
   sticker_audit         sticker_audit_events[]
   notification_preferences notification_preferences?
   push_subscriptions    push_subscriptions[]
+  channelSchedules      ChannelSchedule[]
+  songLikes             UserSongLike[]
+  channelFavorites      UserChannelFavorite[]
+  melomingAlias         MelomingUserAlias?
 }
 
 model user_profiles {
@@ -132,6 +1044,9 @@ model user_profiles {
   birthday_day                  Int?    @db.UnsignedTinyInt
   birthday_visible_to_streamers Boolean @default(false)
   revision                      BigInt  @default(1) @db.UnsignedBigInt
+  nickname_customized           Boolean @default(false)
+  avatar_customized             Boolean @default(false)
+  provider_profile_initialized  Boolean @default(false)
   avatar_asset_id               String? @unique @db.Char(36)
   avatar                        media_assets? @relation(fields: [avatar_asset_id], references: [id], onDelete: Restrict)
   user                          users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
@@ -143,6 +1058,8 @@ model platform_soop {
   provider_subject Bytes      @unique @db.VarBinary(191)
   status           LinkStatus @default(VERIFIED)
   verified_at      DateTime   @db.DateTime(3)
+  profile_nickname String?    @db.VarChar(40)
+  profile_image_url String?   @db.VarChar(2048)
   user             users      @relation(fields: [user_id], references: [id], onDelete: Restrict)
 }
 
@@ -212,17 +1129,27 @@ model creator_accounts {
   user    users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
 }
 
+// Product bootstrap registry, not an authorization shortcut or a synthetic user.
+model default_room_bindings {
+  key                  String  @id @db.VarChar(32)
+  room_id              String  @unique @db.Char(36)
+  owner_subject_digest Bytes?  @db.Binary(32)
+  owner_bound          Boolean @default(false)
+}
+
 model admin_capabilities {
   user_id      String  @id @db.Char(36)
   manage_rooms Boolean @default(false)
   manage_users Boolean @default(false)
   manage_stickers Boolean @default(false)
+  manage_test_access Boolean @default(false)
   user         users   @relation(fields: [user_id], references: [id], onDelete: Restrict)
 }
 
 model rooms {
   id              String       @id @db.Char(36)
   name            String       @db.VarChar(80)
+  schedule_notice String?      @db.Text
   mode            RoomMode
   status          RoomStatus   @default(ACTIVE)
   policy_version  Int          @default(1) @db.UnsignedInt
@@ -238,6 +1165,26 @@ model rooms {
   jobs            jobs[]
   media           media_assets[]
   media_policy    room_media_policy?
+  channelSchedules ChannelSchedule[]
+  recurringSchedules ChannelRecurringSchedule[]
+  wardrobeCategories ChannelWardrobeCategory[]
+  wardrobeItems ChannelWardrobeItem[]
+  songCategories Category[]
+  artists Artist[]
+  songs Song[]
+  channelFavorites UserChannelFavorite[]
+  channelProfile ChannelProfile?
+  channelFeatureSettings ChannelFeatureSettings?
+  pricingSettings ChannelPricingSettings?
+  channelOverlayLayouts ChannelOverlayLayout[]
+  songAddRequests SongAddRequest[]
+  liveSessions LiveSession[]
+  liveRequestSettings ChannelSongRequestSettings?
+  omakaseSettings ChannelOmakaseSettings?
+  omakaseLedgerEntries OmakaseLedgerEntry[]
+  sourcedSongRequests SongRequest[] @relation("SongRequestSourceChannel")
+  clipChannels    ClipChannel[]
+  clipRequests    ClipRequest[]
 }
 
 model room_counters {
@@ -266,9 +1213,52 @@ model room_members {
   pairs_right      stream_pairs[] @relation("pair_right")
   publications     message_publications[]
   reactions        message_reactions[]
+  delegations      room_test_grants[]
   @@unique([room_id, id, active_period_id])
   @@unique([room_id, user_id])
   @@unique([room_id, id])
+}
+
+// Real credentials, never a fabricated provider identity. Login IDs are private.
+model password_accounts {
+  user_id       String @id @db.Char(36)
+  login_id      String @unique @db.VarChar(64)
+  password_hash String @db.VarChar(256)
+  revision      BigInt @default(1) @db.UnsignedBigInt
+  disabled_at   DateTime? @db.DateTime(3)
+  created_at    DateTime @default(now()) @db.DateTime(3)
+  updated_at    DateTime @default(now()) @updatedAt @db.DateTime(3)
+  user          users @relation(fields: [user_id], references: [id], onDelete: Restrict)
+}
+
+// Period-bound delegation never changes physical membership role or room owner.
+model room_test_grants {
+  id             String @id @db.Char(36)
+  room_id        String @db.Char(36)
+  member_id      String @db.Char(36)
+  period_id      String @db.Char(36)
+  request_id     String @db.Char(36)
+  payload_digest Bytes @db.Binary(32)
+  created_at     DateTime @default(now()) @db.DateTime(3)
+  expires_at     DateTime @db.DateTime(3)
+  revoked_at     DateTime? @db.DateTime(3)
+  member         room_members @relation(fields: [room_id, member_id], references: [room_id, id], onDelete: Restrict)
+  @@unique([member_id, request_id])
+  @@index([room_id, member_id, expires_at])
+}
+
+// Body-free authority trail; no passwords, provider subjects or profile payloads.
+model access_audit {
+  id               String @id @db.Char(36)
+  operator_user_id  String @db.Char(36)
+  target_user_id    String? @db.Char(36)
+  room_id          String? @db.Char(36)
+  grant_id         String? @db.Char(36)
+  action           String @db.VarChar(40)
+  reason_digest    Bytes? @db.Binary(32)
+  created_at       DateTime @default(now()) @db.DateTime(3)
+  @@index([operator_user_id, created_at])
+  @@index([target_user_id, created_at])
 }
 
 // Body-free projection invalidation. A REALTIME_HINT with room_id NULL references this table.

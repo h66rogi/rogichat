@@ -1,3 +1,4 @@
+import { PasswordController } from '../../dist/modules/auth/password/password.controller.js';
 import { AppleController } from '../../dist/modules/auth/apple/apple.controller.js';
 import 'reflect-metadata';
 import { test } from 'node:test';
@@ -27,7 +28,7 @@ function infrastructure(transactions) {
   return { module: FixtureDatabaseModule, providers: [{ provide: Transactions, useValue: transactions }], exports: [Transactions] };
 }
 async function fixture(t) {
-  const calls = []; const principal = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true };
+  const calls = []; const principal = { userId: randomUUID(), sessionId: randomUUID(), soopLinked: true, chatEnabled: true };
   let used = 0;
   const tx = { writable: true,
     rows: async (...args) => { calls.push(['rows', ...args]); return [{ used, expired: 0 }]; },
@@ -66,7 +67,7 @@ async function fixture(t) {
 test('AuthModule exports a narrow service/config boundary, with private session/flow/transaction providers', async t => {
   const f = await fixture(t);
   assert.deepEqual(f.module.exports, [AuthService, AUTH_CONFIG]);
-  assert.deepEqual(f.module.controllers, [AuthController, NativeAuthController, AppleController]);
+  assert.deepEqual(f.module.controllers, [AuthController, NativeAuthController, AppleController, PasswordController]);
   for (const name of ['sessions', 'transactions', 'flow']) assert.equal(name in f.service, false);
   for (const dependency of [AuthFlow, Transactions, SessionRepository, SessionService]) {
     class InvalidConsumer { constructor(value) { this.value = value; } }

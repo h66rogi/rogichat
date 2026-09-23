@@ -12,7 +12,7 @@ const fanId = '44444444-4444-4444-8444-444444444444';
 async function deletionApi(page: Page) {
   const account = await installApi(page, true); account.sessionToken = csrf;
   const state = { deletes: 0, status: 200, code: 'RECENT_AUTH_REQUIRED', lost: false, partition: TEST_PARTITION, starts: 0 };
-  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, accountPartition: state.partition, csrfToken: account.sessionToken, soopLinkStatus: 'VERIFIED' }));
+  await page.route('**/v1/auth/session', route => json(route, { authenticated: true, accountPartition: state.partition, csrfToken: account.sessionToken, soopLinkStatus: 'VERIFIED', onboardingState: 'READY', capabilities: { chat: true } }));
   await page.route('**/v1/me/account', async route => {
     if (route.request().method() === 'OPTIONS') return json(route, null, 204);
     state.deletes++; expect(route.request().method()).toBe('DELETE'); expect(route.request().postDataJSON()).toEqual({});
@@ -120,9 +120,16 @@ async function openOwnedBlocks(page: Page) {
   await page.getByRole('button', { name: '차단 목록 확인', exact: true }).click();
 }
 
+async function openPrivacyActions(page: Page) {
+  await page.getByTestId('chat-message-options').first().click();
+}
+
 test('PRIVATE TEXT publication requires disclosure, 202 is preparing and published refreshes sync', async ({ page }) => {
   const state = await privacyChat(page); await page.goto('/chat');
-  const publish = page.getByRole('button', { name: '익명으로 전체 공개' }); await expect(publish).toBeDisabled();
+  await openPrivacyActions(page);
+  await page.getByRole('button', { name: '익명으로 전체 공개' }).click();
+  const publicationDialog = page.getByRole('alertdialog', { name: '이 메시지를 공개할까요?' });
+  const publish = publicationDialog.getByRole('button', { name: '익명으로 전체 공개' }); await expect(publish).toBeDisabled();
   await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await publish.click();
   await expect(page.getByText('공개 준비 중입니다. 아직 공개 완료가 아닙니다.')).toBeVisible(); expect(state.writes).toBe(1);
   const before = state.syncReads; state.publication = 'published';
@@ -133,7 +140,9 @@ test('PRIVATE TEXT publication requires disclosure, 202 is preparing and publish
 
 test('publication ambiguous 404 does not repost and revoked receipt is explicit', async ({ page }) => {
   const state = await privacyChat(page); await page.goto('/chat');
-  await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await page.getByRole('button', { name: '익명으로 전체 공개' }).click();
+  await openPrivacyActions(page);
+  await page.getByRole('button', { name: '익명으로 전체 공개' }).click();
+  await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await page.getByRole('alertdialog', { name: '이 메시지를 공개할까요?' }).getByRole('button', { name: '익명으로 전체 공개' }).click();
   state.unknown = true; await page.getByRole('button', { name: '공개 상태 다시 확인' }).click();
   await expect(page.getByText('공개 결과를 확인하지 못했습니다. 요청을 자동으로 다시 보내지 않습니다.')).toBeVisible(); expect(state.writes).toBe(1);
   state.unknown = false; state.publication = 'revoked'; await page.getByRole('button', { name: '공개 상태 다시 확인' }).click();
@@ -142,9 +151,11 @@ test('publication ambiguous 404 does not repost and revoked receipt is explicit'
 
 test('report lost ACK recovers stored receipt without re-sending after settings reload', async ({ page }) => {
   const state = await privacyChat(page); state.reportLost = true; await page.goto('/chat');
+  await openPrivacyActions(page);
   await page.getByText('메시지 신고', { exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '메시지 신고' })).toBeVisible();
   await page.getByLabel('상세 내용 (선택, 최대 1,000자)').fill('격리 테스트 상세 내용');
-  await page.getByLabel('선택한 사유와 내용을 신고로 제출합니다.').check(); await page.getByRole('button', { name: '신고 제출', exact: true }).click();
+  await page.getByRole('button', { name: '신고 제출', exact: true }).click();
   await expect(page.getByText('신고 접수 여부를 확인하지 못했습니다. 접수 상태를 다시 확인해 주세요.')).toBeVisible();
   await page.goto('/settings'); await expect(page.getByText('신고가 저장되었습니다. 담당자의 확인이나 연락이 시작되었다는 뜻은 아닙니다.')).toBeVisible(); expect(state.reports).toBe(1);
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain('격리 테스트 상세 내용');
@@ -152,9 +163,9 @@ test('report lost ACK recovers stored receipt without re-sending after settings 
 
 test('visible actor block requires confirmation and settings can explicitly unblock', async ({ page }) => {
   const state = await privacyChat(page); await page.goto('/chat');
+  await openPrivacyActions(page);
   await page.getByText('이 사용자 차단', { exact: true }).click();
-  await expect(page.getByRole('button', { name: '사용자 차단', exact: true })).toBeDisabled();
-  await page.getByLabel('이 방에서 해당 사용자를 차단합니다.').check();
+  await expect(page.getByRole('alertdialog', { name: '이 사용자를 차단할까요?' })).toBeVisible();
   await page.getByRole('button', { name: '사용자 차단', exact: true }).click(); await expect.poll(() => state.blocked).toBe(true);
   await page.goto('/settings'); await openOwnedBlocks(page);
   await expect(page.getByText(/현재 차단 표시 이름 · 차단 항목/)).toBeVisible();
@@ -165,12 +176,38 @@ test('visible actor block requires confirmation and settings can explicitly unbl
 
 test('report predispatch failure has an actionable read-only recovery button', async ({ page }) => {
   const state = await privacyChat(page); await page.goto('/chat');
+  await openPrivacyActions(page);
   await page.getByText('메시지 신고', { exact: true }).click();
-  await page.getByLabel('선택한 사유와 내용을 신고로 제출합니다.').check(); state.sessionStatus = 503;
+  state.sessionStatus = 503;
   await page.getByRole('button', { name: '신고 제출', exact: true }).click();
   await expect(page.getByText('신고 복구 상태를 저장하거나 로그인 상태를 확인할 수 없습니다. 다시 확인해 주세요.')).toBeVisible();
   state.sessionStatus = 200; await page.getByRole('button', { name: '신고 접수 확인', exact: true }).click();
-  await expect(page.getByRole('button', { name: '신고 제출', exact: true })).toBeDisabled(); expect(state.reports).toBe(0);
+  await expect(page.getByRole('button', { name: '신고 제출', exact: true })).toBeVisible(); expect(state.reports).toBe(0);
+});
+
+test('report, block, and publication dialogs cancel without sending a request', async ({ page }) => {
+  const state = await privacyChat(page); await page.goto('/chat');
+  await openPrivacyActions(page);
+  await page.getByRole('button', { name: '메시지 신고' }).click();
+  const report = page.getByRole('dialog', { name: '메시지 신고' });
+  await expect(report).toBeVisible();
+  const audit = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(audit.violations.filter(item => ['serious', 'critical'].includes(item.impact ?? ''))).toEqual([]);
+  await report.getByRole('button', { name: '취소' }).click();
+  await expect(report).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '메시지 신고' })).toBeFocused();
+  await page.getByRole('button', { name: '이 사용자 차단' }).click();
+  const block = page.getByRole('alertdialog', { name: '이 사용자를 차단할까요?' });
+  await expect(block).toBeVisible();
+  await block.getByRole('button', { name: '취소' }).click();
+  await expect(block).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '이 사용자 차단' })).toBeFocused();
+  await page.getByRole('button', { name: '익명으로 전체 공개' }).click();
+  const publication = page.getByRole('alertdialog', { name: '이 메시지를 공개할까요?' });
+  await expect(publication).toBeVisible();
+  await publication.getByRole('button', { name: '취소' }).click();
+  await expect(publication).toHaveCount(0);
+  expect(state.reports).toBe(0); expect(state.blocked).toBe(false); expect(state.writes).toBe(0);
 });
 
 

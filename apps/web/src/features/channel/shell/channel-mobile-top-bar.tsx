@@ -8,7 +8,7 @@ import { ArrowLeft, Menu } from 'lucide-react';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from '@/shared/ui/sheet';
 import { cn } from '@/shared/lib/cn';
 import type { ChannelDescriptor } from '../model/channel-descriptor';
-import { CHANNEL_FEATURES, channelHref, featureFromPath } from '../model/channel-features';
+import { channelHref, featureFromPath } from '../model/channel-features';
 import { ChannelAvatar } from './channel-avatar';
 import { ChannelMenu } from './channel-menu';
 import { ChannelProfileCard } from './channel-profile-card';
@@ -66,7 +66,7 @@ export function ChannelMobileTopBar({ channel }: { channel: ChannelDescriptor })
 
       {compact ? (
         <p className="min-w-0 flex-1 truncate text-[17px] font-bold text-ink">
-          {channel.displayName} {CHANNEL_FEATURES.chat.label}
+          {channel.displayName}
         </p>
       ) : (
         <Link

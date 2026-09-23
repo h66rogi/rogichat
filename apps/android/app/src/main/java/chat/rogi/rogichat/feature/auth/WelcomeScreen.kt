@@ -19,9 +19,9 @@ import chat.rogi.rogichat.core.design.AppButton
 import chat.rogi.rogichat.core.session.SignInProvider
 
 // LoginContent's branding / scroll / spacing / async provider actions adapted from the reference.
-// Email/password, unrelated OAuth providers and legacy logo are not Rogichat account contracts.
+// Password fields below adapt the same source after the real native contract was added.
 @Composable
-fun WelcomeScreen(providers: Set<SignInProvider>, busy: Boolean, onSignIn: (SignInProvider) -> Unit, notice: String? = null) {
+fun WelcomeScreen(providers: Set<SignInProvider>, busy: Boolean, onSignIn: (SignInProvider) -> Unit, notice: String? = null, onPassword: ((chat.rogi.rogichat.core.auth.PasswordInput) -> Unit)? = null, rulesUrl: String? = null) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 28.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(64.dp))
@@ -33,7 +33,7 @@ fun WelcomeScreen(providers: Set<SignInProvider>, busy: Boolean, onSignIn: (Sign
         Text("좋아하는 스트리머와\n가까이 나누는 대화", style = MaterialTheme.typography.headlineMedium,
             textAlign = TextAlign.Center)
         Spacer(Modifier.height(16.dp))
-        Text("SOOP 계정을 연결하고\n우리의 이야기를 이어가세요.", style = MaterialTheme.typography.bodyLarge,
+        Text("내 계정으로 로그인하고\n우리의 이야기를 이어가세요.", style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         Spacer(Modifier.height(48.dp))
         notice?.let {
@@ -55,9 +55,10 @@ fun WelcomeScreen(providers: Set<SignInProvider>, busy: Boolean, onSignIn: (Sign
                 }
                 Spacer(Modifier.height(12.dp))
             }
-            if (SignInProvider.APPLE in providers) Text("Apple로 시작해도 SOOP 계정 연결이 필요해요.", style = MaterialTheme.typography.bodySmall,
+            if (SignInProvider.APPLE in providers) Text("계정 연결이 필요한 경우 로그인 후 안내해 드려요.", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         }
+        if (onPassword != null) PasswordForm(busy = busy, changing = false, rulesUrl = rulesUrl, onSubmit = onPassword)
         Spacer(Modifier.height(40.dp))
     }
 }

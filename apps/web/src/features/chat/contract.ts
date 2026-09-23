@@ -61,12 +61,13 @@ export function membership(value: unknown): RoomMembership {
   return { roomId: uuid(data.roomId), name: text(data.name), actorId: uuid(data.actorId), mode: data.mode, role: data.role, membershipScope: token(data.membershipScope), authorizationRevision: token(data.authorizationRevision) };
 }
 export function actor(value: unknown): ChatActorRef | null {
-  const data = exact(value, ['actorId', 'nickname', 'role', 'avatar'], ['birthday']);
-  uuid(data.actorId); text(data.nickname); avatar(data.avatar);
+  const data = exact(value, ['actorId', 'nickname', 'role', 'avatar'], ['birthday', 'providerAvatarAvailable']);
+  uuid(data.actorId); text(data.nickname); const savedAvatar = avatar(data.avatar);
+  if (data.providerAvatarAvailable !== undefined) bool(data.providerAvatarAvailable);
   if (data.birthday !== undefined) { const birthday = exact(data.birthday, ['month', 'day']); const month = integer(birthday.month); const day = integer(birthday.day); if (month < 1 || month > 12 || day < 1 || day > 31) throw new Error('INVALID_RESPONSE'); }
   if (data.role === 'MEMBER') return null;
   if (data.role !== 'FAN' && data.role !== 'STREAMER') throw new Error('INVALID_RESPONSE');
-  return { actorId: uuid(data.actorId), displayName: text(data.nickname), role: data.role, avatarUrl: null };
+  return { actorId: uuid(data.actorId), displayName: text(data.nickname), role: data.role, avatarUrl: null, ...(savedAvatar ? { avatarAssetId: savedAvatar.assetId } : {}), ...(data.providerAvatarAvailable === true ? { providerAvatarAvailable: true } : {}) };
 }
 export function message(value: unknown): ServerMessage {
   const data = exact(value, ['id', 'version', 'createdAt', 'audience', 'author', 'content', 'quote', 'counterpart', 'allowedActions']);
@@ -113,7 +114,7 @@ export function projectMessages(messages: readonly ServerMessage[], viewerId: st
     const recipient = profiles.find(p => p.actorId === item.counterpart?.actorId);
     return { kind: 'message', id: item.id, scope: item.audience, createdAt: item.createdAt, body, allowedActions: item.allowedActions, ...(media ? { media } : {}),
       ...(recipient ? { recipient } : {}), counterpartActorId: item.counterpart?.actorId ?? null,
-      author: { actorId: author.actorId, displayName: author.nickname, avatarUrl: null, role: profiles.find(p => p.actorId === author.actorId)?.role }, isOwn: author.actorId === viewerId, status: 'saved',
+      author: { actorId: author.actorId, displayName: author.nickname, avatarUrl: null, ...(author.avatar ? { avatarAssetId: author.avatar.assetId } : {}), ...(profiles.find(p => p.actorId === author.actorId)?.providerAvatarAvailable ? { providerAvatarAvailable: true } : {}), role: profiles.find(p => p.actorId === author.actorId)?.role }, isOwn: author.actorId === viewerId, status: 'saved',
       ...(item.quote ? { quote: { messageId: item.quote.id, authorName: '인용 메시지', excerpt: item.quote.content.text } } : {}) };
   });
 }

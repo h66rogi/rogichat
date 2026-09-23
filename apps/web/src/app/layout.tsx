@@ -4,6 +4,8 @@ import type { ReactNode } from 'react';
 import './globals.css';
 import { runtimeConfig } from '@/core/runtime/config';
 import { RuntimeProvider } from '@/core/runtime/provider';
+import { PrivateSessionProvider } from '@/features/auth/private-session';
+import { nanumSquareNeo } from './fonts';
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
@@ -34,8 +36,8 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   const config = runtimeConfig();
   return (
-    <html lang="ko">
-      <body><RuntimeProvider apiOrigin={config.apiOrigin} defaultRoomId={config.defaultRoomId} mediaStorageOrigins={config.mediaStorageOrigins}>{children}</RuntimeProvider></body>
+    <html lang="ko" className={nanumSquareNeo.variable}>
+      <body><RuntimeProvider apiOrigin={config.apiOrigin} defaultRoomId={config.defaultRoomId} mediaStorageOrigins={config.mediaStorageOrigins}><PrivateSessionProvider>{children}</PrivateSessionProvider></RuntimeProvider></body>
     </html>
   );
 }

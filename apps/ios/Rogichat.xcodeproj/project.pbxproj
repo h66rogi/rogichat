@@ -57,6 +57,7 @@
 		9D9D67C23A4A07D3CFB24A21 /* AppSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31446C8CC8137185674F1F1F /* AppSession.swift */; };
 		A1D47C0A716962FDC429FE80 /* CookieFreeSocketEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E7F873B2CC1C0A5CC83338E /* CookieFreeSocketEngine.swift */; };
 		A213E8F256C7DF4D53852FA9 /* MessageActionsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E90EBA08F91943C6C700B12 /* MessageActionsPanel.swift */; };
+		A28D8DEF8141E9E509DDF6E3 /* ProviderAvatarLoads.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11BCCD384F369E307EB3E08 /* ProviderAvatarLoads.swift */; };
 		A48686A0D8747A1F32D8AD42 /* SOOPPending.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43501230026F1C91108FFC8A /* SOOPPending.swift */; };
 		A4A40BE23848317E73091CAC /* AppleIdentityContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84C4C52573584CCE165F7C8B /* AppleIdentityContract.swift */; };
 		A4B62C9E3590D2CD92C454BC /* RoomsScreenModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EE892CDCF7BA8D77035A040 /* RoomsScreenModel.swift */; };
@@ -171,6 +172,7 @@
 		A6D4A284950FD4E58D8E1D13 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
 		ACE97A9FC2DC27CD05234E85 /* ConversationScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationScreen.swift; sourceTree = "<group>"; };
 		AF74DA95F12F80B094834636 /* ProfileEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileEditor.swift; sourceTree = "<group>"; };
+		B11BCCD384F369E307EB3E08 /* ProviderAvatarLoads.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderAvatarLoads.swift; sourceTree = "<group>"; };
 		B4BB7DD6D9C8EB06D73B64B8 /* StickerPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StickerPicker.swift; sourceTree = "<group>"; };
 		B54CF3BE6EABC19F7CDCE033 /* SocketIO-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "SocketIO-LICENSE.txt"; sourceTree = "<group>"; };
 		B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellNavigation.swift; sourceTree = "<group>"; };
@@ -509,6 +511,7 @@
 				4B123F3E1497704B7492F362 /* MediaContract.swift */,
 				C22B7A9B6C328849C1EB4693 /* MediaDownload.swift */,
 				DE216E2713A8B26A8A1A7479 /* MediaUpload.swift */,
+				B11BCCD384F369E307EB3E08 /* ProviderAvatarLoads.swift */,
 			);
 			path = Media;
 			sourceTree = "<group>";
@@ -697,6 +700,7 @@
 				AB57731A2394F15BB8474DB4 /* ProfileDraft.swift in Sources */,
 				B4A7180F0792BD8637D73891 /* ProfileEditor.swift in Sources */,
 				6D367E3A76B90CF477201CAB /* ProfileScreen.swift in Sources */,
+				A28D8DEF8141E9E509DDF6E3 /* ProviderAvatarLoads.swift in Sources */,
 				7DE4718E2AA33DC1A849B279 /* PushLifecycle.swift in Sources */,
 				66FAB10D9F50A18E287BA88C /* PushRouteGate.swift in Sources */,
 				81129AAF7FBADC25D265B254 /* RealtimeContract.swift in Sources */,

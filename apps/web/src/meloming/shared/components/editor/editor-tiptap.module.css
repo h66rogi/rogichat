@@ -1,0 +1,604 @@
+/* Editor Wrapper */
+.editorWrapper {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background-color: var(--background);
+  transition: all 0.2s ease;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.editorWrapper:focus-within {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 10%, transparent);
+}
+
+/* Toolbar Styles */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  background-color: color-mix(in srgb, var(--muted) 30%, transparent);
+  border-bottom: 2px solid var(--border);
+  align-items: center;
+  backdrop-filter: blur(10px);
+}
+
+.toolbarButton,
+.toolbarSelect {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background-color: var(--background);
+  color: var(--foreground);
+  cursor: pointer;
+  font-size: 0.875rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  line-height: 1;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.toolbarButton:hover:not(:disabled),
+.toolbarSelect:hover:not(:disabled) {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+  border-color: var(--border);
+  box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.1);
+}
+
+.toolbarButton:active:not(:disabled),
+.toolbarSelect:active:not(:disabled) {
+  scale: 0.97;
+}
+
+.toolbarButton:disabled,
+.toolbarSelect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.toolbarButton.isActive {
+  background-color: var(--primary);
+  color: var(--primary-foreground);
+  border-color: var(--primary);
+  box-shadow: 0 2px 4px 0 color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+.toolbarSelect {
+  min-width: 85px;
+  padding-right: 1.75rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.5rem center;
+  background-size: 1rem;
+}
+
+.toolbarDivider {
+  width: 1px;
+  height: 1.5rem;
+  background-color: var(--border);
+  margin: 0 0.125rem;
+}
+
+.toolbarColorGroup {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.toolbarButtonGroup {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  overflow: hidden;
+}
+
+.toolbarButtonGroup .toolbarButton {
+  border: none;
+  border-radius: 0;
+  border-right: 1px solid var(--border);
+}
+
+.toolbarButtonGroup .toolbarButton:last-child {
+  border-right: none;
+}
+
+.colorPickerLabel {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+  min-height: 2rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background-color: var(--background);
+  color: var(--foreground);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  position: relative;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.colorPickerLabel:hover {
+  background-color: var(--accent);
+  color: var(--accent-foreground);
+  box-shadow: 0 2px 4px 0 rgb(0 0 0 / 0.1);
+}
+
+.colorPickerLabel:active {
+  scale: 0.97;
+}
+
+.colorIndicator {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  margin-top: 2px;
+}
+
+.colorPickerInput {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Editor Content */
+.editorContent {
+  background-color: var(--background);
+  resize: vertical;
+  overflow: auto;
+  min-height: 240px;
+}
+
+.editorContent :global(.ProseMirror) {
+  min-height: 280px;
+  overflow-y: auto;
+  padding: 1.5rem 1.75rem;
+  outline: none;
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  font-family: inherit;
+}
+
+/* Scrollbar Styling */
+.editorContent :global(.ProseMirror)::-webkit-scrollbar {
+  width: 8px;
+}
+
+.editorContent :global(.ProseMirror)::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
+  border-radius: 4px;
+}
+
+.editorContent :global(.ProseMirror)::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  border-radius: 4px;
+}
+
+.editorContent :global(.ProseMirror)::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
+}
+
+/* Typography Styles */
+.editorContent :global(.ProseMirror) > * + * {
+  margin-top: 0.75em;
+}
+
+.editorContent :global(.ProseMirror) :global(h1) {
+  font-size: 3.2em; /* 48pt */
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  color: var(--foreground);
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.editorContent :global(.ProseMirror) :global(h2) {
+  font-size: 2.133em; /* 32pt */
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--foreground);
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.editorContent :global(.ProseMirror) :global(h3) {
+  font-size: 1.6em; /* 24pt */
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--foreground);
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+}
+
+.editorContent :global(.ProseMirror) :global(h4) {
+  font-size: 1.333em; /* 20pt */
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--foreground);
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.editorContent :global(.ProseMirror) :global(h5) {
+  font-size: 1.2em; /* 18pt */
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--foreground);
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.editorContent :global(.ProseMirror) :global(h6) {
+  font-size: 1.067em; /* 16pt */
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--foreground);
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+/* First heading has no top margin */
+.editorContent :global(.ProseMirror) > :global(h1:first-child),
+.editorContent :global(.ProseMirror) > :global(h2:first-child),
+.editorContent :global(.ProseMirror) > :global(h3:first-child),
+.editorContent :global(.ProseMirror) > :global(h4:first-child),
+.editorContent :global(.ProseMirror) > :global(h5:first-child),
+.editorContent :global(.ProseMirror) > :global(h6:first-child) {
+  margin-top: 0;
+}
+
+/* Paragraph */
+.editorContent :global(.ProseMirror) :global(p) {
+  margin: 0.75em 0;
+}
+
+.editorContent :global(.ProseMirror) > :global(p:first-child) {
+  margin-top: 0;
+}
+
+.editorContent :global(.ProseMirror) > :global(p:last-child) {
+  margin-bottom: 0;
+}
+
+/* Lists */
+.editorContent :global(.ProseMirror) :global(ul),
+.editorContent :global(.ProseMirror) :global(ol) {
+  padding-left: 1.75rem;
+  margin: 1em 0;
+}
+
+.editorContent :global(.ProseMirror) :global(ul) {
+  list-style-type: disc;
+}
+
+.editorContent :global(.ProseMirror) :global(ol) {
+  list-style-type: decimal;
+}
+
+.editorContent :global(.ProseMirror) :global(li) {
+  margin: 0.25em 0;
+}
+
+.editorContent :global(.ProseMirror) :global(li) > :global(p) {
+  margin: 0;
+}
+
+/* Nested lists */
+.editorContent :global(.ProseMirror) :global(ul) :global(ul),
+.editorContent :global(.ProseMirror) :global(ol) :global(ol),
+.editorContent :global(.ProseMirror) :global(ul) :global(ol),
+.editorContent :global(.ProseMirror) :global(ol) :global(ul) {
+  margin: 0.25em 0;
+}
+
+/* Blockquote */
+.editorContent :global(.ProseMirror) :global(blockquote) {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  margin: 1.5em 0;
+  border-left: 4px solid var(--primary);
+  background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+  border-radius: calc(var(--radius) - 2px);
+  font-style: italic;
+  color: var(--muted-foreground);
+}
+
+.editorContent :global(.ProseMirror) :global(blockquote) > * {
+  margin: 0.5em 0;
+}
+
+.editorContent
+  :global(.ProseMirror)
+  :global(blockquote)
+  > :global(*:first-child) {
+  margin-top: 0;
+}
+
+.editorContent
+  :global(.ProseMirror)
+  :global(blockquote)
+  > :global(*:last-child) {
+  margin-bottom: 0;
+}
+
+/* Code */
+.editorContent :global(.ProseMirror) :global(code) {
+  background-color: var(--muted);
+  padding: 0.2em 0.4em;
+  border-radius: calc(var(--radius) - 4px);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.875em;
+  color: var(--foreground);
+  border: 1px solid var(--border);
+}
+
+.editorContent :global(.ProseMirror) :global(pre) {
+  background-color: var(--muted);
+  padding: 1rem;
+  border-radius: var(--radius);
+  overflow-x: auto;
+  margin: 1.5em 0;
+  border: 1px solid var(--border);
+}
+
+.editorContent :global(.ProseMirror) :global(pre) :global(code) {
+  background-color: transparent;
+  padding: 0;
+  border: none;
+  font-size: 0.875em;
+  line-height: 1.7;
+}
+
+/* Image */
+.editorContent :global(.ProseMirror) :global(img) {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  margin: 1.5em 0;
+  display: block;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+}
+
+.editorContent :global(.ProseMirror) :global(img.ProseMirror-selectednode) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Video */
+.editorContent :global(.ProseMirror) :global(video) {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  margin: 1.5em 0;
+  border-radius: var(--radius);
+  background: #000;
+  box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+}
+
+.editorContent :global(.ProseMirror) :global(video.ProseMirror-selectednode) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Image alignment */
+.editorContent :global(.ProseMirror) :global(img[style*="text-align: left"]) {
+  display: block;
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.editorContent :global(.ProseMirror) :global(img[style*="text-align: center"]) {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.editorContent :global(.ProseMirror) :global(img[style*="text-align: right"]) {
+  display: block;
+  margin-left: auto;
+  margin-right: 0;
+}
+
+/* Link */
+.editorContent :global(.ProseMirror) :global(a) {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.editorContent :global(.ProseMirror) :global(a):hover {
+  color: color-mix(in srgb, var(--primary) 80%, transparent);
+}
+
+/* Highlight/Mark */
+.editorContent :global(.ProseMirror) :global(mark) {
+  padding: 0.125em 0.25em;
+  border-radius: calc(var(--radius) - 4px);
+}
+
+/* Horizontal Rule */
+.editorContent :global(.ProseMirror) :global(hr) {
+  border: none;
+  border-top: 2px solid var(--border);
+  margin: 2em 0;
+}
+
+/* Text Alignment */
+.editorContent :global(.ProseMirror) :global([style*="text-align: center"]) {
+  text-align: center;
+}
+
+.editorContent :global(.ProseMirror) :global([style*="text-align: right"]) {
+  text-align: right;
+}
+
+.editorContent :global(.ProseMirror) :global([style*="text-align: justify"]) {
+  text-align: justify;
+}
+
+/* Placeholder - removed */
+
+/* Selection */
+.editorContent :global(.ProseMirror) :global(.ProseMirror-selectednode) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Focus styles */
+.editorContent :global(.ProseMirror):focus {
+  outline: none;
+}
+
+/* Gapcursor (appears when you can't place cursor normally) */
+.editorContent :global(.ProseMirror) :global(.ProseMirror-gapcursor) {
+  display: none;
+  pointer-events: none;
+  position: absolute;
+}
+
+.editorContent :global(.ProseMirror) :global(.ProseMirror-gapcursor):after {
+  content: "";
+  display: block;
+  position: absolute;
+  top: -2px;
+  width: 20px;
+  border-top: 2px solid var(--foreground);
+  animation: ProseMirror-cursor-blink 1.1s steps(2, start) infinite;
+}
+
+@keyframes ProseMirror-cursor-blink {
+  to {
+    visibility: hidden;
+  }
+}
+
+/* Empty content state - removed */
+
+/* Strong/Bold */
+.editorContent :global(.ProseMirror) :global(strong) {
+  font-weight: 700;
+}
+
+/* Em/Italic */
+.editorContent :global(.ProseMirror) :global(em) {
+  font-style: italic;
+}
+
+/* Strike */
+.editorContent :global(.ProseMirror) :global(s) {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* Underline */
+.editorContent :global(.ProseMirror) :global(u) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Iframe Embed */
+.editorContent :global(.ProseMirror) :global(.iframe-wrapper) {
+  position: relative;
+  padding-bottom: 56.25%; /* 16:9 aspect ratio */
+  height: 0;
+  overflow: hidden;
+  max-width: 100%;
+  margin: 1.5em 0;
+  background-color: var(--muted);
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.editorContent :global(.ProseMirror) :global(.iframe-wrapper) :global(iframe) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.editorContent :global(.ProseMirror) :global(.iframe-error) {
+  padding: 1rem;
+  background-color: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+  border: 1px solid var(--destructive);
+  border-radius: calc(var(--radius) - 2px);
+  text-align: center;
+  margin: 1.5em 0;
+}
+
+/* Table Styles */
+/* .editorContent :global(.ProseMirror) :global(.tiptap-table) {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  margin: 1.5em 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.editorContent :global(.ProseMirror) :global(.tiptap-table) :global(td),
+.editorContent :global(.ProseMirror) :global(.tiptap-table) :global(th) {
+  min-width: 1em;
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.75rem;
+  vertical-align: top;
+  box-sizing: border-box;
+  position: relative;
+  background-color: var(--background);
+}
+
+.editorContent :global(.ProseMirror) :global(.tiptap-table) :global(th) {
+  font-weight: 600;
+  text-align: left;
+  background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+  color: var(--foreground);
+}
+
+.editorContent
+  :global(.ProseMirror)
+  :global(.tiptap-table)
+  :global(.selectedCell) {
+  background-color: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.editorContent :global(.ProseMirror) :global(.tiptap-table) :global(p) {
+  margin: 0;
+} */
+
+/* Table column resize handle */
+/* .editorContent :global(.ProseMirror) :global(.column-resize-handle) {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background-color: var(--primary);
+  pointer-events: none;
+  z-index: 10;
+} */

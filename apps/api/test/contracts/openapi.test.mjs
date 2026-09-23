@@ -19,6 +19,23 @@ import { nativeStartRequest, nativeExchangeRequest } from '../../dist/modules/au
 const ajv = new Ajv({ strict: false, allErrors: true });
 addFormats(ajv);
 const check = (schema, value, valid = true) => { const validate = ajv.compile(schema); assert.equal(validate(value), valid, JSON.stringify(validate.errors)); };
+test('initial SOOP metadata stays self-only; default discovery and provider avatar leases are documented', async t => {
+  const { app, config } = await openApiFixture(); t.after(() => app.close());
+  const doc = createOpenApiDocument(app, config);
+  const response = (path, method = 'get') => doc.paths[path][method].responses['200'].content['application/json'].schema;
+  const self = { id: randomUUID(), nickname: '별명', avatar: null, birthday: null, birthdayVisibleToStreamers: false, soop: { displayId: 'isolated' }, providerAvatarUrl: null };
+  check(response('/v1/me/profile', 'patch'), self);
+  check(response('/v1/me/profile', 'patch'), { ...self, accessToken: 'forbidden' }, false);
+  const profile = projectActorProfileDto({ actorId: randomUUID(), nickname: '별명', avatar: null, role: 'STREAMER', providerAvatarAvailable: true });
+  check(response('/v1/rooms/{roomId}/actors/{actorId}/profile'), { replace: true, profile: { ...profile, revision: 'opaque' } });
+  check(response('/v1/rooms/{roomId}/actors/{actorId}/profile'), { replace: true, profile: { ...profile, revision: 'opaque', soop: self.soop } }, false);
+  for (const path of ['/v1/me/provider-avatar/access', '/v1/rooms/{roomId}/actors/{actorId}/provider-avatar/access']) {
+    check(response(path, 'post'), { url: 'https://api.example/v1/profile-images?ticket=opaque', expiresIn: 60 });
+    assert.deepEqual(doc.paths[path].post.security, [{ browserSession: [], csrf: [] }, { nativeBearer: [], nativeClient: [] }]);
+  }
+  assert.deepEqual(doc.paths['/v1/profile-images'].get.security, []);
+  for (const availability of ['OWNER_PENDING', 'READY']) check(response('/v1/rooms'), { rooms: [{ roomId: randomUUID(), name: '후로기', mode: 'FAN', joined: false, isDefault: true, availability }], next: null });
+});
 test('native push OpenAPI declares exact provider union, secret proofs and owner-free recovery', async t => {
   const { app, config } = await openApiFixture(); t.after(() => app.close());
   const doc = createOpenApiDocument(app, config), path = '/v1/me/native-push-subscriptions';
@@ -84,7 +101,7 @@ for (const shape of ['health', 'auth', 'full']) test(`OpenAPI matches the actual
 
 test('request schemas agree with parsers on message union, forbidden fields and null semantics', () => {
   const base = { membershipScope: 'A'.repeat(43), clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '안녕하세요' } };
-  for (const body of [base, { ...base, content: { type: 'STICKER', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE', recipientActorId: randomUUID() }, { ...base, content: { type: 'PHOTO', assetIds: [randomUUID()] } }, { ...base, quoteId: null }]) {
+  for (const body of [base, { ...base, intent: 'ROOM_OWNER' }, { ...base, content: { type: 'STICKER', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE', recipientActorId: randomUUID() }, { ...base, content: { type: 'PHOTO', assetIds: [randomUUID()] } }, { ...base, quoteId: null }]) {
     check(sendRequest, body); assert.doesNotThrow(() => sendInput(body));
   }
   for (const body of [{ ...base, recipientActorId: null }, { ...base, unexpected: true }, { ...base, content: { type: 'STICKER', assetIds: [randomUUID()] } }, { ...base, content: { type: 'TEXT', text: 'hello', stickerId: randomUUID() } }, { ...base, intent: 'PRIVATE' }, { ...base, clientMessageId: base.clientMessageId.toUpperCase() }]) {

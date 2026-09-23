@@ -6,7 +6,7 @@ import type { ChatActorRef, ChatComposerTarget, ChatQuotePreview } from './types
  * component owns the state. Nothing here persists to storage.
  */
 
-export type ChatDraftKey = 'shared' | `private:${string}`;
+export type ChatDraftKey = 'shared' | 'room-owner' | `private:${string}`;
 
 export interface ChatDraft {
   body: string;
@@ -19,7 +19,7 @@ export type ChatDrafts = Readonly<Record<string, ChatDraft>>;
 export const EMPTY_DRAFT: ChatDraft = { body: '', quote: null };
 
 export function draftKeyFor(target: ChatComposerTarget): ChatDraftKey {
-  return target.scope === 'SHARED' ? 'shared' : `private:${target.recipient.actorId}`;
+  return target.scope === 'SHARED' ? 'shared' : target.scope === 'ROOM_OWNER' ? 'room-owner' : `private:${target.recipient.actorId}`;
 }
 
 export function readDraft(drafts: ChatDrafts, target: ChatComposerTarget): ChatDraft {
@@ -47,14 +47,15 @@ export function isSameTarget(a: ChatComposerTarget | null, b: ChatComposerTarget
 
 /**
  * The composer may only target what the harness authorized:
- * - FAN: exactly the provided streamer recipient (PRIVATE only, never SHARED).
+ * - FAN: an enabled room-owner inbox or a provided PRIVATE recipient, never SHARED.
  * - STREAMER: SHARED, or one of the provided fan recipients.
  * A stale target (recipient no longer authorized) is rejected; the caller keeps the draft.
  */
 export function isAuthorizedTarget(
   target: ChatComposerTarget,
-  options: { viewerRole: 'FAN' | 'STREAMER'; fanRecipient: ChatActorRef | null; fanRecipients?: readonly ChatActorRef[]; streamerRecipients: readonly ChatActorRef[] },
+  options: { viewerRole: 'FAN' | 'STREAMER'; fanRecipient: ChatActorRef | null; fanRecipients?: readonly ChatActorRef[]; fanRoomOwner?: boolean; streamerRecipients: readonly ChatActorRef[] },
 ): boolean {
+  if (target.scope === 'ROOM_OWNER') return options.viewerRole === 'FAN' && options.fanRoomOwner === true;
   if (options.viewerRole === 'FAN') {
     return (
       target.scope === 'PRIVATE' &&
@@ -68,5 +69,6 @@ export function isAuthorizedTarget(
 export function targetLabel(target: ChatComposerTarget | null): string {
   if (target === null) return '보낼 대상 없음';
   if (target.scope === 'SHARED') return '전체 참여자';
+  if (target.scope === 'ROOM_OWNER') return '방장에게만';
   return `${target.recipient.displayName}님에게만`;
 }

@@ -106,3 +106,16 @@ void test('fan can explicitly select any server-permitted streamer, never a miss
   assert.equal(isAuthorizedTarget({ scope: 'SHARED' }, options), false);
   assert.equal(isAuthorizedTarget({ scope: 'PRIVATE', recipient: second }, { ...options, fanRecipients: [streamer] }), false);
 });
+
+test('room-owner drafts are actor-free, distinct and limited to enabled fan membership', () => {
+  const target: ChatComposerTarget = { scope: 'ROOM_OWNER' };
+  const opts = { viewerRole: 'FAN' as const, fanRecipient: null, streamerRecipients: [], fanRoomOwner: true };
+  assert.equal(isAuthorizedTarget(target, opts), true);
+  assert.equal(isAuthorizedTarget(target, { ...opts, fanRoomOwner: false }), false);
+  assert.equal(isAuthorizedTarget(target, { ...opts, viewerRole: 'STREAMER' }), false);
+  assert.equal(isAuthorizedTarget(shared, opts), false);
+  assert.equal(isAuthorizedTarget(toFanA, opts), false);
+  assert.equal(draftKeyFor(target), 'room-owner');
+  assert.notEqual(draftKeyFor(target), draftKeyFor(toStreamer));
+  assert.equal(targetLabel(target), '방장에게만');
+});

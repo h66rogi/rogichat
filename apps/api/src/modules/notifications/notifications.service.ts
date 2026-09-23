@@ -40,10 +40,10 @@ export class NotificationsService {
     const input = parseNotificationPreferences(value); requireCommandProof(credentials);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials);
-      if (input.pushEnabled && !actor.soopLinked) throw new ApiError('SOOP_LINK_REQUIRED', 403);
+      if (input.pushEnabled && !actor.chatEnabled) throw new ApiError('SOOP_LINK_REQUIRED', 403);
       if (input.pushEnabled) {
         if (credentials.transport === 'NATIVE') {
-          if (!actor.soopLinked) throw new ApiError('SOOP_LINK_REQUIRED', 403);
+          if (!actor.chatEnabled) throw new ApiError('SOOP_LINK_REQUIRED', 403);
           this.native.assertAvailable(credentials.clientId === 'ios' ? 'APNS' : 'FCM');
           await this.auth.requireEnrollment(tx, credentials);
           await this.core.requireNativeEnrollment(tx, actor, this.config.audience, credentials.clientId);
@@ -66,7 +66,7 @@ export class NotificationsService {
     }
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials);
-      if (!actor.soopLinked) throw new ApiError('SOOP_LINK_REQUIRED', 403);
+      if (!actor.chatEnabled) throw new ApiError('SOOP_LINK_REQUIRED', 403);
       return this.core.register(tx, actor, this.config.audience, input);
     });
   }

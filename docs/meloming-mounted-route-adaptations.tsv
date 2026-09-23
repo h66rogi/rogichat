@@ -1,0 +1,7 @@
+# SHA-256 of mounted channel route adaptations after the source copy.
+cdb8e53709034e54aae3c50f5d88823fc8dcfface10d91e3651ab3c9311e2a84	(channel)/musicbook/page.tsx
+c4fc564f46fc29d7530742848bad4d5371666a9e2fa41eaca9c9848960f51b8b	(channel)/schedule/page.tsx
+6964c9e44ad8586804d7b96367e74a3a14508607976003ba91bc8c029a352a50	(channel)/setlist/[sessionId]/page.tsx
+09ff80e7c08c4f95f71a0e35dff14537c2f6d44ccd0a0024868528c8d757b624	(channel)/setlist/page.tsx
+53f0b4aa98f5c277e95f0f5e40f65b632a1466988e19fa14260772b6e876bf12	(channel)/wardrobe/[itemId]/page.tsx
+0f7c083134f446a883bea06d78b12953e96e19aeb719b159cfe8f02c8b331d43	(channel)/wardrobe/page.tsx

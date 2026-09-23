@@ -1,3 +1,5 @@
+import { chatAccountSql } from '../auth/chat-entitlement.js';
+import { delegatedMemberSql } from '../access/delegation-policy.js';
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2';
@@ -52,20 +54,45 @@ export class MessagesRepository {
   }
 
   async target(tx: Transaction, roomId: string, actorId: string): Promise<MessageTargetRow | undefined> {
-    const [row] = await tx.rows<MessageTargetRow>(`SELECT m.id,m.role FROM room_members m JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id JOIN users u ON u.id=m.user_id AND u.status='ACTIVE' JOIN platform_soop s ON s.user_id=u.id AND s.status='VERIFIED' WHERE m.room_id=? AND m.id=? AND m.status='ACTIVE' AND p.left_at IS NULL FOR UPDATE`, [roomId, actorId]);
-    return row;
+    const [row] = await tx.rows<Omit<MessageTargetRow, 'delegated'> & { delegated: number }>(`SELECT m.id,m.user_id,m.role,${delegatedMemberSql('m')} AS delegated FROM room_members m JOIN membership_periods p ON p.id=m.active_period_id AND p.room_id=m.room_id AND p.member_id=m.id JOIN users u ON u.id=m.user_id AND u.status='ACTIVE' LEFT JOIN platform_soop s ON s.user_id=u.id WHERE ${chatAccountSql('u', 's')} AND m.room_id=? AND m.id=? AND m.status='ACTIVE' AND p.left_at IS NULL FOR UPDATE`, [roomId, actorId]);
+    return row ? { ...row, role: Number(row.delegated) === 1 ? 'STREAMER' : row.role, delegated: Number(row.delegated) === 1 } : undefined;
   }
 
   async pair(tx: Transaction, roomId: string, members: [string, string]): Promise<MessagePairRow | undefined> {
     const [row] = await tx.rows<MessagePairRow>('SELECT stream_id FROM stream_pairs WHERE room_id=? AND left_member_id=? AND right_member_id=? FOR UPDATE', [roomId, ...members]);
     return row;
   }
+  quotePair(tx: Transaction, roomId: string, streamId: string, sender: string, originalAuthor: string) {
+    const members = [sender, originalAuthor].sort() as [string, string];
+    return tx.prisma.stream_pairs.findFirst({ where: { room_id: roomId, stream_id: streamId, left_member_id: members[0], right_member_id: members[1] }, select: { id: true } });
+  }
 
-  async createPair(tx: Transaction, roomId: string, streamId: string, members: [string, string]): Promise<void> {
+  async createPair(tx: Transaction, roomId: string, streamId: string, members: [string, string], delegatedActorId?: string): Promise<void> {
     await tx.prisma.message_streams.create({ data: { id: streamId, room_id: roomId, kind: 'RESTRICTED' }, select: { id: true } });
     await tx.prisma.stream_pairs.create({ data: { id: randomUUID(), room_id: roomId, left_member_id: members[0], right_member_id: members[1], stream_id: streamId }, select: { id: true } });
-    await tx.prisma.stream_grants.createMany({ data: members.map(member_id => ({ id: randomUUID(), room_id: roomId, stream_id: streamId, member_id, can_read: true, can_send: true })) });
+    await tx.prisma.stream_grants.createMany({ data: members.map(member_id => ({ id: randomUUID(), room_id: roomId, stream_id: streamId, member_id, can_read: member_id !== delegatedActorId, can_send: member_id !== delegatedActorId })) });
     await tx.prisma.room_members.updateMany({ where: { room_id: roomId, id: { in: members } }, data: { acl_epoch: { increment: 1n } } });
+  }
+  async pendingOwner(tx: Transaction, roomId: string): Promise<boolean> {
+    // Before the room lock, matching bootstrap order; current read avoids RR
+    // snapshots and serializes sends with actual owner/inbox grant attachment.
+    return (await tx.rows("SELECT room_id FROM default_room_bindings WHERE room_id=? AND owner_bound=0 FOR UPDATE", [roomId])).length === 1;
+  }
+  async pendingInbox(tx: Transaction, roomId: string, actorId: string): Promise<string> {
+    // Only ROOM_OWNER creates an unpaired restricted stream, with one real fan
+    // grant. The room lock serializes discovery/creation and later owner binding.
+    const rows = await tx.rows<{ id: string }>(`SELECT s.id FROM message_streams s
+      JOIN stream_grants g ON g.room_id=s.room_id AND g.stream_id=s.id
+      LEFT JOIN stream_pairs p ON p.room_id=s.room_id AND p.stream_id=s.id
+      WHERE s.room_id=? AND s.kind='RESTRICTED' AND g.member_id=? AND p.id IS NULL FOR UPDATE`, [roomId, actorId]);
+    if (rows.length > 1) throw new Error('owner_inbox_conflict');
+    if (rows[0]) return rows[0].id;
+    const id = randomUUID();
+    await tx.prisma.message_streams.create({ data: { id, room_id: roomId, kind: 'RESTRICTED' }, select: { id: true } });
+    await tx.prisma.stream_grants.create({ data: { id: randomUUID(), room_id: roomId, stream_id: id,
+      member_id: actorId, can_read: true, can_send: true }, select: { id: true } });
+    await tx.prisma.room_members.update({ where: { id: actorId }, data: { acl_epoch: { increment: 1n } }, select: { id: true } });
+    return id;
   }
   sendGrants(tx: Transaction, roomId: string, streamId: string, members: [string, string]): Promise<MessageSendGrantRow[]> {
     return tx.rows<MessageSendGrantRow>('SELECT member_id,can_read,can_send FROM stream_grants WHERE room_id=? AND stream_id=? AND member_id IN (?,?) AND revoked_at IS NULL AND valid_from<=UTC_TIMESTAMP(3) AND (expires_at IS NULL OR expires_at>UTC_TIMESTAMP(3)) ORDER BY member_id FOR UPDATE', [roomId, streamId, ...members]);

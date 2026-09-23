@@ -14,7 +14,7 @@ export interface MessageGrantRow {
 export interface MessageAttachmentRow {
   id: string; width: number; height: number; variant: string;
 }
-export interface MessageTargetRow { id: string; role: string }
+export interface MessageTargetRow { id: string; user_id: string; role: string; delegated?: boolean }
 export interface MessagePairRow { stream_id: string }
 export interface MessageSendGrantRow {
   member_id: string; can_read: number; can_send: number;

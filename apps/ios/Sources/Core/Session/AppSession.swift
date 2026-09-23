@@ -19,6 +19,9 @@ struct AccountProfile: Equatable, Sendable {
     var birthday: Birthday? = nil
     var birthdayVisibleToStreamers = false
     var avatarAssetID: String? = nil
+    // Self-profile presentation only, independent of immutable account identity.
+    var soopDisplayID: String? = nil
+    var providerAvatarURL: String? = nil
     var isValid: Bool { !id.isEmpty && ProfileEditor(baseline: displayName).error == nil && ProfileEditor(baseline: displayName).normalized.utf8.elementsEqual(displayName.utf8) && (birthday?.isValid ?? true) }
 }
 // An auth result remains unpublished until the main-actor owner accepts it.
@@ -50,6 +53,7 @@ struct SessionSnapshot: Sendable {
 enum SignInMethod: String, Sendable { case apple, soop }
 struct SessionCapabilities: Sendable {
     var signInMethods: [SignInMethod] = []
+    var canPassword = false
     var canLinkSOOP = false
     var canLinkApple = false
     var canEditProfile = false
@@ -103,6 +107,9 @@ protocol SessionServing: Sendable {
     func updateProfile(_ update: ProfileUpdate) async throws -> AccountProfile
     func signOut() async throws
     func deleteAccount() async throws
+    func password(_ input: PasswordInput, attempt: SessionAttempt) async throws -> SessionSnapshot
+    func accessRequest(_ request: AccountAccessRequest) async throws -> Data
+    func refreshAccessScope() async throws -> SessionSnapshot
     func signInSOOP(consentVersion: String) async throws -> SessionSnapshot
     func acceptAuthCallback(_ url: URL) async throws -> SessionSnapshot?
     func beginSOOP(consentVersion: String, attempt: SessionAttempt) async throws -> SessionSnapshot
@@ -114,6 +121,9 @@ protocol SessionServing: Sendable {
 }
 
 extension SessionServing {
+    func password(_ input: PasswordInput, attempt: SessionAttempt) async throws -> SessionSnapshot { throw ProductError.unavailable }
+    func accessRequest(_ request: AccountAccessRequest) async throws -> Data { throw ProductError.unavailable }
+    func refreshAccessScope() async throws -> SessionSnapshot { try await revalidate() }
     func beginApple(consentVersion: String?, link: Bool, attempt: SessionAttempt) async throws -> SessionSnapshot { throw ProductError.unavailable }
     func signInSOOP(consentVersion: String) async throws -> SessionSnapshot { try await signIn(.soop) }
     func acceptAuthCallback(_ url: URL) async throws -> SessionSnapshot? { throw ProductError.unavailable }
@@ -153,6 +163,7 @@ final class AppSession {
     private var accountPartition: String?
     private var deferredAuthCallback: URL?
     private var authAttempt: SessionAttempt?
+    @ObservationIgnored private var grantExpiryTask: Task<Void, Never>?
     @ObservationIgnored private var expirationTask: Task<Void, Never>?
     private(set) var deletions: [AccountDeletionPresentation] = []
     private(set) var deletionError: String?
@@ -250,6 +261,44 @@ final class AppSession {
         let attempt = SessionAttempt(); authAttempt = attempt
         if method == .soop { await transition { try await self.service.beginSOOP(consentVersion: "2026-09-20", attempt: attempt) } }
         else { await transition { try await self.service.beginApple(consentVersion: "2026-09-20", link: false, attempt: attempt) } }
+    }
+    func password(_ input: PasswordInput, consent: Bool = false) async {
+        guard capabilities.canPassword, !busy, input.changing ? account != nil : access == .signedOut else { return }
+        guard input.changing || consent else { errorMessage = "이용 안내를 확인하고 동의해 주세요."; return }
+        let attempt = SessionAttempt(); authAttempt = attempt
+        await transition { try await self.service.password(input, attempt: attempt) }
+    }
+    func accessRequest(_ request: AccountAccessRequest, expected: UInt64) async throws -> Data {
+        guard generation == expected, account != nil else { throw ProductError.sessionChanged }
+        if request.mutation { roomsScope?.invalidate(); roomsScope = nil }
+        let result = try await service.accessRequest(request)
+        guard generation == expected else { throw ProductError.sessionChanged }
+        if case .room = request {
+            struct Expiry: Decodable { struct Temporary: Decodable { let expiresAt: String }; let temporaryStreamer: Temporary? }
+            let temporary = try JSONDecoder().decode(Expiry.self,from:result).temporaryStreamer
+            grantExpiryTask?.cancel(); grantExpiryTask = nil
+            if let temporary {
+                let format = ISO8601DateFormatter(); format.formatOptions = [.withInternetDateTime,.withFractionalSeconds]
+                var expiry = format.date(from:temporary.expiresAt)
+                if expiry == nil { format.formatOptions = [.withInternetDateTime]; expiry = format.date(from:temporary.expiresAt) }
+                guard let expiry else { throw ProductError.invalidResponse }
+                if expiry > Date() { grantExpiryTask = Task { [weak self] in
+                    do { try await Task.sleep(for:.seconds(max(0.1,expiry.timeIntervalSinceNow))); try Task.checkCancellation()
+                        guard let self, self.generation == expected else { return }
+                        await self.refreshAccessScope(expected:expected)
+                        _ = try await self.accessRequest(request,expected:self.generation)
+                    } catch {}
+                } }
+            }
+        }
+        return result
+    }
+    func refreshAccessScope(expected: UInt64) async {
+        guard generation == expected, account != nil else { return }
+        // Withdraw rendered private data before waiting for network revalidation.
+        roomsScope?.invalidate(); roomsScope = nil
+        do { let snapshot = try await service.refreshAccessScope(); guard generation == expected else { return }; apply(snapshot) }
+        catch { await handleAccountError(error, ticket: expected) }
     }
     func linkApple() async {
         guard capabilities.canLinkApple, account != nil, [.ready, .linkRequired].contains(access), !busy else { return }
@@ -518,8 +567,7 @@ final class AppSession {
         let hasAccount = snapshot.account != nil
         let needsAccount = snapshot.access == .ready || snapshot.access == .linkRequired
         guard !needsAccount || hasAccount,
-              snapshot.account?.isValid != false,
-              snapshot.access != .ready || snapshot.account?.soopConnected == true else {
+              snapshot.account?.isValid != false else {
             generation &+= 1
             account = nil
             roomsScope?.invalidate(); roomsScope = nil; clientScope = nil; accountPartition = nil
@@ -602,4 +650,59 @@ extension AppSession {
 
 extension AppSession {
     func dismissDeletionPresentation() { showDeletionHistory = false; currentDeletionID = nil; deletionError = nil }
+}
+
+
+struct PasswordInput: Sendable, CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {
+    var customMirror: Mirror { Mirror(self,children:["password":"[redacted]"]) }
+    let loginID: String?
+    let password: String
+    let newPassword: String?
+    var changing: Bool { newPassword != nil }
+    var description: String { "PasswordInput([redacted])" }
+    var debugDescription: String { description }
+    static func valid(_ value: String) -> Bool {
+        value.unicodeScalars.count >= 12 && value.utf8.count <= 256 && !value.unicodeScalars.contains { $0.value < 32 || $0.value == 127 }
+    }
+    func body() throws -> Data {
+        guard Self.valid(password) else { throw ProductError.invalidResponse }
+        var value = ["clientId": "ios"]
+        if let newPassword {
+            guard loginID == nil, Self.valid(newPassword) else { throw ProductError.invalidResponse }
+            value["currentPassword"] = password; value["newPassword"] = newPassword
+        } else {
+            guard let loginID, loginID.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$", options: .regularExpression) != nil else { throw ProductError.invalidResponse }
+            value["loginId"] = loginID; value["password"] = password; value["termsVersion"] = "2026-09-20"
+        }
+        return try JSONSerialization.data(withJSONObject: value)
+    }
+}
+enum AccountAccessRequest: Sendable {
+    case me, rooms(String?), room(String), grants(String, String?), issue(String, UUID, Int, String), revoke(String, String, String)
+    var mutation: Bool { switch self { case .issue, .revoke: true; default: false } }
+    func wire() throws -> (String, String, Data?, Int, String?) {
+        func id(_ value: String) throws -> String { guard UUID(uuidString: value) != nil else { throw ProductError.invalidResponse }; return value }
+        func reason(_ value: String) throws -> String { guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, value.unicodeScalars.count <= 200, !value.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else { throw ProductError.invalidResponse }; return value }
+        switch self {
+        case .me: return ("GET","me/capabilities",nil,200,nil)
+        case .rooms(let after): return ("GET","rooms",nil,200,try after.map(id))
+        case .room(let room): return ("GET","rooms/\(try id(room))/capabilities",nil,200,nil)
+        case .grants(let room, let after): return ("GET","admin/rooms/\(try id(room))/test-grants",nil,200,try after.map(id))
+        case .issue(let room,let request,let duration,let why):
+            guard (60...3600).contains(duration) else { throw ProductError.invalidResponse }
+            return ("POST","admin/rooms/\(try id(room))/test-grants",try JSONSerialization.data(withJSONObject:["requestId":request.uuidString.lowercased(),"durationSeconds":duration,"reason":try reason(why)]),201,nil)
+        case .revoke(let room,let grant,let why): return ("POST","admin/rooms/\(try id(room))/test-grants/\(try id(grant))/revoke",try JSONSerialization.data(withJSONObject:["reason":try reason(why)]),204,nil)
+        }
+    }
+}
+
+
+enum PasswordFailure: Error, LocalizedError, Sendable {
+    case credentials, unavailable, rateLimited, invalidInput
+    var errorDescription: String? { switch self {
+        case .credentials: "아이디 또는 비밀번호를 확인해 주세요."
+        case .unavailable: "지금은 로그인 정보를 확인할 수 없어요. 잠시 후 다시 시도해 주세요."
+        case .rateLimited: "요청이 많아요. 잠시 후 다시 시도해 주세요."
+        case .invalidInput: "입력한 아이디와 비밀번호 형식을 확인해 주세요."
+    } }
 }

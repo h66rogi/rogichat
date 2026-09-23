@@ -1,4 +1,5 @@
 import Foundation
+import ImageIO
 
 private final class MediaDownloadDelegate: NSObject, URLSessionTaskDelegate, Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
@@ -9,9 +10,9 @@ private final class MediaDownloadDelegate: NSObject, URLSessionTaskDelegate, Sen
 enum MediaDownload {
     // Credential-free Range GET into private scratch: AVPlayer seeks locally without retaining a
     // signed URL beyond expiry. Caller deletes scratch on disappearance/scope invalidation.
-    static func fetch(_ lease: MediaLease, scope: any MediaScope) async throws -> URL {
+    static func fetch(_ lease: MediaLease, scope: any MediaScope, provider: Bool = false) async throws -> URL {
         let video = lease.variant == .video
-        let cap: Int64 = video ? 52 * 1024 * 1024 : 10 * 1024 * 1024
+        let cap: Int64 = provider ? 2 * 1024 * 1024 : (video ? 52 * 1024 * 1024 : 10 * 1024 * 1024)
         var request = URLRequest(url: try lease.checkedURL(scope: scope))
         request.httpShouldHandleCookies = false
         request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
@@ -28,7 +29,7 @@ enum MediaDownload {
             guard let response = response as? HTTPURLResponse, response.url == request.url else { throw MediaError.invalid }
             let length = response.expectedContentLength
             try validateResponse(variant: lease.variant, status: response.statusCode, length: length, type: response.mimeType,
-                                 range: response.value(forHTTPHeaderField: "Content-Range"), encoding: response.value(forHTTPHeaderField: "Content-Encoding"))
+                                 range: response.value(forHTTPHeaderField: "Content-Range"), encoding: response.value(forHTTPHeaderField: "Content-Encoding"), provider: provider)
             guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw MediaError.invalid }
             let file = try FileHandle(forWritingTo: destination); defer { try? file.close() }
             var chunk = Data(); var total: Int64 = 0
@@ -42,12 +43,12 @@ enum MediaDownload {
             try file.write(contentsOf: chunk); return destination
         } catch { try? FileManager.default.removeItem(at: destination); throw error }
     }
-    static func validateResponse(variant: MediaVariant, status: Int, length: Int64, type: String?, range: String?, encoding: String?) throws {
+    static func validateResponse(variant: MediaVariant, status: Int, length: Int64, type: String?, range: String?, encoding: String?, provider: Bool = false) throws {
         let video = variant == .video
-        let cap: Int64 = video ? 52 * 1024 * 1024 : 10 * 1024 * 1024
+        let cap: Int64 = provider ? 2 * 1024 * 1024 : (video ? 52 * 1024 * 1024 : 10 * 1024 * 1024)
         guard status == 200 || (video && status == 206) else { throw MediaError.response(status, nil) }
         guard length > 0, length <= cap,
-              video ? type == "video/mp4" : ["image/jpeg", "image/png", "image/webp"].contains(type ?? "") else { throw MediaError.invalid }
+              provider ? (!video && ["image/jpeg", "image/webp", "image/gif"].contains(type ?? "")) : (video ? type == "video/mp4" : ["image/jpeg", "image/png", "image/webp"].contains(type ?? "")) else { throw MediaError.invalid }
         if let encoding, encoding != "identity" { throw MediaError.invalid }
         if status == 206, range != "bytes 0-\(length - 1)/\(length)" { throw MediaError.invalid }
     }
@@ -77,5 +78,21 @@ final class MediaScratchLifecycle: @unchecked Sendable {
             try purgeMediaScratchAtProcessStart()
             prepared = true
         }
+    }
+}
+
+// Provider avatars display only the first frame, never an unbounded animation.
+enum ProviderAvatarDecoder {
+    static func decode(_ data: Data) throws -> CGImage {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int,
+              width > 0, height > 0, width <= 20_000_000 / height,
+              let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: 256] as CFDictionary) else { throw MediaError.invalid }
+        return decoded
     }
 }

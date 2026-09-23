@@ -13,15 +13,40 @@ test.describe('channel shell', () => {
     await expect(page.locator('nav[aria-label="채널 메뉴"]')).toHaveCount(1);
   });
 
-  test('menu lists only available features and marks the current one', async ({ page, isMobile }) => {
+  test('menu links to the copied channel pages without obsolete placeholders', async ({ page, isMobile }) => {
     await page.goto('/rules');
     if (isMobile) {
       await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
     }
     const menu = page.getByRole('navigation', { name: '채널 메뉴' }).last();
-    await expect(menu.getByRole('link')).toHaveText(['홈', '채팅', '이용 안내', '내 설정']);
-    await expect(menu.getByRole('link', { name: '이용 안내' })).toHaveAttribute('aria-current', 'page');
-    await expect(menu.getByText('준비 중')).toHaveCount(0);
+    await expect(menu.getByRole('link')).toHaveText(['프로필', '채팅', '규칙·이용 안내', '일정', '옷장', '노래책', '내 설정']);
+    await expect(menu.getByRole('link', { name: '규칙·이용 안내' })).toHaveAttribute('aria-current', 'page');
+    for (const [label, href] of [
+      ['일정', '/channel/hurogi/schedule'],
+      ['옷장', '/channel/hurogi/wardrobe'],
+      ['노래책', '/channel/hurogi/musicbook'],
+    ]) {
+      await expect(menu.getByRole('link', { name: label })).toHaveAttribute('href', href);
+    }
+    await expect(menu).not.toContainText('준비 중');
+    await expect(menu).not.toContainText('후원');
+  });
+
+  test('uses the official channel image and keeps chat in a narrow column on desktop', async ({ page, isMobile }) => {
+    test.skip(isMobile, 'desktop layout only');
+    await page.goto('/');
+    const avatar = page.locator('[data-shell-aside] img[alt="후로기 프로필 사진"]');
+    await expect(avatar).toBeVisible();
+    await expect.poll(() => avatar.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+    await expect(page.locator('[data-shell-aside]')).not.toContainText('SOOP 스트리머');
+
+    await page.goto('/chat');
+    const column = await page.locator('[data-chat-column]').boundingBox();
+    const main = await page.locator('[data-shell-main]').boundingBox();
+    expect(column).not.toBeNull();
+    expect(main).not.toBeNull();
+    expect(column!.width).toBeLessThanOrEqual(768);
+    expect(column!.width).toBeLessThan(main!.width);
   });
 
   test('has no horizontal overflow on any screen', async ({ page }) => {

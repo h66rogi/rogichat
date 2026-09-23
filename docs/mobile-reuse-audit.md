@@ -357,3 +357,52 @@ TEXT sender/recipient/body에 맞춘 iOS messages 개인정보 선언과 Android
 [실시간 추출 기록](mobile-native-realtime-progress.md)은 SDK 원본의 cookie/Origin 처리와
 공식 engine seam을 선택한 근거, 정확한 pin·라이선스, 실제 loopback 검사의 범위를 기록한다.
 [제품 통합 기록](mobile-product-integration-progress.md)에서 실제 앱 연결과 최종 검증을 구분한다.
+
+
+## 실제 SOOP 기본 프로필·기본방 소비
+
+| ID | 원본·대상 | 재사용와 새 계약의 경계 |
+|---|---|---|
+| R64 | Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`의 `core/designsystem/.../MelomingAsyncImage.kt:ProfileImage`, `feature/more/.../ProfileSettingsScreen.kt`; iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b`의 `Meloming/Presentation/More/MyPageView.swift:MyProfileHero`; 대상 양 OS SettingsScreen/ProfileScreen | **기존 추출 확장·수정 재사용**: 프로필 중심 헤더·원형 crop·이름/보조 정보·수정 화면을 유지하고 실제 self-profile GET의 SOOP ID를 표시한다. session 요약에 없는 값을 추정하지 않는다. 이미지 엔진은 기존 AuthorizedMedia/MediaDownload를 직접 재사용한다. 별도 Coil/Kingfisher 캐시나 인증 client는 추가하지 않는다. |
+| R65 | 기존 Rogichat MediaClient·AuthorizedMedia·계정/대화 scope·Room/GRDB profile projection; 대상 동일 구현 | **기존 코드 직접 재사용 + 계약 추가**: 기본 사진의 body 없는 self/actor 조회권을 기존 60초 lease·인증 없는 다운로드·크기/형식/취소 검증에 연결한다. 직접 올린 asset을 우선하고 provider 사진은 갱신 때 실제 bytes도 다시 읽는다. raw provider URL/ID는 self 응답 밖으로 전파하거나 DB에 저장하지 않는다. actor는 현재 room profile 허용 범위에서만 표시하고 익명 author에는 연결하지 않는다. |
+| R66 | 기존 RoomsScreen·RoomsViewModel/RoomsScreenModel·Room/GRDB discovery 저장 경로 | **기존 구현 확장**: 실제 default room의 선택 필드 `isDefault`, `availability`를 저장·표시한다. `OWNER_PENDING`이면 방장 확인 대기를 표시하고 join을 보내지 않는다. 방 ID·owner를 앱에서 생성/추정하지 않는다. Android DB 3→4는 기존 row/outbox를 보존하는 additive migration, iOS 기존 JSON은 필드 부재 시 이전 계약으로 읽는다. 채팅 UX는 멜로밍에서 추출하지 않았다. |
+
+추가 API 필드는 이전 배포에서 없거나 self-profile에서 null일 수 있다. 표시 ID는 계정
+subject·partition·권한 키가 아니다. 수동 이름·사진·사진 삭제의 보존은 서버가 결정하며
+클라이언트는 실제 GET/PATCH 결과를 표시한다. 테스트 합성 프로필·방은 test target에만 있다.
+
+
+| ID | 원본·기존 구현 | 대상 | 재사용와 새 계약의 경계 |
+|---|---|---|---|
+| R67 | R55/R64와 같은 원본 이미지 cache·ProfileImage 대조; 기존 MediaClient/MediaDownload 직접 재사용 | provider 전용 URL 검증·ProviderAvatarLoads | **기존 전송 재사용 + 새 권한 수명 처리**: provider 조회권은 설정된 API origin의 `/v1/profile-images`와 단일 opaque ticket만 허용하고 JPEG/WebP 2 MiB로 제한한다. 원본의 URL 전역 cache는 만료되는 계정/방 권한과 맞지 않아 그대로 이식하지 않는다. 계정/방의 원래 scope+actor별 활성 화면에서만 요청·bytes를 공유하고 마지막 화면 종료 때 취소·폐기한다. 동시 전송 2개, 대기 15초, 갱신 시 새 조회권과 bytes를 함께 받는다. 일반 asset의 서명 URL 계약은 유지한다. |
+
+
+## 방장 수신함 전송 확장
+
+| ID | 원본·대상 | 재사용와 새 계약의 경계 |
+|---|---|---|
+| R68 | 기존 Rogichat ConversationScreen/ViewModel, TextCommand, Room/GRDB outbox, MediaClient/ConversationMedia; 기반 원본은 R64 이전의 공통 UI·상태 재사용 항목 | **기존 제품 구현 직접 확장**: ROOM_OWNER를 기존 전송·영속·receipt 복구·미디어 명령에 추가한다. 멜로밍 채팅 UX는 사용자 제외 조건을 유지하며 가져오지 않는다. 멜로밍의 원본 일반 로그인·설정은 이 새 수신함 계약을 구현하지 않으므로 별도 채팅 계층 복사로 대체하지 않는다. 서버가 결정한 FAN 권한 및 실제 recipient projection을 그대로 사용한다. |
+
+R66의 `OWNER_PENDING` 처리 코드는 과거 계약의 호환 처리다. 실제 팬 접근이 가능한
+기본방은 방장 미가입 여부와 무관하게 READY이며, 이번 앱은 그 상태에서 수신 actor 없이
+ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록](mobile-room-owner-progress.md)에 있다.
+
+
+| ID | 원본·대상 | 재사용와 새 계약의 경계 |
+|---|---|---|
+| R69 | 기존 NativeDtos/NativeSessionDTO, SessionSnapshot/AppSession 세션 투영과 복원·재검증 | **기존 세션 구현 직접 확장**: 실제 서버 심사 권한을 SOOP 연결 사실과 분리한다. 멜로밍 로그인 화면의 자격증명 폼은 후속 폼 이식 대상이며, 로기챗의 REQUIRED+READY+chat 계약을 제공하지 않는 원본 세션 정책으로 대체하지 않는다. 백엔드가 권한을 결정하고 UI는 사실만 표시한다. |
+
+## 비밀번호 인증·계정 보안 확장
+
+| ID | 원본 commit/path | 대상과 재사용 | 필요한 변경 |
+|---|---|---|---|
+| R70 | meloming-android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, `feature/auth/.../LoginScreen.kt` LoginContent의 자격증명 필드·focus/IME·비밀번호 마스킹/표시·submit guard | Android PasswordForm: 기존 구조와 포커스·보안 입력 동작을 이식 | 이메일을 ASCII loginId로 변경, 로기챗 기본 입력 스타일, 실제 native 요청/약관 동의, 저장하지 않는 암호 상태, 가입/MFA/다른 OAuth 제외 |
+| R71 | meloming-ios `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `Meloming/Presentation/Auth/LoginView.swift` labeled form·SecureField·error/loading·button admission | iOS PasswordForm 및 WelcomeScreen 실제 ID/PW 진입 | username/newPassword autofill 구분, 변경 확인 입력, 로기챗 계약/약관·비활성화 시 삭제, 기존 보호 세션 publication 사용 |
+| R72 | R01 이후 이식된 SettingsSection/SettingsRow와 MyPage/More 전체 설정 허브; 원본 `Presentation/More/MfaSecuritySettingsView.swift`, `feature/more/.../MfaSecuritySettingsScreen.kt` 추가 대조 | 양쪽 AccountAccessSettings는 기존 설정 허브·section/row·실제 비동기 권한/오류 재조회 구조 직접 확장 | MFA 자체는 복사하지 않는다. self-only 임시 grant/서버 만료·role/revision 계약은 원본에 없어 새 closed request와 scope 철회 구현이 필요하다. 기존 SOOP 신원이나 방 소유자를 덮어쓰지 않는다. |
+
+상세 경계와 검증은 [비밀번호·관리자 구현 기록](mobile-password-admin-progress.md)에 있다.
+
+
+| ID | 원본·대상 | 재사용과 변경 경계 |
+|---|---|---|
+| R73 | QA20 `d95a34adf71c38f888ddddc759bd6fce7d921046`의 Android/iOS `AuthorizedMedia` provider-avatar decoder | **기존 구현 직접 재사용**: BitmapFactory bounds/downsample와 ImageIO index-0 thumbnail을 테스트 가능한 ProviderAvatarDecoder로 옮긴다. 기존 20 MP/256 기준을 보존하고 provider MIME에만 GIF를 추가한다. 멜로밍 채팅 UX·다른 이미지 라이브러리·원본 설정을 가져오지 않는다. 합성 GIF는 테스트 소스에만 둔다. |

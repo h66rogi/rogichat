@@ -3,6 +3,7 @@ export interface VisibleActorProfileReadModel {
   readonly nickname: string;
   readonly avatar: { readonly assetId: string } | null;
   readonly role: 'FAN' | 'MEMBER' | 'STREAMER';
+  readonly providerAvatarAvailable?: boolean;
   // Populate only after viewer-specific authorization. A raw stored birthday
   // is deliberately NOT a field of this read model.
   readonly visibleBirthday?: { readonly month: number; readonly day: number } | null;
@@ -12,6 +13,7 @@ export interface ActorProfileDto {
   nickname: string;
   avatar: { assetId: string } | null;
   role: 'FAN' | 'MEMBER' | 'STREAMER';
+  providerAvatarAvailable?: boolean;
   birthday?: { month: number; day: number };
 }
 
@@ -22,6 +24,7 @@ export function projectActorProfileDto(model: VisibleActorProfileReadModel): Act
   const projection: ActorProfileDto = {
     actorId: model.actorId, nickname: model.nickname,
     avatar: model.avatar === null ? null : { assetId: model.avatar.assetId }, role: model.role,
+    ...(model.providerAvatarAvailable ? { providerAvatarAvailable: true } : {}),
   };
   if (Object.hasOwn(model, 'visibleBirthday') && model.visibleBirthday !== undefined && model.visibleBirthday !== null) {
     projection.birthday = { month: model.visibleBirthday.month, day: model.visibleBirthday.day };

@@ -53,6 +53,7 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
             }
         }
     }
+    fun roomOwnerAllowed() = selection.membership.mode == RoomMode.FAN && selection.membership.role == RoomRole.FAN
     fun mustPrivate() = selection.membership.mode == RoomMode.FAN && selection.membership.role != RoomRole.STREAMER
     fun text(value: String) {
         if (!mutableDraft.value.submitting && !mutableDraft.value.uploading && mutableDraft.value.media == null) mutableDraft.value = mutableDraft.value.copy(text = value.substring(0, value.offsetByCodePoints(0, minOf(20000, value.codePointCount(0, value.length)))), error = null)
@@ -136,9 +137,10 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
         val text = try { if (draft.media == null) TextCommand.normalizeText(draft.text) else "" } catch (_: Exception) {
             mutableDraft.value = draft.copy(error = "메시지는 공백을 제외해 입력하고, 4,000자 이내로 작성해 주세요."); return
         }
-        if (draft.privateMessage && draft.recipient == null) { mutableDraft.value = draft.copy(error = "메시지를 받을 사람을 선택해 주세요."); return }
+        val roomOwner = roomOwnerAllowed() && draft.recipient == null && draft.quote == null
+        if (draft.privateMessage && draft.recipient == null && !roomOwner) { mutableDraft.value = draft.copy(error = "메시지를 받을 사람을 선택해 주세요."); return }
         val command = TextCommand(RoomId(UUID.randomUUID().toString()), renderedScope.selection.membership.membershipScope,
-            if (draft.privateMessage) "PRIVATE" else "SHARED", draft.recipient.takeIf { draft.privateMessage }, draft.quote?.id, text, draft.media)
+            if (roomOwner) "ROOM_OWNER" else if (draft.privateMessage) "PRIVATE" else "SHARED", draft.recipient.takeIf { draft.privateMessage }, draft.quote?.id, text, draft.media)
         val intent = TextSendIntent(renderedScope, command, draft.recipientRevision)
         mutableDraft.value = draft.copy(submitting = true, error = null)
         caller.launch {

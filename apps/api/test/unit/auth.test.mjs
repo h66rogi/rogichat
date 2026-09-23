@@ -50,6 +50,12 @@ test('HTTP broker request/exchange allowlists, fixed binding, bounded response a
   body = { schemaVersion: 1, provider: 'soop', subject: 'fixture-viewer', clientId: 'fixture-qa', transactionId: id, authenticatedAt: new Date().toISOString(), nickname: 'not-forwarded' };
   const result = await broker.exchange({ transactionId: id, code, verifier: secret() });
   assert.equal(result.subject, body.subject); assert.ok(!('nickname' in result));
+  assert.ok(!('profile' in result)); // Old broker remains usable during API-first rollout.
+  body.profile = { displayId: body.subject, nickname: '검증된 별명', imageUrl: 'https://stimg.sooplive.com/LOGO/fi/fixture-viewer/fixture-viewer.jpg' };
+  assert.deepEqual((await broker.exchange({ transactionId: id, code, verifier: secret() })).profile, body.profile);
+  const valid = body.profile; body.profile = { ...valid, displayId: 'wrong' };
+  await assert.rejects(broker.exchange({ transactionId: id, code, verifier: secret() }));
+  body.profile = valid;
   body.extraToken = 'must-reject'; await assert.rejects(broker.exchange({ transactionId: id, code, verifier: secret() }));
   raw = 'x'.repeat(8193); await assert.rejects(request(), { code: 'AUTH_UNAVAILABLE' });
   raw = undefined; contentType = 'text/html'; await assert.rejects(request(), { code: 'AUTH_UNAVAILABLE' });

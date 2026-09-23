@@ -32,7 +32,13 @@ export class AccountCleanupRepository {
 
   async privateFields(tx: Transaction, userId: string) {
     let changed = (await tx.prisma.creator_accounts.deleteMany({ where: { user_id: userId } })).count;
+    changed += (await tx.prisma.password_accounts.deleteMany({ where: { user_id: userId } })).count;
+    changed += (await tx.prisma.users.updateMany({ where: { id: userId, reviewer_expires_at: { not: null } }, data: { reviewer_expires_at: null } })).count;
+    changed += (await tx.prisma.platform_soop.updateMany({ where: { user_id: userId,
+      OR: [{ profile_nickname: { not: null } }, { profile_image_url: { not: null } }] },
+      data: { profile_nickname: null, profile_image_url: null } })).count;
     changed += (await tx.prisma.admin_capabilities.deleteMany({ where: { user_id: userId } })).count;
+    changed += (await tx.prisma.melomingUserAlias.deleteMany({ where: { userId } })).count;
     // Keep the avatar FK until a separate durable media transfer proves detachment
     // safe. Empty nickname is internal scrubbed data, never a successful profile DTO.
     changed += (await tx.prisma.user_profiles.deleteMany({ where: { user_id: userId, avatar_asset_id: null } })).count;
@@ -42,12 +48,82 @@ export class AccountCleanupRepository {
     return changed;
   }
 
+  /** Drain Meloming channel data introduced into Rogichat before account closure. */
+  async channelContent(tx: Transaction, userId: string, limit: number) {
+    const ownClipRequests = await tx.prisma.clipRequest.findMany({ where: { requesterId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (ownClipRequests.length) return (await tx.prisma.clipRequest.deleteMany({ where: { requesterId: userId, id: { in: ownClipRequests.map(row => row.id) } } })).count;
+    const processedClipRequests = await tx.prisma.clipRequest.findMany({ where: { processedById: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (processedClipRequests.length) return (await tx.prisma.clipRequest.updateMany({ where: { processedById: userId, id: { in: processedClipRequests.map(row => row.id) } }, data: { processedById: null } })).count;
+    const exportLogs = await tx.prisma.songExportLog.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (exportLogs.length) return (await tx.prisma.songExportLog.deleteMany({ where: { userId, id: { in: exportLogs.map(row => row.id) } } })).count;
+    const ownSongRequests = await tx.prisma.songAddRequest.findMany({ where: { requesterId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (ownSongRequests.length) return (await tx.prisma.songAddRequest.deleteMany({ where: { requesterId: userId, id: { in: ownSongRequests.map(row => row.id) } } })).count;
+    const processedSongRequests = await tx.prisma.songAddRequest.findMany({ where: { processedById: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (processedSongRequests.length) return (await tx.prisma.songAddRequest.updateMany({ where: { processedById: userId, id: { in: processedSongRequests.map(row => row.id) } }, data: { processedById: null } })).count;
+    const liveRequestsByUser = await tx.prisma.songRequest.findMany({ where: { requestUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (liveRequestsByUser.length) return (await tx.prisma.songRequest.updateMany({ where: { requestUserId: userId, id: { in: liveRequestsByUser.map(row => row.id) } },
+      data: { requestUserId: null, requesterNickname: '(탈퇴한 사용자)', requesterPlatformId: 'deleted', rawMessage: null } })).count;
+    const likes = await tx.prisma.userSongLike.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (likes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { userId, id: { in: likes.map(row => row.id) } } })).count;
+    const favorites = await tx.prisma.userChannelFavorite.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (favorites.length) return (await tx.prisma.userChannelFavorite.deleteMany({ where: { userId, id: { in: favorites.map(row => row.id) } } })).count;
+    const authored = await tx.prisma.channelSchedule.findMany({ where: { authorUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (authored.length) return (await tx.prisma.channelSchedule.deleteMany({ where: { authorUserId: userId, id: { in: authored.map(row => row.id) } } })).count;
+
+    // This feature writes only to the primary room. Its owner-bound content is
+    // removed when that owner closes the account; another user's room is safe.
+    const binding = await tx.prisma.default_room_bindings.findUnique({ where: { key: 'primary' }, select: { room_id: true } });
+    if (!binding) return 0;
+    const room = await tx.prisma.rooms.findUnique({ where: { id: binding.room_id }, select: { owner: { select: { user_id: true } } } });
+    if (room?.owner?.user_id !== userId) return 0;
+    const channelId = binding.room_id;
+    const channelClipRequests = await tx.prisma.clipRequest.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (channelClipRequests.length) return (await tx.prisma.clipRequest.deleteMany({ where: { channelId, id: { in: channelClipRequests.map(row => row.id) } } })).count;
+    const clips = await tx.prisma.clip.findMany({ where: { clipChannels: { some: { channelId } } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (clips.length) return (await tx.prisma.clip.deleteMany({ where: { id: { in: clips.map(row => row.id) }, clipChannels: { some: { channelId } } } })).count;
+    const channelExportLogs = await tx.prisma.songExportLog.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (channelExportLogs.length) return (await tx.prisma.songExportLog.deleteMany({ where: { channelId, id: { in: channelExportLogs.map(row => row.id) } } })).count;
+    const channelFavorites = await tx.prisma.userChannelFavorite.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (channelFavorites.length) return (await tx.prisma.userChannelFavorite.deleteMany({ where: { channelId, id: { in: channelFavorites.map(row => row.id) } } })).count;
+    const liveRequests = await tx.prisma.songRequest.findMany({ where: { liveSession: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (liveRequests.length) return (await tx.prisma.songRequest.deleteMany({ where: { id: { in: liveRequests.map(row => row.id) } } })).count;
+    const liveSessions = await tx.prisma.liveSession.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (liveSessions.length) return (await tx.prisma.liveSession.deleteMany({ where: { id: { in: liveSessions.map(row => row.id) } } })).count;
+    const liveRequestSettings = await tx.prisma.channelSongRequestSettings.deleteMany({ where: { channelId } });
+    if (liveRequestSettings.count) return liveRequestSettings.count;
+    const songRequests = await tx.prisma.songAddRequest.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songRequests.length) return (await tx.prisma.songAddRequest.deleteMany({ where: { channelId, id: { in: songRequests.map(row => row.id) } } })).count;
+    const songLikes = await tx.prisma.userSongLike.findMany({ where: { song: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songLikes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { id: { in: songLikes.map(row => row.id) } } })).count;
+    const songCategories = await tx.prisma.songCategory.findMany({ where: { song: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songCategories.length) return (await tx.prisma.songCategory.deleteMany({ where: { id: { in: songCategories.map(row => row.id) } } })).count;
+    const songs = await tx.prisma.song.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songs.length) return (await tx.prisma.song.deleteMany({ where: { channelId, id: { in: songs.map(row => row.id) } } })).count;
+    const artists = await tx.prisma.artist.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (artists.length) return (await tx.prisma.artist.deleteMany({ where: { channelId, id: { in: artists.map(row => row.id) } } })).count;
+    const categories = await tx.prisma.category.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (categories.length) return (await tx.prisma.category.deleteMany({ where: { channelId, id: { in: categories.map(row => row.id) } } })).count;
+    const items = await tx.prisma.channelWardrobeItem.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (items.length) return (await tx.prisma.channelWardrobeItem.deleteMany({ where: { channelId, id: { in: items.map(row => row.id) } } })).count;
+    const wardrobeCategories = await tx.prisma.channelWardrobeCategory.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (wardrobeCategories.length) return (await tx.prisma.channelWardrobeCategory.deleteMany({ where: { channelId, id: { in: wardrobeCategories.map(row => row.id) } } })).count;
+    const schedules = await tx.prisma.channelSchedule.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (schedules.length) return (await tx.prisma.channelSchedule.deleteMany({ where: { channelId, id: { in: schedules.map(row => row.id) } } })).count;
+    const recurring = await tx.prisma.channelRecurringSchedule.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (recurring.length) return (await tx.prisma.channelRecurringSchedule.deleteMany({ where: { channelId, id: { in: recurring.map(row => row.id) } } })).count;
+    const layouts = await tx.prisma.channelOverlayLayout.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (layouts.length) return (await tx.prisma.channelOverlayLayout.deleteMany({ where: { channelId, id: { in: layouts.map(row => row.id) } } })).count;
+    const profile = await tx.prisma.channelProfile.deleteMany({ where: { channelId } });
+    if (profile.count) return profile.count;
+    return 0;
+  }
+
   async memberPage(tx: Transaction, userId: string, limit: number) {
     // Retained, fully drained UUID rows must not starve later rooms. This is one
     // account-scoped existence query, not a materialized scan of every room.
     const member = await tx.prisma.room_members.findFirst({ where: { user_id: userId, OR: [
       { status: { not: 'LEFT' } }, { active_period_id: { not: null } }, { reactions: { some: {} } },
-      { grants: { some: {} } }, { periods: { some: {} } },
+      { grants: { some: {} } }, { periods: { some: {} } }, { delegations: { some: {} } },
     ] }, orderBy: { id: 'asc' }, select: { id: true, room_id: true } });
     if (!member) return null;
     await tx.rows('SELECT id FROM rooms WHERE id=? FOR UPDATE', [member.room_id]);
@@ -63,6 +139,8 @@ export class AccountCleanupRepository {
     data: { status: 'LEFT', active_period_id: null, acl_epoch: { increment: 1n } } });
     // Do not reassign rooms.owner_member_id or delete member/user UUID anchors.
     if (departed.count) return changedPage('membership', departed.count);
+    const delegations = await tx.prisma.room_test_grants.findMany({ where: { member_id: member.id, room_id: member.room_id }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (delegations.length) return changedPage('grants', (await tx.prisma.room_test_grants.deleteMany({ where: { id: { in: delegations.map(g => g.id) } } })).count);
     const reactions = await tx.prisma.message_reactions.findMany({ where: { member_id: member.id, room_id: member.room_id },
       orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (reactions.length) return changedPage('reactions', (await tx.prisma.message_reactions.deleteMany({ where: {

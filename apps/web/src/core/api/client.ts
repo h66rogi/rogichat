@@ -1,4 +1,6 @@
-import { exact, token } from '../../features/chat/contract';
+import { exact } from '../../features/chat/contract';
+import { parseSession, type Session } from './session-contract';
+export type { Session } from './session-contract';
 import type { ServerMessage } from '../../features/chat/contract';
 export class ApiError extends Error {
   readonly status: number;
@@ -8,9 +10,8 @@ export class ApiError extends Error {
     this.status = status; this.code = code;
   }
 }
-export interface Session { authenticated: true; soopLinkStatus: 'VERIFIED' | 'REQUIRED'; csrfToken: string; accountPartition: string }
-export interface Profile { id: string; nickname: string; avatar: { assetId: string } | null; birthday: { month: number; day: number } | null; birthdayVisibleToStreamers: boolean }
-export interface Room { roomId: string; name: string; mode: string; joined: boolean; actorId?: string }
+export interface Profile { providerAvatarUrl?: string | null; soop?: { displayId: string } | null; id: string; nickname: string; avatar: { assetId: string } | null; birthday: { month: number; day: number } | null; birthdayVisibleToStreamers: boolean }
+export interface Room { isDefault?: boolean; availability?: 'OWNER_PENDING' | 'READY'; roomId: string; name: string; mode: string; joined: boolean; actorId?: string }
 export type Message = ServerMessage;
 export class ApiClient {
   readonly origin: string;
@@ -25,7 +26,7 @@ export class ApiClient {
     if (options.method) {
       headers['Content-Type'] = 'application/json';
       if (options.csrf) headers['X-CSRF-Token'] = options.csrf;
-      else if (path !== '/v1/auth/soop/start') throw new Error('Missing CSRF token');
+      else if (!['/v1/auth/soop/start', '/v1/auth/password/login'].includes(path)) throw new Error('Missing CSRF token');
     }
     const response = await this.transport(this.origin + path, {
       method: options.method ?? 'GET', credentials: 'include', cache: 'no-store', redirect: 'error', headers,
@@ -50,10 +51,8 @@ export class ApiClient {
     return response.json() as Promise<T>;
   }
   async session(signal?: AbortSignal): Promise<Session> {
-    const value = await this.request<Session>('/v1/auth/session', signal ? { signal } : {});
-    if (!value || value.authenticated !== true || typeof value.csrfToken !== 'string' || value.csrfToken.length < 16 || !['VERIFIED', 'REQUIRED'].includes(value.soopLinkStatus)) throw new ApiError(502, 'INVALID_SESSION');
-    try { exact(value, ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition']); token(value.accountPartition); } catch { throw new ApiError(502, 'INVALID_SESSION'); }
-    return value;
+    const value = await this.request<unknown>('/v1/auth/session', signal ? { signal } : {});
+    try { return parseSession(value); } catch { throw new ApiError(502, 'INVALID_SESSION'); }
   }
   async profile(signal?: AbortSignal): Promise<Profile> {
     return validateProfile(await this.request<Profile>('/v1/me/profile', signal ? { signal } : {}));
@@ -68,5 +67,14 @@ export class ApiClient {
 
 export function validateProfile(value: Profile): Profile {
   if (!value || typeof value.id !== 'string' || !value.id || typeof value.nickname !== 'string' || typeof value.birthdayVisibleToStreamers !== 'boolean' || (value.avatar !== null && (!value.avatar || typeof value.avatar.assetId !== 'string')) || (value.birthday !== null && (!value.birthday || !Number.isInteger(value.birthday.month) || value.birthday.month < 1 || value.birthday.month > 12 || !Number.isInteger(value.birthday.day) || value.birthday.day < 1 || value.birthday.day > 31))) throw new ApiError(502, 'INVALID_PROFILE');
+  if (value.soop !== undefined && value.soop !== null && (typeof value.soop !== 'object' || Array.isArray(value.soop) || Object.keys(value.soop).some(key => key !== 'displayId') || typeof value.soop.displayId !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(value.soop.displayId))) throw new ApiError(502, 'INVALID_PROFILE');
+  if (value.providerAvatarUrl !== undefined && value.providerAvatarUrl !== null && !isProviderAvatarUrl(value.providerAvatarUrl)) throw new ApiError(502, 'INVALID_PROFILE');
   return value;
+}
+
+/** Defense in depth for rendering only. Identity verification belongs to the API. */
+export function isProviderAvatarUrl(value: unknown): value is string {
+  if (typeof value !== 'string' || value.length > 2048) return false;
+  const match = /^https:\/\/(?:stimg|profile\.img)\.sooplive\.(?:com|co\.kr)\/LOGO\/([A-Za-z0-9_-]{1,2})\/([A-Za-z0-9_-]{1,128})\/(m\/)?([A-Za-z0-9_-]{1,128})\.(jpg|webp)(?:\?t=[0-9]{1,16})?$/.exec(value);
+  return !!match && match[0] === value && match[1] === match[2]?.slice(0, 2) && match[2] === match[4] && (!match[3] || match[5] === 'webp');
 }

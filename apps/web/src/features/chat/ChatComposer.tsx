@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useId, useLayoutEffect, useRef } from 'react';
-import type { KeyboardEvent, FormEvent } from 'react';
+import type { KeyboardEvent, FormEvent, ReactNode } from 'react';
 import { RadioGroup } from 'radix-ui';
 import { CornerUpLeft, Lock, Megaphone, Send, X } from 'lucide-react';
 
@@ -53,6 +53,7 @@ export interface ChatComposerProps {
   disabled?: boolean | undefined;
   /** Blocks dispatch during recovery without hiding or locking the editable draft. */
   submitBlockedReason?: string | undefined;
+  attachmentAction?: ReactNode | undefined;
   className?: string | undefined;
 }
 
@@ -73,6 +74,7 @@ export function ChatComposer({
   announcement = '',
   disabled = false,
   submitBlockedReason,
+  attachmentAction,
   className,
 }: ChatComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -128,7 +130,7 @@ export function ChatComposer({
     <form
       onSubmit={handleFormSubmit}
       autoComplete="off"
-      className={cn('flex flex-col border-t border-line bg-canvas pb-[env(safe-area-inset-bottom)]', className)}
+      className={cn('flex shrink-0 flex-col border-t border-line-subtle bg-canvas pb-[env(safe-area-inset-bottom)]', className)}
       data-testid="chat-composer"
       aria-label="메시지 작성"
     >
@@ -153,7 +155,8 @@ export function ChatComposer({
           <span>{lockedReason ?? '지금은 메시지를 보낼 수 없습니다.'}</span>
         </div>
       ) : (
-        <div className="flex items-end gap-2 px-3 py-2">
+        <div className="flex items-end gap-2 px-3 py-2.5">
+          {attachmentAction}
           <label htmlFor={inputId} className="sr-only">
             메시지 입력, 보낼 대상: {currentLabel}
           </label>
@@ -170,7 +173,7 @@ export function ChatComposer({
               composingRef.current = false;
             }}
             rows={1}
-            placeholder={target?.scope === 'PRIVATE' ? `${target.recipient.displayName}님에게만 보이는 메시지` : '전체 참여자에게 보낼 메시지'}
+            placeholder={target?.scope === 'PRIVATE' ? `${target.recipient.displayName}님에게만 보이는 메시지` : target?.scope === 'ROOM_OWNER' ? '방장에게만 보이는 메시지' : '전체 참여자에게 보낼 메시지'}
             readOnly={isSubmitting}
             aria-busy={isSubmitting}
             autoComplete="off"
@@ -179,8 +182,8 @@ export function ChatComposer({
             aria-describedby={notice ? `${targetId} ${noticeId}` : targetId}
             aria-invalid={notice?.tone === 'error' ? true : undefined}
             className={cn(
-              'min-h-11 flex-1 resize-none rounded-sm border border-control-border bg-canvas px-3.5 py-2.5 text-[16px] leading-normal text-ink outline-none',
-              'placeholder:text-muted focus-visible:border-focus-ring focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-focus-ring',
+              'min-h-11 flex-1 resize-none rounded-2xl border border-transparent bg-chat-other-bubble px-4 py-2.5 text-[16px] leading-normal text-ink outline-none',
+              'placeholder:text-muted focus-visible:border-chat-accent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-chat-accent',
               'read-only:bg-surface-soft read-only:text-muted',
             )}
             data-testid="chat-composer-input"
@@ -192,6 +195,7 @@ export function ChatComposer({
             disabled={!canSend}
             aria-label={isSubmitting ? '보내는 중' : `보내기: ${currentLabel}`}
             aria-busy={isSubmitting}
+            className="rounded-full bg-chat-accent text-white hover:bg-chat-accent-hover"
             data-testid="chat-composer-send"
           >
             <Send className="size-5" aria-hidden="true" />
@@ -233,8 +237,8 @@ function TargetRow({
   const currentKey = target ? draftKeyFor(target) : '';
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pt-2 pb-1" data-testid="chat-composer-target">
-      <span className="text-[12px] font-semibold text-muted">보낼 대상</span>
+    <div className="flex min-w-0 items-center gap-2 overflow-x-auto px-4 pt-2 pb-0.5" data-testid="chat-composer-target">
+      <span className="shrink-0 text-[12px] font-semibold text-muted">보낼 대상</span>
 
       {selectable ? (
         <RadioGroup.Root
@@ -246,7 +250,7 @@ function TargetRow({
           orientation="horizontal"
           loop
           aria-label="보낼 대상 선택"
-          className="flex flex-wrap gap-1.5"
+          className="flex gap-1.5"
         >
           {options.map((option) => {
             const key = draftKeyFor(option);
@@ -255,9 +259,9 @@ function TargetRow({
                 key={key}
                 value={key}
                 className={cn(
-                  'inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3.5 text-[14px] font-semibold transition-colors outline-none',
+                  'inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3.5 text-[14px] font-semibold transition-colors outline-none',
                   'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring',
-                  'data-[state=checked]:border-ink data-[state=checked]:bg-ink data-[state=checked]:text-canvas',
+                  'data-[state=checked]:border-chat-accent data-[state=checked]:bg-chat-accent data-[state=checked]:text-canvas',
                   'data-[state=unchecked]:border-control-border data-[state=unchecked]:bg-canvas data-[state=unchecked]:text-ink data-[state=unchecked]:hover:bg-surface-soft',
                 )}
                 data-testid="chat-target-option"
@@ -270,7 +274,7 @@ function TargetRow({
           })}
         </RadioGroup.Root>
       ) : (
-        <span className={cn('inline-flex min-h-11 items-center gap-1.5 text-[14px] font-semibold', target?.scope === 'PRIVATE' ? 'text-action' : 'text-ink')}>
+        <span className={cn('inline-flex min-h-8 items-center gap-1.5 text-[13px] font-semibold', target !== null && target.scope !== 'SHARED' ? 'text-chat-accent' : 'text-ink')}>
           {target === null ? null : target.scope === 'SHARED' ? <Megaphone className="size-4" aria-hidden="true" /> : <Lock className="size-4" aria-hidden="true" />}
           {label}
         </span>
@@ -278,7 +282,7 @@ function TargetRow({
 
       {/* Announced whenever the target changes; also referenced by the input's aria-describedby. */}
       <span id={labelId} className="sr-only" role="status" aria-live="polite" aria-atomic="true">
-        {target === null ? '보낼 대상이 없어 전송이 중지되었습니다' : `보낼 대상: ${label}${target.scope === 'PRIVATE' ? '. 개인 메시지' : '. 전체 공개'}`}
+        {target === null ? '보낼 대상이 없어 전송이 중지되었습니다' : `보낼 대상: ${label}${target.scope !== 'SHARED' ? '. 개인 메시지' : '. 전체 공개'}`}
       </span>
     </div>
   );

@@ -72,7 +72,7 @@ async function fixture(t) {
 test('own READY room-null avatar attaches with minimal self/actor DTOs and FAN profile privacy', { timeout: 20000 }, async t => {
   const f = await fixture(t), avatar = await f.asset();
   const result = await f.update(f.a, { avatarAssetId: avatar });
-  assert.deepEqual(keys(result), ['avatar', 'birthday', 'birthdayVisibleToStreamers', 'id', 'nickname']);
+  assert.deepEqual(keys(result), ['avatar', 'birthday', 'birthdayVisibleToStreamers', 'id', 'nickname', 'providerAvatarUrl', 'soop']);
   assert.deepEqual(result.avatar, { assetId: avatar });
   assert.deepEqual(await f.self(f.a), result);
   const visible = await f.actor(f.streamer, f.a);

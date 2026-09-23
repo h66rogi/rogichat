@@ -13,10 +13,33 @@ import chat.rogi.rogichat.core.session.SessionIdentity
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
+/** Read-only profile hero reuses the actual account permission and media lease. */
+@Composable
+fun AccountProfileAvatar(repository: AccountMediaRepository, expected: SessionIdentity, assetID: String?) {
+    key(expected, assetID) {
+        var session by remember { mutableStateOf<AccountMediaSession?>(null) }
+        var failed by remember { mutableStateOf(false) }
+        var retry by remember { mutableIntStateOf(0) }
+        LaunchedEffect(retry) {
+            failed = false; session = null
+            try { session = repository.open(expected) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { failed = true }
+        }
+        val current = session
+        if (current != null) {
+            if (assetID != null) AuthorizedMedia(current.client, assetID, MediaAccess.Preview(MediaVariant.image), Modifier.fillMaxSize(), avatar = true)
+            else AuthorizedProviderAvatar(current.client, modifier = Modifier.fillMaxSize())
+        }
+        else if (failed) TextButton(onClick = { retry++ }) { Text("재시도") }
+        else CircularProgressIndicator(Modifier.size(24.dp))
+    }
+}
+
 data class AvatarSettingsState(val session: AccountMediaSession? = null, val pending: List<PendingMedia> = emptyList(),
-    val ready: MediaReceipt? = null, val busy: Boolean = true, val error: String? = null, val applied: Boolean = false, val avatar: String? = null)
-class AvatarSettingsModel(private val repository: AccountMediaRepository, private val expected: SessionIdentity, initialAvatar: String?) : ViewModel() {
-    private val mutable = MutableStateFlow(AvatarSettingsState(avatar = initialAvatar))
+    val ready: MediaReceipt? = null, val busy: Boolean = true, val error: String? = null, val applied: Boolean = false, val avatar: String? = null, val providerAvatarAvailable: Boolean = false)
+class AvatarSettingsModel(private val repository: AccountMediaRepository, private val expected: SessionIdentity, initialAvatar: String?, providerAvatarAvailable: Boolean = false) : ViewModel() {
+    private val mutable = MutableStateFlow(AvatarSettingsState(avatar = initialAvatar, providerAvatarAvailable = providerAvatarAvailable))
     val state = mutable.asStateFlow()
     private var generation = 0L
     init { load() }
@@ -43,11 +66,11 @@ class AvatarSettingsModel(private val repository: AccountMediaRepository, privat
         try {
             session.client.updateAvatar(ready)
             if (ready != null) session.journal.remove(session.client.scope, ready.assetId)
-            mutable.value = state.value.copy(ready = null, avatar = ready?.assetId, applied = true)
+            mutable.value = state.value.copy(ready = null, avatar = ready?.assetId, providerAvatarAvailable = false, applied = true)
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (failure: Exception) {
             // GET only confirms current state; it cannot prove the preceding PATCH was acknowledged.
-            try { val current = repository.profile(session); mutable.value = state.value.copy(avatar = current.avatarAssetId) }
+            try { val current = repository.profile(session); mutable.value = state.value.copy(avatar = current.avatarAssetId, providerAvatarAvailable = current.providerAvatarUrl != null) }
             catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
             throw failure
         }
@@ -89,12 +112,15 @@ fun AvatarSettings(model: AvatarSettingsModel, profileBusy: Boolean, onApplied: 
                 AuthorizedMedia(session.client, ready.assetId, MediaAccess.Preview(MediaVariant.image), Modifier.size(96.dp))
                 TextButton(enabled = !state.busy && !profileBusy, onClick = { model.apply(ready) }) { Text("이 사진을 프로필에 적용") }
             }
-            if (state.ready == null) state.avatar?.let { asset -> AuthorizedMedia(session.client, asset, MediaAccess.Preview(MediaVariant.image), Modifier.size(96.dp)) }
+            if (state.ready == null) {
+                if (state.avatar != null) AuthorizedMedia(session.client, requireNotNull(state.avatar), MediaAccess.Preview(MediaVariant.image), Modifier.size(96.dp), avatar = true)
+                else if (state.providerAvatarAvailable) AuthorizedProviderAvatar(session.client, modifier = Modifier.size(96.dp))
+            }
             MediaPicker(MediaKind.AVATAR, !state.busy && !profileBusy, session.client.scope, model::selected, { model.failure() })
             state.pending.filter { it.assetId != state.ready?.assetId }.forEach { pending ->
                 TextButton(enabled = !state.busy && !profileBusy, onClick = { model.recover(pending) }) { Text("이전에 올린 사진 상태 확인") }
             }
-            if (state.avatar != null) TextButton(enabled = !state.busy && !profileBusy, onClick = { clear = true }) { Text("프로필 사진 지우기") }
+            if (state.avatar != null || state.providerAvatarAvailable) TextButton(enabled = !state.busy && !profileBusy, onClick = { clear = true }) { Text("프로필 사진 지우기") }
         }
     }
     if (clear) AlertDialog(onDismissRequest = { clear = false }, title = { Text("프로필 사진을 지울까요?") },

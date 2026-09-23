@@ -50,11 +50,13 @@ struct NativeSessionDTO: Decodable, Sendable {
               NativeCredential.isOpaque(accountGeneration), accountPartition.map(Self.validPartition) ?? true, let expiry,
               abs(expiry.timeIntervalSince(credential.expiresAt)) < 0.001 else { throw ProductError.invalidResponse }
         guard expiry > now else { throw ProductError.unauthenticated }
-        let ready = soopLinkStatus == "VERIFIED" && onboardingState == "READY" && capabilities.chat
+        // Preserve provider identity truth independently of a real server entitlement.
+        guard soopLinkStatus == "VERIFIED" || soopLinkStatus == "REQUIRED" else { throw ProductError.invalidResponse }
+        let ready = onboardingState == "READY" && capabilities.chat
         let restricted = soopLinkStatus == "REQUIRED" && onboardingState == "SOOP_LINK_REQUIRED" && !capabilities.chat
         guard ready || restricted else { throw ProductError.invalidResponse }
         let summary = AccountSummary(id: account.userId, displayName: account.nickname, signInMethod: nil,
-                                     soopConnected: ready, avatarAssetID: account.avatarAssetId)
+                                     soopConnected: soopLinkStatus == "VERIFIED", avatarAssetID: account.avatarAssetId)
         guard summary.isValid else { throw ProductError.invalidResponse }
         return SessionSnapshot(access: ready ? .ready : .linkRequired, account: summary,
                                serverGeneration: accountGeneration, expiresAt: expiry, accountPartition: accountPartition)
@@ -62,12 +64,15 @@ struct NativeSessionDTO: Decodable, Sendable {
 }
 struct NativeProfileDTO: Decodable, Sendable {
     struct Avatar: Decodable, Sendable { let assetId: String }
+    struct SOOP: Decodable, Sendable { let displayId: String }
     let id: String
     let nickname: String
     let avatar: Avatar?
     let birthday: Birthday?
     let birthdayVisibleToStreamers: Bool
-    enum CodingKeys: String, CodingKey { case id, nickname, avatar, birthday, birthdayVisibleToStreamers }
+    let soop: SOOP?
+    let providerAvatarUrl: String?
+    enum CodingKeys: String, CodingKey { case id, nickname, avatar, birthday, birthdayVisibleToStreamers, soop, providerAvatarUrl }
     init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         guard c.contains(.avatar), c.contains(.birthday) else { throw ProductError.invalidResponse }
@@ -76,11 +81,19 @@ struct NativeProfileDTO: Decodable, Sendable {
         avatar = try c.decodeIfPresent(Avatar.self, forKey: .avatar)
         birthday = try c.decodeIfPresent(Birthday.self, forKey: .birthday)
         birthdayVisibleToStreamers = try c.decode(Bool.self, forKey: .birthdayVisibleToStreamers)
+        soop = try c.decodeIfPresent(SOOP.self, forKey: .soop)
+        providerAvatarUrl = try c.decodeIfPresent(String.self, forKey: .providerAvatarUrl)
+        if let providerAvatarUrl {
+            guard let url = URL(string: providerAvatarUrl), url.scheme == "https", url.host != nil,
+                  url.user == nil, url.password == nil, url.fragment == nil else { throw ProductError.invalidResponse }
+        }
     }
     func profile(expectedID: String) throws -> AccountProfile {
         let profile = AccountProfile(id: id, displayName: nickname, birthday: birthday,
-                                     birthdayVisibleToStreamers: birthdayVisibleToStreamers, avatarAssetID: avatar?.assetId)
+                                     birthdayVisibleToStreamers: birthdayVisibleToStreamers, avatarAssetID: avatar?.assetId,
+                                     soopDisplayID: soop?.displayId, providerAvatarURL: providerAvatarUrl)
         guard id == expectedID, UUID(uuidString: id) != nil, profile.isValid,
+              soop == nil || !soop!.displayId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               avatar == nil || UUID(uuidString: avatar!.assetId) != nil else { throw ProductError.invalidResponse }
         return profile
     }

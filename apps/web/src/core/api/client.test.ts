@@ -2,6 +2,27 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ApiClient, ApiError } from './client';
 const origin = 'https://api.qa.rogi.chat';
+void test('session accepts the current API cookie projection and validates its admission fields', async () => {
+  const base = { authenticated: true, accountPartition: 'A'.repeat(43), csrfToken: 'synthetic-test-only', soopLinkStatus: 'VERIFIED' };
+  for (const linked of [true, false]) {
+    const value = { ...base, soopLinkStatus: linked ? 'VERIFIED' : 'REQUIRED', onboardingState: linked ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: linked } };
+    const client = new ApiClient(origin, async () => Response.json(value));
+    assert.equal((await client.session()).soopLinkStatus, value.soopLinkStatus);
+  }
+  for (const value of [
+    { ...base, onboardingState: 'READY' },
+    { ...base, capabilities: { chat: true } },
+    { ...base, onboardingState: 'READY', capabilities: { chat: false } },
+    { ...base, onboardingState: 'SOOP_LINK_REQUIRED', capabilities: { chat: true } },
+    { ...base, onboardingState: 'READY', capabilities: { chat: 'true' } },
+    { ...base, onboardingState: 'READY', capabilities: { chat: true, admin: true } },
+    { ...base, unexpected: true },
+    { ...base, soopLinkStatus: ['VERIFIED'] },
+    { authenticated: true, csrfToken: base.csrfToken, soopLinkStatus: 'VERIFIED' },
+  ]) {
+    await assert.rejects(new ApiClient(origin, async () => Response.json(value)).session(), (error: unknown) => error instanceof ApiError && error.code === 'INVALID_SESSION');
+  }
+});
 void test('reads use API host cookies without CSRF and never HTTP cache', async () => {
   let options: RequestInit | undefined;
   const client = new ApiClient(origin, async (url, init) => { assert.equal(url, origin + '/v1/auth/session'); options = init; return Response.json({ authenticated: true, accountPartition: 'A'.repeat(43), csrfToken: 'synthetic-test-only', soopLinkStatus: 'VERIFIED' }); });
@@ -71,5 +92,29 @@ void test('only exact status-bound safe codes survive; raw fields, expected scop
   ] as const) {
     const client = new ApiClient(origin, async () => Response.json(body, { status }));
     await assert.rejects(client.request('/v1/example'), (error: unknown) => error instanceof ApiError && error.status === status && error.code === expected && !JSON.stringify(error).includes('private'));
+  }
+});
+
+void test('self profile separates provider display ID from internal ID and accepts legacy responses', async () => {
+  const profile = { id: '33333333-3333-4333-8333-333333333333', nickname: '직접 설정한 이름', avatar: null, birthday: null, birthdayVisibleToStreamers: false };
+  for (const extra of [{}, { soop: null }, { soop: { displayId: 'synthetic_fan' } }, { soop: { displayId: 'legacy:fan' } }]) {
+    const value = { ...profile, ...extra };
+    const result = await new ApiClient(origin, async () => Response.json(value)).profile();
+    assert.deepEqual(result, value);
+    assert.equal(result.nickname, profile.nickname);
+  }
+  for (const soop of ['', [], {}, { displayId: '' }, { displayId: 123 }, { displayId: 'x'.repeat(129) }, { displayId: 'https://example.com' }, { displayId: 'fan', token: 'synthetic' }]) {
+    await assert.rejects(new ApiClient(origin, async () => Response.json({ ...profile, soop })).profile(), (e: unknown) => e instanceof ApiError && e.code === 'INVALID_PROFILE');
+  }
+});
+
+void test('provider avatars accept only bounded canonical SOOP CDN URLs', async () => {
+  const profile = { id: 'synthetic-internal', nickname: '수동 이름', avatar: null, birthday: null, birthdayVisibleToStreamers: false };
+  const canonical = 'https://stimg.sooplive.com/LOGO/sy/synthetic_fan/synthetic_fan.jpg';
+  for (const providerAvatarUrl of [null, canonical, 'https://profile.img.sooplive.co.kr/LOGO/sy/synthetic_fan/m/synthetic_fan.webp?t=123']) {
+    assert.equal((await new ApiClient(origin, async () => Response.json({ ...profile, providerAvatarUrl })).profile()).providerAvatarUrl, providerAvatarUrl);
+  }
+  for (const providerAvatarUrl of [false, 'https://evil.example/image.jpg', canonical + '\n', canonical + '?token=x', canonical.replace('/sy/', '/zz/'), canonical.replace('synthetic_fan.jpg', 'other.jpg'), canonical.replace('https:', 'http:')]) {
+    await assert.rejects(new ApiClient(origin, async () => Response.json({ ...profile, providerAvatarUrl })).profile(), (e: unknown) => e instanceof ApiError && e.code === 'INVALID_PROFILE');
   }
 });

@@ -1,6 +1,7 @@
 'use client';
+import { sessionAllowsChat } from '@/core/api/session-contract';
 import { revokeChatOutboxes, suspendChatOutboxes } from '@/features/chat/chat-controller';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { ApiError, type Profile, type Session } from '@/core/api/client';
 import { sessionBinding } from '@/core/api/session-binding';
@@ -13,17 +14,19 @@ import { LOGOUT_PENDING, beginLogout, clearLogout } from '@/core/api/logout-mark
 export { LOGOUT_PENDING } from '@/core/api/logout-marker';
 const INVALIDATE = 'rogichat-session-invalidated';
 const CURRENT_BINDING = 'rogichat.current-session-binding';
+let localBroadcastId: string | null = null;
+const broadcastId = () => localBroadcastId ??= crypto.randomUUID();
 function publishSessionBinding(binding: string) {
   const previous = localStorage.getItem(CURRENT_BINDING);
   if (previous === binding) return;
   localStorage.setItem(CURRENT_BINDING, binding);
   const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(INVALIDATE);
-  channel?.postMessage('invalidate'); channel?.close();
+  channel?.postMessage({ source: broadcastId() }); channel?.close();
 }
 export function invalidateSession() {
   window.dispatchEvent(new Event(INVALIDATE));
   const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(INVALIDATE);
-  channel?.postMessage('invalidate');
+  channel?.postMessage({ source: broadcastId() });
   channel?.close();
 }
 export async function setLogoutPending(binding: string, origin: string, session: Session) {
@@ -38,27 +41,49 @@ export function clearLogoutPending(expected: string) {
   if (clearLogout(localStorage, expected)) invalidateSession();
 }
 export type PrivateState = { kind: 'checking' | 'hidden' | 'unauthenticated' | 'logoutPending' } | { kind: 'deletionPending'; operation: string } | { kind: 'linkRequired'; session: Session } | { kind: 'error'; message: string } | { kind: 'ready'; session: Session; profile: Profile; generation: number };
-/** Memory only: no credentials or private response data enter browser storage. */
+const PrivateSessionContext = createContext<{ state: PrivateState; refresh: () => void } | null>(null);
+export function PrivateSessionProvider({ children }: { children: ReactNode }) {
+  const session = usePrivateSessionState();
+  return <PrivateSessionContext.Provider value={session}>{children}</PrivateSessionContext.Provider>;
+}
 export function usePrivateSession() {
+  const session = useContext(PrivateSessionContext);
+  if (!session) throw new Error('Missing private session provider');
+  return session;
+}
+/** Memory only: no credentials or private response data enter browser storage. */
+function usePrivateSessionState() {
   const api = useApi();
   const [state, setState] = useState<PrivateState>({ kind: 'checking' });
   const generation = useRef(0);
+  const latest = useRef<PrivateState>({ kind: 'checking' });
+  const update = useCallback((value: PrivateState | ((previous: PrivateState) => PrivateState)) => {
+    setState(previous => { const next = typeof value === 'function' ? value(previous) : value; latest.current = next; return next; });
+  }, []);
   const active = useRef<AbortController | null>(null);
   const mounted = useRef(false);
-  const refresh = useCallback(() => {
+  const revalidate = useCallback((background = false, force = false) => {
+    // Focus, pageshow and visibility can fire as one burst. One in-flight
+    // verification is enough; explicit invalidation still supersedes it.
+    if (!force && active.current) return;
     active.current?.abort();
+    active.current = null;
     const current = ++generation.current;
     if (!mounted.current) return;
-    if (document.visibilityState === 'hidden') { setState({ kind: 'hidden' }); return; }
+    if (document.visibilityState === 'hidden') { update(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }); return; }
     try {
       if (isAccountDeletionPending(browserPrivacyStore)) {
         suspendChatOutboxes(); forgetChatMemory();
         let operation = 'unreadable'; try { operation = readDeletion(browserPrivacyStore)?.operation ?? operation; } catch { /* Recovery gate exposes the unavailable state. */ }
-        setState({ kind: 'deletionPending', operation }); return;
+        update({ kind: 'deletionPending', operation }); return;
       }
-      if (localStorage.getItem(LOGOUT_PENDING)) { forgetChatMemory(); setState({ kind: 'logoutPending' }); return; }
-    } catch { setState({ kind: 'error', message: '브라우저 저장소에 접근할 수 없어 안전하게 로그인 상태를 확인할 수 없습니다.' }); return; }
-    setState({ kind: 'checking' });
+      if (localStorage.getItem(LOGOUT_PENDING)) { forgetChatMemory(); update({ kind: 'logoutPending' }); return; }
+    } catch { update({ kind: 'error', message: '브라우저 저장소에 접근할 수 없어 안전하게 로그인 상태를 확인할 수 없습니다.' }); return; }
+    // Public sign-in controls contain no private data. Keep them mounted while
+    // rechecking so window focus cannot swallow a click or reset terms consent.
+    // A visible tab keeps its mounted chat during a routine focus check. Explicit
+    // invalidation and page hiding still lock private content synchronously.
+    if (!background) update(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'checking' });
     const controller = new AbortController();
     active.current = controller;
     void (async () => {
@@ -68,39 +93,48 @@ export function usePrivateSession() {
         const binding = await sessionBinding(session.csrfToken);
         if (current !== generation.current || !mounted.current) return;
         publishSessionBinding(binding);
-        if (session.soopLinkStatus === 'REQUIRED') {
-          forgetChatMemory();
-          if (current === generation.current && mounted.current) setState({ kind: 'linkRequired', session });
+        if (!sessionAllowsChat(session)) {
+          if (session.soopLinkStatus !== 'REQUIRED') throw new ApiError(403, 'FORBIDDEN');
+          revokeChatOutboxes(); forgetChatMemory();
+          if (current === generation.current && mounted.current) update({ kind: 'linkRequired', session });
           return;
         }
         // Identity is never fabricated.
         const profile = await api.profile(controller.signal);
         const confirmed = await api.session(controller.signal);
-        if (confirmed.csrfToken !== session.csrfToken || confirmed.accountPartition !== session.accountPartition || confirmed.soopLinkStatus !== session.soopLinkStatus) throw new ApiError(403, 'SESSION_CHANGED');
-        if (current === generation.current && mounted.current) setState({ kind: 'ready', session, profile, generation: current });
+        if (confirmed.csrfToken !== session.csrfToken || confirmed.accountPartition !== session.accountPartition || confirmed.soopLinkStatus !== session.soopLinkStatus || !sessionAllowsChat(confirmed)) throw new ApiError(403, 'SESSION_CHANGED');
+        if (current === generation.current && mounted.current) {
+          const previous = latest.current;
+          const stableGeneration = previous.kind === 'ready' && previous.session.csrfToken === session.csrfToken && previous.session.accountPartition === session.accountPartition && previous.profile.id === profile.id ? previous.generation : current;
+          update({ kind: 'ready', session, profile, generation: stableGeneration });
+        }
       } catch (error) {
         if (current !== generation.current || !mounted.current) return;
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) { revokeChatOutboxes(); forgetChatMemory(); }
         if (error instanceof ApiError && error.status === 401) { try { publishSessionBinding('signed-out'); } catch { /* Locked state below remains authoritative. */ } }
-        setState(error instanceof ApiError && error.status === 401 ? { kind: 'unauthenticated' } : { kind: 'error', message: error instanceof ApiError ? error.message : '연결을 확인할 수 없습니다. 다시 시도해 주세요.' });
-      }
+        update(error instanceof ApiError && error.status === 401 ? { kind: 'unauthenticated' } : { kind: 'error', message: error instanceof ApiError ? error.message : '연결을 확인할 수 없습니다. 다시 시도해 주세요.' });
+      } finally { if (active.current === controller) active.current = null; }
     })();
-  }, [api]);
+  }, [api, update]);
+  const refresh = useCallback(() => revalidate(false, true), [revalidate]);
   useEffect(() => {
     mounted.current = true;
     const hide = () => {
       active.current?.abort(); ++generation.current;
-      flushSync(() => setState({ kind: 'hidden' }));
+      active.current = null;
+      flushSync(() => update(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }));
     };
-    const visibility = () => document.visibilityState === 'hidden' ? hide() : refresh();
+    const visibility = () => document.visibilityState === 'hidden' ? hide() : revalidate();
+    const focus = () => revalidate(latest.current.kind === 'ready');
+    const resume = () => revalidate(latest.current.kind === 'ready');
     const storage = (event: StorageEvent) => { if (event.key === ACCOUNT_DELETION_PENDING || event.key === LOGOUT_PENDING || event.key === CURRENT_BINDING || event.key === null) refresh(); };
     const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(INVALIDATE);
-    if (channel) channel.onmessage = refresh;
+    if (channel) channel.onmessage = event => { if (event.data?.source !== broadcastId()) refresh(); };
     document.addEventListener('visibilitychange', visibility);
     window.addEventListener('pagehide', hide);
-    window.addEventListener('pageshow', refresh);
-    window.addEventListener('online', refresh);
-    window.addEventListener('focus', refresh);
+    window.addEventListener('pageshow', resume);
+    window.addEventListener('online', focus);
+    window.addEventListener('focus', focus);
     window.addEventListener('storage', storage);
     window.addEventListener(INVALIDATE, refresh); window.addEventListener(PRIVACY_CHANGED, refresh);
     const initial = window.setTimeout(refresh, 0);
@@ -109,10 +143,10 @@ export function usePrivateSession() {
       window.clearTimeout(initial);
       mounted.current = false; invalidateGeneration(); active.current?.abort(); channel?.close();
       document.removeEventListener('visibilitychange', visibility);
-      window.removeEventListener('pagehide', hide); window.removeEventListener('pageshow', refresh);
-      window.removeEventListener('online', refresh); window.removeEventListener('focus', refresh); window.removeEventListener('storage', storage);
+      window.removeEventListener('pagehide', hide); window.removeEventListener('pageshow', resume);
+      window.removeEventListener('online', focus); window.removeEventListener('focus', focus); window.removeEventListener('storage', storage);
       window.removeEventListener(INVALIDATE, refresh); window.removeEventListener(PRIVACY_CHANGED, refresh);
     };
-  }, [refresh]);
+  }, [refresh, revalidate, update]);
   return { state, refresh };
 }

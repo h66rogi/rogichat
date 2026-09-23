@@ -18,7 +18,7 @@ export class UsersService {
     return this.transactions.read(async tx => {
       const actor = await this.auth.require(tx, credentials);
       return { ...await this.users.selfProfile(tx, actor.userId), soopLinkStatus: actor.soopLinked ? 'VERIFIED' : 'REQUIRED',
-        onboardingState: actor.soopLinked ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: actor.soopLinked } };
+        onboardingState: actor.chatEnabled ? 'READY' : 'SOOP_LINK_REQUIRED', capabilities: { chat: actor.chatEnabled } };
     });
   }
   update(credentials: CommandCredentials, input: UpdateProfileDto) {

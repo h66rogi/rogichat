@@ -130,11 +130,17 @@ struct ProductRootView: View {
         switch page {
         case .welcome:
             WelcomeScreen(methods: session.capabilities.signInMethods, busy: session.busy, errorMessage: session.errorMessage,
-                          rulesURL: nativeEnvironment.rulesURL, onCancel: { Task { await session.cancelAuthentication() } }) { method, consent in
+                          rulesURL: nativeEnvironment.rulesURL, onCancel: { Task { await session.cancelAuthentication() } }, onSignIn: { method, consent in
                 Task { await session.signIn(method, consent: consent) }
-            }
+            }, onPassword: session.capabilities.canPassword ? { input, consent in Task { await session.password(input,consent:consent) } } : nil)
         case .settings:
-            SettingsScreen(account: session.account, capabilities: session.capabilities, onOpen: { navigation.open($0) }, onSignIn: { navigation.selectTab(.talks) }, canManageBlocks: session.roomsScope != nil, hasDeletionHistory: session.account == nil && !session.deletions.isEmpty, onDeletionHistory: { session.showDeletionHistory = true })
+            SettingsScreen(accessSession: session, account: session.account, capabilities: session.capabilities, onOpen: { navigation.open($0) }, onSignIn: { navigation.selectTab(.talks) }, canManageBlocks: session.roomsScope != nil, hasDeletionHistory: session.account == nil && !session.deletions.isEmpty, onDeletionHistory: { session.showDeletionHistory = true },
+                onLoadProfile: { try await session.loadProfile() }, avatar: { profile in
+                    guard let scope = session.roomsScope else { return AnyView(Text("사진을 확인할 수 없어요").font(.caption)) }
+                    let client = MediaClient(transport: AccountMediaTransport(session: session, original: scope), scope: AccountMediaScope(original: scope), apiBaseURL: nativeEnvironment.baseURL)
+                    if let asset = profile.avatarAssetID { return AnyView(AuthorizedMedia(client: client, assetID: asset, access: .preview(.image), avatar: true)) }
+                    return AnyView(AuthorizedProviderAvatar(client: client))
+                }).id(session.generation)
         case .appearance: AppearanceScreen()
         case .notifications:
             let scope = session.generation
@@ -146,7 +152,7 @@ struct ProductRootView: View {
             if session.account != nil, session.capabilities.canEditProfile {
                 ProfileLoader(onLoad: { try await session.loadProfile() }, onSave: { try await session.saveProfile($0) }, avatar: { profile in
                     guard let scope = session.roomsScope else { return nil }
-                    return AnyView(AccountAvatarSection(session: session, storage: roomsStorage, scope: scope, accountID: profile.id, originalAssetID: profile.avatarAssetID))
+                    return AnyView(AccountAvatarSection(session: session, storage: roomsStorage, scope: scope, accountID: profile.id, originalAssetID: profile.avatarAssetID, apiBaseURL: nativeEnvironment.baseURL, originalProviderAvatarAvailable: profile.providerAvatarURL != nil))
                 })
                     .id(session.generation)
             }

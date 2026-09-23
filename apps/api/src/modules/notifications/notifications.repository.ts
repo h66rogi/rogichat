@@ -1,3 +1,4 @@
+import { chatAccountSql } from '../auth/chat-entitlement.js';
 import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import type { Prisma } from '../../generated/prisma/client.js';
@@ -14,7 +15,7 @@ export class NotificationsRepository {
   // HTTP mutations already hold these locks through AuthService on this handle.
   async binding(tx: Transaction, userId: string, sessionId: string, client?: string) {
     const predicate = client ? "s.transport='NATIVE' AND s.client_id=?" : "s.transport='WEB' AND s.client_id IS NULL";
-    const [row] = await tx.rows<{ audience: string; membership_generation: string; soop_status: string | null }>(`SELECT s.audience,u.membership_generation,p.status AS soop_status FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN platform_soop p ON p.user_id=u.id WHERE s.id=? AND s.user_id=? AND ${predicate} AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP(3) AND u.status='ACTIVE' FOR UPDATE`, [sessionId, userId, ...(client ? [client] : [])]);
+    const [row] = await tx.rows<{ audience: string; membership_generation: string; soop_status: string | null; chat_allowed: number }>(`SELECT s.audience,u.membership_generation,p.status AS soop_status,${chatAccountSql('u', 'p')} AS chat_allowed FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN platform_soop p ON p.user_id=u.id WHERE s.id=? AND s.user_id=? AND ${predicate} AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP(3) AND u.status='ACTIVE' FOR UPDATE`, [sessionId, userId, ...(client ? [client] : [])]);
     return row;
   }
   byEndpoint(tx: Transaction, endpointDigest: Uint8Array) {

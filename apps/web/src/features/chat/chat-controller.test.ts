@@ -8,6 +8,20 @@ import type { ChatRequest, ServerMessage } from './contract';
 const scopes = { membershipScope: 'A'.repeat(43), authorizationRevision: 'B'.repeat(42) + 'A' };
 const sync = { schemaVersion: 2, resetRequired: false, ...scopes };
 const session = { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: 'synthetic-csrf-session-A', accountPartition: 'C'.repeat(42) + 'A' };
+void test('six-field API session authorizes chat and a later capability denial clears it', async () => {
+  let allowed = true;
+  const controller = new ChatController(room.roomId, backend(async path => path === '/v1/auth/session'
+    ? { ...session, onboardingState: 'READY', capabilities: { chat: allowed } } : undefined));
+  try {
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().phase, 'ready');
+    assert.ok(controller.getSnapshot().items.length > 0);
+    allowed = false;
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().phase, 'error');
+    assert.deepEqual(controller.getSnapshot().items, []);
+  } finally { controller.dispose(); }
+});
 const room = { roomId: '00000000-0000-4000-8000-000000000001', name: '테스트 채널', actorId: '00000000-0000-4000-8000-000000000002', mode: 'FAN', role: 'FAN', ...scopes };
 const profiles = [{ actorId: '00000000-0000-4000-8000-000000000002', nickname: '테스트 팬', role: 'FAN', avatar: null }, { actorId: '00000000-0000-4000-8000-000000000003', nickname: '테스트 운영자', role: 'STREAMER', avatar: null }];
 const source = (id = '00000000-0000-4000-8000-000000000004', date = '2026-09-01T00:00:00.000Z'): ServerMessage => ({ id, version: '1', createdAt: date, audience: 'PRIVATE', author: { kind: 'member', actorId: '00000000-0000-4000-8000-000000000003', nickname: '테스트 운영자', avatar: null }, counterpart: { actorId: profiles[1]!.actorId }, allowedActions: { reply: true, publish: false, delete: false }, content: { type: 'TEXT', text: '테스트 메시지' }, quote: null });
@@ -28,6 +42,53 @@ function backend(override?: ChatRequest): ChatRequest {
     throw new Error('Unexpected request');
   };
 }
+void test('a wake received during an in-flight read schedules one trailing read', async () => {
+  let release!: (value: unknown) => void;
+  let reached!: () => void;
+  const reading = new Promise<void>(resolve => { reached = resolve; });
+  let eventReads = 0;
+  const next = source('00000000-0000-4000-8000-000000000012');
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (!path.includes('/events?')) return undefined;
+    eventReads++;
+    if (eventReads === 1) { reached(); return new Promise(resolve => { release = resolve; }); }
+    return { ...sync, events: [{ type: 'message.upsert', message: next }], nextCursor: 'after-wake', hasMore: false };
+  }));
+  try {
+    await controller.refresh();
+    const first = controller.refresh();
+    await reading;
+    const duplicateA = controller.refresh();
+    const duplicateB = controller.refresh();
+    release({ ...sync, events: [], nextCursor: 'before-wake', hasMore: false });
+    await Promise.all([first, duplicateA, duplicateB]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(eventReads, 2);
+    assert.ok(controller.getSnapshot().items.some(item => item.id === next.id));
+  } finally { controller.dispose(); }
+});
+void test('route entry waits for an old read and completes a new authorization cycle', async () => {
+  let release!: (value: unknown) => void;
+  let reached!: () => void;
+  const reading = new Promise<void>(resolve => { reached = resolve; });
+  let eventReads = 0;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (!path.includes('/events?')) return undefined;
+    eventReads++;
+    if (eventReads === 1) { reached(); return new Promise(resolve => { release = resolve; }); }
+    return { ...sync, events: [], nextCursor: 'entry-authorized', hasMore: false };
+  }));
+  try {
+    await controller.refresh();
+    const oldRead = controller.refresh();
+    await reading;
+    const entry = controller.refreshForEntry();
+    release({ ...sync, events: [], nextCursor: 'old-read', hasMore: false });
+    await Promise.all([oldRead, entry]);
+    assert.equal(eventReads, 2);
+    assert.equal(controller.getSnapshot().phase, 'ready');
+  } finally { controller.dispose(); }
+});
 for (const recovery of ['send', 'retry', 'reconcile'] as const) void test(`committed ${recovery} starts a fresh schema-2 read after an older in-flight sync settles`, async () => {
   let release!: (value: unknown) => void;
   let reached!: () => void;
@@ -199,13 +260,13 @@ void test('profile visibility never authorizes a recipient omitted from private-
   await controller.refresh(); assert.deepEqual(controller.getSnapshot().commands, []); controller.dispose();
 });
 void test('changed cookie session cannot publish another account into the original scope', async () => {
-  let session = 'session-a'; let invalidations = 0;
+  let session = 'synthetic-csrf-session-a'; let invalidations = 0;
   const controller = new ChatController(room.roomId, backend(async path => {
     if (path === '/v1/auth/session') return { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: session, accountPartition: 'C'.repeat(42) + 'A' };
     return undefined;
   }), () => { invalidations++; }, session);
   await controller.refresh(); assert.equal(controller.getSnapshot().items.length, 1);
-  session = 'session-b'; await controller.refresh();
+  session = 'synthetic-csrf-session-b'; await controller.refresh();
   assert.equal(invalidations, 1); assert.deepEqual(controller.getSnapshot().items, []); assert.equal(controller.getSnapshot().room, null); controller.dispose();
 });
 
@@ -802,4 +863,31 @@ for (const pathKind of ['events', 'history'] as const) void test(`live ${pathKin
   assert.equal(controller.getComposer().drafts.shared?.body, 'keep draft'); assert.equal(controller.getComposer().drafts.shared?.retryCommandId, drafts.shared.retryCommandId);
   assert.ok(controller.getSnapshot().epoch > epoch); controller.saveComposer(drafts, submission.target, epoch);
   assert.equal(controller.getComposer().drafts.shared?.quote?.excerpt, '[current authorized text]'); controller.dispose(); memory.clearAll();
+});
+
+void test('ROOM_OWNER send and retry preserve an actor-free command under fresh FAN authority', async () => {
+  let role = 'FAN'; let posts = 0; const bodies: Record<string, unknown>[] = [];
+  const controller = new ChatController(room.roomId, backend(async (path, options) => {
+    if (path.startsWith('/v1/sync?')) return { schemaVersion: 2, resetRequired: false, rooms: [{ ...room, role }], generation: 'membership-1', nextCursor: null, complete: true };
+    if (path.includes('/private-recipients')) return { recipients: [], next: null };
+    if (path.endsWith('/messages')) {
+      const body = options?.body as Record<string, unknown>; bodies.push(body); posts++;
+      if (posts === 1) throw new TypeError('uncertain transport');
+      return { clientMessageId: body.clientMessageId, messageId: source().id, status: 'committed', version: '1' };
+    }
+    return undefined;
+  }));
+  try {
+    await controller.refresh();
+    const result = await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '방장 수신함' });
+    assert.equal(result.accepted, false); assert.ok(result.retryCommandId);
+    assert.equal(bodies[0]?.intent, 'ROOM_OWNER'); assert.equal('recipientActorId' in bodies[0]!, false);
+    await controller.refresh(); await controller.retry(result.retryCommandId!);
+    assert.equal(posts, 2); assert.deepEqual(bodies[1], bodies[0]);
+    assert.equal((await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '인용 주입', quoteMessageId: source().id })).accepted, false);
+    assert.equal((await controller.send({ target: { scope: 'SHARED' }, body: '공개 주입' })).accepted, false);
+    role = 'STREAMER'; await controller.refreshHints();
+    assert.equal((await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '역할 변경' })).accepted, false);
+    assert.equal(posts, 2);
+  } finally { controller.dispose(); }
 });

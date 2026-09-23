@@ -1,0 +1,342 @@
+/**
+ * Content View Styles
+ * Quill과 TipTap 에디터로 작성된 HTML 콘텐츠를 표시하기 위한 스타일
+ * 
+ * Note: 인라인 스타일로 지정된 색상이 우선적으로 적용되도록
+ * color 속성은 최소한으로만 사용합니다.
+ * 텍스트 색상, 폰트 패밀리 등은 인라인 style 속성으로 적용되며,
+ * 이는 CSS의 특성상 클래스 선택자보다 높은 우선순위를 가집니다.
+ */
+
+.content-view {
+  color: var(--foreground);
+  font-size: 0.9375rem;
+  line-height: 1.7;
+  font-family: inherit;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Typography Styles */
+.content-view > * + * {
+  margin-top: 0.75em;
+}
+
+.content-view h1 {
+  font-size: 3.2em; /* 48pt */
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.content-view h2 {
+  font-size: 2.133em; /* 32pt */
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+}
+
+.content-view h3 {
+  font-size: 1.6em; /* 24pt */
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 1.25em;
+  margin-bottom: 0.5em;
+}
+
+.content-view h4 {
+  font-size: 1.333em; /* 20pt */
+  font-weight: 600;
+  line-height: 1.4;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.content-view h5 {
+  font-size: 1.2em; /* 18pt */
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+.content-view h6 {
+  font-size: 1.067em; /* 16pt */
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+
+/* First heading has no top margin */
+.content-view > h1:first-child,
+.content-view > h2:first-child,
+.content-view > h3:first-child,
+.content-view > h4:first-child,
+.content-view > h5:first-child,
+.content-view > h6:first-child {
+  margin-top: 0;
+}
+
+/* Paragraph */
+.content-view p {
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.content-view p:first-child {
+  margin-top: 0;
+}
+
+/* Lists */
+.content-view ul,
+.content-view ol {
+  padding-left: 1.5em;
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+.content-view ul {
+  list-style-type: disc;
+}
+
+.content-view ol {
+  list-style-type: decimal;
+}
+
+.content-view li {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.content-view li > p {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+.content-view ul ul,
+.content-view ol ul {
+  list-style-type: circle;
+}
+
+.content-view ul ul ul,
+.content-view ol ul ul,
+.content-view ol ol ul,
+.content-view ul ol ul {
+  list-style-type: square;
+}
+
+/* Blockquote */
+.content-view blockquote {
+  padding-left: 1rem;
+  padding-right: 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+  margin: 1.5em 0;
+  border-left: 4px solid var(--primary);
+  background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+  border-radius: calc(var(--radius) - 2px);
+  font-style: italic;
+  color: var(--muted-foreground);
+}
+
+.content-view blockquote > * {
+  margin: 0.5em 0;
+}
+
+.content-view blockquote > *:first-child {
+  margin-top: 0;
+}
+
+.content-view blockquote > *:last-child {
+  margin-bottom: 0;
+}
+
+.content-view blockquote p {
+  color: inherit;
+}
+
+/* Code */
+.content-view code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.875em;
+  padding: 0.125rem 0.375rem;
+  background-color: color-mix(in srgb, var(--muted) 70%, transparent);
+  border-radius: calc(var(--radius) - 4px);
+}
+
+.content-view pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 0.875em;
+  padding: 1rem 1.25rem;
+  background-color: color-mix(in srgb, var(--muted) 50%, transparent);
+  border-radius: var(--radius);
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+}
+
+.content-view pre code {
+  padding: 0;
+  background-color: transparent;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Links */
+.content-view a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.2s;
+}
+
+.content-view a:hover {
+  color: var(--primary);
+  opacity: 0.8;
+}
+
+/* Images */
+.content-view img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius);
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  display: block;
+}
+
+/* Image alignment */
+.content-view img[style*="text-align: left"] {
+  margin-left: 0;
+  margin-right: auto;
+}
+
+.content-view img[style*="text-align: center"] {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.content-view img[style*="text-align: right"] {
+  margin-left: auto;
+  margin-right: 0;
+}
+
+/* Horizontal Rule */
+.content-view hr {
+  border: none;
+  border-top: 2px solid var(--border);
+  margin-top: 2em;
+  margin-bottom: 2em;
+}
+
+/* Text Formatting */
+.content-view strong {
+  font-weight: 700;
+}
+
+.content-view em {
+  font-style: italic;
+}
+
+.content-view s {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.content-view u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Iframe Embed */
+.content-view .iframe-wrapper {
+  position: relative;
+  padding-bottom: 56.25%; /* 16:9 aspect ratio */
+  height: 0;
+  overflow: hidden;
+  max-width: 100%;
+  margin: 1.5em 0;
+  background-color: var(--muted);
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.content-view .iframe-wrapper iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+}
+
+.content-view .iframe-error {
+  padding: 1rem;
+  background-color: color-mix(in srgb, var(--destructive) 10%, transparent);
+  color: var(--destructive);
+  border: 1px solid var(--destructive);
+  border-radius: calc(var(--radius) - 2px);
+  text-align: center;
+  margin: 1.5em 0;
+}
+
+/* Quill 호환성 - Quill 특정 클래스들 */
+.content-view .ql-align-center {
+  text-align: center;
+}
+
+.content-view .ql-align-right {
+  text-align: right;
+}
+
+.content-view .ql-align-justify {
+  text-align: justify;
+}
+
+.content-view .ql-indent-1 {
+  padding-left: 3em;
+}
+
+.content-view .ql-indent-2 {
+  padding-left: 6em;
+}
+
+.content-view .ql-indent-3 {
+  padding-left: 9em;
+}
+
+.content-view .ql-indent-4 {
+  padding-left: 12em;
+}
+
+.content-view .ql-indent-5 {
+  padding-left: 15em;
+}
+
+.content-view .ql-indent-6 {
+  padding-left: 18em;
+}
+
+.content-view .ql-indent-7 {
+  padding-left: 21em;
+}
+
+.content-view .ql-indent-8 {
+  padding-left: 24em;
+}
+
+/* Quill video embed */
+.content-view .ql-video {
+  width: 100%;
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius);
+}

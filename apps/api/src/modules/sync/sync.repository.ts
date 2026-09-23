@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 @Injectable()
@@ -15,8 +15,11 @@ async clock(tx: Transaction): Promise<Date> { return (await tx.rows<RowDataPacke
   }
   account(tx: Transaction, userId: string) { return tx.prisma.users.findMany({ where: { id: userId }, select: { membership_generation: true } }); }
   async rooms(tx: Transaction, userId: string) {
+    const now = await tx.now();
+    const delegated = await tx.prisma.room_test_grants.findMany({ where: { member: { user_id: userId, user: { admin: { is: { manage_test_access: true } } } }, revoked_at: null, expires_at: { gt: now } }, take: 10001, select: { member_id: true, period_id: true } });
+    if (delegated.length > 10000) throw new ServiceUnavailableException();
     const rows = await tx.prisma.room_members.findMany({ where: { user_id: userId, status: 'ACTIVE', room: { status: 'ACTIVE' }, active_period: { is: { left_at: null } } }, orderBy: { room_id: 'asc' }, take: 10001, select: { id: true, role: true, active_period_id: true, acl_epoch: true, room: { select: { id: true, name: true, mode: true } } } });
-    return rows.map(row => ({ id: row.room.id, name: row.room.name, mode: row.room.mode, actor_id: row.id, role: row.role, active_period_id: row.active_period_id, acl_epoch: String(row.acl_epoch) }));
+    return rows.map(row => ({ id: row.room.id, name: row.room.name, mode: row.room.mode, actor_id: row.id, role: row.room.mode === 'FAN' && delegated.some(g => g.member_id === row.id && g.period_id === row.active_period_id) ? 'STREAMER' : row.role, active_period_id: row.active_period_id, acl_epoch: String(row.acl_epoch) }));
   }
 
 }

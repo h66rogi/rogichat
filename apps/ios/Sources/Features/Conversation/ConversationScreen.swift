@@ -173,6 +173,13 @@ struct ConversationScreen: View {
             if mine { Spacer(minLength: 36) }
             VStack(alignment: mine ? .trailing : .leading, spacing: 6) {
                 HStack(spacing: 6) {
+                    if let actor = message.author.actorID, let profile = model.listing?.profiles.first(where: { $0.actorId == actor }), let features {
+                        Group {
+                            if let avatar = profile.avatar { AuthorizedMedia(client: features.media, assetID: avatar.assetId,
+                                access: .avatar(room: model.scope.room.id, actor: actor), avatar: true) }
+                            else if profile.providerAvatarAvailable { AuthorizedProviderAvatar(client: features.media, actorID: actor) }
+                        }.frame(width: 40, height: 40).clipShape(Circle())
+                    }
                     Text(message.author.displayName).font(.caption.weight(.medium))
                     if message.audience == "PRIVATE" { Label("비공개", systemImage: "lock.fill").font(.caption2) }
                 }.foregroundStyle(.secondary)
@@ -249,6 +256,7 @@ struct ConversationScreen: View {
     private var recipientPicker: some View {
         NavigationStack {
             List {
+                if model.roomOwnerAllowed { Button("방장에게만") { model.choose(nil); selectingRecipient = false } }
                 if model.sharedAllowed { Button("전체 대화") { model.choose(nil); selectingRecipient = false } }
                 Section("비공개 메시지") {
                     ForEach(model.recipients) { candidate in
@@ -258,7 +266,7 @@ struct ConversationScreen: View {
                     else if let error = model.recipientsError {
                         Text(error).foregroundStyle(.secondary)
                         Button("다시 확인") { Task { await model.loadRecipients() } }
-                    } else if model.recipients.isEmpty { Text("현재 비공개 메시지를 보낼 수 있는 사람이 없어요.").foregroundStyle(.secondary) }
+                    } else if model.recipients.isEmpty && !model.roomOwnerAllowed { Text("현재 비공개 메시지를 보낼 수 있는 사람이 없어요.").foregroundStyle(.secondary) }
                     if model.recipientsNext != nil { Button("더 보기") { Task { await model.loadRecipients(more: true) } }.disabled(model.recipientsLoading) }
                 }
             }.navigationTitle("받는 사람").navigationBarTitleDisplayMode(.inline)

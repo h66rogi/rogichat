@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { ApiError, type Room } from '@/core/api/client';
+import { resolveDefaultRoom } from '@/core/api/default-room';
 import { invalidateSession } from '@/features/auth/private-session';
 import { useApi, useDefaultRoomId } from '@/core/runtime/provider';
 type RoomState = { kind: 'checking' } | { kind: 'unconfigured' } | { kind: 'unavailable' } | { kind: 'error' } | { kind: 'ready'; room: Room };
@@ -8,23 +9,13 @@ type RoomState = { kind: 'checking' } | { kind: 'unconfigured' } | { kind: 'unav
 export function useRoom() {
   const api = useApi();
   const roomId = useDefaultRoomId();
-  const [state, setState] = useState<RoomState>(roomId ? { kind: 'checking' } : { kind: 'unconfigured' });
+  const [state, setState] = useState<RoomState>({ kind: 'checking' });
   useEffect(() => {
-    if (!roomId) return;
     const controller = new AbortController();
     void (async () => {
       try {
-        let after: string | null = null;
-        const seen = new Set<string>();
-        do {
-          const page: { rooms: Room[]; next: string | null } = await api.request('/v1/rooms' + (after ? `?after=${encodeURIComponent(after)}` : ''), { signal: controller.signal });
-          const room = page.rooms.find(item => item.roomId === roomId);
-          if (room) { if (!controller.signal.aborted) setState({ kind: 'ready', room }); return; }
-          after = page.next;
-          if (after && seen.has(after)) throw new Error('Invalid room pagination');
-          if (after) seen.add(after);
-        } while (after);
-        if (!controller.signal.aborted) setState({ kind: 'unavailable' });
+        const room = await resolveDefaultRoom(path => api.request(path, { signal: controller.signal }), roomId);
+        if (!controller.signal.aborted) setState(room ? { kind: 'ready', room } : { kind: roomId ? 'unavailable' : 'unconfigured' });
       } catch (e) {
         if (controller.signal.aborted) return;
         if (e instanceof ApiError && e.status === 401) invalidateSession();

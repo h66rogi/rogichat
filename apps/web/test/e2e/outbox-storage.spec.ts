@@ -12,10 +12,12 @@ test.beforeEach(async ({ page, context }) => {
   await context.route('**/__outbox_test/**', async route => {
     const name = new URL(route.request().url()).pathname.split('/__outbox_test/')[1]!;
     if (name === 'harness') { await route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>Isolated storage test</title>' }); return; }
-    if (!['outbox/indexeddb', 'outbox/model', 'outbox/transport', 'contract', 'chat-controller', 'chat-memory', 'commands', 'formatters', 'reactions'].includes(name.replace(/\.js$/, ''))) throw new Error('Unexpected isolated module');
-    const source = await readFile(new URL('../../src/features/chat/' + name.replace(/\.js$/, '') + '.ts', import.meta.url), 'utf8');
+    if (!['outbox/indexeddb', 'outbox/model', 'outbox/transport', 'contract', 'chat-controller', 'chat-memory', 'commands', 'formatters', 'reactions', 'session-contract'].includes(name.replace(/\.js$/, ''))) throw new Error('Unexpected isolated module');
+    const sourcePath = name === 'session-contract.js' ? '../../src/core/api/session-contract.ts' : '../../src/features/chat/' + name.replace(/\.js$/, '') + '.ts';
+    const source = await readFile(new URL(sourcePath, import.meta.url), 'utf8');
     const output = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext } }).outputText;
-    await route.fulfill({ contentType: 'text/javascript', body: output.replace(/from '([^']+)'/g, "from '$1.js'") });
+    const imports: Record<string, string> = { '../../core/api/session-contract': '/__outbox_test/session-contract', '../../features/chat/contract': '/__outbox_test/contract' };
+    await route.fulfill({ contentType: 'text/javascript', body: output.replace(/from '([^']+)'/g, (_match, path: string) => `from '${imports[path] ?? path}.js'`) });
   });
   await page.goto('/__outbox_test/harness');
 });
@@ -287,4 +289,30 @@ test('actual controller recovers an uncertain native record after a cold restart
   expect(result.before.commands).toHaveLength(1);
   expect(result.after.storageError).toBeNull(); expect(result.after.phase).toBe('ready');
   expect(result.after.commands).toHaveLength(1); expect(result.lookups).toBeGreaterThan(0);
+});
+
+test('suspend during reauthorization releases the previous lease without waiting for expiry', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const payload = { clientMessageId: crypto.randomUUID(), membershipScope: token, intent: 'SHARED' as const, content: { type: 'TEXT' as const, text: 'preserved command' } };
+    const first = await DurableOutbox.open('reauthorize-close');
+    await first.authorize(authority); await first.prepare(roomId, payload);
+    const interrupted = first.authorize(authority).catch(() => {});
+    first.close(); await interrupted;
+    const second = await DurableOutbox.open('reauthorize-close');
+    try {
+      await second.authorize(authority);
+      const records = await second.recover(roomId);
+      const receiptFirst = await second.beforeSend(payload.clientMessageId).then(() => false, error => error.code === 'RECEIPT_FIRST');
+      // Repeated suspension must not release a later grant queued behind cleanup.
+      second.suspend(); second.suspend(); await second.authorize(authority);
+      await second.assertCurrent();
+      return { recovered: records[0]?.payload, receiptFirst };
+    } finally { second.close(); }
+  });
+  expect(result.recovered?.content).toEqual({ type: 'TEXT', text: 'preserved command' });
+  expect(result.receiptFirst).toBe(true);
 });

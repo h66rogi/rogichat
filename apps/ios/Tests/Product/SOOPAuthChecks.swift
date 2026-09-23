@@ -31,7 +31,10 @@ final class AuthBytes: CredentialBytesStoring, @unchecked Sendable {
         let pending = continuation; continuation = nil; current = nil; pending?.resume(throwing: CancellationError())
     }
 }
-actor AuthAPI: SOOPRequesting {
+actor AuthAPI: SOOPRequesting, NativeRequesting {
+    func perform(_ endpoint: NativeEndpoint, credential: NativeCredential) async throws -> Data {
+        try await AuthNativeAPI().perform(endpoint,credential:credential)
+    }
     private(set) var starts = 0
     private(set) var exchanges = 0
     private(set) var revoked: [NativeCredential] = []
@@ -46,7 +49,7 @@ actor AuthAPI: SOOPRequesting {
             starts += 1
             precondition(start.intent == .login ? credential == nil : credential != nil)
             return try JSONSerialization.data(withJSONObject: ["transactionId": UUID().uuidString.lowercased(), "authorizeUrl": "https://api.qa.rogi.chat/v1/auth/native/soop/launch?request=" + String(repeating: "r", count: 43), "expiresIn":600])
-        case .exchange:
+        case .password, .exchange:
             exchanges += 1
             return try await withCheckedThrowingContinuation { held = $0; waiter?.resume(); waiter = nil }
         }
@@ -120,6 +123,51 @@ struct AuthNativeAPI: NativeRequesting {
             "authenticated":true, "account":["userId":id,"nickname":"로기","avatarAssetId":NSNull()], "soopLinkStatus":"VERIFIED",
             "onboardingState":"READY", "expiresAt":expiry, "accountGeneration":String(repeating:"g",count:43), "capabilities":["chat":true]]])
     }
+    @MainActor static func passwordChecks() async throws {
+        let input = PasswordInput(loginID:"reviewer.real",password:"a correct password",newPassword:nil)
+        check(PasswordInput.valid(String(repeating:"😀",count:12)))
+        check(!PasswordInput.valid(String(repeating:"😀",count:65)))
+        check(!PasswordInput.valid("a correct password\n"))
+        check(!input.description.contains(input.password))
+        let request = try SOOPRequest.password(input).request(environment:.qa,credential:nil)
+        check(request.url?.path == "/v1/auth/password/login" && request.value(forHTTPHeaderField:"X-Rogi-Client") == "ios")
+        check(request.value(forHTTPHeaderField:"Authorization") == nil && request.value(forHTTPHeaderField:"Cookie") == nil && request.value(forHTTPHeaderField:"Origin") == nil)
+        check(!request.httpShouldHandleCookies)
+        let (store,bytes,directory) = try fixture(); defer { try? FileManager.default.removeItem(at:directory) }
+        let api = AuthAPI(); let browser = AuthBrowser()
+        let auth = SOOPAuthCoordinator(environment:.qa,store:store,api:api,browser:browser,now:{now})
+        let service = NativeSessionService(environment:.qa,api:api,store:store,now:{now},auth:auth)
+        _ = try await service.restore()
+        let attempt = SessionAttempt()
+        let login = Task { try await service.password(input,attempt:attempt) }
+        await api.wait()
+        let pending = try store.pendingAuth(now:now)
+        check(pending?.provider == "password" && pending?.phase == .exchanging && pending?.transactionID == nil)
+        await api.finish(.success(try returned(String(repeating:"p",count:43))))
+        let snapshot = try await login.value
+        check(snapshot.access == .ready); try snapshot.publication?.acknowledge()
+        check(try store.read()?.token == String(repeating:"p",count:43))
+        let change = PasswordInput(loginID:nil,password:"a correct password",newPassword:"a replacement password")
+        let rotation = Task { try await service.password(change,attempt:SessionAttempt()) }
+        await api.wait(); await api.finish(.success(try returned(String(repeating:"q",count:43))))
+        let rotated = try await rotation.value; try rotated.publication?.acknowledge()
+        check(try store.read()?.token == String(repeating:"q",count:43))
+        try await service.signOut()
+        let cancelled = Task { try await service.password(input,attempt:SessionAttempt()) }
+        await api.wait(); _ = try await service.cancelAuthentication()
+        let late = String(repeating:"z",count:43); await api.finish(.success(try returned(late)))
+        do { _ = try await cancelled.value; preconditionFailure("late password result must fail") } catch {}
+        check(try store.read() == nil); check(await api.revoked.contains { $0.token == late })
+        // A real protected pending password attempt cannot be replayed on cold restore.
+        _ = try store.beginPassword(expected:nil,accountID:nil,serverGeneration:nil,now:now)
+        let reopened = NativeCredentialStore(environment:.qa,directory:directory,bytes:bytes)
+        check(try reopened.recoverAuth(now:now) != nil); check(try reopened.pendingAuth(now:now) == nil)
+        let failed = Task { try await service.password(input,attempt:SessionAttempt()) }
+        await api.wait(); bytes.failWrites(true); await api.finish(.success(try returned(String(repeating:"s",count:43))))
+        do { _ = try await failed.value; preconditionFailure("failed password install must fail") } catch {}
+        bytes.failWrites(false); check(try store.read() == nil)
+        print("iOS password: native headers, protected rotation, late cancellation revoke, cold no replay and failed install passed")
+    }
     static func fixture() throws -> (NativeCredentialStore, AuthBytes, URL) {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("rogichat-auth-check-\(UUID().uuidString)")
         let bytes = AuthBytes(); let store = NativeCredentialStore(environment: .qa, directory: directory, bytes: bytes)
@@ -130,6 +178,7 @@ struct AuthNativeAPI: NativeRequesting {
         catch let actual { check(String(describing: actual) == String(describing: error)) }
     }
     @MainActor static func main() async throws {
+        try await passwordChecks()
         try contract(); try persistence(); try await flows(); try await fences(); try await scopedErrors()
         print("iOS SOOP: exact headers/callback/PKCE, persisted proof epoch, cold return, one-shot exchange, cancel/newer-account/late-success, consent and failed-install recovery passed")
     }

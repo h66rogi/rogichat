@@ -18,6 +18,7 @@ function fixture(readResult, pushResult, authResult = { changed: 0, hasMore: fal
   const repository = {
     async authorize() { assert.equal(inTransaction, true); calls.push('authorize'); },
     async privateFields() { calls.push('private'); return 0; },
+    async channelContent() { calls.push('channel'); return 0; },
     async memberPage() { calls.push('member'); return null; },
     async mediaUsage() { return 0; },
     async profileChanges() { return 0; },
@@ -30,10 +31,10 @@ function fixture(readResult, pushResult, authResult = { changed: 0, hasMore: fal
 
 test('read-state hasMore and push done are distinct continuation barriers, including zero-deletion passes', async () => {
   for (const [read, push, phase, expected] of [
-    [{ deleted: 0, hasMore: true }, { deleted: 0, done: true }, 'read-state', ['external', 'authorize', 'private', 'read']],
-    [{ deleted: 100, hasMore: false }, { deleted: 0, done: true }, 'read-state', ['external', 'authorize', 'private', 'read']],
-    [{ deleted: 0, hasMore: false }, { deleted: 0, done: false }, 'push', ['external', 'authorize', 'private', 'read', 'member', 'push']],
-    [{ deleted: 0, hasMore: false }, { deleted: 1, done: true }, 'push', ['external', 'authorize', 'private', 'read', 'member', 'push']],
+    [{ deleted: 0, hasMore: true }, { deleted: 0, done: true }, 'read-state', ['external', 'authorize', 'private', 'channel', 'read']],
+    [{ deleted: 100, hasMore: false }, { deleted: 0, done: true }, 'read-state', ['external', 'authorize', 'private', 'channel', 'read']],
+    [{ deleted: 0, hasMore: false }, { deleted: 0, done: false }, 'push', ['external', 'authorize', 'private', 'channel', 'read', 'member', 'push']],
+    [{ deleted: 0, hasMore: false }, { deleted: 1, done: true }, 'push', ['external', 'authorize', 'private', 'channel', 'read', 'member', 'push']],
   ]) {
     const f = fixture(read, push); const result = await f.service.step(requestId);
     assert.equal(result.phase, phase); assert.equal(result.hasMore, true); assert.deepEqual(f.calls, expected);
@@ -57,7 +58,7 @@ test('moderation detail cleanup remains inside the account transaction and zero-
   for (const result of [{ changed: 2, done: true }, { changed: 0, done: false }]) {
     const f = fixture({ deleted: 0, hasMore: false }, { deleted: 0, done: true }, undefined, null, result);
     assert.deepEqual(await f.service.step(requestId), { phase: 'moderation', changed: result.changed, hasMore: true });
-    assert.deepEqual(f.calls, ['external', 'authorize', 'private']);
+    assert.deepEqual(f.calls, ['external', 'authorize', 'private', 'channel']);
   }
 });
 

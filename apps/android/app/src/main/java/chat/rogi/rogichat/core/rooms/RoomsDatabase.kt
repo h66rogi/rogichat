@@ -18,9 +18,10 @@ data class MembershipRow(@PrimaryKey val roomId: String, val name: String, val m
 @Entity(tableName = "manifest_staging", primaryKeys = ["roomId"])
 data class StagedMembership(@Embedded val room: MembershipRow)
 @Entity(tableName = "discovery_rooms")
-data class DiscoveryRow(@PrimaryKey val roomId: String, val name: String, val mode: String) {
+data class DiscoveryRow(@PrimaryKey val roomId: String, val name: String, val mode: String,
+    @ColumnInfo(defaultValue = "0") val isDefault: Boolean = false, @ColumnInfo(defaultValue = "'READY'") val availability: String = "READY") {
     // Discovery's joined/M/A claims are intentionally not persisted as membership authority.
-    fun domain() = DiscoveredRoom(RoomId(roomId), name, RoomMode.valueOf(mode), null, null, null)
+    fun domain() = DiscoveredRoom(RoomId(roomId), name, RoomMode.valueOf(mode), null, null, null, isDefault, RoomAvailability.valueOf(availability))
 }
 @Entity(tableName = "sync_checkpoints")
 data class DirectoryCheckpoint(@PrimaryKey val id: Int = 1, val cacheId: String, val generation: String? = null,
@@ -50,11 +51,19 @@ interface RoomsDao {
 @Database(entities = [MembershipRow::class, StagedMembership::class, DiscoveryRow::class,
     DirectoryCheckpoint::class, PageCheckpoint::class, ConversationOwner::class, ConversationCheckpoint::class,
     ConversationMessageRow::class, ConversationProfileRow::class, ConversationProfileStage::class,
-    ConversationPage::class, ConversationOutboxRow::class, ConversationMediaRow::class, ConversationActionRow::class, ConversationAnchorRow::class, AccountUnblockRow::class, AccountMediaRow::class], version = 3, exportSchema = true)
+    ConversationPage::class, ConversationOutboxRow::class, ConversationMediaRow::class, ConversationActionRow::class, ConversationAnchorRow::class, AccountUnblockRow::class, AccountMediaRow::class], version = 4, exportSchema = true)
 abstract class RoomsDatabase : RoomDatabase() {
     abstract fun rooms(): RoomsDao
     abstract fun conversation(): ConversationDao
     companion object {
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE discovery_rooms ADD COLUMN isDefault INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE discovery_rooms ADD COLUMN availability TEXT NOT NULL DEFAULT 'READY'")
+                db.execSQL("ALTER TABLE conversation_profiles ADD COLUMN providerAvatarAvailable INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE conversation_profile_staging ADD COLUMN providerAvatarAvailable INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("CREATE TABLE IF NOT EXISTS account_unblocks (id TEXT NOT NULL, body TEXT NOT NULL, PRIMARY KEY(id))")

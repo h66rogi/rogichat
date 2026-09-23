@@ -111,7 +111,8 @@ test('ORM eligibility bounds account, SOOP, exact period, room, pair and databas
   await repo.messages(tx, 'room', ['message']); await repo.members(tx, 'room', ['viewer', 'peer']);
   await repo.pairs(tx, 'room', 'viewer', ['peer']); await repo.grants(tx, 'room', ['stream'], ['viewer', 'peer']);
   assert.deepEqual(seen[0][1].where, { room_id: 'room', id: { in: ['message'] } });
-  assert.deepEqual(seen[1][1].where.user, { status: 'ACTIVE', soop: { is: { status: 'VERIFIED' } } });
+  assert.equal(seen[1][1].where.user.status, 'ACTIVE');
+  assert.deepEqual(seen[1][1].where.user.OR, [{ soop: { is: { status: 'VERIFIED' } } }, { reviewer_expires_at: { gt: now } }, { identities: { some: { provider: 'apple', issuer: Buffer.from('https://appleid.apple.com'), status: 'VERIFIED', revoked_at: null } } }]);
   assert.deepEqual(seen[1][1].where.active_period, { is: { room_id: 'room', left_at: null } });
   assert.deepEqual(seen[2][1].where.stream, { room_id: 'room', kind: 'RESTRICTED' });
   assert.deepEqual(seen[3][1].where, { room_id: 'room', stream_id: { in: ['stream'] }, member_id: { in: ['viewer', 'peer'] },

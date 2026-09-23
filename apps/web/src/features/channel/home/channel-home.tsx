@@ -1,13 +1,13 @@
 import Link from 'next/link';
 import { Info, MessageSquareText, type LucideIcon } from 'lucide-react';
 
-import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/cn';
 import type { ChannelDescriptor } from '../model/channel-descriptor';
 import { CHANNEL_FEATURES, channelHref } from '../model/channel-features';
 import { ChannelAvatar } from '../shell/channel-avatar';
 import { AccountStatus } from './account-status';
+import { DefaultRoomStatus } from './default-room-status';
 
 /**
  * Public channel home (Server Component).
@@ -28,7 +28,6 @@ export function ChannelHome({ channel }: { channel: ChannelDescriptor }) {
             <h1 id="channel-home-title" className="text-[28px] font-bold leading-tight text-ink">
               {channel.displayName}
             </h1>
-            <Badge variant="secondary">{channel.platformLabel} 스트리머</Badge>
           </div>
           <p className="max-w-prose text-[16px] leading-normal text-body">
             {channel.displayName}와 팬이 만나는 로기챗의 채팅 공간입니다. 로그인하고 SOOP 계정을 연결하면
@@ -47,6 +46,7 @@ export function ChannelHome({ channel }: { channel: ChannelDescriptor }) {
       </section>
 
       <AccountStatus />
+      <DefaultRoomStatus />
       <div className="grid grid-cols-1 gap-4 md:grid-cols-12">
         <div className={cn('flex flex-col gap-4', channel.officialLinks.length > 0 ? 'md:col-span-8' : 'md:col-span-12')}>
           <FeatureCard

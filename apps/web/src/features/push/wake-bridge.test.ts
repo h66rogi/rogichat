@@ -45,7 +45,7 @@ function bridge(options: { visible?: boolean; controlled?: boolean } = {}) {
     attached: (): number => [...listeners.values()].reduce((total, set) => total + set.size, 0),
     started: () => started,
     show: (value: boolean) => { visible = value; },
-    start: () => startWakeBridge({ binding: BINDING, sync, worker, resume, visible: () => visible }),
+    start: (resumeSync?: () => Promise<void>) => startWakeBridge({ binding: BINDING, sync, ...(resumeSync ? { resumeSync } : {}), worker, resume, visible: () => visible }),
   };
 }
 
@@ -121,6 +121,36 @@ void test('a resumed page syncs on focus as well as on visibility', async () => 
   context.resume.dispatchEvent(new Event('focus'));
   assert.equal(context.started(), 2);
   context.runs[1]?.();
+  stop();
+});
+
+void test('routine resume uses the incremental check while an actual push wake uses the full sync', async () => {
+  const context = bridge();
+  let resumed = 0;
+  const stop = context.start(async () => { resumed += 1; });
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(resumed, 1);
+  assert.equal(context.started(), 0);
+  context.resume.dispatchEvent(new Event('focus'));
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(resumed, 2);
+  context.deliver(sync());
+  assert.equal(context.started(), 1);
+  context.runs[0]?.();
+  stop();
+});
+
+void test('a push arriving during routine resume still performs the full sync', async () => {
+  const context = bridge();
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const stop = context.start(() => pending);
+  context.deliver(sync());
+  assert.equal(context.started(), 0, 'the first resume is still running');
+  release();
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(context.started(), 1, 'the queued push gets a full sync');
+  context.runs[0]?.();
   stop();
 });
 

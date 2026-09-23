@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 import unittest
 
-from check import ROOT, PRIVATE_OPS, MAX_BLOB, WRAPPER, forbidden, inspect_blob
+from check import ROOT, PRIVATE_OPS, MAX_BLOB, REVIEWED_FONTS, WRAPPER, forbidden, inspect_blob
 
 
 class GuardTests(unittest.TestCase):
@@ -355,6 +355,21 @@ class GuardTests(unittest.TestCase):
         self.assert_blocked()
         with self.assertRaises(SystemExit):
             inspect_blob("renamed.txt", data)
+
+    @unittest.skipIf(PRIVATE_OPS, "Reviewed web fonts belong only to public source")
+    def test_exact_reviewed_fonts_pass_but_changed_or_renamed_fail(self):
+        for name in REVIEWED_FONTS:
+            with self.subTest(name=name):
+                data = (ROOT / name).read_bytes()
+                inspect_blob(name, data)
+                with self.assertRaises(SystemExit):
+                    inspect_blob(name, data + b"trailing")
+                with self.assertRaises(SystemExit):
+                    inspect_blob("apps/web/public/fonts/renamed.woff2", data)
+
+        first_name = next(iter(REVIEWED_FONTS))
+        self.stage_file(first_name, (ROOT / first_name).read_bytes())
+        self.assertEqual(self.check().returncode, 0)
 
     @unittest.skipUnless(PRIVATE_OPS, "Private access manifest policy")
     def test_private_manifest_keys_remain_usable_and_history_checked(self):

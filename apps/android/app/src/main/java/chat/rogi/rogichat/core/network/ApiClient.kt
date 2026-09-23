@@ -37,7 +37,7 @@ import okhttp3.CookieJar
  * Native session credentials have no refresh operation or cookie transport.
  * Routes are a closed set; authentication never follows a redirect or arbitrary URL.
  */
-enum class ApiRoute(val path: String) { SESSION("auth/session"), LOGOUT("auth/logout"), PROFILE("me/profile"), NOTIFICATION_PREFERENCES("me/notification-preferences"), SOOP_START("auth/native/soop/transactions"), SOOP_EXCHANGE("auth/native/completions/exchange") }
+enum class ApiRoute(val path: String) { SESSION("auth/session"), LOGOUT("auth/logout"), PROFILE("me/profile"), NOTIFICATION_PREFERENCES("me/notification-preferences"), PASSWORD_LOGIN("auth/password/login"), PASSWORD_CHANGE("auth/password/change"), SOOP_START("auth/native/soop/transactions"), SOOP_EXCHANGE("auth/native/completions/exchange") }
 class ApiException(val statusCode: Int, val code: String?) : Exception("api_request_failed")
 class InvalidResponse : Exception("invalid_response")
 enum class ConversationRoute(val path: String, val cursorRequired: Boolean) {
@@ -79,6 +79,7 @@ interface NativeApi : AppleIdentityTransport, NativePushTransport {
     suspend fun put(route: ApiRoute, token: String, body: String): String = throw IllegalStateException("operation_unavailable")
     suspend fun getReadState(room: ReadStateId, token: String): String = throw IllegalStateException("operation_unavailable")
     suspend fun putReadState(room: ReadStateId, token: String, body: String): String = throw IllegalStateException("operation_unavailable")
+    suspend fun access(request: chat.rogi.rogichat.core.auth.AccessRequest, token: String, admission: () -> Unit): String = throw IllegalStateException("operation_unavailable")
     suspend fun postAuth(route: ApiRoute, token: String?, body: String): String = throw IllegalStateException("operation_unavailable")
     suspend fun get(route: ApiRoute, token: String): String
     suspend fun patchAdmitted(route: ApiRoute, token: String, body: String, admission: () -> Unit): String { admission(); return patch(route, token, body) }
@@ -148,11 +149,11 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         call(HttpMethod.Post, route.path, token, body, empty = true)
     }
     override suspend fun postAuth(route: ApiRoute, token: String?, body: String): String {
-        require(route in setOf(ApiRoute.SOOP_START, ApiRoute.SOOP_EXCHANGE))
+        require(route in setOf(ApiRoute.SOOP_START, ApiRoute.SOOP_EXCHANGE, ApiRoute.PASSWORD_LOGIN, ApiRoute.PASSWORD_CHANGE))
         return call(HttpMethod.Post, route.path, token, body, authEndpoint = true)
     }
     override suspend fun postAuthAdmitted(route: ApiRoute, token: String?, body: String, admission: () -> Unit): String {
-        require(route in setOf(ApiRoute.SOOP_START, ApiRoute.SOOP_EXCHANGE))
+        require(route in setOf(ApiRoute.SOOP_START, ApiRoute.SOOP_EXCHANGE, ApiRoute.PASSWORD_LOGIN, ApiRoute.PASSWORD_CHANGE))
         return call(HttpMethod.Post, route.path, token, body, authEndpoint = true, admission = admission)
     }
     override suspend fun performAppleAdmitted(route: AppleIdentityRoute, intent: IdentityIntent, originalBearer: String?, body: String, admission: () -> Unit): String {
@@ -195,6 +196,12 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
         return rawCall(HttpMethod.parse(request.method), request.path, token, request.body, query = request.query).also {
             if (it.status == 401) throw ApiException(401, "UNAUTHENTICATED")
         }
+    }
+    override suspend fun access(request: chat.rogi.rogichat.core.auth.AccessRequest, token: String, admission: () -> Unit): String {
+        val path = request.path.substringBefore('?')
+        val after = request.path.substringAfter("?after=", "").takeIf { it.isNotEmpty() }
+        return call(HttpMethod.parse(request.method), path, token, request.body, empty = request.status == 204,
+            query = after?.let { mapOf("after" to it) } ?: emptyMap(), expectedStatus = request.status, admission = admission)
     }
     private suspend fun call(method: HttpMethod, path: String, token: String?, body: String? = null, empty: Boolean = false,
                              authEndpoint: Boolean = false, strictDeletion: Boolean = false, query: Map<String, String> = emptyMap(),

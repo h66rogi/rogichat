@@ -8,6 +8,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RoomsViewModelTest {
+    @Test fun ownerPendingRoomNeverSubmitsJoin() = runTest {
+        val room = chat.rogi.rogichat.core.network.DiscoveredRoom(chat.rogi.rogichat.core.network.RoomId(OWN), "후로기", chat.rogi.rogichat.core.network.RoomMode.FAN,
+            null, null, null, true, chat.rogi.rogichat.core.network.RoomAvailability.OWNER_PENDING)
+        val listing = empty.copy(discovered = listOf(room))
+        val repository = object : RoomsRepository {
+            override val roomCommands = kotlinx.coroutines.flow.MutableStateFlow(RoomCommandState())
+            override suspend fun submitRoomCommand(intent: RoomCommandIntent) = error("pending owner must not admit a join")
+            override suspend fun recheckRoomCommand(scope: RoomsAccountScope) = error("unexpected")
+            override suspend fun refreshRooms(scope: RoomsAccountScope) = Result.success(listing)
+            override suspend fun moreRooms(scope: RoomsAccountScope, continuation: DiscoveryContinuation) = error("unexpected")
+        }
+        val model = RoomsViewModel(repository, scope, backgroundScope)
+        runCurrent(); model.join(room.roomId, listing.cycle); runCurrent()
+        assertEquals(listing, model.state.value.directory)
+    }
     private val scope = RoomsAccountScope(OWN, 1, PARTITION)
     private val empty = RoomDirectory(emptyList(), emptyList(), null, chat.rogi.rogichat.core.network.RoomId(OTHER))
     @Test fun realEmptyResponseAndFailureAreDifferentAndRetryUsesCapturedScope() = runTest {

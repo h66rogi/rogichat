@@ -57,7 +57,7 @@ struct KeychainCredentialBytes: CredentialBytesStoring {
 // Adapted KeychainService's access-token read/write/clear boundary. The original
 // refresh/FCM keys and swallowed errors do not satisfy this native contract.
 // Synchronous operations under one lock make compare-and-replace nonreentrant.
-final class NativeCredentialStore: NativeSessionEpochReading, NativePushStoring, AppleAuthStoring, AccountDeletionStoring, @unchecked Sendable {
+final class NativeCredentialStore: NativeSessionEpochReading, NativePushStoring, PasswordAuthStoring, AppleAuthStoring, AccountDeletionStoring, @unchecked Sendable {
     private struct Marker: Codable {
         var schema = 1
         var installation = UUID()
@@ -125,11 +125,14 @@ final class NativeCredentialStore: NativeSessionEpochReading, NativePushStoring,
             if let pending = value.pending {
                 guard pending.id == value.authEpoch, pending.environment == environment, pending.proof.valid,
                       (pending.intent == .login ? pending.originalCredential == nil && pending.accountID == nil && pending.serverGeneration == nil : pending.originalCredential?.isValid == true && pending.originalCredential?.environment == environment && UUID(uuidString: pending.accountID ?? "") != nil && NativeCredential.isOpaque(pending.serverGeneration ?? "")),
-                      (pending.provider == nil || pending.provider == "apple"), pending.createdAt.timeIntervalSince1970.isFinite else { throw ProductError.secureStorage }
+                      (pending.provider == nil || pending.provider == "apple" || pending.provider == "password"), pending.createdAt.timeIntervalSince1970.isFinite else { throw ProductError.secureStorage }
                 if pending.phase == .starting {
                     guard pending.transactionID == nil, pending.authorizeURL == nil, pending.nativeNonce == nil, pending.nativeState == nil else { throw ProductError.secureStorage }
                 } else {
-                    if pending.provider == "apple" {
+                    if pending.provider == "password" {
+                        guard pending.phase == .exchanging, pending.transactionID == nil, pending.authorizeURL == nil,
+                              pending.nativeNonce == nil, pending.nativeState == nil else { throw ProductError.secureStorage }
+                    } else if pending.provider == "apple" {
                         guard let transaction = pending.transactionID, UUID(uuidString: transaction) != nil,
                               pending.authorizeURL == nil, pending.nativeNonce.map(NativeCredential.isOpaque) == true,
                               pending.nativeState.map(NativeCredential.isOpaque) == true else { throw ProductError.secureStorage }
@@ -222,6 +225,9 @@ final class NativeCredentialStore: NativeSessionEpochReading, NativePushStoring,
     func beginAuth(intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending {
         try beginProviderAuth(provider: nil, intent: intent, proof: proof, expected: expected, accountID: accountID, serverGeneration: serverGeneration, now: now)
     }
+    func beginPassword(expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending {
+        try beginProviderAuth(provider: "password", intent: expected == nil ? .login : .link, proof: SOOPProof.generate(), expected: expected, accountID: accountID, serverGeneration: serverGeneration, now: now)
+    }
     func beginApple(intent: SOOPIntent, proof: SOOPProof, expected: NativeCredential?, accountID: String?, serverGeneration: String?, now: Date) throws -> SOOPPending {
         try beginProviderAuth(provider: "apple", intent: intent, proof: proof, expected: expected, accountID: accountID, serverGeneration: serverGeneration, now: now)
     }
@@ -235,6 +241,7 @@ final class NativeCredentialStore: NativeSessionEpochReading, NativePushStoring,
             var pending = SOOPPending(id: id, installation: marker.installation, environment: environment, intent: intent,
                                       proof: proof, createdAt: now, originalCredential: expected, accountID: accountID, serverGeneration: serverGeneration)
             pending.provider = provider
+            if provider == "password" { pending.phase = .exchanging }
             state.pending = pending; state.authEpoch = id
             try saveEnvelope(state)
             return pending

@@ -13,6 +13,8 @@
 MB07의 서버 탈퇴 접수는 [후속 구현 계획](mobile-account-deletion-plan.md)으로 구체화했으며
 동결된 양 OS 소스와 검증 경계는 [구현 기록](mobile-account-deletion-progress.md)에 있다.
 이를 실제 접수·물리 삭제 완료로 집계하지 않는다.
+방장 가입 전 실제 팬 전송은 [ROOM_OWNER 연결 기록](mobile-room-owner-progress.md)을 따른다.
+기본방의 공개 READY와 내부 방장 결합을 구분하고, 다음 QA 배포는 통합된 한 묶음으로 만든다.
 실제 서비스의 첫 통합 목표는 **인증 → SOOP 연결 → 방 입장 → 두 OS 간 텍스트 왕복 → 앱 종료 후 복구**다.
 
 > [첫 QA 와이어프레임 기록](mobile-wireframe-progress.md)과
@@ -680,3 +682,24 @@ iOS native Apple 증명, Android Services ID 브라우저 callback과 원래 S25
 기존 SOOP 계정에서의 명시적 Apple 연결은 같은 user UUID를 유지하고 충돌을
 자동 병합하지 않는다. 제공자 개발자 등록·실제 QA 계정 및 두 OS 왕복 증거는
 별도 출시 gate이며 새 web Apple UI 배포는 이번 native 배치 범위가 아니다.
+
+
+### 실제 심사 계정과 관리자 권한 소비 (2026-09-21)
+
+ROOM_OWNER QA19 배포 소스와 분리한 후속 단계다. 서버가 부여한 실제 심사 계정은
+`soopLinkStatus=REQUIRED`, `onboardingState=READY`, `capabilities.chat=true`를
+반환할 수 있다. Android/iOS는 채팅 접근을 READY/chat으로 판단하고 SOOP 연결 표시는
+VERIFIED일 때만 참으로 유지한다. 일반 미연결 계정의 SOOP_LINK_REQUIRED/chat=false
+제한과 잘못된 조합의 거부는 유지한다. 권한 회수 후 재검증은 즉시 접근 범위를 철회한다.
+
+후속 구현 계약은 실제 ID/비밀번호 로그인·변경, `/v1/me/capabilities`에 따른 관리자
+진입, room capabilities와 self-only 임시 STREAMER 부여/조회/회수다. 비밀번호는
+클라이언트에 영속 저장하지 않으며 기존 보호된 자격증명 설치·취소·로그아웃 경계를
+재사용한다. 임시 역할은 서버가 sync room.role과 actor profile에 투영하며, 만료·회수의
+authorizationRevision 변화로 기존 방 권한을 철회한다. 실제 소유자나 SOOP 신원은
+바꾸지 않는다. 공개 가입·내장 계정·내장 비밀번호·가짜 성공은 제공하지 않는다.
+
+위 후속 단계의 ID/PW 화면·실제 전송·보호 설치, 비밀번호 변경, 서버 capabilities 기반
+관리자 진입과 기본방 임시권한 발급/조회/회수를 PR100에서 구현했다.
+[구현·검증·배포 경계](mobile-password-admin-progress.md)를 따른다. QA19 산출물은
+변경하지 않으며 후속 기능의 라이브 사용은 대응 백엔드 배포와 실제 계정 준비로 확인한다.

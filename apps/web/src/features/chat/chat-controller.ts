@@ -1,4 +1,5 @@
 import { DurableOutbox, OutboxError, outboxSessionKey, type OutboxRoom } from './outbox/indexeddb';
+import { parseSession, sessionAllowsChat } from '../../core/api/session-contract';
 import type { MediaLifetime } from '../media/contracts';
 import { ChatMemory, authorityKey, MAX_PARKED_BYTES, MAX_PARKED_DRAFTS } from './chat-memory';
 import type { ChatDrafts } from './drafts';
@@ -96,6 +97,7 @@ export class ChatController {
   private readonly retainMemory: boolean;
   private get dead() { return this.disposed || this.lease !== this.memory.lease; }
   private flight: Promise<void> | null = null;
+  private refreshPending = false;
   private messages: ServerMessage[] = [];
   private eventCursor: string | null = null;
   private historyCursor: string | null = null;
@@ -111,6 +113,8 @@ export class ChatController {
   private accountPartition: string | undefined;
   private sessionBinding: string | undefined;
   private sending = false;
+  private sendSettled: Promise<void> = Promise.resolve();
+  private resolveSend: (() => void) | null = null;
   private deleting = false;
   private reactionFlights = new Set<string>();
   private reactionCooldown = 0;
@@ -149,6 +153,7 @@ export class ChatController {
     this.reactionFlights = new Set(); this.reactionCooldown = 0;
     this.messages = []; this.tombstones.clear(); this.scope = null; this.projectionGeneration++; this.eventCursor = null; this.historyCursor = null;
     this.manifestGeneration = null; this.profileGeneration = null; this.recipientBinding = null;
+    this.refreshPending = false;
     if (forgetAttempts) this.memory.clearAll(); else if (!preserveComposer) this.memory.clearComposer();
     this.publish({ ...initial(), epoch: this.memory.epoch });
   }
@@ -157,7 +162,7 @@ export class ChatController {
     if (status === 403 || status === 404) { this.memory.scrubAccess(); this.clear(false, true); }
     else this.clear(status === 401, status !== 401);
   }
-  dispose() { if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); activeControllers.delete(this); const store = this.outbox; if (this.revoking) void this.revoking.finally(() => store?.close()); else store?.close(); this.listeners.clear(); }
+  dispose() { if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); this.resolveSend?.(); this.resolveSend = null; activeControllers.delete(this); const store = this.outbox; if (this.revoking) void this.revoking.finally(() => store?.close()); else store?.close(); this.listeners.clear(); }
   getComposer = () => ({ drafts: structuredClone(this.memory.drafts), target: structuredClone(this.memory.target) });
   saveComposer = (drafts: ChatDrafts, target: ChatComposerTarget | null, epoch: number) => {
     if (!this.dead && this.state.phase === 'ready' && epoch === this.memory.epoch) {
@@ -190,10 +195,10 @@ export class ChatController {
   private path(action: string) { return `/v1/rooms/${encodeURIComponent(this.roomId)}/${action}`; }
   private async verifySession() {
     const signal = this.abort.signal;
-    const session = exact(await this.request('/v1/auth/session', { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }), ['authenticated', 'soopLinkStatus', 'csrfToken', 'accountPartition']);
+    const session = parseSession(await this.request('/v1/auth/session', { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
     if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError');
     token(session.accountPartition); string(session.csrfToken);
-    if (session.authenticated !== true || session.soopLinkStatus !== 'VERIFIED' || (this.sessionBinding !== undefined && session.csrfToken !== this.sessionBinding) || (this.accountPartition !== undefined && session.accountPartition !== this.accountPartition)) throw Object.assign(new Error('SESSION_CHANGED'), { status: 401 });
+    if (session.authenticated !== true || !sessionAllowsChat(session) || (this.sessionBinding !== undefined && session.csrfToken !== this.sessionBinding) || (this.accountPartition !== undefined && session.accountPartition !== this.accountPartition)) throw Object.assign(new Error('SESSION_CHANGED'), { status: 401 });
     this.sessionBinding = string(session.csrfToken); this.accountPartition = token(session.accountPartition);
   }
   private async authorization() {
@@ -247,7 +252,7 @@ export class ChatController {
       if (next && (recipientCursors.has(next) || recipientCursors.size >= 200)) throw new Error('INVALID_RESPONSE');
       if (next) recipientCursors.add(next);
     } while (next);
-    this.commands.quarantine(command => command.payload.intent === 'SHARED' ? found.role !== 'STREAMER' : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
+    this.commands.quarantine(command => command.payload.intent === 'ROOM_OWNER' ? found.role !== 'FAN' : command.payload.intent === 'SHARED' ? found.role !== 'STREAMER' : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
     const binding = JSON.stringify(recipients.map(recipient => recipient.actorId));
     if (this.recipientBinding && this.recipientBinding !== binding) throw new ResetRequired();
     guard();
@@ -255,11 +260,33 @@ export class ChatController {
     await this.storageAuthorization(found); guard();
     return { room: found, profiles, recipients };
   }
+  private drainRefresh() {
+    if (!this.dead && this.refreshPending && !this.flight && !this.sending && this.state.phase !== 'error') {
+      this.refreshPending = false;
+      queueMicrotask(() => { if (!this.dead) void this.refresh(); });
+    }
+  }
+  private beginSend() {
+    this.sending = true;
+    this.sendSettled = new Promise(resolve => { this.resolveSend = resolve; });
+  }
+  private endSend() {
+    this.sending = false;
+    this.resolveSend?.(); this.resolveSend = null;
+  }
+  /** A route entry must use a read started after any earlier read or send has settled. */
+  refreshForEntry = async (): Promise<void> => {
+    const previous = this.flight;
+    if (previous) await previous;
+    if (this.sending) await this.sendSettled;
+    if (!this.dead) await this.refresh();
+  };
   refresh = (): Promise<void> => {
     if (this.dead) return Promise.resolve();
-    if (this.flight) return this.flight;
-    if (this.sending && this.state.phase === 'ready') return Promise.resolve();
-    this.flight = this.synchronize().finally(() => { this.flight = null; });
+    if (this.flight) { this.refreshPending = true; return this.flight; }
+    if (this.sending && this.state.phase === 'ready') { this.refreshPending = true; return Promise.resolve(); }
+    this.refreshPending = false;
+    this.flight = this.synchronize().finally(() => { this.flight = null; this.drainRefresh(); });
     return this.flight;
   };
   /** Resume/access refresh replaces hints from a new authoritative snapshot, never stale versions. */
@@ -452,7 +479,7 @@ export class ChatController {
         this.clearAfterError(error); this.publish({ phase: 'error', error: '이전 메시지를 불러오지 못했습니다. 다시 확인해 주세요.' });
         if (Number(recordError(error).status) === 401) this.onInvalidate?.();
       } finally { if (!signal.aborted && !this.dead) this.publish({ loadingOlder: false }); }
-    })().finally(() => { this.flight = null; });
+    })().finally(() => { this.flight = null; this.drainRefresh(); });
     await this.flight;
   };
   private async revalidate() {
@@ -541,7 +568,8 @@ export class ChatController {
     if (!('payload' in command) || !room || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== room.roomId || command.payload.membershipScope !== room.membershipScope || command.membershipGeneration !== this.memory.membershipGeneration) return false;
     return this.payloadAuthorized(command.payload, room);
   }
-  private payloadAuthorized(body: { intent: 'SHARED' | 'PRIVATE'; recipientActorId?: string; quoteId?: string }, room: RoomMembership, recipients = this.state.recipients): boolean {
+  private payloadAuthorized(body: { intent: 'SHARED' | 'PRIVATE' | 'ROOM_OWNER'; recipientActorId?: string; quoteId?: string }, room: RoomMembership, recipients = this.state.recipients): boolean {
+    if (body.intent === 'ROOM_OWNER') return room.role === 'FAN' && body.recipientActorId === undefined && body.quoteId === undefined;
     if (body.intent === 'SHARED' ? room.role !== 'STREAMER' : !recipients.some(p => p.actorId === body.recipientActorId && p.actorId !== room.actorId)) return false;
     if (body.quoteId) {
       const quote = this.messages.find(m => m.id === body.quoteId);
@@ -556,7 +584,7 @@ export class ChatController {
     if (this.dead || this.sending || this.deleting || this.state.phase !== 'ready' || command?.status !== 'unknown' || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== this.roomId) return;
     const signal = this.abort.signal; const projection = this.projectionGeneration;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration;
-    this.sending = true; this.publish({ notice: null });
+    this.beginSend(); this.publish({ notice: null });
     try {
       await this.verifySession(); if (!current()) return;
       const auth = await this.authorization(); if (!current()) return; this.publish(auth);
@@ -575,7 +603,7 @@ export class ChatController {
       else if (Number(recordError(error).status) === 403) void this.refreshHints();
       else if (error instanceof OutboxError) this.publish({ storageError: this.storageMessage(error) });
       else this.publish({ notice: '전송 결과를 확인할 수 없습니다. 조회 실패만으로 저장되지 않았다고 판단하지 않습니다.' });
-    } finally { this.sending = false; if (!this.dead) { this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); } }
+    } finally { this.endSend(); if (!this.dead) { this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); } }
   };
   retry = async (id: string): Promise<void> => {
     const command = this.commands.get(id);
@@ -584,7 +612,7 @@ export class ChatController {
     const payload = command.payload;
     const recipient = this.state.recipients.find(item => item.actorId === payload.recipientActorId);
     if (payload.intent === 'PRIVATE' && !recipient) return;
-    const result = await this.send({ target: payload.intent === 'SHARED' ? { scope: 'SHARED' } : { scope: 'PRIVATE', recipient: recipient! }, body: payload.content.type === 'TEXT' ? payload.content.text : '', retryCommandId: id, ...(payload.quoteId ? { quoteMessageId: payload.quoteId } : {}) });
+    const result = await this.send({ target: payload.intent === 'SHARED' ? { scope: 'SHARED' } : payload.intent === 'ROOM_OWNER' ? { scope: 'ROOM_OWNER' } : { scope: 'PRIVATE', recipient: recipient! }, body: payload.content.type === 'TEXT' ? payload.content.text : '', retryCommandId: id, ...(payload.quoteId ? { quoteMessageId: payload.quoteId } : {}) });
     if (!this.dead && !signal.aborted && projection === this.projectionGeneration) this.publish({ notice: result.accepted ? result.note ?? '메시지 저장 결과를 확인했습니다.' : result.reason });
   };
   private commandResult(result: Receipt): ChatSubmitResult {
@@ -631,13 +659,13 @@ export class ChatController {
       catch { return { accepted: false, reason: '미확인 전송이 많습니다. 이전 전송 결과를 먼저 확인해 주세요.' }; }
     }
     const clientMessageId = command.clientMessageId;
-    const draftKey = body.intent === 'SHARED' ? 'shared' : `private:${body.recipientActorId}`;
+    const draftKey = body.intent === 'SHARED' ? 'shared' : body.intent === 'ROOM_OWNER' ? 'room-owner' : `private:${body.recipientActorId}`;
     const draft = this.memory.drafts[draftKey];
     if (content.type === 'TEXT' && draft && draft.body.trim().normalize('NFC') === text && draft.quote?.messageId === body.quoteId) this.memory.drafts = { ...this.memory.drafts, [draftKey]: { ...draft, retryCommandId: clientMessageId } };
     if (!this.commandAuthorized(command)) return { accepted: false, retryCommandId: clientMessageId, reason: '참여 상태나 보낼 대상이 변경되었습니다. 이전 전송을 새 참여 상태로 다시 보내지 않습니다.' };
     const signal = media ? AbortSignal.any([this.abort.signal, media.lifetime.signal]) : this.abort.signal; const projection = this.projectionGeneration;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration;
-    this.sending = true; this.publish({});
+    this.beginSend(); this.publish({});
     try {
       await this.verifySession(); if (!current()) throw new Error('STALE_REQUEST');
       if (this.environment) { const auth = await this.authorization(); if (!current()) throw new Error('STALE_REQUEST'); this.publish(auth); if (!this.outbox || this.state.storageError) throw new OutboxError('LOCKED'); if (!this.commandAuthorized(command)) throw new ResetRequired(); }
@@ -685,6 +713,6 @@ export class ChatController {
       }
       if (error instanceof OutboxError && current()) { const reason = this.state.storageError ?? this.storageMessage(error); this.publish({ storageError: reason }); return { accepted: false, retryCommandId: clientMessageId, reason }; }
       return { accepted: false, retryCommandId: clientMessageId, reason: '전송 결과가 확인되지 않았습니다. 다시 보내기는 같은 전송 기록을 조회하고 현재 권한으로 재확인합니다.' };
-    } finally { this.sending = false; if (!this.dead) this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); }
+    } finally { this.endSend(); if (!this.dead) this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); }
   };
 }

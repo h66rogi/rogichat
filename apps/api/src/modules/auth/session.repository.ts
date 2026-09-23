@@ -6,7 +6,7 @@ import type { NativeClientId } from './auth-context.js';
 export type SessionBinding = { transport: 'WEB'; clientId?: never } | { transport: 'NATIVE'; clientId: NativeClientId };
 
 export interface CurrentSession {
-  id: string; user_id: string; csrf_digest: Buffer; status: string; soop_status: string | null;
+  id: string; user_id: string; csrf_digest: Buffer; status: string; soop_status: string | null; reviewer_expires_at: Date | null; apple_verified?: boolean;
 }
 
 // Every operation uses the caller's handle; this repository never starts a transaction.
@@ -24,11 +24,13 @@ export class SessionRepository {
     if (tx.writable) {
       // Current locking read is retained: a later command must not race session
       // revocation/account suspension/SOOP revocation on this same transaction.
-      const [row] = await tx.rows<CurrentSession>(`SELECT s.id,s.user_id,s.csrf_digest,u.status,p.status AS soop_status FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN platform_soop p ON p.user_id=u.id WHERE s.token_digest=? AND s.audience=? AND s.transport=? AND s.client_id <=> ? AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP(3) FOR UPDATE`, [tokenDigest, audience, binding.transport, binding.clientId ?? null]);
+      const [row] = await tx.rows<CurrentSession>(`SELECT s.id,s.user_id,s.csrf_digest,u.status,p.status AS soop_status,u.reviewer_expires_at FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN platform_soop p ON p.user_id=u.id WHERE s.token_digest=? AND s.audience=? AND s.transport=? AND s.client_id <=> ? AND s.revoked_at IS NULL AND s.expires_at>UTC_TIMESTAMP(3) FOR UPDATE`, [tokenDigest, audience, binding.transport, binding.clientId ?? null]);
+      if (row) row.apple_verified = row.soop_status !== 'VERIFIED' && (await tx.rows('SELECT id FROM auth_identities WHERE user_id=? AND provider=? AND issuer=? AND status=? AND revoked_at IS NULL FOR UPDATE', [row.user_id, 'apple', Buffer.from('https://appleid.apple.com'), 'VERIFIED'])).length > 0;
       return row;
     }
-    const row = await tx.prisma.auth_sessions.findFirst({ where: { token_digest: new Uint8Array(tokenDigest), audience, transport: binding.transport, client_id: binding.clientId ?? null, revoked_at: null, expires_at: { gt: await tx.now() } }, select: { id: true, user_id: true, csrf_digest: true, user: { select: { status: true, soop: { select: { status: true } } } } } });
-    return row ? { id: row.id, user_id: row.user_id, csrf_digest: Buffer.from(row.csrf_digest), status: row.user.status, soop_status: row.user.soop?.status ?? null } : undefined;
+    const row = await tx.prisma.auth_sessions.findFirst({ where: { token_digest: new Uint8Array(tokenDigest), audience, transport: binding.transport, client_id: binding.clientId ?? null, revoked_at: null, expires_at: { gt: await tx.now() } }, select: { id: true, user_id: true, csrf_digest: true, user: { select: { status: true, reviewer_expires_at: true, soop: { select: { status: true } } } } } });
+    const apple = row && row.user.soop?.status !== 'VERIFIED' && await tx.prisma.auth_identities.findFirst({ where: { user_id: row.user_id, provider: 'apple', issuer: Buffer.from('https://appleid.apple.com'), status: 'VERIFIED', revoked_at: null }, select: { id: true } });
+    return row ? { id: row.id, user_id: row.user_id, csrf_digest: Buffer.from(row.csrf_digest), status: row.user.status, soop_status: row.user.soop?.status ?? null, reviewer_expires_at: row.user.reviewer_expires_at, apple_verified: Boolean(apple) } : undefined;
   }
   currentTerms(tx: Transaction, userId: string) {
     return tx.prisma.users.findUnique({ where: { id: userId }, select: { terms_version: true } });

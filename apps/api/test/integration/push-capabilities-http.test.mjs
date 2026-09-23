@@ -12,6 +12,7 @@ import { SessionRepository } from '../../dist/modules/auth/session.repository.js
 import { readPushConfig } from '../../dist/modules/notifications/push-config.js';
 import { createUser } from '../support/domain-fixture.mjs';
 import { responseContract } from '../support/openapi-response.mjs';
+import { vapidPrivateKey } from '../support/vapid-key.mjs';
 
 for (const configured of [false, true]) test(`capability HTTP uses current proof and minimal DTO (configured=${configured})`, { timeout: 25000 }, async t => {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
@@ -25,7 +26,7 @@ for (const configured of [false, true]) test(`capability HTTP uses current proof
     return { user, web: await sessions.issue(tx, user), native: await sessions.issueNative(tx, user, 'ios') };
   });
   const key = createECDH('prime256v1'); key.generateKeys();
-  const push = readPushConfig({ APP_ENV: 'test', ...(configured ? { PUSH_TEST_VAPID_PUBLIC_KEY: key.getPublicKey().toString('base64url'), PUSH_TEST_VAPID_PRIVATE_KEY: key.getPrivateKey().toString('base64url'), PUSH_TEST_VAPID_SUBJECT: 'mailto:push@example.com' } : {}) });
+  const push = readPushConfig({ APP_ENV: 'test', ...(configured ? { PUSH_TEST_VAPID_PUBLIC_KEY: key.getPublicKey().toString('base64url'), PUSH_TEST_VAPID_PRIVATE_KEY: vapidPrivateKey(key), PUSH_TEST_VAPID_SUBJECT: 'mailto:push@example.com' } : {}) });
   const lifecycle = new LifecycleState();
   const app = await createConfiguredApi(AppModule.register(db, lifecycle, { config }, undefined, push), new SafeLogger('api', () => {}), lifecycle, config);
   t.after(async () => { await app.close(); await db.close(); });

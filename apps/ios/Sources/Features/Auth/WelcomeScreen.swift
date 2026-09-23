@@ -1,7 +1,7 @@
 import SwiftUI
 
 // Adapted LoginView's scrollable brand header, social sign-in group and async feedback.
-// Email/password and other provider flows do not belong to Rogichat's auth contract.
+// Password form reuses the same reference once a real native contract is available.
 struct WelcomeScreen: View {
     let methods: [SignInMethod]
     let busy: Bool
@@ -9,6 +9,8 @@ struct WelcomeScreen: View {
     let rulesURL: URL
     let onCancel: () -> Void
     let onSignIn: (SignInMethod, Bool) -> Void
+    var onPassword: ((PasswordInput, Bool) -> Void)? = nil
+    @State private var showPassword = false
     @State private var consent = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -29,7 +31,7 @@ struct WelcomeScreen: View {
 
                 VStack(alignment: .leading, spacing: 20) {
                     benefit("bubble.left.and.bubble.right", title: "함께 나누는 대화", message: "스트리머의 이야기와 소식을 한곳에서 만나요.")
-                    benefit("person.crop.circle.badge.checkmark", title: "내 계정으로 연결", message: "SOOP 계정을 연결해 대화를 시작해요.")
+                    benefit("person.crop.circle.badge.checkmark", title: "내 계정으로 연결", message: "내 프로필로 대화를 시작해요.")
                     benefit("lock.shield", title: "나를 위한 답장", message: "공개 대화와 개인 답장을 구분해 확인해요.")
                 }
                 .padding(22)
@@ -59,6 +61,9 @@ struct WelcomeScreen: View {
                                         in: RoundedRectangle(cornerRadius: 14))
                         }.disabled(busy || !consent)
                     }
+                    if let onPassword {
+                        DisclosureGroup("아이디로 로그인",isExpanded:$showPassword) { PasswordForm(changing:false,busy:busy,rulesURL:rulesURL,onSubmit:onPassword).padding(.top,12) }
+                    }
                     if busy {
                         ProgressView("로그인하는 중").padding(.vertical, 8)
                         Button("로그인 취소", action: onCancel)
@@ -70,7 +75,7 @@ struct WelcomeScreen: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if methods.contains(.apple) {
-                        Text("Apple로 로그인한 경우에도 SOOP 계정 연결이 필요해요.")
+                        Text("계정 연결이 필요한 경우 로그인 후 안내해 드려요.")
                             .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                 }
@@ -119,4 +124,55 @@ struct SOOPLinkScreen: View {
             }.padding(24)
         }.background(AppTheme.page)
     }
+}
+
+// Adapted Meloming LoginView's labeled credentials, SecureField, async state and submit guard.
+struct PasswordForm: View {
+    let changing: Bool
+    let busy: Bool
+    var rulesURL: URL?
+    let onSubmit: (PasswordInput, Bool) -> Void
+    @State private var loginID = ""
+    @State private var password = ""
+    @State private var replacement = ""
+    @State private var confirmation = ""
+    @State private var consent = false
+    @Environment(\.scenePhase) private var scenePhase
+    @FocusState private var field: Int?
+    private var valid: Bool {
+        PasswordInput.valid(password) && (changing ? PasswordInput.valid(replacement) && replacement == confirmation :
+            consent && loginID.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$",options:.regularExpression) != nil)
+    }
+    var body: some View {
+        VStack(alignment:.leading,spacing:16) {
+            if !changing {
+                Text("아이디").font(.subheadline.weight(.medium))
+                TextField("아이디",text:$loginID).textFieldStyle(.roundedBorder).textContentType(.username)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled().focused($field,equals:0).submitLabel(.next).onSubmit { field = 1 }
+            }
+            Text(changing ? "현재 비밀번호" : "비밀번호").font(.subheadline.weight(.medium))
+            SecureField("비밀번호",text:$password).textFieldStyle(.roundedBorder).textContentType(.password)
+                .focused($field,equals:1).submitLabel(changing ? .next : .go).onSubmit { if changing { field = 2 } else { submit() } }
+            if changing {
+                Text("새 비밀번호").font(.subheadline.weight(.medium))
+                SecureField("12자 이상, 최대 256바이트",text:$replacement).textFieldStyle(.roundedBorder).textContentType(.newPassword).focused($field,equals:2).submitLabel(.next).onSubmit { field = 3 }
+                SecureField("새 비밀번호 확인",text:$confirmation).textFieldStyle(.roundedBorder).textContentType(.newPassword).focused($field,equals:3).submitLabel(.go).onSubmit { submit() }
+                Text("변경하면 다른 기기의 로그인도 해제됩니다.").font(.footnote).foregroundStyle(.secondary)
+            } else {
+                if let rulesURL { Link("이용 안내 읽기",destination:rulesURL) }
+                Toggle("이용 안내를 확인했으며, 개인 메시지가 방장에 의해 전체 공개될 수 있음을 이해합니다. (2026-09-20)",isOn:$consent).font(.footnote)
+            }
+            Button(action:submit) {
+                HStack { if busy { ProgressView() }; Text(changing ? "비밀번호 변경" : "로그인") }.frame(maxWidth:.infinity,minHeight:44)
+            }.buttonStyle(.borderedProminent).disabled(!valid || busy)
+        }.disabled(busy)
+        .onChange(of:scenePhase) { _, phase in if phase != .active { clear() } }
+        .onDisappear { clear() }
+    }
+    private func submit() {
+        guard valid, !busy else { return }
+        let input = PasswordInput(loginID:changing ? nil : loginID,password:password,newPassword:changing ? replacement : nil)
+        clear(); field = nil; onSubmit(input,changing || consent)
+    }
+    private func clear() { password = ""; replacement = ""; confirmation = "" }
 }

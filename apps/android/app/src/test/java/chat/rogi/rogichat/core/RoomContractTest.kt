@@ -22,6 +22,15 @@ internal fun partitionProjection(partition: AccountPartition = PARTITION, genera
     projection(generation = generation).replace("\"authenticated\":true", "\"authenticated\":true,\"accountPartition\":\"${partition.value}\"")
 
 class RoomContractTest {
+    @Test fun defaultRoomPendingIsExplicitAndSurvivesProjectionStorage() {
+        val body = """{"rooms":[{"roomId":"$OWN","name":"후로기","mode":"FAN","joined":false,"isDefault":true,"availability":"OWNER_PENDING"}],"next":null}"""
+        val value = RoomDtos.discovery(body).rooms.single()
+        assertEquals(RoomAvailability.OWNER_PENDING, value.availability); assertTrue(value.isDefault)
+        val row = chat.rogi.rogichat.core.rooms.DiscoveryRow(value.roomId.value, value.name, value.mode.name, value.isDefault, value.availability.name)
+        assertEquals(value, row.domain())
+        assertThrows(InvalidResponse::class.java) { RoomDtos.discovery(body.replace("\"isDefault\":true", "\"isDefault\":false")) }
+        assertThrows(InvalidResponse::class.java) { RoomDtos.discovery(body.replace("OWNER_PENDING", "UNKNOWN")) }
+    }
     @Test fun sessionPreservesValidatedOptionalPartitionWithoutUserIdFallback() {
         assertEquals(PARTITION, NativeDtos.session(partitionProjection()).accountPartition)
         assertNull(NativeDtos.session(projection()).accountPartition)

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { CalendarDays, Home, Info, MessageSquareText, Settings, type LucideIcon } from 'lucide-react';
+import { BookOpen, CalendarDays, Home, Info, MessageSquareText, Settings, Shirt, type LucideIcon } from 'lucide-react';
 
 import { cn } from '@/shared/lib/cn';
 import type { ChannelDescriptor, ChannelFeatureKey } from '../model/channel-descriptor';
@@ -13,7 +13,7 @@ import { channelHref, featureFromPath, menuItemsFor } from '../model/channel-fea
  * `src/domains/channel/components/channel/channel-menu-sidebar.tsx` (`TAB_ICONS`, `ChannelSidebarMenuLink`):
  * pill-shaped navigation links with icon, label and `aria-current`. Rogichat changes: no drag-and-drop
  * editor, no feature-settings mutation, no verified/setlist filters, no toast; items come from the channel
- * descriptor, and only features that have something to show are listed (DESIGN.md: no placeholder rows).
+ * descriptor and link to their live routes.
  */
 const FEATURE_ICONS: Record<ChannelFeatureKey, LucideIcon> = {
   home: Home,
@@ -21,6 +21,8 @@ const FEATURE_ICONS: Record<ChannelFeatureKey, LucideIcon> = {
   rules: Info,
   settings: Settings,
   schedule: CalendarDays,
+  wardrobe: Shirt,
+  songbook: BookOpen,
 };
 
 export function ChannelMenu({ channel, onNavigate }: { channel: ChannelDescriptor; onNavigate?: () => void }) {
