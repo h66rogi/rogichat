@@ -6,6 +6,7 @@ services:
       ROGICHAT_DEFAULT_ROOM_ID: ${ROGICHAT_DEFAULT_ROOM_ID:-}
       ROGICHAT_WEB_ENV: qa
       ROGICHAT_API_ORIGIN: https://api.qa.rogi.chat
+      ROGICHAT_MEDIA_STORAGE_ORIGINS: '["https://36875e4c357ab3a6fcfabe48f617dfb7.r2.cloudflarestorage.com"]'
 networks:
   web:
     name: rogichat-qa-web

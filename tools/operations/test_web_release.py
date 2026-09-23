@@ -31,12 +31,15 @@ def request(environment='qa'):
 
 def config(r):
     _, name, _ = w.names(r)
+    environment = {'NODE_ENV': 'production', 'NEXT_TELEMETRY_DISABLED': '1', 'HOSTNAME': '0.0.0.0', 'PORT': '3000',
+                   'ROGICHAT_WEB_ENV': r['environment'], 'ROGICHAT_DEFAULT_ROOM_ID': r['default_room_id'],
+                   'ROGICHAT_API_ORIGIN': 'https://api.qa.rogi.chat' if r['environment'] == 'qa' else 'https://api.rogi.chat'}
+    if r['environment'] == 'qa':
+        environment['ROGICHAT_MEDIA_STORAGE_ORIGINS'] = w.QA_MEDIA_STORAGE_ORIGINS
     return {'name': name, 'services': {'web': {
         'image': r['image'], 'container_name': name, 'user': '10001:10001', 'read_only': True,
         'networks': {'web': None}, 'cap_drop': ['ALL'], 'security_opt': ['no-new-privileges:true'],
-        'environment': {'NODE_ENV': 'production', 'NEXT_TELEMETRY_DISABLED': '1', 'HOSTNAME': '0.0.0.0', 'PORT': '3000',
-                        'ROGICHAT_WEB_ENV': r['environment'], 'ROGICHAT_DEFAULT_ROOM_ID': r['default_room_id'],
-                        'ROGICHAT_API_ORIGIN': 'https://api.qa.rogi.chat' if r['environment'] == 'qa' else 'https://api.rogi.chat'}}},
+        'environment': environment}},
         'networks': {'web': {'name': name, 'external': True}}}
 
 
@@ -161,7 +164,8 @@ class ValidationTests(unittest.TestCase):
             c['services']['web'][key] = value
             with self.subTest(key=key), self.assertRaises(w.Rejected):
                 w.validate_compose(c, r)
-        for key, value in [('ROGICHAT_WEB_ENV', 'preview'), ('ROGICHAT_API_ORIGIN', 'https://api.rogi.chat'), ('DEMO', '1')]:
+        for key, value in [('ROGICHAT_WEB_ENV', 'preview'), ('ROGICHAT_API_ORIGIN', 'https://api.rogi.chat'),
+                           ('ROGICHAT_MEDIA_STORAGE_ORIGINS', '["https://unapproved.example"]'), ('DEMO', '1')]:
             c = config(r)
             c['services']['web']['environment'][key] = value
             with self.subTest(key=key), self.assertRaises(w.Rejected):

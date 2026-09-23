@@ -41,7 +41,7 @@ export class MelomingUploadService {
     const id = randomUUID();
     const fileName = `${id}.${extension}`;
     const key = mediaKey(this.prefix, id, id, 'image');
-    const directory = await mkdtemp(join(tmpdir(), 'rogichat-channel-image-'));
+    const directory = await mkdtemp(join(process.env.MEDIA_SCRATCH_DIR || tmpdir(), 'rogichat-channel-image-'));
     try {
       const path = join(directory, fileName);
       await writeFile(path, file.buffer, { flag: 'wx', mode: 0o600 });

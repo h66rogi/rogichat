@@ -70,7 +70,7 @@ export class MelomingSheetMusicService {
     const id = randomUUID();
     const key = mediaKey(this.prefix,id,id,'sheet');
     const name = `${id}.${extension}`;
-    const directory = await mkdtemp(join(tmpdir(),'rogichat-sheet-music-'));
+    const directory = await mkdtemp(join(process.env.MEDIA_SCRATCH_DIR || tmpdir(),'rogichat-sheet-music-'));
     try {
       const path = join(directory,name);
       await writeFile(path,body,{flag:'wx',mode:0o600});

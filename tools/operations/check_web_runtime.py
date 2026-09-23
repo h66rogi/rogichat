@@ -34,6 +34,10 @@ def verify(env):
     assert web['environment']['NODE_ENV'] == 'production'
     assert web['environment']['ROGICHAT_WEB_ENV'] == expected
     assert web['environment']['ROGICHAT_API_ORIGIN'] == api
+    if env == 'qa':
+        assert web['environment']['ROGICHAT_MEDIA_STORAGE_ORIGINS'] == '["https://36875e4c357ab3a6fcfabe48f617dfb7.r2.cloudflarestorage.com"]'
+    else:
+        assert 'ROGICHAT_MEDIA_STORAGE_ORIGINS' not in web['environment']
     assert web['environment']['ROGICHAT_DEFAULT_ROOM_ID'] == ''
     assert not any(k.startswith('NEXT_PUBLIC_') or 'SECRET' in k for k in web['environment'])
     bootstrap = 'infrastructure/runtime/compose.bootstrap.yaml' if env == 'qa' else 'infrastructure/environments/prod/runtime/compose.bootstrap.yaml'

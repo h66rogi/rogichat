@@ -249,6 +249,9 @@ def names(request):
     return short, f'rogichat-{short}-web', 'https://qa.rogi.chat' if short == 'qa' else 'https://rogi.chat'
 
 
+QA_MEDIA_STORAGE_ORIGINS = '["https://36875e4c357ab3a6fcfabe48f617dfb7.r2.cloudflarestorage.com"]'
+
+
 def validate_compose(config, request):
     _, name, _ = names(request)
     require(set(config.get('services', {})) == {'web'} and config.get('name') == name)
@@ -261,6 +264,8 @@ def validate_compose(config, request):
     expected = {'NODE_ENV': 'production', 'NEXT_TELEMETRY_DISABLED': '1', 'HOSTNAME': '0.0.0.0', 'PORT': '3000',
                 'ROGICHAT_WEB_ENV': request['environment'], 'ROGICHAT_DEFAULT_ROOM_ID': request['default_room_id'],
                 'ROGICHAT_API_ORIGIN': 'https://api.qa.rogi.chat' if request['environment'] == 'qa' else 'https://api.rogi.chat'}
+    if request['environment'] == 'qa':
+        expected['ROGICHAT_MEDIA_STORAGE_ORIGINS'] = QA_MEDIA_STORAGE_ORIGINS
     require(service.get('environment') == expected)
     require(service.get('cap_drop') == ['ALL'] and 'no-new-privileges:true' in service.get('security_opt', []))
     network = config['networks']['web']
@@ -380,6 +385,7 @@ def healthy(request, image_id):
         require(env.get('ROGICHAT_DEFAULT_ROOM_ID') == request['default_room_id'])
         require(env.get('ROGICHAT_WEB_ENV') == request['environment'])
         require(env.get('ROGICHAT_API_ORIGIN') == ('https://api.qa.rogi.chat' if request['environment'] == 'qa' else 'https://api.rogi.chat'))
+        require(env.get('ROGICHAT_MEDIA_STORAGE_ORIGINS') == (QA_MEDIA_STORAGE_ORIGINS if request['environment'] == 'qa' else None))
         if value['State']['Running'] and value['State'].get('Health', {}).get('Status') == 'healthy':
             return
         time.sleep(2)
