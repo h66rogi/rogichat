@@ -56,6 +56,28 @@ export class SongRequestService {
     return this.project(created);
   }
 
+  /** Source public anonymous identity reconstruction and channel setting gate. */
+  async createAnonymousRequest(dto:{liveSessionId:number;songId?:number;rawArtist:string;rawTitle:string;rawMessage?:string;
+    requestType?:'NORMAL'|'RANDOM'},anonymousNickname:string,platformId:string) {
+    const session=await this.prisma.liveSession.findFirst({where:{id:dto.liveSessionId,channelId:this.channelId,
+      status:'ACTIVE',visibility:'PUBLIC'},select:{id:true}});
+    if(!session)throw new ApiError('NOT_FOUND',404);
+    const settings=await this.prisma.channelSongRequestSettings.findUnique({where:{channelId:this.channelId},
+      select:{allowAnonymous:true,requestMode:true}});
+    if(!settings?.allowAnonymous || settings.requestMode!=='EVERYONE')throw new ApiError('INVALID_REQUEST',400);
+    const nickname=anonymousNickname.trim();
+    if(!nickname||nickname.length>20)throw new ApiError('INVALID_REQUEST',400);
+    if(dto.requestType!=='RANDOM'&&!dto.songId)throw new ApiError('INVALID_REQUEST',400);
+    const recent=await this.prisma.songRequest.count({where:{requesterPlatformId:platformId,
+      createdAt:{gte:new Date(Date.now()-60_000)}}});
+    if(recent>=10)throw new ApiError('RATE_LIMITED',429);
+    const created=await this.queue.addToQueue(dto.liveSessionId,{...(dto.songId?{songId:dto.songId}:{}),
+      rawArtist:dto.rawArtist,rawTitle:dto.rawTitle,...(dto.rawMessage?{rawMessage:dto.rawMessage}:{}),
+      requesterPlatformId:platformId,requesterNickname:`익명 (웹신청) ${nickname}`,isAnonymous:true,
+      requestType:dto.requestType??'NORMAL'});
+    return this.project(created);
+  }
+
   async getNowPlaying(liveSessionId:number) {
     const request = await this.prisma.songRequest.findFirst({where:{liveSessionId,status:SongRequestStatus.PLAYING},
       orderBy:[{playedAt:'desc'},{id:'desc'}],select:songRequestWithSongSelect});

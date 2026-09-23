@@ -563,3 +563,33 @@ test('ported live song requests persist queue, owner controls and completed setl
   assert.equal(clonedRows.requests.some(item=>item.status==='COMPLETED'),true);
   await live.end({token:ownerId},cloned.id);
 });
+
+test('anonymous web requests use channel permission and server-generated identity',async t=>{
+  const {db,roomId,ownerId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
+  const settings=new MelomingSongRequestSettingsService(db.transactions,auth,repository);
+  const songId=await db.transactions.write(async tx=>{
+    const artistId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.artist.create({data:{id:artistId,name:'익명 테스트 가수',nameSearchable:'익명테스트가수',channelId:roomId}});
+    const id=await nextChannelContentId(tx.prisma);
+    await tx.prisma.song.create({data:{id,title:'익명 테스트 곡',titleSearchable:'익명테스트곡',artistId,channelId:roomId}});
+    return id;
+  });
+  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const body={liveSessionId:session.id,songId,rawArtist:'가짜',rawTitle:'가짜',anonymousNickname:' 시청자 ',
+    requesterPlatformId:'forged',requesterNickname:'forged',source:'DONATION',donationAmount:10000};
+  await assert.rejects(requests.create({},body,'anon_test_client'));
+  await settings.update({token:ownerId},{allowAnonymous:true});
+  const created=await requests.create({},body,'anon_test_client');
+  assert.equal(created.requesterPlatformId,'anon_test_client');
+  assert.equal(created.requesterNickname,'익명 (웹신청) 시청자');
+  assert.equal(created.isAnonymous,true);
+  assert.equal(created.requestUserId,null);
+  assert.equal(created.donationAmount,null);
+  assert.equal(created.rawTitle,'익명 테스트 곡');
+  await settings.update({token:ownerId},{requestMode:'VERIFIED_ONLY'});
+  await assert.rejects(requests.create({},body,'anon_second_client'));
+});

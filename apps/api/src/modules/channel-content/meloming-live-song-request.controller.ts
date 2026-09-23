@@ -1,4 +1,5 @@
 import { ApiTags } from '@nestjs/swagger';
+import { createHmac } from 'node:crypto';
 import { Controller, Delete, Get, Inject, Param, Patch, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
@@ -30,7 +31,13 @@ export class MelomingLiveSongRequestController {
   @Get() @channelDoc('melomingLiveSongRequestQueue','원본 신청곡 대기열')
   queue(@Req() request:Request) { return this.requests.queue(readSessionCredentials(request,this.config),request.query as Record<string,unknown>); }
   @Post() @channelDoc('melomingLiveSongRequestCreate','원본 라이브 신청곡', 'write',201)
-  create(@Req() request:Request) { return this.announce(this.requests.create(readCommandCredentials(request,this.config),request.body),'request.added'); }
+  create(@Req() request:Request) {
+    const session=readSessionCredentials(request,this.config);
+    if(session.token) return this.announce(this.requests.create(readCommandCredentials(request,this.config),request.body),'request.added');
+    if(request.headers.origin!==this.config.origin||!request.ip)throw new ApiError('FORBIDDEN',403);
+    const platformId=`anon_${createHmac('sha256',this.config.key).update('song-request-ip:').update(request.ip).digest('hex').slice(0,48)}`;
+    return this.announce(this.requests.create(session,request.body,platformId),'request.added');
+  }
 
   @Get('now-playing') @channelDoc('melomingLiveNowPlaying','원본 현재 재생곡')
   nowPlaying(@Req() request:Request) { return this.requests.nowPlaying(readSessionCredentials(request,this.config),request.query as Record<string,unknown>); }

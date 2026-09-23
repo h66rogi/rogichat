@@ -27,7 +27,11 @@ function attachRogichatRequestInterceptor(instance: AxiosInstance, version: "v1"
   instance.interceptors.request.use(async (config) => {
     config.baseURL = `${rogichatApiOrigin()}/${version}`;
     const method = config.method?.toUpperCase() ?? "GET";
-    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    const anonymousRequest = version === "v1" && method === "POST" &&
+      config.url === "/song-requests" && config.data !== null &&
+      typeof config.data === "object" && typeof config.data.anonymousNickname === "string" &&
+      config.data.anonymousNickname.trim().length > 0;
+    if (!anonymousRequest && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
       config.headers.set("X-CSRF-Token", await rogichatCsrfToken());
     }
     return config;

@@ -26,13 +26,16 @@ function createBody(value:unknown,manual=false) {
   if (raw.requestType!==undefined && !['NORMAL','RANDOM'].includes(String(raw.requestType))) throw new ApiError('INVALID_REQUEST',400);
   const afterRequestId=raw.afterRequestId===undefined?undefined:integer(raw.afterRequestId);
   const reviveFromRequestId=raw.reviveFromRequestId===undefined?undefined:integer(raw.reviveFromRequestId);
+  if(raw.anonymousNickname!==undefined && (typeof raw.anonymousNickname!=='string'||
+    !raw.anonymousNickname.trim()||raw.anonymousNickname.trim().length>20))throw new ApiError('INVALID_REQUEST',400);
   return { liveSessionId,songId,rawArtist:typeof raw.rawArtist==='string'?raw.rawArtist:'',
     rawTitle:typeof raw.rawTitle==='string'?raw.rawTitle:'',
     ...(typeof raw.rawMessage==='string'?{rawMessage:raw.rawMessage}:{}),
     ...(raw.position?{position:raw.position as 'FRONT'|'BACK'|'AFTER'}:{}),
     ...(afterRequestId?{afterRequestId}:{}),
     ...(raw.requestType?{requestType:raw.requestType as 'NORMAL'|'RANDOM'}:{}),
-    ...(reviveFromRequestId?{reviveFromRequestId}:{}) };
+    ...(reviveFromRequestId?{reviveFromRequestId}:{}),
+    ...(typeof raw.anonymousNickname==='string'?{anonymousNickname:raw.anonymousNickname.trim()}:{}) };
 }
 
 @Injectable()
@@ -77,12 +80,19 @@ export class MelomingLiveSongRequestService {
     });
   }
 
-  create(credentials:CommandCredentials,value:unknown) {
+  create(credentials:CommandCredentials|SessionCredentials,value:unknown,anonymousPlatformId?:string) {
     const dto=createBody(value);
     return this.transactions.write(async tx=>{
-      const actor=await this.actor(tx,credentials);
       await this.repository.lockPrimary(tx);
       await this.session(tx,dto.liveSessionId!,credentials);
+      if(!credentials.token) {
+        if(!dto.anonymousNickname||!anonymousPlatformId)throw new ApiError('UNAUTHENTICATED',401);
+        return new SongRequestService(tx.prisma,(await this.repository.primary(tx)).roomId).createAnonymousRequest({
+          liveSessionId:dto.liveSessionId!,...(dto.songId?{songId:dto.songId}:{}),rawArtist:dto.rawArtist,rawTitle:dto.rawTitle,
+          ...(dto.rawMessage?{rawMessage:dto.rawMessage}:{}),...(dto.requestType?{requestType:dto.requestType}:{})
+        },dto.anonymousNickname,anonymousPlatformId);
+      }
+      const actor=await this.actor(tx,credentials);
       return new SongRequestService(tx.prisma,actor.channel.roomId).createRequest({
         liveSessionId:dto.liveSessionId!,...(dto.songId?{songId:dto.songId}:{}),rawArtist:dto.rawArtist,rawTitle:dto.rawTitle,
         ...(dto.rawMessage?{rawMessage:dto.rawMessage}:{}),...(dto.position?{position:dto.position}:{}),
