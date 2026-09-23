@@ -4,7 +4,7 @@
  * facts. Default room binding and the viewer's capabilities come from the server bootstrap contract
  * (W01/W02) and are never derived from this file.
  */
-export type ChannelFeatureKey = 'home' | 'chat' | 'rules' | 'schedule' | 'wardrobe' | 'songbook' | 'settings';
+export type ChannelFeatureKey = 'home' | 'chat' | 'rules' | 'schedule' | 'wardrobe' | 'songbook' | 'support' | 'settings';
 
 export type ChannelFeatureAvailability = 'available' | 'planned';
 
@@ -36,7 +36,7 @@ export const hurogiChannel: ChannelDescriptor = {
   officialLinks: [],
   // SOOP's current h66rogi profile image, confirmed from the official station and VVAVE channel page.
   avatarSrc: '/images/hurogi-profile.png',
-  features: ['home', 'chat', 'schedule', 'wardrobe', 'songbook', 'rules', 'settings'],
+  features: ['home', 'chat', 'rules', 'schedule', 'wardrobe', 'songbook', 'support', 'settings'],
 };
 
 /** Resolves the channel that owns the site root. There is exactly one in the MVP. */

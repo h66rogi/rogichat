@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import { resolveDefaultChannel } from '@/features/channel/model/channel-descriptor';
 
 export const metadata: Metadata = {
-  title: '규칙',
+  title: '이용 안내',
 };
 
 /**
@@ -15,13 +15,9 @@ export default function RulesPage() {
   return (
     <article className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-8 md:px-8 md:py-12">
       <header className="flex flex-col gap-2">
-        <h1 className="text-[28px] font-bold text-ink">규칙</h1>
+        <h1 className="text-[28px] font-bold text-ink">이용 안내</h1>
         <p className="text-[16px] text-body">{channel.displayName} 채팅방을 이용할 때 알아 두면 좋은 내용입니다.</p>
       </header>
-
-      <Section title="후로기 채널 규칙">
-        <p>현재 등록된 채널 규칙이 없습니다. 아래에는 채팅 이용 방식과 주의할 점을 안내합니다.</p>
-      </Section>
 
       <Section title="채팅은 이렇게 동작해요">
         <ul className="flex list-disc flex-col gap-2 pl-5">
