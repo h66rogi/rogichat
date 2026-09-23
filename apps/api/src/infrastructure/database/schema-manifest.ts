@@ -28,4 +28,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920185425_admin_reviewer_access', checksum: 'd000e455dbd31efddbe4db2c20d3efe8b93a587f3205639dbba6be0169e65df2' },
   { name: '20260923183500_meloming_channel_content', checksum: '1496fd1ec35695c735d7b929a7dc531ef42d130a1ec3b8845714859e5ceb1478' },
   { name: '20260923214500_meloming_content_models', checksum: 'aa6363a51430ce4228070c5e42a872c6c98f4769b2450611a3c0bf8a03e342cb' },
+  { name: '20260923230000_meloming_channel_profile', checksum: '91d92477867ecc9f7277db1a96089dfd59891c1f9e118af007c30a64d0a2aac6' },
 ];

@@ -9,6 +9,7 @@ import { PrismaDatabase } from '../../dist/infrastructure/database/database.js';
 import { migrationManifest } from '../../dist/infrastructure/database/schema-manifest.js';
 import { ChannelContentRepository } from '../../dist/modules/channel-content/channel-content.repository.js';
 import { MelomingChannelService } from '../../dist/modules/channel-content/meloming-channel.service.js';
+import { MelomingProfileService } from '../../dist/modules/channel-content/meloming-profile.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -54,6 +55,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const repository=new ChannelContentRepository();
   const auth={require:async(_tx,credentials)=>({userId:credentials.token})};
   const channel=new MelomingChannelService(db.transactions,auth,repository);
+  const profile=new MelomingProfileService(db.transactions,auth,repository);
   const schedule=new ChannelScheduleService(db.transactions,auth,repository);
   const songbook=new SongbookService(db.transactions,{},repository);
   const recurring=new RecurringScheduleService(db.transactions,{},repository);
@@ -68,6 +70,12 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.deepEqual((await channel.features()).items.filter(item=>item.isEnabled).map(item=>item.key),['musicbook','schedule','setlist','wardrobe']);
   assert.equal((await channel.permission({token:ownerId})).manageContent,true);
   assert.equal((await channel.permission({token:fanId})).manageContent,false);
+  assert.deepEqual(await profile.public(),{channelId:1});
+  await assert.rejects(profile.save({token:fanId},{birthday:'2000-09-25'}));
+  const savedProfile=await profile.save({token:ownerId},{birthday:'2000-09-25',debutDate:'2024-05-01'});
+  assert.equal(savedProfile.channelId,1);
+  assert.ok(savedProfile.anniversaries?.birthday);
+  assert.ok(savedProfile.anniversaries?.milestones);
   const first=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
   assert.deepEqual(first.categories.map(row=>row.name),['의상','헤어']);
   assert.equal(first.items.length,0);
@@ -110,6 +118,6 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
     const changed=await db.transactions.write(tx=>cleanup.channelContent(tx,ownerId,100));
     if(!changed)break;
   }
-  const remaining=await db.transactions.read(async tx=>({songs:await tx.prisma.song.count(),schedules:await tx.prisma.channelSchedule.count(),items:await tx.prisma.channelWardrobeItem.count()}));
-  assert.deepEqual(remaining,{songs:0,schedules:0,items:0});
+  const remaining=await db.transactions.read(async tx=>({songs:await tx.prisma.song.count(),schedules:await tx.prisma.channelSchedule.count(),items:await tx.prisma.channelWardrobeItem.count(),profiles:await tx.prisma.channelProfile.count()}));
+  assert.deepEqual(remaining,{songs:0,schedules:0,items:0,profiles:0});
 });
