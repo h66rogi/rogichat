@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rogichatApiOrigin, rogichatCsrfToken } from '../meloming-api-bridge';
 
-test('copied Meloming client resolves only the matching Rogichat API origin', () => {
+void test('copied Meloming client resolves only the matching Rogichat API origin', () => {
   const previous = process.env.ROGICHAT_API_ORIGIN;
   try {
     process.env.ROGICHAT_API_ORIGIN = 'https://api.qa.rogi.chat';
@@ -17,7 +17,7 @@ test('copied Meloming client resolves only the matching Rogichat API origin', ()
   }
 });
 
-test('copied Meloming write client obtains a Rogichat CSRF proof from its session', async () => {
+void test('copied Meloming write client obtains a Rogichat CSRF proof from its session', async () => {
   const previousOrigin = process.env.ROGICHAT_API_ORIGIN;
   const previousFetch = globalThis.fetch;
   try {
