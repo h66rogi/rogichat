@@ -15,6 +15,7 @@ import { ArtistsManagementV2 as ArtistsManagement } from "@/meloming/domains/cha
 import { CategoriesManagementV2 as CategoriesManagement } from "@/meloming/domains/channel/components/management/categories-management-v2";
 import { HomeDashboard } from "@/meloming/domains/channel/components/management/home-dashboard";
 import { SongRequestsManagement } from "@/meloming/domains/channel/components/management/song-requests-management";
+import { ClipRequestsManagement } from "@/meloming/domains/channel/components/management/clip-requests-management";
 import { ScheduleSettingsContent } from "@/meloming/domains/channel/components/management/schedule-settings-content";
 import { WardrobeManagement } from "@/meloming/domains/channel/components/management/wardrobe-management";
 import { LiveManagementContent } from "@/features/live-management-content";
@@ -57,6 +58,7 @@ const SECTION_PERMISSIONS: Partial<
   categories: (p) => p.isOwner || p.manageContent,
   artists: (p) => p.isOwner || p.manageContent,
   "song-requests": (p) => p.isOwner || p.manageContent,
+  "clip-requests": (p) => p.isOwner || p.manageContent,
   // 신청곡 및 오버레이 설정
   live: (p) => p.isOwner || p.manageSettings,
   "song-request-settings": (p) => p.isOwner || p.manageSettings,
@@ -278,6 +280,7 @@ export function ChannelManageContent({ user }: { user: string }) {
           {activeSection === "categories" && <CategoriesManagement />}
           {activeSection === "artists" && <ArtistsManagement />}
           {activeSection === "song-requests" && <SongRequestsManagement />}
+          {activeSection === "clip-requests" && <ClipRequestsManagement />}
           {activeSection === "song-request-settings" && (
             <SongRequestSettingsContent user={user} />
           )}

@@ -45,7 +45,7 @@ export class MelomingMrVideoReadController {
   @Get(':songId/:uploadId') @channelDoc('melomingMrVideoRead','MR 영상 공개 범위 조회')
   async read(@Param('songId') songId:string,@Param('uploadId') uploadId:string,@Headers('range') range:string|undefined,
     @Res({passthrough:true}) response:Response) {
-    const result=await this.service.read(id(songId),uploadId,range);
+    const result=await this.service.stream(id(songId),uploadId,range);
     response.status(result.contentRange?206:200);
     response.setHeader('Accept-Ranges','bytes');
     if(result.contentRange)response.setHeader('Content-Range',result.contentRange);

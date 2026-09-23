@@ -15,8 +15,8 @@ type CalendarQuery = {
 };
 type CalendarAnniversary = { id: null; source: 'AUTO'; type: 'BIRTHDAY' | 'BROADCAST_MILESTONE'; title: string; date: string };
 type CalendarSearchItem = {
-  type: 'SCHEDULE' | 'ANNIVERSARY'; date: string; title: string; subtitle: string | null;
-  scheduleId: number | null; sessionKey: null; sessionId: null; clipId: null; anniversaryType: string | null;
+  type: 'SCHEDULE' | 'ANNIVERSARY' | 'CLIP'; date: string; title: string; subtitle: string | null;
+  scheduleId: number | null; sessionKey: null; sessionId: null; clipId: number | null; anniversaryType: string | null;
 };
 
 /** Meloming ChannelCalendarService, bound to Rogichat's owner room and selected schedule/anniversary sources. */
@@ -68,17 +68,30 @@ export class MelomingCalendarService {
 
   async getCalendar(query: CalendarQuery, credentials: SessionCredentials) {
     const { fromDate, toDate } = this.parseAndValidateWindow(query.from, query.to);
-    const [schedulesResult, anniversariesResult] = await Promise.allSettled([
+    const [schedulesResult, anniversariesResult, clipsResult] = await Promise.allSettled([
       query.includeSchedules === false ? Promise.resolve([]) : this.schedules.listForViewer(credentials, { from: query.from, to: query.to, page: 1, limit: 500 }).then(r => r.items),
       query.includeAnniversaries === false ? Promise.resolve([] as CalendarAnniversary[]) : this.transactions.read(async tx => {
         const { roomId } = await this.repository.primary(tx);
         return this.fetchAnniversaries(await tx.prisma.channelProfile.findUnique({ where: { channelId: roomId }, select: { birthday: true, debutDate: true } }), fromDate, toDate);
       }),
+      query.includeClips === false ? Promise.resolve([]) : this.transactions.read(async tx => {
+        const { roomId } = await this.repository.primary(tx);
+        const rows = await tx.prisma.clip.findMany({ where: { status: 'VISIBLE', createdAt: { gte: fromDate, lt: toDate },
+          clipChannels: { some: { channelId: roomId } } }, orderBy: { createdAt: 'desc' }, take: 500,
+          select: { id: true, title: true, platform: true, videoId: true, videoUrl: true, thumbnailUrl: true,
+            duration: true, createdAt: true, clipChannels: { where: { channelId: roomId },
+              select: { isPrimary: true, song: { select: { title: true } } } } } });
+        return rows.map(row => ({ id: row.id, title: row.title,
+          platform: row.platform === 'MELOMING' ? 'OTHER' : row.platform,
+          videoId: row.videoId, videoUrl: row.videoUrl, thumbnailUrl: row.thumbnailUrl,
+          duration: row.duration, createdAt: row.createdAt.toISOString(),
+          isPrimary: row.clipChannels[0]?.isPrimary ?? false, songTitle: row.clipChannels[0]?.song?.title ?? null }));
+      }),
     ]);
     return {
       channelId: '1', range: { from: query.from, to: query.to },
       schedules: this.unwrap(schedulesResult, 'schedules'), broadcasts: [], setlists: [],
-      anniversaries: this.unwrap(anniversariesResult, 'anniversaries'), clips: [],
+      anniversaries: this.unwrap(anniversariesResult, 'anniversaries'), clips: this.unwrap(clipsResult, 'clips'),
     };
   }
 
@@ -88,7 +101,7 @@ export class MelomingCalendarService {
     const baseResponse = { channelId: '1', query: query.q ?? '', range: { from: query.from, to: query.to } };
     if (!term) return { ...baseResponse, total: 0, items: [] };
     const perType = query.limit && query.limit > 0 ? Math.min(query.limit, 50) : 20;
-    const [schedulesResult, anniversariesResult] = await Promise.allSettled([
+    const [schedulesResult, anniversariesResult, clipsResult] = await Promise.allSettled([
       query.includeSchedules === false ? Promise.resolve([] as CalendarSearchItem[]) : this.searchSchedules(fromDate, toDate, term, credentials),
       query.includeAnniversaries === false ? Promise.resolve([] as CalendarSearchItem[]) : this.transactions.read(async tx => {
         const { roomId } = await this.repository.primary(tx);
@@ -99,8 +112,18 @@ export class MelomingCalendarService {
             subtitle: a.type === 'BIRTHDAY' ? '생일' : '기념일', scheduleId: null,
             sessionKey: null, sessionId: null, clipId: null, anniversaryType: a.type }));
       }),
+      query.includeClips === false ? Promise.resolve([] as CalendarSearchItem[]) : this.transactions.read(async tx => {
+        const { roomId } = await this.repository.primary(tx);
+        const rows = await tx.prisma.clip.findMany({ where: { status: 'VISIBLE', createdAt: { gte: fromDate, lt: toDate },
+          title: { contains: term }, clipChannels: { some: { channelId: roomId } } },
+          orderBy: { createdAt: 'desc' }, take: 100, select: { id: true, title: true, createdAt: true,
+            clipChannels: { where: { channelId: roomId }, select: { song: { select: { title: true } } } } } });
+        return rows.map((row): CalendarSearchItem => ({ type: 'CLIP', date: row.createdAt.toISOString(),
+          title: row.title, subtitle: row.clipChannels[0]?.song?.title ?? null,
+          scheduleId: null, sessionKey: null, sessionId: null, clipId: row.id, anniversaryType: null }));
+      }),
     ]);
-    const merged = [ ...this.unwrap(schedulesResult, 'search:schedules'), ...this.unwrap(anniversariesResult, 'search:anniversaries') ];
+    const merged = [ ...this.unwrap(schedulesResult, 'search:schedules'), ...this.unwrap(anniversariesResult, 'search:anniversaries'), ...this.unwrap(clipsResult, 'search:clips') ];
     merged.sort((a, b) => b.date.localeCompare(a.date));
     const countByType = new Map<string, number>();
     const items: CalendarSearchItem[] = [];

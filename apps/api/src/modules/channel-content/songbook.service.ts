@@ -419,7 +419,14 @@ export class SongbookService {
     });
   }
 
-  /** Rogichat has no Clip model; the copied preview contract has zero dependent clips. */
+  /** Meloming SongMutationService.orphanClipWhere for the selected songs. */
+  private orphanClipWhere(ids: number[], roomId: string): Prisma.ClipWhereInput {
+    return { status: { not: 'DELETED' }, clipChannels: {
+      some: { channelId: roomId, songId: { in: ids } },
+      every: { songId: { in: ids } },
+    } };
+  }
+
   affectedClips(credentials: SessionCredentials, value: unknown) {
     const ids = parseSongIds(value);
     return this.transactions.read(async tx => {
@@ -427,23 +434,26 @@ export class SongbookService {
       const roomId = await this.repository.requireOwner(tx,actor.userId);
       const count = await tx.prisma.song.count({where:{id:{in:ids},channelId:roomId}});
       if (count !== ids.length) throw new ApiError('NOT_FOUND',404);
-      return {orphanClipCount:0};
+      return {orphanClipCount:await tx.prisma.clip.count({where:this.orphanClipWhere(ids,roomId)})};
     });
   }
 
-  /** Port of SongMutationService.bulkDeleteSongsByChannelId without Meloming Clip events. */
+  /** Port of SongMutationService.bulkDeleteSongsByChannelId with orphan clip cleanup. */
   bulkDelete(credentials: CommandCredentials, value: unknown) {
     const ids = parseSongIds(value);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
       await this.repository.lockPrimary(tx);
+      const orphans=await tx.prisma.clip.findMany({where:this.orphanClipWhere(ids,roomId),select:{id:true}});
+      const deletedClipIds=orphans.map(row=>row.id);
+      if(deletedClipIds.length) await tx.prisma.clip.updateMany({where:{id:{in:deletedClipIds}},data:{status:'DELETED',deletedAt:new Date()}});
       await tx.prisma.userSongLike.deleteMany({where:{songId:{in:ids},song:{channelId:roomId}}});
       await tx.prisma.songCategory.deleteMany({where:{songId:{in:ids},song:{channelId:roomId}}});
       const old=await tx.prisma.song.findMany({where:{id:{in:ids},channelId:roomId},select:{globalSongId:true}});
       const {count} = await tx.prisma.song.deleteMany({where:{id:{in:ids},channelId:roomId}});
       await refreshGlobalSongCounts(tx.prisma,old.map(row=>row.globalSongId));
-      return {success:true,deletedCount:count,deletedClipIds:[]};
+      return {success:true,deletedCount:count,deletedClipIds};
     });
   }
 
@@ -526,6 +536,8 @@ export class SongbookService {
       await this.repository.lockPrimary(tx);
       const song = await tx.prisma.song.findFirst({where:{id,channelId:roomId},select:{id:true,globalSongId:true}});
       if (!song) throw new ApiError('NOT_FOUND',404);
+      const orphans=await tx.prisma.clip.findMany({where:this.orphanClipWhere([id],roomId),select:{id:true}});
+      if(orphans.length) await tx.prisma.clip.updateMany({where:{id:{in:orphans.map(row=>row.id)}},data:{status:'DELETED',deletedAt:new Date()}});
       await tx.prisma.userSongLike.deleteMany({where:{songId:id}});
       await tx.prisma.songCategory.deleteMany({where:{songId:id}});
       await tx.prisma.song.delete({where:{id},select:{id:true}});

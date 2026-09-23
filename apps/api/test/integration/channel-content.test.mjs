@@ -34,6 +34,7 @@ import { SongAutocompleteService } from '../../dist/modules/channel-content/upst
 import { MelomingMrVideoService } from '../../dist/modules/channel-content/meloming-mr-video.service.js';
 import { MelomingPricingService } from '../../dist/modules/channel-content/meloming-pricing.service.js';
 import { MelomingOmakaseService } from '../../dist/modules/channel-content/meloming-omakase.service.js';
+import { MelomingClipService } from '../../dist/modules/channel-content/meloming-clip.service.js';
 import { SongAlbumArtService } from '../../dist/modules/channel-content/upstream/song-album-art.service.js';
 import { GlobalSongRedisService } from '../../dist/modules/channel-content/upstream/global-song/global-song-redis.service.js';
 import { GlobalSongMatcherService } from '../../dist/modules/channel-content/upstream/global-song/global-song-matcher.service.js';
@@ -64,6 +65,47 @@ test('new Rogichat songs enter the copied global matcher without imported catalo
   await songbook.remove({token:ownerId},created.id);
   assert.equal((await db.transactions.read(tx=>tx.prisma.globalSong.findUniqueOrThrow({where:{id:updated.globalSongId},select:{channelCount:true}}))).channelCount,0);
   assert.deepEqual((await recommendations.getRecommendations(1)).recommendations,[]);
+});
+
+test('copied song clips persist, enforce owner/fan paths, approve requests, and follow song deletion',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const songs=new SongbookService(db.transactions,auth,repository);
+  const clips=new MelomingClipService(db.transactions,auth,repository);
+  const schedule=new ChannelScheduleService(db.transactions,auth,repository);
+  const calendar=new MelomingCalendarService(db.transactions,auth,repository,schedule);
+  assert.equal((await clips.list('hurogi',{})).total,0);
+  const song=await songs.create({token:ownerId},{title:'클립 노래',artistName:'후로기',categoryNames:['노래']});
+  const body={title:'첫 클립',platform:'YOUTUBE',videoId:'dQw4w9WgXcQ',primaryChannel:{channelId:1,songId:song.id}};
+  await assert.rejects(clips.create({token:fanId},body),error=>error.getStatus()===403);
+  const direct=await clips.create({token:ownerId},body);
+  assert.equal(direct.channels[0].songId,song.id);
+  assert.equal((await clips.list('hurogi',{songId:String(song.id)})).items[0].id,direct.id);
+  assert.equal((await clips.detail(direct.id)).title,'첫 클립');
+  assert.deepEqual(await clips.permission({token:fanId}),{channelId:1,hasPermission:false,canRequestClip:true});
+  await assert.rejects(clips.createRequest({token:ownerId},{channelId:1,songId:song.id,title:'승인 불가',platform:'YOUTUBE',videoId:'dQw4w9WgXcQ'}),error=>error.getStatus()===403);
+  const request=await clips.createRequest({token:fanId},{channelId:1,songId:song.id,title:'팬 클립',platform:'YOUTUBE',videoId:'dQw4w9WgXcQ'});
+  assert.equal(request.status,'PENDING');
+  await assert.rejects(clips.requests({token:fanId},{}),error=>error.getStatus()===403);
+  await assert.rejects(clips.processRequest({token:fanId},request.id,'approve'),error=>error.getStatus()===403);
+  assert.equal((await clips.requests({token:ownerId},{status:'PENDING'})).pendingCount,1);
+  const approved=await clips.processRequest({token:ownerId},request.id,'approve');
+  assert.equal(approved.status,'APPROVED');
+  assert.ok(approved.approvedClipId);
+  assert.equal((await clips.list('hurogi',{songId:String(song.id)})).total,2);
+  const window={from:new Date(Date.now()-86_400_000).toISOString(),to:new Date(Date.now()+86_400_000).toISOString()};
+  assert.equal((await calendar.getCalendar(window,{})).clips.length,2);
+  assert.ok((await calendar.searchCalendar({...window,q:'팬 클립'},{})).items.some(item=>item.clipId===approved.approvedClipId));
+  const cleanup=new AccountCleanupRepository();
+  assert.equal(await db.transactions.write(tx=>cleanup.channelContent(tx,fanId,100)),1);
+  assert.equal((await clips.list('hurogi',{songId:String(song.id)})).total,2);
+  assert.equal((await songs.affectedClips({token:ownerId},{ids:[song.id]})).orphanClipCount,2);
+  const deleted=await songs.bulkDelete({token:ownerId},{ids:[song.id]});
+  assert.deepEqual(new Set(deleted.deletedClipIds),new Set([direct.id,approved.approvedClipId]));
+  assert.equal((await clips.list('hurogi',{})).total,0);
+  await assert.rejects(clips.detail(direct.id),error=>error.getStatus()===404);
+  await assert.rejects(clips.resolve({url:'https://www.youtube.com.evil.example/watch?v=dQw4w9WgXcQ'}),error=>error.getStatus()===400);
 });
 
 async function fixture(t) {
@@ -321,7 +363,7 @@ test('copied sheet-music rules store validated files, replace MusicXML and reord
   const second=await sheets.append({token:ownerId},song.id,{...pdf,originalname:'second.pdf'});
   assert.equal(second.sortOrder,1);
   assert.equal((await sheets.list({token:ownerId},song.id)).length,2);
-  assert.equal((await sheets.read(first.url.split('/').at(-1))).contentType,'application/pdf');
+  assert.equal((await sheets.stream(first.url.split('/').at(-1))).contentType,'application/pdf');
   assert.deepEqual((await sheets.reorder({token:ownerId},song.id,{orderedIds:[second.id,first.id]})).map(slot=>slot.id),[second.id,first.id]);
   const xml=Buffer.from('<?xml version="1.0"?><score-partwise version="4.0"></score-partwise>');
   const music={buffer:xml,size:xml.length,mimetype:'application/xml',originalname:'score.musicxml'};
@@ -360,8 +402,8 @@ test('MR multipart contract binds signed parts to owner song and serves complete
   const completed=await videos.complete({token:ownerId},song.id,{key:upload.key,uploadId:upload.uploadId,fileSizeBytes:1024,parts:[{partNumber:1,etag:'etag'}]});
   assert.match(completed.mrVideoUrl,/api\.qa\.rogi\.chat/);
   assert.equal((await songs.detail(song.id)).mrVideoUrl,completed.mrVideoUrl);
-  assert.equal((await videos.read(song.id,upload.key.split('/')[2],'bytes=0-4')).total,1024);
-  await assert.rejects(videos.read(song.id+1,upload.key.split('/')[2]));
+  assert.equal((await videos.stream(song.id,upload.key.split('/')[2],'bytes=0-4')).total,1024);
+  await assert.rejects(videos.stream(song.id+1,upload.key.split('/')[2]));
   assert.equal((await videos.remove({token:ownerId},song.id)).mrVideoUrl,null);
   assert.equal(objects.size,0);
 });

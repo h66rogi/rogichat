@@ -64,6 +64,7 @@ const SECTION_PERMISSIONS: Partial<Record<ManagementSection, (p: GetChannelIdent
   categories: p => p.isOwner || p.manageContent,
   artists: p => p.isOwner || p.manageContent,
   "song-requests": p => p.isOwner || p.manageContent,
+  "clip-requests": p => p.isOwner || p.manageContent,
   live: p => p.isOwner || p.manageSettings,
   "song-request-settings": p => p.isOwner || p.manageSettings,
   "session-history": p => p.isOwner || p.manageSettings,

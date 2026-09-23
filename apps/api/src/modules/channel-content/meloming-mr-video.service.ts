@@ -135,7 +135,7 @@ export class MelomingMrVideoService {
     try{await this.store.remove(key,AbortSignal.timeout(30_000));}
     catch(error){this.logger.warn(`MR object cleanup failed: ${error instanceof Error?error.message:String(error)}`);}
   }
-  async read(songId:number,uploadUuid:string,range?:string) {
+  async stream(songId:number,uploadUuid:string,range?:string) {
     if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(uploadUuid)||
       (range!==undefined&&!/^bytes=\d+-\d*$/.test(range)))throw new ApiError('INVALID_REQUEST',400);
     const key=await this.transactions.read(async tx=>{

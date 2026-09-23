@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -26,7 +26,7 @@ import {
   SelectValue,
 } from "@/meloming/shared/components/ui/select";
 import { Alert, AlertDescription } from "@/meloming/shared/components/ui/alert";
-import { X, Music, Loader2, ArrowLeft, Link as LinkIcon, Radio, Send, AlertCircle, Upload, UserPlus } from "lucide-react";
+import { X, Music, Loader2, ArrowLeft, Link as LinkIcon, Radio, Send, AlertCircle, Upload } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/meloming/shared/components/ui/avatar";
 import { toast } from "sonner";
 import { useImageUpload } from "@/meloming/shared/hooks/use-image-upload";
@@ -37,17 +37,11 @@ import {
 } from "@/meloming/domains/clip/hooks/use-clip-requests";
 import { resolveClipUrl } from "@/meloming/domains/clip/apis/clips";
 import { SongSearchCombobox } from "@/meloming/domains/clip/components/song-search-combobox";
-import { ChannelTagDialog } from "@/meloming/domains/clip/components/channel-tag-dialog";
-import { TaggedChannelsList, type TaggedChannelItem } from "@/meloming/domains/clip/components/tagged-channels-list";
 import { useAuth } from "@/meloming/domains/auth/hooks/use-auth";
-import { useFeatureFlag } from "@/meloming/shared/hooks/use-feature-flag";
-import { IdentityVerificationWall } from "@/meloming/domains/user/components/identity-verification-wall";
-import { AddToPlaylistDialog } from "@/meloming/domains/playlist/components/add-to-playlist-dialog";
 import { extractApiErrorMessage } from "@/meloming/shared/lib/api-error";
 import type { ClipPlatform, ResolveClipResponse } from "@/meloming/domains/clip/types/clip";
 import { captureIntentEvent } from "@/meloming/shared/analytics/intentional-events";
 import {
-  countBucket,
   durationBucket,
   fileSizeBucket,
   getApiErrorStatus,
@@ -150,7 +144,6 @@ function getResolveResultSummary(result: ResolveClipResponse | null | undefined)
 
 function getClipCreateFormSummary(
   values: Partial<ClipCreateFormData>,
-  taggedChannelCount: number,
 ) {
   return {
     title_length_bucket: textLengthBucket(values.title),
@@ -163,8 +156,6 @@ function getClipCreateFormSummary(
     selected_song_set: Boolean(values.selectedSong),
     selected_song_channel_id: values.selectedSong?.channelId ?? null,
     selected_song_id: values.selectedSong?.songId ?? null,
-    tagged_channel_count: taggedChannelCount,
-    tagged_channel_count_bucket: countBucket(taggedChannelCount),
   };
 }
 
@@ -189,9 +180,7 @@ export function ClipCreateDialog({
   const openedSignatureRef = useRef<string | null>(null);
   const permissionSignatureRef = useRef<string | null>(null);
   const permissionNoticeViewedRef = useRef(false);
-  const identityWallViewedRef = useRef(false);
   const stepTwoViewedRef = useRef(false);
-  const playlistDialogViewedRef = useRef(false);
   const urlInputFocusedRef = useRef(false);
   const urlInputStartedRef = useRef(false);
   const titleFocusedRef = useRef(false);
@@ -200,17 +189,9 @@ export function ClipCreateDialog({
   const descriptionEditedRef = useRef(false);
   const thumbnailUrlEditedRef = useRef(false);
 
-  // 태그 채널 관련 상태
-  const [taggedChannels, setTaggedChannels] = useState<TaggedChannelItem[]>([]);
-  const [tagDialogOpen, setTagDialogOpen] = useState(false);
-
-  // 사용자 정보 및 본인인증 상태
+  // Rogichat account login replaces Meloming identity verification.
   const { user } = useAuth();
-  const isIdentityVerified = user?.isIdentityVerified ?? false;
-
-  // 재생목록 추가 기능
-  const playlistEnabled = useFeatureFlag('playlist');
-  const [createdClipId, setCreatedClipId] = useState<number | null>(null);
+  const needsLogin = !user?.id;
 
   // 권한 체크
   const {
@@ -225,10 +206,7 @@ export function ClipCreateDialog({
   const hasPermission = permission?.hasPermission ?? false;
   const canRequestClip = permission?.canRequestClip ?? false;
 
-  // 클립 요청 시 본인인증 필요 여부 (권한이 없고 요청 가능한 경우에만)
-  const needsIdentityVerification = !hasPermission && canRequestClip && !isIdentityVerified;
-
-  const createClipMutation = useCreateClip(channelIdentifier);
+  const createClipMutation = useCreateClip();
   const createClipRequestMutation = useCreateClipRequest();
 
   // 썸네일 업로드
@@ -275,20 +253,17 @@ export function ClipCreateDialog({
     permission_loading: isLoadingPermission,
     has_permission: hasPermission,
     can_request_clip: canRequestClip,
-    needs_identity_verification: needsIdentityVerification,
+    needs_login: needsLogin,
     mode: hasPermission ? "direct_create" : canRequestClip ? "request" : "blocked",
-    playlist_enabled: Boolean(playlistEnabled),
     resolved_data_present: Boolean(resolvedData),
     selected_song_set: Boolean(selectedSong),
     selected_song_id: selectedSong?.songId ?? null,
     selected_song_channel_id: selectedSong?.channelId ?? null,
-    tagged_channel_count: taggedChannels.length,
-    tagged_channel_count_bucket: countBucket(taggedChannels.length),
     publish_to_hot_clip: Boolean(publishToHotClip),
   });
 
   const getCurrentFormSummary = () =>
-    getClipCreateFormSummary(clipForm.getValues(), taggedChannels.length);
+    getClipCreateFormSummary(clipForm.getValues());
 
   // 썸네일 업로드 핸들러
   const handleThumbnailUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -351,9 +326,6 @@ export function ClipCreateDialog({
     if (!open) {
       setStep(1);
       setResolvedData(null);
-      setTaggedChannels([]);
-      setTagDialogOpen(false);
-      setCreatedClipId(null);
       urlForm.reset({ url: "" });
       clipForm.reset({
         title: "",
@@ -415,14 +387,6 @@ export function ClipCreateDialog({
   }, [canRequestClip, hasPermission, isLoadingPermission, open]);
 
   useEffect(() => {
-    if (!open || !needsIdentityVerification || identityWallViewedRef.current) return;
-    identityWallViewedRef.current = true;
-    captureIntentEvent("clip_create_dialog_identity_wall_viewed", {
-      ...getContextSummary(),
-    });
-  }, [needsIdentityVerification, open]);
-
-  useEffect(() => {
     if (!open || step !== 2 || stepTwoViewedRef.current) return;
     stepTwoViewedRef.current = true;
     captureIntentEvent("clip_create_dialog_details_step_viewed", {
@@ -437,7 +401,6 @@ export function ClipCreateDialog({
       openedSignatureRef.current = null;
       permissionSignatureRef.current = null;
       permissionNoticeViewedRef.current = false;
-      identityWallViewedRef.current = false;
       stepTwoViewedRef.current = false;
       urlInputFocusedRef.current = false;
       urlInputStartedRef.current = false;
@@ -446,18 +409,8 @@ export function ClipCreateDialog({
       descriptionFocusedRef.current = false;
       descriptionEditedRef.current = false;
       thumbnailUrlEditedRef.current = false;
-      playlistDialogViewedRef.current = false;
     }
   }, [open]);
-
-  useEffect(() => {
-    if (!playlistEnabled || createdClipId === null || playlistDialogViewedRef.current) return;
-    playlistDialogViewedRef.current = true;
-    captureIntentEvent("clip_create_dialog_playlist_add_dialog_opened", {
-      ...getContextSummary(),
-      created_clip_id: createdClipId,
-    });
-  }, [createdClipId, playlistEnabled]);
 
   // 치지직 비디오(VOD) URL 패턴 검사
   const isChzzkVideoUrl = (url: string): boolean => {
@@ -516,7 +469,7 @@ export function ClipCreateDialog({
   const handleSubmit = async (data: ClipCreateFormData) => {
     const eventProperties = {
       ...getContextSummary(),
-      ...getClipCreateFormSummary(data, taggedChannels.length),
+      ...getClipCreateFormSummary(data),
       submit_mode: hasPermission ? "direct_create" : "request",
     };
     captureIntentEvent("clip_create_dialog_submit_submitted", eventProperties);
@@ -534,15 +487,10 @@ export function ClipCreateDialog({
         const createdClip = await createClipMutation.mutateAsync({
           title: data.title,
           platform: data.platform,
-          // 새로운 방식: primaryChannel + taggedChannels
           primaryChannel: {
             channelId: data.selectedSong.channelId,
             songId: data.selectedSong.songId,
           },
-          taggedChannels: taggedChannels.map((tc) => ({
-            channelId: tc.channelId,
-            songId: tc.songId,
-          })),
           description: data.description || undefined,
           videoId: data.videoId,
           thumbnailUrl: data.thumbnailUrl || undefined,
@@ -557,10 +505,6 @@ export function ClipCreateDialog({
         toast.success("클립이 등록되었습니다");
         onOpenChange(false);
         onSuccess?.();
-
-        if (playlistEnabled) {
-          setCreatedClipId(createdClip.id);
-        }
 
         // 생성된 클립 페이지로 이동
         captureIntentEvent("clip_create_dialog_direct_create_redirected", {
@@ -634,52 +578,6 @@ export function ClipCreateDialog({
     clipForm.setValue("selectedSong", null);
   };
 
-  // 태그 채널 추가
-  const handleAddTaggedChannel = (item: TaggedChannelItem) => {
-    const eventProperties = {
-      ...getContextSummary(),
-      tagged_channel_id: item.channelId,
-      tagged_song_id: item.songId,
-    };
-    captureIntentEvent("clip_create_dialog_tagged_channel_add_submitted", eventProperties);
-    // 중복 체크
-    if (taggedChannels.some((tc) => tc.channelId === item.channelId)) {
-      captureIntentEvent("clip_create_dialog_tagged_channel_add_blocked_duplicate", eventProperties);
-      toast.error("이미 태그된 채널입니다");
-      return;
-    }
-    setTaggedChannels((prev) => [...prev, item]);
-    captureIntentEvent("clip_create_dialog_tagged_channel_add_succeeded", {
-      ...eventProperties,
-      next_tagged_channel_count: taggedChannels.length + 1,
-      next_tagged_channel_count_bucket: countBucket(taggedChannels.length + 1),
-    });
-  };
-
-  // 태그 채널 제거
-  const handleRemoveTaggedChannel = (targetChannelId: number) => {
-    captureIntentEvent("clip_create_dialog_tagged_channel_remove_clicked", {
-      ...getContextSummary(),
-      removed_channel_id: targetChannelId,
-    });
-    setTaggedChannels((prev) => prev.filter((tc) => tc.channelId !== targetChannelId));
-    captureIntentEvent("clip_create_dialog_tagged_channel_remove_succeeded", {
-      ...getContextSummary(),
-      removed_channel_id: targetChannelId,
-      next_tagged_channel_count: Math.max(0, taggedChannels.length - 1),
-      next_tagged_channel_count_bucket: countBucket(Math.max(0, taggedChannels.length - 1)),
-    });
-  };
-
-  // 이미 선택된 채널 ID 목록 (메인 채널 + 태그된 채널들)
-  const excludeChannelIds = useMemo(() => {
-    const ids = taggedChannels.map((tc) => tc.channelId);
-    if (channelId) {
-      ids.push(channelId);
-    }
-    return ids;
-  }, [taggedChannels, channelId]);
-
   const handleDialogOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
       captureIntentEvent("clip_create_dialog_closed", {
@@ -688,13 +586,6 @@ export function ClipCreateDialog({
       });
     }
     onOpenChange(nextOpen);
-  };
-
-  const handleIdentityWallClose = () => {
-    captureIntentEvent("clip_create_dialog_identity_wall_close_clicked", {
-      ...getContextSummary(),
-    });
-    onOpenChange(false);
   };
 
   const handleCancelClick = () => {
@@ -809,35 +700,14 @@ export function ClipCreateDialog({
     onChange(checked);
   };
 
-  const handleTagDialogOpenChange = (nextOpen: boolean) => {
-    if (nextOpen) {
-      captureIntentEvent("clip_create_dialog_tag_dialog_opened", {
-        ...getContextSummary(),
-      });
-    } else {
-      captureIntentEvent("clip_create_dialog_tag_dialog_closed", {
-        ...getContextSummary(),
-      });
-    }
-    setTagDialogOpen(nextOpen);
-  };
-
-  const handlePlaylistDialogOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) {
-      captureIntentEvent("clip_create_dialog_playlist_add_dialog_closed", {
-        ...getContextSummary(),
-        created_clip_id: createdClipId,
-      });
-      setCreatedClipId(null);
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
-        {/* 본인인증 필요 시 Wall 표시 */}
-        {needsIdentityVerification ? (
-          <IdentityVerificationWall onClose={handleIdentityWallClose} />
+        {needsLogin ? (
+          <div className="space-y-3 p-2 text-sm">
+            <p>클립을 등록하거나 요청하려면 로그인해주세요.</p>
+            <a className="text-primary underline" href="/login">로그인하기</a>
+          </div>
         ) : (
           <>
             <DialogHeader>
@@ -1107,37 +977,6 @@ export function ClipCreateDialog({
               )}
             </div>
 
-            {/* 함께 출연 채널 태그 (권한 있을 때만) */}
-            {hasPermission && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>함께 출연 채널</Label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-7 text-xs gap-1"
-                    onClick={() => handleTagDialogOpenChange(true)}
-                  >
-                    <UserPlus className="size-3.5" />
-                    채널 태그
-                  </Button>
-                </div>
-
-                {taggedChannels.length > 0 ? (
-                  <TaggedChannelsList
-                    channels={taggedChannels}
-                    onRemove={handleRemoveTaggedChannel}
-                    primaryChannelId={channelId}
-                  />
-                ) : (
-                  <p className="text-xs text-muted-foreground py-2">
-                    콜라보/합방 등 함께 출연한 채널을 태그하면 해당 채널에도 클립이 표시됩니다.
-                  </p>
-                )}
-              </div>
-            )}
-
             <div className="flex items-center justify-between gap-4 rounded-md border px-3 py-2">
               <div className="min-w-0 space-y-0.5">
                 <Label htmlFor="clip-publish-to-hotclip">핫클립에 게시</Label>
@@ -1200,23 +1039,6 @@ export function ClipCreateDialog({
         )}
       </DialogContent>
 
-      {/* 채널 태그 다이얼로그 */}
-      <ChannelTagDialog
-        open={tagDialogOpen}
-        onOpenChange={handleTagDialogOpenChange}
-        onComplete={handleAddTaggedChannel}
-        excludeChannelIds={excludeChannelIds}
-        clipTitle={resolvedData?.title}
-      />
-
-      {/* 클립 생성 후 재생목록 추가 다이얼로그 */}
-      {playlistEnabled && createdClipId !== null && (
-        <AddToPlaylistDialog
-          open={createdClipId !== null}
-          onOpenChange={handlePlaylistDialogOpenChange}
-          clipId={createdClipId}
-        />
-      )}
     </Dialog>
   );
 }

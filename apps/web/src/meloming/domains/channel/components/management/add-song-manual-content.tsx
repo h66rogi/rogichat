@@ -242,7 +242,7 @@ export function AddSongManualContent({
   );
 
   // 클립 생성/요청 mutation
-  const createClipMutation = useCreateClip(identifier);
+  const createClipMutation = useCreateClip();
   const createClipRequestMutation = useCreateClipRequest();
 
   const manualBaseProperties = useMemo(

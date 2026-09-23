@@ -40,4 +40,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260924023000_meloming_omakase', checksum: '54aa546729fce205b801b69d0013f0540a393c5ca84eaba4185674247e2d3a36' },
   { name: '20260924030000_meloming_global_song', checksum: 'c5f128e972aee25b4d49f9568489ba027edfe4465497573ebab086992a5dc3eb' },
   { name: '20260924033000_channel_feature_settings', checksum: 'b2797189e387d941f6569a4b9fdd6c65dca86e99f3be26196dff5e8469704737' },
+  { name: '20260924034500_songbook_clips', checksum: 'a322f0cd322ee934076b9ea7cf4b3169cd76958e3232385333f3623563520d6e' },
 ];

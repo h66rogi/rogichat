@@ -4,11 +4,10 @@ import type { Request } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
 import { readSessionCredentials } from '../auth/auth-context.js';
-import { AuthService } from '../auth/auth.service.js';
 import { ApiError } from '../auth/auth-primitives.js';
-import { Transactions } from '../../infrastructure/database/transactions.js';
 import { channelDoc } from './channel-content.openapi.js';
 import { SerperService } from './upstream/serper/serper.service.js';
+import { MelomingReadAccessService } from './meloming-read-access.service.js';
 
 function searchBody(value:unknown,kind:'images'|'video'|'web',max=50) {
   if(!value||typeof value!=='object'||Array.isArray(value))throw new ApiError('INVALID_REQUEST',400);
@@ -29,13 +28,12 @@ function searchBody(value:unknown,kind:'images'|'video'|'web',max=50) {
 @ApiTags('Song metadata search/Meloming compatibility')
 @Controller('v1/serper')
 export class MelomingSearchController {
-  constructor(@Inject(Transactions) private readonly transactions:Transactions,
-    @Inject(AuthService) private readonly auth:AuthService,
+  constructor(@Inject(MelomingReadAccessService) private readonly access:MelomingReadAccessService,
     @Inject(AUTH_CONFIG) private readonly config:AuthConfig,
     @Inject(SerperService) private readonly search:SerperService) {}
 
   private async authenticated(request:Request) {
-    await this.transactions.read(tx=>this.auth.require(tx,readSessionCredentials(request,this.config),true));
+    await this.access.requireAccount(readSessionCredentials(request,this.config));
   }
 
   @Post('search') @HttpCode(200) @channelDoc('melomingImageSearch','원본 이미지 검색','read')
@@ -61,14 +59,13 @@ export class MelomingSearchController {
 @ApiTags('Song metadata search/Meloming compatibility')
 @Controller('v1/console-api/serper')
 export class MelomingConsoleSearchController {
-  constructor(@Inject(Transactions) private readonly transactions:Transactions,
-    @Inject(AuthService) private readonly auth:AuthService,
+  constructor(@Inject(MelomingReadAccessService) private readonly access:MelomingReadAccessService,
     @Inject(AUTH_CONFIG) private readonly config:AuthConfig,
     @Inject(SerperService) private readonly search:SerperService) {}
   @Post('search-video') @HttpCode(200) @channelDoc('melomingConsoleVideoSearch','원본 콘솔 영상 검색','read')
   async videos(@Req() request:Request) {
     const dto=searchBody(request.body,'video',20);
-    await this.transactions.read(tx=>this.auth.require(tx,readSessionCredentials(request,this.config),true));
+    await this.access.requireAccount(readSessionCredentials(request,this.config));
     return this.search.searchVideos(dto as {query:string;num?:number});
   }
 }

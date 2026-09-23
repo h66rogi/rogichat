@@ -54,7 +54,7 @@ export class MelomingSheetMusicReadController {
   constructor(@Inject(MelomingSheetMusicService) private readonly service:MelomingSheetMusicService) {}
   @Get(':fileName') @channelDoc('melomingSheetMusicRead','원본 악보 파일 공개 조회')
   async read(@Param('fileName') fileName:string) {
-    const {stream,bytes,contentType}=await this.service.read(fileName);
+    const {stream,bytes,contentType}=await this.service.stream(fileName);
     return new StreamableFile(stream,{type:contentType,length:bytes,disposition:'inline'});
   }
 }

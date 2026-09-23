@@ -11,8 +11,11 @@ FROM tooling AS build
 # Compilation does not require Prisma engine installation scripts.
 # Registry version metadata is build cache, not a migration/runtime dependency. Remove it
 # in the creating layer so unused registry metadata is not retained in image history.
+# Axios's top-level UMD browser bundle is outside its Node exports and triggers
+# a generic-key false positive; keep the Node entrypoint and remove only that file.
 RUN pnpm --filter @rogichat/api... install --frozen-lockfile --ignore-scripts \
     && rm -f node_modules/.pnpm/web-push@3.6.7*/node_modules/web-push/README.md \
+    && rm -f node_modules/.pnpm/axios@1.15.0*/node_modules/axios/dist/axios.js \
     && rm -rf /root/.cache/pnpm /root/.local/share/pnpm/store
 COPY apps/api ./apps/api
 RUN pnpm --filter @rogichat/api build
@@ -23,6 +26,7 @@ FROM tooling AS production-dependencies
 # retaining the hard-linked runtime source and license in node_modules.
 RUN pnpm --filter @rogichat/api... install --prod --frozen-lockfile --ignore-scripts \
     && rm -f node_modules/.pnpm/web-push@3.6.7*/node_modules/web-push/README.md \
+    && rm -f node_modules/.pnpm/axios@1.15.0*/node_modules/axios/dist/axios.js \
     && rm -rf /root/.cache/pnpm /root/.local/share/pnpm/store
 
 FROM build AS migration

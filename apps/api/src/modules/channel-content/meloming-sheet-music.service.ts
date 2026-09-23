@@ -158,7 +158,7 @@ export class MelomingSheetMusicService {
       return tx.prisma.songSheetMusic.findMany({where:{songId},select:slotSelect,orderBy:{sortOrder:'asc'}});
     });
   }
-  async read(fileName: string) {
+  async stream(fileName: string) {
     const match = /^([a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\.(pdf|musicxml|jpg|png|webp)$/.exec(fileName);
     if (!match) throw new ApiError('NOT_FOUND',404);
     try {

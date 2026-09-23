@@ -30,10 +30,6 @@ export const clipRequestKeys = {
     [...clipRequestKeys.all, "permission", channelId ?? null] as const,
   channel: (channelId: number | undefined) =>
     [...clipRequestKeys.all, "channel", channelId ?? null] as const,
-  channelWithParams: (
-    channelId: number | undefined,
-    params: GetClipRequestsQuery
-  ) => [...clipRequestKeys.channel(channelId), params] as const,
   infiniteChannel: (
     channelId: number | undefined,
     params: Omit<GetClipRequestsQuery, "cursorId">
@@ -80,23 +76,6 @@ export function useInfiniteChannelClipRequests(
     gcTime: options?.gcTime ?? 10 * 60 * 1000,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     initialPageParam: undefined as number | undefined,
-  });
-}
-
-/**
- * 채널 클립 신청 목록 (일반 쿼리)
- */
-export function useChannelClipRequests(
-  channelId: number | undefined,
-  params: GetClipRequestsQuery = {},
-  options?: { enabled?: boolean; staleTime?: number; gcTime?: number }
-) {
-  return useQuery<GetClipRequestsResponse, Error>({
-    queryKey: clipRequestKeys.channelWithParams(channelId, params),
-    queryFn: () => getChannelClipRequests(channelId as number, params),
-    enabled: Boolean(channelId) && (options?.enabled ?? true),
-    staleTime: options?.staleTime ?? 5 * 60 * 1000,
-    gcTime: options?.gcTime ?? 10 * 60 * 1000,
   });
 }
 

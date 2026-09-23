@@ -1,9 +1,9 @@
-import { Music, Tag, User, Plus, Home, ListMusic, ListOrdered, Radio, CalendarCog, History, ScrollText, Shirt, FileDown } from "lucide-react";
+import { Music, Tag, User, Plus, Home, ListMusic, ListOrdered, Radio, CalendarCog, History, ScrollText, Shirt, FileDown, Film } from "lucide-react";
 
 // 관리 메뉴 아이템 타입
 export type ManagementSection =
   | "home" | "songs" | "songbook-download" | "add-song" | "categories"
-  | "artists" | "song-requests" | "live" | "song-request-settings"
+  | "artists" | "song-requests" | "clip-requests" | "live" | "song-request-settings"
   | "session-history" | "schedule-settings" | "setlists" | "wardrobe";
 
 export interface ManagementMenuItem {
@@ -73,6 +73,13 @@ export const MANAGEMENT_MENU_ITEMS: ManagementMenuItem[] = [
     label: "노래 등록 요청",
     icon: ListMusic,
     description: "노래 등록 요청 승인 및 거절",
+    group: MANAGEMENT_GROUPS.SONGBOOK,
+  },
+  {
+    id: "clip-requests",
+    label: "클립 등록 요청",
+    icon: Film,
+    description: "노래클립 등록 요청 승인 및 거절",
     group: MANAGEMENT_GROUPS.SONGBOOK,
   },
   {
