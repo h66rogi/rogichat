@@ -476,14 +476,19 @@ test('copied channel song request settings persist while no live session exists'
 
 test('ported live session start, public active, end and history use owner room',async t=>{
   const {db,ownerId,fanId}=await fixture(t);
+  await db.transactions.write(tx=>tx.prisma.platform_soop.create({data:{id:randomUUID(),user_id:ownerId,
+    provider_subject:Buffer.from('hurogi'),status:'VERIFIED',verified_at:new Date()}}));
   const repository=new ChannelContentRepository();
   const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
   const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const channel=new MelomingChannelService(db.transactions,auth,repository);
+  assert.deepEqual((await channel.detail()).verifications,[{platform:'SOOP',platformChannelId:'hurogi'}]);
   const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
   await assert.rejects(live.start({token:fanId},{identifier:'hurogi'},{}));
   const started=await live.start({token:ownerId},{identifier:'hurogi'},{platform:'SOOP'});
   assert.equal(started.channelId,1);
   assert.equal(started.status,'ACTIVE');
+  assert.equal(started.platformChannelId,'hurogi');
   assert.equal(started.settings.maxQueueSize,50);
   assert.equal((await live.active({token:ownerId},{identifier:'hurogi'})).id,started.id);
   assert.equal((await live.publicActive({},{identifier:'hurogi'})).sessionId,started.id);

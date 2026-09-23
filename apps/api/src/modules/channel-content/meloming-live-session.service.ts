@@ -42,7 +42,11 @@ export class MelomingLiveSessionService {
       const actor = await this.auth.require(tx, credentials, true);
       const roomId = await this.repository.requireOwner(tx, actor.userId);
       await this.repository.lockPrimary(tx);
-      return (await this.source(tx,actor.userId,roomId)).startSession({ platform: 'SOOP', practiceMode: body.practiceMode === true });
+      const soop=await tx.prisma.platform_soop.findUnique({where:{user_id:actor.userId},
+        select:{status:true,provider_subject:true}});
+      const platformChannelId=soop?.status==='VERIFIED'?Buffer.from(soop.provider_subject).toString('utf8'):undefined;
+      return (await this.source(tx,actor.userId,roomId)).startSession({ platform: 'SOOP',
+        practiceMode: body.practiceMode === true,...(platformChannelId?{platformChannelId}:{}) });
     });
   }
 

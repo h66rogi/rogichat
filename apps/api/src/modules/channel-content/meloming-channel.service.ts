@@ -33,15 +33,19 @@ export class MelomingChannelService {
 
   detail() {
     return this.transactions.read(async tx => {
-      const { roomId } = await this.repository.primary(tx);
+      const { roomId, ownerId } = await this.repository.primary(tx);
       const room = await tx.prisma.rooms.findUniqueOrThrow({ where: { id: roomId }, select: { name: true, created_at: true, schedule_notice: true } });
+      const soop=ownerId?await tx.prisma.platform_soop.findUnique({where:{user_id:ownerId},
+        select:{status:true,provider_subject:true}}):null;
+      const soopId=soop?.status==='VERIFIED'?Buffer.from(soop.provider_subject).toString('utf8'):null;
       const [songs, artists, categories] = await Promise.all([
         tx.prisma.song.count({ where: { channelId: roomId } }),
         tx.prisma.artist.count({ where: { channelId: roomId } }),
         tx.prisma.category.count({ where: { channelId: roomId } }),
       ]);
       return {
-        id: publicChannelId, name: room.name, webPath: 'hurogi', platformUrl: null,
+        id: publicChannelId, name: room.name, webPath: 'hurogi',
+        platformUrl: soopId?`https://www.sooplive.co.kr/station/${encodeURIComponent(soopId)}`:null,
         profileImageUrl: '/images/hurogi-profile.png', topBannerUrl: null,
         leftBannerUrl: null, leftBannerLink: null, rightBannerUrl: null,
         rightBannerLink: null, additionalLinks: [], themeColor: '#ff8c9d',
@@ -49,7 +53,7 @@ export class MelomingChannelService {
         updatedAt: room.created_at.toISOString(), _count: { songs, artists, categories },
         layoutType: 'new', visibility: 'PUBLIC', scheduleNotice: room.schedule_notice,
         isOwnerProSubscriber: false, isOwnerAmbassador: false, isFounder: false,
-        isVerified: false, verifications: [],
+        isVerified: Boolean(soopId), verifications: soopId?[{platform:'SOOP',platformChannelId:soopId}]:[],
       };
     });
   }

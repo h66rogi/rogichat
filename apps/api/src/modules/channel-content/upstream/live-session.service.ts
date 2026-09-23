@@ -30,7 +30,7 @@ export class LiveSessionService {
   }
 
   /** Copied source startSession flow: active check, STANDARD row, settings row. */
-  async startSession(dto: { platform?: 'SOOP'; practiceMode?: boolean }) {
+  async startSession(dto: { platform?: 'SOOP'; practiceMode?: boolean; platformChannelId?: string }) {
     const activeSession = await this.prisma.liveSession.findFirst({ where: {
       channelId: this.channelId, status: LiveSessionStatus.ACTIVE, sessionType: LiveSessionType.STANDARD,
     }, select: { id: true } });
@@ -39,7 +39,7 @@ export class LiveSessionService {
     const sessionId = await nextChannelContentId(this.prisma);
     const session = await this.prisma.liveSession.create({ data: {
       id: sessionId, channelId: this.channelId, userId: this.ownerId,
-      platform: 'SOOP', platformChannelId: null, overlayToken: randomBytes(32).toString('hex'),
+      platform: 'SOOP', platformChannelId: dto.platformChannelId ?? null, overlayToken: randomBytes(32).toString('hex'),
       status: LiveSessionStatus.ACTIVE, sessionType: LiveSessionType.STANDARD,
       visibility: dto.practiceMode ? 'PRIVATE' : 'PUBLIC', playbackRevision: 1,
     }, select: { id: true } });
