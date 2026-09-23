@@ -1,4 +1,4 @@
-import type { ChannelDescriptor, ChannelFeatureAvailability, ChannelFeatureKey } from './channel-descriptor';
+import type { ChannelDescriptor, ChannelFeatureKey } from './channel-descriptor';
 
 /**
  * Feature (menu) definitions and path generation.
@@ -11,26 +11,24 @@ import type { ChannelDescriptor, ChannelFeatureAvailability, ChannelFeatureKey }
 export interface ChannelFeatureConfig {
   key: ChannelFeatureKey;
   label: string;
-  /** Path segment below the channel prefix. Empty string is the channel home. */
+  /** Route below the channel prefix. Empty string is the channel home. */
   segment: string;
-  availability: ChannelFeatureAvailability;
   description: string;
 }
 
 export const CHANNEL_FEATURES: Record<ChannelFeatureKey, ChannelFeatureConfig> = {
-  home: { key: 'home', label: '프로필', segment: '', availability: 'available', description: '후로기 채널 홈' },
-  chat: { key: 'chat', label: '채팅', segment: 'chat', availability: 'available', description: '후로기의 채팅방' },
-  rules: { key: 'rules', label: '규칙·이용 안내', segment: 'rules', availability: 'available', description: '채팅 이용 안내와 개인답장 공개 범위' },
-  settings: { key: 'settings', label: '내 설정', segment: 'settings', availability: 'available', description: '내 프로필, 연결, 알림, 계정' },
-  schedule: { key: 'schedule', label: '일정', segment: 'schedule', availability: 'planned', description: '준비 중' },
-  wardrobe: { key: 'wardrobe', label: '옷장', segment: 'wardrobe', availability: 'planned', description: '준비 중' },
-  songbook: { key: 'songbook', label: '노래책', segment: 'songbook', availability: 'planned', description: '준비 중' },
-  support: { key: 'support', label: '후원', segment: 'support', availability: 'planned', description: '준비 중' },
+  home: { key: 'home', label: '프로필', segment: '', description: '후로기 채널 홈' },
+  chat: { key: 'chat', label: '채팅', segment: 'chat', description: '후로기의 채팅방' },
+  rules: { key: 'rules', label: '규칙·이용 안내', segment: 'rules', description: '채팅 이용 안내와 개인답장 공개 범위' },
+  settings: { key: 'settings', label: '내 설정', segment: 'settings', description: '내 프로필, 연결, 알림, 계정' },
+  schedule: { key: 'schedule', label: '일정', segment: 'channel/hurogi/schedule', description: '후로기의 방송 일정과 기념일' },
+  wardrobe: { key: 'wardrobe', label: '옷장', segment: 'channel/hurogi/wardrobe', description: '후로기의 의상과 헤어' },
+  songbook: { key: 'songbook', label: '노래책', segment: 'channel/hurogi/musicbook', description: '후로기의 노래책' },
 };
 
 /**
- * The only place that knows where the channel lives in the URL space. The MVP serves 후로기 at the
- * site root; a future channel prefix changes this constant and nothing else.
+ * The channel home, chat, and rules live at the site root. The copied Meloming
+ * content routes retain their original /channel/hurogi paths.
  */
 const CHANNEL_PATH_PREFIX: string = '';
 
