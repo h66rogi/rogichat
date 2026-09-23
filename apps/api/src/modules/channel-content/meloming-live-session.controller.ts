@@ -1,5 +1,5 @@
 import { ApiTags } from '@nestjs/swagger';
-import { Controller, Get, Inject, Param, Post, Req } from '@nestjs/common';
+import { Controller, Get, Inject, Param, Patch, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
@@ -31,6 +31,16 @@ export class MelomingLiveSessionController {
   @Post('sessions/:id/end') @channelDoc('melomingLiveSessionEnd', '원본 라이브 세션 종료', 'write', 201)
   end(@Param('id') sessionId: string, @Req() request: Request) {
     return this.sessions.end(readCommandCredentials(request,this.config),id(sessionId));
+  }
+
+  @Patch('sessions/:id') @channelDoc('melomingLiveSessionSettings','원본 라이브 세션 설정 변경','write')
+  update(@Param('id') sessionId:string,@Req() request:Request) {
+    return this.sessions.updateSettings(readCommandCredentials(request,this.config),id(sessionId),request.body);
+  }
+
+  @Post('sessions/:id/clone') @channelDoc('melomingLiveSessionClone','원본 방송 기록 복제','write',201)
+  clone(@Param('id') sessionId:string,@Req() request:Request) {
+    return this.sessions.clone(readCommandCredentials(request,this.config),id(sessionId),request.query as Record<string,unknown>);
   }
 
   @Get('sessions/history') @channelDoc('melomingLiveSessionHistory', '원본 방송 기록', 'read')

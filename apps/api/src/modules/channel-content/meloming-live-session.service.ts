@@ -6,6 +6,7 @@ import { ApiError } from '../auth/auth-primitives.js';
 import { ChannelContentRepository } from './channel-content.repository.js';
 import { nextChannelContentId } from './channel-content-id.js';
 import { LiveSessionService } from './upstream/live-session.service.js';
+import { parseSongRequestSettings } from './meloming-song-request-settings.service.js';
 
 function identifier(value: unknown) {
   if (value !== undefined && value !== 'hurogi' && value !== '1') throw new ApiError('NOT_FOUND', 404);
@@ -76,6 +77,34 @@ export class MelomingLiveSessionService {
       const roomId = await this.repository.requireOwner(tx, actor.userId);
       await this.repository.lockPrimary(tx);
       return (await this.source(tx,actor.userId,roomId)).endSession(sessionId);
+    });
+  }
+
+  updateSettings(credentials:CommandCredentials,sessionId:number,value:unknown) {
+    if(!value||typeof value!=='object'||Array.isArray(value))throw new ApiError('INVALID_REQUEST',400);
+    const raw=value as Record<string,unknown>;
+    if(raw.requestEnabled!==undefined&&typeof raw.requestEnabled!=='boolean'||
+      raw.paused!==undefined&&typeof raw.paused!=='boolean')throw new ApiError('INVALID_REQUEST',400);
+    const {requestEnabled,paused,...channelScope}=raw;
+    const parsed=parseSongRequestSettings(channelScope);
+    return this.transactions.write(async tx=>{
+      const actor=await this.auth.require(tx,credentials,true);
+      const roomId=await this.repository.requireOwner(tx,actor.userId);
+      await this.repository.lockPrimary(tx);
+      return (await this.source(tx,actor.userId,roomId)).updateSettings(sessionId,{...parsed,
+        ...(requestEnabled!==undefined?{requestEnabled:requestEnabled as boolean}:{}),
+        ...(paused!==undefined?{paused:paused as boolean}:{})});
+    });
+  }
+
+  clone(credentials:CommandCredentials,sessionId:number,raw:Record<string,unknown>) {
+    identifier(raw.identifier);
+    if(Object.keys(raw).some(key=>key!=='identifier'))throw new ApiError('INVALID_REQUEST',400);
+    return this.transactions.write(async tx=>{
+      const actor=await this.auth.require(tx,credentials,true);
+      const roomId=await this.repository.requireOwner(tx,actor.userId);
+      await this.repository.lockPrimary(tx);
+      return (await this.source(tx,actor.userId,roomId)).cloneSession(sessionId);
     });
   }
 

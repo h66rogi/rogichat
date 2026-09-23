@@ -8,7 +8,7 @@ import { ChannelContentRepository } from './channel-content.repository.js';
 import { ChannelSongRequestSettingsService } from './upstream/channel-song-request-settings.service.js';
 import type { UpdateChannelSongRequestSettingsDto } from './upstream/channel-song-request-settings.service.js';
 
-function body(value: unknown): UpdateChannelSongRequestSettingsDto {
+export function parseSongRequestSettings(value: unknown): UpdateChannelSongRequestSettingsDto {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError('INVALID_REQUEST', 400);
   const raw = value as Record<string, unknown>;
   const booleans = ['donationPriorityEnabled','enforceDonationMinimumPrice','donationOnlyEnabled',
@@ -46,7 +46,7 @@ export class MelomingSongRequestSettingsService {
   }
 
   update(credentials: CommandCredentials, value: unknown) {
-    const dto = body(value);
+    const dto = parseSongRequestSettings(value);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
       const roomId = await this.repository.requireOwner(tx, actor.userId);

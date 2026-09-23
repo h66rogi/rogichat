@@ -5,6 +5,7 @@ import { ApiError } from '../../auth/auth-primitives.js';
 import { nextChannelContentId } from '../channel-content-id.js';
 import { ChannelSongRequestSettingsService } from './channel-song-request-settings.service.js';
 import { mergeEffectiveSongRequestSettings } from './effective-song-request-settings.js';
+import type { UpdateChannelSongRequestSettingsDto } from './channel-song-request-settings.service.js';
 
 /** Adapted source methods from meloming-back/src/song-live/session.service.ts. */
 export class LiveSessionService {
@@ -74,6 +75,52 @@ export class LiveSessionService {
       status: { in: [SongRequestStatus.PENDING,SongRequestStatus.ACCEPTED,SongRequestStatus.PLAYING] } } });
     return { sessionId: session.id, isLive: true, settings: effective, queueCount,
       isPracticeMode: session.visibility === 'PRIVATE' };
+  }
+
+  /** Copied source updateSettings scope split: transient live flags plus channel settings. */
+  async updateSettings(sessionId:number,dto:UpdateChannelSongRequestSettingsDto & {requestEnabled?:boolean;paused?:boolean}) {
+    const session=await this.prisma.liveSession.findFirst({where:{id:sessionId,channelId:this.channelId},select:{id:true,settings:{select:{id:true,requestEnabled:true,paused:true}}}});
+    if(!session?.settings)throw new ApiError('NOT_FOUND',404);
+    const liveScope:{requestEnabled?:boolean;paused?:boolean}={};
+    if(dto.requestEnabled!==undefined)liveScope.requestEnabled=dto.requestEnabled;
+    if(dto.paused!==undefined)liveScope.paused=dto.paused;
+    if(dto.requestEnabled===false)liveScope.paused=false;
+    const liveSettings=Object.keys(liveScope).length?await this.prisma.liveSessionSettings.update({where:{id:session.settings.id},data:liveScope}):session.settings;
+    const channelService=new ChannelSongRequestSettingsService(this.prisma);
+    const {requestEnabled,paused,...channelScope}=dto;
+    void requestEnabled;void paused;
+    const channelSettings=await channelService.update(this.channelId,channelScope);
+    await this.prisma.liveSession.update({where:{id:session.id},data:{playbackRevision:{increment:1}}});
+    return {id:session.settings.id,...mergeEffectiveSongRequestSettings(liveSettings,channelSettings)};
+  }
+
+  /** Copied source cloneSession row and request restoration, scoped to the single Rogichat room. */
+  async cloneSession(sourceSessionId:number) {
+    const source=await this.prisma.liveSession.findFirst({where:{id:sourceSessionId,channelId:this.channelId,sessionType:LiveSessionType.STANDARD},
+      include:{settings:true,songRequests:{orderBy:[{queueOrder:'asc'},{createdAt:'asc'}]}}});
+    if(!source)throw new ApiError('NOT_FOUND',404);
+    const active=await this.prisma.liveSession.findFirst({where:{channelId:this.channelId,status:LiveSessionStatus.ACTIVE,sessionType:LiveSessionType.STANDARD},select:{id:true}});
+    if(active)throw new ApiError('CONFLICT',409);
+    await new ChannelSongRequestSettingsService(this.prisma).getByChannelId(this.channelId);
+    const id=await nextChannelContentId(this.prisma);
+    await this.prisma.liveSession.create({data:{id,channelId:this.channelId,userId:this.ownerId,
+      platform:source.platform,platformChannelId:source.platformChannelId,overlayToken:randomBytes(32).toString('hex'),
+      status:LiveSessionStatus.ACTIVE,sessionType:LiveSessionType.STANDARD,playbackRevision:1}});
+    await this.prisma.liveSessionSettings.create({data:{id:await nextChannelContentId(this.prisma),liveSessionId:id,
+      requestEnabled:source.settings?.requestEnabled??true,paused:false}});
+    for(const [index,request] of source.songRequests.entries()) {
+      await this.prisma.songRequest.create({data:{id:await nextChannelContentId(this.prisma),liveSessionId:id,
+        songId:request.songId,sourceChannelId:request.sourceChannelId,rawArtist:request.rawArtist,rawTitle:request.rawTitle,
+        rawMessage:request.rawMessage,requesterPlatformId:request.requesterPlatformId,requesterNickname:request.requesterNickname,
+        status:request.status,source:request.source,requestType:request.requestType,
+        donationAmount:request.donationAmount,donationNativeAmount:request.donationNativeAmount,
+        donationCurrency:request.donationCurrency??(request.donationAmount!==null?'KRW_LEGACY':null),
+        donationRateVersion:request.donationRateVersion,priority:request.priority,queueOrder:index+1,
+        calculatedPrice:request.calculatedPrice,priceSource:request.priceSource,playedAt:request.playedAt,
+        completedAt:request.completedAt,rejectionReason:request.rejectionReason,
+        requestUserId:request.requestUserId,isAnonymous:request.isAnonymous}});
+    }
+    return this.getActiveSession();
   }
 
   /** Copied source endSession state transition; private practice requests are discarded. */
