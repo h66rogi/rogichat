@@ -7,12 +7,12 @@ import { usePrivateSession } from '@/features/auth/private-session';
 import { RealChatRoom } from '@/features/chat/RealChatRoom';
 import { Button } from '@/shared/ui/button';
 import { useRoom } from './use-room';
-export function ChannelChat() {
+export function ChannelChat({ active, visit }: { active: boolean; visit: number }) {
   const { state, refresh } = usePrivateSession();
   if (state.kind !== 'ready') return <PrivateGate state={state} retry={refresh} />;
-  return <AuthorizedChat key={state.generation} session={state.session} accountId={state.profile.id} scope={`${state.profile.id}:${state.generation}`} refresh={refresh} />;
+  return <AuthorizedChat key={state.generation} active={active} visit={visit} session={state.session} accountId={state.profile.id} scope={`${state.profile.id}:${state.generation}`} refresh={refresh} />;
 }
-function AuthorizedChat({ session, accountId, scope, refresh }: { session: Session; accountId: string; scope: string; refresh: () => void }) {
+function AuthorizedChat({ active, visit, session, accountId, scope, refresh }: { active: boolean; visit: number; session: Session; accountId: string; scope: string; refresh: () => void }) {
   const api = useApi();
   const state = useRoom();
   const [error, setError] = useState('');
@@ -35,5 +35,5 @@ function AuthorizedChat({ session, accountId, scope, refresh }: { session: Sessi
   if (state.kind === 'error') return <StatePanel title="채팅방 정보를 가져오지 못했어요" retry={refresh}>연결 상태를 확인하고 다시 시도해 주세요.</StatePanel>;
   if (state.room.availability === 'OWNER_PENDING') return <StatePanel title="후로기 채팅방을 준비하고 있어요" retry={refresh}>방장 계정을 확인하고 있습니다. 확인이 완료되면 입장할 수 있습니다.</StatePanel>;
   if (!state.room.joined) return <StatePanel title="후로기 채팅방에 참여하기"><p>팬은 후로기에게 개인 메시지를 보낼 수 있습니다. 개인 메시지는 방장이 전체 공개할 수 있습니다.</p>{error && <p role="alert">{error}</p>}<Button className="mt-4" disabled={busy} onClick={() => void join(state.room.roomId)}>{busy ? '입장 확인 중' : '채팅방 입장'}</Button></StatePanel>;
-  return <RealChatRoom session={session} accountId={accountId} key={scope + state.room.roomId} roomId={state.room.roomId} sessionScopeKey={scope} accountPartition={session.accountPartition} apiOrigin={api.origin} csrfToken={session.csrfToken} request={request} onInvalidate={refresh} />;
+  return <RealChatRoom active={active} visit={visit} session={session} accountId={accountId} key={scope + state.room.roomId} roomId={state.room.roomId} sessionScopeKey={scope} accountPartition={session.accountPartition} apiOrigin={api.origin} csrfToken={session.csrfToken} request={request} onInvalidate={refresh} />;
 }

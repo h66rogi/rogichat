@@ -1,43 +1,52 @@
 'use client';
-import { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
-import { Button } from '@/shared/ui/button';
+import { createContext, useContext, useEffect, useState } from 'react';
+import { SmilePlus } from 'lucide-react';
+import { Popover } from 'radix-ui';
 import type { ChatController, ChatState } from './chat-controller';
 
 export const ReactionContext = createContext<{ controller: ChatController; reactions: ChatState['reactions']; reactionRevision: number } | null>(null);
 const choices = [['👍', '좋아요'], ['❤️', '하트'], ['😂', '웃음'], ['🎉', '축하'], ['😮', '놀람'], ['😢', '슬픔']] as const;
 
-/** Aggregate-only controls; anonymous rows use only their own server projection ID. */
+/** The picker is a direct message action; the API returns anonymous aggregates only. */
 export function ReactionControl({ messageId }: { messageId: string }) {
   const context = useContext(ReactionContext);
   const [open, setOpen] = useState(false);
-  const id = useId();
-  const refreshButton = useRef<HTMLButtonElement>(null);
   const state = context?.reactions[messageId];
   const controller = context?.controller;
   const revision = context?.reactionRevision;
   useEffect(() => {
-    // MESSAGE_UPDATED invalidates the aggregate. Only opened controls re-read it.
+    // Updated message versions invalidate the aggregate; only an open picker rereads it.
     if (open && !state && controller) void controller.react(messageId);
   }, [open, state, controller, messageId, revision]);
-  if (!context || !controller) return null;
+  if (!controller) return null;
   const ready = state?.phase === 'ready';
   const busy = state?.phase === 'loading';
-  return <div className="max-w-full text-sm">
-    <Button variant="ghost" size="sm" className="min-h-11" aria-expanded={open} aria-controls={id} onClick={() => {
-      setOpen(!open); if (!open) void controller.react(messageId);
-    }}>반응 {open ? '닫기' : '보기'}</Button>
-    {open && <div id={id} role="group" aria-label="메시지 반응" aria-busy={busy} className="flex max-w-full flex-wrap items-center gap-1 rounded-lg border border-line p-2">
-      {busy && <p role="status">반응을 확인하는 중입니다.</p>}
-      {state?.phase === 'error' && <p role="alert" className="w-full text-danger">{state.error}</p>}
-      {ready && state.summary && <>
-        <p className="w-full text-muted" role="status">{state.summary.counts.length === 0 ? '아직 반응이 없습니다.' : '현재 반응 집계'}</p>
-        {state.summary.counts.map(({ emoji, count }) => <Button key={emoji} variant="outline" size="sm" className="min-h-11" aria-label={`${emoji} 반응 ${count}개${state.summary?.mine === emoji ? ', 내 반응 해제' : ', 선택'}`} aria-pressed={state.summary?.mine === emoji} onClick={() => { refreshButton.current?.focus(); void controller.react(messageId, state.summary?.mine === emoji ? null : emoji); }}>{emoji} {count}</Button>)}
-      </>}
-        <div className="flex w-full flex-wrap gap-1" role="group" aria-label="내 반응 선택">
-          {choices.map(([emoji, label]) => <Button key={emoji} variant="ghost" size="sm" className="min-h-11 min-w-11" aria-label={`${label} 반응`} aria-disabled={!ready} aria-pressed={ready ? state?.summary?.mine === emoji : undefined} onClick={() => { if (ready) void controller.react(messageId, state?.summary?.mine === emoji ? null : emoji); }}>{emoji}</Button>)}
-          <Button variant="ghost" size="sm" className="min-h-11" aria-disabled={!ready || !state?.summary?.mine} onClick={() => { if (ready && state?.summary?.mine) void controller.react(messageId, null); }}>내 반응 해제</Button>
+  const summary = ready ? state.summary : null;
+  const counts = summary?.counts ?? [];
+  const choose = (emoji: string) => {
+    if (!ready || !summary) return;
+    void controller.react(messageId, summary.mine === emoji ? null : emoji);
+    setOpen(false);
+  };
+  return <div className="flex min-w-0 items-center gap-1">
+    <Popover.Root open={open} onOpenChange={next => {
+      setOpen(next);
+      if (next && !state) void controller.react(messageId);
+    }}>
+      <Popover.Trigger asChild>
+        <button type="button" aria-label="메시지에 반응" aria-expanded={open} data-testid="chat-reaction-trigger" className="flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2 text-sm text-muted hover:bg-surface-soft hover:text-ink focus-visible:text-ink">
+          {counts.length ? <span className="flex items-center gap-0.5" aria-hidden="true">{counts.slice(0, 3).map(({ emoji, count }) => <span key={emoji}>{emoji}<span className="text-xs">{count}</span></span>)}</span> : <SmilePlus className="size-4" aria-hidden="true" />}
+          {summary?.mine && <span className="sr-only">내 반응: {summary.mine}</span>}
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal><Popover.Content side="top" align="center" sideOffset={6} className="z-50 max-w-[calc(100vw-1rem)] rounded-2xl border border-line bg-canvas p-2 shadow-lg" aria-label="메시지 반응">
+        <div role="group" aria-label="메시지 반응" aria-busy={busy} className="flex flex-wrap items-center justify-center gap-0.5">
+          {choices.map(([emoji, label]) => <button key={emoji} type="button" aria-label={`${label} 반응`} aria-pressed={ready ? summary?.mine === emoji : undefined} disabled={!ready} onClick={() => choose(emoji)} className="flex size-11 items-center justify-center rounded-full text-2xl hover:bg-surface-soft focus-visible:outline-2 focus-visible:outline-chat-accent disabled:opacity-50">{emoji}</button>)}
         </div>
-      <Button variant="outline" size="sm" className="min-h-11" ref={refreshButton} aria-disabled={busy} onClick={() => { if (!busy) void controller.react(messageId); }}>{ready ? '반응 새로고침' : '반응 다시 조회'}</Button>
-    </div>}
+        {busy && <p role="status" className="px-2 pt-1 text-center text-xs text-muted">반응을 확인하는 중입니다.</p>}
+        {state?.phase === 'error' && <div className="px-2 pt-1 text-center text-xs"><p role="alert" className="text-danger">{state.error}</p><button type="button" onClick={() => void controller.react(messageId)} className="mt-1 min-h-11 text-chat-accent">다시 시도</button></div>}
+        {ready && summary?.mine && <button type="button" disabled={busy} onClick={() => { void controller.react(messageId, null); setOpen(false); }} className="mt-1 w-full min-h-11 rounded-lg text-xs text-muted hover:bg-surface-soft">내 반응 취소</button>}
+      </Popover.Content></Popover.Portal>
+    </Popover.Root>
   </div>;
 }
