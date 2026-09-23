@@ -18,7 +18,7 @@
 ## 남은 필수 연결
 
 - 원본 프론트는 멜로밍의 `/v1/channel`, `/v1/schedules`, `/v1/songs`, `/v1/categories`, `/v1/artists`, `/v1/favorites` 및 관리·라이브·악보·신청 API 계약을 사용한다. 현재 로기챗의 `channel-content` API는 이 계약 전체를 제공하지 않는다.
-- 현재 로기챗 Prisma 스키마는 멜로밍의 `Song`, 악보·영상 설정·노래 신청 관련 모델과 필드를 일부만 포함한다. 원본 스키마 복사본을 실제 마이그레이션으로 연결하고, 정수 `Channel`/`User` 키와 로기챗 UUID 방·계정의 대응을 정해야 한다.
+- 현재 로기챗 Prisma 스키마에는 원본 `Song`의 영상·MR 필드, `SongVideoPreference`, 다중 슬롯 `SongSheetMusic`, `ScheduleTemplate`, `ScheduleImageRender`를 추가하는 마이그레이션을 준비했다. 원본 `GlobalSong` 관계, 노래 신청·라이브·SNS 관련 모델은 아직 없다. 나머지 원본 스키마를 실제 마이그레이션으로 연결하고 정수 `Channel`/`User` 키와 로기챗 UUID 방·계정의 대응을 마쳐야 한다.
 - 원본 백엔드 서비스·컨트롤러를 실행 경로에 장착하고 로기챗 인증·업로드·외부 연동 경계에 연결해야 한다. 원본 프론트 API 클라이언트의 런타임 목적지도 환경별로 연결해야 한다.
 - 실제 QA 데이터 이전은 하지 않는다. 사용자는 **코드와 스키마만** 옮기도록 지정했다.
 - 위 작업 후 실제 API와 빈 상태, 관리 CRUD, 공개 화면을 QA에서 확인하기 전까지 이 브랜치를 병합하거나 배포하지 않는다.

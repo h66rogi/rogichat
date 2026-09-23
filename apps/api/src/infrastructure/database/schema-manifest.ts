@@ -27,4 +27,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920165804_soop_profile_default_room', checksum: '3c83834ed70b466e42a41ca12fe22cc88a473570184c0678f8079a7678daed36' },
   { name: '20260920185425_admin_reviewer_access', checksum: 'd000e455dbd31efddbe4db2c20d3efe8b93a587f3205639dbba6be0169e65df2' },
   { name: '20260923183500_meloming_channel_content', checksum: '1496fd1ec35695c735d7b929a7dc531ef42d130a1ec3b8845714859e5ceb1478' },
+  { name: '20260923214500_meloming_content_models', checksum: '623ec78e6b5fe853bff79fcb4f42a5d631b88c0877e6675d54ceea6f2436616b' },
 ];

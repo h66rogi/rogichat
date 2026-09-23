@@ -169,6 +169,53 @@ model ChannelRecurringSchedule {
   @@map("channel_recurring_schedules")
 }
 
+// Meloming's weekly image template and render models, with the existing
+// Rogichat room/user keys substituted for Channel/User integer keys.
+model ScheduleTemplate {
+  id             Int                   @id @default(autoincrement())
+  channelId      String                @map("channel_id") @db.Char(36)
+  name           String                @db.VarChar(100)
+  isDefault      Boolean               @default(false) @map("is_default")
+  baseImageUrl   String                @map("base_image_url") @db.VarChar(500)
+  baseImageW     Int                   @map("base_image_w")
+  baseImageH     Int                   @map("base_image_h")
+  templateSpec   Json                  @map("template_spec")
+  originalPsdUrl String?               @map("original_psd_url") @db.VarChar(500)
+  thumbnailUrl   String?               @map("thumbnail_url") @db.VarChar(500)
+  isDeleted      Boolean               @default(false) @map("is_deleted")
+  deletedAt      DateTime?             @map("deleted_at") @db.DateTime(0)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.DateTime(0)
+  channel        rooms                 @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  renders        ScheduleImageRender[]
+
+  @@index([channelId, isDeleted])
+  @@map("schedule_templates")
+}
+
+model ScheduleImageRender {
+  id           Int               @id @default(autoincrement())
+  channelId    String            @map("channel_id") @db.Char(36)
+  templateId   Int?              @map("template_id")
+  weekStartAt  DateTime          @map("week_start_at") @db.DateTime(0)
+  status       String            @db.VarChar(20)
+  imageUrl     String?           @map("image_url") @db.VarChar(500)
+  width        Int?
+  height       Int?
+  errorMessage String?           @map("error_message") @db.Text
+  jobId        String?           @map("job_id") @db.VarChar(100)
+  requestedBy  String            @map("requested_by") @db.Char(36)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt    DateTime          @updatedAt @map("updated_at") @db.DateTime(0)
+  channel      rooms             @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  template     ScheduleTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  requester    users             @relation(fields: [requestedBy], references: [id], onDelete: Restrict)
+
+  @@index([channelId, weekStartAt])
+  @@index([status])
+  @@map("schedule_image_renders")
+}
+
 model ChannelWardrobeCategory {
   id                 Int      @id
   channelId          String   @map("channel_id") @db.Char(36)
@@ -246,10 +293,16 @@ model Song {
   karaokeUrl              String? @map("karaoke_url") @db.Text
   coverUrl                String? @map("cover_url") @db.Text
   originalUrl             String? @map("original_url") @db.Text
+  globalSongId            Int?    @map("global_song_id")
+  r2CacheKey              String? @map("r2_cache_key") @db.VarChar(200)
+  mrVideoUrl              String? @map("mr_video_url") @db.Text
+  mrVideoKey              String? @map("mr_video_key") @db.VarChar(500)
   difficulty              Int?    @default(1)
   proficiency             Int?
   songKey                 String? @map("song_key") @db.VarChar(40)
   bpm                     Int?
+  preferredPitchSemitones Int?    @map("preferred_pitch_semitones")
+  preferredLyricsOffsetMs Int?    @map("preferred_lyrics_offset_ms")
   lyricsLink              String? @map("lyrics_link") @db.Text
   lyricsText              String? @map("lyrics_text") @db.Text
   description             String? @db.Text
@@ -260,11 +313,55 @@ model Song {
   artist                  Artist  @relation(fields: [artistId], references: [id], onDelete: Restrict)
   songCategories          SongCategory[]
   userLikes               UserSongLike[]
+  sheetMusics             SongSheetMusic[]
+  videoPreferences        SongVideoPreference[]
 
+  @@unique([channelId, globalSongId], map: "unique_songs_channel_globalsong")
   @@index([channelId], map: "idx_songs_channel_id")
   @@index([artistId], map: "idx_songs_artist_id")
   @@index([titleSearchable], map: "idx_songs_title_searchable")
   @@map("songs")
+}
+
+// Copied from meloming-back SongVideoPreference. Song keeps its existing
+// Rogichat room key; the per-video fields and uniqueness match the source.
+model SongVideoPreference {
+  id                      Int      @id @default(autoincrement())
+  songId                  Int      @map("song_id")
+  videoKey                String   @map("video_key") @db.VarChar(128)
+  videoId                 String?  @map("video_id") @db.VarChar(20)
+  videoUrl                String?  @map("video_url") @db.Text
+  preferredLyricsOffsetMs Int?     @map("preferred_lyrics_offset_ms")
+  createdAt               DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  song                    Song     @relation(fields: [songId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([songId, videoKey], map: "unique_song_video_preferences_song_video")
+  @@index([videoId], map: "idx_song_video_preferences_video_id")
+  @@map("song_video_preferences")
+}
+
+enum SheetMusicType {
+  PDF
+  IMAGE
+  MUSICXML
+}
+
+// Copied from meloming-back SongSheetMusic, including multi-slot ordering.
+model SongSheetMusic {
+  id        Int            @id @default(autoincrement())
+  songId    Int
+  url       String         @db.Text
+  type      SheetMusicType
+  fileName  String?        @db.VarChar(255)
+  fileSize  Int?
+  sortOrder Int            @default(0)
+  isPrimary Boolean        @default(true)
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  song      Song           @relation(fields: [songId], references: [id], onDelete: Cascade)
+
+  @@index([songId, sortOrder])
 }
 
 model UserSongLike {
@@ -328,6 +425,7 @@ model users {
   push_subscriptions    push_subscriptions[]
   channelSchedules      ChannelSchedule[]
   songLikes             UserSongLike[]
+  scheduleImageRenders  ScheduleImageRender[]
 }
 
 model user_profiles {
@@ -464,6 +562,8 @@ model rooms {
   songCategories Category[]
   artists Artist[]
   songs Song[]
+  scheduleTemplates ScheduleTemplate[]
+  scheduleImageRenders ScheduleImageRender[]
 }
 
 model room_counters {
