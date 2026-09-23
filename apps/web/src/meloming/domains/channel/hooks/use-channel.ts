@@ -276,7 +276,7 @@ export function useCopyDifficultyToProficiency(
 }
 
 /**
- * 채널의 글로벌(meloming.gg) 노출 설정을 가져오는 훅
+ * 채널의 기존 글로벌 미러 노출 설정을 가져오는 훅
  */
 export function useChannelGlobalProfile(
   channelId: number | undefined,

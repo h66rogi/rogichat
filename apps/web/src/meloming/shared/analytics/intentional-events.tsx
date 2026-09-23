@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import posthog from "posthog-js";
 
 type IntentEventPropertyValue = string | number | boolean | null | undefined;
 type IntentEventProperties = Record<
@@ -13,18 +12,10 @@ export function captureIntentEvent(
   eventName: string,
   properties: IntentEventProperties = {},
 ): void {
-  if (typeof window === "undefined") return;
-
-  try {
-    posthog.capture(eventName, {
-      ...properties,
-      product: "meloming_front",
-      intent_schema_version: 1,
-      environment: process.env.NEXT_PUBLIC_APP_ENV ?? "qa",
-    });
-  } catch {
-    // Analytics must never affect the product path.
-  }
+  // Original event call sites remain in copied UI. Rogichat does not use
+  // Meloming's analytics project or event identifiers.
+  void eventName;
+  void properties;
 }
 
 export function useIntentPageView(

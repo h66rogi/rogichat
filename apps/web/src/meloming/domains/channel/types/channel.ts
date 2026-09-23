@@ -53,7 +53,7 @@ export interface Channel {
   isOwnerProSubscriber?: boolean;
   /** 채널 소유자 앰배서더 여부 */
   isOwnerAmbassador?: boolean;
-  /** 멜로밍 1주년 설립자 뱃지 보유 여부 */
+  /** 레거시 설립자 뱃지 보유 여부 */
   isFounder?: boolean;
   /** 채널 인증 여부 (플랫폼 소유권 검증 완료) */
   isVerified?: boolean;
@@ -123,7 +123,7 @@ export interface GetChannelSearchResponse {
     isOwnerProSubscriber?: boolean;
     /** 채널 소유자 앰배서더 여부 */
     isOwnerAmbassador?: boolean;
-    /** 멜로밍 1주년 설립자 뱃지 보유 여부 */
+    /** 레거시 설립자 뱃지 보유 여부 */
     isFounder?: boolean;
     /** 채널 인증 여부 */
     isVerified?: boolean;
@@ -178,7 +178,7 @@ export interface ChannelListItem {
   isOwnerProSubscriber?: boolean;
   /** 채널 소유자 앰배서더 여부 */
   isOwnerAmbassador?: boolean;
-  /** 멜로밍 1주년 설립자 뱃지 보유 여부 */
+  /** 레거시 설립자 뱃지 보유 여부 */
   isFounder?: boolean;
   /** 채널 인증 여부 */
   isVerified?: boolean;

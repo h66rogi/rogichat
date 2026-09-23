@@ -4,7 +4,6 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import posthog from "posthog-js";
 import {
   getSongRequestQueue,
   createSongRequest,
@@ -38,16 +37,7 @@ function captureSongPlay(
   data: SongRequest | null,
   action: "play_next" | "play_now",
 ) {
-  if (!data) return;
-  posthog.capture("song_play_started", {
-    session_id: sessionId,
-    request_id: data.id,
-    song_id: data.songId ?? null,
-    raw_artist: data.rawArtist,
-    raw_title: data.rawTitle,
-    played_at: data.playedAt ?? null,
-    action,
-  });
+  void sessionId; void data; void action;
 }
 
 function captureSongComplete(
@@ -55,14 +45,7 @@ function captureSongComplete(
   data: SongRequest | null,
   reason: "completed" | "skipped",
 ) {
-  if (!data) return;
-  posthog.capture("song_play_ended", {
-    session_id: sessionId,
-    request_id: data.id,
-    song_id: data.songId ?? null,
-    completed_at: data.completedAt ?? null,
-    reason,
-  });
+  void sessionId; void data; void reason;
 }
 
 export const songRequestKeys = {

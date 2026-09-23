@@ -7,8 +7,6 @@ import {
   SaveIcon,
   UploadIcon,
   DownloadIcon,
-  CopyIcon,
-  ExternalLinkIcon,
   InfoIcon,
   AlertTriangleIcon,
 } from "lucide-react";
@@ -804,8 +802,7 @@ export function AddSongExcelContent() {
       <div className="flex flex-col gap-4 p-4 border rounded-lg h-fit z-10 bg-background overflow-x-auto max-w-full mb-4">
         <h3 className="text-lg font-semibold paperlogy">파일 가져오기</h3>
         <p className="text-sm text-muted-foreground">
-          엑셀 파일을 직접 업로드하거나, 구글 스프레드시트 템플릿을 복사하여
-          파일을 업로드해주세요. (파일 업로드시 기존에 입력된 데이터는 모두
+          엑셀 파일을 직접 업로드하거나 템플릿을 내려받아 작성해주세요. (파일 업로드시 기존에 입력된 데이터는 모두
           삭제됩니다.)
         </p>
 
@@ -821,61 +818,10 @@ export function AddSongExcelContent() {
             <UploadIcon className="w-4 h-4" />
             엑셀 파일 업로드
           </Button>
-          <a
-            href="https://cdn.meloming.com/static/%E1%84%86%E1%85%A6%E1%86%AF%E1%84%85%E1%85%A9%E1%84%86%E1%85%B5%E1%86%BC%20%E1%84%8B%E1%85%B5%E1%86%AF%E1%84%80%E1%85%AA%E1%86%AF%20%E1%84%83%E1%85%B3%E1%86%BC%E1%84%85%E1%85%A9%E1%86%A8%20%E1%84%90%E1%85%A6%E1%86%B7%E1%84%91%E1%85%B3%E1%86%AF%E1%84%85%E1%85%B5%E1%86%BA%20(ver%20250914).xlsx"
-            target="_blank"
-            onClick={() =>
-              captureIntentEvent(
-                "channel_songbook_excel_template_download_clicked",
-                {
-                  ...excelBaseProperties,
-                }
-              )
-            }
-          >
+          <a href="/templates/songbook.csv" download="songbook.csv">
             <Button variant="outline">
               <DownloadIcon className="w-4 h-4" />
               템플릿 다운로드
-            </Button>
-          </a>
-          <a
-            href="https://docs.google.com/spreadsheets/d/1d9opLorKzb1C1i9XxxbHV89UjCqL5uTqC8M_JCHCg2Y/copy?usp=sharing"
-            target="_blank"
-            onClick={() =>
-              captureIntentEvent(
-                "channel_songbook_excel_spreadsheet_copy_clicked",
-                {
-                  ...excelBaseProperties,
-                }
-              )
-            }
-          >
-            <Button
-              variant="outline"
-              className="bg-green-300 dark:bg-green-800 hover:bg-green-400 dark:hover:bg-green-900"
-            >
-              <CopyIcon className="w-4 h-4" />
-              스프레드시트 템플릿 복사
-            </Button>
-          </a>
-          <a
-            href="https://docs.google.com/spreadsheets/d/1d9opLorKzb1C1i9XxxbHV89UjCqL5uTqC8M_JCHCg2Y/edit?usp=sharing"
-            target="_blank"
-            onClick={() =>
-              captureIntentEvent(
-                "channel_songbook_excel_spreadsheet_open_clicked",
-                {
-                  ...excelBaseProperties,
-                }
-              )
-            }
-          >
-            <Button
-              variant="outline"
-              className="bg-green-300 dark:bg-green-800 hover:bg-green-400 dark:hover:bg-green-900"
-            >
-              <ExternalLinkIcon className="w-4 h-4" />
-              스프레드시트 템플릿 열기
             </Button>
           </a>
         </div>

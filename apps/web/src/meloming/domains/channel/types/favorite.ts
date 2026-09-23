@@ -21,7 +21,7 @@ export interface FavoriteChannelItem {
   ownerNickname: string;
   isOwnerProSubscriber?: boolean; // 채널 소유자 PRO 구독 여부
   isOwnerAmbassador?: boolean; // 채널 소유자 앰배서더 여부
-  isFounder?: boolean; // 멜로밍 1주년 설립자 뱃지 여부
+  isFounder?: boolean; // 레거시 설립자 뱃지 여부
   isVerified?: boolean; // 채널 인증 여부
   createdAt: string; // ISO date
 }

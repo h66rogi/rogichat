@@ -30,7 +30,6 @@ import { useChannelSongAddRequests } from "@/meloming/domains/channel/hooks/use-
 import { useSyncContentWidth } from "@/meloming/domains/channel/hooks/use-content-width";
 import { RequestManagementAlert } from "@/meloming/domains/channel/components/request-management-alert";
 import { SongRequestGuideBanner } from "@/meloming/domains/channel/components/song-request-guide-banner";
-import { GlobalLinkHint } from "@/meloming/domains/channel/components/section/global-link-hint";
 
 type SortBy = "newest" | "oldest" | "title" | "artist" | "likes_desc";
 
@@ -390,13 +389,6 @@ export function ChannelMusicbookContent({ user }: { user: string }) {
               >
                 <NoticeAlert userId={user || ""} userData={userData} />
               </div>
-            </SectionErrorBoundary>
-
-            <SectionErrorBoundary section="글로벌 안내">
-              <GlobalLinkHint
-                channelId={userData?.id}
-                webPath={userData?.webPath}
-              />
             </SectionErrorBoundary>
 
             <SectionErrorBoundary section="노래 목록">

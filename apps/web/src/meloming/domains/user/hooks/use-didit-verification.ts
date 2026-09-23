@@ -23,7 +23,7 @@ interface UseDiditVerificationOptions {
  * isIdentityVerified 전환은 백엔드 webhook 이 단일 권위. 콜백 복귀 시엔
  * status 쿼리를 읽어 토스트만 노출하고 queryClient 로 user 최신화한다.
  *
- * 백엔드 콜백 URL 은 origin='meloming' 으로 화이트리스트 매핑 — 멜로밍 메인
+ * 백엔드 콜백 URL 은 origin='meloming' 으로 화이트리스트 매핑 — 기존 서비스
  * 도메인으로 복귀.
  */
 export function useDiditVerification(options?: UseDiditVerificationOptions) {

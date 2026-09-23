@@ -7,7 +7,6 @@ import {
   Radio,
   Sparkles,
   Gamepad2,
-  ExternalLink,
   MessageSquare,
 } from "lucide-react";
 import {
@@ -15,14 +14,11 @@ import {
   publicSessionKeys,
 } from "@/meloming/domains/overlay/hooks/use-public-session";
 import { useChannelPermission } from "@/meloming/domains/channel/hooks/use-channel";
-import { useChannelVerifications } from "@/meloming/domains/channel/hooks/use-channel-verification";
 import {
   useStartSession,
   useEndSession,
   useUpdateSessionSettings,
 } from "@/meloming/domains/overlay/hooks/use-session";
-import { useConsoleToken } from "@/meloming/domains/channel/hooks/use-console-token";
-import { openConsolePopup } from "@/meloming/domains/channel/utils/console-popup";
 import { useAuth } from "@/meloming/domains/auth/hooks/use-auth";
 import { SongRequestGuideModal } from "./song-request-guide-modal";
 import { EndSessionConfirmDialog } from "@/meloming/domains/overlay/components/end-session-confirm-dialog";
@@ -98,8 +94,7 @@ export function SongRequestGuideBanner({
                 <span className="font-semibold text-fuchsia-600 dark:text-fuchsia-400">
                   신청
                 </span>{" "}
-                버튼을 눌러 신청해보세요. 멜로밍 앱과 크롬 확장에서도
-                신청할 수 있어요!
+                버튼을 눌러 신청해보세요.
               </p>
             </div>
             <Button
@@ -145,8 +140,7 @@ export function SongRequestGuideBanner({
               <span className="font-semibold text-amber-600 dark:text-amber-400">
                 신청곡 모드를 켜달라고
               </span>{" "}
-              알려주세요! 신청곡 모드가 켜지면 노래책, 앱, 크롬 확장에서
-              원하는 곡을 신청할 수 있어요.
+              알려주세요! 신청곡 모드가 켜지면 노래책에서 원하는 곡을 신청할 수 있어요.
             </p>
           </div>
           <Button
@@ -186,14 +180,6 @@ function StreamerSection({
   const { user: me } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: channelVerifications } = useChannelVerifications(userId, {
-    enabled: Boolean(userId),
-  });
-  const hasApprovedVerification = (channelVerifications ?? []).some(
-    (v) => v.status === "APPROVED"
-  );
-
-  const { data: consoleTokenData } = useConsoleToken(userId);
   const startSessionMutation = useStartSession(userId);
   const endSessionMutation = useEndSession(userId);
   const updateSessionSettingsMutation = useUpdateSessionSettings(userId);
@@ -211,8 +197,7 @@ function StreamerSection({
     isPublicSessionLoading ||
     startSessionMutation.isPending ||
     updateSessionSettingsMutation.isPending ||
-    endSessionMutation.isPending ||
-    (!isLiveSessionActive && !hasApprovedVerification);
+    endSessionMutation.isPending;
 
   const [endConfirmOpen, setEndConfirmOpen] = useState(false);
 
@@ -227,7 +212,7 @@ function StreamerSection({
       setRequestModeOverride(checked);
       try {
         if (!liveSessionId) {
-          await startSessionMutation.mutateAsync({});
+          await startSessionMutation.mutateAsync({ platform: "SOOP" });
           queryClient.invalidateQueries({
             queryKey: publicSessionKeys.active(userId),
           });
@@ -312,9 +297,7 @@ function StreamerSection({
                 )}
               </div>
               <p className="text-xs text-white/70 mt-0.5">
-                {!hasApprovedVerification && !isLiveSessionActive
-                  ? "채널 인증을 완료하면 사용할 수 있어요"
-                  : isLiveSessionActive && requestModeEnabled
+                {isLiveSessionActive && requestModeEnabled
                     ? "활성 중 · 끄면 세션 종료"
                     : "켜면 시청자가 곡을 신청할 수 있어요"}
               </p>
@@ -329,20 +312,16 @@ function StreamerSection({
         </div>
 
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              openConsolePopup(userId, consoleTokenData?.consoleToken)
-            }
+          <Link
+            href={`/channel/${userId}/manage/live`}
             className={clsx(
               "flex-1 group flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg",
               "bg-white/15 text-white hover:bg-white/25 transition-colors font-semibold text-sm"
             )}
           >
             <Gamepad2 className="size-4" />
-            리모컨 (신청곡 콘솔)
-            <ExternalLink className="size-3.5 opacity-70" />
-          </button>
+            신청곡 관리
+          </Link>
 
           <Link
             href={`/channel/${userId}/manage/live`}

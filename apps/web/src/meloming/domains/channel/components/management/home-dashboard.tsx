@@ -1,38 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useParams } from "next/navigation";
 import {
   ArrowRight,
   BookOpen,
   ListOrdered,
   Palette,
-  Settings,
   type LucideIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { toast } from "sonner";
-import { useAuth } from "@/meloming/domains/auth/hooks/use-auth";
-import { deleteChannelIdentifier } from "@/meloming/domains/channel/apis/channels";
+import { useMemo } from "react";
 import {
-  channelKeys,
   useChannel,
   useChannelPermission,
 } from "@/meloming/domains/channel/hooks/use-channel";
 import { useUserArtists } from "@/meloming/domains/channel/hooks/use-artists";
 import { useUserCategories } from "@/meloming/domains/channel/hooks/use-categories";
 import { useChannelFavoritesCount } from "@/meloming/domains/channel/hooks/use-favorites";
-import { myChannelKeys } from "@/meloming/domains/channel/hooks/use-my-channel";
 import { usePublicUserSongs } from "@/meloming/domains/channel/hooks/use-songs";
 import type { GetChannelIdentifierPermissionResponse } from "@/meloming/domains/channel/types/channel";
-import {
-  canAccessSongRequestOverlayFeature,
-  isSongRequestOverlayManagementSection,
-} from "@/meloming/domains/channel/utils/song-request-overlay-feature";
-import ConfirmWithInputDialog from "@/meloming/shared/components/common/confirm-with-input-dialog";
 import { Button } from "@/meloming/shared/components/ui/button";
-import { useFeatureFlag } from "@/meloming/shared/hooks/use-feature-flag";
 import {
   MANAGEMENT_GROUPS,
   MANAGEMENT_MENU_ITEMS,
@@ -55,69 +42,28 @@ const DASHBOARD_GROUPS: DashboardGroup[] = [
   },
   {
     group: MANAGEMENT_GROUPS.SONG_REQUEST,
-    description: "신청 규칙부터 방송 화면, 리모컨과 지난 기록까지 설정합니다.",
+    description: "신청곡 설정과 지난 방송 기록을 관리합니다.",
     icon: ListOrdered,
   },
   {
     group: MANAGEMENT_GROUPS.CONTENT,
-    description: "방송 일정과 셋리스트, 옷장 등 채널 콘텐츠를 관리합니다.",
+    description: "방송 일정과 셋리스트, 옷장을 관리합니다.",
     icon: Palette,
-  },
-  {
-    group: MANAGEMENT_GROUPS.SETTINGS,
-    description: "채널 정보와 메뉴, 꾸미기, 권한 및 소유권을 관리합니다.",
-    icon: Settings,
   },
 ];
 
-const SECTION_ACCESS: Partial<
-  Record<
-    ManagementSection,
-    (permission: GetChannelIdentifierPermissionResponse) => boolean
-  >
-> = {
-  songs: (permission) => permission.isOwner || permission.manageContent,
-  "songbook-download": (permission) =>
-    permission.isOwner || permission.manageContent,
-  "add-song": (permission) => permission.isOwner || permission.manageContent,
-  categories: (permission) => permission.isOwner || permission.manageContent,
-  artists: (permission) => permission.isOwner || permission.manageContent,
-  "song-requests": (permission) =>
-    permission.isOwner || permission.manageContent,
-  "song-request-settings": (permission) =>
-    permission.isOwner || permission.manageSettings,
-  "overlay-settings": (permission) =>
-    permission.isOwner || permission.manageSettings,
-  "overlay-custom-css": (permission) =>
-    permission.isOwner || permission.manageCustomization,
-  console: (permission) =>
-    permission.isOwner || permission.manageSettings,
-  "stream-deck": (permission) =>
-    permission.isOwner || permission.manageSettings,
-  "session-history": (permission) =>
-    permission.isOwner || permission.manageSettings,
-  "schedule-settings": (permission) =>
-    permission.isOwner || permission.manageContent,
-  "schedule-templates": (permission) =>
-    permission.isOwner || permission.manageContent,
-  "schedule-image": (permission) =>
-    permission.isOwner || permission.manageContent,
-  "sns-settings": (permission) =>
-    permission.isOwner || permission.manageSettings,
-  setlists: (permission) => permission.isOwner || permission.manageContent,
-  wardrobe: (permission) => permission.isOwner || permission.manageContent,
-  emoticons: (permission) =>
-    permission.isOwner || permission.manageEmoticons,
-  settings: (permission) =>
-    permission.isOwner || permission.manageSettings,
-  "channel-features": (permission) =>
-    permission.isOwner || permission.manageSettings,
-  decoration: (permission) =>
-    permission.isOwner || permission.manageCustomization,
-  manager: (permission) => permission.isOwner,
-  favorites: (permission) => permission.isOwner,
-  "channel-transfer": (permission) => permission.isOwner,
-  "channel-auth": (permission) => permission.isOwner,
+const SECTION_ACCESS: Partial<Record<ManagementSection, (permission: GetChannelIdentifierPermissionResponse) => boolean>> = {
+  songs: p => p.isOwner || p.manageContent,
+  "songbook-download": p => p.isOwner || p.manageContent,
+  "add-song": p => p.isOwner || p.manageContent,
+  categories: p => p.isOwner || p.manageContent,
+  artists: p => p.isOwner || p.manageContent,
+  "song-requests": p => p.isOwner || p.manageContent,
+  "song-request-settings": p => p.isOwner || p.manageSettings,
+  "session-history": p => p.isOwner || p.manageSettings,
+  "schedule-settings": p => p.isOwner || p.manageContent,
+  setlists: p => p.isOwner || p.manageContent,
+  wardrobe: p => p.isOwner || p.manageContent,
 };
 
 function FeatureGroupCard({
@@ -186,27 +132,15 @@ function FeatureGroupCard({
 
 export function HomeDashboard() {
   const params = useParams();
-  const router = useRouter();
-  const queryClient = useQueryClient();
   const user = params?.user as string | undefined;
   const base = `/channel/${user}/manage`;
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
-  const { user: me, isLoading: isAuthLoading } = useAuth();
   const { data: userData } = useChannel(user || "");
   const { data: permission } = useChannelPermission(user || "");
   const { data: songsData } = usePublicUserSongs(user || "", { limit: 1 });
   const { data: categories } = useUserCategories(user || "");
   const { data: artists } = useUserArtists(user || "");
   const { data: favoritesCount } = useChannelFavoritesCount(userData?.id);
-
-  const overlayCustomCssEnabled = useFeatureFlag("overlayWidgetCustomCss");
-  const channelEmoticonEnabled = useFeatureFlag("channelEmoticonEnabled");
-
-  const canAccessSongRequestOverlay = useMemo(() => {
-    if (isAuthLoading) return true;
-    return canAccessSongRequestOverlayFeature(me);
-  }, [isAuthLoading, me]);
 
   const featureGroups = useMemo(() => {
     if (!permission) return [];
@@ -215,34 +149,13 @@ export function HomeDashboard() {
       const items = MANAGEMENT_MENU_ITEMS.filter((item) => {
         if (item.group !== definition.group) return false;
 
-        if (
-          isSongRequestOverlayManagementSection(item.id) &&
-          !canAccessSongRequestOverlay
-        ) {
-          return false;
-        }
-        if (
-          item.id === "overlay-custom-css" &&
-          !overlayCustomCssEnabled
-        ) {
-          return false;
-        }
-        if (item.id === "emoticons" && !channelEmoticonEnabled) {
-          return false;
-        }
-
         const canAccess = SECTION_ACCESS[item.id];
         return canAccess ? canAccess(permission) : false;
       });
 
       return { definition, items };
     }).filter(({ items }) => items.length > 0);
-  }, [
-    canAccessSongRequestOverlay,
-    channelEmoticonEnabled,
-    overlayCustomCssEnabled,
-    permission,
-  ]);
+  }, [permission]);
 
   const stats = [
     { label: "노래", value: songsData?.total ?? 0 },
@@ -250,27 +163,6 @@ export function HomeDashboard() {
     { label: "아티스트", value: artists?.length ?? 0 },
     { label: "즐겨찾기", value: favoritesCount?.totalFavorites ?? 0 },
   ];
-
-  const deleteMutation = useMutation({
-    mutationFn: async () => {
-      if (!user) throw new Error("채널 식별자가 없습니다.");
-      await deleteChannelIdentifier(user);
-    },
-    onSuccess: async () => {
-      toast.success("채널이 삭제되었습니다.");
-      await queryClient.invalidateQueries({ queryKey: myChannelKeys.all });
-      if (user) {
-        queryClient.removeQueries({ queryKey: channelKeys.identifier(user) });
-        queryClient.removeQueries({
-          queryKey: channelKeys.identifierPermission(user),
-        });
-      }
-      router.replace("/mypage/home");
-    },
-    onError: () => {
-      toast.error("채널 삭제 중 오류가 발생했습니다.");
-    },
-  });
 
   return (
     <div className="space-y-8 p-4 md:p-6">
@@ -315,28 +207,6 @@ export function HomeDashboard() {
         </div>
       </section>
 
-      {permission?.isOwner && (
-        <div className="border-t py-5 text-center">
-          <button
-            type="button"
-            className="text-sm text-muted-foreground underline underline-offset-4 transition-colors hover:text-destructive"
-            onClick={() => setDeleteDialogOpen(true)}
-          >
-            채널 삭제
-          </button>
-        </div>
-      )}
-
-      <ConfirmWithInputDialog
-        open={deleteDialogOpen}
-        onOpenChange={setDeleteDialogOpen}
-        title="채널 삭제"
-        description={`${userData?.name ?? "이"} 채널을 삭제하면 노래책과 일정 등 모든 데이터가 영구적으로 삭제됩니다. 아래에 '삭제'를 입력하여 계속하세요.`}
-        requiredText="삭제"
-        confirmLabel="삭제"
-        cancelLabel="취소"
-        onConfirm={() => deleteMutation.mutateAsync()}
-      />
     </div>
   );
 }

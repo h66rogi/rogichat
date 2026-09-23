@@ -103,7 +103,7 @@ const TAB_HELP: Partial<Record<ChannelTab, ChannelTabHelpData>> = {
     detailLink: {
       href: "/content",
       label: "콘텐츠 뻐꾸기 보기",
-      description: "멜로밍 전체 콘텐츠 모집과 진행 정보를 둘러봅니다.",
+      description: "채널 콘텐츠 정보를 둘러봅니다.",
     },
   },
 };

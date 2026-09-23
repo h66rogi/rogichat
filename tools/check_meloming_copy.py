@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Verify the byte provenance of directly copied Meloming source files.
+"""Verify retained copied source and mounted route provenance.
 
-Frontend imports use the sole namespace substitution @/ -> @/meloming/.
-The backend snapshot and public assets must be byte-for-byte identical.
+Original backend files are recorded by commit and SHA-256 in the manifest,
+without carrying unused source snapshots in the product repository.
 """
 
 from __future__ import annotations
@@ -15,8 +15,6 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / 'docs/meloming-source-manifest.tsv'
 ADAPTATIONS = ROOT / 'docs/meloming-adaptations.tsv'
 FRONTEND = ROOT / 'apps/web/src/meloming'
-BACKEND = ROOT / 'references/meloming-back'
-QA_BACKEND = ROOT / 'references/meloming-back-qa'
 QA_MANIFEST = ROOT / 'docs/meloming-qa-source-manifest.tsv'
 ASSETS = ROOT / 'apps/web/public'
 FRONTEND_ROUTES = ROOT / 'apps/web/src/app/(meloming-channel)/channel/[user]'
@@ -66,23 +64,16 @@ def main() -> None:
         assert relative in manifest['frontend'] and len(expected_hash) == 64
         adaptations[relative] = expected_hash
     verify_files(FRONTEND, manifest['frontend'], namespace=True, adaptations=adaptations, allow_subset=True)
-    verify_files(BACKEND, manifest['backend'])
     qa_hashes = {}
     for line in QA_MANIFEST.read_text().splitlines():
         if line.startswith('#'):
             continue
         expected_hash, relative = line.split('\t', 1)
         qa_hashes[relative] = expected_hash
-    verify_files(QA_BACKEND, qa_hashes)
-    mime_source = QA_BACKEND / 'src/upload/utils/sheet-music-mime.ts'
     mime_runtime = ROOT / 'apps/api/src/modules/channel-content/upstream/sheet-music/sheet-music-mime.ts'
-    assert mime_source.read_bytes() == mime_runtime.read_bytes(), 'Copied sheet-music MIME logic diverged'
-    mxl_source = (QA_BACKEND / 'src/upload/utils/mxl-extractor.ts').read_bytes()
-    mxl_expected = mxl_source.replace(b"from './sheet-music-mime'", b"from './sheet-music-mime.js'").replace(
-        b"import { Readable } from 'stream';", b"import type { Readable } from 'stream';").replace(
-        b'candidates.sort((a, b) => b.size - a.size)[0];', b'candidates.sort((a, b) => b.size - a.size)[0]!;')
+    assert digest(mime_runtime.read_bytes()) == qa_hashes['src/upload/utils/sheet-music-mime.ts'], 'Copied sheet-music MIME logic diverged'
     mxl_runtime = ROOT / 'apps/api/src/modules/channel-content/upstream/sheet-music/mxl-extractor.ts'
-    assert mxl_expected == mxl_runtime.read_bytes(), 'Copied MXL extraction logic diverged'
+    assert digest(mxl_runtime.read_bytes()) == '3da35db24b970e604b4f4f589fa546d7d8cdf471b9017cb1d90c901de5573b9b', 'Adapted MXL extraction logic diverged'
     mounted_adaptations = {}
     if MOUNTED_ADAPTATIONS.exists():
         for line in MOUNTED_ADAPTATIONS.read_text().splitlines():
@@ -103,7 +94,7 @@ def main() -> None:
         path = ASSETS / relative
         assert digest(path.read_bytes()) == expected_hash, f'Copied asset diverged: {path}'
     retained_frontend = sum(path.is_file() for path in FRONTEND.rglob('*'))
-    print(f"Verified {retained_frontend} retained frontend files ({len(adaptations)} adapted), {len(manifest['backend'])} backend files, {len(qa_hashes)} QA sheet-music sources, {len(routes)} mounted routes, and {len(manifest['assets'])} assets.")
+    print(f"Verified {retained_frontend} retained frontend files ({len(adaptations)} adapted), 2 runtime sheet-music utilities, {len(routes)} mounted routes, and {len(manifest['assets'])} assets. Backend source commits/hashes remain in provenance manifests.")
 
 
 if __name__ == '__main__':

@@ -23,6 +23,34 @@ const featureSettings = {
   ],
 };
 
+const editableFeatureKeys = ['musicbook', 'schedule', 'setlist', 'wardrobe'] as const;
+type EditableFeatureKey = typeof editableFeatureKeys[number];
+type EditableFeature = { key: EditableFeatureKey; label: string; isEnabled: boolean; order: number };
+
+function parseFeatureSettings(value: unknown): EditableFeature[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+    Object.keys(value).length !== 1 || !Object.hasOwn(value, 'items')) throw new ApiError('INVALID_REQUEST', 400);
+  const items = (value as { items: unknown }).items;
+  if (!Array.isArray(items) || items.length !== editableFeatureKeys.length) throw new ApiError('INVALID_REQUEST', 400);
+  const keys = new Set<string>();
+  const orders = new Set<number>();
+  const parsed = items.map((item: unknown) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new ApiError('INVALID_REQUEST', 400);
+    const raw = item as Record<string, unknown>;
+    if (Object.keys(raw).some(key => !['key', 'label', 'isEnabled', 'order'].includes(key)) ||
+      !editableFeatureKeys.includes(raw.key as EditableFeatureKey) ||
+      typeof raw.label !== 'string' || !raw.label.trim() || raw.label.trim().length > 24 ||
+      typeof raw.isEnabled !== 'boolean' || !Number.isInteger(raw.order) ||
+      (raw.order as number) < 0 || (raw.order as number) >= editableFeatureKeys.length) throw new ApiError('INVALID_REQUEST', 400);
+    const key = raw.key as EditableFeatureKey;
+    const order = raw.order as number;
+    if (keys.has(key) || orders.has(order)) throw new ApiError('INVALID_REQUEST', 400);
+    keys.add(key); orders.add(order);
+    return { key, label: raw.label.trim(), isEnabled: raw.isEnabled, order };
+  });
+  return parsed.sort((a, b) => a.order - b.order);
+}
+
 @Injectable()
 export class MelomingChannelService {
   constructor(
@@ -90,8 +118,24 @@ export class MelomingChannelService {
 
   features() {
     return this.transactions.read(async tx => {
-      await this.repository.primary(tx);
-      return featureSettings;
+      const { roomId } = await this.repository.primary(tx);
+      const saved = await tx.prisma.channelFeatureSettings.findUnique({ where: { channelId: roomId }, select: { items: true } });
+      if (!saved) return featureSettings;
+      const overrides = new Map((saved.items as EditableFeature[]).map(item => [item.key, item]));
+      return { items: featureSettings.items.map(defaultItem => {
+        const savedItem = overrides.get(defaultItem.key as EditableFeatureKey);
+        return savedItem ? { ...defaultItem, label: savedItem.label, isEnabled: savedItem.isEnabled, order: savedItem.order } : defaultItem;
+      }) };
     });
+  }
+
+  async updateFeatureSettings(credentials: CommandCredentials, value: unknown) {
+    const items = parseFeatureSettings(value);
+    await this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      await tx.prisma.channelFeatureSettings.upsert({ where: { channelId: roomId }, create: { channelId: roomId, items }, update: { items } });
+    });
+    return this.features();
   }
 }

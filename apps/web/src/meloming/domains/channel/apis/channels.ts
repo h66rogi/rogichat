@@ -242,7 +242,7 @@ export async function updateChannelScheduleNotice(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Global profile (meloming.gg opt-in)
+// Legacy global profile compatibility
 // ────────────────────────────────────────────────────────────────────────────
 
 export interface ChannelGlobalProfile {

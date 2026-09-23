@@ -37,7 +37,7 @@ export function IdentityVerificationWall({
 
       <div className="py-6 space-y-4">
         <p className="text-sm text-muted-foreground text-center">
-          안전한 멜로밍 서비스 운영을 위해, 본 기능은 본인인증을 완료한 유저만
+          안전한 로기챗 서비스 운영을 위해, 본 기능은 본인인증을 완료한 유저만
           이용할 수 있습니다.
           <br />
           <span className="text-xs">

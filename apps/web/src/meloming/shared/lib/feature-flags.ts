@@ -1,5 +1,5 @@
 export const FeatureFlags = {
-  smartSongAddition: { key: 'smart-song-addition', default: false },
+  smartSongAddition: { key: 'smart-song-addition', default: true },
   songRecommendation: { key: 'song-recommendation', default: false },
   withdrawalCrossServiceCheck: { key: 'withdrawal-cross-service-check', default: false },
   totocciSection: { key: 'totocci-section', default: true },
@@ -13,7 +13,7 @@ export const FeatureFlags = {
   proAnnualPromotion2026_04: { key: 'pro-annual-promotion-2026-04', default: false },
   homeNewShell: { key: 'home-new-shell', default: false },
   channelScheduleTemplate: { key: 'channel-schedule-template', default: false },
-  songbookSheetMusic: { key: 'songbook-sheet-music', default: false },
+  songbookSheetMusic: { key: 'songbook-sheet-music', default: true },
   melomingStoreEnabled: { key: 'meloming-store-enabled', default: true },
   melomingStorePickAndMix: { key: 'meloming-store-pick-and-mix', default: true },
   melomingStoreConsignment: { key: 'meloming-store-consignment', default: true },

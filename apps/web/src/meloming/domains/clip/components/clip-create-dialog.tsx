@@ -133,9 +133,6 @@ function getClipCreateUrlSource(value: string): string {
   if (lowerValue.includes("sooplive.co.kr") || lowerValue.includes("afreecatv.com")) {
     return "soop";
   }
-  if (lowerValue.includes("meloming.com")) {
-    return "meloming";
-  }
   return lowerValue.trim().length > 0 ? "other" : "empty";
 }
 

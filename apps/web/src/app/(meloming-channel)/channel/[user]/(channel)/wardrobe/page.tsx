@@ -21,7 +21,7 @@ export async function generateMetadata(
     notFound();
   }
 
-  const siteName = "멜로밍";
+  const siteName = "로기챗";
   const tabTitle = getTabTitle("wardrobe");
   const title = `${channel.name} ${tabTitle}`;
   const description = `${channel.name}의 의상, 헤어 등 버추얼 이미지 컬렉션입니다.`;

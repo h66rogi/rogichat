@@ -17,7 +17,6 @@ import {
   getAuthWithdrawalEligibility,
 } from "../apis/auth";
 import { isAxiosError } from "@/meloming/shared/lib/axios-error";
-import { buildIdAuthRedirectUrl } from "@/meloming/shared/lib/id-auth-redirect";
 import {
   getV1AuthOauthGoogle,
   getV1AuthOauthGoogleCallback,
@@ -101,19 +100,12 @@ export function useAuth(enabled = true) {
   const loginMutation = useMutation({
     mutationFn: async (data: LoginData) => {
       const response = await postAuthLogin(data);
+      if ("mfaRequired" in response && response.mfaRequired) {
+        throw new Error("추가 인증이 필요한 계정은 현재 로그인할 수 없습니다.");
+      }
       return response;
     },
-    onSuccess: async (response) => {
-      if ("mfaRequired" in response && response.mfaRequired) {
-        const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        window.location.assign(
-          buildIdAuthRedirectUrl("/auth/mfa", {
-            from: currentPath,
-            service: "meloming",
-          })
-        );
-        return;
-      }
+    onSuccess: async () => {
       // 로그인 성공 시 사용자 정보 다시 가져오기
       await queryClient.invalidateQueries({ queryKey: authKeys.me() });
       await invalidatePermissions();
@@ -125,19 +117,12 @@ export function useAuth(enabled = true) {
   const loginBypassMutation = useMutation({
     mutationFn: async (data: LoginData) => {
       const response = await postAuthLoginBypass(data);
+      if ("mfaRequired" in response && response.mfaRequired) {
+        throw new Error("추가 인증이 필요한 계정은 현재 로그인할 수 없습니다.");
+      }
       return response;
     },
-    onSuccess: async (response) => {
-      if ("mfaRequired" in response && response.mfaRequired) {
-        const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-        window.location.assign(
-          buildIdAuthRedirectUrl("/auth/mfa", {
-            from: currentPath,
-            service: "meloming",
-          })
-        );
-        return;
-      }
+    onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: authKeys.me() });
       await invalidatePermissions();
       await refetch();

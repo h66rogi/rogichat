@@ -40,6 +40,12 @@ export class MelomingChannelController {
     return this.service.features();
   }
 
+  @Put('feature-settings') @channelDoc('melomingChannelFeatureSettingsUpdate', '채널 메뉴 설정 저장', 'write')
+  updateFeatures(@Param('identifier') identifier: string, @Req() request: Request) {
+    channel(identifier);
+    return this.service.updateFeatureSettings(readCommandCredentials(request, this.config), request.body);
+  }
+
   @Patch('schedule-notice') @channelDoc('melomingChannelScheduleNotice', '원본 일정 공지 수정', 'write')
   scheduleNotice(@Param('identifier') identifier: string, @Req() request: Request) {
     channel(identifier);

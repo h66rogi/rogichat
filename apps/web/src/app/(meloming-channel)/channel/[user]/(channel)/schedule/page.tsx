@@ -21,10 +21,10 @@ export async function generateMetadata(
     notFound();
   }
 
-  const siteName = "멜로밍";
+  const siteName = "로기챗";
   const tabTitle = getTabTitle("schedule");
   const title = `${channel.name} ${tabTitle}`;
-  const description = `${channel.name}의 멜로밍 채널입니다. 방문해서 방송 일정을 확인해보세요!`;
+  const description = `${channel.name}의 로기챗 채널입니다. 방문해서 방송 일정을 확인해보세요!`;
 
   const ogTitle = `${title} - ${siteName}`;
 

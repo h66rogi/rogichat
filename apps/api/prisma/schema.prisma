@@ -111,7 +111,7 @@ enum ScheduleVisibility {
 
 // Copied from meloming-back's Live Session & Song Request domain. External
 // sync-room, clip-extraction and donation relations are omitted from this
-// channel port; the original source remains in references/meloming-back.
+// channel port; original source commit and hashes are recorded in docs/meloming-source-manifest.tsv.
 enum StreamPlatform {
   SOOP     @map("soop")
   CHZZK    @map("chzzk")
@@ -257,6 +257,15 @@ model ChannelProfile {
 
   @@index([channelId], map: "idx_channel_profile_channel_id")
   @@map("channel_profiles")
+}
+
+model ChannelFeatureSettings {
+  channelId String @id @map("channel_id") @db.Char(36)
+  items Json
+  updatedAt DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  channel rooms @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_feature_settings")
 }
 
 /// Copied from Meloming ChannelPricingSettings. The channel key maps to the
@@ -1046,6 +1055,7 @@ model rooms {
   songs Song[]
   channelFavorites UserChannelFavorite[]
   channelProfile ChannelProfile?
+  channelFeatureSettings ChannelFeatureSettings?
   pricingSettings ChannelPricingSettings?
   channelOverlayLayouts ChannelOverlayLayout[]
   songAddRequests SongAddRequest[]

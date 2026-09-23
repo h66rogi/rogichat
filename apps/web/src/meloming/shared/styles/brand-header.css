@@ -1,10 +1,4 @@
 /* ===== 웹폰트 (CDN) ===== */
-@font-face { font-family: 'Pretendard'; src: url('https://cdn.meloming.com/fonts/Pretendard/PretendardVariable.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-aLt.woff2') format('woff2'); font-weight: 300; font-display: swap; }
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-bRg.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-cBd.woff2') format('woff2'); font-weight: 700; font-display: swap; }
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-dEb.woff2') format('woff2'); font-weight: 800; font-display: swap; }
-@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-eHv.woff2') format('woff2'); font-weight: 900; font-display: swap; }
 
 /* ===== 공유 헤더 (GlobalHeader / UserProfileMenu) ===== */
 .brand-header {

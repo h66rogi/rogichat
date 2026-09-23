@@ -21,10 +21,10 @@ export async function generateMetadata(
     notFound();
   }
 
-  const siteName = "멜로밍";
+  const siteName = "로기챗";
   const tabTitle = getTabTitle("musicbook");
   const title = `${channel.name} ${tabTitle}`;
-  const description = `${channel.name}의 노래책 채널입니다. 방문해서 노래책뿐 아니라 일정, 클립, 정보 등 다양한 콘텐츠를 확인해보세요.`;
+  const description = `${channel.name}의 노래책 채널입니다. 방문해서 노래책과 방송 일정을 확인해보세요.`;
 
   const ogTitle = `${title} - ${siteName}`;
 

@@ -49,13 +49,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/meloming/domains/auth/hooks/use-auth";
 import LoginRequiredDialog from "@/meloming/shared/components/common/login-required-dialog";
-import { ProBadge } from "@/meloming/shared/components/common/pro-badge";
-import { AmbassadorBadge } from "@/meloming/shared/components/common/ambassador-badge";
-import { FounderBadge } from "@/meloming/shared/components/common/founder-badge";
 import { VerifiedBadge } from "@/meloming/shared/components/common/verified-badge";
-import MarketingFeatureNudgeDialog, {
-  type MarketingNudgeDialogHandle,
-} from "@/meloming/domains/user/components/marketing-feature-nudge-dialog";
 
 interface CropSession {
   imageSrc: string;
@@ -109,9 +103,6 @@ export default function UserHeader({
     ? userPermissionProp
     : userPermissionFetched;
   const isOwner = userPermission?.isOwner ?? false;
-  const isOwnerProSubscriber = Boolean(userInfo?.isOwnerProSubscriber);
-  const isOwnerAmbassador = Boolean(userInfo?.isOwnerAmbassador);
-  const isFounder = Boolean(userInfo?.isFounder);
   const isVerified = Boolean(userInfo?.isVerified);
   const isWide = userInfo?.layoutWidth === "wide";
   const isSeparated = userInfo?.headerStyle === "separated";
@@ -134,7 +125,6 @@ export default function UserHeader({
 
   // 프로필 이미지 인라인 편집 (크롭 포함)
   const profileFileInputRef = useRef<HTMLInputElement>(null);
-  const marketingNudgeRef = useRef<MarketingNudgeDialogHandle>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
   const { uploadImage: uploadProfileImage, isUploading: isProfileUploading } = useImageUpload();
@@ -261,7 +251,6 @@ export default function UserHeader({
       return;
     }
     try {
-      const isAddingFavorite = !favoriteStatus?.isFavorite;
       if (favoriteStatus?.isFavorite) {
         await unFavoriteChannel.mutateAsync({ channelId });
       } else {
@@ -269,15 +258,6 @@ export default function UserHeader({
       }
       await refetchFavoriteStatus();
       await refetchFavoritesCount();
-      if (isAddingFavorite && userInfo?.name) {
-        marketingNudgeRef.current?.triggerOpen({
-          triggerId: "channel_favorite",
-          title: `${userInfo.name}님 라이브·기념일도 가장 먼저 알려드릴까요?`,
-          description:
-            "즐겨찾기에 추가해주셔서 감사해요! 이 채널의 라이브 시작·데뷔 기념일·신곡 소식을 미리 받아보실 수 있어요. 이벤트·할인 등 마케팅 정보도 함께 발송되며, 마이페이지에서 언제든 끌 수 있어요.",
-          meta: { channelId },
-        });
-      }
     } catch {
       toast.error("즐겨찾기 처리에 실패했습니다. 다시 시도해주세요.");
     }
@@ -406,13 +386,7 @@ export default function UserHeader({
             </Link>
             {isVerified && <VerifiedBadge variant="small" />}
           </div>
-          {(isFounder || isOwnerAmbassador || isOwnerProSubscriber) && (
-            <div className="flex flex-wrap items-center justify-center gap-1">
-              {isFounder && <FounderBadge variant="small" />}
-              {isOwnerAmbassador && <AmbassadorBadge variant="small" />}
-              {isOwnerProSubscriber && <ProBadge variant="small" />}
-            </div>
-          )}
+
         </div>
 
         <div className="flex flex-col gap-2 px-3">
@@ -469,17 +443,16 @@ export default function UserHeader({
           open={loginDialogOpen}
           onOpenChange={setLoginDialogOpen}
         />
-        <MarketingFeatureNudgeDialog ref={marketingNudgeRef} />
         <ShareSheet
           open={shareSheetOpen}
           onOpenChange={setShareSheetOpen}
           data={{
-            title: `${userInfo.name} - 멜로밍`,
-            text: `${userInfo.name}님의 멜로밍 채널`,
+            title: `${userInfo.name} - 로기챗`,
+            text: `${userInfo.name}님의 로기챗 채널`,
             url:
               typeof window !== "undefined"
                 ? window.location.href
-                : `https://meloming.io/channel/${userId}`,
+                : `https://rogi.chat/channel/${userId}`,
           }}
         />
         <ImageCropDialog
@@ -595,14 +568,7 @@ export default function UserHeader({
                 )}
               >
                 {userInfo.name}
-                {(isVerified || isFounder || isOwnerAmbassador || isOwnerProSubscriber) && (
-                  <div className="flex items-center gap-1.5">
-                    {isVerified && <VerifiedBadge variant="small" />}
-                    {isFounder && <FounderBadge variant="small" />}
-                    {isOwnerAmbassador && <AmbassadorBadge variant="small" />}
-                    {isOwnerProSubscriber && <ProBadge variant="small" />}
-                  </div>
-                )}
+                {isVerified && <VerifiedBadge variant="small" />}
               </div>
 
               <div
@@ -686,24 +652,13 @@ export default function UserHeader({
                     return;
                   }
                   try {
-                    const isAddingFavorite = !favoriteStatus?.isFavorite;
-                    if (favoriteStatus?.isFavorite) {
+                                  if (favoriteStatus?.isFavorite) {
                       await unFavoriteChannel.mutateAsync({ channelId });
                     } else {
                       await toggleFavoriteChannel.mutateAsync({ channelId });
                     }
                     await refetchFavoriteStatus();
                     await refetchFavoritesCount();
-                    if (isAddingFavorite && userInfo?.name) {
-                      // 즐겨찾기 "추가"일 때만 마케팅 동의 nudge. 해제(unfavorite) 시는 skip.
-                      marketingNudgeRef.current?.triggerOpen({
-                        triggerId: "channel_favorite",
-                        title: `${userInfo.name}님 라이브·기념일도 가장 먼저 알려드릴까요?`,
-                        description:
-                          "즐겨찾기에 추가해주셔서 감사해요! 이 채널의 라이브 시작·데뷔 기념일·신곡 소식을 미리 받아보실 수 있어요. 이벤트·할인 등 마케팅 정보도 함께 발송되며, 마이페이지에서 언제든 끌 수 있어요.",
-                        meta: { channelId },
-                      });
-                    }
                   } catch {
                     toast.error(
                       "즐겨찾기 처리에 실패했습니다. 다시 시도해주세요."
@@ -737,14 +692,13 @@ export default function UserHeader({
                 open={loginDialogOpen}
                 onOpenChange={setLoginDialogOpen}
               />
-              <MarketingFeatureNudgeDialog ref={marketingNudgeRef} />
-              <ShareSheet
+                    <ShareSheet
                 open={shareSheetOpen}
                 onOpenChange={setShareSheetOpen}
                 data={{
-                  title: `${userInfo.name} - 멜로밍`,
-                  text: `${userInfo.name}님의 멜로밍 채널`,
-                  url: typeof window !== "undefined" ? window.location.href : `https://meloming.io/channel/${userId}`,
+                  title: `${userInfo.name} - 로기챗`,
+                  text: `${userInfo.name}님의 로기챗 채널`,
+                  url: typeof window !== "undefined" ? window.location.href : `https://rogi.chat/channel/${userId}`,
                 }}
               />
             </div>

@@ -174,12 +174,7 @@ const canManageContent = (permission: GetChannelIdentifierPermissionResponse) =>
 const canManageSettings = (permission: GetChannelIdentifierPermissionResponse) =>
   permission.isOwner || permission.manageSettings;
 
-const TAB_MANAGE_ACTIONS = {
-  home: {
-    section: "settings",
-    label: "채널 관리",
-    canAccess: canManageSettings,
-  },
+const TAB_MANAGE_ACTIONS: Partial<Record<ChannelTab, HeaderManageActionConfig>> = {
   musicbook: {
     section: "songs",
     label: "노래 관리",
@@ -200,22 +195,7 @@ const TAB_MANAGE_ACTIONS = {
     label: "옷장 관리",
     canAccess: canManageContent,
   },
-  guestbook: {
-    section: "guestbook-settings",
-    label: "방명록 설정",
-    canAccess: canManageSettings,
-  },
-  info: {
-    section: "settings",
-    label: "채널 관리",
-    canAccess: canManageSettings,
-  },
-  content: {
-    href: "/content/create",
-    label: "콘텐츠 등록",
-    canAccess: canManageContent,
-  },
-} satisfies Record<ChannelTab, HeaderManageActionConfig>;
+};
 
 function getManageHref(user: string, config: HeaderManageActionConfig) {
   if (typeof config.href === "function") return config.href(user);
@@ -243,7 +223,8 @@ function getTabManageAction(
   tab: ChannelTab,
   permission: ManagePermission
 ) {
-  return buildManageAction(user, TAB_MANAGE_ACTIONS[tab], permission);
+  const config = TAB_MANAGE_ACTIONS[tab];
+  return config ? buildManageAction(user, config, permission) : null;
 }
 
 function ChannelContentHeaderCenter() {

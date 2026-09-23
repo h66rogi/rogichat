@@ -128,6 +128,20 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(detail.name,'후로기');
   assert.deepEqual(detail._count,{songs:0,artists:0,categories:0});
   assert.deepEqual((await channel.features()).items.filter(item=>item.isEnabled).map(item=>item.key),['musicbook','schedule','setlist','wardrobe']);
+  const menuItems = [
+    {key:'wardrobe',label:'옷장',isEnabled:true,order:0},
+    {key:'schedule',label:'일정',isEnabled:true,order:1},
+    {key:'musicbook',label:'노래책',isEnabled:true,order:2},
+    {key:'setlist',label:'셋리스트',isEnabled:false,order:3},
+  ];
+  await assert.rejects(channel.updateFeatureSettings({token:fanId},{items:menuItems}),error=>error.getStatus()===403);
+  await assert.rejects(channel.updateFeatureSettings({token:ownerId},{items:[...menuItems.slice(0,3),{...menuItems[3],key:'content'}]}),error=>error.getStatus()===400);
+  const savedMenu=await channel.updateFeatureSettings({token:ownerId},{items:menuItems});
+  assert.deepEqual(savedMenu.items.filter(item=>item.isEnabled).map(item=>item.key),['musicbook','schedule','wardrobe']);
+  const reloadedMenu=await new MelomingChannelService(db.transactions,auth,repository).features();
+  assert.equal(reloadedMenu.items.find(item=>item.key==='schedule').label,'일정');
+  assert.equal(reloadedMenu.items.find(item=>item.key==='wardrobe').order,0);
+  assert.equal(reloadedMenu.items.find(item=>item.key==='content').isEnabled,false);
   assert.equal((await channel.permission({token:ownerId})).manageContent,true);
   assert.equal((await channel.permission({token:fanId})).manageContent,false);
   assert.equal((await channel.detail()).scheduleNotice,null);

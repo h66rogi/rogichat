@@ -20,13 +20,11 @@ import {
 import { Switch } from "@/meloming/shared/components/ui/switch";
 import {
   ChevronRight,
-  ExternalLink,
   LayoutDashboard,
   Gamepad2,
   BookOpen,
   ListOrdered,
   Palette,
-  Settings as SettingsIcon,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/meloming/shared/lib/utils";
@@ -37,32 +35,17 @@ const GROUP_ICONS: Record<ManagementGroup, LucideIcon> = {
   [MANAGEMENT_GROUPS.SONGBOOK]: BookOpen,
   [MANAGEMENT_GROUPS.SONG_REQUEST]: ListOrdered,
   [MANAGEMENT_GROUPS.CONTENT]: Palette,
-  [MANAGEMENT_GROUPS.SETTINGS]: SettingsIcon,
 };
 import { useChannelPermission } from "@/meloming/domains/channel/hooks/use-channel";
 import type { GetChannelIdentifierPermissionResponse } from "@/meloming/domains/channel/types/channel";
-import { useAuth } from "@/meloming/domains/auth/hooks/use-auth";
-import {
-  useSidebarSetupStatus,
-  type SidebarSetupStatus,
-} from "@/meloming/domains/overlay/hooks/use-sidebar-status";
 import { usePublicActiveSession } from "@/meloming/domains/overlay/hooks/use-public-session";
 import {
   useEndSession,
   useStartSession,
   useUpdateSessionSettings,
 } from "@/meloming/domains/overlay/hooks/use-session";
-import {
-  canAccessSongRequestOverlayFeature,
-  isSongRequestOverlayManagementSection,
-} from "@/meloming/domains/channel/utils/song-request-overlay-feature";
-import { useChannelVerifications } from "@/meloming/domains/channel/hooks/use-channel-verification";
-import { useConsoleToken } from "@/meloming/domains/channel/hooks/use-console-token";
-import { openConsolePopup } from "@/meloming/domains/channel/utils/console-popup";
-import { useFeatureFlag } from "@/meloming/shared/hooks/use-feature-flag";
 import { toast } from "sonner";
 import { extractApiErrorMessage } from "@/meloming/shared/lib/api-error";
-import { overlayThemeDirtyGuard } from "@/meloming/domains/overlay/components/overlay-unified-settings/dirty-guard";
 import { EndSessionConfirmDialog } from "@/meloming/domains/overlay/components/end-session-confirm-dialog";
 
 interface ManagementSidebarContentProps {
@@ -73,68 +56,21 @@ interface ManagementSidebarContentProps {
 /**
  * 섹션별 필요 권한 정의
  */
-const SECTION_PERMISSIONS: Partial<Record<
-  ManagementSection,
-  (permission: GetChannelIdentifierPermissionResponse) => boolean
->> = {
-  home: (p) =>
-    p.isOwner ||
-    p.manageContent ||
-    p.manageSettings ||
-    p.manageProfile ||
-    p.manageGuestbook ||
-    p.manageCustomization ||
-    p.manageEmoticons,
-  songs: (p) => p.isOwner || p.manageContent,
-  "songbook-download": (p) => p.isOwner || p.manageContent,
-  "add-song": (p) => p.isOwner || p.manageContent,
-  categories: (p) => p.isOwner || p.manageContent,
-  artists: (p) => p.isOwner || p.manageContent,
-  "song-requests": (p) => p.isOwner || p.manageContent,
-  live: (p) => p.isOwner || p.manageSettings,
-  "song-request-settings": (p) => p.isOwner || p.manageSettings,
-  "overlay-settings": (p) => p.isOwner || p.manageSettings,
-  "overlay-custom-css": (p) => p.isOwner || p.manageCustomization,
-  console: (p) => p.isOwner || p.manageSettings,
-  "stream-deck": (p) => p.isOwner || p.manageSettings,
-  "session-history": (p) => p.isOwner || p.manageSettings,
-  settings: (p) => p.isOwner || p.manageSettings,
-  "schedule-settings": (p) => p.isOwner || p.manageContent,
-  "schedule-templates": (p) => p.isOwner || p.manageContent,
-  "schedule-image": (p) => p.isOwner || p.manageContent,
-  "sns-settings": (p) => p.isOwner || p.manageSettings,
-  "guestbook-settings": (p) => p.isOwner || p.manageSettings,
-  "channel-features": (p) => p.isOwner || p.manageSettings,
-  setlists: (p) => p.isOwner || p.manageContent,
-  emoticons: (p) => p.isOwner || p.manageEmoticons,
-  wardrobe: (p) => p.isOwner || p.manageContent,
-  manager: (p) => p.isOwner,
-  favorites: (p) => p.isOwner,
-  "channel-auth": (p) => p.isOwner,
-  "channel-transfer": (p) => p.isOwner,
-  decoration: (p) => {
-    if (!p.isOwnerProSubscriber) {
-      return true;
-    }
-    return p.isOwner || p.manageCustomization;
-  },
+const SECTION_PERMISSIONS: Partial<Record<ManagementSection, (p: GetChannelIdentifierPermissionResponse) => boolean>> = {
+  home: p => p.isOwner || p.manageContent || p.manageSettings,
+  songs: p => p.isOwner || p.manageContent,
+  "songbook-download": p => p.isOwner || p.manageContent,
+  "add-song": p => p.isOwner || p.manageContent,
+  categories: p => p.isOwner || p.manageContent,
+  artists: p => p.isOwner || p.manageContent,
+  "song-requests": p => p.isOwner || p.manageContent,
+  live: p => p.isOwner || p.manageSettings,
+  "song-request-settings": p => p.isOwner || p.manageSettings,
+  "session-history": p => p.isOwner || p.manageSettings,
+  "schedule-settings": p => p.isOwner || p.manageContent,
+  setlists: p => p.isOwner || p.manageContent,
+  wardrobe: p => p.isOwner || p.manageContent,
 };
-
-/**
- * 설정 완료 상태 dot
- */
-function StatusDot({ configured }: { configured: boolean | undefined }) {
-  if (configured === undefined) return null;
-  return (
-    <span
-      className={cn(
-        "size-1.5 rounded-full shrink-0",
-        configured ? "bg-green-500" : "bg-border"
-      )}
-      aria-label={configured ? "설정 완료" : "미설정"}
-    />
-  );
-}
 
 // 그룹 컴포넌트 (접이식)
 function MenuGroup({
@@ -145,7 +81,6 @@ function MenuGroup({
   onNavigate,
   getUrlForSection,
   extraButton,
-  setupStatus,
 }: {
   groupKey: ManagementGroup;
   items: ManagementMenuItem[];
@@ -154,7 +89,6 @@ function MenuGroup({
   onNavigate: () => void;
   getUrlForSection: (id: ManagementSection) => string;
   extraButton?: React.ReactNode;
-  setupStatus?: SidebarSetupStatus;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen ?? false);
 
@@ -215,11 +149,6 @@ function MenuGroup({
         <CollapsibleContent>
           <SidebarMenuSub className="ml-[1.625rem] pl-3 pr-0 mr-0 border-l border-border/60 gap-1 mt-1">
             {items.map((item) => {
-              const itemStatus = setupStatus && !setupStatus.isLoading
-                ? item.id === "song-request-settings"
-                  ? setupStatus.hasActiveSession
-                  : undefined
-                : undefined;
               const isActive = activeSection === item.id;
 
               return (
@@ -236,13 +165,7 @@ function MenuGroup({
                   >
                     <Link
                       href={getUrlForSection(item.id)}
-                      onClick={(e) => {
-                        if (!overlayThemeDirtyGuard.confirmIfDirty()) {
-                          e.preventDefault();
-                          return;
-                        }
-                        onNavigate();
-                      }}
+                      onClick={onNavigate}
                     >
                       <span className="text-[15px]">{item.label}</span>
                       {item.badge && (
@@ -257,11 +180,6 @@ function MenuGroup({
                           )}
                         >
                           {item.badge}
-                        </span>
-                      )}
-                      {itemStatus !== undefined && (
-                        <span className={item.badge ? "" : "ml-auto"}>
-                          <StatusDot configured={itemStatus} />
                         </span>
                       )}
                     </Link>
@@ -285,21 +203,9 @@ export function ManagementSidebarContent({
 }: ManagementSidebarContentProps) {
   const params = useParams();
   const user = params?.user as string | undefined;
-  const { user: me, isLoading: isAuthLoading } = useAuth();
   const { isMobile, setOpenMobile } = useSidebar();
   const { data: permission } = useChannelPermission(user || "");
-  const sidebarStatus = useSidebarSetupStatus(user);
-  const canAccessSongRequestOverlay = useMemo(() => {
-    if (isAuthLoading) return true;
-    return canAccessSongRequestOverlayFeature(me);
-  }, [isAuthLoading, me]);
-  const { data: consoleTokenData } = useConsoleToken(user || "");
-  const { data: channelVerifications } = useChannelVerifications(user || "", {
-    enabled: Boolean(user && canAccessSongRequestOverlay),
-  });
-  const hasApprovedVerification = (channelVerifications ?? []).some(
-    (v) => v.status === "APPROVED"
-  );
+  const canAccessSongRequestOverlay = Boolean(permission?.isOwner || permission?.manageSettings);
   const {
     data: publicSession,
     isLoading: isPublicSessionLoading,
@@ -324,10 +230,7 @@ export function ManagementSidebarContent({
     startSessionMutation.isPending ||
     updateSessionSettingsMutation.isPending ||
     endSessionMutation.isPending ||
-    (!isLiveSessionActive && !hasApprovedVerification);
-
-  const channelEmoticonEnabled = useFeatureFlag('channelEmoticonEnabled');
-  const overlayCustomCssEnabled = useFeatureFlag('overlayWidgetCustomCss');
+    !canAccessSongRequestOverlay;
 
   const handleNavigate = () => {
     if (isMobile) setOpenMobile(false);
@@ -401,17 +304,6 @@ export function ManagementSidebarContent({
   const filterByPermission = (items: ManagementMenuItem[]) => {
     if (!permission) return [];
     return items.filter((item) => {
-      if (
-        isSongRequestOverlayManagementSection(item.id) &&
-        !canAccessSongRequestOverlay
-      ) {
-        return false;
-      }
-
-      // 피처 플래그로 감춰야 하는 메뉴
-      if (item.id === "emoticons" && !channelEmoticonEnabled) {
-        return false;
-      }
       const checkFn = SECTION_PERMISSIONS[item.id];
       return checkFn ? checkFn(permission) : false;
     });
@@ -438,16 +330,11 @@ export function ManagementSidebarContent({
     const items = MANAGEMENT_MENU_ITEMS.filter(
       (item) => item.group === MANAGEMENT_GROUPS.SONG_REQUEST
     );
-    return filterByPermission(items).map((item) =>
-      item.id === "overlay-custom-css" && !overlayCustomCssEnabled
-        ? { ...item, badge: "준비중" }
-        : item,
-    );
+    return filterByPermission(items);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     canAccessSongRequestOverlay,
     permission,
-    overlayCustomCssEnabled,
   ]);
 
   const songRequestDefaultOpen = useMemo(() => {
@@ -465,7 +352,6 @@ export function ManagementSidebarContent({
   }, [
     canAccessSongRequestOverlay,
     permission,
-    channelEmoticonEnabled,
   ]);
 
   const contentDefaultOpen = useMemo(() => {
@@ -473,20 +359,6 @@ export function ManagementSidebarContent({
       (item) => activeSection === item.id || activeSection.startsWith(`${item.id}/`)
     );
   }, [activeSection, contentItems]);
-
-  const settingsItems = useMemo(() => {
-    const items = MANAGEMENT_MENU_ITEMS.filter(
-      (item) => item.group === MANAGEMENT_GROUPS.SETTINGS
-    );
-    return filterByPermission(items);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canAccessSongRequestOverlay, permission]);
-
-  const settingsDefaultOpen = useMemo(() => {
-    return settingsItems.some(
-      (item) => activeSection === item.id || activeSection.startsWith(`${item.id}/`)
-    );
-  }, [activeSection, settingsItems]);
 
   return (
     <>
@@ -507,11 +379,9 @@ export function ManagementSidebarContent({
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold text-white">신청곡 모드</p>
                 <p className="text-[11px] text-white/80 mt-0.5 leading-tight">
-                  {!hasApprovedVerification && !isLiveSessionActive
-                    ? "채널 인증을 먼저 완료해주세요"
-                    : isLiveSessionActive
-                      ? "활성 중 · 끄면 세션 종료"
-                      : "켜면 시청자가 곡을 신청할 수 있어요"}
+                  {isLiveSessionActive
+                    ? "활성 중 · 끄면 세션 종료"
+                    : "켜면 시청자가 곡을 신청할 수 있어요"}
                 </p>
               </div>
               <Switch
@@ -524,8 +394,9 @@ export function ManagementSidebarContent({
           </div>
 
           {/* 리모컨 - Secondary CTA */}
-          <button
-            onClick={() => openConsolePopup(user || "", consoleTokenData?.consoleToken)}
+          <Link
+            href={getUrlForSection("live")}
+            onClick={handleNavigate}
             className={cn(
               "w-full group flex items-center justify-center gap-2 px-3 py-3 rounded-full",
               "border-2 border-indigo-500/40 bg-indigo-500/5 text-indigo-700 dark:text-indigo-300",
@@ -533,9 +404,8 @@ export function ManagementSidebarContent({
             )}
           >
             <Gamepad2 className="size-4" />
-            <span className="text-sm">리모컨 (신청곡 콘솔)</span>
-            <ExternalLink className="size-3.5 opacity-70 ml-0.5" />
-          </button>
+            <span className="text-sm">라이브 신청곡 관리</span>
+          </Link>
         </div>
       )}
 
@@ -587,7 +457,6 @@ export function ManagementSidebarContent({
             defaultOpen={songRequestDefaultOpen}
             onNavigate={handleNavigate}
             getUrlForSection={getUrlForSection}
-            setupStatus={sidebarStatus}
           />
 
           {/* 콘텐츠 관리 */}
@@ -600,15 +469,6 @@ export function ManagementSidebarContent({
             getUrlForSection={getUrlForSection}
           />
 
-          {/* 채널 설정 */}
-          <MenuGroup
-            groupKey={MANAGEMENT_GROUPS.SETTINGS}
-            items={settingsItems}
-            activeSection={activeSection}
-            defaultOpen={settingsDefaultOpen}
-            onNavigate={handleNavigate}
-            getUrlForSection={getUrlForSection}
-          />
         </SidebarMenu>
       </div>
     </div>

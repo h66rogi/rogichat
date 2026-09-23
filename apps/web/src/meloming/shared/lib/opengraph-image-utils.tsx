@@ -27,8 +27,8 @@ export async function generateChannelOGImage(
   );
 
   const logoUrl = new URL(
-    "/logo/meloming-logo-512.png",
-    process.env.NEXT_PUBLIC_BASE_URL || "https://meloming.com"
+    "/icons/rogichat-icon.svg",
+    process.env.NEXT_PUBLIC_BASE_URL || "https://rogi.chat"
   ).toString();
 
   // 채널이 없을 때 기본 이미지
@@ -48,7 +48,7 @@ export async function generateChannelOGImage(
         >
           <img
             src={logoUrl}
-            alt="멜로밍"
+            alt="로기챗"
             style={{
               width: "180px",
               height: "180px",
@@ -66,7 +66,7 @@ export async function generateChannelOGImage(
               display: "flex",
             }}
           >
-            MELOMING
+            로기챗
           </div>
         </div>
       ),
@@ -86,8 +86,8 @@ export async function generateChannelOGImage(
 
   const themeColor = channel.themeColor || "#667eea";
   const urlPath = pathSuffix
-    ? `meloming.com/channel/${channel.webPath}/${pathSuffix}`
-    : `meloming.com/channel/${channel.webPath}`;
+    ? `rogi.chat/channel/${channel.webPath}/${pathSuffix}`
+    : `rogi.chat/channel/${channel.webPath}`;
 
   return new ImageResponse(
     (
@@ -118,7 +118,7 @@ export async function generateChannelOGImage(
           >
             <img
               src={logoUrl}
-              alt="멜로밍"
+              alt="로기챗"
               style={{
                 width: "80px",
                 height: "80px",
@@ -135,7 +135,7 @@ export async function generateChannelOGImage(
                 display: "flex",
               }}
             >
-              MELOMING
+              로기챗
             </div>
           </div>
 

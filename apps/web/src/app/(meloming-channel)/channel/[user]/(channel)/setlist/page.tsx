@@ -21,7 +21,7 @@ export async function generateMetadata(
     notFound();
   }
 
-  const siteName = "멜로밍";
+  const siteName = "로기챗";
   const tabTitle = getTabTitle("setlist");
   const title = `${channel.name} ${tabTitle}`;
   const description = `${channel.name}의 방송에서 재생됐던 곡을 세션별로 다시 볼 수 있는 셋리스트 페이지입니다.`;

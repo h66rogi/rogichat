@@ -125,14 +125,10 @@ export const TAB_CONFIG: Record<ChannelTab, TabConfig> = {
  * 탭 설정 배열
  */
 export const TAB_ITEMS: ReadonlyArray<TabConfig> = [
-  TAB_CONFIG.home,
   TAB_CONFIG.musicbook,
   TAB_CONFIG.schedule,
-  TAB_CONFIG.content,
   TAB_CONFIG.setlist,
-  TAB_CONFIG.guestbook,
   TAB_CONFIG.wardrobe,
-  TAB_CONFIG.info,
 ] as const;
 
 const DEFAULT_CHANNEL_TAB_ORDER: Record<ChannelTab, number> = {

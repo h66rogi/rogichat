@@ -41,7 +41,7 @@ export async function generateMetadata(
     notFound();
   }
 
-  const siteName = "멜로밍";
+  const siteName = "로기챗";
   const title = `${channel.name} 옷장 - ${item.title}`;
   const description = getWardrobeMetaDescription(
     item.description,
