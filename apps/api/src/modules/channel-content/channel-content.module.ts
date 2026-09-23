@@ -17,13 +17,14 @@ import { MelomingArtistsController, MelomingCategoriesController } from './melom
 import { MelomingUserController } from './meloming-user.controller.js';
 import { MelomingUserService } from './meloming-user.service.js';
 import { MelomingMusicbookSettingsService } from './meloming-musicbook-settings.service.js';
+import { MelomingCategoryService } from './meloming-category.service.js';
 
 @Module({})
 export class ChannelContentModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false): DynamicModule {
     return { module: ChannelContentModule, imports: [infrastructure,authentication],
       controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController],
-      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,
+      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,
         ...(refreshRecurring ? [RecurringScheduleRefresh] : [])] };
   }
 }

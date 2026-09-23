@@ -12,6 +12,7 @@ import { MelomingChannelService } from '../../dist/modules/channel-content/melom
 import { MelomingProfileService } from '../../dist/modules/channel-content/meloming-profile.service.js';
 import { MelomingUserService } from '../../dist/modules/channel-content/meloming-user.service.js';
 import { MelomingMusicbookSettingsService } from '../../dist/modules/channel-content/meloming-musicbook-settings.service.js';
+import { MelomingCategoryService } from '../../dist/modules/channel-content/meloming-category.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -59,6 +60,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const channel=new MelomingChannelService(db.transactions,auth,repository);
   const users=new MelomingUserService(db.transactions,auth,repository);
   const musicbookSettings=new MelomingMusicbookSettingsService(db.transactions,auth,repository);
+  const categories=new MelomingCategoryService(db.transactions,auth,repository);
   const profile=new MelomingProfileService(db.transactions,auth,repository);
   const schedule=new ChannelScheduleService(db.transactions,auth,repository);
   const songbook=new SongbookService(db.transactions,{},repository);
@@ -127,6 +129,18 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal((await musicbookSettings.copyDifficultyToProficiency({token:ownerId})).updatedCount,1);
   assert.equal((await musicbookSettings.updateSettings({token:ownerId},{useProficiencyAsPrimary:true})).useProficiencyAsPrimary,true);
   assert.equal((await musicbookSettings.getSettings()).hasExplicitUseProficiencyAsPrimary,true);
+  await assert.rejects(categories.create({token:fanId},{name:'팬 분류',color:'#ffffff'}));
+  await assert.rejects(categories.create({token:ownerId},{name:'방 송 곡',color:'#ffffff'}));
+  const addedCategory=await categories.create({token:ownerId},{name:'새 분류',color:'#112233',currencyPrices:{SOOP_BALLOON:20}});
+  assert.equal(addedCategory.channelId,1);
+  assert.equal(addedCategory.price,20);
+  const editedCategory=await categories.update({token:ownerId},addedCategory.id,{name:'변경된 분류',displayOrder:10});
+  assert.equal(editedCategory.name,'변경된 분류');
+  const swapped=await categories.swap({token:ownerId},{categoryId:copiedSong.categories[0].id,targetCategoryId:addedCategory.id});
+  assert.equal(swapped.length,2);
+  assert.notEqual(swapped[0].displayOrder,swapped[1].displayOrder);
+  assert.deepEqual(await categories.remove({token:ownerId},copiedSong.categories[0].id),{message:'카테고리가 삭제되었습니다.'});
+  assert.equal((await songbook.detail(copiedSong.id)).categories.length,0);
   assert.equal((await schedule.list({})).total,0);
   assert.equal((await schedule.listForViewer({},{})).total,0);
   assert.equal((await schedule.listForViewer({token:fanId},{})).total,0);
