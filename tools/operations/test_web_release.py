@@ -52,6 +52,17 @@ def image(r):
 
 
 class ValidationTests(unittest.TestCase):
+    def test_previous_qa_web_without_media_origin_is_valid_only_for_explicit_rollback_check(self):
+        r = request()
+        c = config(r)
+        del c['services']['web']['environment']['ROGICHAT_MEDIA_STORAGE_ORIGINS']
+        with self.assertRaises(w.Rejected):
+            w.validate_compose(c, r)
+        self.assertIs(w.validate_compose(c, r, previous_qa_without_media_origin=True), c)
+        c['services']['web']['environment']['ROGICHAT_MEDIA_STORAGE_ORIGINS'] = '["https://unapproved.example"]'
+        with self.assertRaises(w.Rejected):
+            w.validate_compose(c, r, previous_qa_without_media_origin=True)
+
     def test_valid_environments(self):
         for env in ('qa', 'production'):
             r = request(env)
