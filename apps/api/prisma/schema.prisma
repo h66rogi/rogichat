@@ -605,6 +605,23 @@ model UserSongLike {
   @@map("user_song_likes")
 }
 
+// Meloming UserChannelFavorite with UUID account/room FKs and stable numeric DTO IDs.
+model UserChannelFavorite {
+  id        Int       @id
+  userId    String    @map("user_id") @db.Char(36)
+  channelId String    @map("channel_id") @db.Char(36)
+  sortOrder Int?      @map("sort_order")
+  createdAt DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  user      users     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  channel   rooms     @relation(fields: [channelId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, channelId], map: "unique_user_channel_favorite")
+  @@index([userId, sortOrder], map: "idx_user_channel_favorites_user_sort")
+  @@index([userId, createdAt], map: "idx_user_channel_favorites_user_created")
+  @@index([channelId, createdAt], map: "idx_user_channel_favorites_channel_created")
+  @@map("user_channel_favorites")
+}
+
 model SongCategory {
   id         Int      @id
   songId     Int      @map("song_id")
@@ -725,6 +742,7 @@ model users {
   push_subscriptions    push_subscriptions[]
   channelSchedules      ChannelSchedule[]
   songLikes             UserSongLike[]
+  channelFavorites      UserChannelFavorite[]
   melomingAlias         MelomingUserAlias?
 }
 
@@ -863,6 +881,7 @@ model rooms {
   songCategories Category[]
   artists Artist[]
   songs Song[]
+  channelFavorites UserChannelFavorite[]
   channelProfile ChannelProfile?
   channelOverlayLayouts ChannelOverlayLayout[]
   songAddRequests SongAddRequest[]

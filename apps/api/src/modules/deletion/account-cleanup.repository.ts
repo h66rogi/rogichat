@@ -59,6 +59,8 @@ export class AccountCleanupRepository {
       data: { requestUserId: null, requesterNickname: '(탈퇴한 사용자)', requesterPlatformId: 'deleted', rawMessage: null } })).count;
     const likes = await tx.prisma.userSongLike.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (likes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { userId, id: { in: likes.map(row => row.id) } } })).count;
+    const favorites = await tx.prisma.userChannelFavorite.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (favorites.length) return (await tx.prisma.userChannelFavorite.deleteMany({ where: { userId, id: { in: favorites.map(row => row.id) } } })).count;
     const authored = await tx.prisma.channelSchedule.findMany({ where: { authorUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (authored.length) return (await tx.prisma.channelSchedule.deleteMany({ where: { authorUserId: userId, id: { in: authored.map(row => row.id) } } })).count;
 
@@ -69,6 +71,8 @@ export class AccountCleanupRepository {
     const room = await tx.prisma.rooms.findUnique({ where: { id: binding.room_id }, select: { owner: { select: { user_id: true } } } });
     if (room?.owner?.user_id !== userId) return 0;
     const channelId = binding.room_id;
+    const channelFavorites = await tx.prisma.userChannelFavorite.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (channelFavorites.length) return (await tx.prisma.userChannelFavorite.deleteMany({ where: { channelId, id: { in: channelFavorites.map(row => row.id) } } })).count;
     const liveRequests = await tx.prisma.songRequest.findMany({ where: { liveSession: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (liveRequests.length) return (await tx.prisma.songRequest.deleteMany({ where: { id: { in: liveRequests.map(row => row.id) } } })).count;
     const liveSessions = await tx.prisma.liveSession.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });

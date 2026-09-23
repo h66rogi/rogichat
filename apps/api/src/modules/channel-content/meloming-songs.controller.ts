@@ -3,7 +3,7 @@ import { Controller, Delete, Get, Inject, Param, Patch, Post, Req } from '@nestj
 import type { Request } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
-import { readCommandCredentials } from '../auth/auth-context.js';
+import { readCommandCredentials, readSessionCredentials } from '../auth/auth-context.js';
 import { ApiError } from '../auth/auth-primitives.js';
 import { channelDoc } from './channel-content.openapi.js';
 import { SongbookService } from './songbook.service.js';
@@ -55,13 +55,13 @@ export class MelomingSongsController {
   @Get() @channelDoc('melomingSongsList', '원본 채널 노래 목록')
   list(@Param('identifier') identifier: string, @Req() request: Request) {
     channel(identifier);
-    return this.songs.list(query(request));
+    return this.songs.list(query(request), readSessionCredentials(request, this.config));
   }
 
   @Get(':songId') @channelDoc('melomingSongDetail', '원본 채널 노래 상세')
-  detail(@Param('identifier') identifier: string, @Param('songId') songId: string) {
+  detail(@Param('identifier') identifier: string, @Param('songId') songId: string, @Req() request: Request) {
     channel(identifier);
-    return this.songs.detail(id(songId));
+    return this.songs.detail(id(songId), readSessionCredentials(request, this.config));
   }
 
   @Post() @channelDoc('melomingSongCreate', '원본 채널 노래 등록', 'write', 201)
@@ -81,5 +81,18 @@ export class MelomingSongsController {
     channel(identifier);
     await this.songs.remove(readCommandCredentials(request, this.config), id(songId));
     return { success: true };
+  }
+}
+
+@ApiTags('Songs/Meloming compatibility')
+@Controller('v1/songs/favorites/by-channel')
+export class MelomingFavoriteSongsController {
+  constructor(@Inject(SongbookService) private readonly songs: SongbookService,
+    @Inject(AUTH_CONFIG) private readonly config: AuthConfig) {}
+
+  @Get(':channelId') @channelDoc('melomingFavoriteSongsByChannel', '원본 채널 즐겨찾기 노래 목록', 'read')
+  list(@Param('channelId') value: string, @Req() request: Request) {
+    if (value !== '1') throw new ApiError('NOT_FOUND', 404);
+    return this.songs.favoriteSongsByChannel(readSessionCredentials(request, this.config), query(request));
   }
 }

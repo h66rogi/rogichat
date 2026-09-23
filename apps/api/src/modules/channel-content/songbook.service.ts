@@ -83,9 +83,10 @@ export class SongbookService {
     });
   }
 
-  list(query: Query) {
+  list(query: Query, credentials?: SessionCredentials) {
     return this.transactions.read(async tx => {
       const { roomId } = await this.repository.primary(tx);
+      const actor = credentials?.token ? await this.auth.require(tx, credentials, true) : null;
       const page = Math.max(1,Math.min(100000,query.page ?? 1)), limit = Math.max(1,Math.min(100,query.limit ?? 40));
       const where: Prisma.SongWhereInput = { channelId: roomId };
       if (query.search) {
@@ -106,16 +107,41 @@ export class SongbookService {
         : [{createdAt:desc},{id:desc}];
       const [total,rows] = await Promise.all([tx.prisma.song.count({where}),
         tx.prisma.song.findMany({where,select,orderBy,skip:(page-1)*limit,take:limit})]);
-      return { songs: rows.map(row => songResponse(row)), total, page, limit };
+      const favorites = actor && rows.length ? await tx.prisma.userSongLike.findMany({ where: { userId: actor.userId, songId: { in: rows.map(row => row.id) } }, select: { songId: true } }) : [];
+      const favoriteIds = new Set(favorites.map(row => row.songId));
+      return { songs: rows.map(row => songResponse(row, favoriteIds.has(row.id))), total, page, limit };
     });
   }
 
-  detail(id: number) {
+  detail(id: number, credentials?: SessionCredentials) {
     return this.transactions.read(async tx => {
       const { roomId } = await this.repository.primary(tx);
+      const actor = credentials?.token ? await this.auth.require(tx, credentials, true) : null;
       const row = await tx.prisma.song.findFirst({ where: { id, channelId: roomId }, select });
       if (!row) throw new ApiError('NOT_FOUND', 404);
-      return songResponse(row);
+      const favorite = actor ? await tx.prisma.userSongLike.findUnique({ where: { userId_songId: { userId: actor.userId, songId: id } }, select: { id: true } }) : null;
+      return songResponse(row, !!favorite);
+    });
+  }
+
+  favoriteSongsByChannel(credentials: SessionCredentials, query: Query) {
+    return this.transactions.read(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const { roomId } = await this.repository.primary(tx);
+      const page = Math.max(1, Math.min(100000, query.page ?? 1));
+      const limit = Math.max(1, Math.min(100, query.limit ?? 30));
+      const where: Prisma.SongWhereInput = { channelId: roomId, userLikes: { some: { userId: actor.userId } } };
+      const asc: Prisma.SortOrder = 'asc', desc: Prisma.SortOrder = 'desc';
+      const orderBy: Prisma.SongOrderByWithRelationInput[] = query.sortBy === 'oldest' ? [{ createdAt: asc }, { id: asc }]
+        : query.sortBy === 'title' ? [{ title: asc }, { id: asc }]
+        : query.sortBy === 'artist' ? [{ artist: { name: asc } }, { id: asc }]
+        : query.sortBy === 'likes_desc' ? [{ userLikes: { _count: desc } }, { id: desc }]
+        : [{ createdAt: desc }, { id: desc }];
+      const [total, rows] = await Promise.all([
+        tx.prisma.song.count({ where }),
+        tx.prisma.song.findMany({ where, select, orderBy, skip: (page - 1) * limit, take: limit }),
+      ]);
+      return { songs: rows.map(row => songResponse(row, true)), total, page, limit };
     });
   }
 

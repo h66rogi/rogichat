@@ -27,6 +27,7 @@ import { ChannelWardrobeService } from '../../dist/modules/channel-content/upstr
 import { nextChannelContentId } from '../../dist/modules/channel-content/channel-content-id.js';
 import { AccountCleanupRepository } from '../../dist/modules/deletion/account-cleanup.repository.js';
 import { MelomingUploadService } from '../../dist/modules/channel-content/meloming-upload.service.js';
+import { MelomingFavoritesService } from '../../dist/modules/channel-content/meloming-favorites.service.js';
 import { Readable } from 'node:stream';
 
 async function fixture(t) {
@@ -226,6 +227,44 @@ test('wardrobe image upload requires owner and returns a public durable image st
   assert.equal(image.contentType,'image/png');
   assert.equal(image.bytes,file.size);
   await assert.rejects(uploads.readImage('../private'));
+});
+
+test('Meloming favorite channel and song routes persist counts, status, lists and account cleanup',async t=>{
+  const {db,roomId,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const favorites=new MelomingFavoritesService(db.transactions,auth,repository);
+  const songbook=new SongbookService(db.transactions,auth,repository);
+  await db.transactions.write(async tx=>{
+    const artistId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.artist.create({data:{id:artistId,name:'가수',nameSearchable:'가수',channelId:roomId}});
+    await tx.prisma.song.create({data:{id:await nextChannelContentId(tx.prisma),title:'노래',titleSearchable:'노래',artistId,channelId:roomId}});
+  });
+  const songId=(await db.transactions.read(tx=>tx.prisma.song.findFirstOrThrow({select:{id:true}}))).id;
+  assert.deepEqual(await favorites.channelCount(1),{channelId:1,totalFavorites:0});
+  assert.equal((await favorites.toggleChannel({token:fanId},1)).isFavorite,true);
+  assert.equal((await favorites.toggleChannel({token:fanId},1,true)).isFavorite,true);
+  assert.equal((await favorites.channelStatus({token:fanId},1)).isFavorite,true);
+  assert.equal((await favorites.channels({token:fanId},{})).total,1);
+  assert.equal((await favorites.toggleSong({token:fanId},songId)).isFavorite,true);
+  assert.equal((await favorites.songStatus({token:fanId},songId)).isFavorite,true);
+  assert.equal((await favorites.songCount(songId)).totalFavorites,1);
+  assert.equal((await songbook.list({},{token:fanId})).songs[0].isFavorite,true);
+  assert.equal((await songbook.detail(songId,{token:fanId})).isFavorite,true);
+  assert.equal((await songbook.favoriteSongsByChannel({token:fanId},{})).total,1);
+  assert.equal((await favorites.songs({token:fanId},{})).favorites[0].songTitle,'노래');
+  assert.deepEqual(await favorites.stats({token:fanId}),{myChannelFavorites:1,mySongFavorites:1});
+  assert.equal((await favorites.users({token:ownerId},1,{})).total,1);
+  assert.equal((await favorites.anniversaries({token:fanId})).items.length,1);
+  assert.equal((await favorites.reorder({token:fanId},[1])).success,true);
+  assert.equal((await favorites.removeSong({token:fanId},songId)).isFavorite,false);
+  assert.equal((await songbook.favoriteSongsByChannel({token:fanId},{})).total,0);
+  assert.equal((await favorites.toggleChannel({token:fanId},1)).isFavorite,false);
+  assert.deepEqual(await favorites.stats({token:fanId}),{myChannelFavorites:0,mySongFavorites:0});
+  await favorites.toggleChannel({token:fanId},1);
+  const cleanup=new AccountCleanupRepository();
+  assert.equal(await db.transactions.write(tx=>cleanup.channelContent(tx,fanId,100)),1);
+  assert.equal((await favorites.channelCount(1)).totalFavorites,0);
 });
 
 test('copied song add request flow creates, approves, rejects and cancels against one owner room',async t=>{
