@@ -18,11 +18,14 @@ export interface ChannelFeatureConfig {
 }
 
 export const CHANNEL_FEATURES: Record<ChannelFeatureKey, ChannelFeatureConfig> = {
-  home: { key: 'home', label: '홈', segment: '', availability: 'available', description: '후로기 채널 홈' },
+  home: { key: 'home', label: '프로필', segment: '', availability: 'available', description: '후로기 채널 홈' },
   chat: { key: 'chat', label: '채팅', segment: 'chat', availability: 'available', description: '후로기의 채팅방' },
-  rules: { key: 'rules', label: '이용 안내', segment: 'rules', availability: 'available', description: '채팅 이용 안내와 개인답장 공개 범위' },
+  rules: { key: 'rules', label: '규칙·이용 안내', segment: 'rules', availability: 'available', description: '채팅 이용 안내와 개인답장 공개 범위' },
   settings: { key: 'settings', label: '내 설정', segment: 'settings', availability: 'available', description: '내 프로필, 연결, 알림, 계정' },
   schedule: { key: 'schedule', label: '일정', segment: 'schedule', availability: 'planned', description: '준비 중' },
+  wardrobe: { key: 'wardrobe', label: '옷장', segment: 'wardrobe', availability: 'planned', description: '준비 중' },
+  songbook: { key: 'songbook', label: '노래책', segment: 'songbook', availability: 'planned', description: '준비 중' },
+  support: { key: 'support', label: '후원', segment: 'support', availability: 'planned', description: '준비 중' },
 };
 
 /**
