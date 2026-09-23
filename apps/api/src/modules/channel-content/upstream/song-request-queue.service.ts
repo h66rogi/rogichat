@@ -6,6 +6,7 @@ import { nextChannelContentId } from '../channel-content-id.js';
 import { ChannelSongRequestSettingsService } from './channel-song-request-settings.service.js';
 import { mergeEffectiveSongRequestSettings } from './effective-song-request-settings.js';
 import { songRequestWithSongSelect } from './song-request.selections.js';
+import { SongPricingService } from './song-pricing/song-pricing.service.js';
 
 type RequestData = {
   songId?: number; rawArtist: string; rawTitle: string; rawMessage?: string;
@@ -99,10 +100,12 @@ export class SongRequestQueueService {
         orderBy:{queueOrder:'desc'},select:{queueOrder:true}});
       nextOrder = lastRequest ? lastRequest.queueOrder + 1 : 1;
     }
+    const price=matchedSongId?await new SongPricingService(this.prisma).calculatePrice(matchedSongId,this.channelId):null;
     const createdRequest = await this.prisma.songRequest.create({ data: {
       id:await nextChannelContentId(this.prisma),liveSessionId,songId:matchedSongId ?? null,
       rawArtist,rawTitle,rawMessage:rawMessage ?? null,requesterPlatformId,requesterNickname,
       source:SongRequestSource.MANUAL,requestType,priority:0,queueOrder:nextOrder,
+      calculatedPrice:price?.price??null,priceSource:price?.source??'FREE',
       requestUserId:requestData.requestUserId ?? null,isAnonymous:requestData.isAnonymous ?? false,
     },select:songRequestWithSongSelect });
     await this.prisma.liveSession.update({where:{id:liveSessionId},data:{playbackRevision:{increment:1}}});

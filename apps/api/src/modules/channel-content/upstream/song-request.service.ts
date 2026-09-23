@@ -3,6 +3,7 @@ import type { Prisma } from '../../../generated/prisma/client.js';
 import { ApiError } from '../../auth/auth-primitives.js';
 import { songRequestWithSongSelect } from './song-request.selections.js';
 import { SongRequestQueueService } from './song-request-queue.service.js';
+import { SongPricingService } from './song-pricing/song-pricing.service.js';
 
 type RequestRow = Prisma.SongRequestGetPayload<{select:typeof songRequestWithSongSelect}>;
 
@@ -14,6 +15,9 @@ export class SongRequestService {
   }
 
   private async project(request:RequestRow) {
+    const pricing=new SongPricingService(this.prisma);
+    const pricingData=pricing.extractPricingData(await pricing.getPricingSettings(this.channelId));
+    const currencyKey=pricing.resolveCurrencyKey('SOOP',pricingData.currencyConfigs,[pricingData.defaultPrices]);
     const alias = request.requestUserId ? await this.prisma.melomingUserAlias.findUnique({
       where:{userId:request.requestUserId},select:{id:true} }) : null;
     return { id:request.id,liveSessionId:request.liveSessionId,songId:request.songId,
@@ -24,7 +28,8 @@ export class SongRequestService {
       requestType:request.requestType,donationAmount:request.donationAmount,
       donationNativeAmount:request.donationNativeAmount,donationCurrency:request.donationCurrency,
       priority:request.priority,queueOrder:request.queueOrder,calculatedPrice:request.calculatedPrice,
-      priceSource:request.priceSource,formattedPrice:request.calculatedPrice == null ? '무료' : `${request.calculatedPrice.toLocaleString()}원`,
+      priceSource:request.priceSource,formattedPrice:request.calculatedPrice == null ? '무료' :
+        pricing.formatCalculatedPrice(request.calculatedPrice,'SOOP',pricingData.currencyConfigs,currencyKey),
       playedAt:request.playedAt?.toISOString() ?? null,completedAt:request.completedAt?.toISOString() ?? null,
       rejectionReason:request.rejectionReason,createdAt:request.createdAt.toISOString(),updatedAt:request.updatedAt.toISOString(),
       song:request.song ? { ...request.song,categories:await this.prisma.songCategory.findMany({

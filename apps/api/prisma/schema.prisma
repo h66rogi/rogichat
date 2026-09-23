@@ -250,6 +250,22 @@ model ChannelProfile {
   @@map("channel_profiles")
 }
 
+/// Copied from Meloming ChannelPricingSettings. The channel key maps to the
+/// owner-bound Rogichat room while the pricing JSON keeps the original shape.
+model ChannelPricingSettings {
+  id               Int      @id
+  channelId        String   @unique @map("channel_id") @db.Char(36)
+  defaultPrice     Int?     @map("default_price")
+  difficultyPrices Json?    @map("difficulty_prices")
+  pricingEnabled   Boolean  @default(false) @map("pricing_enabled")
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  channel rooms @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_pricing_settings")
+}
+
 model ChannelSchedule {
   id                  Int                       @id
   channelId           String                    @map("channel_id") @db.Char(36)
@@ -899,6 +915,7 @@ model rooms {
   songs Song[]
   channelFavorites UserChannelFavorite[]
   channelProfile ChannelProfile?
+  pricingSettings ChannelPricingSettings?
   channelOverlayLayouts ChannelOverlayLayout[]
   songAddRequests SongAddRequest[]
   liveSessions LiveSession[]

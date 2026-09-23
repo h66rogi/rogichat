@@ -41,6 +41,8 @@ import { SongSuggestService } from './upstream/song-suggest.service.js';
 import { SongAutocompleteService } from './upstream/song-autocomplete.service.js';
 import { MelomingMrVideoController, MelomingMrVideoReadController } from './meloming-mr-video.controller.js';
 import { MelomingMrVideoService } from './meloming-mr-video.service.js';
+import { MelomingPricingController } from './meloming-pricing.controller.js';
+import { MelomingPricingService } from './meloming-pricing.service.js';
 import { MelomingSongLiveGateway } from './meloming-song-live.gateway.js';
 import { MediaStorageModule } from '../media/media-storage.module.js';
 import type { MediaOptions } from '../media/media.module.js';
@@ -50,8 +52,8 @@ import type { MediaSettings } from '../../infrastructure/config/runtime-settings
 export class ChannelContentModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false, media?: MediaOptions | MediaSettings): DynamicModule {
     return { module: ChannelContentModule, imports: [infrastructure,authentication,...(media ? [MediaStorageModule.register(media)] : [])],
-      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingCalendarController,MelomingProfileController,MelomingSongsController,MelomingFavoriteSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingFavoritesController,MelomingSongAddRequestController,MelomingSetlistController,MelomingSongRequestSettingsController,MelomingLiveSessionController,MelomingLiveSongRequestController,MelomingManualSongRequestController,...(media ? [MelomingUploadController,MelomingSheetMusicController,MelomingSheetMusicReadController,MelomingMrVideoController,MelomingMrVideoReadController] : [])],
-      providers: [ChannelContentRepository,ChannelScheduleService,MelomingCalendarService,WardrobeService,SongbookService,SongSuggestService,SongAutocompleteService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingFavoritesService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,MelomingSetlistService,MelomingSongRequestSettingsService,MelomingSongLiveGateway,MelomingLiveSessionService,MelomingLiveSongRequestService,...(media ? [MelomingUploadService,MelomingSheetMusicService,MelomingMrVideoService] : []),
+      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingCalendarController,MelomingProfileController,MelomingSongsController,MelomingFavoriteSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingFavoritesController,MelomingSongAddRequestController,MelomingSetlistController,MelomingSongRequestSettingsController,MelomingPricingController,MelomingLiveSessionController,MelomingLiveSongRequestController,MelomingManualSongRequestController,...(media ? [MelomingUploadController,MelomingSheetMusicController,MelomingSheetMusicReadController,MelomingMrVideoController,MelomingMrVideoReadController] : [])],
+      providers: [ChannelContentRepository,ChannelScheduleService,MelomingCalendarService,WardrobeService,SongbookService,SongSuggestService,SongAutocompleteService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingFavoritesService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,MelomingSetlistService,MelomingSongRequestSettingsService,MelomingPricingService,MelomingSongLiveGateway,MelomingLiveSessionService,MelomingLiveSongRequestService,...(media ? [MelomingUploadService,MelomingSheetMusicService,MelomingMrVideoService] : []),
         ...(refreshRecurring ? [RecurringScheduleRefresh] : [])] };
   }
 }

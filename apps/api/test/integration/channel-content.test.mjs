@@ -32,6 +32,7 @@ import { MelomingSheetMusicService } from '../../dist/modules/channel-content/me
 import { SongSuggestService } from '../../dist/modules/channel-content/upstream/song-suggest.service.js';
 import { SongAutocompleteService } from '../../dist/modules/channel-content/upstream/song-autocomplete.service.js';
 import { MelomingMrVideoService } from '../../dist/modules/channel-content/meloming-mr-video.service.js';
+import { MelomingPricingService } from '../../dist/modules/channel-content/meloming-pricing.service.js';
 import { Readable } from 'node:stream';
 
 async function fixture(t) {
@@ -597,4 +598,38 @@ test('anonymous web requests use channel permission and server-generated identit
   assert.equal(created.rawTitle,'익명 테스트 곡');
   await settings.update({token:ownerId},{requestMode:'VERIFIED_ONLY'});
   await assert.rejects(requests.create({},body,'anon_second_client'));
+});
+
+test('copied Meloming pricing settings calculate category and song prices for live requests',async t=>{
+  const {db,roomId,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const pricing=new MelomingPricingService(db.transactions,auth,repository);
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
+  const {songId,categoryId}=await db.transactions.write(async tx=>{
+    const artistId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.artist.create({data:{id:artistId,name:'가격 가수',nameSearchable:'가격가수',channelId:roomId}});
+    const categoryId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.category.create({data:{id:categoryId,name:'가격 분류',color:'#ffffff',channelId:roomId}});
+    const songId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.song.create({data:{id:songId,title:'가격 곡',titleSearchable:'가격곡',artistId,channelId:roomId,difficulty:2}});
+    await tx.prisma.songCategory.create({data:{id:await nextChannelContentId(tx.prisma),songId,categoryId}});
+    return {songId,categoryId};
+  });
+  assert.equal((await pricing.get()).pricingEnabled,false);
+  await assert.rejects(pricing.update({token:fanId},{pricingEnabled:true}));
+  const settings=await pricing.update({token:ownerId},{pricingEnabled:true,defaultPrice:10,
+    difficultyPrices:{'2':20},currencyConfigs:[{key:'SOOP_BALLOON',unit:'별풍선'}]});
+  assert.equal(settings.pricingEnabled,true);
+  assert.equal((await pricing.songPrice(songId)).price,20);
+  assert.equal((await pricing.updateItem({token:ownerId},categoryId,'category',{price:30})).price,30);
+  assert.equal((await pricing.songPrice(songId)).price,30);
+  assert.equal((await pricing.updateItem({token:ownerId},songId,'song',{price:40})).price,40);
+  assert.equal((await pricing.songPrice(songId)).formattedPrice,'40별풍선');
+  assert.equal((await pricing.calculate({songIds:[songId]}))[0].source,'SONG');
+  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const created=await requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:''});
+  assert.equal(created.calculatedPrice,40);
+  assert.equal(created.formattedPrice,'40별풍선');
 });
