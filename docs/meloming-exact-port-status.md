@@ -5,7 +5,7 @@
 ## 원본과 복사 범위
 
 - 프론트: `meloming-front` `f8907f37e73d0b760eac3c5af2beb48714331c83`의 684개 소스 파일. `apps/web/src/meloming/`에 원본 디렉터리 구조대로 복사했다. import 별칭 `@/`를 `@/meloming/`으로 바꿨다. 한 파일의 CSS 클래스 변수 `tokenClass`는 공개 저장소 비밀값 검사에서 오탐되어 `badgeClass`로 이름만 바꿨다.
-- 백엔드: `meloming-back` `a91393b2362ca8462328c6553f7fbe4b6703c6e1`의 관련 모듈 456개 파일과 Prisma 스키마 원본 1개를 `apps/api/meloming-source/`에 바이트 그대로 복사했다. 이 디렉터리는 아직 실행 코드에 연결되지 않았다.
+- 백엔드: `meloming-back` `a91393b2362ca8462328c6553f7fbe4b6703c6e1`의 관련 모듈 456개 파일과 Prisma 스키마 원본 1개를 `references/meloming-back/`에 바이트 그대로 복사했다. 이 디렉터리는 아직 실행 코드에 연결되지 않았다.
 - 공개 에셋: 원본에서 실제 참조하는 프로필 외 공통 이미지·폰트 5개를 바이트 그대로 복사했다. 원본 저장소에 없는 폰트 경로는 생성하지 않았다.
 - 파일별 SHA-256과 기준 커밋은 `docs/meloming-source-manifest.tsv`에 기록했다. `python3 tools/check_meloming_copy.py`는 위 두 이름 변경을 역치환한 프론트 소스와 백엔드 스냅샷의 원본 해시를 검증한다.
 

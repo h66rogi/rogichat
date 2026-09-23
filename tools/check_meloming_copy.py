@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / 'docs/meloming-source-manifest.tsv'
 FRONTEND = ROOT / 'apps/web/src/meloming'
-BACKEND = ROOT / 'apps/api/meloming-source'
+BACKEND = ROOT / 'references/meloming-back'
 ASSETS = ROOT / 'apps/web/public'
 TEXT_SUFFIXES = {'.ts', '.tsx', '.js', '.jsx', '.css'}
 CSS_CLASS_ALIAS_FILE = 'domains/channel/components/musicbook/song-request-price-pills.tsx'

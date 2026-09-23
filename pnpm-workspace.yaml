@@ -15,6 +15,12 @@ allowBuilds:
   # Reviewed: CLI Node compatibility check and pinned schema-engine download only.
   prisma@7.10.0: true
   '@prisma/engines@7.10.0': true
+  # Original Meloming frontend dependencies: these install scripts are not
+  # needed for the copied browser code or its verified production build.
+  core-js@2.6.12: false
+  core-js@3.50.0: false
+  esbuild@0.17.19: false
+  gl@9.0.0-rc.10: false
   '*': false
   '@scarf/scarf@1.4.0': false # Swagger UI install telemetry is unnecessary.
 
