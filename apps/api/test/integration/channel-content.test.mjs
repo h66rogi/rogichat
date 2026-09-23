@@ -34,6 +34,7 @@ import { SongAutocompleteService } from '../../dist/modules/channel-content/upst
 import { MelomingMrVideoService } from '../../dist/modules/channel-content/meloming-mr-video.service.js';
 import { MelomingPricingService } from '../../dist/modules/channel-content/meloming-pricing.service.js';
 import { MelomingOmakaseService } from '../../dist/modules/channel-content/meloming-omakase.service.js';
+import { SongAlbumArtService } from '../../dist/modules/channel-content/upstream/song-album-art.service.js';
 import { Readable } from 'node:stream';
 
 async function fixture(t) {
@@ -667,4 +668,21 @@ test('copied Omakase settings, balance journal and manual song selection share o
   assert.deepEqual(history.map(row=>row.type),['CONSUME_PLAY_NOW','MANUAL_DECREMENT','MANUAL_SET']);
   assert.equal(history[0].actorUserId,(await db.transactions.read(tx=>tx.prisma.melomingUserAlias.findUnique({where:{userId:ownerId}}))).id);
   assert.equal((await omakase.get({token:ownerId})).count,0);
+});
+
+test('copied album art search resolves exact and bulk song matches from channel song rows',async t=>{
+  const {db,roomId}=await fixture(t);
+  await db.transactions.write(async tx=>{
+    const artistId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.artist.create({data:{id:artistId,name:'앨범 가수',nameSearchable:'앨범가수',channelId:roomId}});
+    await tx.prisma.song.create({data:{id:await nextChannelContentId(tx.prisma),title:'앨범 노래',
+      titleSearchable:'앨범노래',artistId,channelId:roomId,albumArt:'https://example.org/cover.png'}});
+  });
+  const result=await db.transactions.read(tx=>new SongAlbumArtService(tx.prisma).searchAlbumArtFromDB('앨범 노래','앨범 가수'));
+  assert.equal(result.result.matchType,'exact');
+  assert.equal(result.result.albumArt,'https://example.org/cover.png');
+  const bulk=await db.transactions.read(tx=>new SongAlbumArtService(tx.prisma).bulkSearchAlbumArtFromDB([
+    {title:'앨범 노래',artist:'앨범 가수'},{title:'없는 노래',artist:'없는 가수'}]));
+  assert.equal(bulk.successCount,1);
+  assert.equal(bulk.failCount,1);
 });
