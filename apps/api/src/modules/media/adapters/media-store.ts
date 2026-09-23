@@ -34,7 +34,7 @@ export function readMediaConfig(environment: string, env: NodeJS.ProcessEnv = pr
 const id = '[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}';
 export function mediaKey(prefix: string, assetId: string, attemptId: string, variant: string): string {
   const key = `${prefix}/${assetId}/${attemptId}/${variant}`;
-  if (!new RegExp(`^(local|test|qa|production)/${id}/${id}/(input|image|video|poster)$`).test(key)) throw new Error('invalid_media_key');
+  if (!new RegExp(`^(local|test|qa|production)/${id}/${id}/(input|image|video|poster|sheet)$`).test(key)) throw new Error('invalid_media_key');
   return key;
 }
 export class R2MediaStore implements MediaStore {
@@ -54,7 +54,7 @@ export class R2MediaStore implements MediaStore {
   }
   async put(key: string, path: string, bytes: number, contentType: string, signal: AbortSignal): Promise<void> {
     if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > 52 * 1024 * 1024 ||
-      !['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime', 'application/octet-stream'].includes(contentType)) throw new Error('invalid_media_put');
+      !['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime', 'application/octet-stream', 'application/pdf', 'application/vnd.recordare.musicxml+xml'].includes(contentType)) throw new Error('invalid_media_put');
     const file = statSync(path);
     if (!file.isFile() || file.size !== bytes) throw new Error('invalid_media_put');
     const stream = createReadStream(path, { highWaterMark: 64 * 1024 });

@@ -28,6 +28,7 @@ import { nextChannelContentId } from '../../dist/modules/channel-content/channel
 import { AccountCleanupRepository } from '../../dist/modules/deletion/account-cleanup.repository.js';
 import { MelomingUploadService } from '../../dist/modules/channel-content/meloming-upload.service.js';
 import { MelomingFavoritesService } from '../../dist/modules/channel-content/meloming-favorites.service.js';
+import { MelomingSheetMusicService } from '../../dist/modules/channel-content/meloming-sheet-music.service.js';
 import { Readable } from 'node:stream';
 
 async function fixture(t) {
@@ -239,6 +240,44 @@ test('Meloming manual and Excel song registration creates categories and skips d
   assert.deepEqual(await songs.bulkDelete({token:ownerId},{ids:[manual.id,9999]}),{success:true,deletedCount:1,deletedClipIds:[]});
   await assert.rejects(songs.detail(manual.id));
   assert.equal((await songs.list({})).total,1);
+});
+
+test('copied sheet-music rules store validated files, replace MusicXML and reorder slots',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const songs=new SongbookService(db.transactions,auth,repository);
+  const song=await songs.create({token:ownerId},{title:'악보곡',artistName:'악보가수',categoryNames:['연습']});
+  const objects=new Map();
+  const store={
+    put:async(key,path,bytes,type)=>{const buffer=await readFile(path);assert.equal(buffer.length,bytes);objects.set(key,{buffer,type});},
+    read:async key=>{const value=objects.get(key);if(!value) throw new Error('missing');return {stream:Readable.from(value.buffer),bytes:value.buffer.length};},
+    remove:async key=>{objects.delete(key);},
+  };
+  const sheets=new MelomingSheetMusicService(db.transactions,auth,repository,store,'qa');
+  const pdf={buffer:Buffer.from('%PDF-1.4\n1 0 obj\n'),size:19,mimetype:'application/pdf',originalname:'first.pdf'};
+  pdf.size=pdf.buffer.length;
+  await assert.rejects(sheets.append({token:fanId},song.id,pdf));
+  await assert.rejects(sheets.append({token:ownerId},song.id,{...pdf,buffer:Buffer.from('not a PDF'),size:9}));
+  const first=await sheets.append({token:ownerId},song.id,pdf);
+  assert.equal(first.type,'PDF');
+  assert.equal(first.sortOrder,0);
+  const second=await sheets.append({token:ownerId},song.id,{...pdf,originalname:'second.pdf'});
+  assert.equal(second.sortOrder,1);
+  assert.equal((await sheets.list({token:ownerId},song.id)).length,2);
+  assert.equal((await sheets.read(first.url.split('/').at(-1))).contentType,'application/pdf');
+  assert.deepEqual((await sheets.reorder({token:ownerId},song.id,{orderedIds:[second.id,first.id]})).map(slot=>slot.id),[second.id,first.id]);
+  const xml=Buffer.from('<?xml version="1.0"?><score-partwise version="4.0"></score-partwise>');
+  const music={buffer:xml,size:xml.length,mimetype:'application/xml',originalname:'score.musicxml'};
+  const third=await sheets.append({token:ownerId},song.id,music);
+  await sheets.append({token:ownerId},song.id,music);
+  assert.equal((await sheets.list({token:ownerId},song.id)).filter(slot=>slot.type==='MUSICXML').length,1);
+  assert.equal(objects.size,3);
+  assert.equal((await songs.detail(song.id,{token:ownerId})).sheetMusics.length,3);
+  assert.equal((await songs.detail(song.id)).sheetMusics,undefined);
+  await assert.rejects(sheets.remove({token:ownerId},song.id,third.id));
+  assert.deepEqual(await sheets.remove({token:ownerId},song.id),{deleted:true});
+  assert.equal(objects.size,0);
 });
 
 test('wardrobe image upload requires owner and returns a public durable image stream',async t=>{

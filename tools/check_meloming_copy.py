@@ -16,6 +16,8 @@ MANIFEST = ROOT / 'docs/meloming-source-manifest.tsv'
 ADAPTATIONS = ROOT / 'docs/meloming-adaptations.tsv'
 FRONTEND = ROOT / 'apps/web/src/meloming'
 BACKEND = ROOT / 'references/meloming-back'
+QA_BACKEND = ROOT / 'references/meloming-back-qa'
+QA_MANIFEST = ROOT / 'docs/meloming-qa-source-manifest.tsv'
 ASSETS = ROOT / 'apps/web/public'
 FRONTEND_ROUTES = ROOT / 'apps/web/src/app/(meloming-channel)/channel/[user]'
 SOURCE_ROUTES = FRONTEND / 'app/(default)/channel/[user]'
@@ -63,6 +65,22 @@ def main() -> None:
         adaptations[relative] = expected_hash
     verify_files(FRONTEND, manifest['frontend'], namespace=True, adaptations=adaptations)
     verify_files(BACKEND, manifest['backend'])
+    qa_hashes = {}
+    for line in QA_MANIFEST.read_text().splitlines():
+        if line.startswith('#'):
+            continue
+        expected_hash, relative = line.split('\t', 1)
+        qa_hashes[relative] = expected_hash
+    verify_files(QA_BACKEND, qa_hashes)
+    mime_source = QA_BACKEND / 'src/upload/utils/sheet-music-mime.ts'
+    mime_runtime = ROOT / 'apps/api/src/modules/channel-content/upstream/sheet-music/sheet-music-mime.ts'
+    assert mime_source.read_bytes() == mime_runtime.read_bytes(), 'Copied sheet-music MIME logic diverged'
+    mxl_source = (QA_BACKEND / 'src/upload/utils/mxl-extractor.ts').read_bytes()
+    mxl_expected = mxl_source.replace(b"from './sheet-music-mime'", b"from './sheet-music-mime.js'").replace(
+        b"import { Readable } from 'stream';", b"import type { Readable } from 'stream';").replace(
+        b'candidates.sort((a, b) => b.size - a.size)[0];', b'candidates.sort((a, b) => b.size - a.size)[0]!;')
+    mxl_runtime = ROOT / 'apps/api/src/modules/channel-content/upstream/sheet-music/mxl-extractor.ts'
+    assert mxl_expected == mxl_runtime.read_bytes(), 'Copied MXL extraction logic diverged'
     routes = [path for path in FRONTEND_ROUTES.rglob('*') if path.is_file()]
     for path in routes:
         source = SOURCE_ROUTES / path.relative_to(FRONTEND_ROUTES)
@@ -70,7 +88,7 @@ def main() -> None:
     for relative, expected_hash in manifest['assets'].items():
         path = ASSETS / relative
         assert digest(path.read_bytes()) == expected_hash, f'Copied asset diverged: {path}'
-    print(f"Verified {len(manifest['frontend'])} frontend files ({len(adaptations)} adapted), {len(manifest['backend'])} backend files, {len(routes)} mounted routes, and {len(manifest['assets'])} assets.")
+    print(f"Verified {len(manifest['frontend'])} frontend files ({len(adaptations)} adapted), {len(manifest['backend'])} backend files, {len(qa_hashes)} QA sheet-music sources, {len(routes)} mounted routes, and {len(manifest['assets'])} assets.")
 
 
 if __name__ == '__main__':

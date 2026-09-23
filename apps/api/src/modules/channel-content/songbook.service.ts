@@ -16,9 +16,11 @@ type Query = { page?: number; limit?: number; search?: string; sortBy?: string;
   categoryIds?: number[]; artistIds?: number[]; difficulties?: number[]; proficiencies?: number[] };
 
 const select = { id: true, title: true, artistId: true, channelId: true, albumArt: true,
-  karaokeUrl: true, coverUrl: true, originalUrl: true, difficulty: true, proficiency: true,
-  songKey: true, bpm: true, lyricsLink: true, description: true, price: true,
+  karaokeUrl: true, coverUrl: true, originalUrl: true, mrVideoUrl:true, mrVideoKey:true, globalSongId:true,
+  difficulty: true, proficiency: true,
+  songKey: true, bpm: true, lyricsLink: true, lyricsText:true, description: true, price: true,
   currencyPrices: true, createdAt: true,
+  sheetMusics:{select:{id:true,url:true,type:true,fileName:true,fileSize:true,sortOrder:true},orderBy:[{sortOrder:'asc'},{createdAt:'asc'},{id:'asc'}]},
   artist: { select: { id: true, name: true, channelId: true, createdAt: true } },
   songCategories: { select: { id: true, songId: true, categoryId: true,
     category: { select: { id: true, name: true, color: true, price: true, currencyPrices: true,
@@ -27,15 +29,16 @@ const select = { id: true, title: true, artistId: true, channelId: true, albumAr
 } satisfies Prisma.SongSelect;
 type SongRow = Prisma.SongGetPayload<{ select: typeof select }>;
 
-function songResponse(song: SongRow, favorite = false) {
+function songResponse(song: SongRow, favorite = false, manager = false) {
   const categories = song.songCategories.map(sc => ({ id: sc.category.id, name: sc.category.name,
     color: sc.category.color, price: sc.category.price, currencyPrices: sc.category.currencyPrices,
     channelId: 1, createdAt: sc.category.createdAt?.toISOString() ?? '', displayOrder: sc.category.displayOrder }));
   categories.sort((a,b) => (b.displayOrder ?? -Infinity)-(a.displayOrder ?? -Infinity) || a.name.localeCompare(b.name,'ko'));
   return { id: song.id, title: song.title, artistId: song.artistId, channelId: 1,
     albumArt: song.albumArt ?? '', karaokeUrl: song.karaokeUrl ?? '', coverUrl: song.coverUrl,
-    originalUrl: song.originalUrl, difficulty: song.difficulty ?? 1, proficiency: song.proficiency,
-    songKey: song.songKey ?? '', bpm: song.bpm, lyricsLink: song.lyricsLink,
+    originalUrl: song.originalUrl, mrVideoUrl:song.mrVideoUrl, mrVideoKey:song.mrVideoKey,
+    globalSongId:song.globalSongId, difficulty: song.difficulty ?? 1, proficiency: song.proficiency,
+    songKey: song.songKey ?? '', bpm: song.bpm, lyricsLink: song.lyricsLink, lyricsText:song.lyricsText,
     description: song.description, price: song.price, currencyPrices: song.currencyPrices,
     createdAt: song.createdAt?.toISOString() ?? '',
     artist: { id: song.artist.id, name: song.artist.name, channelId: 1, createdAt: song.artist.createdAt?.toISOString() ?? '' },
@@ -43,7 +46,8 @@ function songResponse(song: SongRow, favorite = false) {
       category: categories.find(c => c.id === sc.categoryId)! })),
     channel: { id: 1, name: '후로기', webPath: 'hurogi', themeColor: '#ff8c9d', profileImageUrl: '/images/hurogi-profile.png',
       user: {id:1,nickname:'후로기'} },
-    totalFavorites: song._count.userLikes, categories, isFavorite: favorite };
+    totalFavorites: song._count.userLikes, categories, isFavorite: favorite,
+    ...(manager ? {sheetMusics:song.sheetMusics,sheetMusicUrl:song.sheetMusics[0]?.url ?? null,sheetMusicType:song.sheetMusics[0]?.type ?? null} : {}) };
 }
 
 function parseSong(value: unknown, create: boolean) {
@@ -114,7 +118,7 @@ export class SongbookService {
 
   list(query: Query, credentials?: SessionCredentials) {
     return this.transactions.read(async tx => {
-      const { roomId } = await this.repository.primary(tx);
+      const { roomId, ownerId } = await this.repository.primary(tx);
       const actor = credentials?.token ? await this.auth.require(tx, credentials, true) : null;
       const page = Math.max(1,Math.min(100000,query.page ?? 1)), limit = Math.max(1,Math.min(100,query.limit ?? 40));
       const where: Prisma.SongWhereInput = { channelId: roomId };
@@ -138,18 +142,18 @@ export class SongbookService {
         tx.prisma.song.findMany({where,select,orderBy,skip:(page-1)*limit,take:limit})]);
       const favorites = actor && rows.length ? await tx.prisma.userSongLike.findMany({ where: { userId: actor.userId, songId: { in: rows.map(row => row.id) } }, select: { songId: true } }) : [];
       const favoriteIds = new Set(favorites.map(row => row.songId));
-      return { songs: rows.map(row => songResponse(row, favoriteIds.has(row.id))), total, page, limit };
+      return { songs: rows.map(row => songResponse(row, favoriteIds.has(row.id), actor?.userId === ownerId)), total, page, limit };
     });
   }
 
   detail(id: number, credentials?: SessionCredentials) {
     return this.transactions.read(async tx => {
-      const { roomId } = await this.repository.primary(tx);
+      const { roomId, ownerId } = await this.repository.primary(tx);
       const actor = credentials?.token ? await this.auth.require(tx, credentials, true) : null;
       const row = await tx.prisma.song.findFirst({ where: { id, channelId: roomId }, select });
       if (!row) throw new ApiError('NOT_FOUND', 404);
       const favorite = actor ? await tx.prisma.userSongLike.findUnique({ where: { userId_songId: { userId: actor.userId, songId: id } }, select: { id: true } }) : null;
-      return songResponse(row, !!favorite);
+      return songResponse(row, !!favorite, actor?.userId === ownerId);
     });
   }
 
