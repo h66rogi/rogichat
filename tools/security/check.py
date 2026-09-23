@@ -34,6 +34,15 @@ REVIEWED_FONTS = {
     "apps/web/public/fonts/NanumSquareNeoTTF-dEb.woff2": "f27c0741248dba9a543520ff27eb32f9433de3ca50ac7ba4ccb5f5ede673c535",
     "apps/web/public/fonts/NanumSquareNeoTTF-eHv.woff2": "090b017020c0b5a8fd517460c5dfdf33819b726e1c860313c75bf0624162242d",
 }
+REVIEWED_TTF = {
+    "apps/web/public/fonts/Paperlogy-4Regular.ttf": "05e1021e3de620dddc97875342e2be1a94c5f8e9b9f792bd16c4c1d0085343b3",
+    "apps/web/public/fonts/Paperlogy-7Bold.ttf": "7effb892621474e9c2a9112f482eb87dd25b65a470e5ae5971be5a68d89ad89b",
+}
+REVIEWED_PNG = {
+    "apps/web/public/static/chzzk-square.png": "88c73a21da0cffa4025dec1e188e23a799c70dc101ace0343acf70a99d8e01cd",
+    "apps/web/public/static/cime_square.png": "ca2e7277480266f58427f46f0cd367afb13349e30130a9c767dd539eacf552be",
+    "apps/web/public/static/soop-square.png": "ca183b75de8233df7172f689d827f9c148d0c0e7321e85103bd6d64355b0b1c6",
+}
 SSH_REGEX = r"(?:ssh-(?:rsa|ed25519|dss)(?:-cert-v01@openssh\.com)?|ecdsa-sha2-nistp(?:256|384|521)(?:-cert-v01@openssh\.com)?|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/]{20,}={0,3}"
 PUBLIC_REGEX = r"(?:-----BEGIN (?:RSA |EC )?PUBLIC KEY-----|---- BEGIN SSH2 PUBLIC KEY ----)\r?\n"
 KEY_PATH = r"(^|/)access/qa/keys/[a-z0-9_-]+\.pub$"
@@ -101,6 +110,28 @@ def inspect_blob(name, data):
                 compressed_size == 0 or 48 + compressed_size > len(data)):
             blocked("reviewed font structure is invalid")
         return
+    if not PRIVATE_OPS and name in REVIEWED_TTF:
+        if hashlib.sha256(data).hexdigest() != REVIEWED_TTF[name]:
+            blocked("font differs from reviewed upstream artifact")
+        if len(data) < 28 or data[:4] != b"\x00\x01\x00\x00":
+            blocked("reviewed TrueType font header is invalid")
+        table_count = struct.unpack(">H", data[4:6])[0]
+        if not 1 <= table_count <= 64 or 12 + table_count * 16 > len(data):
+            blocked("reviewed TrueType font table count is invalid")
+        tags = set()
+        for offset in range(12, 12 + table_count * 16, 16):
+            tag, _, start, size = struct.unpack(">4sIII", data[offset:offset + 16])
+            if tag in tags or start < 12 + table_count * 16 or start + size > len(data):
+                blocked("reviewed TrueType font table is invalid")
+            tags.add(tag)
+        return
+    if not PRIVATE_OPS and name in REVIEWED_PNG:
+        if hashlib.sha256(data).hexdigest() != REVIEWED_PNG[name]:
+            blocked("image differs from reviewed upstream artifact")
+        # The source icons contain only EXIF image dimensions or a Figma
+        # software tag. They are exact-hash pinned and structurally checked.
+        inspect_png(data, reviewed_metadata=True)
+        return
     if is_archive(data):
         blocked("archive content is forbidden in source")
     # NUL-bearing unknown binaries cannot be silently skipped by text scanners.
@@ -132,7 +163,7 @@ def inspect_blob(name, data):
                 blocked("operational Terraform document")
 
 
-def inspect_png(data):
+def inspect_png(data, reviewed_metadata=False):
     import struct
     import zlib
     offset, chunks = 8, []
@@ -140,8 +171,15 @@ def inspect_png(data):
         size = struct.unpack(">I", data[offset:offset + 4])[0]
         kind = data[offset + 4:offset + 8]
         end = offset + size + 12
-        if end > len(data) or kind not in {b"IHDR", b"IDAT", b"IEND", b"PLTE", b"tRNS", b"sRGB", b"gAMA", b"cHRM", b"pHYs"}:
+        safe_chunks = {b"IHDR", b"IDAT", b"IEND", b"PLTE", b"tRNS", b"sRGB", b"gAMA", b"cHRM", b"pHYs"}
+        if reviewed_metadata:
+            safe_chunks.update({b"eXIf", b"tEXt"})
+        if end > len(data) or kind not in safe_chunks:
             blocked("unreviewed or malformed PNG payload")
+        if kind == b"eXIf" and (size != 68 or data[offset + 8:offset + 12] != b"MM\x00*"):
+            blocked("reviewed PNG EXIF payload is invalid")
+        if kind == b"tEXt" and data[offset + 8:end - 4] != b"Software\x00Figma":
+            blocked("reviewed PNG text payload is invalid")
         fixed_sizes = {b"IHDR": 13, b"IEND": 0, b"sRGB": 1, b"gAMA": 4, b"cHRM": 32, b"pHYs": 9}
         if kind in fixed_sizes and size != fixed_sizes[kind]:
             blocked("invalid PNG chunk size")
