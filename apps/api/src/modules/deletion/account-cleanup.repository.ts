@@ -47,6 +47,41 @@ export class AccountCleanupRepository {
     return changed;
   }
 
+  /** Drain Meloming channel data introduced into Rogichat before account closure. */
+  async channelContent(tx: Transaction, userId: string, limit: number) {
+    const likes = await tx.prisma.userSongLike.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (likes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { userId, id: { in: likes.map(row => row.id) } } })).count;
+    const authored = await tx.prisma.channelSchedule.findMany({ where: { authorUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (authored.length) return (await tx.prisma.channelSchedule.deleteMany({ where: { authorUserId: userId, id: { in: authored.map(row => row.id) } } })).count;
+
+    // This feature writes only to the primary room. Its owner-bound content is
+    // removed when that owner closes the account; another user's room is safe.
+    const binding = await tx.prisma.default_room_bindings.findUnique({ where: { key: 'primary' }, select: { room_id: true } });
+    if (!binding) return 0;
+    const room = await tx.prisma.rooms.findUnique({ where: { id: binding.room_id }, select: { owner: { select: { user_id: true } } } });
+    if (room?.owner?.user_id !== userId) return 0;
+    const channelId = binding.room_id;
+    const songLikes = await tx.prisma.userSongLike.findMany({ where: { song: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songLikes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { id: { in: songLikes.map(row => row.id) } } })).count;
+    const songCategories = await tx.prisma.songCategory.findMany({ where: { song: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songCategories.length) return (await tx.prisma.songCategory.deleteMany({ where: { id: { in: songCategories.map(row => row.id) } } })).count;
+    const songs = await tx.prisma.song.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songs.length) return (await tx.prisma.song.deleteMany({ where: { channelId, id: { in: songs.map(row => row.id) } } })).count;
+    const artists = await tx.prisma.artist.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (artists.length) return (await tx.prisma.artist.deleteMany({ where: { channelId, id: { in: artists.map(row => row.id) } } })).count;
+    const categories = await tx.prisma.category.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (categories.length) return (await tx.prisma.category.deleteMany({ where: { channelId, id: { in: categories.map(row => row.id) } } })).count;
+    const items = await tx.prisma.channelWardrobeItem.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (items.length) return (await tx.prisma.channelWardrobeItem.deleteMany({ where: { channelId, id: { in: items.map(row => row.id) } } })).count;
+    const wardrobeCategories = await tx.prisma.channelWardrobeCategory.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (wardrobeCategories.length) return (await tx.prisma.channelWardrobeCategory.deleteMany({ where: { channelId, id: { in: wardrobeCategories.map(row => row.id) } } })).count;
+    const schedules = await tx.prisma.channelSchedule.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (schedules.length) return (await tx.prisma.channelSchedule.deleteMany({ where: { channelId, id: { in: schedules.map(row => row.id) } } })).count;
+    const recurring = await tx.prisma.channelRecurringSchedule.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (recurring.length) return (await tx.prisma.channelRecurringSchedule.deleteMany({ where: { channelId, id: { in: recurring.map(row => row.id) } } })).count;
+    return 0;
+  }
+
   async memberPage(tx: Transaction, userId: string, limit: number) {
     // Retained, fully drained UUID rows must not starve later rooms. This is one
     // account-scoped existence query, not a materialized scan of every room.

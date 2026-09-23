@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, CalendarDays, Gift, Home, Info, MessageSquareText, Settings, Shirt, type LucideIcon } from 'lucide-react';
+import { BookOpen, CalendarDays, Home, Info, MessageSquareText, Settings, Shirt, type LucideIcon } from 'lucide-react';
 
 import { cn } from '@/shared/lib/cn';
 import type { ChannelDescriptor, ChannelFeatureKey } from '../model/channel-descriptor';
@@ -23,7 +23,6 @@ const FEATURE_ICONS: Record<ChannelFeatureKey, LucideIcon> = {
   schedule: CalendarDays,
   wardrobe: Shirt,
   songbook: BookOpen,
-  support: Gift,
 };
 
 export function ChannelMenu({ channel, onNavigate }: { channel: ChannelDescriptor; onNavigate?: () => void }) {

@@ -101,6 +101,207 @@ enum PublicationState {
   REVOKED
 }
 
+// Ported from meloming-back a91393b2 prisma/schema.prisma. The source Channel/User
+// integer keys map to Rogichat's primary room and UUID users; content fields,
+// statuses and table names retain Meloming's channel data contract.
+enum ScheduleVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum ScheduleStatus {
+  LIVE   @map("live")
+  COLLAB @map("collab")
+  OFF    @map("off")
+  ETC    @map("etc")
+  TBD    @map("tbd")
+}
+
+enum RecurringScheduleStatus {
+  LIVE @map("live")
+  OFF  @map("off")
+}
+
+model ChannelSchedule {
+  id                  Int                       @id
+  channelId           String                    @map("channel_id") @db.Char(36)
+  authorUserId        String                    @map("author_user_id") @db.Char(36)
+  recurringScheduleId Int?                      @map("recurring_schedule_id")
+  title               String                    @db.VarChar(100)
+  content             String?                   @db.Text
+  startAt             DateTime                  @map("start_at") @db.DateTime(0)
+  endAt               DateTime?                 @map("end_at") @db.DateTime(0)
+  allDay              Boolean                   @default(false) @map("all_day")
+  isCanceled          Boolean                   @default(false) @map("is_canceled")
+  status              ScheduleStatus            @default(TBD)
+  visibility          ScheduleVisibility        @default(PUBLIC)
+  location            String?                   @db.VarChar(255)
+  externalUrl         String?                   @map("external_url") @db.VarChar(500)
+  isDeleted           Boolean                   @default(false) @map("is_deleted")
+  deletedAt           DateTime?                 @map("deleted_at") @db.DateTime(0)
+  createdAt           DateTime                  @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt           DateTime                  @updatedAt @map("updated_at") @db.DateTime(0)
+  channel             rooms                     @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  author              users                     @relation(fields: [authorUserId], references: [id], onDelete: Restrict)
+  recurringSchedule   ChannelRecurringSchedule? @relation(fields: [recurringScheduleId], references: [id], onDelete: SetNull)
+
+  @@index([channelId, startAt], map: "idx_channel_schedule_channel_start")
+  @@index([authorUserId, startAt], map: "idx_channel_schedule_author_start")
+  @@index([isDeleted], map: "idx_channel_schedule_is_deleted")
+  @@index([recurringScheduleId], map: "idx_channel_schedule_recurring")
+  @@map("channel_schedules")
+}
+
+model ChannelRecurringSchedule {
+  id        Int                     @id
+  channelId String                  @map("channel_id") @db.Char(36)
+  dayOfWeek Int                     @map("day_of_week")
+  title     String                  @db.VarChar(100)
+  startTime String?                 @map("start_time") @db.VarChar(5)
+  status    RecurringScheduleStatus @default(LIVE)
+  isActive  Boolean                 @default(true) @map("is_active")
+  createdAt DateTime                @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt DateTime                @updatedAt @map("updated_at") @db.DateTime(0)
+  channel   rooms                   @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  schedules ChannelSchedule[]
+
+  @@unique([channelId, dayOfWeek])
+  @@map("channel_recurring_schedules")
+}
+
+model ChannelWardrobeCategory {
+  id                 Int      @id
+  channelId          String   @map("channel_id") @db.Char(36)
+  name               String   @db.VarChar(40)
+  defaultAspectRatio String   @default("1:1") @map("default_aspect_ratio") @db.VarChar(8)
+  isEnabled          Boolean  @default(true) @map("is_enabled")
+  sortOrder          Int      @default(0) @map("sort_order")
+  createdAt          DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  channel            rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  items              ChannelWardrobeItem[]
+
+  @@index([channelId, sortOrder], map: "idx_channel_wardrobe_categories_channel_order")
+  @@map("channel_wardrobe_categories")
+}
+
+model ChannelWardrobeItem {
+  id          Int      @id
+  channelId   String   @map("channel_id") @db.Char(36)
+  categoryId  Int      @map("category_id")
+  title       String   @db.VarChar(40)
+  imageUrl    String   @map("image_url") @db.Text
+  description String?  @db.Text
+  tags        Json?
+  isVisible   Boolean  @default(true) @map("is_visible")
+  sortOrder   Int      @default(0) @map("sort_order")
+  createdAt   DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  channel     rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  category    ChannelWardrobeCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([channelId, sortOrder], map: "idx_channel_wardrobe_items_channel_order")
+  @@index([categoryId, sortOrder], map: "idx_channel_wardrobe_items_category_order")
+  @@map("channel_wardrobe_items")
+}
+
+model Category {
+  id             Int      @id
+  name           String   @db.VarChar(255)
+  color          String   @db.VarChar(32)
+  channelId      String   @map("channel_id") @db.Char(36)
+  displayOrder   Int?     @map("display_order")
+  price          Int?
+  currencyPrices Json?    @map("currency_prices")
+  createdAt      DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  channel        rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  songCategories SongCategory[]
+
+  @@index([channelId], map: "idx_categories_channel_id")
+  @@index([channelId, displayOrder], map: "idx_categories_channel_display_order")
+  @@map("categories")
+}
+
+model Artist {
+  id             Int      @id
+  name           String   @db.VarChar(255)
+  nameSearchable String   @default("") @map("name_searchable") @db.VarChar(255)
+  channelId      String   @map("channel_id") @db.Char(36)
+  createdAt      DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  channel        rooms    @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  songs          Song[]
+
+  @@index([channelId], map: "idx_artists_channel_id")
+  @@index([nameSearchable], map: "idx_artists_name_searchable")
+  @@map("artists")
+}
+
+model Song {
+  id                      Int     @id
+  title                   String  @db.VarChar(255)
+  titleSearchable         String  @default("") @map("title_searchable") @db.VarChar(255)
+  artistId                Int     @map("artist_id")
+  channelId               String  @map("channel_id") @db.Char(36)
+  albumArt                String? @map("album_art") @db.Text
+  karaokeUrl              String? @map("karaoke_url") @db.Text
+  coverUrl                String? @map("cover_url") @db.Text
+  originalUrl             String? @map("original_url") @db.Text
+  difficulty              Int?    @default(1)
+  proficiency             Int?
+  songKey                 String? @map("song_key") @db.VarChar(40)
+  bpm                     Int?
+  lyricsLink              String? @map("lyrics_link") @db.Text
+  lyricsText              String? @map("lyrics_text") @db.Text
+  description             String? @db.Text
+  price                   Int?
+  currencyPrices          Json?   @map("currency_prices")
+  createdAt               DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  channel                 rooms   @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  artist                  Artist  @relation(fields: [artistId], references: [id], onDelete: Restrict)
+  songCategories          SongCategory[]
+  userLikes               UserSongLike[]
+
+  @@index([channelId], map: "idx_songs_channel_id")
+  @@index([artistId], map: "idx_songs_artist_id")
+  @@index([titleSearchable], map: "idx_songs_title_searchable")
+  @@map("songs")
+}
+
+model UserSongLike {
+  id        Int      @id
+  userId    String   @map("user_id") @db.Char(36)
+  songId    Int      @map("song_id")
+  createdAt DateTime? @default(now()) @map("created_at") @db.DateTime(0)
+  user      users    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  song      Song     @relation(fields: [songId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, songId], map: "unique_user_song_like")
+  @@index([userId, createdAt], map: "idx_user_song_likes_user_created")
+  @@index([songId, createdAt], map: "idx_user_song_likes_song_created")
+  @@map("user_song_likes")
+}
+
+model SongCategory {
+  id         Int      @id
+  songId     Int      @map("song_id")
+  categoryId Int      @map("category_id")
+  song       Song     @relation(fields: [songId], references: [id], onDelete: Restrict)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@unique([songId, categoryId])
+  @@index([categoryId], map: "idx_song_categories_category_id")
+  @@index([songId], map: "idx_song_categories_song_id")
+  @@map("song_categories")
+}
+
+/** Serialized integer IDs preserve Meloming DTOs without AUTO_INCREMENT. */
+model ChannelContentCounter {
+  key   String @id @db.VarChar(32)
+  value Int
+
+  @@map("channel_content_counters")
+}
+
 model users {
   id                    String     @id @db.Char(36)
   status                UserStatus @default(ACTIVE)
@@ -125,6 +326,8 @@ model users {
   sticker_audit         sticker_audit_events[]
   notification_preferences notification_preferences?
   push_subscriptions    push_subscriptions[]
+  channelSchedules      ChannelSchedule[]
+  songLikes             UserSongLike[]
 }
 
 model user_profiles {
@@ -254,6 +457,13 @@ model rooms {
   jobs            jobs[]
   media           media_assets[]
   media_policy    room_media_policy?
+  channelSchedules ChannelSchedule[]
+  recurringSchedules ChannelRecurringSchedule[]
+  wardrobeCategories ChannelWardrobeCategory[]
+  wardrobeItems ChannelWardrobeItem[]
+  songCategories Category[]
+  artists Artist[]
+  songs Song[]
 }
 
 model room_counters {

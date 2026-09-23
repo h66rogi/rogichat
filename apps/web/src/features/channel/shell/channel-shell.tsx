@@ -51,7 +51,7 @@ export function ChannelShell({ channel, children }: { channel: ChannelDescriptor
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                 <span>로기챗</span>
                 <Link href={channelHref('rules')} className="hover:text-ink hover:underline">
-                  이용 안내
+                  규칙
                 </Link>
               </div>
             </footer>

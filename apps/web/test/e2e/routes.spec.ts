@@ -31,7 +31,7 @@ test.describe('public routes', () => {
 
   test('/rules is public content', async ({ page }) => {
     await page.goto('/rules');
-    await expect(page.getByRole('heading', { level: 1, name: '이용 안내' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: '규칙' })).toBeVisible();
     await expect(page.getByText('개인답장이 공개될 수 있어요')).toBeVisible();
   });
 

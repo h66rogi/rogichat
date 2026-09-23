@@ -11,7 +11,7 @@ import { ReadStateCoreService } from '../read-state/read-state-core.service.js';
 import { AccountCleanupRepository } from './account-cleanup.repository.js';
 import { DeletionLedger, deletionIntentKey } from './deletion-ledger.js';
 
-export type AccountCleanupPhase = 'private-fields' | 'moderation' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'profile-changes' | 'content' | 'media' | 'media-usage' | 'auth' | 'provider-revocation' | 'subset-drained';
+export type AccountCleanupPhase = 'private-fields' | 'channel-content' | 'moderation' | 'read-state' | 'membership' | 'reactions' | 'grants' | 'periods' | 'push' | 'sessions' | 'profile-changes' | 'content' | 'media' | 'media-usage' | 'auth' | 'provider-revocation' | 'subset-drained';
 export interface AccountCleanupResult { phase: AccountCleanupPhase; changed: number; hasMore: boolean }
 
 /** Internal bounded ACCOUNT step composed by the durable PURGE worker. */
@@ -46,6 +46,8 @@ export class AccountCleanupService {
     const userId = receipt.intent.targetId;
     const privateFields = await this.repository.privateFields(tx, userId);
     if (privateFields) return { phase: 'private-fields', changed: privateFields, hasMore: true };
+    const channelContent = await this.repository.channelContent(tx, userId, limit);
+    if (channelContent) return { phase: 'channel-content', changed: channelContent, hasMore: true };
     const moderation = await this.moderation.clearForAccount(tx, userId, limit);
     if (moderation.changed || !moderation.done) return { phase: 'moderation', changed: moderation.changed, hasMore: true };
     const read = await this.readState.purgeAccount(tx, userId, limit);
