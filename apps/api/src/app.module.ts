@@ -25,6 +25,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { PushTransportModule } from './modules/notifications/push-module.js';
 import type { PushConfig } from './modules/notifications/push-transport.js';
 import { DefaultRoomModule } from './modules/owner-bootstrap/default-room.module.js';
+import { ChannelContentModule } from './modules/channel-content/channel-content.module.js';
 
 // Tests override providers through the same feature graph used by production.
 @Module({})
@@ -35,15 +36,15 @@ export class AppModule {
   }
   static production(settings: RuntimeSettings): DynamicModule {
     const infrastructure = DatabaseModule.register({ config: settings.config });
-    const app = this.compose(infrastructure, settings.auth ? { config: settings.auth } : undefined, settings.media, settings.push, settings.deletion);
+    const app = this.compose(infrastructure, settings.auth ? { config: settings.auth } : undefined, settings.media, settings.push, settings.deletion, true);
     return { ...app, imports: [...(app.imports ?? []), ...(settings.auth ? [DefaultRoomModule.register(infrastructure, settings.auth)] : [])] };
   }
-  private static compose(infrastructure: DynamicModule, auth?: AuthModuleOptions, media?: MediaOptions | MediaSettings, push?: PushConfig, deletion?: DeletionOptions): DynamicModule {
+  private static compose(infrastructure: DynamicModule, auth?: AuthModuleOptions, media?: MediaOptions | MediaSettings, push?: PushConfig, deletion?: DeletionOptions, refreshRecurring = false): DynamicModule {
     const authentication = auth ? AuthModule.register(infrastructure, auth) : undefined;
     const transport = PushTransportModule.register(push ?? { audience: auth?.config.audience ?? 'rogi-test', vapid: null });
     return {
       module: AppModule,
-      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, AdminModule.register(infrastructure, authentication), ModerationModule.register(infrastructure, authentication), ReadStateModule.register(infrastructure, authentication), NotificationsModule.register(infrastructure, authentication, transport), AccountDeletionModule.register(infrastructure, authentication, deletion), MessagesModule.register(infrastructure, authentication, deletion), UsersModule.register(infrastructure, authentication), RoomsModule.register(infrastructure, authentication), SyncModule.register(infrastructure, authentication), ReactionsModule.register(infrastructure, authentication), PublicationsModule.register(infrastructure, authentication), RealtimeModule.register(infrastructure, authentication, true), ...(media ? [MediaModule.register(infrastructure, authentication, media)] : [])] : [])],
+      imports: [infrastructure, HealthModule.register(infrastructure), ...(authentication ? [authentication, ChannelContentModule.register(infrastructure, authentication, refreshRecurring), AdminModule.register(infrastructure, authentication), ModerationModule.register(infrastructure, authentication), ReadStateModule.register(infrastructure, authentication), NotificationsModule.register(infrastructure, authentication, transport), AccountDeletionModule.register(infrastructure, authentication, deletion), MessagesModule.register(infrastructure, authentication, deletion), UsersModule.register(infrastructure, authentication), RoomsModule.register(infrastructure, authentication), SyncModule.register(infrastructure, authentication), ReactionsModule.register(infrastructure, authentication), PublicationsModule.register(infrastructure, authentication), RealtimeModule.register(infrastructure, authentication, true), ...(media ? [MediaModule.register(infrastructure, authentication, media)] : [])] : [])],
     };
   }
 }

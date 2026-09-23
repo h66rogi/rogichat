@@ -1,6 +1,6 @@
 import type { Role } from '../config/config.js';
 
-type Event = 'started' | 'startup_failed' | 'readiness_changed' | 'request' | 'shutdown_started' |
+type Event = 'started' | 'startup_failed' | 'readiness_changed' | 'request' | 'channel_schedule_refresh_failed' | 'shutdown_started' |
   'shutdown_complete' | 'shutdown_failed' | 'shutdown_timeout' | 'process_fault' | 'request_failed';
 type Reason = 'configuration' | 'dependency' | 'runtime' | 'database_unavailable' | 'schema_mismatch' | 'ready' | 'draining' |
   'database_admission' | 'database_acquisition' | 'database_statement_timeout' | 'transaction_timeout';

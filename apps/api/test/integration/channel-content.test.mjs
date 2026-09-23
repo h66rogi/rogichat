@@ -1,0 +1,96 @@
+import 'reflect-metadata';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
+import { createConnection } from 'mysql2/promise';
+import { readConfig } from '../../dist/infrastructure/config/config.js';
+import { PrismaDatabase } from '../../dist/infrastructure/database/database.js';
+import { migrationManifest } from '../../dist/infrastructure/database/schema-manifest.js';
+import { ChannelContentRepository } from '../../dist/modules/channel-content/channel-content.repository.js';
+import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
+import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
+import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
+import { ChannelWardrobeService } from '../../dist/modules/channel-content/upstream/channel-wardrobe.service.js';
+import { nextChannelContentId } from '../../dist/modules/channel-content/channel-content-id.js';
+import { AccountCleanupRepository } from '../../dist/modules/deletion/account-cleanup.repository.js';
+
+async function fixture(t) {
+  assert.equal(process.env.ROGICHAT_TEST_MYSQL,'disposable');
+  const url=new URL(process.env.TEST_ADMIN_URL);
+  const original=url.pathname.slice(1),schema=`channel_${randomBytes(8).toString('hex')}`;
+  assert.match(original,/^rogichat_test_[a-f0-9]+$/);
+  const admin=await createConnection({host:url.hostname,port:Number(url.port||3306),user:decodeURIComponent(url.username),
+    password:decodeURIComponent(url.password),database:original,multipleStatements:true});
+  const runtimeUser=`channel_${randomBytes(8).toString('hex')}`,runtimePassword=randomBytes(24).toString('hex');
+  let db;
+  t.after(async()=>{await db?.close();await admin.query(`DROP DATABASE IF EXISTS \`${schema}\``);
+    await admin.query("DROP USER IF EXISTS ?@'%'",[runtimeUser]);await admin.end();});
+  await admin.query(`CREATE DATABASE \`${schema}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`);
+  await admin.query(`USE \`${schema}\``);
+  for(const migration of migrationManifest) await admin.query(await readFile(new URL(`../../prisma/migrations/${migration.name}/migration.sql`,import.meta.url),'utf8'));
+  await admin.query(`CREATE TABLE _prisma_migrations LIKE \`${original}\`._prisma_migrations`);
+  await admin.query(`INSERT INTO _prisma_migrations SELECT * FROM \`${original}\`._prisma_migrations`);
+  await admin.query("CREATE USER ?@'%' IDENTIFIED BY ?",[runtimeUser,runtimePassword]);
+  await admin.query(`GRANT SELECT,INSERT,UPDATE,DELETE ON \`${schema}\`.* TO ?@'%'`,[runtimeUser]);
+  url.pathname=`/${schema}`;url.username=runtimeUser;url.password=runtimePassword;
+  db=new PrismaDatabase(readConfig('worker',{...process.env,DATABASE_URL:url.href,DB_POOL_SIZE:'2'}));
+  const roomId=randomUUID(),ownerId=randomUUID(),fanId=randomUUID(),memberId=randomUUID();
+  await db.transactions.write(async tx=>{
+    await tx.prisma.users.create({data:{id:ownerId,profile:{create:{nickname:'소유자'}}}});
+    await tx.prisma.users.create({data:{id:fanId,profile:{create:{nickname:'팬'}}}});
+    await tx.prisma.rooms.create({data:{id:roomId,name:'후로기',mode:'FAN'}});
+    await tx.prisma.room_members.create({data:{id:memberId,room_id:roomId,user_id:ownerId,role:'STREAMER'}});
+    await tx.prisma.rooms.update({where:{id:roomId},data:{owner_member_id:memberId}});
+    await tx.prisma.default_room_bindings.create({data:{key:'primary',room_id:roomId,owner_bound:true}});
+    await tx.prisma.creator_accounts.create({data:{user_id:ownerId,enabled:true}});
+  });
+  return {db,roomId,ownerId,fanId};
+}
+
+test('ported channel schema serves empty content, persists wardrobe/songbook, generates recurring dates and purges account data',async t=>{
+  const {db,roomId,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const schedule=new ChannelScheduleService(db.transactions,{},repository);
+  const songbook=new SongbookService(db.transactions,{},repository);
+  const recurring=new RecurringScheduleService(db.transactions,{},repository);
+  const allocated=await Promise.all(Array.from({length:8},()=>db.transactions.write(tx=>nextChannelContentId(tx.prisma))));
+  assert.equal(new Set(allocated).size,8);
+  assert.equal((await schedule.list({})).total,0);
+  assert.equal((await songbook.list({})).total,0);
+  const first=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
+  assert.deepEqual(first.categories.map(row=>row.name),['의상','헤어']);
+  assert.equal(first.items.length,0);
+  await db.transactions.write(async tx=>{
+    const wardrobe=new ChannelWardrobeService(tx.prisma);
+    await wardrobe.createItem(roomId,{title:'검증 의상',imageUrl:'https://example.org/outfit.png',categoryId:first.categories[0].id,tags:['검증']});
+    const artistId=await nextChannelContentId(tx.prisma),categoryId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.artist.create({data:{id:artistId,name:'가 수',nameSearchable:'가수',channelId:roomId}});
+    await tx.prisma.category.create({data:{id:categoryId,name:'방송곡',color:'#ff0000',channelId:roomId}});
+    const songId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.song.create({data:{id:songId,title:'테 스트 노래',titleSearchable:'테스트노래',artistId,channelId:roomId}});
+    await tx.prisma.songCategory.create({data:{id:await nextChannelContentId(tx.prisma),songId,categoryId}});
+    await tx.prisma.userSongLike.create({data:{id:await nextChannelContentId(tx.prisma),userId:fanId,songId}});
+    await tx.prisma.channelSchedule.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,authorUserId:ownerId,title:'비공개',startAt:new Date(),visibility:'PRIVATE'}});
+    await tx.prisma.channelRecurringSchedule.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,dayOfWeek:new Date(Date.now()+86400000+9*3600000).getUTCDay(),title:'정기 방송',startTime:'20:00',status:'LIVE'}});
+  });
+  const publicWardrobe=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
+  assert.equal(publicWardrobe.items[0].title,'검증 의상');
+  assert.equal((await songbook.list({search:'테스트'})).total,1);
+  assert.equal((await songbook.list({search:'가수'})).total,1);
+  assert.equal((await schedule.list({})).total,0);
+  await recurring.refreshUpcoming();
+  const generated=await schedule.list({limit:100});
+  assert.ok(generated.total>=4);
+  await recurring.refreshUpcoming();
+  assert.equal((await schedule.list({limit:100})).total,generated.total);
+  const cleanup=new AccountCleanupRepository();
+  assert.equal(await db.transactions.write(tx=>cleanup.channelContent(tx,fanId,100)),1);
+  assert.equal(await db.transactions.read(tx=>tx.prisma.userSongLike.count()),0);
+  for(let page=0;page<30;page++){
+    const changed=await db.transactions.write(tx=>cleanup.channelContent(tx,ownerId,100));
+    if(!changed)break;
+  }
+  const remaining=await db.transactions.read(async tx=>({songs:await tx.prisma.song.count(),schedules:await tx.prisma.channelSchedule.count(),items:await tx.prisma.channelWardrobeItem.count()}));
+  assert.deepEqual(remaining,{songs:0,schedules:0,items:0});
+});
