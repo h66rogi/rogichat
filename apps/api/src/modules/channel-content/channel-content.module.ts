@@ -19,13 +19,15 @@ import { MelomingUserService } from './meloming-user.service.js';
 import { MelomingMusicbookSettingsService } from './meloming-musicbook-settings.service.js';
 import { MelomingCategoryService } from './meloming-category.service.js';
 import { MelomingArtistService } from './meloming-artist.service.js';
+import { MelomingSongAddRequestController } from './meloming-song-add-request.controller.js';
+import { MelomingSongAddRequestService } from './meloming-song-add-request.service.js';
 
 @Module({})
 export class ChannelContentModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false): DynamicModule {
     return { module: ChannelContentModule, imports: [infrastructure,authentication],
-      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController],
-      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,
+      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingSongAddRequestController],
+      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,
         ...(refreshRecurring ? [RecurringScheduleRefresh] : [])] };
   }
 }

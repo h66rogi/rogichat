@@ -14,6 +14,7 @@ import { MelomingUserService } from '../../dist/modules/channel-content/meloming
 import { MelomingMusicbookSettingsService } from '../../dist/modules/channel-content/meloming-musicbook-settings.service.js';
 import { MelomingCategoryService } from '../../dist/modules/channel-content/meloming-category.service.js';
 import { MelomingArtistService } from '../../dist/modules/channel-content/meloming-artist.service.js';
+import { MelomingSongAddRequestService } from '../../dist/modules/channel-content/meloming-song-add-request.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -176,4 +177,35 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.deepEqual(remaining,{songs:0,schedules:0,items:0,profiles:0,layouts:0});
   await db.transactions.write(tx=>cleanup.privateFields(tx,ownerId));
   assert.equal(await db.transactions.read(tx=>tx.prisma.melomingUserAlias.count({where:{userId:ownerId}})),0);
+});
+
+test('copied song add request flow creates, approves, rejects and cancels against one owner room',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const requests=new MelomingSongAddRequestService(db.transactions,auth,repository);
+  assert.deepEqual(await requests.permission({token:fanId}),{channelId:1,hasPermission:false,canRequestSong:true});
+  assert.deepEqual(await requests.permission({token:ownerId}),{channelId:1,hasPermission:true,canRequestSong:false});
+  const input={channelId:1,title:'테스트 노래',artistName:'새 가수',categoryNames:['발라드','재즈']};
+  const created=await requests.create({token:fanId},input);
+  assert.equal(created.status,'PENDING');
+  assert.equal(created.requester.nickname,'팬');
+  assert.equal(created.channel.id,1);
+  await assert.rejects(requests.create({token:fanId},input));
+  assert.equal((await requests.my({token:fanId},{})).items.length,1);
+  assert.equal((await requests.channelRequests({token:ownerId},{})).pendingCount,1);
+  await assert.rejects(requests.approve({token:fanId},created.id,{}));
+  const approved=await requests.approve({token:ownerId},created.id,{});
+  assert.equal(approved.status,'APPROVED');
+  assert.ok(approved.approvedSong?.id);
+  assert.equal(approved.processedBy.nickname,'소유자');
+  assert.equal(await db.transactions.read(tx=>tx.prisma.song.count()),1);
+  assert.equal(await db.transactions.read(tx=>tx.prisma.category.count()),2);
+  await assert.rejects(requests.approve({token:ownerId},created.id,{}));
+  const rejected=await requests.create({token:fanId},{channelId:1,title:'거절 노래',artistName:'가수'});
+  assert.equal((await requests.reject({token:ownerId},rejected.id,{reason:'중복'})).status,'REJECTED');
+  const canceled=await requests.create({token:fanId},{channelId:1,title:'취소 노래',artistName:'가수'});
+  await assert.rejects(requests.cancel({token:ownerId},canceled.id));
+  assert.equal((await requests.cancel({token:fanId},canceled.id)).status,'CANCELED');
+  assert.equal((await requests.my({token:fanId},{status:'PENDING'})).items.length,0);
 });
