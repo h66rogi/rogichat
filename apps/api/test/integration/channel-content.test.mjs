@@ -101,6 +101,12 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const publicWardrobe=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
   assert.equal(publicWardrobe.items[0].title,'검증 의상');
   assert.equal((await songbook.list({search:'테스트'})).total,1);
+  const copiedSong=(await songbook.list({search:'테스트'})).songs[0];
+  assert.equal(copiedSong.channelId,1);
+  assert.equal(copiedSong.artist.channelId,1);
+  assert.equal(copiedSong.categories[0].channelId,1);
+  assert.equal((await songbook.detail(copiedSong.id)).title,'테 스트 노래');
+  await assert.rejects(songbook.detail(copiedSong.id+1000));
   assert.deepEqual((await channel.detail())._count,{songs:1,artists:1,categories:1});
   assert.equal((await songbook.list({search:'가수'})).total,1);
   assert.equal((await schedule.list({})).total,0);

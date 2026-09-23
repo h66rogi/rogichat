@@ -26,19 +26,19 @@ type SongRow = Prisma.SongGetPayload<{ select: typeof select }>;
 function songResponse(song: SongRow, favorite = false) {
   const categories = song.songCategories.map(sc => ({ id: sc.category.id, name: sc.category.name,
     color: sc.category.color, price: sc.category.price, currencyPrices: sc.category.currencyPrices,
-    channelId: 'hurogi', createdAt: sc.category.createdAt?.toISOString() ?? '', displayOrder: sc.category.displayOrder }));
+    channelId: 1, createdAt: sc.category.createdAt?.toISOString() ?? '', displayOrder: sc.category.displayOrder }));
   categories.sort((a,b) => (b.displayOrder ?? -Infinity)-(a.displayOrder ?? -Infinity) || a.name.localeCompare(b.name,'ko'));
-  return { id: song.id, title: song.title, artistId: song.artistId, channelId: 'hurogi',
+  return { id: song.id, title: song.title, artistId: song.artistId, channelId: 1,
     albumArt: song.albumArt ?? '', karaokeUrl: song.karaokeUrl ?? '', coverUrl: song.coverUrl,
     originalUrl: song.originalUrl, difficulty: song.difficulty ?? 1, proficiency: song.proficiency,
     songKey: song.songKey ?? '', bpm: song.bpm, lyricsLink: song.lyricsLink,
     description: song.description, price: song.price, currencyPrices: song.currencyPrices,
     createdAt: song.createdAt?.toISOString() ?? '',
-    artist: { id: song.artist.id, name: song.artist.name, channelId: 'hurogi', createdAt: song.artist.createdAt?.toISOString() ?? '' },
+    artist: { id: song.artist.id, name: song.artist.name, channelId: 1, createdAt: song.artist.createdAt?.toISOString() ?? '' },
     songCategories: song.songCategories.map(sc => ({ id: sc.id, songId: sc.songId, categoryId: sc.categoryId,
       category: categories.find(c => c.id === sc.categoryId)! })),
-    channel: { id: 'hurogi', name: '후로기', webPath: 'hurogi', themeColor: '#ff8c9d', profileImageUrl: null,
-      user: {id:'hurogi',nickname:'후로기'} },
+    channel: { id: 1, name: '후로기', webPath: 'hurogi', themeColor: '#ff8c9d', profileImageUrl: '/images/hurogi-profile.png',
+      user: {id:1,nickname:'후로기'} },
     totalFavorites: song._count.userLikes, categories, isFavorite: favorite };
 }
 
@@ -107,6 +107,15 @@ export class SongbookService {
       const [total,rows] = await Promise.all([tx.prisma.song.count({where}),
         tx.prisma.song.findMany({where,select,orderBy,skip:(page-1)*limit,take:limit})]);
       return { songs: rows.map(row => songResponse(row)), total, page, limit };
+    });
+  }
+
+  detail(id: number) {
+    return this.transactions.read(async tx => {
+      const { roomId } = await this.repository.primary(tx);
+      const row = await tx.prisma.song.findFirst({ where: { id, channelId: roomId }, select });
+      if (!row) throw new ApiError('NOT_FOUND', 404);
+      return songResponse(row);
     });
   }
 
