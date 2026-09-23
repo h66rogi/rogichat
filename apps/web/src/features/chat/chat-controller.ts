@@ -97,6 +97,7 @@ export class ChatController {
   private readonly retainMemory: boolean;
   private get dead() { return this.disposed || this.lease !== this.memory.lease; }
   private flight: Promise<void> | null = null;
+  private refreshPending = false;
   private messages: ServerMessage[] = [];
   private eventCursor: string | null = null;
   private historyCursor: string | null = null;
@@ -112,6 +113,8 @@ export class ChatController {
   private accountPartition: string | undefined;
   private sessionBinding: string | undefined;
   private sending = false;
+  private sendSettled: Promise<void> = Promise.resolve();
+  private resolveSend: (() => void) | null = null;
   private deleting = false;
   private reactionFlights = new Set<string>();
   private reactionCooldown = 0;
@@ -150,6 +153,7 @@ export class ChatController {
     this.reactionFlights = new Set(); this.reactionCooldown = 0;
     this.messages = []; this.tombstones.clear(); this.scope = null; this.projectionGeneration++; this.eventCursor = null; this.historyCursor = null;
     this.manifestGeneration = null; this.profileGeneration = null; this.recipientBinding = null;
+    this.refreshPending = false;
     if (forgetAttempts) this.memory.clearAll(); else if (!preserveComposer) this.memory.clearComposer();
     this.publish({ ...initial(), epoch: this.memory.epoch });
   }
@@ -158,7 +162,7 @@ export class ChatController {
     if (status === 403 || status === 404) { this.memory.scrubAccess(); this.clear(false, true); }
     else this.clear(status === 401, status !== 401);
   }
-  dispose() { if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); activeControllers.delete(this); const store = this.outbox; if (this.revoking) void this.revoking.finally(() => store?.close()); else store?.close(); this.listeners.clear(); }
+  dispose() { if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); this.resolveSend?.(); this.resolveSend = null; activeControllers.delete(this); const store = this.outbox; if (this.revoking) void this.revoking.finally(() => store?.close()); else store?.close(); this.listeners.clear(); }
   getComposer = () => ({ drafts: structuredClone(this.memory.drafts), target: structuredClone(this.memory.target) });
   saveComposer = (drafts: ChatDrafts, target: ChatComposerTarget | null, epoch: number) => {
     if (!this.dead && this.state.phase === 'ready' && epoch === this.memory.epoch) {
@@ -256,11 +260,33 @@ export class ChatController {
     await this.storageAuthorization(found); guard();
     return { room: found, profiles, recipients };
   }
+  private drainRefresh() {
+    if (!this.dead && this.refreshPending && !this.flight && !this.sending && this.state.phase !== 'error') {
+      this.refreshPending = false;
+      queueMicrotask(() => { if (!this.dead) void this.refresh(); });
+    }
+  }
+  private beginSend() {
+    this.sending = true;
+    this.sendSettled = new Promise(resolve => { this.resolveSend = resolve; });
+  }
+  private endSend() {
+    this.sending = false;
+    this.resolveSend?.(); this.resolveSend = null;
+  }
+  /** A route entry must use a read started after any earlier read or send has settled. */
+  refreshForEntry = async (): Promise<void> => {
+    const previous = this.flight;
+    if (previous) await previous;
+    if (this.sending) await this.sendSettled;
+    if (!this.dead) await this.refresh();
+  };
   refresh = (): Promise<void> => {
     if (this.dead) return Promise.resolve();
-    if (this.flight) return this.flight;
-    if (this.sending && this.state.phase === 'ready') return Promise.resolve();
-    this.flight = this.synchronize().finally(() => { this.flight = null; });
+    if (this.flight) { this.refreshPending = true; return this.flight; }
+    if (this.sending && this.state.phase === 'ready') { this.refreshPending = true; return Promise.resolve(); }
+    this.refreshPending = false;
+    this.flight = this.synchronize().finally(() => { this.flight = null; this.drainRefresh(); });
     return this.flight;
   };
   /** Resume/access refresh replaces hints from a new authoritative snapshot, never stale versions. */
@@ -453,7 +479,7 @@ export class ChatController {
         this.clearAfterError(error); this.publish({ phase: 'error', error: '이전 메시지를 불러오지 못했습니다. 다시 확인해 주세요.' });
         if (Number(recordError(error).status) === 401) this.onInvalidate?.();
       } finally { if (!signal.aborted && !this.dead) this.publish({ loadingOlder: false }); }
-    })().finally(() => { this.flight = null; });
+    })().finally(() => { this.flight = null; this.drainRefresh(); });
     await this.flight;
   };
   private async revalidate() {
@@ -558,7 +584,7 @@ export class ChatController {
     if (this.dead || this.sending || this.deleting || this.state.phase !== 'ready' || command?.status !== 'unknown' || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== this.roomId) return;
     const signal = this.abort.signal; const projection = this.projectionGeneration;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration;
-    this.sending = true; this.publish({ notice: null });
+    this.beginSend(); this.publish({ notice: null });
     try {
       await this.verifySession(); if (!current()) return;
       const auth = await this.authorization(); if (!current()) return; this.publish(auth);
@@ -577,7 +603,7 @@ export class ChatController {
       else if (Number(recordError(error).status) === 403) void this.refreshHints();
       else if (error instanceof OutboxError) this.publish({ storageError: this.storageMessage(error) });
       else this.publish({ notice: '전송 결과를 확인할 수 없습니다. 조회 실패만으로 저장되지 않았다고 판단하지 않습니다.' });
-    } finally { this.sending = false; if (!this.dead) { this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); } }
+    } finally { this.endSend(); if (!this.dead) { this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); } }
   };
   retry = async (id: string): Promise<void> => {
     const command = this.commands.get(id);
@@ -639,7 +665,7 @@ export class ChatController {
     if (!this.commandAuthorized(command)) return { accepted: false, retryCommandId: clientMessageId, reason: '참여 상태나 보낼 대상이 변경되었습니다. 이전 전송을 새 참여 상태로 다시 보내지 않습니다.' };
     const signal = media ? AbortSignal.any([this.abort.signal, media.lifetime.signal]) : this.abort.signal; const projection = this.projectionGeneration;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration;
-    this.sending = true; this.publish({});
+    this.beginSend(); this.publish({});
     try {
       await this.verifySession(); if (!current()) throw new Error('STALE_REQUEST');
       if (this.environment) { const auth = await this.authorization(); if (!current()) throw new Error('STALE_REQUEST'); this.publish(auth); if (!this.outbox || this.state.storageError) throw new OutboxError('LOCKED'); if (!this.commandAuthorized(command)) throw new ResetRequired(); }
@@ -687,6 +713,6 @@ export class ChatController {
       }
       if (error instanceof OutboxError && current()) { const reason = this.state.storageError ?? this.storageMessage(error); this.publish({ storageError: reason }); return { accepted: false, retryCommandId: clientMessageId, reason }; }
       return { accepted: false, retryCommandId: clientMessageId, reason: '전송 결과가 확인되지 않았습니다. 다시 보내기는 같은 전송 기록을 조회하고 현재 권한으로 재확인합니다.' };
-    } finally { this.sending = false; if (!this.dead) this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); }
+    } finally { this.endSend(); if (!this.dead) this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); }
   };
 }

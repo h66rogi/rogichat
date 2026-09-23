@@ -35,10 +35,12 @@ export interface WakeBridgeOptions {
   resume: EventTarget | null;
   /** Whether the page is currently visible. */
   visible: () => boolean;
+  /** Set false when the caller has already completed an authenticated entry sync. */
+  initialSync?: boolean;
 }
 
 /** Binds the worker to this account and syncs on wake, open and resume. Returns a stop function. */
-export function startWakeBridge({ binding, sync, resumeSync = sync, worker, resume, visible }: WakeBridgeOptions): () => void {
+export function startWakeBridge({ binding, sync, resumeSync = sync, worker, resume, visible, initialSync = true }: WakeBridgeOptions): () => void {
   const coalescer = new WakeCoalescer();
   // One page can replace its lifecycle — a new account, a new session — before the previous
   // one is torn down, so everything below refuses to act once this bridge has stopped.
@@ -90,7 +92,7 @@ export function startWakeBridge({ binding, sync, resumeSync = sync, worker, resu
   resume?.addEventListener('focus', onResume);
 
   // A wake delivered while no page was running is covered by this first sync.
-  if (visible()) run();
+  if (initialSync && visible()) run();
 
   return () => {
     if (stopped) return;
