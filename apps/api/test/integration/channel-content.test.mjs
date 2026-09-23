@@ -20,6 +20,7 @@ import { MelomingSongRequestSettingsService } from '../../dist/modules/channel-c
 import { MelomingLiveSessionService } from '../../dist/modules/channel-content/meloming-live-session.service.js';
 import { MelomingLiveSongRequestService } from '../../dist/modules/channel-content/meloming-live-song-request.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
+import { MelomingCalendarService } from '../../dist/modules/channel-content/meloming-calendar.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
 import { ChannelWardrobeService } from '../../dist/modules/channel-content/upstream/channel-wardrobe.service.js';
@@ -70,6 +71,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const artists=new MelomingArtistService(db.transactions,auth,repository);
   const profile=new MelomingProfileService(db.transactions,auth,repository);
   const schedule=new ChannelScheduleService(db.transactions,auth,repository);
+  const calendar=new MelomingCalendarService(db.transactions,auth,repository,schedule);
   const songbook=new SongbookService(db.transactions,{},repository);
   const recurring=new RecurringScheduleService(db.transactions,{},repository);
   const allocated=await Promise.all(Array.from({length:8},()=>db.transactions.write(tx=>nextChannelContentId(tx.prisma))));
@@ -99,6 +101,10 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(savedProfile.channelId,1);
   assert.ok(savedProfile.anniversaries?.birthday);
   assert.ok(savedProfile.anniversaries?.milestones);
+  const calendarWindow={from:'2026-09-01',to:'2026-10-01'};
+  const initialCalendar=await calendar.getCalendar(calendarWindow,{});
+  assert.equal(initialCalendar.anniversaries.filter(item=>item.type==='BIRTHDAY').length,1);
+  assert.deepEqual(initialCalendar.setlists,[]);
   const first=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
   assert.deepEqual(first.categories.map(row=>row.name),['의상','헤어']);
   assert.equal(first.items.length,0);
@@ -158,6 +164,15 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal((await schedule.listForViewer({},{})).total,0);
   assert.equal((await schedule.listForViewer({token:fanId},{})).total,0);
   assert.equal((await schedule.listForViewer({token:ownerId},{})).total,1);
+  const publicSchedule=await schedule.create({token:ownerId},{title:'공개 방송',startAt:'2026-09-26T11:00:00Z'});
+  const publicCalendar=await calendar.getCalendar(calendarWindow,{});
+  assert.ok(publicCalendar.schedules.some(item=>item.id===publicSchedule.id));
+  assert.ok(!publicCalendar.schedules.some(item=>item.id===privateScheduleId));
+  const ownerCalendar=await calendar.getCalendar(calendarWindow,{token:ownerId});
+  assert.ok(ownerCalendar.schedules.some(item=>item.id===privateScheduleId));
+  assert.equal((await calendar.searchCalendar({...calendarWindow,q:'비공개'},{})).total,0);
+  assert.equal((await calendar.searchCalendar({...calendarWindow,q:'비공개'},{token:ownerId})).total,1);
+  assert.equal((await calendar.searchCalendar({...calendarWindow,q:'생일'},{})).items[0].type,'ANNIVERSARY');
   await assert.rejects(schedule.getOne({},privateScheduleId));
   await assert.rejects(schedule.getOne({token:fanId},privateScheduleId));
   assert.equal((await schedule.getOne({token:ownerId},privateScheduleId)).channelId,1);

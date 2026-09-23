@@ -101,7 +101,7 @@ export class ChannelScheduleService {
       const actor = credentials.token ? await this.auth.require(tx, credentials, true) : null;
       const owner = actor?.userId === ownerId;
       const page = Math.max(1, Math.min(100000, query.page ?? 1));
-      const limit = Math.max(1, Math.min(100, query.limit ?? 40));
+      const limit = Math.max(1, Math.min(500, query.limit ?? 40));
       const month = query.ym ? kstMonthRange(query.ym) : undefined;
       const overlap = month ? toWhereOverlap(month.from, month.to) : toWhereOverlap(query.from, query.to);
       const where: Prisma.ChannelScheduleWhereInput = { channelId: roomId, isDeleted: false,
