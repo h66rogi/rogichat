@@ -55,7 +55,8 @@ export class AccountCleanupRepository {
     const processedSongRequests = await tx.prisma.songAddRequest.findMany({ where: { processedById: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (processedSongRequests.length) return (await tx.prisma.songAddRequest.updateMany({ where: { processedById: userId, id: { in: processedSongRequests.map(row => row.id) } }, data: { processedById: null } })).count;
     const liveRequestsByUser = await tx.prisma.songRequest.findMany({ where: { requestUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
-    if (liveRequestsByUser.length) return (await tx.prisma.songRequest.updateMany({ where: { requestUserId: userId, id: { in: liveRequestsByUser.map(row => row.id) } }, data: { requestUserId: null } })).count;
+    if (liveRequestsByUser.length) return (await tx.prisma.songRequest.updateMany({ where: { requestUserId: userId, id: { in: liveRequestsByUser.map(row => row.id) } },
+      data: { requestUserId: null, requesterNickname: '(탈퇴한 사용자)', requesterPlatformId: 'deleted', rawMessage: null } })).count;
     const likes = await tx.prisma.userSongLike.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (likes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { userId, id: { in: likes.map(row => row.id) } } })).count;
     const authored = await tx.prisma.channelSchedule.findMany({ where: { authorUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });

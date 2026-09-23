@@ -18,6 +18,7 @@ import { MelomingSongAddRequestService } from '../../dist/modules/channel-conten
 import { MelomingSetlistService } from '../../dist/modules/channel-content/meloming-setlist.service.js';
 import { MelomingSongRequestSettingsService } from '../../dist/modules/channel-content/meloming-song-request-settings.service.js';
 import { MelomingLiveSessionService } from '../../dist/modules/channel-content/meloming-live-session.service.js';
+import { MelomingLiveSongRequestService } from '../../dist/modules/channel-content/meloming-live-song-request.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -275,6 +276,7 @@ test('ported live session start, public active, end and history use owner room',
   const repository=new ChannelContentRepository();
   const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
   const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
   await assert.rejects(live.start({token:fanId},{identifier:'hurogi'},{}));
   const started=await live.start({token:ownerId},{identifier:'hurogi'},{platform:'SOOP'});
   assert.equal(started.channelId,1);
@@ -292,5 +294,52 @@ test('ported live session start, public active, end and history use owner room',
   const privateSession=await live.start({token:ownerId},{identifier:'hurogi'},{practiceMode:true});
   assert.equal((await live.publicActive({},{identifier:'hurogi'})).isLive,false);
   assert.equal((await live.publicActive({token:ownerId},{identifier:'hurogi'})).sessionId,privateSession.id);
+  await assert.rejects(requests.queue({}, {sessionId:String(privateSession.id)}));
+  await assert.rejects(requests.queue({token:fanId}, {sessionId:String(privateSession.id)}));
+  assert.equal((await requests.queue({token:ownerId}, {sessionId:String(privateSession.id)})).total,0);
+  await assert.rejects(requests.create({token:fanId},{liveSessionId:privateSession.id,rawArtist:'가수',rawTitle:'노래'}));
   await live.end({token:ownerId},privateSession.id);
+});
+
+test('ported live song requests persist queue, owner controls and completed setlist',async t=>{
+  const {db,roomId,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
+  const settings=new MelomingSongRequestSettingsService(db.transactions,auth,repository);
+  const setlists=new MelomingSetlistService(db.transactions,auth,repository);
+  const songId=await db.transactions.write(async tx=>{
+    const artistId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.artist.create({data:{id:artistId,name:'원본 가수',nameSearchable:'원본가수',channelId:roomId}});
+    const id=await nextChannelContentId(tx.prisma);
+    await tx.prisma.song.create({data:{id,title:'원본 곡',titleSearchable:'원본곡',artistId,channelId:roomId}});
+    return id;
+  });
+  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  assert.deepEqual(await requests.operator({}, {channelId:'1'}),{isOperator:false});
+  assert.deepEqual(await requests.operator({token:ownerId},{channelId:'1'}),{isOperator:true});
+  const first=await requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:'',
+    requesterPlatformId:'forged-id',requesterNickname:'forged-name',source:'DONATION',donationAmount:100000});
+  assert.equal(first.status,'PENDING');
+  assert.equal(first.rawTitle,'원본 곡');
+  assert.equal(first.requesterNickname,'팬');
+  assert.notEqual(first.requesterPlatformId,'forged-id');
+  assert.equal(first.donationAmount,null);
+  assert.deepEqual(await requests.requestedIds({}, {sessionId:String(session.id)}),{songIds:[songId]});
+  assert.equal((await requests.stats({channelId:'1',songId:String(songId)})).totalRequestCount,1);
+  assert.equal((await requests.history({channelId:'1',songId:String(songId)})).requests[0].requesterNickname,'팬');
+  await settings.update({token:ownerId},{preventDuplicateSongs:true});
+  await assert.rejects(requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:''}));
+  const manual=await requests.manual({token:ownerId},session.id,{rawArtist:'수동 가수',rawTitle:'수동 곡',position:'FRONT'});
+  assert.equal(manual.queueOrder,0);
+  assert.equal((await requests.queue({}, {sessionId:String(session.id)})).total,2);
+  await assert.rejects(requests.status({token:fanId},first.id,{status:'REJECTED'}));
+  assert.equal((await requests.advance({token:ownerId},{sessionId:String(session.id)},'next')).id,manual.id);
+  assert.equal((await requests.nowPlaying({}, {sessionId:String(session.id)})).id,manual.id);
+  assert.equal((await requests.advance({token:ownerId},{sessionId:String(session.id)},'next')).id,first.id);
+  assert.equal((await requests.status({token:ownerId},first.id,{status:'COMPLETED'})).status,'COMPLETED');
+  await live.end({token:ownerId},session.id);
+  assert.equal((await setlists.publicList({identifier:'hurogi'})).total,1);
+  assert.equal((await setlists.detail(session.id,{identifier:'hurogi'})).songs.length,2);
 });

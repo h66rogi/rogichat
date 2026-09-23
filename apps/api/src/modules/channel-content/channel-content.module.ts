@@ -27,13 +27,15 @@ import { MelomingSongRequestSettingsController } from './meloming-song-request-s
 import { MelomingSongRequestSettingsService } from './meloming-song-request-settings.service.js';
 import { MelomingLiveSessionController } from './meloming-live-session.controller.js';
 import { MelomingLiveSessionService } from './meloming-live-session.service.js';
+import { MelomingLiveSongRequestController, MelomingManualSongRequestController } from './meloming-live-song-request.controller.js';
+import { MelomingLiveSongRequestService } from './meloming-live-song-request.service.js';
 
 @Module({})
 export class ChannelContentModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false): DynamicModule {
     return { module: ChannelContentModule, imports: [infrastructure,authentication],
-      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingSongAddRequestController,MelomingSetlistController,MelomingSongRequestSettingsController,MelomingLiveSessionController],
-      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,MelomingSetlistService,MelomingSongRequestSettingsService,MelomingLiveSessionService,
+      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingSongAddRequestController,MelomingSetlistController,MelomingSongRequestSettingsController,MelomingLiveSessionController,MelomingLiveSongRequestController,MelomingManualSongRequestController],
+      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,MelomingSetlistService,MelomingSongRequestSettingsService,MelomingLiveSessionService,MelomingLiveSongRequestService,
         ...(refreshRecurring ? [RecurringScheduleRefresh] : [])] };
   }
 }
