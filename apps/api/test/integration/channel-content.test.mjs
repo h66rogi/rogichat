@@ -13,6 +13,7 @@ import { MelomingProfileService } from '../../dist/modules/channel-content/melom
 import { MelomingUserService } from '../../dist/modules/channel-content/meloming-user.service.js';
 import { MelomingMusicbookSettingsService } from '../../dist/modules/channel-content/meloming-musicbook-settings.service.js';
 import { MelomingCategoryService } from '../../dist/modules/channel-content/meloming-category.service.js';
+import { MelomingArtistService } from '../../dist/modules/channel-content/meloming-artist.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -61,6 +62,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const users=new MelomingUserService(db.transactions,auth,repository);
   const musicbookSettings=new MelomingMusicbookSettingsService(db.transactions,auth,repository);
   const categories=new MelomingCategoryService(db.transactions,auth,repository);
+  const artists=new MelomingArtistService(db.transactions,auth,repository);
   const profile=new MelomingProfileService(db.transactions,auth,repository);
   const schedule=new ChannelScheduleService(db.transactions,auth,repository);
   const songbook=new SongbookService(db.transactions,{},repository);
@@ -141,6 +143,11 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.notEqual(swapped[0].displayOrder,swapped[1].displayOrder);
   assert.deepEqual(await categories.remove({token:ownerId},copiedSong.categories[0].id),{message:'카테고리가 삭제되었습니다.'});
   assert.equal((await songbook.detail(copiedSong.id)).categories.length,0);
+  await assert.rejects(artists.create({token:fanId},{name:'팬 가수'}));
+  await assert.rejects(artists.create({token:ownerId},{name:'가 수'}));
+  const newArtist=await artists.create({token:ownerId},{name:'새 가수'});
+  assert.equal(newArtist.channelId,1);
+  assert.equal((await artists.update({token:ownerId},newArtist.id,{name:'바뀐 가수'})).name,'바뀐 가수');
   assert.equal((await schedule.list({})).total,0);
   assert.equal((await schedule.listForViewer({},{})).total,0);
   assert.equal((await schedule.listForViewer({token:fanId},{})).total,0);
@@ -156,6 +163,8 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const cleanup=new AccountCleanupRepository();
   assert.equal(await db.transactions.write(tx=>cleanup.channelContent(tx,fanId,100)),1);
   assert.equal(await db.transactions.read(tx=>tx.prisma.userSongLike.count()),0);
+  assert.deepEqual(await artists.remove({token:ownerId},copiedSong.artistId),{message:'가수가 삭제되었습니다.'});
+  await assert.rejects(songbook.detail(copiedSong.id));
   for(let page=0;page<30;page++){
     const changed=await db.transactions.write(tx=>cleanup.channelContent(tx,ownerId,100));
     if(!changed)break;
