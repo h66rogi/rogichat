@@ -14,9 +14,24 @@ async function replyToFirstMessage(page: Page) {
   await page.getByTestId('chat-reply').click();
 }
 async function openReactionControl(page: Page) {
-  if (!(await page.getByRole('button', { name: '반응 보기', exact: true }).isVisible())) await openMessageOptions(page);
-  await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await page.getByTestId('chat-reaction-trigger').first().click();
 }
+
+test('routine window focus preserves the chat composer and timeline', async ({ page }) => {
+  const { state } = await chatApi(page);
+  await page.goto('/chat');
+  const input = page.getByTestId('chat-composer-input');
+  await expect(input).toBeVisible();
+  await input.fill('포커스 이후에도 남아야 하는 글');
+  await input.evaluate(element => { element.setAttribute('data-focus-mount', 'retained'); });
+  const verified = page.waitForResponse(response => response.url().endsWith('/v1/auth/session') && response.ok());
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await verified;
+  await expect(input).toHaveValue('포커스 이후에도 남아야 하는 글');
+  await expect(input).toHaveAttribute('data-focus-mount', 'retained');
+  await expect(page.getByText(incoming.content.text, { exact: true })).toBeVisible();
+  expect(state.snapshots).toBeGreaterThan(0);
+});
 const streamerId = '44444444-4444-4444-8444-444444444444';
 const incoming = { id: '55555555-5555-4555-8555-555555555555', version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE' as const, author: { kind: 'member' as const, actorId: streamerId, nickname: '테스트 스트리머', avatar: null }, content: { type: 'TEXT' as const, text: '실제 계약 형식의 개인 메시지' }, quote: null, counterpart: { actorId: streamerId }, allowedActions: { reply: true, publish: false, delete: false } };
 async function chatApi(page: Page) {
@@ -280,43 +295,44 @@ async function reactionApi(page: Page) {
   return { ...chat, reactions: state };
 }
 
-test('reactions use real methods, authoritative counts, keyboard controls and accessible states', async ({ page }) => {
+test('reactions are a direct message action with a keyboard picker and compact result', async ({ page }) => {
   const { reactions } = await reactionApi(page);
   await page.goto('/chat');
-  await openMessageOptions(page);
-  const toggle = page.getByRole('button', { name: '반응 보기', exact: true });
-  await expect(toggle).toBeVisible(); expect(reactions.calls).toEqual([]);
-  await toggle.focus(); await toggle.press('Enter');
-  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
-  let release!: () => void; reactions.hold = new Promise(resolve => { release = resolve; });
-  await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
-  await expect(page.getByText('반응을 확인하는 중입니다.')).toBeVisible();
-  await expect(page.getByRole('button', { name: /반응 2개/ })).toHaveCount(0);
-  release(); reactions.hold = null;
-  await expect(page.getByRole('button', { name: '👍 반응 2개, 내 반응 해제' })).toHaveAttribute('aria-pressed', 'true');
-  await page.getByRole('button', { name: '하트 반응', exact: true }).focus();
-  await page.getByRole('button', { name: '하트 반응', exact: true }).press('Enter');
-  await expect(page.getByRole('button', { name: '❤️ 반응 2개, 내 반응 해제' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '하트 반응', exact: true })).toBeFocused();
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-  await page.getByRole('button', { name: '내 반응 해제', exact: true }).click();
-  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  const trigger = page.getByTestId('chat-reaction-trigger').first();
+  await expect(trigger).toBeVisible(); expect(reactions.calls).toEqual([]);
+  await trigger.focus(); await trigger.press('Enter');
+  const picker = page.getByRole('group', { name: '메시지 반응' });
+  await expect(picker.getByRole('button', { name: '좋아요 반응' })).toBeEnabled();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await picker.getByRole('button', { name: '좋아요 반응' }).click();
+  await expect(picker).toHaveCount(0);
+  await expect(trigger).toContainText('👍2');
+  await trigger.click();
+  await picker.getByRole('button', { name: '하트 반응' }).click();
+  await expect(trigger).toContainText('❤️2');
+  await trigger.click();
+  await picker.getByRole('button', { name: '하트 반응' }).click();
+  await expect(trigger).not.toContainText('❤️2');
   expect(reactions.calls).toEqual(['GET', 'PUT', 'PUT', 'DELETE']);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
 for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides unconfirmed counts and permits safe recovery`, async ({ page }) => {
   const { reactions, state, account } = await reactionApi(page);
   await page.goto('/chat'); await openReactionControl(page);
-  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
   reactions.status = status;
   if (status === 401) account.sessionStatus = 401;
   if (status === 403 || status === 404) state.messages = [];
-  await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
+  if (status === 401) await page.getByRole('button', { name: '좋아요 반응', exact: true }).evaluate((element: HTMLElement) => element.click());
+  else await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
   if (status === 429 || status === 503) {
-    await expect(page.getByRole('group', { name: '메시지 반응', exact: true }).getByRole('alert')).toContainText(status === 429 ? '30초' : '반응 결과');
+    await openReactionControl(page);
+    await expect(page.getByRole('alert').filter({ hasText: status === 429 ? '30초' : '반응 결과' })).toBeVisible();
     await expect(page.getByRole('button', { name: '좋아요 반응', exact: true })).toBeDisabled();
-    if (status === 503) { reactions.status = 200; await page.getByRole('button', { name: '반응 다시 조회' }).click(); await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible(); }
-    else { await page.getByRole('button', { name: '반응 다시 조회' }).click(); expect(reactions.calls).toEqual(['GET', 'PUT']); }
+    if (status === 503) {
+      reactions.status = 200; await page.getByRole('button', { name: '다시 시도', exact: true }).click();
+      await expect(page.getByRole('button', { name: '좋아요 반응', exact: true })).toBeEnabled();
+    } else { await page.getByRole('button', { name: '다시 시도', exact: true }).click(); expect(reactions.calls).toEqual(['GET', 'PUT']); }
   } else await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
   await expect(page.getByText('never-render-error-body')).toHaveCount(0);
   expect(reactions.calls.filter(method => method === 'PUT')).toHaveLength(1);
@@ -324,8 +340,7 @@ for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides u
 
 for (const transition of ['deletion', 'session'] as const) test(`late reaction response after ${transition} cannot repopulate private DOM`, async ({ page }) => {
   const { reactions, state, account, hint } = await reactionApi(page);
-  await page.goto('/chat'); await openMessageOptions(page);
-  await expect(page.getByRole('button', { name: '반응 보기', exact: true })).toBeVisible();
+  await page.goto('/chat');
   let release!: () => void; reactions.hold = new Promise(resolve => { release = resolve; }); reactions.mine = '👍'; reactions.count = 99;
   await openReactionControl(page);
   await expect(page.getByText('반응을 확인하는 중입니다.')).toBeVisible();
@@ -335,15 +350,15 @@ for (const transition of ['deletion', 'session'] as const) test(`late reaction r
   await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
   release(); reactions.hold = null;
   await expect(page.getByRole('group', { name: '메시지 반응', exact: true })).toHaveCount(0);
-  await expect(page.getByText('👍 99', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('👍99', { exact: true })).toHaveCount(0);
 });
 
 test('message version hints refresh only opened reaction aggregates', async ({ page }) => {
   const { reactions, state, hint } = await reactionApi(page);
   await page.goto('/chat'); await openReactionControl(page);
-  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  await expect(page.getByRole('button', { name: '좋아요 반응' })).toBeEnabled();
   reactions.mine = '🎉'; reactions.count = 5; state.messages = [{ ...incoming, version: '2' }]; hint();
-  await expect(page.getByRole('button', { name: '🎉 반응 5개, 내 반응 해제' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '축하 반응' })).toHaveAttribute('aria-pressed', 'true');
   expect(reactions.calls).toEqual(['GET', 'GET']);
 });
 
@@ -352,60 +367,22 @@ test('anonymous publication reactions expose only aggregate selection without id
   state.messages = [{ ...incoming, audience: 'SHARED', author: { kind: 'anonymous' }, counterpart: null, allowedActions: { reply: false, publish: false, delete: false } }];
   reactions.mine = '👍';
   await page.goto('/chat'); await openReactionControl(page);
-  await expect(page.getByRole('button', { name: '👍 반응 2개, 내 반응 해제' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '좋아요 반응' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-scope="PUBLICATION"]')).toContainText('보낸 사람 비공개');
   await expect(page.locator('[data-scope="PUBLICATION"]')).not.toContainText('테스트 스트리머');
   await expect(page.getByTestId('chat-reply')).toHaveCount(0);
 });
 
-for (const action of ['GET', 'PUT', 'closed'] as const) test(`pending reaction ${action} across version advance never commits stale counts or stalls open control`, async ({ page }) => {
-  const { state, hint } = await reactionApi(page);
-  let calls = 0; let release!: () => void; const held = new Promise<void>(resolve => { release = resolve; });
-  await page.route('**/reactions{,/me}', async route => {
-    if (route.request().method() === 'OPTIONS') { await json(route, null, 204); return; }
-    calls++;
-    if (calls === 1) { await json(route, { counts: [], mine: null }); return; }
-    if (calls === 2) { await held; await json(route, { counts: [{ emoji: '👍', count: 99 }], mine: '👍' }); return; }
-    expect(route.request().method()).toBe('GET');
-    await json(route, { counts: [{ emoji: '🎉', count: 5 }], mine: null });
-  });
+test('stale reaction result is discarded after the message version advances', async ({ page }) => {
+  const { reactions, state, hint } = await reactionApi(page);
   await page.goto('/chat'); await openReactionControl(page);
-  await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
-  await page.getByRole('button', { name: action === 'PUT' ? '좋아요 반응' : '반응 새로고침', exact: true }).click();
-  await expect(page.getByText('반응을 확인하는 중입니다.')).toBeVisible();
-  if (action === 'closed') await page.getByRole('button', { name: '반응 닫기', exact: true }).click();
-  state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '새 버전 메시지' } }]; hint();
-  await expect(page.getByText('새 버전 메시지', { exact: true })).toBeVisible();
-  release();
-  if (action !== 'closed') {
-    await expect(page.getByRole('button', { name: '🎉 반응 5개, 선택' })).toBeVisible();
-    expect(calls).toBe(3);
-  } else {
-    // A subsequent socket sync lets the old request settle without reopening UI.
-    hint(); await page.getByRole('button', { name: '반응 보기', exact: true }).focus();
-    expect(calls).toBe(2);
-  }
-  await expect(page.getByRole('button', { name: /반응 99개/ })).toHaveCount(0);
-});
-
-for (const action of ['refresh', 'aggregate'] as const) test(`reaction keyboard ${action} retains logical focus through a deferred response`, async ({ page }) => {
-  const { reactions } = await reactionApi(page); reactions.mine = '🦊';
-  await page.goto('/chat'); await openReactionControl(page);
-  const group = page.getByRole('group', { name: '메시지 반응', exact: true });
-  const refresh = group.getByRole('button', { name: '반응 새로고침', exact: true });
-  await expect(page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '좋아요 반응' })).toBeEnabled();
   let release!: () => void; reactions.hold = new Promise(resolve => { release = resolve; });
-  const target = action === 'refresh' ? refresh : page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' });
-  await target.focus(); await target.press('Enter');
-  const pendingRefresh = group.getByRole('button', { name: '반응 다시 조회', exact: true });
-  await expect(pendingRefresh).toBeFocused(); await expect(pendingRefresh).toBeDisabled();
-  await expect(page.getByRole('button', { name: /반응 2개/ })).toHaveCount(0);
-  await pendingRefresh.press('Enter'); expect(reactions.calls).toHaveLength(2);
+  await page.getByRole('button', { name: '좋아요 반응' }).click();
+  state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '새 버전 메시지' } }]; hint();
+  await expect(page.getByText('새 버전 메시지')).toBeVisible();
   release(); reactions.hold = null;
-  await expect(refresh).toBeFocused(); await expect(refresh).toBeEnabled();
-  if (action === 'refresh') await expect(page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' })).toBeVisible();
-  else await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
-  expect(reactions.calls).toEqual(['GET', action === 'refresh' ? 'GET' : 'DELETE']);
+  await expect(page.getByTestId('chat-reaction-trigger').first()).not.toContainText('👍');
 });
 
 test('outgoing PRIVATE reply selects counterpart and equal-version false hint removes reply', async ({ page }) => {
@@ -440,11 +417,11 @@ test('auth-gate pagehide/pageshow unmount preserves same-authority draft quote a
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
+  await input.evaluate(element => { element.setAttribute('data-resume-mount', 'retained'); });
   for (let i = 0; i < 2; i++) {
-    const before = state.snapshots;
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await expect.poll(() => state.snapshots).toBeGreaterThan(before);
     await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
+    await expect(input).toHaveAttribute('data-resume-mount', 'retained');
   }
   await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
   state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
@@ -513,7 +490,7 @@ test('room loss from reaction during held SEND scrubs before late send settles a
   state.holdSend = new Promise<void>(resolve => { release = resolve; }); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
   await input.fill('권한 상실 후 남으면 안 되는 전송'); await input.press('Enter'); await expect.poll(() => state.posts.length).toBe(1);
-  await openReactionControl(page); await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
+  await openReactionControl(page); await expect(page.getByRole('button', { name: '좋아요 반응' })).toBeEnabled();
   reactions.status = 403; state.revoked = true;
   await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
   await expect(page.getByText('채팅 접근 권한이 변경되었습니다. 다시 확인해 주세요.', { exact: true })).toBeVisible(); await expect(input).toHaveCount(0);

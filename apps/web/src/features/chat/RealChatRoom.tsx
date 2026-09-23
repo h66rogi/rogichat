@@ -46,6 +46,7 @@ function ScopedRealChatRoom({ session, accountId, roomId, apiOrigin, csrfToken, 
       const binding = wakeBindings.bind(account, sessionId);
       const stop = startWakeBridge({ binding,
         sync: async () => { if (active && wakeBindings.isCurrent(binding)) await current.refreshHints(); },
+        resumeSync: async () => { if (active && wakeBindings.isCurrent(binding)) await current.refresh(); },
         worker: 'serviceWorker' in navigator ? navigator.serviceWorker : null,
         resume: window, visible: () => document.visibilityState === 'visible',
       });
@@ -68,7 +69,7 @@ function ScopedRealChatRoom({ session, accountId, roomId, apiOrigin, csrfToken, 
     });
     socket.on('connect_error', () => { setConnected(false); void current.refresh(); });
     const timer = window.setInterval(() => { void current.refresh(); }, 15000);
-    const foreground = () => { if (document.visibilityState === 'visible') void current.refreshHints(); };
+    const foreground = () => { if (document.visibilityState === 'visible') void current.refresh(); };
     window.addEventListener('online', foreground);
     document.addEventListener('visibilitychange', foreground);
     return () => {

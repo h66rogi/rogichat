@@ -46,7 +46,7 @@ test('login consent and first pointer activation survive focus and page restorat
   } finally { release(); }
 });
 
-test('focus still removes private account content until session revalidation finishes', async ({ page }) => {
+test('focus keeps the mounted account view while revalidating and removes it if revoked', async ({ page }) => {
   await installApi(page, true);
   await page.goto('/settings');
   await expect(page.getByTestId('settings-view')).toBeVisible();
@@ -55,8 +55,7 @@ test('focus still removes private account content until session revalidation fin
   await page.route('**/v1/auth/session', async route => { await pending; await json(route, {}, 401); });
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   try {
-    await expect(page.getByTestId('settings-view')).toHaveCount(0);
-    await expect(page.getByRole('heading', { name: '로그인 상태를 확인하고 있어요' })).toBeVisible();
+    await expect(page.getByTestId('settings-view')).toBeVisible();
   } finally { release(); }
   await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
 });

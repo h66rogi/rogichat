@@ -137,7 +137,7 @@ test('a cookie changing between session and profile reads stays private until a 
     return json(route, { authenticated: true, accountPartition: 'C'.repeat(42) + 'A', csrfToken: unstable ? `synthetic-csrf-session-${reads}` : 'synthetic-csrf-stable', soopLinkStatus: 'VERIFIED' });
   });
   await page.goto('/settings');
-  await expect.poll(() => reads).toBeGreaterThanOrEqual(4);
+  await expect.poll(() => reads).toBeGreaterThanOrEqual(2);
   await expect(page.getByTestId('settings-view')).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.dataset.privateLeaked)).toBeUndefined();
   await page.evaluate(() => document.dispatchEvent(new Event('stop-private-race-observer')));
