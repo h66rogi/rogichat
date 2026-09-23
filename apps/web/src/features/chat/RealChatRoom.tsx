@@ -19,6 +19,8 @@ import type { ChatRequest } from './contract';
 const wakeBindings = new WakeBindingRegistry();
 
 export interface RealChatRoomProps {
+  active: boolean;
+  visit: number;
   accountId: string;
   session: Session;
   roomId: string;
@@ -34,25 +36,41 @@ export function RealChatRoom(props: RealChatRoomProps) {
   return <ScopedRealChatRoom key={`${props.accountPartition}:${props.sessionScopeKey}:${props.roomId}`} {...props} />;
 }
 
-function ScopedRealChatRoom({ session, accountId, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate }: RealChatRoomProps) {
+function ScopedRealChatRoom({ active, visit, session, accountId, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate }: RealChatRoomProps) {
   const [controller, setController] = useState<ChatController | null>(null);
   const [connected, setConnected] = useState(false);
+  const [authorizedVisit, setAuthorizedVisit] = useState<number | null>(null);
   useEffect(() => {
     const current = new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition, sessionChatMemory(accountPartition, csrfToken, roomId), apiOrigin === 'https://api.qa.rogi.chat' ? 'qa' : 'production');
-    let active = true;
+    let mounted = true;
+    queueMicrotask(() => { if (mounted) setController(current); });
+    return () => { mounted = false; current.dispose(); };
+  }, [roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate]);
+
+  // The visit number changes during route render, so a parked room is hidden
+  // before paint until this visit has independently reauthorized its data.
+  useEffect(() => {
+    if (!active || !controller) return;
+    let current = true;
+    void controller.refreshForEntry().then(() => { if (current) setAuthorizedVisit(visit); });
+    return () => { current = false; };
+  }, [active, controller, visit]);
+
+  useEffect(() => {
+    if (!active || !controller || authorizedVisit !== visit) return;
+    let current = true;
     let stopWake: (() => void) | undefined;
     void Promise.all([sessionBinding(accountId), sessionBinding(csrfToken)]).then(([account, sessionId]) => {
-      if (!active) return;
+      if (!current) return;
       const binding = wakeBindings.bind(account, sessionId);
       const stop = startWakeBridge({ binding,
-        sync: async () => { if (active && wakeBindings.isCurrent(binding)) await current.refreshHints(); },
-        resumeSync: async () => { if (active && wakeBindings.isCurrent(binding)) await current.refresh(); },
+        sync: async () => { if (current && wakeBindings.isCurrent(binding)) await controller.refreshHints(); },
+        resumeSync: async () => { if (current && wakeBindings.isCurrent(binding)) await controller.refresh(); },
         worker: 'serviceWorker' in navigator ? navigator.serviceWorker : null,
-        resume: window, visible: () => document.visibilityState === 'visible',
+        resume: window, visible: () => document.visibilityState === 'visible', initialSync: false,
       });
       stopWake = () => { stop(); if (wakeBindings.isCurrent(binding)) wakeBindings.clear(); };
     }).catch(() => { /* Existing authenticated polling remains available when the browser cannot bind wake hints. */ });
-    void current.refresh().then(() => { if (active) setController(current); });
     // The namespace is '/', with Engine.IO on this path. This is a lossy wake-up
     // channel only: no rooms, sends, presence or synthetic messages travel here.
     const socket = io(apiOrigin, {
@@ -60,26 +78,30 @@ function ScopedRealChatRoom({ session, accountId, roomId, apiOrigin, csrfToken, 
       withCredentials: true, auth: { schemaVersion: 1, csrfToken },
       reconnection: true, reconnectionDelay: 1000, reconnectionDelayMax: 10000,
     });
-    socket.on('connect', () => { setConnected(true); void current.refresh(); });
-    socket.on('sync.required', () => { void current.refresh(); });
+    socket.on('connect', () => { setConnected(true); void controller.refresh(); });
+    socket.on('sync.required', () => { void controller.refresh(); });
     socket.on('disconnect', (reason) => {
       setConnected(false);
       // A server disconnect may mean session revocation; drop the whole scope.
-      if (reason === 'io server disconnect') { current.dispose(); onInvalidate?.(); }
+      if (reason === 'io server disconnect') { controller.dispose(); onInvalidate?.(); }
     });
-    socket.on('connect_error', () => { setConnected(false); void current.refresh(); });
-    const timer = window.setInterval(() => { void current.refresh(); }, 15000);
-    const foreground = () => { if (document.visibilityState === 'visible') void current.refresh(); };
-    window.addEventListener('online', foreground);
-    document.addEventListener('visibilitychange', foreground);
+    socket.on('connect_error', () => { setConnected(false); });
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void controller.refresh(); }, 15000);
+    const online = () => { if (document.visibilityState === 'visible') void controller.refresh(); };
+    window.addEventListener('online', online);
     return () => {
-      active = false; stopWake?.(); current.dispose(); socket.removeAllListeners(); socket.disconnect();
-      window.clearInterval(timer); window.removeEventListener('online', foreground);
-      document.removeEventListener('visibilitychange', foreground);
+      current = false; stopWake?.(); socket.removeAllListeners(); socket.disconnect(); setConnected(false);
+      window.clearInterval(timer); window.removeEventListener('online', online);
     };
-  }, [roomId, apiOrigin, csrfToken, accountPartition, accountId, request, onInvalidate]);
+  }, [active, authorizedVisit, visit, controller, accountId, apiOrigin, csrfToken, onInvalidate]);
   if (!controller) return <p className="p-6 text-muted" role="status">채팅을 불러오는 중입니다.</p>;
-  return <LiveRoom controller={controller} connected={connected} csrf={csrfToken} roomId={roomId} session={session} origin={apiOrigin} />;
+  const checkingAccess = authorizedVisit !== visit;
+  return <>
+    {checkingAccess && active && <p className="p-6 text-muted" role="status">채팅 접근을 확인하고 있습니다.</p>}
+    <div hidden={checkingAccess || !active} className={checkingAccess || !active ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
+      <LiveRoom controller={controller} connected={connected} csrf={csrfToken} roomId={roomId} session={session} origin={apiOrigin} />
+    </div>
+  </>;
 }
 
 function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { session: Session; origin: string; controller: ChatController; connected: boolean; csrf: string; roomId: string }) {

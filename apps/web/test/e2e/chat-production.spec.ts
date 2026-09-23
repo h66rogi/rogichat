@@ -28,11 +28,18 @@ test('in-app navigation keeps one chat instance and revocation still clears it',
   else await page.locator('[data-shell-aside]').getByRole('link', { name: '프로필' }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(input).toBeHidden();
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/v1/sync?*', async route => { await pending; await route.fallback(); });
   if (isMobile) {
     await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
     await page.getByRole('dialog', { name: '채널 메뉴' }).getByRole('link', { name: '채팅' }).click();
   } else await page.locator('[data-shell-aside]').getByRole('link', { name: '채팅' }).click();
   await expect(page).toHaveURL(/\/chat$/);
+  await expect(page.getByText('채팅 접근을 확인하고 있습니다.')).toBeVisible();
+  await expect(input).toBeHidden();
+  await expect(page.getByText(incoming.content.text, { exact: true })).toBeHidden();
+  release();
   await expect(input).toBeVisible();
   await expect(input).toHaveValue('다른 메뉴를 다녀와도 유지되는 초안');
   await expect(input).toHaveAttribute('data-navigation-mount', 'retained');
@@ -40,6 +47,22 @@ test('in-app navigation keeps one chat instance and revocation still clears it',
   await page.evaluate(() => window.dispatchEvent(new Event('rogichat-session-invalidated')));
   await expect(input).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
+});
+
+test('route return never reveals a parked conversation after session revocation', async ({ page, isMobile }) => {
+  const { account } = await chatApi(page);
+  await page.goto('/chat');
+  await expect(page.getByTestId('chat-composer-input')).toBeVisible();
+  if (isMobile) await page.getByRole('link', { name: '채널 홈으로 이동' }).click();
+  else await page.locator('[data-shell-aside]').getByRole('link', { name: '프로필' }).click();
+  account.sessionStatus = 401;
+  if (isMobile) {
+    await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
+    await page.getByRole('dialog', { name: '채널 메뉴' }).getByRole('link', { name: '채팅' }).click();
+  } else await page.locator('[data-shell-aside]').getByRole('link', { name: '채팅' }).click();
+  await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
+  await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
+  await expect(page.getByTestId('chat-composer-input')).toHaveCount(0);
 });
 
 test('routine window focus preserves the chat composer and timeline', async ({ page }) => {

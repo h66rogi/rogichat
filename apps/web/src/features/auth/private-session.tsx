@@ -62,8 +62,12 @@ function usePrivateSessionState() {
   }, []);
   const active = useRef<AbortController | null>(null);
   const mounted = useRef(false);
-  const revalidate = useCallback((background = false) => {
+  const revalidate = useCallback((background = false, force = false) => {
+    // Focus, pageshow and visibility can fire as one burst. One in-flight
+    // verification is enough; explicit invalidation still supersedes it.
+    if (!force && active.current) return;
     active.current?.abort();
+    active.current = null;
     const current = ++generation.current;
     if (!mounted.current) return;
     if (document.visibilityState === 'hidden') { update(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }); return; }
@@ -109,17 +113,18 @@ function usePrivateSessionState() {
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) { revokeChatOutboxes(); forgetChatMemory(); }
         if (error instanceof ApiError && error.status === 401) { try { publishSessionBinding('signed-out'); } catch { /* Locked state below remains authoritative. */ } }
         update(error instanceof ApiError && error.status === 401 ? { kind: 'unauthenticated' } : { kind: 'error', message: error instanceof ApiError ? error.message : '연결을 확인할 수 없습니다. 다시 시도해 주세요.' });
-      }
+      } finally { if (active.current === controller) active.current = null; }
     })();
   }, [api, update]);
-  const refresh = useCallback(() => revalidate(false), [revalidate]);
+  const refresh = useCallback(() => revalidate(false, true), [revalidate]);
   useEffect(() => {
     mounted.current = true;
     const hide = () => {
       active.current?.abort(); ++generation.current;
+      active.current = null;
       flushSync(() => update(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }));
     };
-    const visibility = () => document.visibilityState === 'hidden' ? hide() : refresh();
+    const visibility = () => document.visibilityState === 'hidden' ? hide() : revalidate();
     const focus = () => revalidate(latest.current.kind === 'ready');
     const resume = () => revalidate(latest.current.kind === 'ready');
     const storage = (event: StorageEvent) => { if (event.key === ACCOUNT_DELETION_PENDING || event.key === LOGOUT_PENDING || event.key === CURRENT_BINDING || event.key === null) refresh(); };

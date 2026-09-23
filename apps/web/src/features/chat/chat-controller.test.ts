@@ -42,6 +42,53 @@ function backend(override?: ChatRequest): ChatRequest {
     throw new Error('Unexpected request');
   };
 }
+void test('a wake received during an in-flight read schedules one trailing read', async () => {
+  let release!: (value: unknown) => void;
+  let reached!: () => void;
+  const reading = new Promise<void>(resolve => { reached = resolve; });
+  let eventReads = 0;
+  const next = source('00000000-0000-4000-8000-000000000012');
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (!path.includes('/events?')) return undefined;
+    eventReads++;
+    if (eventReads === 1) { reached(); return new Promise(resolve => { release = resolve; }); }
+    return { ...sync, events: [{ type: 'message.upsert', message: next }], nextCursor: 'after-wake', hasMore: false };
+  }));
+  try {
+    await controller.refresh();
+    const first = controller.refresh();
+    await reading;
+    const duplicateA = controller.refresh();
+    const duplicateB = controller.refresh();
+    release({ ...sync, events: [], nextCursor: 'before-wake', hasMore: false });
+    await Promise.all([first, duplicateA, duplicateB]);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(eventReads, 2);
+    assert.ok(controller.getSnapshot().items.some(item => item.id === next.id));
+  } finally { controller.dispose(); }
+});
+void test('route entry waits for an old read and completes a new authorization cycle', async () => {
+  let release!: (value: unknown) => void;
+  let reached!: () => void;
+  const reading = new Promise<void>(resolve => { reached = resolve; });
+  let eventReads = 0;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (!path.includes('/events?')) return undefined;
+    eventReads++;
+    if (eventReads === 1) { reached(); return new Promise(resolve => { release = resolve; }); }
+    return { ...sync, events: [], nextCursor: 'entry-authorized', hasMore: false };
+  }));
+  try {
+    await controller.refresh();
+    const oldRead = controller.refresh();
+    await reading;
+    const entry = controller.refreshForEntry();
+    release({ ...sync, events: [], nextCursor: 'old-read', hasMore: false });
+    await Promise.all([oldRead, entry]);
+    assert.equal(eventReads, 2);
+    assert.equal(controller.getSnapshot().phase, 'ready');
+  } finally { controller.dispose(); }
+});
 for (const recovery of ['send', 'retry', 'reconcile'] as const) void test(`committed ${recovery} starts a fresh schema-2 read after an older in-flight sync settles`, async () => {
   let release!: (value: unknown) => void;
   let reached!: () => void;
