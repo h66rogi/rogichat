@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, CalendarDays, Gift, Home, Info, MessageSquareText, Settings, Shirt, type LucideIcon } from 'lucide-react';
+import { BookOpen, CalendarDays, Home, Info, MessageSquareText, Settings, Shirt, type LucideIcon } from 'lucide-react';
 
 import { cn } from '@/shared/lib/cn';
 import type { ChannelDescriptor, ChannelFeatureKey } from '../model/channel-descriptor';
@@ -13,7 +13,7 @@ import { channelHref, featureFromPath, menuItemsFor } from '../model/channel-fea
  * `src/domains/channel/components/channel/channel-menu-sidebar.tsx` (`TAB_ICONS`, `ChannelSidebarMenuLink`):
  * pill-shaped navigation links with icon, label and `aria-current`. Rogichat changes: no drag-and-drop
  * editor, no feature-settings mutation, no verified/setlist filters, no toast; items come from the channel
- * descriptor. Planned VVAVE-inspired channel sections are visible as labelled, non-interactive rows.
+ * descriptor and link to their live routes.
  */
 const FEATURE_ICONS: Record<ChannelFeatureKey, LucideIcon> = {
   home: Home,
@@ -23,7 +23,6 @@ const FEATURE_ICONS: Record<ChannelFeatureKey, LucideIcon> = {
   schedule: CalendarDays,
   wardrobe: Shirt,
   songbook: BookOpen,
-  support: Gift,
 };
 
 export function ChannelMenu({ channel, onNavigate }: { channel: ChannelDescriptor; onNavigate?: () => void }) {
@@ -36,17 +35,6 @@ export function ChannelMenu({ channel, onNavigate }: { channel: ChannelDescripto
         {menuItemsFor(channel).map((item) => {
           const Icon = FEATURE_ICONS[item.key];
           const isActive = active === item.key;
-          if (item.availability === 'planned') {
-            return (
-              <li key={item.key}>
-                <div className="flex min-h-12 items-center gap-4 rounded-full px-4 text-[17px] text-muted">
-                  <Icon className="size-6 shrink-0" aria-hidden="true" />
-                  <span className="min-w-0 flex-1 truncate">{item.label}</span>
-                  <span className="shrink-0 text-[12px]">준비 중</span>
-                </div>
-              </li>
-            );
-          }
           return (
             <li key={item.key}>
               <Link
