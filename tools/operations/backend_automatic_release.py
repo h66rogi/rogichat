@@ -253,6 +253,9 @@ def load_candidate(r, helper, output, candidate):
 
 
 def activate(r, p, helper, files, container, targets, candidate, archive, output):
+    # The automatic policy has no feature overlay/decoder contract. Never install
+    # the manual media-capable unit without staging its required overlay.
+    require(b'compose.features.yaml' not in files['unit'])
     identity = candidate[0]
     backup = STATE / ('request-' + r['request_id'])
     require(not backup.exists())
@@ -349,6 +352,7 @@ def main():
         _, targets = verify_current(r, p, helper)
         files = {key: protected(helper.RELEASES / r['source_sha'] / relative) for key, relative in TEMPLATES.items()}
         require(all(digest(files[key]) == p['templates'][key] for key in files))
+        require(b'compose.features.yaml' not in files['unit'])
         container = helper.get_caddy(p['edge_network'])
         schema_probe(p, helper)
         with tempfile.TemporaryDirectory(prefix='rogichat-auto-', dir='/var/tmp') as temporary:

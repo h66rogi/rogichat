@@ -35,6 +35,15 @@ def request():
 
 
 class AutomaticTests(unittest.TestCase):
+    def test_manual_media_unit_cannot_enter_automatic_activation(self):
+        files = {key: key.encode() for key in auto.TEMPLATES}
+        files['unit'] = b'ExecStart=-f /opt/rogichat/app/compose.features.yaml'
+        helper = MagicMock()
+        with self.assertRaises(ValueError):
+            auto.activate(request(), policy(), helper, files, 'edge', {},
+                          ('sha256:' + 'e' * 64, None, None), MagicMock(), Path('/fixture'))
+        helper.atomic.assert_not_called()
+
     def test_valid_contract(self):
         auto.validate_policy(policy())
         auto.validate_request(request(), policy())

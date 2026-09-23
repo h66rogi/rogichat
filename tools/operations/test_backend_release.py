@@ -10,7 +10,7 @@ import time
 import unittest
 import stat
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import backend_release as release
 
@@ -29,6 +29,25 @@ def fixture():
     }
 
 
+def media_fixture():
+    value = fixture()
+    value['features'] = ['media']
+    value['decoder_image'] = 'ghcr.io/h66rogi/rogichat-media-decoder@sha256:' + '2' * 64
+    value['artifacts']['feature_media'] = '3' * 64
+    value['archive'] = {
+        'export_sha': value['source_sha'], 'export_run': 1, 'export_attempt': 1,
+        'artifact_id': 1, 'artifact_sha256': 'sha256:' + '4' * 64,
+        'runtime_config_id': 'sha256:' + '5' * 64,
+        'migration_config_id': 'sha256:' + '6' * 64,
+        'decoder_config_id': 'sha256:' + '7' * 64,
+        'runtime_execution_id': 'sha256:' + '5' * 64,
+        'migration_execution_id': 'sha256:' + '6' * 64,
+        'decoder_execution_id': 'sha256:' + '7' * 64,
+        'validator_sha256': '8' * 64, 'execution_identity': 'config',
+    }
+    return value
+
+
 def ready_container(role='api'):
     request = fixture()
     return {'Name': '/rogichat-qa-' + role, 'Config': {'Image': request['runtime_image']},
@@ -40,6 +59,79 @@ def ready_container(role='api'):
 
 
 class RequestTests(unittest.TestCase):
+    def test_media_request_requires_exact_decoder_and_overlay(self):
+        value = media_fixture()
+        self.assertIs(release.validate_request(value), value)
+        self.assertEqual(release.image_roles(value), ('runtime', 'migration', 'decoder'))
+        self.assertEqual(release.service_roles(value), ('decoder', 'worker', 'api'))
+        for remove in ('decoder_image', 'archive'):
+            bad = copy.deepcopy(value)
+            del bad[remove]
+            with self.subTest(remove=remove), self.assertRaises(ValueError):
+                release.validate_request(bad)
+        for features in (['media', 'media'], ['native_push'], ['deletion'], ['Media']):
+            bad = copy.deepcopy(value)
+            bad['features'] = features
+            with self.subTest(features=features), self.assertRaises(ValueError):
+                release.validate_request(bad)
+        bad = copy.deepcopy(value)
+        del bad['artifacts']['feature_media']
+        with self.assertRaises(ValueError):
+            release.validate_request(bad)
+
+    def test_media_secret_custody_and_shape_are_required(self):
+        value = media_fixture()
+        valid = {'accountId': 'a' * 32, 'bucket': 'rogichat-qa-media',
+                 'accessKeyId': 'b' * 20, 'secretAccessKey': 'c' * 32}
+        with patch.object(release, 'protected', return_value=json.dumps(valid).encode()) as protected, \
+                patch.object(release, 'MEDIA_SECRET', SimpleNamespace(stat=lambda: SimpleNamespace(st_gid=10001))):
+            release.verify_media_secret(value)
+            protected.assert_called_once()
+        for bad in ({**valid, 'bucket': 'not/qa'}, {**valid, 'secretAccessKey': 'short'}):
+            with patch.object(release, 'protected', return_value=json.dumps(bad).encode()), \
+                    patch.object(release, 'MEDIA_SECRET', SimpleNamespace(stat=lambda: SimpleNamespace(st_gid=10001))), \
+                    self.assertRaises(ValueError):
+                release.verify_media_secret(value)
+        with patch.object(release, 'protected', return_value=json.dumps(valid).encode()), \
+                patch.object(release, 'MEDIA_SECRET', SimpleNamespace(stat=lambda: SimpleNamespace(st_gid=0))), \
+                self.assertRaises(ValueError):
+            release.verify_media_secret(value)
+
+    def test_media_failure_closes_decoder_with_api_and_worker(self):
+        with patch.object(release, 'caddy_config', side_effect=release.Rejected()), \
+                patch.object(release.Path, 'exists', return_value=True), \
+                patch.object(release, 'run') as run, self.assertRaises(ValueError):
+            release.fail_closed('fixture-container', b'fixture bootstrap', media_fixture())
+        self.assertEqual([call.args[0][-1] for call in run.call_args_list],
+                         ['rogichat-app@decoder', 'rogichat-app@worker', 'rogichat-app@api'])
+
+    def test_media_health_requires_isolated_decoder_and_readonly_worker_socket(self):
+        value = media_fixture()
+        containers = {role: ready_container(role) for role in ('api', 'worker', 'decoder')}
+        for role, item in containers.items():
+            image = value['archive'][('decoder' if role == 'decoder' else 'runtime') + '_execution_id']
+            item['Config']['Image'] = image
+            item['Image'] = image
+            if role == 'decoder':
+                item['Config']['Env'] = ['DECODER_ISOLATED=true']
+                item['HostConfig'].update(NetworkMode='none', ReadonlyRootfs=True)
+                item['NetworkSettings']['Networks'] = {}
+                item['Mounts'] = [{'Destination': '/run/decoder', 'Type': 'volume', 'RW': True}]
+            else:
+                item['Config']['Env'] = ['MEDIA_ENABLED=true', 'MEDIA_SECRET_FILE=/run/secrets/media.json',
+                                         'MEDIA_SCRATCH_DIR=/media-scratch']
+                item['Mounts'] = [{'Destination': '/run/secrets/media.json', 'Type': 'bind',
+                                   'Source': str(release.MEDIA_SECRET), 'RW': False}]
+                if role == 'worker':
+                    item['Config']['Env'].append('MEDIA_DECODER_SOCKET=/run/decoder/image.sock')
+                    item['Mounts'].append({'Destination': '/run/decoder', 'Type': 'volume', 'RW': False})
+        with patch.object(release, 'inspect_starting_container', side_effect=lambda role, _: containers[role]):
+            release.wait_health(value)
+        containers['worker']['Mounts'][-1]['RW'] = True
+        with patch.object(release, 'inspect_starting_container', side_effect=lambda role, _: containers[role]), \
+                self.assertRaises(ValueError):
+            release.wait_health(value)
+
     def test_migration_cleanup_failures_always_unlink_without_reflecting_details(self):
         name = 'rogichat-qa-migration-' + fixture()['request_id']
         detail = b'synthetic-private-diagnostic-do-not-print'
@@ -96,7 +188,7 @@ class RequestTests(unittest.TestCase):
                     release.deploy(fixture(), {'bootstrap': b'fixture'}, 'fixture-caddy')
                 self.assertEqual(list(root.glob('migration-*')), [])
                 self.assertEqual(cleanup.call_count, 2 if stage == 'success' else 1)
-                fail_closed.assert_called_once_with('fixture-caddy', b'fixture')
+                fail_closed.assert_called_once_with('fixture-caddy', b'fixture', ANY)
                 start.assert_not_called()
                 health.assert_not_called()
                 self.assertFalse(any(call.args[0].name == 'completed' for call in atomic.call_args_list))
