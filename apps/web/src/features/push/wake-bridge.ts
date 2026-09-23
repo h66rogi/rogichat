@@ -28,6 +28,8 @@ export interface WakeBridgeOptions {
   binding: WakeBinding;
   /** Authenticated sync, owned by the app. It must reauthenticate and reauthorize. */
   sync: () => Promise<void>;
+  /** A routine foreground check can reuse an already authorized timeline. */
+  resumeSync?: () => Promise<void>;
   worker: WakeWorkerPort | null;
   /** Emits `visibilitychange` and `focus`; the page's window. */
   resume: EventTarget | null;
@@ -36,14 +38,21 @@ export interface WakeBridgeOptions {
 }
 
 /** Binds the worker to this account and syncs on wake, open and resume. Returns a stop function. */
-export function startWakeBridge({ binding, sync, worker, resume, visible }: WakeBridgeOptions): () => void {
+export function startWakeBridge({ binding, sync, resumeSync = sync, worker, resume, visible }: WakeBridgeOptions): () => void {
   const coalescer = new WakeCoalescer();
   // One page can replace its lifecycle — a new account, a new session — before the previous
   // one is torn down, so everything below refuses to act once this bridge has stopped.
   let stopped = false;
-  const run = (): void => {
+  let fullSyncPending = false;
+  const execute = async (): Promise<void> => {
+    const full = fullSyncPending;
+    fullSyncPending = false;
+    await (full ? sync : resumeSync)();
+  };
+  const run = (full = false): void => {
     if (stopped) return;
-    void coalescer.run(sync).catch(() => {
+    if (full) fullSyncPending = true;
+    void coalescer.run(execute).catch(() => {
       // The app reports its own sync failure; the bridge only decides when to run it, and a
       // failed run must not stop later wakes from starting a new one.
     });
@@ -67,7 +76,7 @@ export function startWakeBridge({ binding, sync, worker, resume, visible }: Wake
     if (type !== WAKE_SYNC) return;
     // A wake for an account or session this page is not signed in as is not ours to act on.
     if (!isCurrentBinding(readBinding(account, session, generation), binding)) return;
-    run();
+    run(true);
   };
 
   worker?.addEventListener('message', onMessage);
@@ -86,6 +95,7 @@ export function startWakeBridge({ binding, sync, worker, resume, visible }: Wake
   return () => {
     if (stopped) return;
     stopped = true;
+    fullSyncPending = false;
     worker?.removeEventListener('message', onMessage);
     worker?.removeEventListener('controllerchange', bind);
     resume?.removeEventListener('visibilitychange', onResume);

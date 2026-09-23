@@ -1,7 +1,7 @@
 'use client';
 
 import { ChatPrivacyActions } from './ChatPrivacyActions';
-import { Ban, Check, CircleAlert, CornerUpLeft, Ellipsis, Lock, LoaderCircle, Megaphone, Reply } from 'lucide-react';
+import { Ban, Check, CircleAlert, CornerUpLeft, Ellipsis, LoaderCircle, Megaphone, Reply } from 'lucide-react';
 import { Popover } from 'radix-ui';
 
 import { ChatActorAvatar } from './ChatActorAvatar';
@@ -28,8 +28,8 @@ import type {
  * Adapted from meloming-front 8db1289e6ce5b2b37028ddbb73863363870de6b5
  * src/domains/talk/components/room/TalkMessageBubble.tsx: kept the own/other alignment,
  * avatar + name column, reply-quote block above the bubble, deleted tombstone and the
- * time/status column. Removed numeric IDs, read receipts, reactions/emoji pickers,
- * emoticon rendering, image/file attachments and analytics. Added scope labels,
+ * time/status column. Removed numeric IDs, read receipts,
+ * emoticon rendering, image/file attachments and analytics. Added
  * PRIVATE recipient display, anonymous publication rows, unknown/rejected statuses,
  * an always-visible, keyboard-reachable reply button (the hover-only controls of the
  * original were dropped) and an "unsupported content" placeholder.
@@ -76,10 +76,7 @@ function MessageRow({
       {!isOwn && <ChatActorAvatar actor={item.author} />}
 
       <div className={cn('flex min-w-0 max-w-[min(100%,36rem)] flex-col gap-0.5', isOwn ? 'items-end' : 'items-start')}>
-        <div className={cn('flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 text-[12px] text-muted', isOwn && 'flex-row-reverse')}>
-          {!isOwn && <span className="font-semibold text-body">{item.author.displayName}</span>}
-          <ScopeLabel item={item} viewerRole={viewerRole} />
-        </div>
+        {!isOwn && <span className="px-1 text-[12px] font-semibold text-body">{item.author.displayName}</span>}
 
         {item.quote && <QuoteBlock quote={item.quote} align={isOwn ? 'end' : 'start'} />}
 
@@ -99,48 +96,21 @@ function MessageRow({
             {isOwn && <StatusMark status={item.status} />}
             <time dateTime={item.createdAt}>{timeLabel}</time>
           </div>
-
+          {(canReply || item.status === 'saved' || (item.allowedActions?.delete && onDelete)) && <div className={cn('flex shrink-0 items-center gap-0.5', isOwn && 'flex-row-reverse')}>
+            {item.status === 'saved' && <ReactionControl messageId={item.id} />}
+            <MessageActionMenu>
+              {canReply && <Popover.Close asChild><button type="button" onClick={() => onReplyPrivate(item)} className="flex min-h-11 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-surface-soft" aria-label={replyLabelFor(item, viewerRole)} data-testid="chat-reply"><Reply className="size-4" aria-hidden="true" />답장</button></Popover.Close>}
+              {item.status === 'saved' && <ChatPrivacyActions messageId={item.id} />}
+              {item.allowedActions?.delete && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
+            </MessageActionMenu>
+          </div>}
         </div>
-
-        {(canReply || item.status === 'saved' || (item.allowedActions?.delete && onDelete)) && <MessageActionMenu>
-          {canReply && <Popover.Close asChild><button type="button" onClick={() => onReplyPrivate(item)} className="flex min-h-11 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-surface-soft" aria-label={replyLabelFor(item, viewerRole)} data-testid="chat-reply"><Reply className="size-4" aria-hidden="true" />답장</button></Popover.Close>}
-          {item.status === 'saved' && <ReactionControl messageId={item.id} />}
-          {item.status === 'saved' && <ChatPrivacyActions messageId={item.id} />}
-          {item.allowedActions?.delete && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
-        </MessageActionMenu>}
 
         {item.statusNote && (item.status === 'rejected' || item.status === 'unknown') && (
           <p className={cn('px-1 text-[12px]', item.status === 'rejected' ? 'text-danger' : 'text-muted')}>{item.statusNote}</p>
         )}
       </div>
     </div>
-  );
-}
-
-function ScopeLabel({ item, viewerRole }: { item: ChatMessageItemModel; viewerRole: ChatViewerRole }) {
-  if (item.scope === 'SHARED') {
-    return (
-      <span className="inline-flex items-center gap-1">
-        <Megaphone className="size-3.5" aria-hidden="true" />
-        전체 공개
-      </span>
-    );
-  }
-
-  const other = item.isOwn ? item.recipient : viewerRole === 'FAN' ? null : item.author;
-  const text = item.isOwn
-    ? other
-      ? `${other.displayName}님에게만`
-      : '개인 메시지'
-    : viewerRole === 'FAN'
-      ? '나에게만'
-      : `${item.author.displayName}님과의 개인 대화`;
-
-  return (
-    <span className="inline-flex items-center gap-1 text-muted">
-      <Lock className="size-3.5 text-chat-accent" aria-hidden="true" />
-      {text}
-    </span>
   );
 }
 
@@ -208,7 +178,7 @@ function PublicationRow({ item, onDelete }: { item: ChatPublicationItemModel; on
           <time dateTime={item.createdAt}>{timeLabelFor(item.createdAt)}</time>
         </div>
         {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>}
-        <MessageActionMenu><ReactionControl messageId={item.id} /><ChatPrivacyActions messageId={item.id} />{item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}</MessageActionMenu>
+        <div className="flex items-center gap-1"><ReactionControl messageId={item.id} /><MessageActionMenu><ChatPrivacyActions messageId={item.id} />{item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}</MessageActionMenu></div>
       </div>
     </div>
   );
