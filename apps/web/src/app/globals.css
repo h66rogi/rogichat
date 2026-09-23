@@ -23,6 +23,9 @@
   --action-hover: #c50a39;
   --danger: #c13515;
   --on-action: #ffffff;
+  --chat-accent: #0b66e4;
+  --chat-accent-hover: #0757c5;
+  --chat-other-bubble: #f1f2f5;
 
   --radius-xs: 4px;
   --radius-sm: 8px;
@@ -79,6 +82,9 @@
   --color-action-hover: var(--action-hover);
   --color-danger: var(--danger);
   --color-on-action: var(--on-action);
+  --color-chat-accent: var(--chat-accent);
+  --color-chat-accent-hover: var(--chat-accent-hover);
+  --color-chat-other-bubble: var(--chat-other-bubble);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -105,6 +111,22 @@
   --radius-md: var(--radius-md);
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
+}
+
+/* The conversation owns its viewport; the channel's document layout remains for other pages. */
+[data-shell-root]:has([data-chat-page]) {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+[data-shell-root]:has([data-chat-page]) [data-shell-main],
+[data-shell-root]:has([data-chat-page]) [data-chat-page] {
+  min-height: 0;
+}
+
+[data-shell-root]:has([data-chat-page]) [data-shell-footer] {
+  display: none;
 }
 
 @layer base {

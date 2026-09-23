@@ -6,6 +6,17 @@ import AxeBuilder from '@axe-core/playwright';
 import { installApi, json, TEST_ACTOR_ID, TEST_ROOM_ID, TEST_SCOPES, TEST_PARTITION } from './api-fixture';
 
 // All synthetic payloads live in test code, behind interception of the real API paths.
+async function openMessageOptions(page: Page) {
+  await page.getByTestId('chat-message-options').first().click();
+}
+async function replyToFirstMessage(page: Page) {
+  if (!(await page.getByTestId('chat-reply').isVisible())) await openMessageOptions(page);
+  await page.getByTestId('chat-reply').click();
+}
+async function openReactionControl(page: Page) {
+  if (!(await page.getByRole('button', { name: '반응 보기', exact: true }).isVisible())) await openMessageOptions(page);
+  await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+}
 const streamerId = '44444444-4444-4444-8444-444444444444';
 const incoming = { id: '55555555-5555-4555-8555-555555555555', version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE' as const, author: { kind: 'member' as const, actorId: streamerId, nickname: '테스트 스트리머', avatar: null }, content: { type: 'TEXT' as const, text: '실제 계약 형식의 개인 메시지' }, quote: null, counterpart: { actorId: streamerId }, allowedActions: { reply: true, publish: false, delete: false } };
 async function chatApi(page: Page) {
@@ -77,6 +88,21 @@ test('explicit reviewer entitlement permits real chat commands without inventing
   expect(state.posts).toHaveLength(1);
 });
 
+test('conversation keeps its timeline and composer inside the viewport', async ({ page }) => {
+  await chatApi(page);
+  await page.goto('/chat');
+  await expect(page.getByTestId('chat-composer-input')).toBeVisible();
+  await expect(page.locator('[data-shell-footer]')).toBeHidden();
+  const bounds = await page.evaluate(() => {
+    const timeline = document.querySelector('[data-testid="chat-timeline"]')!.getBoundingClientRect();
+    const composer = document.querySelector('[data-testid="chat-composer"]')!.getBoundingClientRect();
+    return { pageHeight: document.documentElement.scrollHeight, viewportHeight: window.innerHeight, timelineBottom: timeline.bottom, composerTop: composer.top, composerBottom: composer.bottom };
+  });
+  expect(bounds.pageHeight).toBeLessThanOrEqual(bounds.viewportHeight + 2);
+  expect(bounds.timelineBottom).toBeLessThanOrEqual(bounds.composerTop + 2);
+  expect(bounds.composerBottom).toBeLessThanOrEqual(bounds.viewportHeight + 2);
+});
+
 test('READY photo retries the same command, preserves text draft and clears bytes on deletion', async ({ page }) => {
   const { account, state, hint } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
   const media = await installMedia(page); let fail = true;
@@ -90,7 +116,7 @@ test('READY photo retries the same command, preserves text draft and clears byte
   });
   await page.goto('/chat');
   await page.getByTestId('chat-composer-input').fill('별도로 보낼 글');
-  await page.getByRole('button', { name: '사진 첨부', exact: true }).click();
+  await page.getByRole('button', { name: '첨부 메뉴 열기' }).click(); await page.getByRole('button', { name: '사진 첨부', exact: true }).click();
   await page.getByLabel('이미지 선택', { exact: true }).setInputFiles(TEST_IMAGE);
   await expect.poll(() => media.statusReads).toBeGreaterThan(0);
   await expect(page.getByRole('button', { name: '사진 보내기', exact: true })).toBeDisabled();
@@ -115,7 +141,7 @@ test('real chat keeps IME and pending focus, surfaces failure and retries the sa
   const { state } = await chatApi(page);
   await page.goto('/chat');
   const input = page.getByTestId('chat-composer-input'); await expect(input).toBeVisible();
-  await page.getByTestId('chat-reply').click();
+  await replyToFirstMessage(page);
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
   await input.fill('안녕하세요');
   await input.dispatchEvent('compositionstart'); await input.press('Enter');
@@ -169,11 +195,13 @@ test('only own messages offer confirmed deletion, retain failure for retry, and 
   const own = { ...incoming, id: '77777777-7777-4777-8777-777777777777', author: { ...incoming.author, actorId: TEST_ACTOR_ID }, allowedActions: { reply: true, publish: false, delete: true }, content: { type: 'TEXT' as const, text: '삭제할 내 메시지' } };
   state.messages = [own, { ...incoming, quote: { id: own.id, content: { type: 'TEXT', text: own.content.text } } }];
   await page.goto('/chat');
+  await page.locator(`[data-item-id="${own.id}"]`).getByTestId('chat-message-options').click();
   await expect(page.getByTestId('chat-delete')).toHaveCount(1);
   await page.getByTestId('chat-delete').click();
   const dialog = page.getByRole('alertdialog'); await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('button', { name: '취소', exact: true })).toBeFocused();
   await dialog.getByRole('button', { name: '취소', exact: true }).click(); expect(state.deleteCalls).toBe(0);
+  if (!(await page.getByTestId('chat-delete').isVisible())) await page.locator(`[data-item-id="${own.id}"]`).getByTestId('chat-message-options').click();
   await page.getByTestId('chat-delete').click();
   const accessibility = await new AxeBuilder({ page }).analyze(); expect(accessibility.violations).toEqual([]);
   let release!: () => void; state.holdDelete = new Promise<void>(resolve => { release = resolve; }); state.failDelete = true;
@@ -214,7 +242,7 @@ for (const hidden of [false, true]) test(`remote deletion clears ${hidden ? 'hid
   await page.getByRole('radio', { name: '두 번째 스트리머님에게만', exact: true }).click();
   await input.fill('결과 미확인 메시지'); state.failSend = true; await input.press('Enter');
   await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
-  await page.getByTestId('chat-reply').click();
+  await replyToFirstMessage(page);
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
   await input.fill('삭제된 원문을 인용한 초안');
   // Exercise both the currently rendered quote and one held in an inactive target.
@@ -255,6 +283,7 @@ async function reactionApi(page: Page) {
 test('reactions use real methods, authoritative counts, keyboard controls and accessible states', async ({ page }) => {
   const { reactions } = await reactionApi(page);
   await page.goto('/chat');
+  await openMessageOptions(page);
   const toggle = page.getByRole('button', { name: '반응 보기', exact: true });
   await expect(toggle).toBeVisible(); expect(reactions.calls).toEqual([]);
   await toggle.focus(); await toggle.press('Enter');
@@ -277,7 +306,7 @@ test('reactions use real methods, authoritative counts, keyboard controls and ac
 
 for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides unconfirmed counts and permits safe recovery`, async ({ page }) => {
   const { reactions, state, account } = await reactionApi(page);
-  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await page.goto('/chat'); await openReactionControl(page);
   await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
   reactions.status = status;
   if (status === 401) account.sessionStatus = 401;
@@ -295,9 +324,10 @@ for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides u
 
 for (const transition of ['deletion', 'session'] as const) test(`late reaction response after ${transition} cannot repopulate private DOM`, async ({ page }) => {
   const { reactions, state, account, hint } = await reactionApi(page);
-  await page.goto('/chat'); await expect(page.getByRole('button', { name: '반응 보기', exact: true })).toBeVisible();
+  await page.goto('/chat'); await openMessageOptions(page);
+  await expect(page.getByRole('button', { name: '반응 보기', exact: true })).toBeVisible();
   let release!: () => void; reactions.hold = new Promise(resolve => { release = resolve; }); reactions.mine = '👍'; reactions.count = 99;
-  await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await openReactionControl(page);
   await expect(page.getByText('반응을 확인하는 중입니다.')).toBeVisible();
   state.messages = [];
   if (transition === 'deletion') { state.deletedIds = [incoming.id]; hint(); }
@@ -310,7 +340,7 @@ for (const transition of ['deletion', 'session'] as const) test(`late reaction r
 
 test('message version hints refresh only opened reaction aggregates', async ({ page }) => {
   const { reactions, state, hint } = await reactionApi(page);
-  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await page.goto('/chat'); await openReactionControl(page);
   await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
   reactions.mine = '🎉'; reactions.count = 5; state.messages = [{ ...incoming, version: '2' }]; hint();
   await expect(page.getByRole('button', { name: '🎉 반응 5개, 내 반응 해제' })).toBeVisible();
@@ -321,7 +351,7 @@ test('anonymous publication reactions expose only aggregate selection without id
   const { state, reactions } = await reactionApi(page);
   state.messages = [{ ...incoming, audience: 'SHARED', author: { kind: 'anonymous' }, counterpart: null, allowedActions: { reply: false, publish: false, delete: false } }];
   reactions.mine = '👍';
-  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await page.goto('/chat'); await openReactionControl(page);
   await expect(page.getByRole('button', { name: '👍 반응 2개, 내 반응 해제' })).toBeVisible();
   await expect(page.locator('[data-scope="PUBLICATION"]')).toContainText('보낸 사람 비공개');
   await expect(page.locator('[data-scope="PUBLICATION"]')).not.toContainText('테스트 스트리머');
@@ -339,7 +369,7 @@ for (const action of ['GET', 'PUT', 'closed'] as const) test(`pending reaction $
     expect(route.request().method()).toBe('GET');
     await json(route, { counts: [{ emoji: '🎉', count: 5 }], mine: null });
   });
-  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await page.goto('/chat'); await openReactionControl(page);
   await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
   await page.getByRole('button', { name: action === 'PUT' ? '좋아요 반응' : '반응 새로고침', exact: true }).click();
   await expect(page.getByText('반응을 확인하는 중입니다.')).toBeVisible();
@@ -360,7 +390,7 @@ for (const action of ['GET', 'PUT', 'closed'] as const) test(`pending reaction $
 
 for (const action of ['refresh', 'aggregate'] as const) test(`reaction keyboard ${action} retains logical focus through a deferred response`, async ({ page }) => {
   const { reactions } = await reactionApi(page); reactions.mine = '🦊';
-  await page.goto('/chat'); await page.getByRole('button', { name: '반응 보기', exact: true }).click();
+  await page.goto('/chat'); await openReactionControl(page);
   const group = page.getByRole('group', { name: '메시지 반응', exact: true });
   const refresh = group.getByRole('button', { name: '반응 새로고침', exact: true });
   await expect(page.getByRole('button', { name: '🦊 반응 2개, 내 반응 해제' })).toBeVisible();
@@ -382,7 +412,7 @@ test('outgoing PRIVATE reply selects counterpart and equal-version false hint re
   const { state, hint } = await chatApi(page);
   state.messages = [{ ...incoming, author: { ...incoming.author, actorId: TEST_ACTOR_ID, nickname: '테스트 팬' }, allowedActions: { reply: true, publish: false, delete: true } }];
   await page.goto('/chat');
-  await page.getByTestId('chat-reply').click();
+  await replyToFirstMessage(page);
   await expect(page.getByTestId('chat-composer-target')).toContainText('테스트 스트리머');
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
   state.messages = [{ ...state.messages[0]!, counterpart: null, allowedActions: { reply: false, publish: false, delete: true } }];
@@ -402,7 +432,7 @@ test('new identical composer submissions create separate command identities', as
 test('auth-gate pagehide/pageshow unmount preserves same-authority draft quote and exact retry command', async ({ page }) => {
   const { state } = await chatApi(page); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
-  await page.getByTestId('chat-reply').click(); await input.fill('복귀 뒤에도 같은 명령'); await input.press('Enter');
+  await replyToFirstMessage(page); await input.fill('복귀 뒤에도 같은 명령'); await input.press('Enter');
   await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
   const id = state.posts[0]?.clientMessageId;
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -437,7 +467,7 @@ test('confirmed session loss scrubs parked drafts before same-token account acce
 for (const churn of ['profiles', 'manifest', 'events-reset'] as const) test(`${churn} churn takes a fresh snapshot and preserves draft quote and retry command`, async ({ page }) => {
   const { state, hint } = await chatApi(page); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
-  await page.getByTestId('chat-reply').click(); await input.fill('세대 변경에도 같은 초안'); await input.press('Enter');
+  await replyToFirstMessage(page); await input.fill('세대 변경에도 같은 초안'); await input.press('Enter');
   await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
   const id = state.posts[0]?.clientMessageId; const snapshots = state.snapshots;
   if (churn === 'profiles') state.profileGeneration = 'profiles-after-unrelated-join';
@@ -454,7 +484,7 @@ for (const churn of ['profiles', 'manifest', 'events-reset'] as const) test(`${c
 test('auth-gate resume rebuilds a parked quote from the newly authorized message body', async ({ page }) => {
   const { state } = await chatApi(page);
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
-  await page.getByTestId('chat-reply').click(); await input.fill('유지할 초안');
+  await replyToFirstMessage(page); await input.fill('유지할 초안');
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toHaveCount(0);
   state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '수정된 인용 본문' } }];
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
@@ -466,7 +496,7 @@ test('auth-gate resume rebuilds a parked quote from the newly authorized message
 test('live redaction refreshes the visible quote while preserving draft and explicit retry identity', async ({ page }) => {
   const { state, hint } = await chatApi(page); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
-  await page.getByTestId('chat-reply').click(); await input.fill('본문이 바뀌어도 같은 전송'); await input.press('Enter');
+  await replyToFirstMessage(page); await input.fill('본문이 바뀌어도 같은 전송'); await input.press('Enter');
   await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
   const id = state.posts[0]?.clientMessageId;
   state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '현재 허가된 인용 본문' } }]; hint();
@@ -482,8 +512,8 @@ test('room loss from reaction during held SEND scrubs before late send settles a
   const { state, reactions } = await reactionApi(page); let release!: () => void;
   state.holdSend = new Promise<void>(resolve => { release = resolve; }); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
-  await page.getByRole('button', { name: '반응 보기', exact: true }).click(); await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
   await input.fill('권한 상실 후 남으면 안 되는 전송'); await input.press('Enter'); await expect.poll(() => state.posts.length).toBe(1);
+  await openReactionControl(page); await expect(page.getByText('아직 반응이 없습니다.')).toBeVisible();
   reactions.status = 403; state.revoked = true;
   await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
   await expect(page.getByText('채팅 접근 권한이 변경되었습니다. 다시 확인해 주세요.', { exact: true })).toBeVisible(); await expect(input).toHaveCount(0);
@@ -507,7 +537,7 @@ test('catalog sticker selection sends its exact ID, retains selection on failure
     return json(route, { clientMessageId: body.clientMessageId, messageId: incoming.id, status: 'committed', version: '1' });
   });
   await page.goto('/chat'); await page.getByTestId('chat-composer-input').fill('별도 글');
-  await page.getByRole('button', { name: '스티커 선택', exact: true }).click();
+  await page.getByRole('button', { name: '첨부 메뉴 열기' }).click(); await page.getByRole('button', { name: '스티커 선택', exact: true }).click();
   await expect(page.getByRole('button', { name: '스티커 보내기', exact: true })).toBeDisabled();
   await page.getByRole('button', { name: '카탈로그 스티커', exact: true }).click();
   await expect(page.getByRole('img', { name: '선택한 스티커: 카탈로그 스티커' })).toBeVisible();
@@ -545,7 +575,7 @@ test('READY video sends one real asset reference and mounted timeline plays scop
     state.messages.push({ ...incoming, id: savedId, author: { ...incoming.author, actorId: TEST_ACTOR_ID }, content: { type: 'VIDEO', attachments: ['video', 'poster'].map(variant => ({ assetId: MEDIA_ASSET, width: 160, height: 90, variant })) } });
     return json(route, { clientMessageId: body.clientMessageId, messageId: savedId, status: 'committed', version: '1' });
   });
-  await page.goto('/chat'); await page.getByRole('button', { name: '영상 첨부', exact: true }).click();
+  await page.goto('/chat'); await page.getByRole('button', { name: '첨부 메뉴 열기' }).click(); await page.getByRole('button', { name: '영상 첨부', exact: true }).click();
   await page.getByLabel('영상 선택', { exact: true }).setInputFiles({ name: 'test.mp4', mimeType: 'video/mp4', buffer: movie });
   await expect(page.getByRole('button', { name: '영상 보내기', exact: true })).toBeDisabled(); expect(state.posts).toHaveLength(0);
   ready = true; await page.getByRole('button', { name: '이 영상 사용', exact: true }).click();
