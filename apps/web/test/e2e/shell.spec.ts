@@ -13,19 +13,19 @@ test.describe('channel shell', () => {
     await expect(page.locator('nav[aria-label="채널 메뉴"]')).toHaveCount(1);
   });
 
-  test('menu links to the implemented channel sections', async ({ page, isMobile }) => {
+  test('menu shows available routes and clearly marks the planned channel sections', async ({ page, isMobile }) => {
     await page.goto('/rules');
     if (isMobile) {
       await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
     }
     const menu = page.getByRole('navigation', { name: '채널 메뉴' }).last();
-    await expect(menu.getByRole('link')).toHaveText(['프로필', '채팅', '일정', '옷장', '노래책', '규칙', '내 설정']);
-    await expect(menu.getByRole('link', { name: '규칙' })).toHaveAttribute('aria-current', 'page');
-    await expect(menu.getByText('준비 중')).toHaveCount(0);
-    for (const label of ['일정', '옷장', '노래책']) {
-      await expect(menu.getByRole('link', { name: label })).toBeVisible();
+    await expect(menu.getByRole('link')).toHaveText(['프로필', '채팅', '규칙·이용 안내', '내 설정']);
+    await expect(menu.getByRole('link', { name: '규칙·이용 안내' })).toHaveAttribute('aria-current', 'page');
+    await expect(menu.getByText('준비 중')).toHaveCount(4);
+    for (const label of ['일정', '옷장', '노래책', '후원']) {
+      await expect(menu.getByRole('listitem').filter({ hasText: label })).toBeVisible();
+      await expect(menu.getByRole('link', { name: label })).toHaveCount(0);
     }
-    await expect(menu.getByRole('link', { name: '후원' })).toHaveCount(0);
   });
 
   test('uses the official channel image and keeps chat in a narrow column on desktop', async ({ page, isMobile }) => {
