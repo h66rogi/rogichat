@@ -33,6 +33,7 @@ import { SongSuggestService } from '../../dist/modules/channel-content/upstream/
 import { SongAutocompleteService } from '../../dist/modules/channel-content/upstream/song-autocomplete.service.js';
 import { MelomingMrVideoService } from '../../dist/modules/channel-content/meloming-mr-video.service.js';
 import { MelomingPricingService } from '../../dist/modules/channel-content/meloming-pricing.service.js';
+import { MelomingOmakaseService } from '../../dist/modules/channel-content/meloming-omakase.service.js';
 import { Readable } from 'node:stream';
 
 async function fixture(t) {
@@ -632,4 +633,38 @@ test('copied Meloming pricing settings calculate category and song prices for li
   const created=await requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:''});
   assert.equal(created.calculatedPrice,40);
   assert.equal(created.formattedPrice,'40별풍선');
+});
+
+test('copied Omakase settings, balance journal and manual song selection share one owner transaction',async t=>{
+  const {db,roomId,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const omakase=new MelomingOmakaseService(db.transactions,auth,repository);
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const songId=await db.transactions.write(async tx=>{
+    const artistId=await nextChannelContentId(tx.prisma);
+    await tx.prisma.artist.create({data:{id:artistId,name:'오마카세 가수',nameSearchable:'오마카세가수',channelId:roomId}});
+    const id=await nextChannelContentId(tx.prisma);
+    await tx.prisma.song.create({data:{id,title:'오마카세 곡',titleSearchable:'오마카세곡',artistId,channelId:roomId}});
+    return id;
+  });
+  await assert.rejects(omakase.get({token:fanId}));
+  assert.deepEqual(await omakase.get({token:ownerId}),{channelId:1,enabled:false,displayName:'후마카세',price:0,currencyPrices:null,count:0});
+  assert.throws(()=>omakase.update({token:ownerId},{price:-1}));
+  assert.equal((await omakase.update({token:ownerId},{enabled:true,displayName:'후로기 선곡',price:100,
+    currencyPrices:{SOOP_BALLOON:1}})).price,100);
+  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  await assert.rejects(omakase.setCount({token:fanId},{liveSessionId:session.id,count:2}));
+  assert.equal((await omakase.setCount({token:ownerId},{liveSessionId:session.id,count:2})).count,2);
+  assert.equal((await omakase.adjust({token:ownerId},{liveSessionId:session.id,delta:-1,reason:'테스트'})).count,1);
+  const selected=await omakase.consume({token:ownerId},{request:{liveSessionId:session.id,songId,
+    rawArtist:'',rawTitle:''},playNow:true});
+  assert.equal(selected.status.count,0);
+  assert.equal(selected.request.status,'PLAYING');
+  await assert.rejects(omakase.consume({token:ownerId},{request:{liveSessionId:session.id,songId,
+    rawArtist:'',rawTitle:''}}));
+  const history=await omakase.history({token:ownerId},50);
+  assert.deepEqual(history.map(row=>row.type),['CONSUME_PLAY_NOW','MANUAL_DECREMENT','MANUAL_SET']);
+  assert.equal(history[0].actorUserId,(await db.transactions.read(tx=>tx.prisma.melomingUserAlias.findUnique({where:{userId:ownerId}}))).id);
+  assert.equal((await omakase.get({token:ownerId})).count,0);
 });

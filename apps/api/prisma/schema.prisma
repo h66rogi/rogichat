@@ -157,6 +157,15 @@ enum SongRequestSource {
   COMPETITOR @map("competitor")
 }
 
+enum OmakaseLedgerType {
+  CHAT_PAID        @map("chat_paid")
+  MANUAL_INCREMENT @map("manual_increment")
+  MANUAL_DECREMENT @map("manual_decrement")
+  MANUAL_SET       @map("manual_set")
+  CONSUME_QUEUE    @map("consume_queue")
+  CONSUME_PLAY_NOW @map("consume_play_now")
+}
+
 enum SongRequestType {
   NORMAL @map("normal")
   RANDOM @map("random")
@@ -444,6 +453,7 @@ model LiveSession {
   user         users                @relation(fields: [userId], references: [id], onDelete: Restrict)
   songRequests SongRequest[]
   settings     LiveSessionSettings?
+  omakaseLedgerEntries OmakaseLedgerEntry[]
 
   @@index([channelId, status], map: "idx_live_session_channel_status")
   @@index([channelId, sessionType, status], map: "idx_live_session_channel_type_status")
@@ -490,6 +500,7 @@ model SongRequest {
   song          Song?       @relation(fields: [songId], references: [id], onDelete: SetNull)
   sourceChannel rooms?      @relation("SongRequestSourceChannel", fields: [sourceChannelId], references: [id], onDelete: SetNull)
   requestUser   users?      @relation("userSongRequests", fields: [requestUserId], references: [id], onDelete: SetNull)
+  omakaseLedgerEntries OmakaseLedgerEntry[]
 
   @@index([liveSessionId, status], map: "idx_song_request_session_status")
   @@index([liveSessionId, queueOrder], map: "idx_song_request_queue_order")
@@ -499,6 +510,58 @@ model SongRequest {
   @@index([liveSessionId, requesterPlatformId, status], map: "idx_song_request_session_requester_status")
   @@index([requestUserId], map: "idx_song_request_user_id")
   @@map("song_requests")
+}
+
+/// Copied from meloming-back ChannelOmakaseSettings. The original integer
+/// channel foreign key maps to Rogichat's primary room UUID.
+model ChannelOmakaseSettings {
+  id             Int     @id
+  channelId      String  @unique @map("channel_id") @db.Char(36)
+  enabled        Boolean @default(false)
+  displayName    String? @map("display_name") @db.VarChar(50)
+  price          Int     @default(0)
+  currencyPrices Json?   @map("currency_prices")
+  count          Int     @default(0)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+  channel        rooms   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_omakase_settings")
+}
+
+/// Original omakase balance journal, with account and channel keys mapped to UUIDs.
+model OmakaseLedgerEntry {
+  id                   Int @id
+  channelId            String @map("channel_id") @db.Char(36)
+  liveSessionId        Int? @map("live_session_id")
+  songRequestId        Int? @map("song_request_id")
+  type                 OmakaseLedgerType
+  delta                Int
+  balanceAfter         Int @map("balance_after")
+  requesterPlatformId  String? @map("requester_platform_id") @db.VarChar(64)
+  requesterNickname    String? @map("requester_nickname") @db.VarChar(255)
+  requestUserId        String? @map("request_user_id") @db.Char(36)
+  streamMessageId      String? @unique @map("stream_message_id") @db.VarChar(128)
+  rawMessage           String? @map("raw_message") @db.Text
+  donationAmount       Int? @map("donation_amount")
+  donationNativeAmount Int? @map("donation_native_amount")
+  donationCurrency     String? @map("donation_currency") @db.VarChar(32)
+  actorUserId          String? @map("actor_user_id") @db.Char(36)
+  reason               String? @db.VarChar(255)
+  createdAt            DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  channel      rooms @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  liveSession  LiveSession? @relation(fields: [liveSessionId], references: [id], onDelete: SetNull)
+  songRequest  SongRequest? @relation(fields: [songRequestId], references: [id], onDelete: SetNull)
+  requestUser  users? @relation("omakase_request_user", fields: [requestUserId], references: [id], onDelete: SetNull)
+  actorUser    users? @relation("omakase_actor_user", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([channelId, createdAt], map: "idx_omakase_ledger_channel_created")
+  @@index([liveSessionId, createdAt], map: "idx_omakase_ledger_session_created")
+  @@index([songRequestId], map: "idx_omakase_ledger_song_request")
+  @@index([requestUserId], map: "idx_omakase_ledger_request_user")
+  @@index([actorUserId], map: "idx_omakase_ledger_actor_user")
+  @@map("omakase_ledger_entries")
 }
 
 /// 라이브 세션 설정. Copied from meloming-back LiveSessionSettings.
@@ -759,6 +822,8 @@ model users {
   processedSongRequests SongAddRequest[] @relation("SongAddRequestProcessor")
   liveSessions          LiveSession[]
   liveSongRequests      SongRequest[] @relation("userSongRequests")
+  omakaseRequests       OmakaseLedgerEntry[] @relation("omakase_request_user")
+  omakaseActions        OmakaseLedgerEntry[] @relation("omakase_actor_user")
   members               room_members[]
   creator               creator_accounts?
   admin                 admin_capabilities?
@@ -920,6 +985,8 @@ model rooms {
   songAddRequests SongAddRequest[]
   liveSessions LiveSession[]
   liveRequestSettings ChannelSongRequestSettings?
+  omakaseSettings ChannelOmakaseSettings?
+  omakaseLedgerEntries OmakaseLedgerEntry[]
   sourcedSongRequests SongRequest[] @relation("SongRequestSourceChannel")
 }
 
