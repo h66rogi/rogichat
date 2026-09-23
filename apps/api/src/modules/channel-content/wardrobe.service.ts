@@ -4,7 +4,6 @@ import type { CommandCredentials, SessionCredentials } from '../auth/auth-contex
 import { AuthService } from '../auth/auth.service.js';
 import { ApiError } from '../auth/auth-primitives.js';
 import { ChannelContentRepository } from './channel-content.repository.js';
-import { ChannelWardrobeService } from './upstream/channel-wardrobe.service.js';
 import type { CreateChannelWardrobeCategoryDto, CreateChannelWardrobeItemDto, UpdateChannelWardrobeCategoryDto, UpdateChannelWardrobeItemDto } from './upstream/channel-wardrobe.dto.js';
 
 const ratios = ['16:9','9:16','1:1','4:3','3:4'];
@@ -48,16 +47,17 @@ export class WardrobeService {
   public() {
     return this.transactions.write(async tx => {
       // Meloming lazily creates 의상/헤어 on first read. Serialize that upsert.
-      await tx.rows('SELECT `key` FROM default_room_bindings WHERE `key`=? FOR UPDATE', ['primary']);
+      await this.repository.lockPrimary(tx);
       const { roomId } = await this.repository.primary(tx);
-      return new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId);
+      return this.repository.wardrobe(tx).getPublicWardrobe(roomId);
     });
   }
   manage(credentials: SessionCredentials) {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      return new ChannelWardrobeService(tx.prisma).getManageWardrobe(roomId);
+      await this.repository.lockPrimary(tx);
+      return this.repository.wardrobe(tx).getManageWardrobe(roomId);
     });
   }
   createCategory(credentials: CommandCredentials, value: unknown) {
@@ -65,7 +65,8 @@ export class WardrobeService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      return new ChannelWardrobeService(tx.prisma).createCategory(roomId,data);
+      await this.repository.lockPrimary(tx);
+      return this.repository.wardrobe(tx).createCategory(roomId,data);
     });
   }
   updateCategory(credentials: CommandCredentials, id: number, value: unknown) {
@@ -73,14 +74,16 @@ export class WardrobeService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      return new ChannelWardrobeService(tx.prisma).updateCategory(roomId,id,data);
+      await this.repository.lockPrimary(tx);
+      return this.repository.wardrobe(tx).updateCategory(roomId,id,data);
     });
   }
   deleteCategory(credentials: CommandCredentials, id: number) {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      return new ChannelWardrobeService(tx.prisma).deleteCategory(roomId,id);
+      await this.repository.lockPrimary(tx);
+      return this.repository.wardrobe(tx).deleteCategory(roomId,id);
     });
   }
   createItem(credentials: CommandCredentials, value: unknown) {
@@ -88,7 +91,8 @@ export class WardrobeService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      return new ChannelWardrobeService(tx.prisma).createItem(roomId,data);
+      await this.repository.lockPrimary(tx);
+      return this.repository.wardrobe(tx).createItem(roomId,data);
     });
   }
   updateItem(credentials: CommandCredentials, id: number, value: unknown) {
@@ -96,14 +100,16 @@ export class WardrobeService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      return new ChannelWardrobeService(tx.prisma).updateItem(roomId,id,data);
+      await this.repository.lockPrimary(tx);
+      return this.repository.wardrobe(tx).updateItem(roomId,id,data);
     });
   }
   deleteItem(credentials: CommandCredentials, id: number) {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      return new ChannelWardrobeService(tx.prisma).deleteItem(roomId,id);
+      await this.repository.lockPrimary(tx);
+      return this.repository.wardrobe(tx).deleteItem(roomId,id);
     });
   }
 }

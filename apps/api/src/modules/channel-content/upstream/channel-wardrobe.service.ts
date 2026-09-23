@@ -256,7 +256,6 @@ export class ChannelWardrobeService {
   }
 
   private async ensureDefaultCategories(channelId: string): Promise<void> {
-    await this.prisma.$queryRaw`SELECT \`key\` FROM default_room_bindings WHERE \`key\` = 'primary' FOR UPDATE`;
     const categoryCount = await this.prisma.channelWardrobeCategory.count({
       where: { channelId },
     });

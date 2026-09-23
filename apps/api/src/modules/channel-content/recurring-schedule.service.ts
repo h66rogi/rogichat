@@ -67,7 +67,7 @@ export class RecurringScheduleService {
     return this.transactions.write(async tx=>{
       const actor=await this.auth.require(tx,credentials,true);
       const roomId=await this.repository.requireOwner(tx,actor.userId);
-      await tx.rows('SELECT `key` FROM default_room_bindings WHERE `key`=? FOR UPDATE',['primary']);
+      await this.repository.lockPrimary(tx);
       const existing=await tx.prisma.channelRecurringSchedule.findMany({where:{channelId:roomId},select:{id:true,dayOfWeek:true}});
       const days=new Set(schedules.map(row=>row.dayOfWeek));
       const {from,to}=generationRange();
@@ -84,7 +84,7 @@ export class RecurringScheduleService {
 
   async refreshUpcoming() {
     await this.transactions.write(async tx=>{
-      await tx.rows('SELECT `key` FROM default_room_bindings WHERE `key`=? FOR UPDATE',['primary']);
+      await this.repository.lockPrimary(tx);
       const {roomId,ownerId}=await this.repository.primary(tx);
       if (!ownerId) return;
       const templates=await tx.prisma.channelRecurringSchedule.findMany({where:{channelId:roomId,isActive:true}});

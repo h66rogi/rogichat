@@ -126,7 +126,7 @@ export class SongbookService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      await tx.rows('SELECT `key` FROM default_room_bindings WHERE `key`=? FOR UPDATE',['primary']);
+      await this.repository.lockPrimary(tx);
       const artist = data.artistId ? await tx.prisma.artist.findFirst({where:{id:data.artistId as number,channelId:roomId},select:{id:true}})
         : await (async () => { const name = (data.artistName as string).trim();
           const existing = await tx.prisma.artist.findFirst({where:{channelId:roomId,name},select:{id:true}});
@@ -163,7 +163,7 @@ export class SongbookService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      await tx.rows('SELECT `key` FROM default_room_bindings WHERE `key`=? FOR UPDATE',['primary']);
+      await this.repository.lockPrimary(tx);
       const existing = await tx.prisma.song.findFirst({where:{id,channelId:roomId},select:{id:true}});
       if (!existing) throw new ApiError('NOT_FOUND',404);
       let artistId: number | undefined;
@@ -210,7 +210,7 @@ export class SongbookService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      await tx.rows('SELECT `key` FROM default_room_bindings WHERE `key`=? FOR UPDATE',['primary']);
+      await this.repository.lockPrimary(tx);
       const last = await tx.prisma.category.aggregate({where:{channelId:roomId},_max:{displayOrder:true}});
       const created = await tx.prisma.category.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,name:(data.name as string).trim(),color:(data.color as string | undefined) ?? '#f59e0b',displayOrder:(last._max.displayOrder ?? 0)+1},select:{id:true,name:true,color:true,displayOrder:true}});
       return created;
