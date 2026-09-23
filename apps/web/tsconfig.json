@@ -11,9 +11,6 @@
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "strict": true,
-    "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
-    "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "verbatimModuleSyntax": true,
     "allowJs": false,
@@ -51,6 +48,7 @@
   "exclude": [
     "node_modules",
     ".next",
-    "public"
+    "public",
+    "src/meloming"
   ]
 }

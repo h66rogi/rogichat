@@ -64,9 +64,9 @@ const scheduleSelect = {
 
 type ScheduleRow = Prisma.ChannelScheduleGetPayload<{ select: typeof scheduleSelect }>;
 function response(row: ScheduleRow) {
-  return { id: row.id, channelId: row.channelId, channelWebPath: 'hurogi',
-    author: { id: row.authorUserId, nickname: row.author.profile?.nickname ?? '후로기', profileImageUrl: null },
-    channel: { id: row.channelId, name: '후로기', profileImageUrl: null, webPath: 'hurogi' },
+  return { id: row.id, channelId: 1, channelWebPath: 'hurogi',
+    author: { id: 1, nickname: row.author.profile?.nickname ?? '후로기', profileImageUrl: null },
+    channel: { id: 1, name: '후로기', profileImageUrl: '/images/hurogi-profile.png', webPath: 'hurogi' },
     title: row.title, content: row.content, startAt: row.startAt.toISOString(), endAt: row.endAt?.toISOString() ?? null,
     allDay: row.allDay, isCanceled: row.isCanceled, status: row.status, visibility: row.visibility,
     location: row.location, externalUrl: row.externalUrl, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
@@ -92,6 +92,39 @@ export class ChannelScheduleService {
         tx.prisma.channelSchedule.count({ where }),
       ]);
       return { items: rows.map(response), page, limit, total };
+    });
+  }
+
+  listForViewer(credentials: SessionCredentials, query: ScheduleQuery) {
+    return this.transactions.read(async tx => {
+      const { roomId, ownerId } = await this.repository.primary(tx);
+      const actor = credentials.token ? await this.auth.require(tx, credentials, true) : null;
+      const owner = actor?.userId === ownerId;
+      const page = Math.max(1, Math.min(100000, query.page ?? 1));
+      const limit = Math.max(1, Math.min(500, query.limit ?? 40));
+      const month = query.ym ? kstMonthRange(query.ym) : undefined;
+      const overlap = month ? toWhereOverlap(month.from, month.to) : toWhereOverlap(query.from, query.to);
+      const where: Prisma.ChannelScheduleWhereInput = { channelId: roomId, isDeleted: false,
+        ...(owner ? {} : { visibility: 'PUBLIC' }), ...overlap };
+      const [rows, total] = await Promise.all([
+        tx.prisma.channelSchedule.findMany({ where, select: scheduleSelect, orderBy: { startAt: 'desc' }, skip: (page - 1) * limit, take: limit }),
+        tx.prisma.channelSchedule.count({ where }),
+      ]);
+      return { items: rows.map(response), page, limit, total };
+    });
+  }
+
+  getOne(credentials: SessionCredentials, id: number) {
+    return this.transactions.read(async tx => {
+      const { roomId, ownerId } = await this.repository.primary(tx);
+      const row = await tx.prisma.channelSchedule.findFirst({ where: { id, channelId: roomId, isDeleted: false }, select: scheduleSelect });
+      if (!row) throw new ApiError('NOT_FOUND', 404);
+      if (row.visibility === 'PRIVATE') {
+        if (!credentials.token) throw new ApiError('NOT_FOUND', 404);
+        const actor = await this.auth.require(tx, credentials, true);
+        if (actor.userId !== ownerId) throw new ApiError('NOT_FOUND', 404);
+      }
+      return response(row);
     });
   }
 

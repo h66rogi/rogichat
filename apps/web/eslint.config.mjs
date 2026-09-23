@@ -4,7 +4,11 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['.next/**', 'node_modules/**', 'next-env.d.ts', 'public/**', 'test-results/**', 'playwright-report/**'] },
+  {
+    // Verbatim Meloming sources and route files retain their upstream lint policy.
+    // tools/check_meloming_copy.py verifies their exact source hashes.
+    ignores: ['.next/**', 'node_modules/**', 'next-env.d.ts', 'public/**', 'test-results/**', 'playwright-report/**', 'src/meloming/**', 'src/app/(meloming-channel)/channel/**'],
+  },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   reactHooks.configs.flat['recommended-latest'],

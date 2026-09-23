@@ -1,4 +1,4 @@
-// SHA-256 of the unmodified Prisma-generated migrations; contract test rejects drift.
+// SHA-256 of reviewed migrations; contract test rejects drift.
 export const migrationManifest: readonly { name: string; checksum: string }[] = [
   { name: '20260919171609_m02_foundation', checksum: 'f7f8aff208bd63ebf45574b297f08d4bd283126a7ab9ea8b386c18e394283ac9' },
   { name: '20260919172921_m03_auth_terms', checksum: 'fcbb7aee346509f8b190ed4adf88495c897cd386e59b59d919490e5a729cc925' },
@@ -27,4 +27,18 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920165804_soop_profile_default_room', checksum: '3c83834ed70b466e42a41ca12fe22cc88a473570184c0678f8079a7678daed36' },
   { name: '20260920185425_admin_reviewer_access', checksum: 'd000e455dbd31efddbe4db2c20d3efe8b93a587f3205639dbba6be0169e65df2' },
   { name: '20260923183500_meloming_channel_content', checksum: '1496fd1ec35695c735d7b929a7dc531ef42d130a1ec3b8845714859e5ceb1478' },
+  { name: '20260923214500_meloming_content_models', checksum: 'aa6363a51430ce4228070c5e42a872c6c98f4769b2450611a3c0bf8a03e342cb' },
+  { name: '20260923230000_meloming_channel_profile', checksum: '91d92477867ecc9f7277db1a96089dfd59891c1f9e118af007c30a64d0a2aac6' },
+  { name: '20260923231000_meloming_schedule_notice', checksum: '633bd2298dd38940e754d311f6bc3b1e3ea12048d4e1b7c45e22064cae8f209e' },
+  { name: '20260923232000_meloming_user_alias', checksum: 'eed4619c2ebe6800f1159cd3ee2a6e34c42f13385dc1da2a63ae9b17dedfa6bc' },
+  { name: '20260923233000_meloming_musicbook_settings', checksum: '4fd6cbbd679ac6c72ba57e2b92c3e1e6bdc05cc7d3821ce417b971f715a80111' },
+  { name: '20260924002000_meloming_song_add_requests', checksum: '73a56429550b559bbe826a28729157d284c561d6464858a6e9b3370ac9c0d373' },
+  { name: '20260924010000_meloming_live_requests', checksum: 'bd48a35d8ac080f44a0c09c6829de9a2e3e2556829878bdac58aa89ae48fb98d' },
+  { name: '20260924013000_meloming_channel_favorites', checksum: '8381fe70bf145dbafc808f30c84fac5955c836b4437119a7c61ab99caaec59fb' },
+  { name: '20260924014000_meloming_song_export_log', checksum: 'ada82ba99a4450cf87a5c7bfd7b8abbe1960b4f52cdf80e2a6cdc620221a6eca' },
+  { name: '20260924020000_meloming_channel_pricing', checksum: '2ede78d38352c4b1f17974ab5e214602609ce6e631b5896805d1f677e567a7c6' },
+  { name: '20260924023000_meloming_omakase', checksum: '54aa546729fce205b801b69d0013f0540a393c5ca84eaba4185674247e2d3a36' },
+  { name: '20260924030000_meloming_global_song', checksum: 'c5f128e972aee25b4d49f9568489ba027edfe4465497573ebab086992a5dc3eb' },
+  { name: '20260924033000_channel_feature_settings', checksum: 'b2797189e387d941f6569a4b9fdd6c65dca86e99f3be26196dff5e8469704737' },
+  { name: '20260924034500_songbook_clips', checksum: 'a322f0cd322ee934076b9ea7cf4b3169cd76958e3232385333f3623563520d6e' },
 ];

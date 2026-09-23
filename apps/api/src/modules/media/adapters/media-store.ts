@@ -1,7 +1,8 @@
 import { Agent } from 'node:https';
 import { createReadStream, readFileSync, statSync } from 'node:fs';
 import { Readable } from 'node:stream';
-import { S3Client, S3ServiceException, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand } from '@aws-sdk/client-s3';
+import { S3Client, S3ServiceException, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand, HeadBucketCommand,
+  CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { ConfigurationError } from '../../../infrastructure/config/config.js';
 
@@ -12,6 +13,13 @@ export interface MediaStore {
   // Point-in-time proof; callers still own late-writer guards and lease fences.
   remove(key: string, signal: AbortSignal): Promise<void>;
   signedGet(key: string): Promise<string>;
+}
+export interface MultipartMediaStore extends MediaStore {
+  beginMultipart(key:string,contentType:string):Promise<{uploadId:string}>;
+  signMultipartPart(key:string,uploadId:string,partNumber:number):Promise<string>;
+  finishMultipart(key:string,uploadId:string,parts:Array<{partNumber:number;etag:string}>):Promise<number>;
+  abortMultipart(key:string,uploadId:string):Promise<void>;
+  readRange(key:string,range?:string):Promise<{stream:Readable;bytes:number;total:number;contentType:string;contentRange?:string}>;
 }
 export interface MediaConfig { accountId: string; bucket: string; accessKeyId: string; secretAccessKey: string; prefix: string }
 export function readMediaConfig(environment: string, env: NodeJS.ProcessEnv = process.env): MediaConfig | undefined {
@@ -34,10 +42,10 @@ export function readMediaConfig(environment: string, env: NodeJS.ProcessEnv = pr
 const id = '[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}';
 export function mediaKey(prefix: string, assetId: string, attemptId: string, variant: string): string {
   const key = `${prefix}/${assetId}/${attemptId}/${variant}`;
-  if (!new RegExp(`^(local|test|qa|production)/${id}/${id}/(input|image|video|poster)$`).test(key)) throw new Error('invalid_media_key');
+  if (!new RegExp(`^(local|test|qa|production)/${id}/${id}/(input|image|video|poster|sheet|mr)$`).test(key)) throw new Error('invalid_media_key');
   return key;
 }
-export class R2MediaStore implements MediaStore {
+export class R2MediaStore implements MultipartMediaStore {
   private readonly client: S3Client;
   constructor(private readonly config: MediaConfig) {
     this.client = new S3Client({ region: 'auto', endpoint: `https://${config.accountId}.r2.cloudflarestorage.com`,
@@ -54,7 +62,7 @@ export class R2MediaStore implements MediaStore {
   }
   async put(key: string, path: string, bytes: number, contentType: string, signal: AbortSignal): Promise<void> {
     if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > 52 * 1024 * 1024 ||
-      !['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'application/octet-stream'].includes(contentType)) throw new Error('invalid_media_put');
+      !['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime', 'application/octet-stream', 'application/pdf', 'application/vnd.recordare.musicxml+xml'].includes(contentType)) throw new Error('invalid_media_put');
     const file = statSync(path);
     if (!file.isFile() || file.size !== bytes) throw new Error('invalid_media_put');
     const stream = createReadStream(path, { highWaterMark: 64 * 1024 });
@@ -122,6 +130,39 @@ export class R2MediaStore implements MediaStore {
   signedGet(key: string): Promise<string> {
     // Local signing only; caller must authorize immediately before this operation. No presigned PUT API.
     return getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.config.bucket, Key: this.key(key) }), { expiresIn: 60 });
+  }
+  async beginMultipart(key:string,contentType:string) {
+    if (!/^video\/[a-z0-9.+-]+$/.test(contentType)) throw new Error('invalid_media_type');
+    const result=await this.client.send(new CreateMultipartUploadCommand({Bucket:this.config.bucket,Key:this.key(key),ContentType:contentType}));
+    if (!result.UploadId) throw new Error('multipart_upload_missing_id');
+    return {uploadId:result.UploadId};
+  }
+  signMultipartPart(key:string,uploadId:string,partNumber:number) {
+    if (!uploadId || !Number.isSafeInteger(partNumber) || partNumber<1 || partNumber>10000) throw new Error('invalid_multipart_part');
+    return getSignedUrl(this.client,new UploadPartCommand({Bucket:this.config.bucket,Key:this.key(key),UploadId:uploadId,PartNumber:partNumber}),{expiresIn:3600});
+  }
+  async finishMultipart(key:string,uploadId:string,parts:Array<{partNumber:number;etag:string}>) {
+    if (!uploadId || !parts.length || parts.some(part=>!Number.isSafeInteger(part.partNumber)||part.partNumber<1||part.partNumber>10000||!part.etag)) throw new Error('invalid_multipart_parts');
+    await this.client.send(new CompleteMultipartUploadCommand({Bucket:this.config.bucket,Key:this.key(key),UploadId:uploadId,
+      MultipartUpload:{Parts:parts.map(part=>({PartNumber:part.partNumber,ETag:part.etag}))}}));
+    const head=await this.client.send(new HeadObjectCommand({Bucket:this.config.bucket,Key:this.key(key)}));
+    if (!Number.isSafeInteger(head.ContentLength) || head.ContentLength!<=0) throw new Error('invalid_media_object');
+    return head.ContentLength!;
+  }
+  async abortMultipart(key:string,uploadId:string) {
+    if (!uploadId) throw new Error('invalid_multipart_upload');
+    await this.client.send(new AbortMultipartUploadCommand({Bucket:this.config.bucket,Key:this.key(key),UploadId:uploadId}));
+  }
+  async readRange(key:string,range?:string) {
+    const response=await this.client.send(new GetObjectCommand({Bucket:this.config.bucket,Key:this.key(key),...(range?{Range:range}:{})}));
+    if (!(response.Body instanceof Readable) || !Number.isSafeInteger(response.ContentLength) || response.ContentLength!<=0 ||
+      !Number.isSafeInteger(response.ContentRange ? Number(response.ContentRange.split('/')[1]) : response.ContentLength)) {
+      if (response.Body instanceof Readable) response.Body.destroy();
+      throw new Error('invalid_media_object');
+    }
+    const total=response.ContentRange?Number(response.ContentRange.split('/')[1]):response.ContentLength!;
+    return {stream:response.Body,bytes:response.ContentLength!,total,contentType:response.ContentType??'application/octet-stream',
+      ...(response.ContentRange?{contentRange:response.ContentRange}:{})};
   }
   close(): void { this.client.destroy(); }
 }

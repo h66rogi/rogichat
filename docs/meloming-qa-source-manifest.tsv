@@ -1,0 +1,6 @@
+# meloming-back qa fe18cde9d8a1eea60448dd9878dc6b4eda43b2de, source sha256
+40d72109adda79b70184edaef4a1391a4650c6b4b476ff4e8fa953145b45e67f	src/song/song-sheet-music.controller.ts
+e4b8ea80bff44a58f0555cb5cedd127cc6201e17827afc15e33cf5d2ba6bbe17	src/song/song-sheet-music.service.ts
+e1fe3a60b7cf0f38050488b64ade08c09802deca82a4352c9972992b3430e30e	src/upload/sheet-music-upload.service.ts
+f9ee07233f28678751a49dbc4da171a0c7fad8e55e7d47191ca5c2343d16c9f5	src/upload/utils/mxl-extractor.ts
+8456473e8d5758180a5d8663a43f94be6318f9d818ccce423f226c07713f024b	src/upload/utils/sheet-music-mime.ts

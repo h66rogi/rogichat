@@ -38,6 +38,7 @@ export class AccountCleanupRepository {
       OR: [{ profile_nickname: { not: null } }, { profile_image_url: { not: null } }] },
       data: { profile_nickname: null, profile_image_url: null } })).count;
     changed += (await tx.prisma.admin_capabilities.deleteMany({ where: { user_id: userId } })).count;
+    changed += (await tx.prisma.melomingUserAlias.deleteMany({ where: { userId } })).count;
     // Keep the avatar FK until a separate durable media transfer proves detachment
     // safe. Empty nickname is internal scrubbed data, never a successful profile DTO.
     changed += (await tx.prisma.user_profiles.deleteMany({ where: { user_id: userId, avatar_asset_id: null } })).count;
@@ -49,8 +50,23 @@ export class AccountCleanupRepository {
 
   /** Drain Meloming channel data introduced into Rogichat before account closure. */
   async channelContent(tx: Transaction, userId: string, limit: number) {
+    const ownClipRequests = await tx.prisma.clipRequest.findMany({ where: { requesterId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (ownClipRequests.length) return (await tx.prisma.clipRequest.deleteMany({ where: { requesterId: userId, id: { in: ownClipRequests.map(row => row.id) } } })).count;
+    const processedClipRequests = await tx.prisma.clipRequest.findMany({ where: { processedById: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (processedClipRequests.length) return (await tx.prisma.clipRequest.updateMany({ where: { processedById: userId, id: { in: processedClipRequests.map(row => row.id) } }, data: { processedById: null } })).count;
+    const exportLogs = await tx.prisma.songExportLog.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (exportLogs.length) return (await tx.prisma.songExportLog.deleteMany({ where: { userId, id: { in: exportLogs.map(row => row.id) } } })).count;
+    const ownSongRequests = await tx.prisma.songAddRequest.findMany({ where: { requesterId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (ownSongRequests.length) return (await tx.prisma.songAddRequest.deleteMany({ where: { requesterId: userId, id: { in: ownSongRequests.map(row => row.id) } } })).count;
+    const processedSongRequests = await tx.prisma.songAddRequest.findMany({ where: { processedById: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (processedSongRequests.length) return (await tx.prisma.songAddRequest.updateMany({ where: { processedById: userId, id: { in: processedSongRequests.map(row => row.id) } }, data: { processedById: null } })).count;
+    const liveRequestsByUser = await tx.prisma.songRequest.findMany({ where: { requestUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (liveRequestsByUser.length) return (await tx.prisma.songRequest.updateMany({ where: { requestUserId: userId, id: { in: liveRequestsByUser.map(row => row.id) } },
+      data: { requestUserId: null, requesterNickname: '(탈퇴한 사용자)', requesterPlatformId: 'deleted', rawMessage: null } })).count;
     const likes = await tx.prisma.userSongLike.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (likes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { userId, id: { in: likes.map(row => row.id) } } })).count;
+    const favorites = await tx.prisma.userChannelFavorite.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (favorites.length) return (await tx.prisma.userChannelFavorite.deleteMany({ where: { userId, id: { in: favorites.map(row => row.id) } } })).count;
     const authored = await tx.prisma.channelSchedule.findMany({ where: { authorUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (authored.length) return (await tx.prisma.channelSchedule.deleteMany({ where: { authorUserId: userId, id: { in: authored.map(row => row.id) } } })).count;
 
@@ -61,6 +77,22 @@ export class AccountCleanupRepository {
     const room = await tx.prisma.rooms.findUnique({ where: { id: binding.room_id }, select: { owner: { select: { user_id: true } } } });
     if (room?.owner?.user_id !== userId) return 0;
     const channelId = binding.room_id;
+    const channelClipRequests = await tx.prisma.clipRequest.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (channelClipRequests.length) return (await tx.prisma.clipRequest.deleteMany({ where: { channelId, id: { in: channelClipRequests.map(row => row.id) } } })).count;
+    const clips = await tx.prisma.clip.findMany({ where: { clipChannels: { some: { channelId } } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (clips.length) return (await tx.prisma.clip.deleteMany({ where: { id: { in: clips.map(row => row.id) }, clipChannels: { some: { channelId } } } })).count;
+    const channelExportLogs = await tx.prisma.songExportLog.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (channelExportLogs.length) return (await tx.prisma.songExportLog.deleteMany({ where: { channelId, id: { in: channelExportLogs.map(row => row.id) } } })).count;
+    const channelFavorites = await tx.prisma.userChannelFavorite.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (channelFavorites.length) return (await tx.prisma.userChannelFavorite.deleteMany({ where: { channelId, id: { in: channelFavorites.map(row => row.id) } } })).count;
+    const liveRequests = await tx.prisma.songRequest.findMany({ where: { liveSession: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (liveRequests.length) return (await tx.prisma.songRequest.deleteMany({ where: { id: { in: liveRequests.map(row => row.id) } } })).count;
+    const liveSessions = await tx.prisma.liveSession.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (liveSessions.length) return (await tx.prisma.liveSession.deleteMany({ where: { id: { in: liveSessions.map(row => row.id) } } })).count;
+    const liveRequestSettings = await tx.prisma.channelSongRequestSettings.deleteMany({ where: { channelId } });
+    if (liveRequestSettings.count) return liveRequestSettings.count;
+    const songRequests = await tx.prisma.songAddRequest.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songRequests.length) return (await tx.prisma.songAddRequest.deleteMany({ where: { channelId, id: { in: songRequests.map(row => row.id) } } })).count;
     const songLikes = await tx.prisma.userSongLike.findMany({ where: { song: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (songLikes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { id: { in: songLikes.map(row => row.id) } } })).count;
     const songCategories = await tx.prisma.songCategory.findMany({ where: { song: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
@@ -79,6 +111,10 @@ export class AccountCleanupRepository {
     if (schedules.length) return (await tx.prisma.channelSchedule.deleteMany({ where: { channelId, id: { in: schedules.map(row => row.id) } } })).count;
     const recurring = await tx.prisma.channelRecurringSchedule.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (recurring.length) return (await tx.prisma.channelRecurringSchedule.deleteMany({ where: { channelId, id: { in: recurring.map(row => row.id) } } })).count;
+    const layouts = await tx.prisma.channelOverlayLayout.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (layouts.length) return (await tx.prisma.channelOverlayLayout.deleteMany({ where: { channelId, id: { in: layouts.map(row => row.id) } } })).count;
+    const profile = await tx.prisma.channelProfile.deleteMany({ where: { channelId } });
+    if (profile.count) return profile.count;
     return 0;
   }
 
