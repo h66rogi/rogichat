@@ -328,7 +328,6 @@ export function ManagementSidebarContent({
 
   const channelEmoticonEnabled = useFeatureFlag('channelEmoticonEnabled');
   const overlayCustomCssEnabled = useFeatureFlag('overlayWidgetCustomCss');
-  const channelScheduleTemplateEnabled = useFeatureFlag('channelScheduleTemplate');
 
   const handleNavigate = () => {
     if (isMobile) setOpenMobile(false);
@@ -413,16 +412,6 @@ export function ManagementSidebarContent({
       if (item.id === "emoticons" && !channelEmoticonEnabled) {
         return false;
       }
-      if (item.id === "schedule-templates" && !channelScheduleTemplateEnabled) {
-        return false;
-      }
-      if (item.id === "schedule-image" && !channelScheduleTemplateEnabled) {
-        return false;
-      }
-      // SNS 연동(sns-settings)은 schedule-template 의 자동 게시 발판이므로 같은 flag로 묶어 게이트한다.
-      if (item.id === "sns-settings" && !channelScheduleTemplateEnabled) {
-        return false;
-      }
       const checkFn = SECTION_PERMISSIONS[item.id];
       return checkFn ? checkFn(permission) : false;
     });
@@ -477,7 +466,6 @@ export function ManagementSidebarContent({
     canAccessSongRequestOverlay,
     permission,
     channelEmoticonEnabled,
-    channelScheduleTemplateEnabled,
   ]);
 
   const contentDefaultOpen = useMemo(() => {

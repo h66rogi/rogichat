@@ -1,4 +1,4 @@
-// SHA-256 of the unmodified Prisma-generated migrations; contract test rejects drift.
+// SHA-256 of reviewed migrations; contract test rejects drift.
 export const migrationManifest: readonly { name: string; checksum: string }[] = [
   { name: '20260919171609_m02_foundation', checksum: 'f7f8aff208bd63ebf45574b297f08d4bd283126a7ab9ea8b386c18e394283ac9' },
   { name: '20260919172921_m03_auth_terms', checksum: 'fcbb7aee346509f8b190ed4adf88495c897cd386e59b59d919490e5a729cc925' },
@@ -27,5 +27,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260920165804_soop_profile_default_room', checksum: '3c83834ed70b466e42a41ca12fe22cc88a473570184c0678f8079a7678daed36' },
   { name: '20260920185425_admin_reviewer_access', checksum: 'd000e455dbd31efddbe4db2c20d3efe8b93a587f3205639dbba6be0169e65df2' },
   { name: '20260923183500_meloming_channel_content', checksum: '1496fd1ec35695c735d7b929a7dc531ef42d130a1ec3b8845714859e5ceb1478' },
-  { name: '20260923214500_meloming_content_models', checksum: '623ec78e6b5fe853bff79fcb4f42a5d631b88c0877e6675d54ceea6f2436616b' },
+  { name: '20260923214500_meloming_content_models', checksum: 'aa6363a51430ce4228070c5e42a872c6c98f4769b2450611a3c0bf8a03e342cb' },
 ];

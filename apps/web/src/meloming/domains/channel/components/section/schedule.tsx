@@ -15,7 +15,6 @@ import type { Schedule } from "@/meloming/domains/schedule/types/schedule";
 import type { CalendarAnniversary } from "@/meloming/domains/schedule/types/anniversary";
 import type {
   CalendarClipRecord,
-  CalendarSetlistSummary,
 } from "@/meloming/domains/calendar/types/channel-calendar";
 import { WeeklyScheduleViewer } from "@/meloming/domains/schedule/components/weekly-schedule-viewer";
 import NoticeAlert from "@/meloming/domains/channel/components/section/notice-alert";
@@ -120,11 +119,6 @@ export default function ScheduleSection({
     setIsFormDialogOpen(true);
   };
 
-  const handleSetlistClick = (setlist: CalendarSetlistSummary) => {
-    if (!user) return;
-    router.push(`/channel/${user as string}/setlist/${setlist.sessionId}`);
-  };
-
   /**
    * Task 1.11 — DayDetailSheet 의 노래 클립 카드 클릭 시 클립 상세 페이지로 이동.
    * 클립 라우트: `/clip/[clipId]` (전역). 채널 컨텍스트 없이 단일 페이지로 이동.
@@ -161,7 +155,7 @@ export default function ScheduleSection({
                   캘린더
                 </h2>
                 <p className="text-sm text-muted-foreground mt-1">
-                  방송 일정 · 방송 기록 · 노래 방송 · 기념일을 한눈에
+                  방송 일정 · 방송 기록 · 기념일을 한눈에
                 </p>
               </>
             )}
@@ -208,7 +202,6 @@ export default function ScheduleSection({
             onScheduleClick={handleScheduleClick}
             onEmptyClick={canEdit ? handleEmptyClick : undefined}
             anniversaries={anniversaries}
-            onSetlistClick={handleSetlistClick}
             onClipClick={handleClipClick}
             fitCalendarToViewport={fitCalendarToViewport}
             manageHref={

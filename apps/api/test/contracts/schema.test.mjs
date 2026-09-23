@@ -10,7 +10,7 @@ test('readiness manifest matches every generated migration, with no silent schem
   for (const entry of migrationManifest) {
     const sql = await readFile(`prisma/migrations/${entry.name}/migration.sql`);
     assert.equal(createHash('sha256').update(sql).digest('hex'), entry.checksum);
-    // Meloming's copied schedule/image and song media tables allocate IDs in
+    // Meloming's copied song media tables allocate IDs in
     // MySQL. Keep that source behavior while preserving the original guard for
     // every other Rogichat migration.
     if (entry.name === '20260923214500_meloming_content_models') {
@@ -18,7 +18,7 @@ test('readiness manifest matches every generated migration, with no silent schem
         .filter(([, , body]) => body.includes('AUTO_INCREMENT'))
         .map(([, name]) => name)
         .sort();
-      assert.deepEqual(tables, ['SongSheetMusic', 'schedule_image_renders', 'schedule_templates', 'song_video_preferences']);
+      assert.deepEqual(tables, ['SongSheetMusic', 'song_video_preferences']);
       assert.equal((sql.toString().match(/AUTO_INCREMENT/g) ?? []).length, tables.length);
     } else {
       assert.doesNotMatch(sql.toString(), /AUTO_INCREMENT/);

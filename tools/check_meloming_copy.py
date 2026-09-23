@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / 'docs/meloming-source-manifest.tsv'
+ADAPTATIONS = ROOT / 'docs/meloming-adaptations.tsv'
 FRONTEND = ROOT / 'apps/web/src/meloming'
 BACKEND = ROOT / 'references/meloming-back'
 ASSETS = ROOT / 'apps/web/public'
@@ -26,12 +27,16 @@ def digest(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
 
 
-def verify_files(directory: Path, hashes: dict[str, str], *, namespace: bool = False) -> None:
+def verify_files(directory: Path, hashes: dict[str, str], *, namespace: bool = False,
+                 adaptations: dict[str, str] | None = None) -> None:
     actual = {str(path.relative_to(directory)) for path in directory.rglob('*') if path.is_file()}
     expected = set(hashes)
     assert actual == expected, f'{directory}: missing={sorted(expected - actual)}, extra={sorted(actual - expected)}'
     for relative, expected_hash in hashes.items():
         path = directory / relative
+        if adaptations and relative in adaptations:
+            assert digest(path.read_bytes()) == adaptations[relative], f'Adapted source diverged: {path}'
+            continue
         content = path.read_bytes()
         if namespace and path.suffix in TEXT_SUFFIXES:
             content = content.replace(b'@/meloming/', b'@/')
@@ -49,7 +54,14 @@ def main() -> None:
         kind, expected_hash, relative = line.split('\t', 2)
         assert kind in groups and len(expected_hash) == 64
         manifest[groups[kind]][relative] = expected_hash
-    verify_files(FRONTEND, manifest['frontend'], namespace=True)
+    adaptations: dict[str, str] = {}
+    for line in ADAPTATIONS.read_text().splitlines():
+        if line.startswith('#'):
+            continue
+        expected_hash, relative = line.split('\t', 1)
+        assert relative in manifest['frontend'] and len(expected_hash) == 64
+        adaptations[relative] = expected_hash
+    verify_files(FRONTEND, manifest['frontend'], namespace=True, adaptations=adaptations)
     verify_files(BACKEND, manifest['backend'])
     routes = [path for path in FRONTEND_ROUTES.rglob('*') if path.is_file()]
     for path in routes:
@@ -58,7 +70,7 @@ def main() -> None:
     for relative, expected_hash in manifest['assets'].items():
         path = ASSETS / relative
         assert digest(path.read_bytes()) == expected_hash, f'Copied asset diverged: {path}'
-    print(f"Verified {len(manifest['frontend'])} frontend files, {len(manifest['backend'])} backend files, {len(routes)} mounted routes, and {len(manifest['assets'])} assets.")
+    print(f"Verified {len(manifest['frontend'])} frontend files ({len(adaptations)} adapted), {len(manifest['backend'])} backend files, {len(routes)} mounted routes, and {len(manifest['assets'])} assets.")
 
 
 if __name__ == '__main__':

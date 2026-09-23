@@ -201,9 +201,6 @@ export function HomeDashboard() {
   const { data: favoritesCount } = useChannelFavoritesCount(userData?.id);
 
   const overlayCustomCssEnabled = useFeatureFlag("overlayWidgetCustomCss");
-  const channelScheduleTemplateEnabled = useFeatureFlag(
-    "channelScheduleTemplate",
-  );
   const channelEmoticonEnabled = useFeatureFlag("channelEmoticonEnabled");
 
   const canAccessSongRequestOverlay = useMemo(() => {
@@ -230,14 +227,6 @@ export function HomeDashboard() {
         ) {
           return false;
         }
-        if (
-          ["schedule-templates", "schedule-image", "sns-settings"].includes(
-            item.id,
-          ) &&
-          !channelScheduleTemplateEnabled
-        ) {
-          return false;
-        }
         if (item.id === "emoticons" && !channelEmoticonEnabled) {
           return false;
         }
@@ -251,7 +240,6 @@ export function HomeDashboard() {
   }, [
     canAccessSongRequestOverlay,
     channelEmoticonEnabled,
-    channelScheduleTemplateEnabled,
     overlayCustomCssEnabled,
     permission,
   ]);

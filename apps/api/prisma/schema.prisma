@@ -169,53 +169,6 @@ model ChannelRecurringSchedule {
   @@map("channel_recurring_schedules")
 }
 
-// Meloming's weekly image template and render models, with the existing
-// Rogichat room/user keys substituted for Channel/User integer keys.
-model ScheduleTemplate {
-  id             Int                   @id @default(autoincrement())
-  channelId      String                @map("channel_id") @db.Char(36)
-  name           String                @db.VarChar(100)
-  isDefault      Boolean               @default(false) @map("is_default")
-  baseImageUrl   String                @map("base_image_url") @db.VarChar(500)
-  baseImageW     Int                   @map("base_image_w")
-  baseImageH     Int                   @map("base_image_h")
-  templateSpec   Json                  @map("template_spec")
-  originalPsdUrl String?               @map("original_psd_url") @db.VarChar(500)
-  thumbnailUrl   String?               @map("thumbnail_url") @db.VarChar(500)
-  isDeleted      Boolean               @default(false) @map("is_deleted")
-  deletedAt      DateTime?             @map("deleted_at") @db.DateTime(0)
-  createdAt      DateTime              @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt      DateTime              @updatedAt @map("updated_at") @db.DateTime(0)
-  channel        rooms                 @relation(fields: [channelId], references: [id], onDelete: Restrict)
-  renders        ScheduleImageRender[]
-
-  @@index([channelId, isDeleted])
-  @@map("schedule_templates")
-}
-
-model ScheduleImageRender {
-  id           Int               @id @default(autoincrement())
-  channelId    String            @map("channel_id") @db.Char(36)
-  templateId   Int?              @map("template_id")
-  weekStartAt  DateTime          @map("week_start_at") @db.DateTime(0)
-  status       String            @db.VarChar(20)
-  imageUrl     String?           @map("image_url") @db.VarChar(500)
-  width        Int?
-  height       Int?
-  errorMessage String?           @map("error_message") @db.Text
-  jobId        String?           @map("job_id") @db.VarChar(100)
-  requestedBy  String            @map("requested_by") @db.Char(36)
-  createdAt    DateTime          @default(now()) @map("created_at") @db.DateTime(0)
-  updatedAt    DateTime          @updatedAt @map("updated_at") @db.DateTime(0)
-  channel      rooms             @relation(fields: [channelId], references: [id], onDelete: Restrict)
-  template     ScheduleTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  requester    users             @relation(fields: [requestedBy], references: [id], onDelete: Restrict)
-
-  @@index([channelId, weekStartAt])
-  @@index([status])
-  @@map("schedule_image_renders")
-}
-
 model ChannelWardrobeCategory {
   id                 Int      @id
   channelId          String   @map("channel_id") @db.Char(36)
@@ -425,7 +378,6 @@ model users {
   push_subscriptions    push_subscriptions[]
   channelSchedules      ChannelSchedule[]
   songLikes             UserSongLike[]
-  scheduleImageRenders  ScheduleImageRender[]
 }
 
 model user_profiles {
@@ -562,8 +514,6 @@ model rooms {
   songCategories Category[]
   artists Artist[]
   songs Song[]
-  scheduleTemplates ScheduleTemplate[]
-  scheduleImageRenders ScheduleImageRender[]
 }
 
 model room_counters {

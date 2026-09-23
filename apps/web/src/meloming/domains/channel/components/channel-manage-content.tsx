@@ -53,9 +53,6 @@ import {
   isSongRequestOverlayManagementSection,
 } from "@/meloming/domains/channel/utils/song-request-overlay-feature";
 import { useFeatureFlag } from "@/meloming/shared/hooks/use-feature-flag";
-import { ScheduleTemplateList } from "@/meloming/domains/schedule-template/components";
-import { ScheduleImageContent } from "@/meloming/domains/schedule-template/components/render";
-import { SnsSettingsContent } from "@/meloming/domains/sns-credentials/components/sns-settings-content";
 import { SetlistsManagement } from "@/meloming/domains/song-live/components/setlists-management";
 
 /**
@@ -199,9 +196,6 @@ export function ChannelManageContent({ user }: { user: string }) {
   const { user: me, isLoading: isAuthLoading } = useAuth();
   const channelEmoticonEnabled = useFeatureFlag("channelEmoticonEnabled");
   const overlayCustomCssEnabled = useFeatureFlag("overlayWidgetCustomCss");
-  const channelScheduleTemplateEnabled = useFeatureFlag(
-    "channelScheduleTemplate",
-  );
 
   // /channel/me/manage/... 형태로 진입한 경우(예: SNS OAuth callback redirect)
   // 본인 채널 webPath 로 리다이렉트한다. me 가 여러 채널을 갖고 있다면 isOwner=true 첫 번째 사용.
@@ -429,48 +423,6 @@ export function ChannelManageContent({ user }: { user: string }) {
           {activeSection === "schedule-settings" && (
             <ScheduleSettingsContent user={user} />
           )}
-          {activeSection === "schedule-templates" &&
-            (channelScheduleTemplateEnabled ? (
-              <ScheduleTemplateList user={user} />
-            ) : (
-              <div className="p-6">
-                <Alert>
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>준비 중인 기능입니다</AlertTitle>
-                  <AlertDescription>
-                    시간표 템플릿 기능은 아직 준비 중입니다. 곧 만나요!
-                  </AlertDescription>
-                </Alert>
-              </div>
-            ))}
-          {activeSection === "schedule-image" &&
-            (channelScheduleTemplateEnabled ? (
-              <ScheduleImageContent user={user} />
-            ) : (
-              <div className="p-6">
-                <Alert>
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>준비 중인 기능입니다</AlertTitle>
-                  <AlertDescription>
-                    시간표 이미지 기능은 아직 준비 중입니다. 곧 만나요!
-                  </AlertDescription>
-                </Alert>
-              </div>
-            ))}
-          {activeSection === "sns-settings" &&
-            (channelScheduleTemplateEnabled ? (
-              <SnsSettingsContent />
-            ) : (
-              <div className="p-6">
-                <Alert>
-                  <AlertCircle className="size-4" />
-                  <AlertTitle>준비 중인 기능입니다</AlertTitle>
-                  <AlertDescription>
-                    SNS 연동 기능은 아직 준비 중입니다. 곧 만나요!
-                  </AlertDescription>
-                </Alert>
-              </div>
-            ))}
           {(activeSection === "channel-features" ||
             activeSection === "guestbook-settings") && (
             <ChannelFeatureSettingsManagement />

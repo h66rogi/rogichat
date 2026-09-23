@@ -88,7 +88,7 @@ export const TAB_CONFIG: Record<ChannelTab, TabConfig> = {
     path: "schedule",
     tabName: "schedule",
     isNew: true,
-    description: "방송 일정 · 방송 기록 · 노래 방송 · 기념일을 한눈에",
+    description: "방송 일정 · 방송 기록 · 기념일을 한눈에",
   },
   wardrobe: {
     title: "옷장",

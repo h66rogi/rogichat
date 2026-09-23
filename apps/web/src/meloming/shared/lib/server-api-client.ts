@@ -1,13 +1,6 @@
 import { cookies } from "next/headers";
 import { throwApiResponseError } from "./api-error";
-
-const API_BASE_URL = normalizeApiBaseUrl(
-  process.env.API_INTERNAL_BASE_URL ?? process.env.NEXT_PUBLIC_API_BASE_URL
-);
-
-function normalizeApiBaseUrl(value: string | undefined): string {
-  return value?.replace(/\/$/, "") ?? "";
-}
+import { rogichatApiOrigin } from "@/core/meloming-api-bridge";
 
 /**
  * 서버 컴포넌트에서 사용하는 API 클라이언트 유틸리티
@@ -42,7 +35,7 @@ export function buildApiUrl(
   path: string,
   queryParams?: Record<string, string>
 ): string {
-  const url = `${API_BASE_URL}${path}`;
+  const url = `${rogichatApiOrigin()}${path}`;
   if (!queryParams || Object.keys(queryParams).length === 0) {
     return url;
   }

@@ -6,12 +6,13 @@ import { ChannelScheduleService } from './schedule.service.js';
 import { WardrobeService } from './wardrobe.service.js';
 import { SongbookService } from './songbook.service.js';
 import { RecurringScheduleService, RecurringScheduleRefresh } from './recurring-schedule.service.js';
+import { MelomingWardrobeController } from './meloming-wardrobe.controller.js';
 
 @Module({})
 export class ChannelContentModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false): DynamicModule {
     return { module: ChannelContentModule, imports: [infrastructure,authentication],
-      controllers: [ChannelContentController],
+      controllers: [ChannelContentController,MelomingWardrobeController],
       providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,
         ...(refreshRecurring ? [RecurringScheduleRefresh] : [])] };
   }

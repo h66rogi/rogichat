@@ -228,10 +228,8 @@ export function WeeklyScheduleViewer({
     return activeCalendarQuery.data?.broadcasts ?? [];
   }, [calendarV2Enabled, activeCalendarQuery.data]);
 
-  const setlists: CalendarSetlistSummary[] = useMemo(() => {
-    if (!calendarV2Enabled) return [];
-    return activeCalendarQuery.data?.setlists ?? [];
-  }, [calendarV2Enabled, activeCalendarQuery.data]);
+  // Rogichat keeps setlists in the musicbook flow, outside the schedule.
+  const setlists: CalendarSetlistSummary[] = [];
 
   const clips: CalendarClipRecord[] = useMemo(() => {
     if (!calendarV2Enabled) return [];
@@ -360,7 +358,6 @@ export function WeeklyScheduleViewer({
                   <p>
                     앞으로의 <strong>방송 일정</strong>부터 지난{" "}
                     <strong>방송 기록</strong>,{" "}
-                    <strong>노래 방송 셋리스트</strong>,{" "}
                     <strong>노래 클립</strong>, <strong>채널 기념일</strong> 등
                     방송과 관련된 모든 활동을 한 곳에서 모아 볼 수 있도록
                     설계되었습니다.
@@ -369,10 +366,6 @@ export function WeeklyScheduleViewer({
                     <li className="list-disc">
                       <span className="font-medium text-amber-600">기념일</span>{" "}
                       — 데뷔 100일 단위, 주년, 생일 등 자동 표시
-                    </li>
-                    <li className="list-disc">
-                      <span className="font-medium text-rose-600">노래 방송</span>{" "}
-                      — 셋리스트가 기록된 방송. 곡 수와 앨범 썸네일 미리 보기
                     </li>
                     <li className="list-disc">
                       <span className="font-medium text-slate-600">방송 기록</span>{" "}

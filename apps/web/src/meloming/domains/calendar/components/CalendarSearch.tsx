@@ -41,7 +41,6 @@ const TYPE_META: Record<
 /** 결과 그룹 표시 순서 (예정 일정 먼저, 그다음 기록류, 기념일 마지막). */
 const TYPE_ORDER: CalendarSearchItemType[] = [
   "SCHEDULE",
-  "SETLIST",
   "CLIP",
   "BROADCAST",
   "ANNIVERSARY",
@@ -108,15 +107,11 @@ export function CalendarSearchButton({
     enabled: open,
   });
 
-  const items = data?.items ?? [];
+  const items = data?.items.filter((item) => item.type !== "SETLIST") ?? [];
   const hasQuery = debounced.length >= 1;
 
   const handleSelect = (item: CalendarSearchItem) => {
     setOpen(false);
-    if (item.type === "SETLIST" && item.sessionId != null) {
-      router.push(`/channel/${identifier}/setlist/${item.sessionId}`);
-      return;
-    }
     if (item.type === "CLIP" && item.clipId != null) {
       router.push(`/clip/${item.clipId}`);
       return;
@@ -160,7 +155,7 @@ export function CalendarSearchButton({
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="일정 · 방송 · 노래 · 클립 · 기념일 검색"
+            placeholder="일정 · 방송 · 클립 · 기념일 검색"
             className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           {isFetching && hasQuery ? (
@@ -238,16 +233,11 @@ export function CalendarSearchButton({
                   </div>
                 );
               })}
-              {data && data.total > items.length ? (
-                <div className="border-t px-3 py-2 text-center text-xs text-muted-foreground">
-                  타입별 상위 결과 표시 (총 {data.total}건 매칭)
-                </div>
-              ) : null}
             </div>
           )
         ) : (
           <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-            키워드를 입력하면 일정 · 방송 기록 · 노래 방송 · 클립 · 기념일을
+            키워드를 입력하면 일정 · 방송 기록 · 클립 · 기념일을
             한번에 찾습니다.
           </div>
         )}
