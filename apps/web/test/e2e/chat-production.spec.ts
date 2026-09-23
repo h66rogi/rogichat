@@ -285,6 +285,18 @@ test('only own messages offer confirmed deletion, retain failure for retry, and 
   expect(state.deleteCalls).toBe(2);
 });
 
+test('unsupported messages keep moderation and deletion inside the options menu', async ({ page }) => {
+  const { state } = await chatApi(page);
+  state.messages = [{ ...incoming, author: { ...incoming.author, actorId: TEST_ACTOR_ID }, content: { type: 'VIDEO', attachments: [] }, allowedActions: { reply: false, publish: false, delete: true } }];
+  await page.goto('/chat');
+  const row = page.locator('[data-status="unsupported"]');
+  await expect(row.getByText('이 화면에서 표시할 수 없는 내용입니다.')).toBeVisible();
+  await expect(row.getByTestId('chat-message-options')).toBeVisible();
+  await row.getByTestId('chat-message-options').click();
+  await expect(page.getByTestId('chat-delete')).toBeVisible();
+  await expect(page.getByRole('button', { name: '메시지 신고' })).toBeVisible();
+});
+
 
 test('explicit private target selection stays actor-bound beside the default room-owner inbox', async ({ page }) => {
   const { state } = await chatApi(page);
