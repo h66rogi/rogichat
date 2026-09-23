@@ -423,12 +423,78 @@ model Song {
   videoPreferences        SongVideoPreference[]
   approvedAddRequest      SongAddRequest? @relation("SongAddRequestApprovedSong")
   liveSongRequests        SongRequest[]
+  globalSong              GlobalSong? @relation(fields: [globalSongId], references: [id], onDelete: SetNull)
 
   @@unique([channelId, globalSongId], map: "unique_songs_channel_globalsong")
   @@index([channelId], map: "idx_songs_channel_id")
   @@index([artistId], map: "idx_songs_artist_id")
   @@index([titleSearchable], map: "idx_songs_title_searchable")
   @@map("songs")
+}
+
+// Copied from Meloming's global-song registry. Only Rogichat-created songs
+// populate these tables; no Meloming catalog or content rows are imported.
+model GlobalArtist {
+  id            Int      @id
+  canonicalName String   @map("canonical_name") @db.VarChar(255)
+  normKey       String   @unique @map("norm_key") @db.VarChar(255)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @updatedAt @map("updated_at")
+  aliases      GlobalArtistAlias[]
+  songs        GlobalSong[]
+  @@map("global_artists")
+}
+
+model GlobalArtistAlias {
+  id             Int      @id
+  globalArtistId Int      @map("global_artist_id")
+  alias          String   @db.VarChar(255)
+  normAlias      String   @map("norm_alias") @db.VarChar(255)
+  frequency      Int      @default(1)
+  createdAt      DateTime @default(now()) @map("created_at")
+  globalArtist GlobalArtist @relation(fields: [globalArtistId], references: [id])
+  @@unique([globalArtistId, normAlias])
+  @@index([normAlias])
+  @@map("global_artist_aliases")
+}
+
+model GlobalSong {
+  id               Int                  @id
+  title            String               @db.VarChar(255)
+  normTitle        String               @map("norm_title") @db.VarChar(255)
+  globalArtistId   Int                  @map("global_artist_id")
+  albumArt         String?              @map("album_art") @db.Text
+  channelCount     Int                  @default(0) @map("channel_count")
+  normVersion      Int                  @default(1) @map("norm_version") @db.SmallInt
+  entityConfidence GlobalSongConfidence @default(MEDIUM) @map("entity_confidence")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at")
+  globalArtist GlobalArtist    @relation(fields: [globalArtistId], references: [id])
+  aliases      GlobalSongAlias[]
+  songs        Song[]
+  @@unique([normTitle, globalArtistId])
+  @@index([normTitle])
+  @@index([globalArtistId])
+  @@index([channelCount(sort: Desc)])
+  @@map("global_songs")
+}
+
+model GlobalSongAlias {
+  id             Int      @id
+  globalSongId   Int      @map("global_song_id")
+  aliasTitle     String   @map("alias_title") @db.VarChar(255)
+  normAliasTitle String   @map("norm_alias_title") @db.VarChar(255)
+  createdAt      DateTime @default(now()) @map("created_at")
+  globalSong GlobalSong @relation(fields: [globalSongId], references: [id])
+  @@unique([globalSongId, normAliasTitle])
+  @@index([normAliasTitle])
+  @@map("global_song_aliases")
+}
+
+enum GlobalSongConfidence {
+  HIGH
+  MEDIUM
+  LOW
 }
 
 /// 라이브 세션 (방송 세션). Copied from meloming-back LiveSession; channel/user

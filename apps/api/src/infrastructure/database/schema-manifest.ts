@@ -38,4 +38,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260924014000_meloming_song_export_log', checksum: 'ada82ba99a4450cf87a5c7bfd7b8abbe1960b4f52cdf80e2a6cdc620221a6eca' },
   { name: '20260924020000_meloming_channel_pricing', checksum: '2ede78d38352c4b1f17974ab5e214602609ce6e631b5896805d1f677e567a7c6' },
   { name: '20260924023000_meloming_omakase', checksum: '54aa546729fce205b801b69d0013f0540a393c5ca84eaba4185674247e2d3a36' },
+  { name: '20260924030000_meloming_global_song', checksum: 'c5f128e972aee25b4d49f9568489ba027edfe4465497573ebab086992a5dc3eb' },
 ];

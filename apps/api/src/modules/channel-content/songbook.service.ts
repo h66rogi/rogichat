@@ -11,6 +11,7 @@ import { SongHelperService } from './upstream/song-helper.service.js';
 import { pickLegacyPrice, sanitizeCurrencyPriceMap } from './upstream/currency-price.util.js';
 import { ChannelMusicbookSettingsService } from './upstream/channel-musicbook-settings.service.js';
 import { SongExportService } from './upstream/song-export.service.js';
+import { indexNewSong, refreshGlobalSongCounts } from './upstream/global-song/global-song-indexer.js';
 
 type Query = { page?: number; limit?: number; search?: string; sortBy?: string;
   categoryIds?: number[]; artistIds?: number[]; difficulties?: number[]; proficiencies?: number[] };
@@ -239,7 +240,7 @@ export class SongbookService {
     });
   }
 
-  create(credentials: CommandCredentials, value: unknown) {
+  create(credentials: CommandCredentials, value: unknown, globalSongId?: number) {
     const data = parseSong(value,true);
     if (!(data.categoryIds as number[] | undefined)?.length && !(data.categoryNames as string[] | undefined)?.length) throw new ApiError('INVALID_REQUEST',400);
     return this.transactions.write(async tx => {
@@ -261,6 +262,7 @@ export class SongbookService {
       for (const categoryId of new Set(categoryIds)) links.push({id:await nextChannelContentId(tx.prisma),categoryId});
       const prices = sanitizeCurrencyPriceMap(data.currencyPrices);
       const songData: Prisma.SongUncheckedCreateInput = { id:await nextChannelContentId(tx.prisma),channelId:roomId, artistId:artist.id,
+        ...(globalSongId ? {globalSongId} : {}),
         title:(data.title as string).trim(), titleSearchable:normalizeForSearch(data.title as string),
         ...(data.albumArt !== undefined ? {albumArt:data.albumArt as string | null} : {}),
         ...(data.karaokeUrl !== undefined ? {karaokeUrl:data.karaokeUrl as string | null} : {}),
@@ -277,7 +279,11 @@ export class SongbookService {
         ...(data.currencyPrices !== undefined ? {currencyPrices: prices ?? Prisma.DbNull} : {}),
         songCategories:{create:links},
       };
+      if(!globalSongId) songData.globalSongId=await indexNewSong(tx.prisma,songData.title,artist.id ?
+        (await tx.prisma.artist.findUniqueOrThrow({where:{id:artist.id},select:{name:true}})).name : '',
+        typeof songData.albumArt==='string'?songData.albumArt:null);
       const row = await tx.prisma.song.create({ data:songData,select});
+      await refreshGlobalSongCounts(tx.prisma,[songData.globalSongId??null]);
       return songResponse(row);
     });
   }
@@ -331,7 +337,10 @@ export class SongbookService {
         const proficiency = typeof item.proficiency === 'number' ? item.proficiency
           : useProficiencyAsPrimary && typeof item.difficulty === 'number' ? item.difficulty : null;
         const id = await nextChannelContentId(tx.prisma);
-        await tx.prisma.song.create({data:{id,channelId:roomId,artistId:finalArtistId,title,titleSearchable:normalizeForSearch(title),
+        const globalSongId=await indexNewSong(tx.prisma,title,name||
+          (await tx.prisma.artist.findUniqueOrThrow({where:{id:finalArtistId},select:{name:true}})).name,
+          typeof item.albumArt==='string'?item.albumArt:null);
+        await tx.prisma.song.create({data:{id,channelId:roomId,artistId:finalArtistId,globalSongId,title,titleSearchable:normalizeForSearch(title),
           ...(item.albumArt!==undefined?{albumArt:item.albumArt as string|null}:{}),
           ...(item.karaokeUrl!==undefined?{karaokeUrl:item.karaokeUrl as string|null}:{}),
           ...(item.coverUrl!==undefined?{coverUrl:item.coverUrl as string|null}:{}),
@@ -344,6 +353,7 @@ export class SongbookService {
           ...(item.description!==undefined?{description:item.description as string|null}:{}),
           price:(item.price as number|null|undefined)??pickLegacyPrice(prices),
           currencyPrices:prices??Prisma.DbNull},select:{id:true}});
+        await refreshGlobalSongCounts(tx.prisma,[globalSongId]);
         for (const categoryId of new Set(categoryIds)) await tx.prisma.songCategory.create({data:{id:await nextChannelContentId(tx.prisma),songId:id,categoryId}});
         created.push({id,title});
       }
@@ -360,7 +370,7 @@ export class SongbookService {
       const roomId = await this.repository.requireOwner(tx,actor.userId);
       await this.repository.lockPrimary(tx);
       const uniqueIds = [...new Set(songs.map(song => song.id))];
-      const existing = await tx.prisma.song.findMany({where:{channelId:roomId,id:{in:uniqueIds}},select:{id:true,proficiency:true}});
+      const existing = await tx.prisma.song.findMany({where:{channelId:roomId,id:{in:uniqueIds}},select:{id:true,proficiency:true,globalSongId:true,title:true,albumArt:true,artist:{select:{name:true}}}});
       if (existing.length !== uniqueIds.length) throw new ApiError('INVALID_REQUEST',400);
       const useProficiencyAsPrimary = await new ChannelMusicbookSettingsService(tx.prisma).usesProficiencyAsPrimary(roomId);
       if (useProficiencyAsPrimary) {
@@ -389,7 +399,13 @@ export class SongbookService {
           ...(item.price !== undefined ? {price:item.price as number|null} : item.currencyPrices !== undefined ? {price:pickLegacyPrice(prices)} : {}),
           ...(item.currencyPrices !== undefined ? {currencyPrices:prices ?? Prisma.DbNull} : {}),
         };
+        const previous=existing.find(song=>song.id===item.id)!;
+        if(artistId!==undefined){
+          const name=(await tx.prisma.artist.findUniqueOrThrow({where:{id:artistId},select:{name:true}})).name;
+          data.globalSongId=await indexNewSong(tx.prisma,previous.title,name,previous.albumArt);
+        }
         if (Object.keys(data).length) await tx.prisma.song.update({where:{id:item.id},data});
+        if(artistId!==undefined)await refreshGlobalSongCounts(tx.prisma,[previous.globalSongId,Number(data.globalSongId)]);
         if (item.categoryIds !== undefined || item.categoryNames !== undefined) {
           const categoryIds = (item.categoryIds as number[]|undefined) ?? [];
           if (await tx.prisma.category.count({where:{channelId:roomId,id:{in:categoryIds}}}) !== new Set(categoryIds).size) throw new ApiError('INVALID_REQUEST',400);
@@ -424,7 +440,9 @@ export class SongbookService {
       await this.repository.lockPrimary(tx);
       await tx.prisma.userSongLike.deleteMany({where:{songId:{in:ids},song:{channelId:roomId}}});
       await tx.prisma.songCategory.deleteMany({where:{songId:{in:ids},song:{channelId:roomId}}});
+      const old=await tx.prisma.song.findMany({where:{id:{in:ids},channelId:roomId},select:{globalSongId:true}});
       const {count} = await tx.prisma.song.deleteMany({where:{id:{in:ids},channelId:roomId}});
+      await refreshGlobalSongCounts(tx.prisma,old.map(row=>row.globalSongId));
       return {success:true,deletedCount:count,deletedClipIds:[]};
     });
   }
@@ -435,7 +453,7 @@ export class SongbookService {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
       await this.repository.lockPrimary(tx);
-      const existing = await tx.prisma.song.findFirst({where:{id,channelId:roomId},select:{id:true}});
+      const existing = await tx.prisma.song.findFirst({where:{id,channelId:roomId},select:{id:true,globalSongId:true,title:true,albumArt:true,artist:{select:{name:true}}}});
       if (!existing) throw new ApiError('NOT_FOUND',404);
       let artistId: number | undefined;
       if (data.artistId !== undefined) {
@@ -466,7 +484,13 @@ export class SongbookService {
         ...(data.currencyPrices !== undefined ? {currencyPrices:prices ?? Prisma.DbNull} : {}),
       };
       if (data.price === undefined && data.currencyPrices !== undefined) update.price = pickLegacyPrice(prices);
+      if(data.title!==undefined||artistId!==undefined){
+        const artistName=artistId!==undefined?(await tx.prisma.artist.findUniqueOrThrow({where:{id:artistId},select:{name:true}})).name:existing.artist.name;
+        update.globalSongId=await indexNewSong(tx.prisma,(data.title as string|undefined)??existing.title,artistName,
+          (data.albumArt as string|null|undefined)??existing.albumArt);
+      }
       await tx.prisma.song.update({where:{id},data:update,select:{id:true}});
+      if(update.globalSongId!==undefined)await refreshGlobalSongCounts(tx.prisma,[existing.globalSongId,Number(update.globalSongId)]);
       if (resolvedCategoryIds) {
         await tx.prisma.songCategory.deleteMany({where:{songId:id}});
         if (resolvedCategoryIds.length) {
@@ -499,11 +523,13 @@ export class SongbookService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
-      const song = await tx.prisma.song.findFirst({where:{id,channelId:roomId},select:{id:true}});
+      await this.repository.lockPrimary(tx);
+      const song = await tx.prisma.song.findFirst({where:{id,channelId:roomId},select:{id:true,globalSongId:true}});
       if (!song) throw new ApiError('NOT_FOUND',404);
       await tx.prisma.userSongLike.deleteMany({where:{songId:id}});
       await tx.prisma.songCategory.deleteMany({where:{songId:id}});
       await tx.prisma.song.delete({where:{id},select:{id:true}});
+      await refreshGlobalSongCounts(tx.prisma,[song.globalSongId]);
     });
   }
 

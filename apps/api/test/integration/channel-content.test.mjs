@@ -35,7 +35,36 @@ import { MelomingMrVideoService } from '../../dist/modules/channel-content/melom
 import { MelomingPricingService } from '../../dist/modules/channel-content/meloming-pricing.service.js';
 import { MelomingOmakaseService } from '../../dist/modules/channel-content/meloming-omakase.service.js';
 import { SongAlbumArtService } from '../../dist/modules/channel-content/upstream/song-album-art.service.js';
+import { GlobalSongRedisService } from '../../dist/modules/channel-content/upstream/global-song/global-song-redis.service.js';
+import { GlobalSongMatcherService } from '../../dist/modules/channel-content/upstream/global-song/global-song-matcher.service.js';
+import { GlobalSongQuickAddService } from '../../dist/modules/channel-content/upstream/global-song/global-song-quick-add.service.js';
+import { GlobalSongRecommendationService } from '../../dist/modules/channel-content/upstream/global-song/global-song-recommendation.service.js';
 import { Readable } from 'node:stream';
+
+test('new Rogichat songs enter the copied global matcher without imported catalog rows',async t=>{
+  const {db,ownerId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const songbook=new SongbookService(db.transactions,auth,repository);
+  const redis=new GlobalSongRedisService(db.transactions,repository);
+  const matcher=new GlobalSongMatcherService(db.transactions,redis);
+  const quickAdd=new GlobalSongQuickAddService(db.transactions,songbook);
+  const recommendations=new GlobalSongRecommendationService(db.transactions,redis);
+  assert.equal(await db.transactions.read(tx=>tx.prisma.globalSong.count()),0);
+  const created=await songbook.create({token:ownerId},{title:'밤편지',artistName:'아이유 (IU)',categoryNames:['노래']});
+  assert.ok(created.globalSongId);
+  const result=await matcher.match({query:'아이유 - 밤편지',channelId:1});
+  assert.equal(result.results[0].globalSongId,created.globalSongId);
+  assert.equal(result.results[0].matchMethod,'EXACT');
+  assert.equal(result.results[0].alreadyInChannel,true);
+  await assert.rejects(quickAdd.quickAdd(1,{globalSongId:created.globalSongId,categoryNames:['노래']},{token:ownerId}),error=>error.getStatus()===409);
+  const updated=await songbook.update({token:ownerId},created.id,{title:'밤편지 라이브'});
+  assert.notEqual(updated.globalSongId,created.globalSongId);
+  assert.equal((await matcher.match({query:'아이유 - 밤편지 라이브',channelId:1})).results[0].alreadyInChannel,true);
+  await songbook.remove({token:ownerId},created.id);
+  assert.equal((await db.transactions.read(tx=>tx.prisma.globalSong.findUniqueOrThrow({where:{id:updated.globalSongId},select:{channelCount:true}}))).channelCount,0);
+  assert.deepEqual((await recommendations.getRecommendations(1)).recommendations,[]);
+});
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL,'disposable');
