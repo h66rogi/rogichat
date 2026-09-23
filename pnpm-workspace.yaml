@@ -4,6 +4,10 @@ packages:
   - packages/*
 
 strictPeerDependencies: true
+peerDependencyRules:
+  allowedVersions:
+    # Match the reviewed Meloming frontend lockfile for its module-federation runtime.
+    "@rspack/core>@module-federation/runtime-tools": "0.12.0"
 engineStrict: true
 minimumReleaseAge: 1440
 # No dependency may run an installation script without an explicit review.

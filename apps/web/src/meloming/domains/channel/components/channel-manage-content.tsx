@@ -1,0 +1,504 @@
+"use client";
+
+import { usePathname, useRouter } from "next/navigation";
+import {
+  useChannel,
+  useChannelPermission,
+} from "@/meloming/domains/channel/hooks/use-channel";
+import { useMyChannel } from "@/meloming/domains/channel/hooks/use-my-channel";
+import { SectionErrorBoundary } from "@/meloming/shared/components/common/error-boundary";
+import UserNotFoundError from "@/meloming/domains/channel/components/channel/user-not-found-error";
+import {
+  SongsManagementWrapper,
+  SongbookDownloadManagement,
+  AddSongSelection,
+  ArtistsManagement,
+  SettingsSection,
+  CategoriesManagement,
+  HomeDashboard,
+  FavoritesManagement,
+  ClipRequestsManagement,
+  SongRequestsManagement,
+  ScheduleSettingsContent,
+  ConsoleSettingsContent,
+  StreamDeckSettingsContent,
+  ManagementHeader,
+  WardrobeManagement,
+} from "@/meloming/domains/channel/components/management";
+import type { ManagementSection } from "@/meloming/domains/channel/components/management";
+import { MANAGEMENT_MENU_ITEMS } from "@/meloming/domains/channel/components/management";
+import { ManagerManagement } from "@/meloming/domains/channel/components/management/manager-management";
+import { TransferManagement } from "@/meloming/domains/channel/components/management/transfer-management";
+import { DecorationManagement } from "@/meloming/domains/channel/components/management/decoration-management";
+import { ChannelAuthManagement } from "@/meloming/domains/channel/components/management/channel-auth-management";
+import { ChannelFeatureSettingsManagement } from "@/meloming/domains/channel/components/management/channel-feature-settings-management";
+import { EmoticonsManagement } from "@/meloming/domains/channel/components/management/emoticons-management";
+import { SongRequestSettingsContent } from "@/meloming/domains/overlay/components/song-request-settings-content";
+import { OverlaySettingsContent } from "@/meloming/domains/overlay/components/overlay-settings-content";
+import { OverlayCustomCssSection } from "@/meloming/domains/overlay/components/overlay-custom-css-section";
+import { SessionHistory } from "@/meloming/domains/overlay/components";
+import { useEffect, useMemo, useRef } from "react";
+import { useConsoleToken } from "@/meloming/domains/channel/hooks/use-console-token";
+import { openConsolePopup } from "@/meloming/domains/channel/utils/console-popup";
+import { useAuth } from "@/meloming/domains/auth/hooks/use-auth";
+import type { GetChannelIdentifierPermissionResponse } from "@/meloming/domains/channel/types/channel";
+import { AlertCircle } from "lucide-react";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/meloming/shared/components/ui/alert";
+import {
+  canAccessSongRequestOverlayFeature,
+  isSongRequestOverlayManagementSection,
+} from "@/meloming/domains/channel/utils/song-request-overlay-feature";
+import { useFeatureFlag } from "@/meloming/shared/hooks/use-feature-flag";
+import { ScheduleTemplateList } from "@/meloming/domains/schedule-template/components";
+import { ScheduleImageContent } from "@/meloming/domains/schedule-template/components/render";
+import { SnsSettingsContent } from "@/meloming/domains/sns-credentials/components/sns-settings-content";
+import { SetlistsManagement } from "@/meloming/domains/song-live/components/setlists-management";
+
+/**
+ * 섹션별 필요 권한 정의
+ */
+const SECTION_PERMISSIONS: Partial<
+  Record<
+    ManagementSection,
+    (permission: GetChannelIdentifierPermissionResponse) => boolean
+  >
+> = {
+  // 홈: 아무 관리 권한이나 있으면 접근 가능
+  home: (p) =>
+    p.isOwner ||
+    p.manageContent ||
+    p.manageSettings ||
+    p.manageProfile ||
+    p.manageGuestbook ||
+    p.manageCustomization ||
+    p.manageEmoticons,
+  // 노래책 관리
+  songs: (p) => p.isOwner || p.manageContent,
+  "songbook-download": (p) => p.isOwner || p.manageContent,
+  "add-song": (p) => p.isOwner || p.manageContent,
+  categories: (p) => p.isOwner || p.manageContent,
+  artists: (p) => p.isOwner || p.manageContent,
+  "song-requests": (p) => p.isOwner || p.manageContent,
+  // 사이드바에서는 숨기되 관리자 알림의 직접 링크 처리 경로는 유지
+  "clip-requests": (p) => p.isOwner || p.manageContent,
+  // 신청곡 및 오버레이 설정
+  live: (p) => p.isOwner || p.manageSettings,
+  "song-request-settings": (p) => p.isOwner || p.manageSettings,
+  "overlay-settings": (p) => p.isOwner || p.manageSettings,
+  "overlay-custom-css": (p) => p.isOwner || p.manageCustomization,
+  console: (p) => p.isOwner || p.manageSettings,
+  "stream-deck": (p) => p.isOwner || p.manageSettings,
+  "session-history": (p) => p.isOwner || p.manageSettings,
+  // 채널 설정
+  settings: (p) => p.isOwner || p.manageSettings,
+  // 매니저 관리: 채널 소유자만
+  manager: (p) => p.isOwner,
+  // 즐겨찾기 유저 목록: 채널 소유자만
+  favorites: (p) => p.isOwner,
+  // 채널 인증: 채널 소유자만
+  "channel-auth": (p) => p.isOwner,
+  // 일정 설정
+  "schedule-settings": (p) => p.isOwner || p.manageContent,
+  // 시간표 템플릿
+  "schedule-templates": (p) => p.isOwner || p.manageContent,
+  // 시간표 이미지
+  "schedule-image": (p) => p.isOwner || p.manageContent,
+  // SNS 연동: 채널 설정 권한자(소유자/일정 관리자)에게만 노출.
+  // 실제 토큰은 user 단위라 채널과 무관하지만, 메뉴 진입 자체는 채널 관리 권한으로 보호.
+  "sns-settings": (p) => p.isOwner || p.manageSettings,
+  // 방명록 설정
+  "guestbook-settings": (p) => p.isOwner || p.manageSettings,
+  "channel-features": (p) => p.isOwner || p.manageSettings,
+  // 셋리스트 관리: 콘텐츠 권한자
+  setlists: (p) => p.isOwner || p.manageContent,
+  // 이모티콘 관리
+  emoticons: (p) => p.isOwner || p.manageEmoticons,
+  wardrobe: (p) => p.isOwner || p.manageContent,
+  "channel-transfer": (p) => p.isOwner,
+  // 채널 꾸미기: 소유자가 PRO 미구독 → 모든 매니저 접근 가능 (구독 요청 안내 목적)
+  //             소유자가 PRO 구독 → 소유자 또는 manageCustomization 권한자만
+  decoration: (p) => {
+    if (!p.isOwnerProSubscriber) {
+      // 소유자가 PRO가 아니면 모두 접근 가능 (구독 요청 안내 목적)
+      return true;
+    }
+    // 소유자가 PRO이면 권한이 있는 사람만
+    return p.isOwner || p.manageCustomization;
+  },
+};
+
+function ComingSoonSection({ sectionId }: { sectionId: ManagementSection }) {
+  const menuItem = MANAGEMENT_MENU_ITEMS.find((item) => item.id === sectionId);
+  const label = menuItem?.label ?? sectionId;
+  return (
+    <div className="p-6">
+      {menuItem && (
+        <ManagementHeader
+          title={menuItem.label}
+          description={menuItem.description}
+          icon={menuItem.icon}
+        />
+      )}
+      <Alert>
+        <AlertCircle className="size-4" />
+        <AlertTitle>{label} 기능은 준비 중이에요</AlertTitle>
+        <AlertDescription>
+          곧 이 자리에서 만나볼 수 있어요. 조금만 기다려주세요.
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+/**
+ * 신청곡 콘솔 팝업 리다이렉트 컴포넌트
+ * /manage/live 접근 시 팝업을 열고 홈으로 리다이렉트
+ */
+function LiveConsoleRedirect({ user }: { user: string }) {
+  const router = useRouter();
+  const { data: consoleTokenData, isLoading: isTokenLoading } =
+    useConsoleToken(user);
+  const openedRef = useRef(false);
+
+  useEffect(() => {
+    if (isTokenLoading || openedRef.current) return;
+    openConsolePopup(user, consoleTokenData?.consoleToken);
+    openedRef.current = true;
+    router.replace(`/channel/${user}/manage`);
+  }, [user, router, consoleTokenData, isTokenLoading]);
+
+  return null;
+}
+
+/**
+ * 권한 없음 안내 컴포넌트
+ */
+function NoPermissionAlert({ section }: { section: string }) {
+  return (
+    <div className="p-6">
+      <Alert variant="destructive">
+        <AlertCircle className="size-4" />
+        <AlertTitle>접근 권한이 없습니다</AlertTitle>
+        <AlertDescription>
+          &apos;{section}&apos; 페이지에 접근할 권한이 없습니다. 채널 소유자에게
+          해당 권한을 요청하세요.
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+// toss-fe 가이드라인: Reducing Eye Movement - URL 경로를 섹션으로 변환하는 로직을 inline으로 처리
+export function ChannelManageContent({ user }: { user: string }) {
+  const pathname = usePathname();
+  const router = useRouter();
+  const { user: me, isLoading: isAuthLoading } = useAuth();
+  const channelEmoticonEnabled = useFeatureFlag("channelEmoticonEnabled");
+  const overlayCustomCssEnabled = useFeatureFlag("overlayWidgetCustomCss");
+  const channelScheduleTemplateEnabled = useFeatureFlag(
+    "channelScheduleTemplate",
+  );
+
+  // /channel/me/manage/... 형태로 진입한 경우(예: SNS OAuth callback redirect)
+  // 본인 채널 webPath 로 리다이렉트한다. me 가 여러 채널을 갖고 있다면 isOwner=true 첫 번째 사용.
+  const isMeAlias = user === "me";
+  const {
+    data: myChannels,
+    isLoading: isMyChannelsLoading,
+    error: myChannelsError,
+    refetch: refetchMyChannels,
+  } = useMyChannel({
+    enabled: isMeAlias && !!me?.id,
+  });
+
+  // me alias 일 때 비로그인 상태면 로그인 페이지로 보낸다 (current full path 를
+  // ?from= 으로 보존). 로그인 후 동일 경로로 복귀해 SNS callback 쿼리스트링까지
+  // 그대로 살릴 수 있다.
+  useEffect(() => {
+    if (!isMeAlias) return;
+    if (isAuthLoading) return;
+    if (me?.id) return;
+    if (typeof window === "undefined") return;
+    const fromUrl = `${pathname}${window.location.search}`;
+    router.replace(`/auth/login?from=${encodeURIComponent(fromUrl)}`);
+  }, [isMeAlias, isAuthLoading, me?.id, pathname, router]);
+
+  useEffect(() => {
+    if (!isMeAlias || !myChannels) return;
+    const owned = myChannels.find((c) => c.isOwner) ?? myChannels[0];
+    if (!owned) return;
+    // pathname 의 'me' 만 실제 webPath 로 치환 (manage 이하 경로는 그대로 유지 → query 도 보존)
+    const next = pathname.replace(
+      /^\/channel\/me(\/|$)/,
+      `/channel/${owned.webPath}$1`,
+    );
+    if (next !== pathname) {
+      // 현재 search 도 그대로 유지 (callback 의 ?status=...&platform=...&reason=...)
+      const search =
+        typeof window !== "undefined" ? window.location.search : "";
+      router.replace(`${next}${search}`);
+    }
+  }, [isMeAlias, myChannels, pathname, router]);
+
+  // 유저 정보 조회 (존재 여부 확인)
+  // me alias 일 때는 실제 채널이 결정되기 전이므로 /channel/me 조회는 의미 없음 → enabled=false
+  const {
+    data: userData,
+    isLoading: isUserLoading,
+    error: userError,
+  } = useChannel(user || "", { enabled: !isMeAlias && !!user });
+
+  const { data: userPermission, isLoading: isPermissionLoading } =
+    useChannelPermission(user || "", { enabled: !isMeAlias && !!user });
+
+  // 현재 섹션 계산
+  const activeSection = useMemo((): ManagementSection => {
+    const pathSegments = pathname.split("/");
+    const manageIndex = pathSegments.findIndex(
+      (segment) => segment === "manage",
+    );
+    const sectionSegment = pathSegments[manageIndex + 1];
+    if (sectionSegment === "guestbook-settings") {
+      return "channel-features";
+    }
+    if (sectionSegment === "clip-requests") {
+      return "clip-requests";
+    }
+
+    const foundItem = MANAGEMENT_MENU_ITEMS.find(
+      (item) => item.id === sectionSegment,
+    );
+    return foundItem ? foundItem.id : "home";
+  }, [pathname]);
+
+  // 현재 섹션에 대한 권한 체크
+  const hasPermissionForSection = useMemo(() => {
+    if (
+      !isAuthLoading &&
+      isSongRequestOverlayManagementSection(activeSection) &&
+      !canAccessSongRequestOverlayFeature(me)
+    ) {
+      return false;
+    }
+
+    if (!userPermission) return true; // 권한 로딩 중이면 일단 통과
+    const checkFn = SECTION_PERMISSIONS[activeSection];
+    return checkFn ? checkFn(userPermission) : false;
+  }, [activeSection, isAuthLoading, me, userPermission]);
+
+  // 어떤 관리 권한도 없으면 채널로 리다이렉트
+  const hasAnyManagePermission = useMemo(() => {
+    if (!userPermission) return true; // 로딩 중
+    return (
+      userPermission.isOwner ||
+      userPermission.manageContent ||
+      userPermission.manageSettings ||
+      userPermission.manageProfile ||
+      userPermission.manageGuestbook ||
+      userPermission.manageCustomization ||
+      userPermission.manageEmoticons
+    );
+  }, [userPermission]);
+
+  // 권한 확인 후 리다이렉트
+  useEffect(() => {
+    if (userPermission && !hasAnyManagePermission) {
+      router.replace(`/channel/${user}`);
+    }
+  }, [userPermission, hasAnyManagePermission, user, router]);
+
+  // me alias 처리 — 세 가지 실패 모드를 안내 화면으로 변환 (Codex F6 review).
+  // 정상 흐름은 위 useEffect 가 webPath 로 redirect 하므로 곧 사라진다.
+  if (isMeAlias) {
+    // 1) 비로그인 — 로그인 페이지로 redirect 진행 중. 빈 화면.
+    if (!isAuthLoading && !me?.id) {
+      return null;
+    }
+
+    // 2) auth/myChannels 로딩 중 — 빈 화면(짧은 깜빡임 방지).
+    if (isAuthLoading || (me?.id && isMyChannelsLoading)) {
+      return null;
+    }
+
+    // 3) myChannels 조회 실패 — 재시도 버튼 노출.
+    if (myChannelsError) {
+      return (
+        <div className="p-6">
+          <Alert variant="destructive">
+            <AlertCircle className="size-4" />
+            <AlertTitle>내 채널 정보를 불러오지 못했어요</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3">
+              <span>잠시 후 다시 시도해주세요.</span>
+              <button
+                type="button"
+                className="self-start rounded-md border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent"
+                onClick={() => {
+                  void refetchMyChannels();
+                }}
+              >
+                다시 불러오기
+              </button>
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    // 4) myChannels 가 비어있음 — 관리할 채널이 없음을 안내.
+    if (myChannels && myChannels.length === 0) {
+      return (
+        <div className="p-6">
+          <Alert>
+            <AlertCircle className="size-4" />
+            <AlertTitle>관리할 채널이 없습니다</AlertTitle>
+            <AlertDescription>
+              이 계정으로 관리할 수 있는 채널이 없습니다.
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    // 5) 정상: redirect useEffect 가 곧 webPath 로 이동 — 빈 화면.
+    return null;
+  }
+
+  // 유저 존재 여부 확인
+  if (userError || (!isUserLoading && !userData)) {
+    return <UserNotFoundError />;
+  }
+
+  // 권한 로딩 중
+  if (isPermissionLoading) {
+    return null;
+  }
+
+  // 어떤 관리 권한도 없으면 리다이렉트 처리 중
+  if (userPermission && !hasAnyManagePermission) {
+    return null;
+  }
+
+  // 현재 섹션 권한 없음
+  if (!hasPermissionForSection) {
+    const sectionLabel =
+      MANAGEMENT_MENU_ITEMS.find((item) => item.id === activeSection)?.label ||
+      activeSection;
+    return <NoPermissionAlert section={sectionLabel} />;
+  }
+
+  return (
+    <>
+      <div className="container mx-auto min-h-[calc(100svh-64px)] md:px-4 mt-8 md:mt-0">
+        <SectionErrorBoundary section="관리 도구">
+          {activeSection === "home" && <HomeDashboard />}
+          {activeSection === "songs" && <SongsManagementWrapper />}
+          {activeSection === "songbook-download" && (
+            <SongbookDownloadManagement user={user} />
+          )}
+          {activeSection === "add-song" && <AddSongSelection />}
+          {activeSection === "categories" && <CategoriesManagement />}
+          {activeSection === "artists" && <ArtistsManagement />}
+          {activeSection === "clip-requests" && <ClipRequestsManagement />}
+          {activeSection === "song-requests" && <SongRequestsManagement />}
+          {activeSection === "song-request-settings" && (
+            <SongRequestSettingsContent user={user} />
+          )}
+          {activeSection === "overlay-settings" && (
+            <OverlaySettingsContent user={user} />
+          )}
+          {activeSection === "overlay-custom-css" &&
+            (overlayCustomCssEnabled ? (
+              <OverlayCustomCssSection user={user} />
+            ) : (
+              <ComingSoonSection sectionId="overlay-custom-css" />
+            ))}
+          {activeSection === "console" && (
+            <ConsoleSettingsContent user={user} />
+          )}
+          {activeSection === "stream-deck" && (
+            <StreamDeckSettingsContent user={user} />
+          )}
+          {activeSection === "session-history" && (
+            <SessionHistory identifier={user} />
+          )}
+          {activeSection === "live" && <LiveConsoleRedirect user={user} />}
+          {activeSection === "schedule-settings" && (
+            <ScheduleSettingsContent user={user} />
+          )}
+          {activeSection === "schedule-templates" &&
+            (channelScheduleTemplateEnabled ? (
+              <ScheduleTemplateList user={user} />
+            ) : (
+              <div className="p-6">
+                <Alert>
+                  <AlertCircle className="size-4" />
+                  <AlertTitle>준비 중인 기능입니다</AlertTitle>
+                  <AlertDescription>
+                    시간표 템플릿 기능은 아직 준비 중입니다. 곧 만나요!
+                  </AlertDescription>
+                </Alert>
+              </div>
+            ))}
+          {activeSection === "schedule-image" &&
+            (channelScheduleTemplateEnabled ? (
+              <ScheduleImageContent user={user} />
+            ) : (
+              <div className="p-6">
+                <Alert>
+                  <AlertCircle className="size-4" />
+                  <AlertTitle>준비 중인 기능입니다</AlertTitle>
+                  <AlertDescription>
+                    시간표 이미지 기능은 아직 준비 중입니다. 곧 만나요!
+                  </AlertDescription>
+                </Alert>
+              </div>
+            ))}
+          {activeSection === "sns-settings" &&
+            (channelScheduleTemplateEnabled ? (
+              <SnsSettingsContent />
+            ) : (
+              <div className="p-6">
+                <Alert>
+                  <AlertCircle className="size-4" />
+                  <AlertTitle>준비 중인 기능입니다</AlertTitle>
+                  <AlertDescription>
+                    SNS 연동 기능은 아직 준비 중입니다. 곧 만나요!
+                  </AlertDescription>
+                </Alert>
+              </div>
+            ))}
+          {(activeSection === "channel-features" ||
+            activeSection === "guestbook-settings") && (
+            <ChannelFeatureSettingsManagement />
+          )}
+          {activeSection === "setlists" && <SetlistsManagement />}
+          {activeSection === "emoticons" &&
+            (channelEmoticonEnabled ? (
+              <EmoticonsManagement />
+            ) : (
+              <div className="p-6">
+                <Alert>
+                  <AlertCircle className="size-4" />
+                  <AlertTitle>준비 중인 기능입니다</AlertTitle>
+                  <AlertDescription>
+                    이 기능은 아직 준비 중입니다. 곧 만나요!
+                  </AlertDescription>
+                </Alert>
+              </div>
+            ))}
+          {activeSection === "wardrobe" && <WardrobeManagement />}
+          {activeSection === "manager" && <ManagerManagement />}
+          {activeSection === "favorites" && <FavoritesManagement />}
+          {activeSection === "decoration" && <DecorationManagement />}
+          {activeSection === "channel-auth" && <ChannelAuthManagement />}
+          {activeSection === "settings" && <SettingsSection />}
+          {activeSection === "channel-transfer" && <TransferManagement />}
+        </SectionErrorBoundary>
+      </div>
+    </>
+  );
+}

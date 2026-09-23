@@ -1,0 +1,707 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css");
+@import url("https://cdn.jsdelivr.net/gh/fonts-archive/Paperlogy/subsets/Paperlogy-dynamic-subset.css");
+@import url("https://cdn.rawgit.com/moonspam/NanumSquare/master/nanumsquare.css");
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import "tw-animate-css";
+@import "../shared/styles/content-view.css";
+@import "../shared/styles/global-thin-header.css";
+@import "../shared/styles/brand-header.css";
+
+@font-face {
+  font-family: "OngleipKonkon";
+  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/2412-1@1.0/Ownglyph_corncorn-Rg.woff2")
+    format("woff2");
+  font-weight: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "CookieRun";
+  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_2001@1.1/CookieRun-Regular.woff")
+    format("woff");
+  font-weight: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "CookieRun";
+  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_twelve@1.0/CookieRunOTF-Bold00.woff")
+    format("woff");
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "CookieRun";
+  src: url("https://cdn.jsdelivr.net/gh/projectnoonnu/noonfonts_twelve@1.0/CookieRunOTF-Black00.woff")
+    format("woff");
+  font-weight: 900;
+  font-display: swap;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* 최상단 서비스 종료 안내 바의 높이. 안내 바가 자기 높이를 이 값으로 잡고
+     sticky thin header 가 같은 값만큼 아래에서 고정된다. 안내를 걷어낼 때는
+     이 한 줄만 0px 으로 바꾸면 헤더가 원래대로 뷰포트 상단에 붙는다. */
+  --meloming-top-notice-height: 3rem;
+  font-family: "Pretendard Variable", Pretendard, -apple-system,
+    BlinkMacSystemFont, system-ui, Roboto, "Helvetica Neue", "Segoe UI",
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Apple Color Emoji",
+    "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+
+  --radius: 0.625rem;
+  --fg: var(--foreground);
+  --line: #e4e4e7;
+  --card-soft: #f4f4f5;
+  --faint: #9aa2ac;
+  --primary-strong: #5c53fc;
+  --primary-soft: #edecff;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /*
+   * 사이트 상단 sticky offset.
+   * - 기본: 종료 안내 바 높이. 그 밖에 상단 고정 헤더가 없는 페이지
+   * - 모바일 :root: 안내 바 + 64px fixed top bar (ChannelShell/ManageShell fallback)
+   * - 문서 흐름 안의 GlobalHeader 를 쓰는 NewShell 은 shell scope 에서 안내 바 높이만
+   * 소비측: className="sticky top-[var(--site-sticky-top)]"
+   *
+   * 최상단 종료 안내 바는 sticky 라 뷰포트 상단을 점유한다. 여기에 그 높이를
+   * 접어 넣어야 --page-content-sticky-top / --channel-sticky-top 까지 calc 으로
+   * 따라오고, 본문 sticky 요소가 안내 바 뒤로 숨지 않는다.
+   */
+  --site-sticky-top: var(--meloming-top-notice-height);
+
+  /*
+   * viewport 높이에서 shell chrome 높이를 빼야 하는 풀스크린 페이지용 offset.
+   * sticky 위치와 viewport 높이 계산을 분리해 SectionHeader 를 viewport 상단에
+   * 정확히 고정한다.
+   */
+  --site-shell-viewport-offset: 0px;
+
+  /*
+   * 페이지 상단 SectionHeaderV3 높이.
+   * = min-h-9(36px) + py-3(24px) + border-b(1px) = 61px
+   * v3 가 sticky top=var(--site-sticky-top) 으로 깔리면 그 다음 sticky 요소
+   * (NavHeader cascade, 본문 sticky aside 등) 가 v3 위로 겹치지 않게
+   * 이 값만큼 추가 cascade 하기 위함.
+   */
+  --page-section-header-height: 61px;
+
+  /*
+   * 본문 sticky 요소의 top offset.
+   * - V3 가 깔린 페이지(body:has([data-section-header-v3])) 에서는 v3 height 만큼
+   *   자동 cascade 되어 v3 뒤로 가리지 않게 함.
+   * - V3 가 없는 페이지에서는 site-sticky-top 그대로 사용 → 위에 빈 공간 X.
+   *
+   * 호출처는 페이지가 v3 를 쓰는지 알 필요 없이 변수만 참조하면 자동 분기.
+   * 소비측: className="sticky top-[var(--page-content-sticky-top)]"
+   *         className="sticky top-[calc(var(--page-content-sticky-top)+1rem)]"
+   */
+  --page-content-sticky-top: var(--site-sticky-top);
+
+  /*
+   * NavHeader sub-nav 높이.
+   * = py-1(8px) + Button h-9(36px) + border-b(1px) = 45px
+   * v3 + NavHeader 둘 다 sticky 인 페이지의 본문 sticky 요소가 두 헤더 모두
+   * 피해 stick 되도록 합산해서 cascade.
+   */
+  --page-nav-header-height: 45px;
+
+  /*
+   * Bottom floating UI collision budget.
+   *
+   * Channel.io renders its own fixed iframe outside our React tree. When it is
+   * active, reserve the lower-right channel button area so app install banners,
+   * save bars, PIP players, and other fixed controls do not cover each other.
+   */
+  --floating-stack-bottom: 0px;
+  --floating-app-banner-padding-bottom: calc(
+    0.75rem + env(safe-area-inset-bottom)
+  );
+  --floating-bottom-action-padding: calc(
+    1.5rem + env(safe-area-inset-bottom)
+  );
+  --floating-side-button-bottom: calc(
+    1.5rem + env(safe-area-inset-bottom)
+  );
+  --floating-pip-bottom: 80px;
+
+  /*
+   * 채널 페이지 노래책 등에서 #channel-nav(UserMenu) 바로 밑에 붙는
+   * sticky 요소(필터바, 필터 사이드바)들의 top offset.
+   * = --site-sticky-top + 스틱된 #channel-nav 높이.
+   *
+   * #channel-nav 스틱드 높이 = avatar + py-2.5(20px) + border-b(1px)
+   *   - desktop (md+): w-12 (48px) → 48 + 20 + 1 = 69px
+   *   - mobile  (<768): w-10 (40px) → 40 + 20 + 1 = 61px
+   *
+   * NewShell 전환 (헤더 제거) → ManageShell sticky→fixed 전환 (5/1) 후
+   * --site-sticky-top 이 단일 source of truth 가 되었으므로 calc 으로 자동 추적.
+   * 이전엔 4.5rem/8rem 으로 박혀 ~3px buffer 가 있었지만 사이드바 개편 후 빈
+   * 갭으로 노출돼 제거.
+   */
+  --channel-sticky-top: calc(var(--site-sticky-top) + 69px);
+}
+
+@media (max-width: 767px) {
+  :root {
+    --site-sticky-top: calc(
+      var(--meloming-top-notice-height) + 64px
+    ); /* 안내 바 + fixed mobile top bar fallback */
+    --channel-sticky-top: calc(var(--site-sticky-top) + 61px);
+  }
+}
+
+/*
+ * brand-shell CSS 변수 브릿지.
+ * brand-shell(mono repo)은 --muted 를 텍스트 색상(#71717a)으로 사용하지만
+ * shadcn/Tailwind는 --muted 를 배경색(oklch(0.97))으로 정의.
+ * brand-header/profile-menu 스코프에서 텍스트 색상으로 override.
+ */
+.brand-header,
+.profile-menu {
+  --muted: #71717a;
+}
+html[data-theme="dark"] .brand-header,
+html[data-theme="dark"] .profile-menu {
+  --muted: #a5adba;
+  --faint: #737d8c;
+}
+
+.brand-header {
+  position: relative;
+  top: auto;
+  z-index: 60;
+  max-width: none;
+  width: 100%;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+@media (min-width: 640px) {
+  .brand-header { padding-left: calc((100% - 640px) / 2 + 1rem); padding-right: calc((100% - 640px) / 2 + 1rem); }
+}
+@media (min-width: 768px) {
+  .brand-header { padding-left: calc((100% - 768px) / 2 + 1rem); padding-right: calc((100% - 768px) / 2 + 1rem); }
+}
+@media (min-width: 1024px) {
+  .brand-header { padding-left: calc((100% - 1024px) / 2 + 1rem); padding-right: calc((100% - 1024px) / 2 + 1rem); }
+}
+@media (min-width: 1280px) {
+  .brand-header { padding-left: calc((100% - 1280px) / 2 + 1rem); padding-right: calc((100% - 1280px) / 2 + 1rem); }
+}
+@media (min-width: 1536px) {
+  .brand-header { padding-left: calc((100% - 1536px) / 2 + 1rem); padding-right: calc((100% - 1536px) / 2 + 1rem); }
+}
+.brand-symbol--wordmark {
+  width: auto;
+  height: auto;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+}
+.brand-symbol--wordmark .brand-symbol__img {
+  width: auto;
+  height: 24px;
+  filter: none;
+}
+html[data-theme="dark"] .brand-symbol--wordmark .brand-symbol__img {
+  filter: none;
+}
+.brand-header .brand-name:empty,
+.brand-header .brand-suffix:empty {
+  display: none;
+}
+
+/*
+ * SectionHeaderV3 가 마운트된 페이지에서만 본문 sticky cascade 활성화.
+ * V3 가 없는 페이지(채널/recruit/manage 등)에서는 위 :root default
+ * (= site-sticky-top) 가 그대로 쓰여 v3 만큼의 빈 공간이 생기지 않음.
+ */
+body:has([data-section-header-v3]) {
+  --page-content-sticky-top: calc(
+    var(--site-sticky-top) + var(--page-section-header-height)
+  );
+}
+
+/*
+ * Shell 별 sticky 문맥.
+ *
+ * NewShell 의 GlobalHeader 는 모바일에서도 document flow 안에 있으므로 그 아래의
+ * SectionHeader 를 다시 64px 내릴 이유가 없다. In-app 은 상단 chrome 자체가 없다.
+ *
+ * body:has(...) 에서 계산된 상속값은 wrapper 의 --site-sticky-top override 를
+ * 자동으로 재계산하지 않으므로 SectionHeader cascade 도 같은 scope 에서 다시
+ * 선언한다. ChannelShell/ManageShell 의 fixed-header 문맥에는 0px override 를
+ * 적용하지 않아 각 shell 의 46px/64px 상단 offset 을 그대로 유지한다.
+ */
+[data-site-sticky-context="flowing-header"],
+[data-site-sticky-context="no-header"] {
+  --site-sticky-top: var(--meloming-top-notice-height);
+  --page-content-sticky-top: var(--meloming-top-notice-height);
+}
+
+[data-site-sticky-context="flowing-header"] {
+  --site-shell-viewport-offset: 64px;
+}
+
+[data-site-sticky-context="no-header"] {
+  --site-shell-viewport-offset: 0px;
+}
+
+[data-site-sticky-context]:has([data-section-header-v3]) {
+  --page-section-header-height: 61px;
+  --page-content-sticky-top: calc(
+    var(--site-sticky-top) + var(--page-section-header-height)
+  );
+}
+
+@media (min-width: 768px) {
+  [data-site-sticky-context="flowing-header"] {
+    --site-shell-viewport-offset: 0px;
+  }
+}
+
+/*
+ * Radix 오버레이(Select/Dialog/DropdownMenu/Popover 등)가 열리면 내부의
+ * react-remove-scroll 이 <body> 에 다음을 박는다:
+ *   body[data-scroll-locked] { overflow: hidden !important;
+ *     position: relative !important; margin-right: <scrollbar>px !important; }
+ * 그 순간 <body> 가 스크롤 컨테이너가 되는데 문서 스크롤은 <html> 에 있으므로
+ * (body.scrollTop === 0) 모든 position:sticky 요소(SectionHeaderV3, NavHeader,
+ * 본문 sticky aside 등)의 containing block 이 viewport -> body 로 재할당된다.
+ * 결과: 아래로 스크롤한 상태에서 오버레이를 열면 sticky 상단 헤더가 scrollY 만큼
+ * 화면 위로 튀어 사라진다. (voice 의 "전체 상태/추천순" Select 가 대표 증상)
+ *
+ * 실제 스크롤 잠금은 react-remove-scroll 의 JS wheel/touch 핸들러가 담당하므로,
+ * body 를 스크롤 컨테이너로 만드는 CSS 보정만 무력화하면 잠금은 유지된 채
+ * sticky 재할당만 막힌다. 'html body' 로 specificity 를 (0,1,2) 로 올려
+ * 라이브러리의 (0,1,1) !important 규칙을 소스 순서와 무관하게 덮는다.
+ * 트레이드오프: 오버레이가 열린 동안 데스크톱 스크롤바가 그대로 보인다
+ * (대신 기존 다이얼로그 열림 시의 가로 layout shift 는 함께 사라진다).
+ */
+html body[data-scroll-locked] {
+  overflow: visible !important;
+  position: static !important;
+  margin-right: 0 !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
+
+.paperlogy {
+  font-family: "Paperlogy", sans-serif !important;
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --destructive-foreground: oklch(0.985 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    scroll-behavior: smooth;
+    overflow-x: clip;
+    /* overscroll-behavior-y: none; */
+  }
+  body {
+    @apply bg-background text-foreground;
+    /* overscroll-behavior-y: none; */
+  }
+}
+
+/* Utility: hide native scrollbars while keeping scroll functionality */
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none; /* IE and Edge */
+    scrollbar-width: none; /* Firefox */
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Safari and Chrome */
+  }
+}
+
+/* iOS safe-area and sticky stability helpers */
+@layer utilities {
+  .safe-area-top {
+    padding-top: constant(safe-area-inset-top);
+    padding-top: env(safe-area-inset-top);
+  }
+  .ios-sticky-fix {
+    -webkit-transform: translateZ(0);
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    will-change: transform;
+  }
+}
+
+/* Support alignment classes from Quill-rendered HTML inside detail views */
+@layer utilities {
+  .ql-align-center {
+    text-align: center;
+  }
+  .ql-align-right {
+    text-align: right;
+  }
+  .ql-align-justify {
+    text-align: justify;
+  }
+}
+
+/* Quill content rendering helpers */
+@layer utilities {
+  /* Indentation levels */
+  .prose .ql-indent-1 {
+    margin-left: 1.5rem;
+  }
+  .prose .ql-indent-2 {
+    margin-left: 3rem;
+  }
+  .prose .ql-indent-3 {
+    margin-left: 4.5rem;
+  }
+  .prose .ql-indent-4 {
+    margin-left: 6rem;
+  }
+  .prose .ql-indent-5 {
+    margin-left: 7.5rem;
+  }
+  .prose .ql-indent-6 {
+    margin-left: 9rem;
+  }
+  .prose .ql-indent-7 {
+    margin-left: 10.5rem;
+  }
+  .prose .ql-indent-8 {
+    margin-left: 12rem;
+  }
+  .prose .ql-indent-9 {
+    margin-left: 13.5rem;
+  }
+
+  /* RTL direction support */
+  .prose .ql-direction-rtl {
+    direction: rtl;
+  }
+  .prose .ql-direction-rtl.ql-indent-1 {
+    margin-right: 1.5rem;
+    margin-left: 0;
+  }
+  .prose .ql-direction-rtl.ql-indent-2 {
+    margin-right: 3rem;
+    margin-left: 0;
+  }
+  .prose .ql-direction-rtl.ql-indent-3 {
+    margin-right: 4.5rem;
+    margin-left: 0;
+  }
+  .prose .ql-direction-rtl.ql-indent-4 {
+    margin-right: 6rem;
+    margin-left: 0;
+  }
+  .prose .ql-direction-rtl.ql-indent-5 {
+    margin-right: 7.5rem;
+    margin-left: 0;
+  }
+  .prose .ql-direction-rtl.ql-indent-6 {
+    margin-right: 9rem;
+    margin-left: 0;
+  }
+  .prose .ql-direction-rtl.ql-indent-7 {
+    margin-right: 10.5rem;
+    margin-left: 0;
+  }
+  .prose .ql-direction-rtl.ql-indent-8 {
+    margin-right: 12rem;
+    margin-left: 0;
+  }
+  .prose .ql-direction-rtl.ql-indent-9 {
+    margin-right: 13.5rem;
+    margin-left: 0;
+  }
+
+  /* Font size helpers */
+  .prose .ql-size-small {
+    font-size: 0.875em;
+  }
+  .prose .ql-size-large {
+    font-size: 1.25em;
+  }
+  .prose .ql-size-huge {
+    font-size: 1.75em;
+  }
+
+  /* Font family helpers */
+  .prose .ql-font-monospace {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      "Liberation Mono", "Courier New", monospace;
+  }
+  .prose .ql-font-serif {
+    font-family: Georgia, Cambria, "Times New Roman", Times, serif;
+  }
+
+  /* Code blocks generated by Quill */
+  .prose pre.ql-syntax {
+    background-color: rgba(0, 0, 0, 0.04);
+    color: inherit;
+    padding: 0.75rem 1rem;
+    border-radius: 0.375rem;
+    overflow-x: auto;
+    line-height: 1.6;
+    font-size: 0.875rem;
+  }
+
+  /* Media elements */
+  .prose img {
+    max-width: 100%;
+    height: auto;
+  }
+  .prose iframe.ql-video,
+  .prose video.ql-video {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    height: auto;
+  }
+
+  /* When alignment classes are applied directly to media elements */
+  .prose img.ql-align-center,
+  .prose iframe.ql-align-center,
+  .prose video.ql-align-center {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .prose img.ql-align-right,
+  .prose iframe.ql-align-right,
+  .prose video.ql-align-right {
+    display: block;
+    margin-left: auto;
+  }
+}
+
+/* Main Home banner/user section: container queries */
+/* Establish a container on the section so child grid can respond to section width */
+.cq-mainhome-container {
+  container-type: inline-size;
+}
+
+/* Default: hide the first column; show only when container >= 1920px */
+.cq-show-first {
+  display: none;
+}
+
+/* Default grid columns are controlled by Tailwind for mobile (grid-cols-1). */
+/* At container >= 1024px, use 4 columns (3:1 when first column is hidden). */
+@container (min-width: 1024px) {
+  .mainhome-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* At container >= 1920px, switch to 5 columns (1:3:1) and show first column */
+@container (min-width: 1920px) {
+  .mainhome-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .cq-show-first {
+    display: block;
+  }
+}
+
+/* cmdk list scroll fix */
+[cmdk-list] {
+  overflow: auto !important;
+  overscroll-behavior: contain;
+}
+
+.luckysheet-scrollbars {
+  z-index: 10 !important;
+}
+
+.luckysheet-bottom-controll-row {
+  z-index: 10 !important;
+}
+
+/* Live song request shimmer animation */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/*
+  Sheet music — react-pdf canvas / OSMD svg 가 자연 크기로 그려지면
+  부모 SheetMusicCanvas viewport 박스를 넘쳐 잘린다. inline width/height 가
+  CSS max-width 보다 우선되는 react-pdf 동작을 override 하여 항상 viewport 안에
+  비율 유지 fit. zoom > 1 시 부모 TransformWrapper 의 transform: scale 이 추가
+  확대를 처리.
+*/
+.react-pdf__Page__canvas,
+.react-pdf__Page__svg {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  width: auto !important;
+  height: auto !important;
+}
+.react-pdf__Page {
+  background: transparent !important;
+}
+
+/*
+  스토어 '골라담기' 상품 미리보기 마퀴 — 자동 횡스크롤(수동 스크롤 불가).
+  동일 세트를 두 번 이어 붙인 track 을 -50% 이동시켜 끊김 없이 무한 루프시킨다.
+  카드 간격은 flex gap 이 아닌 카드의 margin 으로 줘야 seam(이음새)이 정확히 맞는다.
+*/
+@keyframes store-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.store-marquee-viewport {
+  overflow: hidden;
+  /* 양 끝을 부드럽게 페이드해 카드가 자연스럽게 등장/퇴장하도록 */
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 6%,
+    #000 94%,
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 6%,
+    #000 94%,
+    transparent
+  );
+}
+
+.store-marquee-track {
+  display: flex;
+  width: max-content;
+  animation: store-marquee var(--store-marquee-duration, 42s) linear infinite;
+  will-change: transform;
+}
+
+.store-marquee-track[data-direction="reverse"] {
+  animation-direction: reverse;
+}
+
+/* 한 줄에 마우스를 올리면 그 줄만 잠시 멈춰 상품을 살펴볼 수 있게 */
+.store-marquee-viewport:hover .store-marquee-track {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .store-marquee-track {
+    animation: none;
+    transform: none;
+  }
+}

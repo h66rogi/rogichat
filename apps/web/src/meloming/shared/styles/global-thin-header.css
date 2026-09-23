@@ -1,0 +1,192 @@
+/* ===== GlobalThinHeader 전용 스타일 ===== */
+
+/* NanumSquareNeo 웹폰트 */
+@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-bRg.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-cBd.woff2') format('woff2'); font-weight: 700; font-display: swap; }
+@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-dEb.woff2') format('woff2'); font-weight: 800; font-display: swap; }
+@font-face { font-family: 'NanumSquareNeo'; src: url('https://cdn.meloming.com/fonts/NanumSquareNeo/NanumSquareNeo-eHv.woff2') format('woff2'); font-weight: 900; font-display: swap; }
+
+/* ── 헤더 본체 ── */
+.thin-header {
+  --fg: #1e1e1e;
+  --muted: #6a727c;
+  --faint: #9aa2ac;
+  --line: #e4e8eb;
+  --card: #ffffff;
+  --card-soft: #eef1f4;
+  --primary: #5c53fc;
+  --primary-strong: #4a42d4;
+  --primary-soft: #edecff;
+  --danger: #dc2626;
+
+  font-family: 'NanumSquareNeo', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  width: 100%;
+  height: 42px;
+  background: transparent;
+}
+.thin-header--border {
+  border-bottom: 1px solid var(--line);
+}
+.thin-header__container {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; height: 100%;
+  padding: 0 16px;
+}
+.thin-header__logo {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 100%; text-decoration: none;
+}
+.thin-header__logo-img {
+  display: block; height: 18px; width: auto; object-fit: contain; filter: none;
+}
+.thin-header__symbol-fallback {
+  display: inline-grid; width: 24px; height: 24px; place-items: center;
+  border-radius: 4px; background: var(--primary);
+  color: #fff; font-weight: 900; font-size: 12px;
+}
+.thin-header__actions {
+  display: flex; align-items: center; gap: 2px;
+}
+.thin-header__grid-btn {
+  display: inline-grid; place-items: center;
+  width: 32px; height: 32px; border: none; border-radius: 6px;
+  background: transparent; color: var(--muted); cursor: pointer;
+  transition: background-color 0.14s, color 0.14s;
+}
+.thin-header__grid-btn:hover,
+.thin-header__grid-btn.is-open {
+  background: var(--card-soft); color: var(--fg);
+}
+
+/* ===== MFE 알림 벨(remote NotificationPopover) 헤더/홈 톤 적응 =====
+   .nc-popover 하위로 한 단계 더 내려 remote의 [data-theme] 규칙보다 우선. */
+.nc-bell { display: inline-flex; }
+/* 채널 thin-header: grid-btn과 동일 톤(32px 무보더) */
+.thin-header .nc-popover .nc-popover__bell {
+  width: 32px; height: 32px;
+  border: none; border-radius: 6px;
+  background: transparent; color: var(--muted);
+}
+.thin-header .nc-popover .nc-popover__bell:hover,
+.thin-header .nc-popover .nc-popover__bell.is-open {
+  background: var(--card-soft); color: var(--fg);
+}
+/* 채널 thin-header 프로필(아바타만): 알림 벨/전체 버튼과 동일한 32px 고스트 톤. */
+.thin-header .profile-trigger--compact {
+  width: 32px; height: 32px; border-radius: 6px;
+}
+.thin-header .profile-trigger--compact:hover,
+.thin-header .profile-trigger--compact.is-open {
+  background: var(--card-soft);
+}
+.thin-header .profile-trigger--compact .user-avatar {
+  width: 26px; height: 26px;
+}
+/* thin-header 게스트 벨: 인증 벨/전체 버튼과 동일한 32px 고스트 톤 */
+.thin-header .nc-bell--guest {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; border-radius: 6px;
+  color: var(--muted); transition: background-color 0.14s;
+}
+.thin-header .nc-bell--guest:hover { background: var(--card-soft); }
+.thin-header .nc-bell--guest .nc-bell__guest-icon { width: 18px; height: 18px; }
+/* thin-header 컴팩트 로딩 스켈레톤(32px) */
+.thin-header .profile-skeleton--compact { width: 32px; height: 32px; border-radius: 6px; }
+/* 홈 검색바: 옆 Menu/Store 아이콘과 동일한 고스트 톤(36px 원형) */
+.nc-bell--home .nc-popover .nc-popover__bell {
+  width: 36px; height: 36px;
+  border: none; border-radius: 9999px;
+  background: transparent; color: #222;
+}
+.nc-bell--home .nc-popover .nc-popover__bell:hover,
+.nc-bell--home .nc-popover .nc-popover__bell.is-open {
+  background: #f5f5f5;
+}
+html[data-theme="dark"] .nc-bell--home .nc-popover .nc-popover__bell { color: #ccc; }
+html[data-theme="dark"] .nc-bell--home .nc-popover .nc-popover__bell:hover,
+html[data-theme="dark"] .nc-bell--home .nc-popover .nc-popover__bell.is-open { background: #333; }
+/* 홈 검색바: 옆 Menu 아이콘(size-7=28px)과 동일한 크기로. 뱃지도 48px 원형에 맞게 비례 확대. */
+.nc-bell--home .nc-popover .nc-popover__bell-icon {
+  width: 28px; height: 28px;
+}
+.nc-bell--home .nc-popover .nc-popover__badge {
+  min-width: 21px; height: 21px; top: -2px; right: -2px; font-size: 11.5px;
+}
+
+/* ── 서비스 런처 (.thin-header 스코프) ── */
+.thin-header .svc-launcher { position: relative; display: inline-flex; }
+.thin-header .svc-scrim { position: fixed; inset: 0; z-index: 60; border: 0; background: transparent; cursor: default; }
+.thin-header .svc-panel {
+  position: absolute; top: calc(100% + 10px); right: 0; z-index: 61;
+  display: grid; width: min(620px, calc(100vw - 24px)); gap: 14px; padding: 16px;
+  border: 1px solid var(--line); border-radius: 22px; background: var(--card);
+  box-shadow: 0 28px 70px rgba(35, 31, 74, 0.18);
+}
+.thin-header .svc-home-link {
+  display: flex; align-items: center; gap: 12px; min-width: 0;
+  border: 1px solid rgba(97, 95, 255, 0.16); border-radius: 16px; padding: 14px;
+  background: linear-gradient(135deg, rgba(97, 95, 255, 0.12), rgba(142, 139, 255, 0.05));
+  color: var(--fg);
+}
+.thin-header .svc-home-link:hover { border-color: rgba(97, 95, 255, 0.34); background: rgba(97, 95, 255, 0.14); }
+.thin-header .svc-home-icon {
+  display: inline-grid; width: 44px; height: 44px; flex: 0 0 auto; place-items: center;
+  overflow: hidden; border-radius: 12px; background: transparent;
+}
+.thin-header .svc-home-icon img { display: block; width: 100%; height: 100%; object-fit: cover; filter: none; }
+.thin-header .svc-home-copy { display: grid; min-width: 0; gap: 3px; }
+.thin-header .svc-home-copy strong { font-size: 15px; font-weight: 800; }
+.thin-header .svc-home-copy small { overflow: hidden; color: var(--muted); font-size: 11.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.thin-header .svc-home-arrow { margin-left: auto; color: var(--primary); font-size: 18px; font-weight: 700; }
+.thin-header .svc-panel__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.thin-header .svc-cat {
+  min-width: 0; border: 1px solid var(--line); border-radius: 15px;
+  background: rgba(248, 249, 251, 0.72); padding: 12px;
+}
+.thin-header .svc-cat__title { margin: 0 0 8px; padding: 0 3px; color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: -0.01em; }
+.thin-header .svc-cat__links { display: grid; gap: 4px; }
+.thin-header .svc-link { display: flex; align-items: center; gap: 6px; min-height: 38px; padding: 9px 10px; border-radius: 10px; color: var(--fg); font-size: 13.5px; font-weight: 700; }
+.thin-header .svc-link:hover { background: var(--card-soft); }
+.thin-header .svc-link--active { color: var(--primary); font-weight: 800; }
+.thin-header .svc-link__arrow { margin-left: auto; color: var(--faint); font-size: 13px; transition: color 0.14s, transform 0.14s; }
+.thin-header .svc-link:hover .svc-link__arrow { color: currentColor; transform: translateX(2px); }
+
+/* ── 반응형 ── */
+@media (max-width: 520px) {
+  .thin-header .svc-panel { max-height: calc(100vh - 88px); overflow-y: auto; padding: 12px; border-radius: 18px; }
+  .thin-header .svc-home-link { padding: 12px; }
+  .thin-header .svc-panel__grid { grid-template-columns: 1fr; }
+}
+
+/* ── 다크모드 ── */
+html[data-theme="dark"] .thin-header {
+  --fg: #f5f7fb;
+  --muted: #a5adba;
+  --faint: #737d8c;
+  --line: #2a2e37;
+  --card: #181b21;
+  --card-soft: #242935;
+  --primary: #8f8cff;
+  --primary-strong: #b7b5ff;
+  --primary-soft: rgba(143, 140, 255, 0.18);
+  --danger: #ff7378;
+  background: transparent;
+}
+html[data-theme="dark"] .thin-header .svc-panel {
+  border-color: #343a46;
+  background: #181b21;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.38);
+}
+html[data-theme="dark"] .thin-header .svc-home-link,
+html[data-theme="dark"] .thin-header .svc-cat {
+  border-color: #2e3440;
+  background: rgba(36, 41, 53, 0.72);
+}
+html[data-theme="dark"] .thin-header .svc-home-link:hover,
+html[data-theme="dark"] .thin-header .svc-link:hover {
+  background: #242935;
+}
+html[data-theme="dark"] .thin-header__grid-btn:hover,
+html[data-theme="dark"] .thin-header__grid-btn.is-open {
+  background: #242935;
+}
