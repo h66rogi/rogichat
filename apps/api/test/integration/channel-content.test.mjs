@@ -8,6 +8,7 @@ import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { PrismaDatabase } from '../../dist/infrastructure/database/database.js';
 import { migrationManifest } from '../../dist/infrastructure/database/schema-manifest.js';
 import { ChannelContentRepository } from '../../dist/modules/channel-content/channel-content.repository.js';
+import { MelomingChannelService } from '../../dist/modules/channel-content/meloming-channel.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -51,6 +52,7 @@ async function fixture(t) {
 test('ported channel schema serves empty content, persists wardrobe/songbook, generates recurring dates and purges account data',async t=>{
   const {db,roomId,ownerId,fanId}=await fixture(t);
   const repository=new ChannelContentRepository();
+  const channel=new MelomingChannelService(db.transactions,{require:async(_tx,credentials)=>({userId:credentials.token})},repository);
   const schedule=new ChannelScheduleService(db.transactions,{},repository);
   const songbook=new SongbookService(db.transactions,{},repository);
   const recurring=new RecurringScheduleService(db.transactions,{},repository);
@@ -58,6 +60,13 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(new Set(allocated).size,8);
   assert.equal((await schedule.list({})).total,0);
   assert.equal((await songbook.list({})).total,0);
+  const detail=await channel.detail();
+  assert.equal(detail.id,1);
+  assert.equal(detail.name,'후로기');
+  assert.deepEqual(detail._count,{songs:0,artists:0,categories:0});
+  assert.deepEqual((await channel.features()).items.filter(item=>item.isEnabled).map(item=>item.key),['musicbook','schedule','setlist','wardrobe']);
+  assert.equal((await channel.permission({token:ownerId})).manageContent,true);
+  assert.equal((await channel.permission({token:fanId})).manageContent,false);
   const first=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
   assert.deepEqual(first.categories.map(row=>row.name),['의상','헤어']);
   assert.equal(first.items.length,0);
@@ -77,6 +86,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const publicWardrobe=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
   assert.equal(publicWardrobe.items[0].title,'검증 의상');
   assert.equal((await songbook.list({search:'테스트'})).total,1);
+  assert.deepEqual((await channel.detail())._count,{songs:1,artists:1,categories:1});
   assert.equal((await songbook.list({search:'가수'})).total,1);
   assert.equal((await schedule.list({})).total,0);
   await recurring.refreshUpcoming();
