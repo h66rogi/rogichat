@@ -108,6 +108,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
     await tx.prisma.song.create({data:{id:songId,title:'테 스트 노래',titleSearchable:'테스트노래',artistId,channelId:roomId}});
     await tx.prisma.songCategory.create({data:{id:await nextChannelContentId(tx.prisma),songId,categoryId}});
     await tx.prisma.userSongLike.create({data:{id:await nextChannelContentId(tx.prisma),userId:fanId,songId}});
+    await tx.prisma.songAddRequest.create({data:{id:await nextChannelContentId(tx.prisma),requesterId:fanId,channelId:roomId,title:'신청 노래',artistName:'신청 가수'}});
     privateScheduleId=await nextChannelContentId(tx.prisma);
     await tx.prisma.channelSchedule.create({data:{id:privateScheduleId,channelId:roomId,authorUserId:ownerId,title:'비공개',startAt:new Date(),visibility:'PRIVATE'}});
     await tx.prisma.channelRecurringSchedule.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,dayOfWeek:new Date(Date.now()+86400000+9*3600000).getUTCDay(),title:'정기 방송',startTime:'20:00',status:'LIVE'}});
@@ -161,6 +162,8 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   await recurring.refreshUpcoming();
   assert.equal((await schedule.list({limit:100})).total,generated.total);
   const cleanup=new AccountCleanupRepository();
+  assert.equal(await db.transactions.write(tx=>cleanup.channelContent(tx,fanId,100)),1);
+  assert.equal(await db.transactions.read(tx=>tx.prisma.songAddRequest.count()),0);
   assert.equal(await db.transactions.write(tx=>cleanup.channelContent(tx,fanId,100)),1);
   assert.equal(await db.transactions.read(tx=>tx.prisma.userSongLike.count()),0);
   assert.deepEqual(await artists.remove({token:ownerId},copiedSong.artistId),{message:'가수가 삭제되었습니다.'});

@@ -32,4 +32,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260923231000_meloming_schedule_notice', checksum: '633bd2298dd38940e754d311f6bc3b1e3ea12048d4e1b7c45e22064cae8f209e' },
   { name: '20260923232000_meloming_user_alias', checksum: 'eed4619c2ebe6800f1159cd3ee2a6e34c42f13385dc1da2a63ae9b17dedfa6bc' },
   { name: '20260923233000_meloming_musicbook_settings', checksum: '4fd6cbbd679ac6c72ba57e2b92c3e1e6bdc05cc7d3821ce417b971f715a80111' },
+  { name: '20260924002000_meloming_song_add_requests', checksum: '73a56429550b559bbe826a28729157d284c561d6464858a6e9b3370ac9c0d373' },
 ];

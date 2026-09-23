@@ -329,6 +329,7 @@ model Song {
   userLikes               UserSongLike[]
   sheetMusics             SongSheetMusic[]
   videoPreferences        SongVideoPreference[]
+  approvedAddRequest      SongAddRequest? @relation("SongAddRequestApprovedSong")
 
   @@unique([channelId, globalSongId], map: "unique_songs_channel_globalsong")
   @@index([channelId], map: "idx_songs_channel_id")
@@ -422,6 +423,49 @@ model MelomingUserAlias {
   @@map("meloming_user_aliases")
 }
 
+enum SongAddRequestStatus {
+  PENDING  @map("pending")
+  APPROVED @map("approved")
+  REJECTED @map("rejected")
+  CANCELED @map("canceled")
+}
+
+// Copied from meloming-back SongAddRequest. Channel and User integer FKs
+// become Rogichat room/account UUIDs; the public DTO uses numeric aliases.
+model SongAddRequest {
+  id              Int                  @id
+  requesterId     String               @map("requester_id") @db.Char(36)
+  channelId       String               @map("channel_id") @db.Char(36)
+  title           String               @db.VarChar(255)
+  artistName      String               @map("artist_name") @db.VarChar(255)
+  albumArt        String?              @map("album_art") @db.Text
+  karaokeUrl      String?              @map("karaoke_url") @db.Text
+  coverUrl        String?              @map("cover_url") @db.Text
+  originalUrl     String?              @map("original_url") @db.Text
+  difficulty      Int?
+  proficiency     Int?
+  songKey         String?              @map("song_key") @db.VarChar(20)
+  bpm             Int?
+  lyricsLink      String?              @map("lyrics_link") @db.Text
+  lyricsText      String?              @map("lyrics_text") @db.Text
+  categoryNames   String?              @map("category_names") @db.Text
+  status          SongAddRequestStatus @default(PENDING)
+  processedById   String?              @map("processed_by_id") @db.Char(36)
+  processedAt     DateTime?            @map("processed_at") @db.DateTime(0)
+  rejectionReason String?              @map("rejection_reason") @db.VarChar(500)
+  approvedSongId  Int?                 @unique @map("approved_song_id")
+  createdAt       DateTime             @default(now()) @map("created_at") @db.DateTime(0)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.DateTime(0)
+  requester       users                @relation("SongAddRequestRequester", fields: [requesterId], references: [id], onDelete: Restrict)
+  channel         rooms                @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  processedBy     users?               @relation("SongAddRequestProcessor", fields: [processedById], references: [id], onDelete: SetNull)
+  approvedSong    Song?                @relation("SongAddRequestApprovedSong", fields: [approvedSongId], references: [id], onDelete: SetNull)
+
+  @@index([requesterId, status], map: "idx_song_add_requests_requester_status")
+  @@index([channelId, status], map: "idx_song_add_requests_channel_status")
+  @@map("song_add_requests")
+}
+
 // Copied from meloming-back ChannelOverlayLayout. Only the Channel integer FK
 // becomes the owner-bound Rogichat room UUID; musicbook-settings uses this row.
 model ChannelOverlayLayout {
@@ -450,6 +494,8 @@ model users {
   soop                  platform_soop?
   identities            auth_identities[]
   sessions              auth_sessions[]
+  songAddRequests       SongAddRequest[] @relation("SongAddRequestRequester")
+  processedSongRequests SongAddRequest[] @relation("SongAddRequestProcessor")
   members               room_members[]
   creator               creator_accounts?
   admin                 admin_capabilities?
@@ -605,6 +651,7 @@ model rooms {
   songs Song[]
   channelProfile ChannelProfile?
   channelOverlayLayouts ChannelOverlayLayout[]
+  songAddRequests SongAddRequest[]
 }
 
 model room_counters {

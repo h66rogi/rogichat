@@ -50,6 +50,10 @@ export class AccountCleanupRepository {
 
   /** Drain Meloming channel data introduced into Rogichat before account closure. */
   async channelContent(tx: Transaction, userId: string, limit: number) {
+    const ownSongRequests = await tx.prisma.songAddRequest.findMany({ where: { requesterId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (ownSongRequests.length) return (await tx.prisma.songAddRequest.deleteMany({ where: { requesterId: userId, id: { in: ownSongRequests.map(row => row.id) } } })).count;
+    const processedSongRequests = await tx.prisma.songAddRequest.findMany({ where: { processedById: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (processedSongRequests.length) return (await tx.prisma.songAddRequest.updateMany({ where: { processedById: userId, id: { in: processedSongRequests.map(row => row.id) } }, data: { processedById: null } })).count;
     const likes = await tx.prisma.userSongLike.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (likes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { userId, id: { in: likes.map(row => row.id) } } })).count;
     const authored = await tx.prisma.channelSchedule.findMany({ where: { authorUserId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
@@ -62,6 +66,8 @@ export class AccountCleanupRepository {
     const room = await tx.prisma.rooms.findUnique({ where: { id: binding.room_id }, select: { owner: { select: { user_id: true } } } });
     if (room?.owner?.user_id !== userId) return 0;
     const channelId = binding.room_id;
+    const songRequests = await tx.prisma.songAddRequest.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (songRequests.length) return (await tx.prisma.songAddRequest.deleteMany({ where: { channelId, id: { in: songRequests.map(row => row.id) } } })).count;
     const songLikes = await tx.prisma.userSongLike.findMany({ where: { song: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (songLikes.length) return (await tx.prisma.userSongLike.deleteMany({ where: { id: { in: songLikes.map(row => row.id) } } })).count;
     const songCategories = await tx.prisma.songCategory.findMany({ where: { song: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
