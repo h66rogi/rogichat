@@ -1,6 +1,6 @@
 import { ApiTags } from '@nestjs/swagger';
-import { Controller, Delete, Get, Inject, Param, Patch, Post, Req } from '@nestjs/common';
-import type { Request } from 'express';
+import { Controller, Delete, Get, Inject, Param, Patch, Post, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
 import { readCommandCredentials, readSessionCredentials } from '../auth/auth-context.js';
@@ -9,7 +9,7 @@ import { channelDoc } from './channel-content.openapi.js';
 import { SongbookService } from './songbook.service.js';
 
 function channel(identifier: string): void {
-  if (identifier !== 'hurogi') throw new ApiError('NOT_FOUND', 404);
+  if (identifier !== 'hurogi' && identifier !== '1') throw new ApiError('NOT_FOUND', 404);
 }
 function id(value: string): number {
   if (!/^[1-9]\d{0,9}$/.test(value) || !Number.isSafeInteger(Number(value))) throw new ApiError('INVALID_REQUEST', 400);
@@ -56,6 +56,49 @@ export class MelomingSongsController {
   list(@Param('identifier') identifier: string, @Req() request: Request) {
     channel(identifier);
     return this.songs.list(query(request), readSessionCredentials(request, this.config));
+  }
+
+  @Post('bulk') @channelDoc('melomingSongsBulkCreate', '원본 노래 엑셀 일괄 등록', 'write', 201)
+  bulkCreate(@Param('identifier') identifier: string, @Req() request: Request) {
+    channel(identifier);
+    return this.songs.bulkCreate(readCommandCredentials(request, this.config), request.body);
+  }
+
+  @Patch('bulk') @channelDoc('melomingSongsBulkUpdate', '원본 노래 일괄 수정', 'write')
+  bulkUpdate(@Param('identifier') identifier: string, @Req() request: Request) {
+    channel(identifier);
+    return this.songs.bulkUpdate(readCommandCredentials(request, this.config), request.body);
+  }
+
+  @Delete('bulk') @channelDoc('melomingSongsBulkDelete', '원본 노래 일괄 삭제', 'write')
+  bulkDelete(@Param('identifier') identifier: string, @Req() request: Request) {
+    channel(identifier);
+    return this.songs.bulkDelete(readCommandCredentials(request, this.config), request.body);
+  }
+
+  @Post('affected-clips') @channelDoc('melomingSongsAffectedClipsBulk', '원본 일괄 삭제 영향 미리보기', 'read')
+  affectedClipsBulk(@Param('identifier') identifier: string, @Req() request: Request) {
+    channel(identifier);
+    return this.songs.affectedClips(readSessionCredentials(request,this.config),request.body);
+  }
+
+  @Get(':songId/affected-clips') @channelDoc('melomingSongsAffectedClips', '원본 단일 삭제 영향 미리보기', 'read')
+  affectedClips(@Param('identifier') identifier: string, @Param('songId') songId: string, @Req() request: Request) {
+    channel(identifier);
+    return this.songs.affectedClips(readSessionCredentials(request,this.config),{ids:[id(songId)]});
+  }
+
+  @Get('export/csv') @channelDoc('melomingSongsExportCsv', '원본 노래책 CSV 다운로드', 'read')
+  async exportCsv(@Param('identifier') identifier: string, @Req() request: Request, @Res() response: Response) {
+    channel(identifier);
+    const result = await this.songs.exportCsv(readSessionCredentials(request,this.config), request.ip, request.headers['user-agent']);
+    const date = new Date().toISOString().split('T')[0];
+    const filename = `songs_${result.channelName}_${date}.csv`;
+    const encodedFilename = encodeURIComponent(filename);
+    response.setHeader('Content-Type','text/csv; charset=utf-8');
+    response.setHeader('Content-Disposition',`attachment; filename="${encodedFilename}"; filename*=UTF-8''${encodedFilename}`);
+    response.setHeader('X-Song-Count',String(result.songCount));
+    response.send('\uFEFF'+result.csv);
   }
 
   @Get(':songId') @channelDoc('melomingSongDetail', '원본 채널 노래 상세')

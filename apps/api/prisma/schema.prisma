@@ -622,6 +622,22 @@ model UserChannelFavorite {
   @@map("user_channel_favorites")
 }
 
+// Copied from Meloming SongExportLog; IDs map to Rogichat account and room keys.
+model SongExportLog {
+  id        Int      @id
+  userId    String   @map("user_id") @db.Char(36)
+  channelId String   @map("channel_id") @db.Char(36)
+  songCount Int      @map("song_count")
+  ipAddress String?  @map("ip_address") @db.VarChar(45)
+  userAgent String?  @map("user_agent") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(0)
+
+  @@index([userId], map: "idx_song_export_log_user_id")
+  @@index([channelId], map: "idx_song_export_log_channel_id")
+  @@index([createdAt], map: "idx_song_export_log_created_at")
+  @@map("song_export_logs")
+}
+
 model SongCategory {
   id         Int      @id
   songId     Int      @map("song_id")

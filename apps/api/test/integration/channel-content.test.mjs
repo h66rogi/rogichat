@@ -201,6 +201,46 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(await db.transactions.read(tx=>tx.prisma.melomingUserAlias.count({where:{userId:ownerId}})),0);
 });
 
+test('Meloming manual and Excel song registration creates categories and skips duplicate rows atomically',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const songs=new SongbookService(db.transactions,auth,repository);
+  await assert.rejects(songs.create({token:fanId},{title:'수동',artistName:'가수',categoryNames:['발라드']}));
+  const manual=await songs.create({token:ownerId},{title:'수동',artistName:'가수',categoryNames:['발라드'],autoSearchAlbumArt:true});
+  assert.equal(manual.categories[0].name,'발라드');
+  const result=await songs.bulkCreate({token:ownerId},{songs:[
+    {title:'새 노래',artistName:'가수',categoryNames:['발라드','팝']},
+    {title:'새 노래',artistName:'가수',categoryNames:['팝']},
+    {title:'수동',artistName:'가수',categoryNames:['발라드']},
+  ]});
+  assert.equal(result.createdCount,1);
+  assert.equal(result.skippedCount,2);
+  assert.equal(result.newCategoriesCount,1);
+  assert.equal((await songs.list({})).total,2);
+  const exported=await songs.exportCsv({token:ownerId});
+  assert.equal(exported.songCount,2);
+  assert.match(exported.csv,/노래,가수,카테고리,난이도,숙련도/);
+  assert.equal(await db.transactions.read(tx=>tx.prisma.songExportLog.count()),1);
+  await assert.rejects(songs.bulkCreate({token:ownerId},{songs:[
+    {title:'롤백 대상',artistName:'가수',categoryNames:['팝']},
+    {title:'잘못된 곡',artistId:9999,categoryNames:['팝']},
+  ]}));
+  assert.equal((await songs.list({})).total,2);
+  await assert.rejects(songs.bulkUpdate({token:fanId},{songs:[{id:manual.id,difficulty:4}]}));
+  const changed=await songs.bulkUpdate({token:ownerId},{songs:[{id:manual.id,artistName:'새 가수',categoryNames:['팝'],difficulty:4,price:20}]});
+  assert.deepEqual(changed,{success:true,updatedCount:1,updatedIds:[manual.id]});
+  assert.equal((await songs.detail(manual.id)).artist.name,'새 가수');
+  assert.equal((await songs.detail(manual.id)).categories[0].name,'팝');
+  await assert.rejects(songs.bulkUpdate({token:ownerId},{songs:[{id:manual.id,difficulty:2},{id:9999,difficulty:3}]}));
+  assert.equal((await songs.detail(manual.id)).difficulty,4);
+  await assert.rejects(songs.affectedClips({token:fanId},{ids:[manual.id]}));
+  assert.deepEqual(await songs.affectedClips({token:ownerId},{ids:[manual.id]}),{orphanClipCount:0});
+  assert.deepEqual(await songs.bulkDelete({token:ownerId},{ids:[manual.id,9999]}),{success:true,deletedCount:1,deletedClipIds:[]});
+  await assert.rejects(songs.detail(manual.id));
+  assert.equal((await songs.list({})).total,1);
+});
+
 test('wardrobe image upload requires owner and returns a public durable image stream',async t=>{
   const {db,ownerId,fanId}=await fixture(t);
   const objects=new Map();

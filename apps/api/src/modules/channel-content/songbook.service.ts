@@ -7,6 +7,10 @@ import { ApiError } from '../auth/auth-primitives.js';
 import { ChannelContentRepository } from './channel-content.repository.js';
 import { escapeForLike, normalizeForSearch } from './upstream/search-normalize.js';
 import { nextChannelContentId } from './channel-content-id.js';
+import { SongHelperService } from './upstream/song-helper.service.js';
+import { pickLegacyPrice, sanitizeCurrencyPriceMap } from './upstream/currency-price.util.js';
+import { ChannelMusicbookSettingsService } from './upstream/channel-musicbook-settings.service.js';
+import { SongExportService } from './upstream/song-export.service.js';
 
 type Query = { page?: number; limit?: number; search?: string; sortBy?: string;
   categoryIds?: number[]; artistIds?: number[]; difficulties?: number[]; proficiencies?: number[] };
@@ -46,7 +50,7 @@ function parseSong(value: unknown, create: boolean) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError('INVALID_REQUEST',400);
   const data = value as Record<string,unknown>;
   const allowed = ['title','artistId','artistName','albumArt','karaokeUrl','coverUrl','originalUrl','difficulty',
-    'proficiency','songKey','bpm','lyricsLink','lyricsText','description','price','categoryIds'];
+    'proficiency','songKey','bpm','lyricsLink','lyricsText','description','price','categoryIds','categoryNames','currencyPrices','autoSearchAlbumArt'];
   if (Object.keys(data).some(key => !allowed.includes(key))) throw new ApiError('INVALID_REQUEST',400);
   if (create && (typeof data.title !== 'string' || !data.title.trim() ||
     !(typeof data.artistName === 'string' && data.artistName.trim()) && !Number.isSafeInteger(data.artistId))) throw new ApiError('INVALID_REQUEST',400);
@@ -64,8 +68,33 @@ function parseSong(value: unknown, create: boolean) {
     const v = data[key]; if (v !== undefined && v !== null && (!Number.isSafeInteger(v) || Number(v) < (key === 'price' ? 0 : 1))) throw new ApiError('INVALID_REQUEST',400);
   }
   if (data.categoryIds !== undefined && (!Array.isArray(data.categoryIds) || data.categoryIds.length > 50 || data.categoryIds.some(id => !Number.isSafeInteger(id) || id < 1))) throw new ApiError('INVALID_REQUEST',400);
+  if (data.categoryNames !== undefined && (!Array.isArray(data.categoryNames) || data.categoryNames.length > 50 || data.categoryNames.some(name => typeof name !== 'string' || !name.trim() || name.length > 80))) throw new ApiError('INVALID_REQUEST',400);
+  if (data.currencyPrices !== undefined && data.currencyPrices !== null &&
+    (typeof data.currencyPrices !== 'object' || Array.isArray(data.currencyPrices))) throw new ApiError('INVALID_REQUEST',400);
+  if (data.autoSearchAlbumArt !== undefined && typeof data.autoSearchAlbumArt !== 'boolean') throw new ApiError('INVALID_REQUEST',400);
   if (data.title !== undefined && !(data.title as string).trim()) throw new ApiError('INVALID_REQUEST',400);
   return data;
+}
+
+function parseSongIds(value: unknown): number[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).join(',') !== 'ids') throw new ApiError('INVALID_REQUEST',400);
+  const ids = (value as {ids?:unknown}).ids;
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 300 || ids.some(id => !Number.isSafeInteger(id) || id < 1)) throw new ApiError('INVALID_REQUEST',400);
+  return [...new Set(ids as number[])];
+}
+
+function parseBulkUpdate(value: unknown): Array<Record<string,unknown> & {id:number}> {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).join(',') !== 'songs') throw new ApiError('INVALID_REQUEST',400);
+  const input = (value as {songs?:unknown}).songs;
+  if (!Array.isArray(input) || input.length < 1 || input.length > 300) throw new ApiError('INVALID_REQUEST',400);
+  return input.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) throw new ApiError('INVALID_REQUEST',400);
+    const {id,...fields} = item as Record<string,unknown>;
+    if (!Number.isSafeInteger(id) || Number(id) < 1) throw new ApiError('INVALID_REQUEST',400);
+    if (Object.keys(fields).some(key => !['artistId','artistName','categoryIds','categoryNames','difficulty','proficiency','price','currencyPrices'].includes(key))) throw new ApiError('INVALID_REQUEST',400);
+    const validated = parseSong(fields,false);
+    return {id:id as number,...validated} as Record<string,unknown> & {id:number};
+  });
 }
 
 /** Meloming Song/Artist/Category query contract, with Rogichat owner and session IDs. */
@@ -184,6 +213,7 @@ export class SongbookService {
 
   create(credentials: CommandCredentials, value: unknown) {
     const data = parseSong(value,true);
+    if (!(data.categoryIds as number[] | undefined)?.length && !(data.categoryNames as string[] | undefined)?.length) throw new ApiError('INVALID_REQUEST',400);
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx,credentials,true);
       const roomId = await this.repository.requireOwner(tx,actor.userId);
@@ -193,11 +223,15 @@ export class SongbookService {
           const existing = await tx.prisma.artist.findFirst({where:{channelId:roomId,name},select:{id:true}});
           return existing ?? tx.prisma.artist.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,name,nameSearchable:normalizeForSearch(name)},select:{id:true}}); })();
       if (!artist) throw new ApiError('INVALID_REQUEST',400);
-      const categoryIds = (data.categoryIds as number[] | undefined) ?? [];
+      if (await tx.prisma.song.findFirst({where:{channelId:roomId,artistId:artist.id,title:(data.title as string).trim()},select:{id:true}})) throw new ApiError('CONFLICT',409);
+      const helper = new SongHelperService(tx.prisma);
+      const categoryIds = [...((data.categoryIds as number[] | undefined) ?? [])];
       const count = await tx.prisma.category.count({where:{channelId:roomId,id:{in:categoryIds}}});
       if (count !== new Set(categoryIds).size) throw new ApiError('INVALID_REQUEST',400);
+      categoryIds.push(...await helper.createNewCategoriesByChannel((data.categoryNames as string[] | undefined) ?? [],roomId));
       const links = [];
       for (const categoryId of new Set(categoryIds)) links.push({id:await nextChannelContentId(tx.prisma),categoryId});
+      const prices = sanitizeCurrencyPriceMap(data.currencyPrices);
       const songData: Prisma.SongUncheckedCreateInput = { id:await nextChannelContentId(tx.prisma),channelId:roomId, artistId:artist.id,
         title:(data.title as string).trim(), titleSearchable:normalizeForSearch(data.title as string),
         ...(data.albumArt !== undefined ? {albumArt:data.albumArt as string | null} : {}),
@@ -211,11 +245,159 @@ export class SongbookService {
         ...(data.lyricsLink !== undefined ? {lyricsLink:data.lyricsLink as string | null} : {}),
         ...(data.lyricsText !== undefined ? {lyricsText:data.lyricsText as string | null} : {}),
         ...(data.description !== undefined ? {description:data.description as string | null} : {}),
-        ...(data.price !== undefined ? {price:data.price as number | null} : {}),
+        ...(data.price !== undefined ? {price:data.price as number | null} : prices ? {price:pickLegacyPrice(prices)} : {}),
+        ...(data.currencyPrices !== undefined ? {currencyPrices: prices ?? Prisma.DbNull} : {}),
         songCategories:{create:links},
       };
       const row = await tx.prisma.song.create({ data:songData,select});
       return songResponse(row);
+    });
+  }
+
+  /** Meloming SongMutationService.bulkCreateSongsByChannelId behavior in one Rogichat transaction. */
+  bulkCreate(credentials: CommandCredentials, value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).join(',') !== 'songs') throw new ApiError('INVALID_REQUEST',400);
+    const input = (value as { songs?: unknown }).songs;
+    if (!Array.isArray(input) || input.length < 1 || input.length > 500) throw new ApiError('INVALID_REQUEST',400);
+    const songs = input.map(item => parseSong(item,true));
+    if (songs.some(item => !(item.categoryIds as number[] | undefined)?.length && !(item.categoryNames as string[] | undefined)?.length)) throw new ApiError('INVALID_REQUEST',400);
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx,credentials,true);
+      const roomId = await this.repository.requireOwner(tx,actor.userId);
+      await this.repository.lockPrimary(tx);
+      const helper = new SongHelperService(tx.prisma);
+      const useProficiencyAsPrimary = await new ChannelMusicbookSettingsService(tx.prisma).usesProficiencyAsPrimary(roomId);
+      const seen = new Set<string>();
+      const skippedSongs: Array<{title:string;artistName?:string;artistId?:number;reason:'duplicate_in_request'|'already_exists'}> = [];
+      const created: Array<{id:number;title:string}> = [];
+      let newArtistsCount = 0, newCategoriesCount = 0;
+      for (const item of songs) {
+        const title = (item.title as string).trim();
+        const name = typeof item.artistName === 'string' ? item.artistName.trim() : '';
+        const artistId = item.artistId as number | undefined;
+        const key = `${artistId ?? name.normalize('NFKC').toLowerCase()}|${title.normalize('NFKC').toLowerCase()}`;
+        if (seen.has(key)) {
+          skippedSongs.push({title,...(name?{artistName:name}:{}),...(artistId?{artistId}:{}),reason:'duplicate_in_request'});
+          continue;
+        }
+        seen.add(key);
+        const existingArtist = artistId
+          ? await tx.prisma.artist.findFirst({where:{id:artistId,channelId:roomId},select:{id:true}})
+          : await tx.prisma.artist.findFirst({where:{channelId:roomId,name},select:{id:true}});
+        if (artistId && !existingArtist) throw new ApiError('INVALID_REQUEST',400);
+        if (existingArtist && await tx.prisma.song.findFirst({where:{channelId:roomId,artistId:existingArtist.id,title},select:{id:true}})) {
+          skippedSongs.push({title,...(name?{artistName:name}:{}),artistId:existingArtist.id,reason:'already_exists'});
+          continue;
+        }
+        let finalArtistId = existingArtist?.id;
+        if (!finalArtistId) {
+          finalArtistId = (await tx.prisma.artist.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,name,nameSearchable:normalizeForSearch(name)},select:{id:true}})).id;
+          newArtistsCount++;
+        }
+        const categoryIds = [...((item.categoryIds as number[] | undefined) ?? [])];
+        if (await tx.prisma.category.count({where:{channelId:roomId,id:{in:categoryIds}}}) !== new Set(categoryIds).size) throw new ApiError('INVALID_REQUEST',400);
+        const before = await tx.prisma.category.count({where:{channelId:roomId}});
+        categoryIds.push(...await helper.createNewCategoriesByChannel((item.categoryNames as string[] | undefined) ?? [],roomId));
+        newCategoriesCount += await tx.prisma.category.count({where:{channelId:roomId}}) - before;
+        const prices = sanitizeCurrencyPriceMap(item.currencyPrices);
+        const proficiency = typeof item.proficiency === 'number' ? item.proficiency
+          : useProficiencyAsPrimary && typeof item.difficulty === 'number' ? item.difficulty : null;
+        const id = await nextChannelContentId(tx.prisma);
+        await tx.prisma.song.create({data:{id,channelId:roomId,artistId:finalArtistId,title,titleSearchable:normalizeForSearch(title),
+          ...(item.albumArt!==undefined?{albumArt:item.albumArt as string|null}:{}),
+          ...(item.karaokeUrl!==undefined?{karaokeUrl:item.karaokeUrl as string|null}:{}),
+          ...(item.coverUrl!==undefined?{coverUrl:item.coverUrl as string|null}:{}),
+          ...(item.originalUrl!==undefined?{originalUrl:item.originalUrl as string|null}:{}),
+          difficulty:(item.difficulty as number|undefined)??1,proficiency,
+          ...(item.songKey!==undefined?{songKey:item.songKey as string|null}:{}),
+          ...(item.bpm!==undefined?{bpm:item.bpm as number|null}:{}),
+          ...(item.lyricsLink!==undefined?{lyricsLink:item.lyricsLink as string|null}:{}),
+          ...(item.lyricsText!==undefined?{lyricsText:item.lyricsText as string|null}:{}),
+          ...(item.description!==undefined?{description:item.description as string|null}:{}),
+          price:(item.price as number|null|undefined)??pickLegacyPrice(prices),
+          currencyPrices:prices??Prisma.DbNull},select:{id:true}});
+        for (const categoryId of new Set(categoryIds)) await tx.prisma.songCategory.create({data:{id:await nextChannelContentId(tx.prisma),songId:id,categoryId}});
+        created.push({id,title});
+      }
+      return { success:true as const,createdCount:created.length,skippedCount:skippedSongs.length,
+        newArtistsCount,newCategoriesCount,songs:created,skippedSongs };
+    });
+  }
+
+  /** Port of SongMutationService.bulkUpdateSongsByChannelId with the channel's UUID boundary. */
+  bulkUpdate(credentials: CommandCredentials, value: unknown) {
+    const songs = parseBulkUpdate(value);
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx,credentials,true);
+      const roomId = await this.repository.requireOwner(tx,actor.userId);
+      await this.repository.lockPrimary(tx);
+      const uniqueIds = [...new Set(songs.map(song => song.id))];
+      const existing = await tx.prisma.song.findMany({where:{channelId:roomId,id:{in:uniqueIds}},select:{id:true,proficiency:true}});
+      if (existing.length !== uniqueIds.length) throw new ApiError('INVALID_REQUEST',400);
+      const useProficiencyAsPrimary = await new ChannelMusicbookSettingsService(tx.prisma).usesProficiencyAsPrimary(roomId);
+      if (useProficiencyAsPrimary) {
+        const byId = new Map(existing.map(song => [song.id,song.proficiency]));
+        if (songs.some(song => !Number.isInteger(song.proficiency === undefined ? byId.get(song.id) : song.proficiency))) throw new ApiError('INVALID_REQUEST',400);
+      }
+      const helper = new SongHelperService(tx.prisma);
+      const updatedIds: number[] = [];
+      for (const item of songs) {
+        let artistId: number | undefined;
+        if (item.artistId !== undefined) {
+          const artist = await tx.prisma.artist.findFirst({where:{id:item.artistId as number,channelId:roomId},select:{id:true}});
+          if (!artist) throw new ApiError('INVALID_REQUEST',400);
+          artistId = artist.id;
+        } else if (typeof item.artistName === 'string' && item.artistName.trim()) {
+          const name = item.artistName.trim();
+          const artist = await tx.prisma.artist.findFirst({where:{name,channelId:roomId},select:{id:true}})
+            ?? await tx.prisma.artist.create({data:{id:await nextChannelContentId(tx.prisma),name,nameSearchable:normalizeForSearch(name),channelId:roomId},select:{id:true}});
+          artistId = artist.id;
+        }
+        const prices = sanitizeCurrencyPriceMap(item.currencyPrices);
+        const data: Prisma.SongUncheckedUpdateInput = {
+          ...(artistId !== undefined ? {artistId} : {}),
+          ...(item.difficulty !== undefined ? {difficulty:item.difficulty as number} : {}),
+          ...(item.proficiency !== undefined ? {proficiency:item.proficiency as number} : {}),
+          ...(item.price !== undefined ? {price:item.price as number|null} : item.currencyPrices !== undefined ? {price:pickLegacyPrice(prices)} : {}),
+          ...(item.currencyPrices !== undefined ? {currencyPrices:prices ?? Prisma.DbNull} : {}),
+        };
+        if (Object.keys(data).length) await tx.prisma.song.update({where:{id:item.id},data});
+        if (item.categoryIds !== undefined || item.categoryNames !== undefined) {
+          const categoryIds = (item.categoryIds as number[]|undefined) ?? [];
+          if (await tx.prisma.category.count({where:{channelId:roomId,id:{in:categoryIds}}}) !== new Set(categoryIds).size) throw new ApiError('INVALID_REQUEST',400);
+          const resolved = [...new Set([...categoryIds,...await helper.createNewCategoriesByChannel((item.categoryNames as string[]|undefined) ?? [],roomId)])];
+          await tx.prisma.songCategory.deleteMany({where:{songId:item.id}});
+          for (const categoryId of resolved) await tx.prisma.songCategory.create({data:{id:await nextChannelContentId(tx.prisma),songId:item.id,categoryId}});
+        }
+        updatedIds.push(item.id);
+      }
+      return {success:true,updatedCount:updatedIds.length,updatedIds};
+    });
+  }
+
+  /** Rogichat has no Clip model; the copied preview contract has zero dependent clips. */
+  affectedClips(credentials: SessionCredentials, value: unknown) {
+    const ids = parseSongIds(value);
+    return this.transactions.read(async tx => {
+      const actor = await this.auth.require(tx,credentials,true);
+      const roomId = await this.repository.requireOwner(tx,actor.userId);
+      const count = await tx.prisma.song.count({where:{id:{in:ids},channelId:roomId}});
+      if (count !== ids.length) throw new ApiError('NOT_FOUND',404);
+      return {orphanClipCount:0};
+    });
+  }
+
+  /** Port of SongMutationService.bulkDeleteSongsByChannelId without Meloming Clip events. */
+  bulkDelete(credentials: CommandCredentials, value: unknown) {
+    const ids = parseSongIds(value);
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx,credentials,true);
+      const roomId = await this.repository.requireOwner(tx,actor.userId);
+      await this.repository.lockPrimary(tx);
+      await tx.prisma.userSongLike.deleteMany({where:{songId:{in:ids},song:{channelId:roomId}}});
+      await tx.prisma.songCategory.deleteMany({where:{songId:{in:ids},song:{channelId:roomId}}});
+      const {count} = await tx.prisma.song.deleteMany({where:{id:{in:ids},channelId:roomId}});
+      return {success:true,deletedCount:count,deletedClipIds:[]};
     });
   }
 
@@ -238,23 +420,30 @@ export class SongbookService {
           ?? await tx.prisma.artist.create({data:{id:await nextChannelContentId(tx.prisma),channelId:roomId,name,nameSearchable:normalizeForSearch(name)},select:{id:true}});
         artistId = artist.id;
       }
+      const helper = new SongHelperService(tx.prisma);
       const categoryIds = data.categoryIds as number[] | undefined;
       if (categoryIds) {
         const count = await tx.prisma.category.count({where:{channelId:roomId,id:{in:categoryIds}}});
         if (count !== new Set(categoryIds).size) throw new ApiError('INVALID_REQUEST',400);
       }
+      const resolvedCategoryIds = data.categoryNames !== undefined
+        ? [...new Set([...(categoryIds ?? []), ...await helper.createNewCategoriesByChannel(data.categoryNames as string[],roomId)])]
+        : categoryIds;
+      const prices = sanitizeCurrencyPriceMap(data.currencyPrices);
       const update: Prisma.SongUncheckedUpdateInput = {
         ...(artistId !== undefined ? {artistId} : {}),
         ...(data.title !== undefined ? {title:(data.title as string).trim(),titleSearchable:normalizeForSearch(data.title as string)} : {}),
         ...Object.fromEntries(['albumArt','karaokeUrl','coverUrl','originalUrl','difficulty','proficiency','songKey','bpm','lyricsLink','lyricsText','description','price']
           .filter(key => data[key] !== undefined).map(key => [key,data[key]])),
+        ...(data.currencyPrices !== undefined ? {currencyPrices:prices ?? Prisma.DbNull} : {}),
       };
+      if (data.price === undefined && data.currencyPrices !== undefined) update.price = pickLegacyPrice(prices);
       await tx.prisma.song.update({where:{id},data:update,select:{id:true}});
-      if (categoryIds) {
+      if (resolvedCategoryIds) {
         await tx.prisma.songCategory.deleteMany({where:{songId:id}});
-        if (categoryIds.length) {
+        if (resolvedCategoryIds.length) {
           const links=[];
-          for (const categoryId of new Set(categoryIds)) links.push({id:await nextChannelContentId(tx.prisma),songId:id,categoryId});
+          for (const categoryId of new Set(resolvedCategoryIds)) links.push({id:await nextChannelContentId(tx.prisma),songId:id,categoryId});
           await tx.prisma.songCategory.createMany({data:links});
         }
       }
@@ -296,6 +485,16 @@ export class SongbookService {
       const {roomId} = await this.repository.primary(tx);
       const likes = await tx.prisma.userSongLike.findMany({where:{userId:actor.userId,song:{channelId:roomId}},select:{songId:true}});
       return { songIds:likes.map(like => like.songId) };
+    });
+  }
+
+  exportCsv(credentials: SessionCredentials, ipAddress?: string, userAgent?: string) {
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx,credentials,true);
+      await this.repository.lockPrimary(tx);
+      const {roomId} = await this.repository.primary(tx);
+      const room = await tx.prisma.rooms.findUniqueOrThrow({where:{id:roomId},select:{name:true}});
+      return new SongExportService(tx.prisma).exportSongsAsCsv(roomId,room.name,actor.userId,ipAddress,userAgent);
     });
   }
 

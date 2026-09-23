@@ -50,6 +50,8 @@ export class AccountCleanupRepository {
 
   /** Drain Meloming channel data introduced into Rogichat before account closure. */
   async channelContent(tx: Transaction, userId: string, limit: number) {
+    const exportLogs = await tx.prisma.songExportLog.findMany({ where: { userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (exportLogs.length) return (await tx.prisma.songExportLog.deleteMany({ where: { userId, id: { in: exportLogs.map(row => row.id) } } })).count;
     const ownSongRequests = await tx.prisma.songAddRequest.findMany({ where: { requesterId: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (ownSongRequests.length) return (await tx.prisma.songAddRequest.deleteMany({ where: { requesterId: userId, id: { in: ownSongRequests.map(row => row.id) } } })).count;
     const processedSongRequests = await tx.prisma.songAddRequest.findMany({ where: { processedById: userId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
@@ -71,6 +73,8 @@ export class AccountCleanupRepository {
     const room = await tx.prisma.rooms.findUnique({ where: { id: binding.room_id }, select: { owner: { select: { user_id: true } } } });
     if (room?.owner?.user_id !== userId) return 0;
     const channelId = binding.room_id;
+    const channelExportLogs = await tx.prisma.songExportLog.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
+    if (channelExportLogs.length) return (await tx.prisma.songExportLog.deleteMany({ where: { channelId, id: { in: channelExportLogs.map(row => row.id) } } })).count;
     const channelFavorites = await tx.prisma.userChannelFavorite.findMany({ where: { channelId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (channelFavorites.length) return (await tx.prisma.userChannelFavorite.deleteMany({ where: { channelId, id: { in: channelFavorites.map(row => row.id) } } })).count;
     const liveRequests = await tx.prisma.songRequest.findMany({ where: { liveSession: { channelId } }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
