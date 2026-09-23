@@ -2,7 +2,9 @@ import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, sep } from 'node:path';
 import { createConnection } from 'mysql2/promise';
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { PrismaDatabase } from '../../dist/infrastructure/database/database.js';
@@ -342,13 +344,17 @@ test('Meloming manual and Excel song registration creates categories and skips d
 
 test('copied sheet-music rules store validated files, replace MusicXML and reorder slots',async t=>{
   const {db,ownerId,fanId}=await fixture(t);
+  const scratch=await mkdtemp(join(tmpdir(),'rogichat-sheet-scratch-test-'));
+  const previousScratch=process.env.MEDIA_SCRATCH_DIR;
+  process.env.MEDIA_SCRATCH_DIR=scratch;
+  t.after(async()=>{if(previousScratch===undefined)delete process.env.MEDIA_SCRATCH_DIR;else process.env.MEDIA_SCRATCH_DIR=previousScratch;await rm(scratch,{recursive:true,force:true});});
   const repository=new ChannelContentRepository();
   const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
   const songs=new SongbookService(db.transactions,auth,repository);
   const song=await songs.create({token:ownerId},{title:'악보곡',artistName:'악보가수',categoryNames:['연습']});
   const objects=new Map();
   const store={
-    put:async(key,path,bytes,type)=>{const buffer=await readFile(path);assert.equal(buffer.length,bytes);objects.set(key,{buffer,type});},
+    put:async(key,path,bytes,type)=>{assert.ok(path.startsWith(scratch+sep));const buffer=await readFile(path);assert.equal(buffer.length,bytes);objects.set(key,{buffer,type});},
     read:async key=>{const value=objects.get(key);if(!value) throw new Error('missing');return {stream:Readable.from(value.buffer),bytes:value.buffer.length};},
     remove:async key=>{objects.delete(key);},
   };
@@ -410,9 +416,14 @@ test('MR multipart contract binds signed parts to owner song and serves complete
 
 test('wardrobe image upload requires owner and returns a public durable image stream',async t=>{
   const {db,ownerId,fanId}=await fixture(t);
+  const scratch=await mkdtemp(join(tmpdir(),'rogichat-image-scratch-test-'));
+  const previousScratch=process.env.MEDIA_SCRATCH_DIR;
+  process.env.MEDIA_SCRATCH_DIR=scratch;
+  t.after(async()=>{if(previousScratch===undefined)delete process.env.MEDIA_SCRATCH_DIR;else process.env.MEDIA_SCRATCH_DIR=previousScratch;await rm(scratch,{recursive:true,force:true});});
   const objects=new Map();
   const store={
     put:async(key,path,bytes,type)=>{
+      assert.ok(path.startsWith(scratch+sep));
       const buffer=await readFile(path);
       assert.equal(buffer.length,bytes);
       objects.set(key,{buffer,type});
