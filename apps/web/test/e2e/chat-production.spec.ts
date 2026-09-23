@@ -384,10 +384,9 @@ test('reactions are a direct message action with a keyboard picker and compact r
 });
 
 for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides unconfirmed counts and permits safe recovery`, async ({ page }) => {
-  const { reactions, state, account } = await reactionApi(page);
+  const { reactions, state } = await reactionApi(page);
   await page.goto('/chat'); await openReactionControl(page);
   reactions.status = status;
-  if (status === 401) account.sessionStatus = 401;
   if (status === 403 || status === 404) state.messages = [];
   if (status === 401) await page.getByRole('button', { name: '좋아요 반응', exact: true }).evaluate((element: HTMLElement) => element.click());
   else await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
