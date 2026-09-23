@@ -1,11 +1,10 @@
 'use client';
 
-import { ChatActorAvatar } from './ChatActorAvatar';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { WifiOff } from 'lucide-react';
+import { ImagePlus, Plus, Smile, Video, WifiOff } from 'lucide-react';
+import { Popover } from 'radix-ui';
 
-import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { useMediaScope } from '@/features/media/session-ui';
 import { PhotoDraftComposer } from './ChatMedia';
@@ -97,7 +96,6 @@ function ScopedChatRoom({
   conversationScopeKey,
   composerMemory, composerEpoch,
   roomName,
-  viewer,
   viewerRole,
   items,
   fanRecipient = null,
@@ -119,6 +117,7 @@ function ScopedChatRoom({
   const [photoTargets, setPhotoTargets] = useState<Record<string, ChatComposerTarget>>({});
   const [videoTarget, setVideoTarget] = useState<ChatComposerTarget | null>(null);
   const [stickerTarget, setStickerTarget] = useState<ChatComposerTarget | null>(null);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const permittedFans = useMemo(() => fanRecipients ?? (fanRecipient ? [fanRecipient] : EMPTY_RECIPIENTS), [fanRecipients, fanRecipient]);
   const authorization = useMemo(
     () => ({ viewerRole, fanRecipient, fanRecipients: permittedFans, fanRoomOwner, streamerRecipients }),
@@ -325,6 +324,28 @@ function ScopedChatRoom({
   }, [onSubmit, submitBlockedReason, target, currentKey, submittingKey, drafts, setNoticeFor]);
 
   const canReply = viewerRole === 'FAN' ? permittedFans.length > 0 : streamerRecipients.length > 0;
+  const attachmentAction = onSubmit && target && media?.configured ? (
+    <Popover.Root open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
+      <Popover.Trigger asChild>
+        <Button type="button" variant="ghost" size="icon" className="rounded-full text-chat-accent hover:bg-surface-soft" aria-label="첨부 메뉴 열기" aria-expanded={attachmentsOpen}>
+          <Plus className="size-6" aria-hidden="true" />
+        </Button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content side="top" align="start" sideOffset={8} className="z-50 w-44 rounded-xl border border-line bg-canvas p-1.5 shadow-lg" aria-label="첨부 메뉴">
+          <button type="button" className="flex min-h-11 w-full items-center gap-3 rounded-sm px-3 text-left text-sm text-ink hover:bg-surface-soft" disabled={Object.keys(photoTargets).length >= 2 && !photoTargets[draftKeyFor(target)]} onClick={() => {
+            commitTarget(); setPhotoTargets(previous => previous[draftKeyFor(target)] || Object.keys(previous).length < 2 ? { ...previous, [draftKeyFor(target)]: target } : previous); setAttachmentsOpen(false);
+          }}><ImagePlus className="size-5 text-chat-accent" aria-hidden="true" />사진 첨부</button>
+          <button type="button" className="flex min-h-11 w-full items-center gap-3 rounded-sm px-3 text-left text-sm text-ink hover:bg-surface-soft" onClick={() => {
+            commitTarget(); setStickerTarget(target); setAttachmentsOpen(false);
+          }}><Smile className="size-5 text-chat-accent" aria-hidden="true" />스티커 선택</button>
+          <button type="button" className="flex min-h-11 w-full items-center gap-3 rounded-sm px-3 text-left text-sm text-ink hover:bg-surface-soft" onClick={() => {
+            commitTarget(); setVideoTarget(target); setAttachmentsOpen(false);
+          }}><Video className="size-5 text-chat-accent" aria-hidden="true" />영상 첨부</button>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  ) : null;
 
   return (
     <section
@@ -333,22 +354,14 @@ function ScopedChatRoom({
       data-testid="chat-room"
       data-scope-key={conversationScopeKey}
     >
-      <header className="flex shrink-0 flex-col gap-2 border-b border-line px-4 py-3">
+      <h1 className="sr-only md:hidden">{roomName} 채팅</h1>
+      <header className="hidden shrink-0 flex-col gap-2 border-b border-line-subtle px-5 py-3 md:flex">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h1 className="truncate text-[18px] font-semibold text-ink">{roomName}</h1>
-          <div className="flex items-center gap-2 text-[14px] text-muted">
-            <ChatActorAvatar actor={viewer} /><span className="truncate">{viewer.displayName}</span>
-            <Badge variant={viewerRole === 'STREAMER' ? 'brand' : 'secondary'}>{viewerRole === 'STREAMER' ? '스트리머' : '팬'}</Badge>
-          </div>
+          <div><h1 className="truncate text-[18px] font-semibold text-ink">{roomName}</h1><p className="text-[12px] text-muted">{viewerRole === 'STREAMER' ? '팬과의 채팅' : '후로기와의 채팅'}</p></div>
         </div>
-        {actionNotice && <p role="status" className="text-sm text-muted">{actionNotice}</p>}
-        {connectionNotice && (
-          <p className="flex items-start gap-2 rounded-sm border border-line px-3 py-2 text-[13px] text-body" role="status" data-testid="chat-connection-notice">
-            <WifiOff className="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
-            <span>{connectionNotice}</span>
-          </p>
-        )}
       </header>
+      {actionNotice && <p role="status" className="shrink-0 border-b border-line-subtle px-4 py-1.5 text-[13px] text-muted">{actionNotice}</p>}
+      {connectionNotice && <p className="flex shrink-0 items-center gap-2 border-b border-line-subtle bg-surface-soft px-4 py-1.5 text-[12px] text-body" role="status" data-testid="chat-connection-notice"><WifiOff className="size-4 shrink-0 text-muted" aria-hidden="true" />{connectionNotice}</p>}
 
       <ChatTimeline
         items={items}
@@ -360,6 +373,18 @@ function ScopedChatRoom({
         isLoadingOlder={isLoadingOlder}
         ariaLabel={`${roomName} 메시지`}
       />
+
+      {onSubmit && videoTarget && isAuthorizedTarget(videoTarget, authorization) && <div className="max-h-[40dvh] overflow-y-auto" hidden={draftKeyFor(videoTarget) !== currentKey}>
+        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setVideoTarget(null)} />
+      </div>}
+      {onSubmit && stickerTarget && isAuthorizedTarget(stickerTarget, authorization) && <div className="max-h-[40dvh] overflow-y-auto" hidden={draftKeyFor(stickerTarget) !== currentKey}>
+        <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setStickerTarget(null)} />
+      </div>}
+      {onSubmit && Object.entries(photoTargets).filter(([, value]) => isAuthorizedTarget(value, authorization)).map(([key, value]) => <div key={key} hidden={key !== currentKey} className="max-h-[40dvh] overflow-y-auto">
+        <PhotoDraftComposer target={value} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setPhotoTargets(previous => {
+          const next = { ...previous }; delete next[key]; return next;
+        })} />
+      </div>)}
 
       <ChatComposer
         target={onSubmit ? target : null}
@@ -376,31 +401,8 @@ function ScopedChatRoom({
         announcement={announcement}
         disabled={onSubmit === undefined}
         submitBlockedReason={submitBlockedReason}
+        attachmentAction={attachmentAction}
       />
-      {onSubmit && <div className="border-t border-line px-3 py-2">
-        <Button type="button" variant="outline" disabled={!target || !media?.configured || (Object.keys(photoTargets).length >= 2 && !photoTargets[draftKeyFor(target)])} onClick={() => {
-          if (target) { commitTarget(); setPhotoTargets(previous => previous[draftKeyFor(target)] || Object.keys(previous).length < 2 ? { ...previous, [draftKeyFor(target)]: target } : previous); }
-        }}>사진 첨부</Button>
-        <Button type="button" className="ml-2" variant="outline" disabled={!target || !media?.configured} onClick={() => {
-          if (target) { commitTarget(); setStickerTarget(target); }
-        }}>스티커 선택</Button>
-        <Button type="button" className="ml-2" variant="outline" disabled={!target || !media?.configured} onClick={() => {
-          if (target) { commitTarget(); setVideoTarget(target); }
-        }}>영상 첨부</Button>
-        {Object.keys(photoTargets).length >= 2 && <p className="text-sm text-muted">사진 첨부는 두 대화까지 유지됩니다. 다른 사진을 준비하려면 열어 둔 첨부를 닫아 주세요.</p>}
-        {!media?.configured && <p className="text-sm text-muted">지금은 사진 첨부를 사용할 수 없습니다.</p>}
-      </div>}
-      {onSubmit && videoTarget && isAuthorizedTarget(videoTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(videoTarget) !== currentKey}>
-        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setVideoTarget(null)} />
-      </div>}
-      {onSubmit && stickerTarget && isAuthorizedTarget(stickerTarget, authorization) && <div className="max-h-96 overflow-y-auto" hidden={draftKeyFor(stickerTarget) !== currentKey}>
-        <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setStickerTarget(null)} />
-      </div>}
-      {onSubmit && Object.entries(photoTargets).filter(([, value]) => isAuthorizedTarget(value, authorization)).map(([key, value]) => <div key={key} hidden={key !== currentKey} className="max-h-96 overflow-y-auto">
-        <PhotoDraftComposer target={value} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setPhotoTargets(previous => {
-          const next = { ...previous }; delete next[key]; return next;
-        })} />
-      </div>)}
     </section>
   );
 }

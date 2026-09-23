@@ -120,8 +120,13 @@ async function openOwnedBlocks(page: Page) {
   await page.getByRole('button', { name: '차단 목록 확인', exact: true }).click();
 }
 
+async function openPrivacyActions(page: Page) {
+  await page.getByTestId('chat-message-options').first().click();
+}
+
 test('PRIVATE TEXT publication requires disclosure, 202 is preparing and published refreshes sync', async ({ page }) => {
   const state = await privacyChat(page); await page.goto('/chat');
+  await openPrivacyActions(page);
   const publish = page.getByRole('button', { name: '익명으로 전체 공개' }); await expect(publish).toBeDisabled();
   await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await publish.click();
   await expect(page.getByText('공개 준비 중입니다. 아직 공개 완료가 아닙니다.')).toBeVisible(); expect(state.writes).toBe(1);
@@ -133,6 +138,7 @@ test('PRIVATE TEXT publication requires disclosure, 202 is preparing and publish
 
 test('publication ambiguous 404 does not repost and revoked receipt is explicit', async ({ page }) => {
   const state = await privacyChat(page); await page.goto('/chat');
+  await openPrivacyActions(page);
   await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await page.getByRole('button', { name: '익명으로 전체 공개' }).click();
   state.unknown = true; await page.getByRole('button', { name: '공개 상태 다시 확인' }).click();
   await expect(page.getByText('공개 결과를 확인하지 못했습니다. 요청을 자동으로 다시 보내지 않습니다.')).toBeVisible(); expect(state.writes).toBe(1);
@@ -142,6 +148,7 @@ test('publication ambiguous 404 does not repost and revoked receipt is explicit'
 
 test('report lost ACK recovers stored receipt without re-sending after settings reload', async ({ page }) => {
   const state = await privacyChat(page); state.reportLost = true; await page.goto('/chat');
+  await openPrivacyActions(page);
   await page.getByText('메시지 신고', { exact: true }).click();
   await page.getByLabel('상세 내용 (선택, 최대 1,000자)').fill('격리 테스트 상세 내용');
   await page.getByLabel('선택한 사유와 내용을 신고로 제출합니다.').check(); await page.getByRole('button', { name: '신고 제출', exact: true }).click();
@@ -152,6 +159,7 @@ test('report lost ACK recovers stored receipt without re-sending after settings 
 
 test('visible actor block requires confirmation and settings can explicitly unblock', async ({ page }) => {
   const state = await privacyChat(page); await page.goto('/chat');
+  await openPrivacyActions(page);
   await page.getByText('이 사용자 차단', { exact: true }).click();
   await expect(page.getByRole('button', { name: '사용자 차단', exact: true })).toBeDisabled();
   await page.getByLabel('이 방에서 해당 사용자를 차단합니다.').check();
@@ -165,6 +173,7 @@ test('visible actor block requires confirmation and settings can explicitly unbl
 
 test('report predispatch failure has an actionable read-only recovery button', async ({ page }) => {
   const state = await privacyChat(page); await page.goto('/chat');
+  await openPrivacyActions(page);
   await page.getByText('메시지 신고', { exact: true }).click();
   await page.getByLabel('선택한 사유와 내용을 신고로 제출합니다.').check(); state.sessionStatus = 503;
   await page.getByRole('button', { name: '신고 제출', exact: true }).click();
