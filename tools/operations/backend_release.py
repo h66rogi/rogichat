@@ -27,6 +27,9 @@ REQUEST = Path('/etc/rogichat/backend-release.json')
 RELEASES = Path('/opt/rogichat/releases')
 APP = Path('/opt/rogichat/app')
 IMAGES = Path('/etc/rogichat/app-images.env')
+FEATURE_COMPOSE = APP / 'compose.features.yaml'
+MEDIA_SECRET = Path('/etc/rogichat/media.json')
+EMPTY_FEATURES = b'services: {}\n'
 CADDY = Path('/opt/rogichat/bootstrap/Caddyfile')
 UNIT = Path('/etc/systemd/system/rogichat-app@.service')
 LOCK = Path('/run/lock/rogichat-deploy.lock')
@@ -43,6 +46,7 @@ ARTIFACTS = {
     'bootstrap': 'infrastructure/runtime/Caddyfile.bootstrap',
     'migration_entry': 'tools/operations/migrate_entry.mjs',
 }
+FEATURE_ARTIFACTS = {'media': 'infrastructure/runtime/compose.media.yaml'}
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
 
 
@@ -59,33 +63,54 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def selected_features(value):
+    require(type(value) is list and value in ([], ['media']))
+    return value
+
+
+def artifacts_for(request):
+    return {**ARTIFACTS, **{'feature_' + feature: FEATURE_ARTIFACTS[feature]
+                           for feature in selected_features(request.get('features', []))}}
+
+
+def image_roles(request):
+    return ('runtime', 'migration', 'decoder') if 'media' in selected_features(request.get('features', [])) else ('runtime', 'migration')
+
+
 def validate_request(value):
     fields = {'environment', 'source_sha', 'runtime_image', 'migration_image', 'edge_network',
               'database_host_sha256', 'artifacts', 'migrations', 'verification_runs',
               'previous_caddy_sha256', 'request_id', 'expires_at'}
-    require(type(value) is dict and set(value) in (fields, fields | {'archive'}) and value['environment'] == 'qa')
+    require(type(value) is dict)
+    features = selected_features(value.get('features', []))
+    optional = ({'features'} if 'features' in value else set()) | ({'decoder_image'} if 'media' in features else set())
+    require(set(value) in (fields | optional, fields | optional | {'archive'}) and value['environment'] == 'qa')
+    require(('decoder_image' in value) == ('media' in features))
     if 'archive' in value:
         archive = value['archive']
         require(type(archive) is dict and set(archive) == {'export_sha', 'export_run', 'export_attempt',
                 'artifact_id', 'artifact_sha256', 'runtime_config_id', 'migration_config_id', 'validator_sha256',
-                'execution_identity', 'runtime_execution_id', 'migration_execution_id'})
+                'execution_identity', 'runtime_execution_id', 'migration_execution_id'} |
+                ({'decoder_config_id', 'decoder_execution_id'} if 'media' in features else set()))
         require(archive['execution_identity'] in ('config', 'archive-manifest'))
         require(type(archive['export_sha']) is str and SHA.fullmatch(archive['export_sha']))
         require(all(type(archive[key]) is int and archive[key] > 0
                     for key in ('export_run', 'export_attempt', 'artifact_id')))
         require(type(archive['validator_sha256']) is str and HASH.fullmatch(archive['validator_sha256']))
         require(all(type(archive[key]) is str and re.fullmatch(r'sha256:[a-f0-9]{64}', archive[key])
-                    for key in ('artifact_sha256', 'runtime_config_id', 'migration_config_id',
-                                'runtime_execution_id', 'migration_execution_id')))
+                    for key in ('artifact_sha256', *(role + '_config_id' for role in image_roles(value)),
+                                *(role + '_execution_id' for role in image_roles(value)))))
         if archive['execution_identity'] == 'config':
-            require(all(archive[role + '_execution_id'] == archive[role + '_config_id'] for role in ('runtime', 'migration')))
+            require(all(archive[role + '_execution_id'] == archive[role + '_config_id'] for role in image_roles(value)))
+    require('media' not in features or 'archive' in value)
     require(type(value['source_sha']) is str and SHA.fullmatch(value['source_sha']))
-    for key, repo in [('runtime_image', 'rogichat-api'), ('migration_image', 'rogichat-api-migration')]:
+    for key, repo in [('runtime_image', 'rogichat-api'), ('migration_image', 'rogichat-api-migration'),
+                      *([('decoder_image', 'rogichat-media-decoder')] if 'media' in features else [])]:
         require(type(value[key]) is str and re.fullmatch(r'ghcr\.io/h66rogi/' + repo + r'@sha256:[a-f0-9]{64}', value[key]))
     require(type(value['edge_network']) is str and re.fullmatch(r'rogichat-qa_[a-z0-9_-]{1,40}', value['edge_network']))
     for key in ('database_host_sha256', 'previous_caddy_sha256'):
         require(type(value[key]) is str and HASH.fullmatch(value[key]))
-    require(type(value['artifacts']) is dict and set(value['artifacts']) == set(ARTIFACTS))
+    require(type(value['artifacts']) is dict and set(value['artifacts']) == set(artifacts_for(value)))
     require(all(type(h) is str and HASH.fullmatch(h) for h in value['artifacts'].values()))
     require(type(value['migrations']) is list and 0 < len(value['migrations']) <= 100)
     names = []
@@ -186,7 +211,9 @@ def verify_archive_images(request):
         module.verify_provenance(descriptor, approval)
         require(descriptor['source_sha'] == request['source_sha']
                 and descriptor['verification_runs'] == request['verification_runs'])
-        for role in ('runtime', 'migration'):
+        require(descriptor['version'] == (2 if 'media' in selected_features(request.get('features', [])) else 1))
+        require(set(descriptor['images']) == set(image_roles(request)))
+        for role in image_roles(request):
             expected = descriptor['images'][role]
             require(expected['image'] == request[role + '_image']
                     and expected['config_id'] == approval[role + '_config_id'])
@@ -198,8 +225,23 @@ def verify_release_images(request):
     if 'archive' in request:
         verify_archive_images(request)
     else:
+        require('media' not in selected_features(request.get('features', [])))
         for key in ('runtime_image', 'migration_image'):
             verify_image(request[key], request['source_sha'])
+
+
+def verify_media_secret(request):
+    if 'media' not in selected_features(request.get('features', [])):
+        return
+    raw = protected(MEDIA_SECRET, mode=0o440)
+    metadata = MEDIA_SECRET.stat()
+    require(metadata.st_gid == 10001 and 0 < len(raw) <= 4096)
+    value = json.loads(raw)
+    require(type(value) is dict and set(value) == {'accountId', 'bucket', 'accessKeyId', 'secretAccessKey'})
+    require(type(value['accountId']) is str and re.fullmatch(r'[a-f0-9]{32}', value['accountId']))
+    require(type(value['bucket']) is str and re.fullmatch(r'[a-z0-9][a-z0-9-]{1,61}[a-z0-9]', value['bucket']))
+    require(type(value['accessKeyId']) is str and re.fullmatch(r'[A-Za-z0-9]{20,128}', value['accessKeyId']))
+    require(type(value['secretAccessKey']) is str and re.fullmatch(r'[A-Za-z0-9/+=]{32,128}', value['secretAccessKey']))
 
 
 def compose_requires_auth(compose):
@@ -389,19 +431,44 @@ def wait_health(request):
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         healthy = True
-        for role in ('api', 'worker'):
+        for role in ('api', 'worker', *(['decoder'] if 'media' in selected_features(request.get('features', [])) else [])):
             remaining = deadline - time.monotonic()
             require(remaining > 0)
             item = inspect_starting_container(role, min(10, remaining))
             if item is None:
                 healthy = False
                 continue
-            require(item['Config']['Image'] == execution_image(request, 'runtime'))
+            image_role = 'decoder' if role == 'decoder' else 'runtime'
+            require(item['Config']['Image'] == execution_image(request, image_role))
             if 'archive' in request:
-                require(item['Image'] == execution_image(request, 'runtime'))
+                require(item['Image'] == execution_image(request, image_role))
             state = item['State']
             require(state['Status'] in ('created', 'running') and not state.get('Paused')
                     and not state.get('OOMKilled') and not state.get('Error'))
+            if 'media' in selected_features(request.get('features', [])):
+                env = dict(entry.split('=', 1) for entry in item['Config']['Env'])
+                mounts = item['Mounts']
+                if role == 'decoder':
+                    require(env.get('DECODER_ISOLATED') == 'true'
+                            and not any(key in env for key in ('DATABASE_SECRET_FILE', 'AUTH_SECRET_FILE', 'MEDIA_SECRET_FILE')))
+                    socket = [mount for mount in mounts if mount['Destination'] == '/run/decoder']
+                    require(len(socket) == 1 and socket[0]['Type'] == 'volume' and socket[0]['RW'])
+                else:
+                    require(env.get('MEDIA_ENABLED') == 'true'
+                            and env.get('MEDIA_SECRET_FILE') == '/run/secrets/media.json'
+                            and env.get('MEDIA_SCRATCH_DIR') == '/media-scratch')
+                    secret = [mount for mount in mounts if mount['Destination'] == '/run/secrets/media.json']
+                    require(len(secret) == 1 and secret[0]['Type'] == 'bind'
+                            and secret[0]['Source'] == str(MEDIA_SECRET) and not secret[0]['RW'])
+                    if role == 'worker':
+                        require(env.get('MEDIA_DECODER_SOCKET') == '/run/decoder/image.sock')
+                        socket = [mount for mount in mounts if mount['Destination'] == '/run/decoder']
+                        require(len(socket) == 1 and socket[0]['Type'] == 'volume' and not socket[0]['RW'])
+            if role == 'decoder':
+                require(item['HostConfig']['NetworkMode'] == 'none'
+                        and item['HostConfig']['ReadonlyRootfs']
+                        and not item['HostConfig'].get('PortBindings'))
+                require(all(mount['Destination'] not in ('/run/secrets', '/etc/rogichat') for mount in item['Mounts']))
             if role == 'api':
                 if state['Status'] == 'created' and not state['Running']:
                     # Docker may not have attached NetworkingConfig yet. No
@@ -419,11 +486,19 @@ def wait_health(request):
     raise Rejected('health gate failed')
 
 
-def prepare_containers(bootstrap):
+def compose_args():
+    return ('--env-file', str(IMAGES), '-f', str(APP / 'compose.app.yaml'), '-f', str(FEATURE_COMPOSE))
+
+
+def service_roles(request=None):
+    return ('decoder', 'worker', 'api') if request and 'media' in selected_features(request.get('features', [])) else ('api', 'worker')
+
+
+def prepare_containers(bootstrap, request=None):
     # Never recreate a live/foreign service. Drain/stop precedes this call; no
     # down, prune, remove-orphans, volume deletion or Caddy project operation.
     require(protected(CADDY) == bootstrap)
-    for role in ('api', 'worker'):
+    for role in service_roles(request):
         state = run(['/usr/bin/systemctl', 'show', 'rogichat-app@' + role,
                      '--property=ActiveState', '--value']).strip()
         require(state in (b'inactive', b'failed'))
@@ -435,21 +510,21 @@ def prepare_containers(bootstrap):
                     and labels.get('com.docker.compose.service') == role
                     and not item['State']['Running'] and not item['State'].get('Restarting')
                     and not item['State'].get('Paused') and item['State']['Status'] in ('created', 'exited'))
-    docker('compose', '--env-file', str(IMAGES), '-f', str(APP / 'compose.app.yaml'),
-           'create', '--force-recreate', '--no-build', '--pull', 'never', 'api', 'worker', timeout=90)
+    docker('compose', *compose_args(), 'create', '--force-recreate', '--no-build', '--pull', 'never',
+           *service_roles(request), timeout=90)
 
 
-def start_units(bootstrap):
+def start_units(bootstrap, request=None):
     run(['/usr/bin/systemctl', 'daemon-reload'])
     # Synchronously create desired stopped containers before asynchronous unit
     # start, so health never observes a previous release's exited/image state.
-    prepare_containers(bootstrap)
-    for role in ('api', 'worker'):
+    prepare_containers(bootstrap, request)
+    for role in service_roles(request):
         run(['/usr/bin/systemctl', 'reset-failed', 'rogichat-app@' + role])
         run(['/usr/bin/systemctl', 'enable', '--now', 'rogichat-app@' + role], timeout=90)
 
 
-def fail_closed(container, bootstrap):
+def fail_closed(container, bootstrap, request=None):
     failed = False
     try:
         caddy_config(container, bootstrap)
@@ -457,7 +532,7 @@ def fail_closed(container, bootstrap):
         failed = True
     # A Caddy reload error must not skip shutting down a newly exposed API.
     if (APP / 'compose.app.yaml').exists():
-        for role in ('api', 'worker'):
+        for role in service_roles(request):
             try:
                 run(['/usr/bin/systemctl', 'stop', 'rogichat-app@' + role], timeout=40)
             except Exception:
@@ -486,7 +561,9 @@ def cleanup_migration(name, secret_path):
 def deploy(request, files, container):
     backup = RELEASES / ('backup-' + request['request_id'])
     backup.mkdir(mode=0o700)
-    targets = {'compose': APP / 'compose.app.yaml', 'images': IMAGES, 'unit': UNIT, 'caddy': CADDY}
+    previous_media = FEATURE_COMPOSE.exists() and b'\n  decoder:' in protected(FEATURE_COMPOSE)
+    targets = {'compose': APP / 'compose.app.yaml', 'feature_compose': FEATURE_COMPOSE,
+               'images': IMAGES, 'unit': UNIT, 'caddy': CADDY}
     for name, path in targets.items():
         if path.exists():
             atomic(backup / name, protected(path), 0o600)
@@ -498,9 +575,11 @@ def deploy(request, files, container):
     cleanup_completed = False
     try:
         caddy_config(container, files['bootstrap'])
-        for role in ('api', 'worker'):
+        for role in ('api', 'worker', 'decoder'):
             if (APP / 'compose.app.yaml').exists():
                 run(['/usr/bin/systemctl', 'stop', 'rogichat-app@' + role], timeout=40)
+        if previous_media and 'media' not in selected_features(request.get('features', [])):
+            run(['/usr/bin/systemctl', 'disable', 'rogichat-app@decoder'], timeout=40)
         # Input is an operator-owned secret transport, never a repository field.
         secret = sys.stdin.buffer.read(16385)
         require(0 < len(secret) <= 16384)
@@ -532,11 +611,15 @@ def deploy(request, files, container):
         secret_path = None
         print('QA migration manifest, TLS and scoped grants verified.', flush=True)
         atomic(APP / 'compose.app.yaml', files['compose'])
-        atomic(IMAGES, (f"ROGICHAT_API_IMAGE={execution_image(request, 'runtime')}\n"
-                        f"ROGICHAT_WORKER_IMAGE={execution_image(request, 'runtime')}\n"
-                        f"ROGICHAT_EDGE_NETWORK={request['edge_network']}\n").encode(), 0o600)
+        atomic(FEATURE_COMPOSE, files.get('feature_media', EMPTY_FEATURES))
+        image_env = (f"ROGICHAT_API_IMAGE={execution_image(request, 'runtime')}\n"
+                     f"ROGICHAT_WORKER_IMAGE={execution_image(request, 'runtime')}\n"
+                     f"ROGICHAT_EDGE_NETWORK={request['edge_network']}\n")
+        if 'media' in selected_features(request.get('features', [])):
+            image_env += f"ROGICHAT_DECODER_IMAGE={execution_image(request, 'decoder')}\n"
+        atomic(IMAGES, image_env.encode(), 0o600)
         atomic(UNIT, files['unit'])
-        start_units(files['bootstrap'])
+        start_units(files['bootstrap'], request)
         print('QA app units requested; waiting for bounded container startup and health.', flush=True)
         wait_health(request)
         if compose_requires_vapid(files['compose']):
@@ -550,7 +633,7 @@ def deploy(request, files, container):
     except BaseException:
         # A changed schema may be incompatible with the previous image. Do not
         # restart M01 or run down migrations. Preserve old artifacts for review.
-        fail_closed(container, files['bootstrap'])
+        fail_closed(container, files['bootstrap'], request)
         raise
     finally:
         # Exact generated container only. Killing it prevents a timeout orphan
@@ -567,7 +650,7 @@ def main():
     protected(Path(__file__).absolute())
     request = validate_request(json.loads(protected(REQUEST, mode=0o600)))
     release = RELEASES / request['source_sha']
-    files = {key: protected(release / relative) for key, relative in ARTIFACTS.items()}
+    files = {key: protected(release / relative) for key, relative in artifacts_for(request).items()}
     require(all(digest(files[key]) == expected for key, expected in request['artifacts'].items()))
     require(digest(protected(CADDY)) == request['previous_caddy_sha256'])
     protected(RUNTIME_SECRET, mode=0o440)
@@ -575,6 +658,7 @@ def main():
     verify_ci(request)
     # Pull registry digests or load validated archives separately; no credentials.
     verify_release_images(request)
+    verify_media_secret(request)
     verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
     verify_vapid_secret(files['compose'], execution_image(request, 'runtime'))
     container = get_caddy(request['edge_network'])
@@ -592,6 +676,7 @@ def main():
         require(digest(protected(CADDY)) == request['previous_caddy_sha256'])
         verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
         verify_vapid_secret(files['compose'], execution_image(request, 'runtime'))
+        verify_media_secret(request)
         def interrupt(*_):
             raise Rejected('interrupted')
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
