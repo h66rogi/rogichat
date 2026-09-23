@@ -31,6 +31,7 @@ import { MelomingFavoritesService } from '../../dist/modules/channel-content/mel
 import { MelomingSheetMusicService } from '../../dist/modules/channel-content/meloming-sheet-music.service.js';
 import { SongSuggestService } from '../../dist/modules/channel-content/upstream/song-suggest.service.js';
 import { SongAutocompleteService } from '../../dist/modules/channel-content/upstream/song-autocomplete.service.js';
+import { MelomingMrVideoService } from '../../dist/modules/channel-content/meloming-mr-video.service.js';
 import { Readable } from 'node:stream';
 
 async function fixture(t) {
@@ -286,6 +287,36 @@ test('copied sheet-music rules store validated files, replace MusicXML and reord
   assert.equal((await songs.detail(song.id)).sheetMusics,undefined);
   await assert.rejects(sheets.remove({token:ownerId},song.id,third.id));
   assert.deepEqual(await sheets.remove({token:ownerId},song.id),{deleted:true});
+  assert.equal(objects.size,0);
+});
+
+test('MR multipart contract binds signed parts to owner song and serves completed video',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const songs=new SongbookService(db.transactions,auth,repository);
+  const song=await songs.create({token:ownerId},{title:'MR곡',artistName:'가수',categoryNames:['MR']});
+  const objects=new Map();
+  const store={
+    beginMultipart:async(key,type)=>{assert.equal(type,'video/mp4');objects.set(key,{bytes:0});return {uploadId:'upload-1'};},
+    signMultipartPart:async(_key,_id,part)=>`https://example.org/part/${part}`,
+    finishMultipart:async(key,_id,parts)=>{assert.equal(parts.length,1);objects.set(key,{bytes:1024});return 1024;},
+    abortMultipart:async key=>{objects.delete(key);},
+    remove:async key=>{objects.delete(key);},
+    readRange:async key=>{assert.equal(objects.get(key)?.bytes,1024);return {stream:Readable.from(Buffer.from('video')),bytes:5,total:1024,contentType:'video/mp4',contentRange:'bytes 0-4/1024'};},
+  };
+  const videos=new MelomingMrVideoService(db.transactions,auth,repository,store,'qa');
+  await assert.rejects(videos.initiate({token:fanId},song.id,{fileName:'mr.mp4',contentType:'video/mp4',fileSizeBytes:1024}));
+  const upload=await videos.initiate({token:ownerId},song.id,{fileName:'mr.mp4',contentType:'video/mp4',fileSizeBytes:1024});
+  assert.equal(upload.partSizeBytes,64*1024*1024);
+  assert.equal((await videos.signPart({token:ownerId},song.id,{key:upload.key,uploadId:upload.uploadId,partNumber:1})).partNumber,1);
+  await assert.rejects(videos.signPart({token:ownerId},song.id+1,{key:upload.key,uploadId:upload.uploadId,partNumber:1}));
+  const completed=await videos.complete({token:ownerId},song.id,{key:upload.key,uploadId:upload.uploadId,fileSizeBytes:1024,parts:[{partNumber:1,etag:'etag'}]});
+  assert.match(completed.mrVideoUrl,/api\.qa\.rogi\.chat/);
+  assert.equal((await songs.detail(song.id)).mrVideoUrl,completed.mrVideoUrl);
+  assert.equal((await videos.read(song.id,upload.key.split('/')[2],'bytes=0-4')).total,1024);
+  await assert.rejects(videos.read(song.id+1,upload.key.split('/')[2]));
+  assert.equal((await videos.remove({token:ownerId},song.id)).mrVideoUrl,null);
   assert.equal(objects.size,0);
 });
 
