@@ -413,6 +413,15 @@ model ChannelContentCounter {
   @@map("channel_content_counters")
 }
 
+model MelomingUserAlias {
+  id        Int      @id
+  userId    String   @unique @map("user_id") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  user      users    @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("meloming_user_aliases")
+}
+
 model users {
   id                    String     @id @db.Char(36)
   status                UserStatus @default(ACTIVE)
@@ -439,6 +448,7 @@ model users {
   push_subscriptions    push_subscriptions[]
   channelSchedules      ChannelSchedule[]
   songLikes             UserSongLike[]
+  melomingAlias         MelomingUserAlias?
 }
 
 model user_profiles {

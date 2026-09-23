@@ -14,13 +14,15 @@ import { MelomingProfileController } from './meloming-profile.controller.js';
 import { MelomingProfileService } from './meloming-profile.service.js';
 import { MelomingSongsController } from './meloming-songs.controller.js';
 import { MelomingArtistsController, MelomingCategoriesController } from './meloming-song-taxonomy.controller.js';
+import { MelomingUserController } from './meloming-user.controller.js';
+import { MelomingUserService } from './meloming-user.service.js';
 
 @Module({})
 export class ChannelContentModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false): DynamicModule {
     return { module: ChannelContentModule, imports: [infrastructure,authentication],
-      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController],
-      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,
+      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController],
+      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,
         ...(refreshRecurring ? [RecurringScheduleRefresh] : [])] };
   }
 }

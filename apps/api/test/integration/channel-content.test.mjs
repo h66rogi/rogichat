@@ -10,6 +10,7 @@ import { migrationManifest } from '../../dist/infrastructure/database/schema-man
 import { ChannelContentRepository } from '../../dist/modules/channel-content/channel-content.repository.js';
 import { MelomingChannelService } from '../../dist/modules/channel-content/meloming-channel.service.js';
 import { MelomingProfileService } from '../../dist/modules/channel-content/meloming-profile.service.js';
+import { MelomingUserService } from '../../dist/modules/channel-content/meloming-user.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -53,8 +54,9 @@ async function fixture(t) {
 test('ported channel schema serves empty content, persists wardrobe/songbook, generates recurring dates and purges account data',async t=>{
   const {db,roomId,ownerId,fanId}=await fixture(t);
   const repository=new ChannelContentRepository();
-  const auth={require:async(_tx,credentials)=>({userId:credentials.token})};
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
   const channel=new MelomingChannelService(db.transactions,auth,repository);
+  const users=new MelomingUserService(db.transactions,auth,repository);
   const profile=new MelomingProfileService(db.transactions,auth,repository);
   const schedule=new ChannelScheduleService(db.transactions,auth,repository);
   const songbook=new SongbookService(db.transactions,{},repository);
@@ -63,6 +65,11 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(new Set(allocated).size,8);
   assert.equal((await schedule.list({})).total,0);
   assert.equal((await songbook.list({})).total,0);
+  const ownerAlias=await users.me({token:ownerId});
+  const fanAlias=await users.me({token:fanId});
+  assert.equal((await users.me({token:ownerId})).id,ownerAlias.id);
+  assert.notEqual(ownerAlias.id,fanAlias.id);
+  assert.equal(ownerAlias.nickname,'소유자');
   const detail=await channel.detail();
   assert.equal(detail.id,1);
   assert.equal(detail.name,'후로기');
@@ -132,4 +139,6 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   }
   const remaining=await db.transactions.read(async tx=>({songs:await tx.prisma.song.count(),schedules:await tx.prisma.channelSchedule.count(),items:await tx.prisma.channelWardrobeItem.count(),profiles:await tx.prisma.channelProfile.count()}));
   assert.deepEqual(remaining,{songs:0,schedules:0,items:0,profiles:0});
+  await db.transactions.write(tx=>cleanup.privateFields(tx,ownerId));
+  assert.equal(await db.transactions.read(tx=>tx.prisma.melomingUserAlias.count({where:{userId:ownerId}})),0);
 });

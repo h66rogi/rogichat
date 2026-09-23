@@ -38,6 +38,7 @@ export class AccountCleanupRepository {
       OR: [{ profile_nickname: { not: null } }, { profile_image_url: { not: null } }] },
       data: { profile_nickname: null, profile_image_url: null } })).count;
     changed += (await tx.prisma.admin_capabilities.deleteMany({ where: { user_id: userId } })).count;
+    changed += (await tx.prisma.melomingUserAlias.deleteMany({ where: { userId } })).count;
     // Keep the avatar FK until a separate durable media transfer proves detachment
     // safe. Empty nickname is internal scrubbed data, never a successful profile DTO.
     changed += (await tx.prisma.user_profiles.deleteMany({ where: { user_id: userId, avatar_asset_id: null } })).count;
