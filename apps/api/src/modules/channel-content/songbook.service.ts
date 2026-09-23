@@ -130,6 +130,32 @@ export class SongbookService {
     });
   }
 
+  categories() {
+    return this.transactions.read(async tx => {
+      const { roomId } = await this.repository.primary(tx);
+      const rows = await tx.prisma.category.findMany({ where: { channelId: roomId },
+        orderBy: [{ displayOrder: 'desc' }, { name: 'asc' }],
+        select: { id: true, name: true, color: true, price: true, currencyPrices: true, createdAt: true,
+          displayOrder: true, _count: { select: { songCategories: true } } } });
+      return rows.map(row => ({ id: row.id, name: row.name, color: row.color,
+        channelId: 1, createdAt: row.createdAt?.toISOString() ?? '', songCount: row._count.songCategories,
+        displayOrder: row.displayOrder, price: row.price, currencyPrices: row.currencyPrices,
+        channel: { id: 1, name: '후로기', user: { id: 1, nickname: '후로기' } } }));
+    });
+  }
+
+  artists() {
+    return this.transactions.read(async tx => {
+      const { roomId } = await this.repository.primary(tx);
+      const rows = await tx.prisma.artist.findMany({ where: { channelId: roomId },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        select: { id: true, name: true, createdAt: true, _count: { select: { songs: true } } } });
+      return rows.map(row => ({ id: row.id, name: row.name, channelId: 1,
+        createdAt: row.createdAt?.toISOString() ?? '', songCount: row._count.songs,
+        channel: { id: 1, name: '후로기', user: { id: 1, nickname: '후로기' } } }));
+    });
+  }
+
   create(credentials: CommandCredentials, value: unknown) {
     const data = parseSong(value,true);
     return this.transactions.write(async tx => {

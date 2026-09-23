@@ -107,6 +107,8 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(copiedSong.categories[0].channelId,1);
   assert.equal((await songbook.detail(copiedSong.id)).title,'테 스트 노래');
   await assert.rejects(songbook.detail(copiedSong.id+1000));
+  assert.equal((await songbook.categories())[0].songCount,1);
+  assert.equal((await songbook.artists())[0].songCount,1);
   assert.deepEqual((await channel.detail())._count,{songs:1,artists:1,categories:1});
   assert.equal((await songbook.list({search:'가수'})).total,1);
   assert.equal((await schedule.list({})).total,0);
