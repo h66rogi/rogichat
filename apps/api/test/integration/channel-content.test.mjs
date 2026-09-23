@@ -16,6 +16,8 @@ import { MelomingCategoryService } from '../../dist/modules/channel-content/melo
 import { MelomingArtistService } from '../../dist/modules/channel-content/meloming-artist.service.js';
 import { MelomingSongAddRequestService } from '../../dist/modules/channel-content/meloming-song-add-request.service.js';
 import { MelomingSetlistService } from '../../dist/modules/channel-content/meloming-setlist.service.js';
+import { MelomingSongRequestSettingsService } from '../../dist/modules/channel-content/meloming-song-request-settings.service.js';
+import { MelomingLiveSessionService } from '../../dist/modules/channel-content/meloming-live-session.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -248,4 +250,47 @@ test('copied setlist methods filter completed public sessions and enforce owner 
   await assert.rejects(setlists.detail(sessionId,{identifier:'hurogi'}));
   assert.equal((await setlists.manage({token:ownerId},{identifier:'hurogi'})).setlists[0].visibility,'PRIVATE');
   await assert.rejects(setlists.publicList({identifier:'hurogi',from:'2026-09-01T00:00:00Z'}));
+});
+
+test('copied channel song request settings persist while no live session exists',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const settings=new MelomingSongRequestSettingsService(db.transactions,auth,repository);
+  await assert.rejects(settings.get({token:fanId}));
+  const original=await settings.get({token:ownerId});
+  assert.equal(original.channelId,1);
+  assert.equal(original.maxQueueSize,50);
+  await assert.rejects(settings.update({token:fanId},{maxQueueSize:12}));
+  assert.throws(()=>settings.update({token:ownerId},{maxQueueSize:0}));
+  const saved=await settings.update({token:ownerId},{maxQueueSize:12,allowAnonymous:true,blockedCategoryIds:[3]});
+  assert.equal(saved.maxQueueSize,12);
+  assert.equal(saved.allowAnonymous,true);
+  assert.deepEqual(saved.blockedCategoryIds,[3]);
+  assert.deepEqual(await settings.get({token:ownerId}),saved);
+});
+
+test('ported live session start, public active, end and history use owner room',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  await assert.rejects(live.start({token:fanId},{identifier:'hurogi'},{}));
+  const started=await live.start({token:ownerId},{identifier:'hurogi'},{platform:'SOOP'});
+  assert.equal(started.channelId,1);
+  assert.equal(started.status,'ACTIVE');
+  assert.equal(started.settings.maxQueueSize,50);
+  assert.equal((await live.active({token:ownerId},{identifier:'hurogi'})).id,started.id);
+  assert.equal((await live.publicActive({},{identifier:'hurogi'})).sessionId,started.id);
+  await assert.rejects(live.start({token:ownerId},{identifier:'hurogi'},{}));
+  await assert.rejects(live.end({token:fanId},started.id));
+  const ended=await live.end({token:ownerId},started.id);
+  assert.equal(ended.status,'ENDED');
+  assert.equal(await live.active({token:ownerId},{identifier:'hurogi'}),null);
+  assert.equal((await live.history({token:ownerId},{identifier:'hurogi'})).pagination.total,1);
+  assert.equal((await live.detail({token:ownerId},started.id)).id,started.id);
+  const privateSession=await live.start({token:ownerId},{identifier:'hurogi'},{practiceMode:true});
+  assert.equal((await live.publicActive({},{identifier:'hurogi'})).isLive,false);
+  assert.equal((await live.publicActive({token:ownerId},{identifier:'hurogi'})).sessionId,privateSession.id);
+  await live.end({token:ownerId},privateSession.id);
 });
