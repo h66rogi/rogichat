@@ -26,6 +26,8 @@ import { RecurringScheduleService } from '../../dist/modules/channel-content/rec
 import { ChannelWardrobeService } from '../../dist/modules/channel-content/upstream/channel-wardrobe.service.js';
 import { nextChannelContentId } from '../../dist/modules/channel-content/channel-content-id.js';
 import { AccountCleanupRepository } from '../../dist/modules/deletion/account-cleanup.repository.js';
+import { MelomingUploadService } from '../../dist/modules/channel-content/meloming-upload.service.js';
+import { Readable } from 'node:stream';
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL,'disposable');
@@ -196,6 +198,34 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.deepEqual(remaining,{songs:0,schedules:0,items:0,profiles:0,layouts:0});
   await db.transactions.write(tx=>cleanup.privateFields(tx,ownerId));
   assert.equal(await db.transactions.read(tx=>tx.prisma.melomingUserAlias.count({where:{userId:ownerId}})),0);
+});
+
+test('wardrobe image upload requires owner and returns a public durable image stream',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const objects=new Map();
+  const store={
+    put:async(key,path,bytes,type)=>{
+      const buffer=await readFile(path);
+      assert.equal(buffer.length,bytes);
+      objects.set(key,{buffer,type});
+    },
+    read:async key=>{
+      const object=objects.get(key);
+      if(!object)throw new Error('missing');
+      return {stream:Readable.from(object.buffer),bytes:object.buffer.length};
+    },
+  };
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const uploads=new MelomingUploadService(db.transactions,auth,new ChannelContentRepository(),store,'qa');
+  const file={buffer:Buffer.from('synthetic-image-bytes'),size:21,mimetype:'image/png'};
+  await assert.rejects(uploads.uploadImage({token:fanId},file));
+  const created=await uploads.uploadImage({token:ownerId},file);
+  assert.match(created.imageUrl,/^https:\/\/api\.qa\.rogi\.chat\/v1\/upload\/image\/[a-f0-9-]+\.png$/);
+  assert.equal(objects.get(created.fileKey).type,'image/png');
+  const image=await uploads.readImage(created.fileName);
+  assert.equal(image.contentType,'image/png');
+  assert.equal(image.bytes,file.size);
+  await assert.rejects(uploads.readImage('../private'));
 });
 
 test('copied song add request flow creates, approves, rejects and cancels against one owner room',async t=>{

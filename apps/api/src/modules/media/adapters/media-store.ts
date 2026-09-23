@@ -54,7 +54,7 @@ export class R2MediaStore implements MediaStore {
   }
   async put(key: string, path: string, bytes: number, contentType: string, signal: AbortSignal): Promise<void> {
     if (!Number.isSafeInteger(bytes) || bytes <= 0 || bytes > 52 * 1024 * 1024 ||
-      !['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/quicktime', 'application/octet-stream'].includes(contentType)) throw new Error('invalid_media_put');
+      !['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/quicktime', 'application/octet-stream'].includes(contentType)) throw new Error('invalid_media_put');
     const file = statSync(path);
     if (!file.isFile() || file.size !== bytes) throw new Error('invalid_media_put');
     const stream = createReadStream(path, { highWaterMark: 64 * 1024 });

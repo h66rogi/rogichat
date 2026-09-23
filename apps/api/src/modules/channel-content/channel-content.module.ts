@@ -31,13 +31,18 @@ import { MelomingLiveSongRequestController, MelomingManualSongRequestController 
 import { MelomingLiveSongRequestService } from './meloming-live-song-request.service.js';
 import { MelomingCalendarController } from './meloming-calendar.controller.js';
 import { MelomingCalendarService } from './meloming-calendar.service.js';
+import { MelomingUploadController } from './meloming-upload.controller.js';
+import { MelomingUploadService } from './meloming-upload.service.js';
+import { MediaStorageModule } from '../media/media-storage.module.js';
+import type { MediaOptions } from '../media/media.module.js';
+import type { MediaSettings } from '../../infrastructure/config/runtime-settings.js';
 
 @Module({})
 export class ChannelContentModule {
-  static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false): DynamicModule {
-    return { module: ChannelContentModule, imports: [infrastructure,authentication],
-      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingCalendarController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingSongAddRequestController,MelomingSetlistController,MelomingSongRequestSettingsController,MelomingLiveSessionController,MelomingLiveSongRequestController,MelomingManualSongRequestController],
-      providers: [ChannelContentRepository,ChannelScheduleService,MelomingCalendarService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,MelomingSetlistService,MelomingSongRequestSettingsService,MelomingLiveSessionService,MelomingLiveSongRequestService,
+  static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false, media?: MediaOptions | MediaSettings): DynamicModule {
+    return { module: ChannelContentModule, imports: [infrastructure,authentication,...(media ? [MediaStorageModule.register(media)] : [])],
+      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingCalendarController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingSongAddRequestController,MelomingSetlistController,MelomingSongRequestSettingsController,MelomingLiveSessionController,MelomingLiveSongRequestController,MelomingManualSongRequestController,...(media ? [MelomingUploadController] : [])],
+      providers: [ChannelContentRepository,ChannelScheduleService,MelomingCalendarService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,MelomingSetlistService,MelomingSongRequestSettingsService,MelomingLiveSessionService,MelomingLiveSongRequestService,...(media ? [MelomingUploadService] : []),
         ...(refreshRecurring ? [RecurringScheduleRefresh] : [])] };
   }
 }
