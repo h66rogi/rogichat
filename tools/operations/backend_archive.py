@@ -26,11 +26,29 @@ import zipfile
 REPOSITORY = 'h66rogi/rogichat'
 SOURCE = 'https://github.com/' + REPOSITORY
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
-ROLES = {'runtime': 'rogichat-api', 'migration': 'rogichat-api-migration'}
+BACKEND_ROLES = {'runtime': 'rogichat-api', 'migration': 'rogichat-api-migration'}
+ROLES = dict(BACKEND_ROLES)
+DECODER_ROLE = {'decoder': 'rogichat-media-decoder'}
 HEX = re.compile(r'[a-f0-9]{64}\Z')
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 LIMIT = 8 * 1024**3
 FILES = {'descriptor.json', 'runtime.tar', 'migration.tar', 'runtime.manifest.json', 'migration.manifest.json'}
+
+
+def descriptor_roles(value):
+    # Web uses an isolated module instance and overrides ROLES/FILES. Never add
+    # backend roles to that contract, nor accept a v2 web descriptor.
+    version = value['version']
+    require(type(version) is int and version in (1, 2))
+    if version == 2:
+        require(ROLES == BACKEND_ROLES)
+        return {**ROLES, **DECODER_ROLE}
+    return ROLES
+
+
+def descriptor_files(value):
+    descriptor_roles(value)
+    return FILES | ({'decoder.tar', 'decoder.manifest.json'} if value['version'] == 2 else set())
 
 
 def require(value):
@@ -187,14 +205,15 @@ def verify_tar(path, config_id, source):
 
 def validate_descriptor(value, *, producer_events=frozenset({'workflow_dispatch'})):
     require(type(value) is dict and set(value) == {'version', 'repository', 'source_sha', 'producer', 'verification_runs', 'images'})
-    require(value['version'] == 1 and value['repository'] == REPOSITORY and SHA.fullmatch(value['source_sha']))
+    roles = descriptor_roles(value)
+    require(value['repository'] == REPOSITORY and SHA.fullmatch(value['source_sha']))
     producer = value['producer']
     require(set(producer) == {'sha', 'run_id', 'run_attempt', 'event', 'ref'})
     require(SHA.fullmatch(producer['sha']) and type(producer['run_id']) is int and producer['run_id'] > 0
             and type(producer['run_attempt']) is int and producer['run_attempt'] > 0
             and producer['event'] in producer_events and producer['ref'] == 'refs/heads/qa')
-    require(set(value['verification_runs']) == WORKFLOWS and set(value['images']) == set(ROLES))
-    for role, repo in ROLES.items():
+    require(set(value['verification_runs']) == WORKFLOWS and set(value['images']) == set(roles))
+    for role, repo in roles.items():
         item = value['images'][role]
         require(set(item) == {'image', 'config_id', 'archive_sha256'})
         require(re.fullmatch(r'ghcr\.io/h66rogi/' + repo + r'@sha256:[a-f0-9]{64}', item['image'])
@@ -203,12 +222,12 @@ def validate_descriptor(value, *, producer_events=frozenset({'workflow_dispatch'
 
 
 def validate_directory(directory):
-    require({item.name for item in directory.iterdir()} == FILES)
     require(all(item.is_file() and not item.is_symlink() for item in directory.iterdir()))
     require((directory / 'descriptor.json').stat().st_size <= 65536)
     descriptor = validate_descriptor(json.loads((directory / 'descriptor.json').read_bytes()))
+    require({item.name for item in directory.iterdir()} == descriptor_files(descriptor))
     configs = {}
-    for role in ROLES:
+    for role in descriptor_roles(descriptor):
         item = descriptor['images'][role]
         raw = (directory / (role + '.manifest.json')).read_bytes()
         require(len(raw) <= 4 * 1024**2 and sha256(raw) == item['image'].split('@sha256:')[1])
@@ -219,6 +238,10 @@ def validate_directory(directory):
         path = directory / (role + '.tar')
         require(file_hash(path) == item['archive_sha256'])
         configs[role] = verify_tar(path, item['config_id'], descriptor['source_sha'])
+        if role == 'decoder':
+            settings = configs[role]['config']
+            require(settings['Cmd'] == ['dist/media-decoder-main.js']
+                    and settings['WorkingDir'] == '/app/apps/api')
         require(len(manifest['layers']) == len(configs[role]['rootfs']['diff_ids']))
     return descriptor, configs
 
@@ -230,7 +253,11 @@ def validate_zip(path, expected_digest, directory):
     directory.mkdir(mode=0o700)
     with zipfile.ZipFile(path) as archive:
         entries = archive.infolist()
-        require(len(entries) == len(FILES) and {item.filename for item in entries} == FILES)
+        require(sum(item.filename == 'descriptor.json' for item in entries) == 1)
+        require(archive.getinfo('descriptor.json').file_size <= 65536)
+        descriptor = validate_descriptor(json.loads(archive.read('descriptor.json')))
+        files = descriptor_files(descriptor)
+        require(len(entries) == len(files) and {item.filename for item in entries} == files)
         require(sum(item.file_size for item in entries) <= LIMIT)
         require(shutil.disk_usage(directory).free >= sum(item.file_size for item in entries) + 1024**3)
         for item in entries:
@@ -289,7 +316,9 @@ def produce(*, expected_event='workflow_dispatch', verification_runs=None):
     print('Exact source CI and reviewed QA ancestry verified.', flush=True)
     directory = Path(os.environ['RUNNER_TEMP']) / 'rogichat-export'
     directory.mkdir(mode=0o700)
-    descriptor = {'version': 1, 'repository': REPOSITORY, 'source_sha': source,
+    version = 2 if os.environ.get('EXPORT_DECODER_DIGEST') else 1
+    roles = descriptor_roles({'version': version})
+    descriptor = {'version': version, 'repository': REPOSITORY, 'source_sha': source,
                   'producer': {'sha': sha, 'run_id': int(os.environ['GITHUB_RUN_ID']),
                                'run_attempt': int(os.environ['GITHUB_RUN_ATTEMPT']),
                                'event': expected_event, 'ref': 'refs/heads/qa'},
@@ -298,7 +327,7 @@ def produce(*, expected_event='workflow_dispatch', verification_runs=None):
         env = {**os.environ, 'DOCKER_CONFIG': config}
         command(['docker', 'login', 'ghcr.io', '--username', os.environ['GITHUB_ACTOR'], '--password-stdin'], data=token.encode(), env=env)
         try:
-            for role, repo in ROLES.items():
+            for role, repo in roles.items():
                 value = os.environ['EXPORT_' + role.upper() + '_DIGEST']
                 require(HEX.fullmatch(value))
                 image = f'ghcr.io/h66rogi/{repo}@sha256:{value}'
@@ -321,7 +350,7 @@ def produce(*, expected_event='workflow_dispatch', verification_runs=None):
             command(['docker', 'logout', 'ghcr.io'], env=env)
         del token, auth, bearer, headers
     # No registry token/config exists in the save/verification/upload phase.
-    for role in ROLES:
+    for role in roles:
         path = directory / (role + '.tar')
         command(['docker', 'save', '--output', str(path), descriptor['images'][role]['config_id']])
         descriptor['images'][role]['archive_sha256'] = file_hash(path)
@@ -350,7 +379,8 @@ def download(args):
     verify_provenance(descriptor, approval, token)
     (args.output / 'archive-approval.json').write_text(json.dumps({**approval,
         'runtime_config_id': descriptor['images']['runtime']['config_id'],
-        'migration_config_id': descriptor['images']['migration']['config_id']}, sort_keys=True) + '\n')
+        'migration_config_id': descriptor['images']['migration']['config_id'],
+        **({'decoder_config_id': descriptor['images']['decoder']['config_id']} if descriptor['version'] == 2 else {})}, sort_keys=True) + '\n')
     print('GitHub artifact ZIP, trusted producer, registry manifests and Docker rootfs verified; not loaded or deployed.')
 
 

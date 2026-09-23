@@ -55,7 +55,7 @@ test('silent and rotated smartphone-style MP4 preserve visible orientation witho
   const { input, dir } = await fixture(t, { audio: false, pattern: true });
   for (const degrees of [90, 180, 270]) {
     const rotated = join(dir, `rotated-${degrees}.mp4`);
-    await exec(binaries.ffmpeg, ['-v', 'error', '-nostdin', '-n', '-display_rotation:v:0', String(degrees), '-i', input, '-c', 'copy', rotated]);
+    await exec(binaries.ffmpeg, ['-v', 'error', '-nostdin', '-n', '-i', input, '-c', 'copy', '-metadata:s:v:0', `rotate=${degrees}`, rotated]);
     assert.ok((await probe(rotated)).streams[0].side_data_list?.some(side => side.side_data_type === 'Display Matrix' && side.rotation !== 0));
     const result = await decodeVideo(rotated, join(dir, `result-${degrees}`), await intent(rotated), binaries);
     assert.equal(result.video.width, degrees === 180 ? 160 : 90); assert.equal(result.video.height, degrees === 180 ? 90 : 160);

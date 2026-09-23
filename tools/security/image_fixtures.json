@@ -477,6 +477,58 @@
       "file": "usr/local/include/node/v8-internal.h",
       "review": "Exact public file bytes in official Node base layers verified by rootfs diff IDs; expanded bytes for compressed documentation.",
       "kind": "file-bytes"
+    },
+    {
+      "sha256": "c04f91fdb172e17ddb21c9e0b75c04cb4f802bdfc40bb65484550746cd0019a8",
+      "rules": [
+        "private-key"
+      ],
+      "source": "debian-mbedcrypto7-2.28.3-1",
+      "file": "usr/lib/x86_64-linux-gnu/libmbedcrypto.so.2.28.3",
+      "review": "Independently reviewed 2026-09-20: NUL-separated upstream PEM parser/serializer delimiter strings, no private key body. Exact amd64 Debian package SHA-256 af3295f80abf7e6ba2cba419134e29bde04192bf3614622ee53ce49de8d02abe and full member bytes verified against signed Bookworm InRelease/Packages; upstream source also bound by signed Sources. Binary-to-printable normalization joins delimiters. Only this full-file hash and private-key rule; changed bytes and all other rules remain blocked. See docs/backend-decoder-image.md.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "6733636aeb1c5d541aa06c578a95d12c2253c4e99fc85623595341905d3d6221",
+      "rules": [
+        "private-key"
+      ],
+      "source": "debian-libssh-gcrypt-0.10.6-0+deb12u2",
+      "file": "usr/lib/x86_64-linux-gnu/libssh-gcrypt.so.4.9.6",
+      "review": "Independently reviewed 2026-09-20: NUL-separated upstream PEM parser/serializer delimiter strings, no private key body. Exact amd64 Debian package SHA-256 f2af148e039fed6620c8ba24328a434f9ecb1adb5b735c04d2d41a432ca3553d and full member bytes verified against signed Bookworm InRelease/Packages; upstream source also bound by signed Sources. Binary-to-printable normalization joins delimiters. Only this full-file hash and private-key rule; changed bytes and all other rules remain blocked. See docs/backend-decoder-image.md.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "1d30b1380969e545b17dfa215dc1fce099a74f36c384653c17f1618620110e86",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "debian-libpciaccess0-0.17-2",
+      "file": "Debian package trigger entry name (structured metadata)",
+      "review": "Independently reviewed 2026-09-20: exact Python json.dumps name object assembled from metadata; not a file-content exemption. Signed Bookworm InRelease/Packages binds Debian package SHA-256 4025f3608cf431c163efb94fdc553e7b93e16b8f0d741ea87762e19025ffc80e; its control archive contains only dh_makeshlibs comment and ldconfig trigger. Other names, changed metadata and actual file contents remain scanned.",
+      "kind": "entry-name-metadata",
+      "metadata": {
+        "directory": "var/lib/dpkg/info",
+        "package": "libpciaccess0",
+        "architecture": "amd64",
+        "extension": "triggers"
+      }
+    },
+    {
+      "sha256": "349481123fdd9ad2ddef21a65ec698049e95de201e451bb65e55e07ba1893668",
+      "rules": [
+        "generic-api-key"
+      ],
+      "source": "debian-libglapi-mesa-22.3.6-1+deb12u2",
+      "file": "Debian package trigger entry name (structured metadata)",
+      "review": "Independently reviewed 2026-09-20: exact Python json.dumps name object assembled from metadata; not a file-content exemption. Signed Bookworm InRelease/Packages binds Debian package SHA-256 2db5b13a6b7f4042f9a417ad7fa4338b6c47528dc64d7f89cfd5e53d07d76bc4; its control archive contains only dh_makeshlibs comment and ldconfig trigger. Other names, changed metadata and actual file contents remain scanned.",
+      "kind": "entry-name-metadata",
+      "metadata": {
+        "directory": "var/lib/dpkg/info",
+        "package": "libglapi-mesa",
+        "architecture": "amd64",
+        "extension": "triggers"
+      }
     }
   ],
   "sources": {
@@ -494,6 +546,10 @@
     "npm-8": "https://registry.npmjs.org/@typescript-eslint/typescript-estree/-/typescript-estree-8.70.0.tgz",
     "npm-9": "https://registry.npmjs.org/@electric-sql/pglite/-/pglite-0.4.3.tgz",
     "npm-10": "https://registry.npmjs.org/file-type/-/file-type-22.1.0.tgz",
-    "npm-11": "https://registry.npmjs.org/pnpm/-/pnpm-12.4.2.tgz"
+    "npm-11": "https://registry.npmjs.org/pnpm/-/pnpm-12.4.2.tgz",
+    "debian-mbedcrypto7-2.28.3-1": "https://snapshot.debian.org/archive/debian/20260920T000000Z/pool/main/m/mbedtls/libmbedcrypto7_2.28.3-1_amd64.deb",
+    "debian-libssh-gcrypt-0.10.6-0+deb12u2": "https://snapshot.debian.org/archive/debian/20260920T000000Z/pool/main/libs/libssh/libssh-gcrypt-4_0.10.6-0+deb12u2_amd64.deb",
+    "debian-libpciaccess0-0.17-2": "https://snapshot.debian.org/archive/debian/20260920T000000Z/pool/main/libp/libpciaccess/libpciaccess0_0.17-2_amd64.deb",
+    "debian-libglapi-mesa-22.3.6-1+deb12u2": "https://snapshot.debian.org/archive/debian/20260920T000000Z/pool/main/m/mesa/libglapi-mesa_22.3.6-1+deb12u2_amd64.deb"
   }
 }

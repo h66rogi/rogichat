@@ -13,6 +13,10 @@ on:
         description: Migration registry sha256 hex (64 characters)
         required: true
 
+      decoder_digest:
+        description: Optional decoder registry sha256 hex; selects exact three-image v2 archive
+        required: false
+
 permissions: {}
 
 jobs:
@@ -29,12 +33,18 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          fetch-depth: 0
+      - name: Public source guard before package authentication
+        run: |
+          python3 tools/security/install.py
+          python3 tools/security/check.py all
       - name: Verify and export exact published images (no build or deployment)
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EXPORT_SOURCE_SHA: ${{ inputs.source_sha }}
           EXPORT_RUNTIME_DIGEST: ${{ inputs.runtime_digest }}
           EXPORT_MIGRATION_DIGEST: ${{ inputs.migration_digest }}
+          EXPORT_DECODER_DIGEST: ${{ inputs.decoder_digest }}
         run: python3 tools/operations/backend_archive.py produce
       - name: Validate ID-only Compose image references without starting services
         run: |
@@ -47,16 +57,27 @@ jobs:
           subprocess.run(['docker', 'compose', '-f', 'infrastructure/runtime/compose.app.yaml', 'config', '--quiet'], env=env, check=True)
           PY
       - name: Scan all exported image layers before public artifact upload
+        env:
+          EXPORT_DECODER_DIGEST: ${{ inputs.decoder_digest }}
         run: |
           set -euo pipefail
           python3 tools/security/install.py
-          for image in runtime migration; do
+          images=(runtime migration)
+          if test -n "$EXPORT_DECODER_DIGEST"; then images+=(decoder); fi
+          for image in "${images[@]}"; do
             python3 tools/security/image_scan.py "$RUNNER_TEMP/rogichat-export/$image.tar"
           done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: backend-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/rogichat-export/*
+          path: |
+            ${{ runner.temp }}/rogichat-export/descriptor.json
+            ${{ runner.temp }}/rogichat-export/runtime.tar
+            ${{ runner.temp }}/rogichat-export/runtime.manifest.json
+            ${{ runner.temp }}/rogichat-export/migration.tar
+            ${{ runner.temp }}/rogichat-export/migration.manifest.json
+            ${{ runner.temp }}/rogichat-export/decoder.tar
+            ${{ runner.temp }}/rogichat-export/decoder.manifest.json
           if-no-files-found: error
           compression-level: 6
           retention-days: 1
