@@ -21,13 +21,15 @@ import { MelomingCategoryService } from './meloming-category.service.js';
 import { MelomingArtistService } from './meloming-artist.service.js';
 import { MelomingSongAddRequestController } from './meloming-song-add-request.controller.js';
 import { MelomingSongAddRequestService } from './meloming-song-add-request.service.js';
+import { MelomingSetlistController } from './meloming-setlist.controller.js';
+import { MelomingSetlistService } from './meloming-setlist.service.js';
 
 @Module({})
 export class ChannelContentModule {
   static register(infrastructure: DynamicModule, authentication: DynamicModule, refreshRecurring = false): DynamicModule {
     return { module: ChannelContentModule, imports: [infrastructure,authentication],
-      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingSongAddRequestController],
-      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,
+      controllers: [ChannelContentController,MelomingWardrobeController,MelomingChannelController,MelomingScheduleController,MelomingProfileController,MelomingSongsController,MelomingCategoriesController,MelomingArtistsController,MelomingUserController,MelomingSongAddRequestController,MelomingSetlistController],
+      providers: [ChannelContentRepository,ChannelScheduleService,WardrobeService,SongbookService,RecurringScheduleService,MelomingChannelService,MelomingProfileService,MelomingUserService,MelomingMusicbookSettingsService,MelomingCategoryService,MelomingArtistService,MelomingSongAddRequestService,MelomingSetlistService,
         ...(refreshRecurring ? [RecurringScheduleRefresh] : [])] };
   }
 }

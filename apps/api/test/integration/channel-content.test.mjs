@@ -15,6 +15,7 @@ import { MelomingMusicbookSettingsService } from '../../dist/modules/channel-con
 import { MelomingCategoryService } from '../../dist/modules/channel-content/meloming-category.service.js';
 import { MelomingArtistService } from '../../dist/modules/channel-content/meloming-artist.service.js';
 import { MelomingSongAddRequestService } from '../../dist/modules/channel-content/meloming-song-add-request.service.js';
+import { MelomingSetlistService } from '../../dist/modules/channel-content/meloming-setlist.service.js';
 import { ChannelScheduleService } from '../../dist/modules/channel-content/schedule.service.js';
 import { SongbookService } from '../../dist/modules/channel-content/songbook.service.js';
 import { RecurringScheduleService } from '../../dist/modules/channel-content/recurring-schedule.service.js';
@@ -208,4 +209,43 @@ test('copied song add request flow creates, approves, rejects and cancels agains
   await assert.rejects(requests.cancel({token:ownerId},canceled.id));
   assert.equal((await requests.cancel({token:fanId},canceled.id)).status,'CANCELED');
   assert.equal((await requests.my({token:fanId},{status:'PENDING'})).items.length,0);
+});
+
+test('copied setlist methods filter completed public sessions and enforce owner visibility',async t=>{
+  const {db,roomId,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const setlists=new MelomingSetlistService(db.transactions,auth,repository);
+  assert.deepEqual(await setlists.availability({identifier:'hurogi'}),{available:false,count:0});
+  const sessionId=await db.transactions.write(async tx=>{
+    const id=await nextChannelContentId(tx.prisma);
+    await tx.prisma.liveSession.create({data:{id,channelId:roomId,userId:ownerId,status:'ENDED',
+      startedAt:new Date('2026-09-01T10:00:00Z'),endedAt:new Date('2026-09-01T11:00:00Z'),overlayToken:'test-only'}});
+    await tx.prisma.liveSessionSettings.create({data:{id:await nextChannelContentId(tx.prisma),liveSessionId:id,showRequesterName:false}});
+    await tx.prisma.songRequest.create({data:{id:await nextChannelContentId(tx.prisma),liveSessionId:id,
+      rawArtist:'가수',rawTitle:'노래',requesterPlatformId:'test-fan',requesterNickname:'팬',
+      requestUserId:fanId,status:'COMPLETED',playedAt:new Date('2026-09-01T10:15:00Z')}});
+    await tx.prisma.songRequest.create({data:{id:await nextChannelContentId(tx.prisma),liveSessionId:id,
+      rawArtist:'가수',rawTitle:'대기곡',requesterPlatformId:'test-fan',requesterNickname:'팬',status:'PENDING'}});
+    return id;
+  });
+  assert.deepEqual(await setlists.availability({identifier:'hurogi'}),{available:true,count:1});
+  const listed=await setlists.publicList({identifier:'hurogi'});
+  assert.equal(listed.total,1);
+  assert.equal(listed.setlists[0].sessionId,sessionId);
+  assert.equal(listed.setlists[0].completedCount,1);
+  const detail=await setlists.detail(sessionId,{identifier:'hurogi'});
+  assert.equal(detail.songs.length,1);
+  assert.equal(detail.songs[0].requesterNickname,'');
+  assert.equal(detail.songs[0].isAnonymous,true);
+  assert.equal(detail.songs[0].clip,null);
+  await assert.rejects(setlists.manage({token:fanId},{identifier:'hurogi'}));
+  assert.equal((await setlists.manage({token:ownerId},{identifier:'hurogi'})).total,1);
+  await assert.rejects(setlists.visibility({token:fanId},sessionId,{identifier:'hurogi'},{visibility:'PRIVATE'}));
+  assert.deepEqual(await setlists.visibility({token:ownerId},sessionId,{identifier:'hurogi'},{visibility:'PRIVATE'}),
+    {sessionId,visibility:'PRIVATE'});
+  assert.deepEqual(await setlists.availability({identifier:'hurogi'}),{available:false,count:0});
+  await assert.rejects(setlists.detail(sessionId,{identifier:'hurogi'}));
+  assert.equal((await setlists.manage({token:ownerId},{identifier:'hurogi'})).setlists[0].visibility,'PRIVATE');
+  await assert.rejects(setlists.publicList({identifier:'hurogi',from:'2026-09-01T00:00:00Z'}));
 });
