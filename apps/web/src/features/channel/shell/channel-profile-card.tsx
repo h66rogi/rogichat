@@ -1,4 +1,3 @@
-import { Badge } from '@/shared/ui/badge';
 import type { ChannelDescriptor } from '../model/channel-descriptor';
 import { ChannelAvatar } from './channel-avatar';
 
@@ -14,7 +13,6 @@ export function ChannelProfileCard({ channel, compact = false }: { channel: Chan
       <ChannelAvatar name={channel.displayName} src={channel.avatarSrc} className={compact ? 'size-16' : 'size-24'} />
       <div className="flex max-w-full flex-col items-center gap-1.5">
         <p className="max-w-full truncate text-[20px] font-bold text-ink">{channel.displayName}</p>
-        <Badge variant="secondary">{channel.platformLabel} 스트리머</Badge>
       </div>
       {channel.officialLinks.length > 0 ? (
         <ul className="flex flex-wrap justify-center gap-2">

@@ -4,7 +4,7 @@
  * facts. Default room binding and the viewer's capabilities come from the server bootstrap contract
  * (W01/W02) and are never derived from this file.
  */
-export type ChannelFeatureKey = 'home' | 'chat' | 'rules' | 'settings' | 'schedule';
+export type ChannelFeatureKey = 'home' | 'chat' | 'rules' | 'schedule' | 'wardrobe' | 'songbook' | 'support' | 'settings';
 
 export type ChannelFeatureAvailability = 'available' | 'planned';
 
@@ -24,7 +24,7 @@ export interface ChannelDescriptor {
   officialLinks: readonly ChannelOfficialLink[];
   /** Approved public artwork. `null` renders the neutral placeholder avatar. */
   avatarSrc: string | null;
-  /** Features in menu order. Only features that have something to show are listed; nothing "planned". */
+  /** Features in menu order. Planned features render as non-interactive menu rows. */
   features: readonly ChannelFeatureKey[];
 }
 
@@ -34,8 +34,9 @@ export const hurogiChannel: ChannelDescriptor = {
   platformLabel: 'SOOP',
   intro: null,
   officialLinks: [],
-  avatarSrc: null,
-  features: ['home', 'chat', 'rules', 'settings'],
+  // SOOP's current h66rogi profile image, confirmed from the official station and VVAVE channel page.
+  avatarSrc: '/images/hurogi-profile.png',
+  features: ['home', 'chat', 'rules', 'schedule', 'wardrobe', 'songbook', 'support', 'settings'],
 };
 
 /** Resolves the channel that owns the site root. There is exactly one in the MVP. */
