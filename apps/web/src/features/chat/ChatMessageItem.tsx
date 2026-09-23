@@ -6,6 +6,7 @@ import { Popover } from 'radix-ui';
 
 import { ChatActorAvatar } from './ChatActorAvatar';
 import { cn } from '@/shared/lib/cn';
+import { actionMenuItemClass } from '@/shared/ui/action-dialog';
 
 import { ReactionControl } from './ReactionControl';
 import { ChatMediaImages } from './ChatMedia';
@@ -99,7 +100,7 @@ function MessageRow({
           {(canReply || item.status === 'saved' || (item.allowedActions?.delete && onDelete)) && <div className={cn('flex shrink-0 items-center gap-0.5', isOwn && 'flex-row-reverse')}>
             {item.status === 'saved' && <ReactionControl messageId={item.id} />}
             <MessageActionMenu>
-              {canReply && <Popover.Close asChild><button type="button" onClick={() => onReplyPrivate(item)} className="flex min-h-11 w-full items-center gap-2 rounded-sm px-2 text-left text-sm hover:bg-surface-soft" aria-label={replyLabelFor(item, viewerRole)} data-testid="chat-reply"><Reply className="size-4" aria-hidden="true" />답장</button></Popover.Close>}
+              {canReply && <Popover.Close asChild><button type="button" onClick={() => onReplyPrivate(item)} className={actionMenuItemClass} aria-label={replyLabelFor(item, viewerRole)} data-testid="chat-reply"><Reply className="size-4" aria-hidden="true" />답장</button></Popover.Close>}
               {item.status === 'saved' && <ChatPrivacyActions messageId={item.id} />}
               {item.allowedActions?.delete && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
             </MessageActionMenu>

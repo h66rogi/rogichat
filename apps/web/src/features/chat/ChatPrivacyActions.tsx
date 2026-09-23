@@ -11,7 +11,7 @@ export function ChatPrivacyActions({ messageId }: { messageId: string }) {
   const current = context.controller.privacyContext(messageId);
   if (!current) return null;
   const props = { ...current, origin: context.origin, session: context.session };
-  return <div className="space-y-3 text-sm">
+  return <div className="text-sm">
     <PublicationControl {...props} onPublished={() => { void context.controller.refreshHints(); }} />
     <MessageModerationControl {...props} onReset={() => { void context.controller.refreshHints(); }} />
   </div>;

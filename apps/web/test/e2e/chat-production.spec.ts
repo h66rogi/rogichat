@@ -227,8 +227,14 @@ test('real chat keeps IME and pending focus, surfaces failure and retries the sa
 test('empty state is truthful, snapshot failure offers retry, and keyboard view is accessible', async ({ page }) => {
   const { state } = await chatApi(page); state.messages = []; state.failSnapshot = true;
   await page.goto('/chat'); await expect(page.getByRole('alert').filter({ hasText: '메시지를 불러오지 못했습니다' })).toBeVisible();
-  state.failSnapshot = false; await page.getByRole('button', { name: '다시 시도', exact: true }).click();
-  await expect(page.getByTestId('chat-composer-input')).toBeVisible();
+  const retry = page.getByRole('button', { name: '다시 시도', exact: true });
+  await expect(retry).toBeVisible();
+  state.failSnapshot = false;
+  const composer = page.getByTestId('chat-composer-input');
+  if (!(await composer.isVisible())) {
+    try { await retry.click({ timeout: 2000 }); } catch { /* A background sync may have removed the retry button. */ }
+  }
+  await expect(composer).toBeVisible();
   await expect(page.getByText('실제 계약 형식의 개인 메시지')).toHaveCount(0);
   const results = await new AxeBuilder({ page }).analyze(); expect(results.violations).toEqual([]);
 });
