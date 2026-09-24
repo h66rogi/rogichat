@@ -103,9 +103,10 @@ test('same-key concurrent commands and API restart return one durable message, e
   for (const forbidden of [f.owner.id, body.clientMessageId, stored.messages[0].stream_id]) assert.ok(!JSON.stringify(view.body).includes(forbidden));
 });
 
-test('FAN private audience, cross-room identifiers and expired/revoked grants fail closed without shared fallback', { timeout: 20000 }, async t => {
+test('FAN shared messages remain visible while private audience and revoked grants fail closed', { timeout: 20000 }, async t => {
   const f = await fixture(t);
-  assert.equal((await f.send(f.fan1, f.command())).status, 403);
+  const shared = await f.send(f.fan1, f.command()); assert.equal(shared.status, 200);
+  assert.equal((await f.get(f.fan2, shared.body.messageId)).body.audience, 'SHARED');
   assert.equal((await f.send(f.fan1, f.command('팬간 불허', 'PRIVATE', f.fan2.actor))).status, 403);
   assert.equal((await f.send(f.outsider, f.command('외부 불허', 'PRIVATE', f.owner.actor))).status, 404);
   const foreign = await f.db.transactions.write(async tx => {
@@ -126,7 +127,7 @@ test('FAN private audience, cross-room identifiers and expired/revoked grants fa
   await f.nextBurst(f.fan1);
   assert.equal((await f.send(f.fan1, f.command('재입장 복구 불허', 'PRIVATE', f.owner.actor))).status, 403);
   const [count] = await f.db.transactions.read(tx => tx.rows('SELECT COUNT(*) AS total FROM messages WHERE room_id=?', [f.room]));
-  assert.equal(Number(count.total), 1);
+  assert.equal(Number(count.total), 2);
 });
 
 test('private recipient leaving blocks new drafts but does not replay or rewrite a previously committed command', { timeout: 20000 }, async t => {
