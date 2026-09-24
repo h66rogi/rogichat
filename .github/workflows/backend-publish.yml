@@ -13,7 +13,8 @@ concurrency:
 
 jobs:
   decoder-image:
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -37,52 +38,31 @@ jobs:
           image_id=$(docker image inspect --format '{{.Id}}' rogichat-decoder-check)
           docker image save "$image_id" | python3 tools/security/image_scan.py -
 
-  verified-source:
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
+  changes:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
     permissions:
-      actions: read
+      contents: read
+    outputs:
+      backend: ${{ steps.classify.outputs.backend }}
     steps:
-      - name: Require successful verification of this exact QA push
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: classify
         env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ github.sha }}
-          SOURCE_REPOSITORY: ${{ github.repository }}
-        shell: bash
-        run: |
-          node --input-type=module <<'JS'
-          const sha = process.env.SOURCE_SHA;
-          const repository = process.env.SOURCE_REPOSITORY;
-          if (!/^[a-f0-9]{40}$/.test(sha) || repository !== 'h66rogi/rogichat') throw new Error('Invalid source');
-          const workflows = ['backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'];
-          const deadline = Date.now() + 20 * 60 * 1000;
-          while (Date.now() < deadline) {
-            let ready = true;
-            for (const workflow of workflows) {
-              const response = await fetch(`https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?branch=qa&event=push&head_sha=${sha}&per_page=20`, {
-                headers: {Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'},
-                signal: AbortSignal.timeout(15000),
-              });
-              if (!response.ok) throw new Error(`Verification API failed (${response.status})`);
-              const data = await response.json();
-              const run = data.workflow_runs?.find(run => run.head_sha === sha && run.head_branch === 'qa' && run.event === 'push' && run.head_repository?.full_name === repository);
-              if (run?.status === 'completed' && run.conclusion !== 'success') throw new Error(`${workflow} did not pass`);
-              if (!run || run.status !== 'completed' || run.conclusion !== 'success') ready = false;
-            }
-            if (ready) { console.log('Exact QA source passed backend, security and infrastructure verification'); process.exit(0); }
-            await new Promise(resolve => setTimeout(resolve, 15000));
-          }
-          throw new Error('Timed out waiting for exact-source verification');
-          JS
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
 
   publish:
-    needs: verified-source
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
+    needs: changes
+    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push' && needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read
       packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -97,21 +77,31 @@ jobs:
       - name: Build runtime, migration and isolated decoder without registry credentials
         env:
           SOURCE_SHA: ${{ github.sha }}
+          DOCKER_BUILDKIT: '1'
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          start=$SECONDS
           docker build --platform linux/amd64 --file apps/api/Dockerfile --target runtime \
             --label org.opencontainers.image.source=https://github.com/h66rogi/rogichat \
             --label org.opencontainers.image.revision="$SOURCE_SHA" \
             --tag "ghcr.io/h66rogi/rogichat-api:qa-$SOURCE_SHA" .
+          printf '| API runtime build | %s s | %s bytes |\n' \
+            "$((SECONDS - start))" "$(docker image inspect --format '{{.Size}}' "ghcr.io/h66rogi/rogichat-api:qa-$SOURCE_SHA")" >> "$GITHUB_STEP_SUMMARY"
+          start=$SECONDS
           docker build --platform linux/amd64 --file apps/api/Dockerfile --target migration \
             --label org.opencontainers.image.source=https://github.com/h66rogi/rogichat \
             --label org.opencontainers.image.revision="$SOURCE_SHA" \
             --tag "ghcr.io/h66rogi/rogichat-api-migration:qa-$SOURCE_SHA" .
+          printf '| API migration build | %s s | %s bytes |\n' \
+            "$((SECONDS - start))" "$(docker image inspect --format '{{.Size}}' "ghcr.io/h66rogi/rogichat-api-migration:qa-$SOURCE_SHA")" >> "$GITHUB_STEP_SUMMARY"
+          start=$SECONDS
           docker build --platform linux/amd64 --file apps/api/Dockerfile --target decoder \
             --label org.opencontainers.image.source=https://github.com/h66rogi/rogichat \
             --label org.opencontainers.image.revision="$SOURCE_SHA" \
             --tag "ghcr.io/h66rogi/rogichat-media-decoder:qa-$SOURCE_SHA" .
+          printf '| Decoder build | %s s | %s bytes |\n' \
+            "$((SECONDS - start))" "$(docker image inspect --format '{{.Size}}' "ghcr.io/h66rogi/rogichat-media-decoder:qa-$SOURCE_SHA")" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify actual isolated decoder before registry authentication
         env:
           SOURCE_SHA: ${{ github.sha }}
@@ -204,6 +194,12 @@ jobs:
             docker image save "$image_id" | python3 tools/security/image_scan.py -
             printf '%s\n' "$image_id" > "$RUNNER_TEMP/$repository.checked-id"
           done
+      - name: Require successful verification of this exact QA push before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        run: node tools/operations/verify_backend_publication_source.mjs
       - name: Publish only the checked images
         env:
           GHCR_TOKEN: ${{ github.token }}

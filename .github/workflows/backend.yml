@@ -13,21 +13,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  tests:
+  changes:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    services:
-      mysql:
-        image: mysql:8.0.44@sha256:9c3380eac945af0736031b200027f581925927c81e010056214a4bd6b6693714
+    outputs:
+      backend: ${{ steps.classify.outputs.backend }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: classify
         env:
-          # Synthetic, isolated runner fixture, never a QA/production credential.
-          MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
-          MYSQL_ROOT_HOST: "%"
-        ports:
-          - 3306/tcp
-        options: >-
-          --health-cmd="mysqladmin ping --host=127.0.0.1 --silent"
-          --health-interval=5s --health-timeout=3s --health-retries=30
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
+      - run: python3 -m unittest discover -s tools/release -p 'test_*.py'
+
+  static:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -58,21 +63,59 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/operations -p 'test_backend_*.py'
           node --test tools/operations/test_migrate_entry.mjs
+      - run: git diff --exit-code
+
+  integration:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.0.44@sha256:9c3380eac945af0736031b200027f581925927c81e010056214a4bd6b6693714
+        env:
+          MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
+          MYSQL_ROOT_HOST: "%"
+        ports:
+          - 3306/tcp
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --silent"
+          --health-interval=5s --health-timeout=3s --health-retries=30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install and compile the exact source
+        run: |
+          npm install --global pnpm@12.4.2 --ignore-scripts
+          pnpm install --frozen-lockfile
+          pnpm --filter @rogichat/api build
       - name: Readonly schema probe on disposable MySQL
+        if: matrix.shard == 0
         env:
           ROGICHAT_TEST_MYSQL: disposable
           TEST_MYSQL_PORT: ${{ job.services.mysql.ports[3306] }}
           TEST_MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
         run: node tools/operations/test_backend_schema_mysql.mjs
-      - name: MySQL integration and process lifecycle
+      - name: MySQL integration and process lifecycle, isolated shard
+        working-directory: apps/api
         env:
           ROGICHAT_TEST_MYSQL: disposable
           TEST_MYSQL_PORT: ${{ job.services.mysql.ports[3306] }}
           TEST_MYSQL_ROOT_PASSWORD: fixture-only-not-a-service-secret
-        run: pnpm test:integration
+        run: node test/run-mysql.mjs --shard-index=${{ matrix.shard }} --shard-count=4
       - run: git diff --exit-code
   image-safety:
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -81,26 +124,48 @@ jobs:
           persist-credentials: false
       - run: python3 tools/security/install.py
       - name: Build and inspect both images without registry or cloud credentials
+        env:
+          DOCKER_BUILDKIT: '1'
         run: |
           set -euo pipefail
           for target in runtime migration; do
             image="rogichat-check:$target"
+            start=$SECONDS
             docker build --platform linux/amd64 --file apps/api/Dockerfile --target "$target" --tag "$image" .
+            cold=$((SECONDS - start))
             image_id=$(docker image inspect --format '{{.Id}}' "$image")
+            start=$SECONDS
+            docker build --platform linux/amd64 --file apps/api/Dockerfile --target "$target" --tag "$image" .
+            warm=$((SECONDS - start))
+            test "$(docker image inspect --format '{{.Id}}' "$image")" = "$image_id"
+            bytes=$(docker image inspect --format '{{.Size}}' "$image")
+            printf '| %s | %s s | %s s | %s bytes |\n' "$target" "$cold" "$warm" "$bytes" >> "$GITHUB_STEP_SUMMARY"
             docker image save "$image_id" | python3 tools/security/image_scan.py -
           done
   verify:
     if: always()
-    needs: [tests, image-safety]
+    needs: [changes, static, integration, image-safety]
     runs-on: ubuntu-24.04
     steps:
       - name: Require tests and pre-merge image safety
         env:
-          TEST_RESULT: ${{ needs.tests.result }}
+          CHANGE_RESULT: ${{ needs.changes.result }}
+          CHANGED: ${{ needs.changes.outputs.backend }}
+          STATIC_RESULT: ${{ needs.static.result }}
+          INTEGRATION_RESULT: ${{ needs.integration.result }}
           IMAGE_RESULT: ${{ needs.image-safety.result }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          test "$TEST_RESULT" = success
+          test "$CHANGE_RESULT" = success
+          if test "$CHANGED" = false; then
+            test "$STATIC_RESULT" = skipped
+            test "$INTEGRATION_RESULT" = skipped
+            test "$IMAGE_RESULT" = skipped
+            exit 0
+          fi
+          test "$CHANGED" = true
+          test "$STATIC_RESULT" = success
+          test "$INTEGRATION_RESULT" = success
           if test "$EVENT_NAME" = pull_request || test "$EVENT_NAME" = workflow_dispatch; then
             test "$IMAGE_RESULT" = success
           else
