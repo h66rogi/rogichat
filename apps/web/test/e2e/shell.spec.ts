@@ -32,6 +32,18 @@ test.describe('channel shell', () => {
     await expect(menu).not.toContainText('후원');
   });
 
+  test('home exposes the available channel content without opening the menu', async ({ page }) => {
+    await page.goto('/');
+    const main = page.locator('[data-shell-main]');
+    for (const [name, href] of [
+      ['일정', '/channel/hurogi/schedule'],
+      ['옷장', '/channel/hurogi/wardrobe'],
+      ['노래책', '/channel/hurogi/musicbook'],
+    ]) {
+      await expect(main.getByRole('link', { name: new RegExp(name!) })).toHaveAttribute('href', href!);
+    }
+  });
+
   test('uses the official channel image and keeps chat in a narrow column on desktop', async ({ page, isMobile }) => {
     test.skip(isMobile, 'desktop layout only');
     await page.goto('/');

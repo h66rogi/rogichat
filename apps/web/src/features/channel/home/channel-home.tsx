@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Info, MessageSquareText, type LucideIcon } from 'lucide-react';
+import { BookOpen, CalendarDays, Info, MessageSquareText, Shirt, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/cn';
@@ -30,8 +30,8 @@ export function ChannelHome({ channel }: { channel: ChannelDescriptor }) {
             </h1>
           </div>
           <p className="max-w-prose text-[16px] leading-normal text-body">
-            {channel.displayName}와 팬이 만나는 로기챗의 채팅 공간입니다. 로그인하고 SOOP 계정을 연결하면
-            채팅방에 들어갈 수 있어요.
+            {channel.displayName}와 팬이 함께하는 공간입니다. 방송 일정과 노래책, 옷장을 둘러보고,
+            로그인 후 SOOP 계정을 연결해 채팅에 참여해 보세요.
           </p>
           {channel.intro ? <p className="max-w-prose text-[16px] leading-normal text-body">{channel.intro}</p> : null}
           <div className="flex flex-wrap justify-center gap-3 md:justify-start">
@@ -63,6 +63,27 @@ export function ChannelHome({ channel }: { channel: ChannelDescriptor }) {
             href={channelHref('rules')}
             action="보기"
           />
+          {channel.features.includes('schedule') ? <FeatureCard
+            icon={CalendarDays}
+            title={CHANNEL_FEATURES.schedule.label}
+            description={CHANNEL_FEATURES.schedule.description}
+            href={channelHref('schedule')}
+            action="보기"
+          /> : null}
+          {channel.features.includes('songbook') ? <FeatureCard
+            icon={BookOpen}
+            title={CHANNEL_FEATURES.songbook.label}
+            description={CHANNEL_FEATURES.songbook.description}
+            href={channelHref('songbook')}
+            action="둘러보기"
+          /> : null}
+          {channel.features.includes('wardrobe') ? <FeatureCard
+            icon={Shirt}
+            title={CHANNEL_FEATURES.wardrobe.label}
+            description={CHANNEL_FEATURES.wardrobe.description}
+            href={channelHref('wardrobe')}
+            action="둘러보기"
+          /> : null}
         </div>
         {channel.officialLinks.length > 0 ? (
           <aside className="flex flex-col gap-4 md:col-span-4">

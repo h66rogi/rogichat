@@ -42,9 +42,12 @@ export function featureFromPath(pathname: string): ChannelFeatureKey | null {
   const relative = CHANNEL_PATH_PREFIX.length > 0 && pathname.startsWith(CHANNEL_PATH_PREFIX)
     ? pathname.slice(CHANNEL_PATH_PREFIX.length)
     : pathname;
-  const [first] = relative.split('/').filter(Boolean);
-  if (first === undefined) return 'home';
-  const match = (Object.values(CHANNEL_FEATURES) as ChannelFeatureConfig[]).find((feature) => feature.segment === first);
+  if (relative === '/') return 'home';
+  const match = (Object.values(CHANNEL_FEATURES) as ChannelFeatureConfig[]).find((feature) => {
+    if (!feature.segment) return false;
+    const route = `/${feature.segment}`;
+    return relative === route || relative.startsWith(`${route}/`);
+  });
   return match?.key ?? null;
 }
 
