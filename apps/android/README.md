@@ -8,7 +8,7 @@ host, synthetic account/room selector or fake service operation.
 Reusable navigation, theme/type scale, settings, profile editing and notification
 settings are adapted from the read-only reference app. See
 [`docs/mobile-reuse-audit.md`](../../docs/mobile-reuse-audit.md) for exact evidence.
-Chat UX is independently designed. Navigation Compose 2.10.1 and Lifecycle 2.11.0
+Chat UX is independently designed. Navigation Compose 2.10.2 and Lifecycle 2.11.0
 are pinned; Release builds use R8 and resource shrinking.
 
 The installed product uses the committed native transport contract to restore

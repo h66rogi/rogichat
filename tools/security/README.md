@@ -43,9 +43,11 @@ signature. A renamed, malformed or oversized archive does not become a skipped
 scanner input. The only archive exception is the exact upstream Gradle wrapper
 at `apps/android/gradle/wrapper/gradle-wrapper.jar`, bound to its reviewed SHA-256
 and bounded ZIP integrity check. The checksum is published by
-[Gradle](https://services.gradle.org/distributions/gradle-9.7.1-wrapper.jar.sha256).
+[Gradle](https://services.gradle.org/distributions/gradle-9.8.0-wrapper.jar.sha256).
 A Gradle upgrade requires verifying the new upstream artifact and reviewing the
-pin change together. Do not allow all JAR files or all files in that directory.
+pin change together. The history scan retains the previous reviewed checksum,
+while the current index requires the new checksum. Do not allow all JAR files or
+all files in that directory.
 
 UTF-8 source and structurally checked PNG assets are supported. PNG text, EXIF,
 unknown chunks, invalid checksums and trailing payloads are rejected. The five
