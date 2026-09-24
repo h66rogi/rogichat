@@ -217,7 +217,8 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const calendarWindow={from:'2026-09-01',to:'2026-10-01'};
   const initialCalendar=await calendar.getCalendar(calendarWindow,{});
   assert.equal(initialCalendar.anniversaries.filter(item=>item.type==='BIRTHDAY').length,1);
-  assert.deepEqual(initialCalendar.setlists,[]);
+  assert.deepEqual(initialCalendar.broadcasts,[]);
+  assert.equal(Object.hasOwn(initialCalendar,'setlists'),false);
   const first=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
   assert.deepEqual(first.categories.map(row=>row.name),['의상','헤어']);
   assert.equal(first.items.length,0);
