@@ -53,7 +53,7 @@ export function ChannelWardrobeDetailContent({
         className={cn(!isWide && "container", "mx-auto mt-8 px-4 md:px-6")}
       >
         <Button asChild variant="ghost" size="sm" className="mb-5">
-          <Link href={`/channel/${user}/wardrobe`}>
+          <Link href="/wardrobe">
             <ArrowLeft className="size-4" />
             옷장
           </Link>
@@ -74,7 +74,7 @@ export function ChannelWardrobeDetailContent({
       )}
     >
       <Button asChild variant="ghost" size="sm" className="mb-5">
-        <Link href={`/channel/${user}/wardrobe`}>
+        <Link href="/wardrobe">
           <ArrowLeft className="size-4" />
           옷장
         </Link>

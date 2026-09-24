@@ -5,7 +5,7 @@ import type { ChannelDescriptor, ChannelFeatureKey } from './channel-descriptor'
  *
  * Adapted from meloming-front f8907f37e73d0b760eac3c5af2beb48714331c83
  * `src/domains/channel/types/channel-tab.ts` (TabConfig / TAB_CONFIG / getPathFromTab / getTabFromPath).
- * Rogichat changes: paths are generated from the site root through a single prefix, the feature set is the
+ * Rogichat changes: paths are generated from the site root, the feature set is the
  * MVP menu only, and the per-channel feature-settings normalisation is dropped.
  */
 export interface ChannelFeatureConfig {
@@ -21,15 +21,11 @@ export const CHANNEL_FEATURES: Record<ChannelFeatureKey, ChannelFeatureConfig> =
   chat: { key: 'chat', label: '채팅', segment: 'chat', description: '후로기의 채팅방' },
   rules: { key: 'rules', label: '규칙·이용 안내', segment: 'rules', description: '채팅 이용 안내와 개인답장 공개 범위' },
   settings: { key: 'settings', label: '내 설정', segment: 'settings', description: '내 프로필, 연결, 알림, 계정' },
-  schedule: { key: 'schedule', label: '일정', segment: 'channel/hurogi/schedule', description: '후로기의 방송 일정과 기념일' },
-  wardrobe: { key: 'wardrobe', label: '옷장', segment: 'channel/hurogi/wardrobe', description: '후로기의 의상과 헤어' },
-  songbook: { key: 'songbook', label: '노래책', segment: 'channel/hurogi/musicbook', description: '후로기의 노래책' },
+  schedule: { key: 'schedule', label: '일정', segment: 'schedule', description: '후로기의 방송 일정과 기념일' },
+  wardrobe: { key: 'wardrobe', label: '옷장', segment: 'wardrobe', description: '후로기의 의상과 헤어' },
+  songbook: { key: 'songbook', label: '노래책', segment: 'musicbook', description: '후로기의 노래책' },
 };
 
-/**
- * The channel home, chat, and rules live at the site root. The copied Meloming
- * content routes retain their original /channel/hurogi paths.
- */
 const CHANNEL_PATH_PREFIX: string = '';
 
 export function channelHref(feature: ChannelFeatureKey): string {
@@ -43,6 +39,7 @@ export function featureFromPath(pathname: string): ChannelFeatureKey | null {
     ? pathname.slice(CHANNEL_PATH_PREFIX.length)
     : pathname;
   if (relative === '/') return 'home';
+  if (relative === '/setlist' || relative.startsWith('/setlist/')) return 'songbook';
   const match = (Object.values(CHANNEL_FEATURES) as ChannelFeatureConfig[]).find((feature) => {
     if (!feature.segment) return false;
     const route = `/${feature.segment}`;

@@ -13,7 +13,7 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { useParams } from "next/navigation";
+import { useChannelIdentifier } from "@/meloming/domains/channel/hooks/channel-identifier-context";
 import MusicModal from "./music-modal";
 import { useClipboard } from "@/meloming/shared/hooks/use-clipboard";
 import { toast } from "sonner";
@@ -102,9 +102,7 @@ export default function MusicCardList({
   const queryClient = useQueryClient();
   const themeColor = useAtomValue(themeColorAtom);
   const isMobile = useIsMobile();
-  const { user } = useParams();
-  const userParam = Array.isArray(user) ? user[0] : user;
-  const username = userParam || "";
+  const username = useChannelIdentifier();
   const [open, setOpen] = useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const hasAutoOpenedRef = useRef(false);

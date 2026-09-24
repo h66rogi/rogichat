@@ -35,7 +35,7 @@ export function ChannelSetlistDetailContent({
           variant="ghost"
           size="sm"
           className="-ml-2"
-          onClick={() => router.push(`/channel/${user}/setlist`)}
+          onClick={() => router.push('/setlist')}
         >
           <ArrowLeft className="w-4 h-4 mr-1" />
           셋리스트 목록

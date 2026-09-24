@@ -1,0 +1,19 @@
+.rogichat-feature {
+  --radius: var(--radius-sm);
+  --channel-sticky-top: var(--shell-top-bar-height);
+  --page-content-sticky-top: var(--shell-top-bar-height);
+}
+
+/* The copied controls use Meloming's background token named `muted`.
+   Rogichat uses that name for text, so map only the feature controls. */
+.rogichat-feature .bg-muted,
+.rogichat-feature .bg-muted\/95 {
+  background-color: var(--surface-soft);
+}
+
+@media (max-width: 767px) {
+  .rogichat-feature {
+    --channel-sticky-top: var(--shell-mobile-top-bar-height);
+    --page-content-sticky-top: var(--shell-mobile-top-bar-height);
+  }
+}

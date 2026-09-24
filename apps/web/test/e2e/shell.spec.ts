@@ -13,7 +13,7 @@ test.describe('channel shell', () => {
     await expect(page.locator('nav[aria-label="채널 메뉴"]')).toHaveCount(1);
   });
 
-  test('menu links to the copied channel pages without obsolete placeholders', async ({ page, isMobile }) => {
+  test('menu links to the root channel pages without obsolete placeholders', async ({ page, isMobile }) => {
     await page.goto('/rules');
     if (isMobile) {
       await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
@@ -22,9 +22,9 @@ test.describe('channel shell', () => {
     await expect(menu.getByRole('link')).toHaveText(['프로필', '채팅', '규칙·이용 안내', '일정', '옷장', '노래책', '내 설정']);
     await expect(menu.getByRole('link', { name: '규칙·이용 안내' })).toHaveAttribute('aria-current', 'page');
     for (const [label, href] of [
-      ['일정', '/channel/hurogi/schedule'],
-      ['옷장', '/channel/hurogi/wardrobe'],
-      ['노래책', '/channel/hurogi/musicbook'],
+      ['일정', '/schedule'],
+      ['옷장', '/wardrobe'],
+      ['노래책', '/musicbook'],
     ]) {
       await expect(menu.getByRole('link', { name: label })).toHaveAttribute('href', href);
     }
@@ -36,9 +36,9 @@ test.describe('channel shell', () => {
     await page.goto('/');
     const main = page.locator('[data-shell-main]');
     for (const [name, href] of [
-      ['일정', '/channel/hurogi/schedule'],
-      ['옷장', '/channel/hurogi/wardrobe'],
-      ['노래책', '/channel/hurogi/musicbook'],
+      ['일정', '/schedule'],
+      ['옷장', '/wardrobe'],
+      ['노래책', '/musicbook'],
     ]) {
       await expect(main.getByRole('link', { name: new RegExp(name!) })).toHaveAttribute('href', href!);
     }

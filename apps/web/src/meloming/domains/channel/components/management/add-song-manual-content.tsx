@@ -317,7 +317,7 @@ export function AddSongManualContent({
     if (onSuccess) {
       onSuccess();
     } else {
-      router.push(`/channel/${identifier}/musicbook`);
+      router.push('/musicbook');
     }
   };
 

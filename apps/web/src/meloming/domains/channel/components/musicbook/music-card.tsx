@@ -7,7 +7,7 @@ import { Badge } from "@/meloming/shared/components/ui/badge";
 import { getContrastingTextColor } from "@/meloming/shared/lib/utils";
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useChannelIdentifier } from "@/meloming/domains/channel/hooks/channel-identifier-context";
 import MusicModal from "./music-modal";
 import { useClipboard } from "@/meloming/shared/hooks/use-clipboard";
 import { toast } from "sonner";
@@ -91,9 +91,7 @@ export default function MusicCard({
 }: MusicCardProps) {
   const queryClient = useQueryClient();
   const themeColor = useAtomValue(themeColorAtom);
-  const { user } = useParams();
-  const userParam = Array.isArray(user) ? user[0] : user;
-  const username = userParam || "";
+  const username = useChannelIdentifier();
   const [open, setOpen] = useState(false);
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const hasAutoOpenedRef = useRef(false);

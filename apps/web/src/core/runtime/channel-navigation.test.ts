@@ -9,10 +9,11 @@ void test('every channel menu destination resolves to its active feature', () =>
   }
 });
 
-void test('nested channel detail paths retain their menu without matching another channel or sibling', () => {
-  assert.equal(featureFromPath('/channel/hurogi/wardrobe/item-1'), 'wardrobe');
+void test('root feature detail paths retain their menu without matching legacy or sibling routes', () => {
+  assert.equal(featureFromPath('/wardrobe/item-1'), 'wardrobe');
+  assert.equal(featureFromPath('/setlist/123'), 'songbook');
   assert.equal(featureFromPath('/chat/thread'), 'chat');
-  for (const path of ['/channel/another/wardrobe', '/channel/hurogi/wardrobe-other', '/chatter', '/unknown', '']) {
+  for (const path of ['/channel/another/wardrobe', '/channel/hurogi/wardrobe', '/wardrobe-other', '/chatter', '/unknown', '']) {
     assert.equal(featureFromPath(path), null, path);
   }
 });
