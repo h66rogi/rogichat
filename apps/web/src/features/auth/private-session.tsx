@@ -131,8 +131,9 @@ function usePrivateSessionState(initialState: PrivateState) {
       flushSync(() => update(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }));
     };
     const visibility = () => document.visibilityState === 'hidden' ? hide() : revalidate();
-    const focus = () => revalidate(latest.current.kind === 'ready');
-    const resume = () => revalidate(latest.current.kind === 'ready');
+    const visibleState = () => latest.current.kind === 'ready' || latest.current.kind === 'linkRequired';
+    const focus = () => revalidate(visibleState());
+    const resume = () => revalidate(visibleState());
     const storage = (event: StorageEvent) => { if (event.key === ACCOUNT_DELETION_PENDING || event.key === LOGOUT_PENDING || event.key === CURRENT_BINDING || event.key === null) refresh(); };
     const channel = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(INVALIDATE);
     if (channel) channel.onmessage = event => { if (event.data?.source !== broadcastId()) refresh(); };
@@ -143,7 +144,7 @@ function usePrivateSessionState(initialState: PrivateState) {
     window.addEventListener('focus', focus);
     window.addEventListener('storage', storage);
     window.addEventListener(INVALIDATE, refresh); window.addEventListener(PRIVACY_CHANGED, refresh);
-    const initial = window.setTimeout(() => revalidate(latest.current.kind === 'ready'), 0);
+    const initial = window.setTimeout(() => revalidate(visibleState()), 0);
     const invalidateGeneration = () => { ++generation.current; };
     return () => {
       window.clearTimeout(initial);

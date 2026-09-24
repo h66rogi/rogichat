@@ -45,6 +45,11 @@ test.describe('public routes', () => {
       await expect(page.getByTestId('settings-view')).toHaveCount(0);
     });
   }
+  test('anonymous chat renders the login gate in the first HTML response', async ({ request }) => {
+    const response = await request.get('/chat');
+    expect(response.status()).toBe(200);
+    expect(await response.text()).toContain('로그인 후 이용할 수 있어요');
+  });
   test('/login requires terms and reports provider failure truthfully', async ({ page }) => {
     await page.goto('/login?reason=cancelled');
     await expect(page.getByText('로그인을 취소했어요. 다시 시도할 수 있어요.')).toBeVisible();
