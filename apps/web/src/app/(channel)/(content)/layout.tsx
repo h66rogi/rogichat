@@ -12,7 +12,7 @@ export default function ChannelContentLayout({ children }: { children: ReactNode
   return (
     <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light" enableSystem={false}>
       <QueryProvider>
-        <ChannelIdentifierProvider identifier="h66rogi">
+        <ChannelIdentifierProvider identifier="hurogi">
           <div data-channel-feature className="rogichat-feature min-w-0 flex-1">
             {children}
           </div>
