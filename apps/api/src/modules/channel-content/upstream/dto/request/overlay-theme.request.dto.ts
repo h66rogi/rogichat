@@ -8,7 +8,6 @@ import {
 } from 'class-validator';
 import type { ValidationArguments, ValidatorConstraintInterface } from 'class-validator';
 import { ALL_THEME_IDS, isValidThemeId } from '../../theme-manifest/theme-ids.js';
-import { isValidWidgetType } from '../../theme-manifest/widget-types.js';
 
 @ValidatorConstraint({ name: 'OverlayThemeId', async: false })
 export class OverlayThemeIdValidator implements ValidatorConstraintInterface {

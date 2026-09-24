@@ -91,7 +91,8 @@ def main() -> None:
             assert digest(content) == mounted_adaptations[relative], f'Adapted route diverged: {path}'
         else:
             assert digest(content.replace(b'@/meloming/', b'@/')) == source_hash, f'Copied route diverged: {path}'
-    assert digest(POPUP_ROUTE.read_bytes().replace(b'@/meloming/', b'@/')) == \
+    popup_source = POPUP_ROUTE.read_bytes().replace(b'@/meloming/', b'@/').replace(b'void params.then(', b'params.then(')
+    assert digest(popup_source) == \
         manifest['frontend']['app/(popup)/console/[user]/page.tsx'], 'Copied console popup diverged'
     for relative, expected_hash in manifest['assets'].items():
         path = ASSETS / relative

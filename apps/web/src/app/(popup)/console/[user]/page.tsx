@@ -29,7 +29,7 @@ export default function LiveConsolePopupPage({
 
   // params resolve
   useEffect(() => {
-    params.then((p) => {
+    void params.then((p) => {
       setUsername(p.user);
     });
   }, [params]);

@@ -134,6 +134,7 @@ function resolveThemeIdForWidget(
   themeId: string,
   _widgetType: WidgetType,
 ): string {
+  void _widgetType;
   return resolveThemeIdOrFallback(themeId);
 }
 
