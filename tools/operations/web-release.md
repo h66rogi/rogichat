@@ -113,6 +113,10 @@ Run the installed reviewed helper as root, first without flags, then explicitly
 with `--apply`. Both hold the shared nonblocking host lock. Preflight performs no
 container activation (it may create the fixed empty lock file). The image must
 already exist in the local daemon with the actual approved RepoDigest.
+Before activation, preflight reads the candidate's channel identifier from the
+exact source commit through GitHub's content API and requires the paired live API
+to return that channel. A published web image cannot activate ahead of a required
+API change. Missing source metadata or API availability fails closed.
 
 Activation verifies the previous managed web release is healthy, rechecks request,
 host, artifact bytes, promotion and Caddy bindings, then marks the UUID attempted.
@@ -122,8 +126,11 @@ The live image ID/reference, UID, exact isolated network, absence of host ports,
 runtime environment, paired API origin and configured room ID are checked.
 Only then does it atomically install `/opt/rogichat/web/sites/web.caddy`, validate
 and reload the existing Caddy process, and require public HTTPS `/healthz` status
-200 without redirects using normal certificate verification. Caddy identity and
-main configuration are checked again after verification.
+200 without redirects using normal certificate verification. Before writing the
+completed receipt, the candidate's public home page must render the channel name
+returned by the API in a visible heading. A page that renders the Next.js 404
+screen despite HTTP 200 triggers rollback. Caddy identity and main configuration
+are checked again after verification.
 
 A failed first activation removes only the web service/container and its managed
 files, never the external network. A failed replacement restores the previous
