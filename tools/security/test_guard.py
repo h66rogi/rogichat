@@ -31,6 +31,11 @@ class GuardTests(unittest.TestCase):
         self.git("init", "-q")
         (self.repo / "README.md").write_text("Test repository\n")
         self.git("add", "README.md", ".gitleaks.toml")
+        if not PRIVATE_OPS:
+            wrapper = self.repo / WRAPPER
+            wrapper.parent.mkdir(parents=True)
+            shutil.copy2(ROOT / WRAPPER, wrapper)
+            self.git("add", WRAPPER)
         self.commit()
 
     def git(self, *args):
