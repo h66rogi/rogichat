@@ -87,7 +87,7 @@ test('page restoration discards old private content before fresh authorization',
   await page.goto('/settings');
   await expect(page.getByTestId('settings-view')).toBeVisible();
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })));
-  await expect(page.getByTestId('settings-view')).toHaveCount(0);
+  await expect(page.getByTestId('settings-view')).toBeHidden();
   state.authenticated = false;
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();

@@ -292,6 +292,16 @@ export class ChatController {
     if (this.sending) await this.sendSettled;
     if (!this.dead) await this.refresh();
   };
+  /** A restored tab rechecks the full visible page and pending command receipts. */
+  refreshAfterResume = async (): Promise<void> => {
+    const previous = this.flight;
+    if (previous) await previous;
+    if (this.sending) await this.sendSettled;
+    if (this.dead) return;
+    this.eventCursor = null;
+    this.recoverySeen.clear();
+    await this.refresh();
+  };
   refresh = (): Promise<void> => {
     if (this.dead) return Promise.resolve();
     if (this.flight) { this.refreshPending = true; return this.flight; }

@@ -12,10 +12,11 @@ export function useRoom(initialRoom?: Room | null) {
   const api = useApi();
   const roomId = useDefaultRoomId();
   const bootstrap = useRoomBootstrap();
-  const session = usePrivateSession().state;
+  const { state: session, obscured } = usePrivateSession();
   if (initialRoom === undefined && session.kind === 'ready' && bootstrap?.sessionBinding === session.session.csrfToken && bootstrap.accountPartition === session.session.accountPartition) initialRoom = bootstrap.room;
   const [state, setState] = useState<RoomState>(initialRoom === undefined ? { kind: 'checking' } : initialRoom ? { kind: 'ready', room: initialRoom } : { kind: roomId ? 'unavailable' : 'unconfigured' });
   useEffect(() => {
+    if (obscured) return;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -28,6 +29,6 @@ export function useRoom(initialRoom?: Room | null) {
       }
     })();
     return () => controller.abort();
-  }, [api, roomId]);
+  }, [api, roomId, obscured]);
   return state;
 }

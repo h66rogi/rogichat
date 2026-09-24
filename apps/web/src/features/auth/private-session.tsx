@@ -12,6 +12,7 @@ import { ACCOUNT_DELETION_PENDING, PRIVACY_CHANGED, isAccountDeletionPending, re
 
 import { LOGOUT_PENDING, beginLogout, clearLogout } from '@/core/api/logout-marker';
 import { clearPrivateRenderLock, setPrivateRenderLock } from '@/core/api/private-render-lock';
+import { PageSkeleton } from '@/shared/ui/page-skeleton';
 export { LOGOUT_PENDING } from '@/core/api/logout-marker';
 const INVALIDATE = 'rogichat-session-invalidated';
 const CURRENT_BINDING = 'rogichat.current-session-binding';
@@ -45,10 +46,13 @@ export function clearLogoutPending(expected: string) {
   if (clearLogout(localStorage, expected)) { void clearPrivateRenderLock().catch(() => {}); invalidateSession(); }
 }
 export type PrivateState = { kind: 'checking' | 'hidden' | 'unauthenticated' | 'logoutPending' } | { kind: 'deletionPending'; operation: string } | { kind: 'linkRequired'; session: Session } | { kind: 'error'; message: string } | { kind: 'ready'; session: Session; profile: Profile; generation: number };
-const PrivateSessionContext = createContext<{ state: PrivateState; refresh: () => void } | null>(null);
+const PrivateSessionContext = createContext<{ state: PrivateState; refresh: () => void; obscured: boolean } | null>(null);
 export function PrivateSessionProvider({ children, initialState = { kind: 'checking' } }: { children: ReactNode; initialState?: PrivateState }) {
   const session = usePrivateSessionState(initialState);
-  return <PrivateSessionContext.Provider value={session}>{children}</PrivateSessionContext.Provider>;
+  return <PrivateSessionContext.Provider value={session}>
+    <div className={session.obscured ? 'invisible' : undefined} inert={session.obscured} aria-hidden={session.obscured}>{children}</div>
+    {session.obscured && <div data-private-shield className="fixed inset-0 z-[2147483647] bg-canvas"><PageSkeleton /></div>}
+  </PrivateSessionContext.Provider>;
 }
 export function usePrivateSession() {
   const session = useContext(PrivateSessionContext);
@@ -59,6 +63,7 @@ export function usePrivateSession() {
 function usePrivateSessionState(initialState: PrivateState) {
   const api = useApi();
   const [state, setState] = useState<PrivateState>(initialState);
+  const [obscured, setObscured] = useState(false);
   const generation = useRef(initialState.kind === 'ready' ? initialState.generation : 0);
   const latest = useRef<PrivateState>(initialState);
   const update = useCallback((value: PrivateState | ((previous: PrivateState) => PrivateState)) => {
@@ -74,15 +79,15 @@ function usePrivateSessionState(initialState: PrivateState) {
     active.current = null;
     const current = ++generation.current;
     if (!mounted.current) return;
-    if (document.visibilityState === 'hidden') { update(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }); return; }
+    if (document.visibilityState === 'hidden') { if (latest.current.kind !== 'unauthenticated') setObscured(true); return; }
     try {
       if (isAccountDeletionPending(browserPrivacyStore)) {
         suspendChatOutboxes(); forgetChatMemory();
         let operation = 'unreadable'; try { operation = readDeletion(browserPrivacyStore)?.operation ?? operation; } catch { /* Recovery gate exposes the unavailable state. */ }
-        update({ kind: 'deletionPending', operation }); return;
+        update({ kind: 'deletionPending', operation }); setObscured(false); return;
       }
-      if (localStorage.getItem(LOGOUT_PENDING)) { forgetChatMemory(); update({ kind: 'logoutPending' }); return; }
-    } catch { update({ kind: 'error', message: '브라우저 저장소에 접근할 수 없어 안전하게 로그인 상태를 확인할 수 없습니다.' }); return; }
+      if (localStorage.getItem(LOGOUT_PENDING)) { forgetChatMemory(); update({ kind: 'logoutPending' }); setObscured(false); return; }
+    } catch { update({ kind: 'error', message: '브라우저 저장소에 접근할 수 없어 안전하게 로그인 상태를 확인할 수 없습니다.' }); setObscured(false); return; }
     // Public sign-in controls contain no private data. Keep them mounted while
     // rechecking so window focus cannot swallow a click or reset terms consent.
     // A visible tab keeps its mounted chat during a routine focus check. Explicit
@@ -101,7 +106,7 @@ function usePrivateSessionState(initialState: PrivateState) {
         if (!sessionAllowsChat(session)) {
           if (session.soopLinkStatus !== 'REQUIRED') throw new ApiError(403, 'FORBIDDEN');
           revokeChatOutboxes(); forgetChatMemory();
-          if (current === generation.current && mounted.current) update({ kind: 'linkRequired', session });
+          if (current === generation.current && mounted.current) { update({ kind: 'linkRequired', session }); setObscured(false); }
           return;
         }
         // Identity is never fabricated.
@@ -112,13 +117,17 @@ function usePrivateSessionState(initialState: PrivateState) {
         if (current === generation.current && mounted.current) {
           const previous = latest.current;
           const stableGeneration = previous.kind === 'ready' && previous.session.csrfToken === session.csrfToken && previous.session.accountPartition === session.accountPartition && previous.profile.id === profile.id ? previous.generation : current;
-          update({ kind: 'ready', session, profile, generation: stableGeneration });
+          update(existing => existing.kind === 'ready' && existing.generation === stableGeneration &&
+            JSON.stringify(existing.session) === JSON.stringify(session) && JSON.stringify(existing.profile) === JSON.stringify(profile)
+            ? existing : { kind: 'ready', session, profile, generation: stableGeneration });
+          setObscured(false);
         }
       } catch (error) {
         if (current !== generation.current || !mounted.current) return;
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) { revokeChatOutboxes(); forgetChatMemory(); }
         if (error instanceof ApiError && error.status === 401) { try { publishSessionBinding('signed-out'); } catch { /* Locked state below remains authoritative. */ } }
         update(error instanceof ApiError && error.status === 401 ? { kind: 'unauthenticated' } : { kind: 'error', message: error instanceof ApiError ? error.message : '연결을 확인할 수 없습니다. 다시 시도해 주세요.' });
+        setObscured(false);
       } finally { if (active.current === controller) active.current = null; }
     })();
   }, [api, update]);
@@ -128,10 +137,12 @@ function usePrivateSessionState(initialState: PrivateState) {
     const hide = () => {
       active.current?.abort(); ++generation.current;
       active.current = null;
-      flushSync(() => update(previous => previous.kind === 'unauthenticated' ? previous : { kind: 'hidden' }));
+      // Keep the mounted timeline and composer, but obscure all private pixels
+      // until the resumed tab confirms its current API session.
+      if (latest.current.kind !== 'unauthenticated') flushSync(() => setObscured(true));
     };
-    const visibility = () => document.visibilityState === 'hidden' ? hide() : revalidate();
     const visibleState = () => latest.current.kind === 'ready' || latest.current.kind === 'linkRequired';
+    const visibility = () => document.visibilityState === 'hidden' ? hide() : revalidate(visibleState());
     const focus = () => revalidate(visibleState());
     const resume = () => revalidate(visibleState());
     const storage = (event: StorageEvent) => { if (event.key === ACCOUNT_DELETION_PENDING || event.key === LOGOUT_PENDING || event.key === CURRENT_BINDING || event.key === null) refresh(); };
@@ -155,5 +166,5 @@ function usePrivateSessionState(initialState: PrivateState) {
       window.removeEventListener(INVALIDATE, refresh); window.removeEventListener(PRIVACY_CHANGED, refresh);
     };
   }, [refresh, revalidate, update]);
-  return { state, refresh };
+  return { state, refresh, obscured };
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { Session } from '@/core/api/client';
 import { sessionBinding } from '@/core/api/session-binding';
 import { WakeBindingRegistry } from '@/features/push/wake';
@@ -22,6 +22,7 @@ const wakeBindings = new WakeBindingRegistry();
 
 export interface RealChatRoomProps {
   active: boolean;
+  suspended?: boolean;
   visit: number;
   accountId: string;
   session: Session;
@@ -39,11 +40,12 @@ export function RealChatRoom(props: RealChatRoomProps) {
   return <ScopedRealChatRoom key={`${props.accountPartition}:${props.sessionScopeKey}:${props.roomId}`} {...props} />;
 }
 
-function ScopedRealChatRoom({ active, visit, session, accountId, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate, seed }: RealChatRoomProps) {
+function ScopedRealChatRoom({ active, suspended = false, visit, session, accountId, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate, seed }: RealChatRoomProps) {
   const [controller, setController] = useState<ChatController | null>(() => seed ? new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition,
     typeof window === 'undefined' ? undefined : sessionChatMemory(accountPartition, csrfToken, roomId),
     typeof window === 'undefined' ? undefined : apiOrigin === 'https://api.qa.rogi.chat' ? 'qa' : 'production', seed) : null);
   const [connected, setConnected] = useState(false);
+  const wasSuspended = useRef(false);
   useEffect(() => {
     if (seed) return;
     const current = new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition, sessionChatMemory(accountPartition, csrfToken, roomId), apiOrigin === 'https://api.qa.rogi.chat' ? 'qa' : 'production');
@@ -59,9 +61,11 @@ function ScopedRealChatRoom({ active, visit, session, accountId, roomId, apiOrig
   // Keep the mounted timeline and its scroll position during route changes.
   // The controller checks the session and membership again in the background.
   useEffect(() => {
+    if (suspended) { wasSuspended.current = true; return; }
     if (!active || !controller) return;
-    void controller.refreshForEntry();
-  }, [active, controller, visit]);
+    if (wasSuspended.current) { wasSuspended.current = false; void controller.refreshAfterResume(); }
+    else void controller.refreshForEntry();
+  }, [active, suspended, controller, visit]);
 
   useEffect(() => {
     if (!active || !controller) return;
