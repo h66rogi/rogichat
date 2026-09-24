@@ -9,7 +9,7 @@ import { AppleLifecycleService } from './apple-lifecycle.service.js';
 import { appleStart, appleNativeComplete, appleExchange } from './apple.dto.js';
 import type { AppleClient } from './apple-config.js';
 import { ApiError, object, opaque } from '../auth-primitives.js';
-import { cookieName, readCommandCredentials, readSessionCredentials } from '../auth-context.js';
+import { cookieName, readCommandCredentials, readSessionCredentials, sessionCookieOptions } from '../auth-context.js';
 import { ApiTags } from '@nestjs/swagger';
 import { appleDocs } from './apple.openapi.js';
 
@@ -63,7 +63,8 @@ export class AppleController {
     if (result.transport === 'NATIVE') {
       response.status(200).json({ tokenType: result.tokenType, accessToken: result.accessToken, expiresAt: result.expiresAt, session: result.session });
     } else {
-      response.cookie(cookieName(this.config, 'session'), result.token, { httpOnly: true, secure: this.config.secure, sameSite: 'lax', path: '/', maxAge: 7 * 86400000 });
+      if (this.config.sessionCookieDomain) response.clearCookie('__Host-rogi_session', { httpOnly: true, secure: this.config.secure, sameSite: 'lax', path: '/' });
+      response.cookie(cookieName(this.config, 'session'), result.token, { ...sessionCookieOptions(this.config), maxAge: 7 * 86400000 });
       response.status(200).json(await this.auth.session({ token: result.token }));
     }
   }

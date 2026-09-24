@@ -199,10 +199,10 @@ reference 자체를 세션/인가 증거로 쓰거나 별도 BFF·웹 bearer·�
 
 ### 인증과 캐시 경계
 
-QA 웹은 `qa.rogi.chat`, API는 `api.qa.rogi.chat`이다. API의 host-only HttpOnly cookie를
-브라우저 요청의 `credentials: include`로 사용하고 정확한 Origin·CORS·CSRF 계약을 지킨다.
-Next 서버는 웹 origin 요청에서 API host-only cookie를 받을 수 없으므로 인증된 SSR을
-가정하지 않는다. 초기 private 화면은 브라우저에서 session/bootstrap을 확인한 뒤 로드한다.
+QA 웹은 `qa.rogi.chat`, API는 `api.qa.rogi.chat`이다. API의 환경별 HttpOnly 세션 쿠키를
+`Domain=qa.rogi.chat`으로 발급해 양쪽 서버에서 읽고, 브라우저의 `credentials: include` 및
+정확한 Origin·CORS·CSRF 계약을 유지한다. Next 서버는 해당 환경의 쿠키만 API로 전달하고
+API에서 세션·권한을 다시 검증한다. private 화면은 브라우저에서도 session/bootstrap을 확인한다.
 임의 BFF 세션·localStorage bearer·존재하지 않는 refresh API를 추가하지 않는다.
 
 로그인 callback 도착 자체를 성공으로 삼지 않고 세션·SOOP 연결·입장 상태를 재조회한다.
@@ -210,7 +210,7 @@ Next 서버는 웹 origin 요청에서 API host-only cookie를 받을 수 없으
 인증·채팅 응답은 공유 CDN/Next/RSC/SW 캐시에 저장하지 않는다. 공개 홈 캐시와 분리한다.
 401, 방 접근 403, 일시적 네트워크 실패를 구분하고 모든 403을 전역 로그아웃으로 처리하지 않는다.
 
-**로그아웃 의도와 서버 폐기 완료를 구분한다.** 웹은 API host-only HttpOnly cookie를 직접 지울 수 없다.
+**로그아웃 의도와 서버 폐기 완료를 구분한다.** HttpOnly cookie 삭제와 서버 세션 폐기는 API가 수행한다.
 사용자가 로그아웃하면 먼저 지속 가능한 로컬 잠금/작업 generation을 갱신하고 본문·큐·초안을 정리한다.
 revoke 성공 또는 해당 세션의 만료를 확인한 뒤 서버 로그아웃 완료로 표시한다. 오프라인/응답 유실이면
 `logoutPending`으로 유지해 새로고침·다른 탭 복귀에서도 기존 cookie의 세션을 자동 복원하지 않는다.

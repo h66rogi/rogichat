@@ -29,7 +29,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function WardrobeDetailPage({ params }: Props) {
   const { item } = await getItem((await params).itemId);
-  return <FeaturePage title="옷장" description="후로기의 의상과 헤어" relatedLink={{ href: '/wardrobe', label: '목록으로' }}>
+  return <FeaturePage relatedLink={{ href: '/wardrobe', label: '목록으로' }}>
     <ChannelWardrobeDetailContent user={CHANNEL_IDENTIFIER} itemId={item.id} />
   </FeaturePage>;
 }

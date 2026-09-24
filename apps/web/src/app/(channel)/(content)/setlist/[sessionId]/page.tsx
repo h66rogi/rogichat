@@ -9,7 +9,7 @@ export const generateMetadata = () => featureMetadata('셋리스트 상세', '�
 export default async function SetlistDetailPage({ params }: Props) {
   const sessionId = Number((await params).sessionId);
   if (!Number.isSafeInteger(sessionId) || sessionId <= 0) notFound();
-  return <FeaturePage title="셋리스트" description="방송에서 부른 곡을 세션별로 확인" relatedLink={{ href: '/setlist', label: '목록으로' }}>
+  return <FeaturePage relatedLink={{ href: '/setlist', label: '목록으로' }}>
     <ChannelSetlistDetailContent user={CHANNEL_IDENTIFIER} sessionId={sessionId} />
   </FeaturePage>;
 }

@@ -15,7 +15,8 @@ import { NativeAuthService } from './native-auth.service.js';
 export function nativeAdmission(request: Request, config: AuthConfig, clientId: 'ios' | 'android'): NativeCredentials | undefined {
   if (!request.is('application/json') || singleHeader(request, 'x-rogi-client') !== clientId ||
       singleHeader(request, 'x-csrf-token') !== undefined ||
-      cookie(request, 'rogi_session') !== undefined || cookie(request, '__Host-rogi_session') !== undefined) throw new ApiError('INVALID_REQUEST', 400);
+      cookie(request, 'rogi_session') !== undefined || cookie(request, '__Host-rogi_session') !== undefined ||
+      cookie(request, '__Secure-rogi_qa_session') !== undefined || cookie(request, '__Secure-rogi_prod_session') !== undefined) throw new ApiError('INVALID_REQUEST', 400);
   const origin = singleHeader(request, 'origin');
   if (origin !== undefined) throw new ApiError('FORBIDDEN', 403);
   if (singleHeader(request, 'authorization') === undefined) return;

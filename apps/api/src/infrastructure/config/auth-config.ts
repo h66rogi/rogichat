@@ -11,6 +11,7 @@ export interface AuthConfig {
   readonly origin: string;
   readonly callback: string;
   readonly secure: boolean;
+  readonly sessionCookieDomain?: 'qa.rogi.chat' | 'rogi.chat';
   readonly key: Buffer;
   readonly authorizationEpoch?: string;
   readonly identityGuardKey?: Buffer;
@@ -39,6 +40,8 @@ export function readAuthConfig(config: Config, env: NodeJS.ProcessEnv = process.
     }
     const apple = readAppleConfig(config.environment, env);
     if (apple && typeof record.identityGuardKey !== 'string') throw new Error();
-    return Object.freeze({ ...(apple ? { apple } : {}), audience: `rogi-${config.environment}`, origin, callback, secure: hosted, ...(authorizationEpoch ? { authorizationEpoch } : {}), key: Buffer.from(record.key, 'hex'), ...(typeof record.identityGuardKey === 'string' ? { identityGuardKey: Buffer.from(record.identityGuardKey, 'hex') } : {}), broker });
+    return Object.freeze({ ...(apple ? { apple } : {}), audience: `rogi-${config.environment}`, origin, callback, secure: hosted,
+      ...(config.environment === 'qa' ? { sessionCookieDomain: 'qa.rogi.chat' as const } : config.environment === 'production' ? { sessionCookieDomain: 'rogi.chat' as const } : {}),
+      ...(authorizationEpoch ? { authorizationEpoch } : {}), key: Buffer.from(record.key, 'hex'), ...(typeof record.identityGuardKey === 'string' ? { identityGuardKey: Buffer.from(record.identityGuardKey, 'hex') } : {}), broker });
   } catch { throw new ConfigurationError('AUTH_SECRET_FILE'); }
 }

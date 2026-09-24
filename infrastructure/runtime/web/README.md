@@ -19,8 +19,10 @@ authentication and actual API flows are separate acceptance checks. Runtime pair
 | Production | https://rogi.chat | https://api.rogi.chat | production |
 
 `ROGICHAT_API_ORIGIN` is the exact API URL in this table. The web process validates
-the pair at runtime. There is no same-origin API proxy or cookie-domain rewriting;
-browsers use the existing host-only API cookie with credentials and explicit CORS.
+the pair at runtime. There is no same-origin API proxy or proxy cookie rewriting;
+browsers use the environment-named parent-domain session cookie with credentials
+and explicit CORS. OAuth transaction cookies remain API host-only. Next forwards
+only the current environment's session cookie for authenticated server reads.
 QA also pins the private R2 S3 origin used by signed media URLs. The bucket CORS
 policy allows only `https://qa.rogi.chat` with GET, HEAD and PUT; it does not
 make the bucket public. Production does not inherit the QA storage origin.

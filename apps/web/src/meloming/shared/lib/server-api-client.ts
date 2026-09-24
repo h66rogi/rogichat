@@ -19,10 +19,12 @@ import { rogichatApiOrigin } from "@/core/meloming-api-bridge";
  */
 export async function getCookieHeader(): Promise<string> {
   const cookieStore = await cookies();
-  return cookieStore
-    .getAll()
-    .map((cookie) => `${cookie.name}=${cookie.value}`)
-    .join("; ");
+  const name = process.env.ROGICHAT_WEB_ENV === "qa" ? "__Secure-rogi_qa_session" :
+    process.env.ROGICHAT_WEB_ENV === "production" ? "__Secure-rogi_prod_session" : null;
+  const session = name ? cookieStore.get(name) : undefined;
+  // Forward the current environment's session only. A production Domain cookie
+  // also reaches QA subdomains, but must never become a QA API credential.
+  return session ? `${name}=${session.value}` : "";
 }
 
 /**
