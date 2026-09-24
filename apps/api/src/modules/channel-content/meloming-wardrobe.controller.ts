@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { ApiTags } from '@nestjs/swagger';
 import { Controller, Delete, Get, HttpCode, Inject, Param, Patch, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
@@ -11,7 +12,7 @@ import { channelDoc } from './channel-content.openapi.js';
 // Route contract: meloming-back/src/channel/channel-wardrobe.controller.ts.
 // Rogichat's sole public channel maps to its owner-bound primary room.
 function channel(identifier: string): void {
-  if (identifier !== 'hurogi') throw new ApiError('NOT_FOUND', 404);
+  if (!isChannelIdentifier(identifier)) throw new ApiError('NOT_FOUND', 404);
 }
 
 function itemId(value: string): number {

@@ -455,8 +455,8 @@ export class SongAddRequestService {
       channel: {
         id: 1,
         name: request.channel.name,
-        webPath: 'hurogi',
-        profileImageUrl: '/images/hurogi-profile.png',
+        webPath: 'h66rogi',
+        profileImageUrl: '/images/h66rogi-profile.png',
       },
       title: request.title,
       artistName: request.artistName,

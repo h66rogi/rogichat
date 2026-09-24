@@ -149,7 +149,7 @@ export class MelomingFavoritesService {
         tx.prisma.userChannelFavorite.count({ where: { channelId: roomId } }),
       ]);
       const favorites = rows.map(row => ({ id: row.id, channelId: 1, channelName: room?.name ?? '후로기',
-        profileImageUrl: '/images/hurogi-profile.png', webPath: 'hurogi', themeColor: '#ff8c9d',
+        profileImageUrl: '/images/h66rogi-profile.png', webPath: 'h66rogi', themeColor: '#ff8c9d',
         ownerNickname: room?.owner?.user.profile?.nickname ?? '후로기', channelDescription: '',
         createdAt: row.createdAt?.toISOString() ?? '', songCount, artistCount,
         favoritesCount, isOwnerProSubscriber: false, isOwnerAmbassador: false }));
@@ -171,7 +171,7 @@ export class MelomingFavoritesService {
       ]);
       return { favorites: rows.map(row => ({ id: row.id, songId: row.songId, songTitle: row.song.title,
         artistName: row.song.artist.name, albumArt: row.song.albumArt ?? '', channelName: '후로기',
-        webPath: 'hurogi', channelProfileImageUrl: '/images/hurogi-profile.png', createdAt: row.createdAt?.toISOString() ?? '' })),
+        webPath: 'h66rogi', channelProfileImageUrl: '/images/h66rogi-profile.png', createdAt: row.createdAt?.toISOString() ?? '' })),
         total, page, limit, totalPages: Math.ceil(total / limit) };
     });
   }
@@ -216,8 +216,8 @@ export class MelomingFavoritesService {
       const milestones = profile?.debutDate ? calculateMilestonesFromDate(profile.debutDate) : null;
       const birthday = profile?.birthday ? calculateBirthdayDdayFromDate(profile.birthday) : null;
       const next = milestones || birthday ? pickNextUpcomingEvent(milestones, birthday) : null;
-      return { items: [{ channelId: 1, channelName: '후로기', webPath: 'hurogi',
-        profileImageUrl: '/images/hurogi-profile.png', themeColor: '#ff8c9d',
+      return { items: [{ channelId: 1, channelName: '후로기', webPath: 'h66rogi',
+        profileImageUrl: '/images/h66rogi-profile.png', themeColor: '#ff8c9d',
         anniversaries: milestones || birthday ? { milestones, birthday,
           nextUpcomingEvent: next ? { type: next.type, label: next.label, daysUntil: next.daysUntil } : null } : null }] };
     });

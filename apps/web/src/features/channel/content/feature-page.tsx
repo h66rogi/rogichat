@@ -8,7 +8,7 @@ import { ChannelNewLayoutHeader } from '@/meloming/domains/channel/components/ch
 import UserNotFoundError from '@/meloming/domains/channel/components/channel/user-not-found-error';
 import { PageErrorBoundary } from '@/meloming/shared/components/common/error-boundary';
 
-export const CHANNEL_IDENTIFIER = 'hurogi';
+export const CHANNEL_IDENTIFIER = 'h66rogi';
 
 type FeaturePageProps = {
   children: ReactNode;

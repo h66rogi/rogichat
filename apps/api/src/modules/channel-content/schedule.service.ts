@@ -64,9 +64,9 @@ const scheduleSelect = {
 
 type ScheduleRow = Prisma.ChannelScheduleGetPayload<{ select: typeof scheduleSelect }>;
 function response(row: ScheduleRow) {
-  return { id: row.id, channelId: 1, channelWebPath: 'hurogi',
+  return { id: row.id, channelId: 1, channelWebPath: 'h66rogi',
     author: { id: 1, nickname: row.author.profile?.nickname ?? '후로기', profileImageUrl: null },
-    channel: { id: 1, name: '후로기', profileImageUrl: '/images/hurogi-profile.png', webPath: 'hurogi' },
+    channel: { id: 1, name: '후로기', profileImageUrl: '/images/h66rogi-profile.png', webPath: 'h66rogi' },
     title: row.title, content: row.content, startAt: row.startAt.toISOString(), endAt: row.endAt?.toISOString() ?? null,
     allDay: row.allDay, isCanceled: row.isCanceled, status: row.status, visibility: row.visibility,
     location: row.location, externalUrl: row.externalUrl, createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString() };
