@@ -19,7 +19,7 @@ export function ChannelScheduleContent({ user }: { user: string }) {
         className={cn(
           "mx-auto",
           isNewLayout
-            ? "mt-0 min-h-0 px-0"
+            ? "mt-0 flex min-h-0 w-full flex-1 flex-col px-0"
             : cn(!isWide && "container", "mt-8 px-4 md:px-6")
         )}
       >
