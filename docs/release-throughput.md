@@ -5,7 +5,9 @@ under `apps/web` publish the web image; changes under `apps/api` publish the API
 migration and decoder images. Shared build, workflow, security and operations
 inputs publish both. Unknown paths also publish both. Mobile and documentation
 changes publish neither. `apps/api/package.json` is shared because the web
-Dockerfile copies it. An unavailable Git comparison publishes both.
+Dockerfile copies it. The fixed web release helper, its tests and operator guide
+affect only the web pipeline; changes to other operations tools remain shared.
+An unavailable Git comparison publishes both.
 
 Web and backend verification have stable required job names even when their
 component is unchanged. Backend static checks and four disposable MySQL

@@ -1,5 +1,6 @@
 """Offline adversarial release contracts; never invokes Docker or a live host."""
 import copy
+import base64
 import json
 import io
 import importlib.util
@@ -224,6 +225,99 @@ class ValidationTests(unittest.TestCase):
     def test_no_redirect_health(self):
         with self.assertRaises(w.Rejected):
             w.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://elsewhere.invalid')
+
+
+class CandidateBackendTests(unittest.TestCase):
+    def containers(self, revision):
+        value = {'State': {'Running': True, 'Health': {'Status': 'healthy'}},
+                 'Config': {'Labels': {'org.opencontainers.image.revision': revision}}}
+        return [json.dumps([value]).encode(), json.dumps([value]).encode()]
+
+    def comparison(self, revision, files):
+        return {'status': 'ahead', 'merge_base_commit': {'sha': revision},
+                'total_commits': 1, 'files': [{'filename': path, 'status': 'modified'} for path in files]}
+
+    def test_same_backend_source_needs_no_compare(self):
+        r = request()
+        with patch.object(w, 'docker', side_effect=self.containers(r['source_sha'])) as docker, \
+                patch.object(w, 'github') as github:
+            w.verify_api_compatibility(r)
+        self.assertEqual(docker.call_count, 2)
+        github.assert_not_called()
+
+    def test_candidate_with_backend_change_is_rejected(self):
+        r = request()
+        revision = '1' * 40
+        for path in ('apps/api/src/modules/messages/messages-core.service.ts', 'pnpm-lock.yaml',
+                     'packages/contracts/index.ts', 'infrastructure/runtime/compose.app.yaml'):
+            with self.subTest(path=path), patch.object(w, 'docker', side_effect=self.containers(revision)), \
+                    patch.object(w, 'github', return_value=self.comparison(revision, [path])):
+                with self.assertRaisesRegex(w.Rejected, 'newer backend'):
+                    w.verify_api_compatibility(r)
+
+    def test_web_only_changes_allow_older_backend(self):
+        r = request()
+        revision = '1' * 40
+        files = ['apps/web/src/app/page.tsx', 'infrastructure/runtime/web/compose.qa.yaml']
+        with patch.object(w, 'docker', side_effect=self.containers(revision)), \
+                patch.object(w, 'github', return_value=self.comparison(revision, files)) as github:
+            w.verify_api_compatibility(r)
+        github.assert_called_once_with(f"compare/{revision}...{r['source_sha']}")
+
+    def test_incomplete_comparison_and_divergent_backend_fail_closed(self):
+        r = request()
+        revision = '1' * 40
+        for result in [dict(self.comparison(revision, []), files=[{'filename': 'apps/web/x'}] * 300),
+                       dict(self.comparison(revision, []), status='diverged'),
+                       dict(self.comparison(revision, []), files=[{'filename': 'apps/web/new',
+                          'previous_filename': 'apps/api/old', 'status': 'renamed'}])]:
+            with self.subTest(result=result), patch.object(w, 'docker', side_effect=self.containers(revision)), \
+                    patch.object(w, 'github', return_value=result):
+                with self.assertRaises(w.Rejected):
+                    w.verify_api_compatibility(r)
+
+
+class CandidatePageTests(unittest.TestCase):
+    def source_item(self, identifier):
+        source = f"export const CHANNEL_IDENTIFIER = '{identifier}';\n".encode()
+        blob = __import__('hashlib').sha1(b'blob ' + str(len(source)).encode() + b'\0' + source).hexdigest()
+        return {'path': w.CHANNEL_SOURCE, 'encoding': 'base64',
+                'content': base64.b64encode(source).decode(), 'sha': blob}
+
+    def test_source_bound_channel_requires_live_api(self):
+        response = MagicMock(status=200)
+        response.__enter__.return_value = response
+        response.read.return_value = '{"name":"후로기"}'.encode()
+        opener = MagicMock()
+        opener.open.return_value = response
+        with patch.object(w, 'github', return_value=self.source_item('hurogi')) as github, \
+                patch.object(w.urllib.request, 'build_opener', return_value=opener):
+            self.assertEqual(w.candidate_channel(request()), '후로기')
+        github.assert_called_once_with(f'contents/{w.CHANNEL_SOURCE}?ref={request()["source_sha"]}')
+        opener.open.assert_called_once_with('https://api.qa.rogi.chat/v1/channel/hurogi', timeout=15)
+
+    def test_missing_channel_blocks_before_activation(self):
+        opener = MagicMock()
+        opener.open.side_effect = w.urllib.error.HTTPError('https://api.qa.rogi.chat/v1/channel/h66rogi',
+                                                           404, 'missing', {}, io.BytesIO())
+        with patch.object(w, 'github', return_value=self.source_item('h66rogi')), \
+                patch.object(w.urllib.request, 'build_opener', return_value=opener):
+            with self.assertRaisesRegex(w.Rejected, 'candidate channel API unavailable'):
+                w.candidate_channel(request())
+
+    def test_rendered_page_ignores_stream_scripts_but_rejects_visible_404(self):
+        response = MagicMock(status=200)
+        response.__enter__.return_value = response
+        response.headers.get_content_type.return_value = 'text/html'
+        opener = MagicMock()
+        opener.open.return_value = response
+        with patch.object(w.urllib.request, 'build_opener', return_value=opener):
+            response.read.return_value = ('<html><body><h1>후로기</h1><script>페이지를 찾을 수 없어요</script>'
+                                          '</body></html>').encode()
+            w.candidate_page(request(), '후로기')
+            response.read.return_value = '<html><body><h1>페이지를 찾을 수 없어요</h1></body></html>'.encode()
+            with self.assertRaisesRegex(w.Rejected, 'did not render'):
+                w.candidate_page(request(), '후로기')
 
 
 class ExternalTests(unittest.TestCase):
@@ -697,7 +791,7 @@ class ApplyTests(unittest.TestCase):
         for p in self.paths.values():
             p.write_bytes(b'reviewed')
         self.edge = ({'Id': 'existing-caddy'}, {'api-network', 'rogichat-qa-web'})
-        self.prepared = (self.r, self.paths, dict.fromkeys(self.paths, b'reviewed'), config(self.r), 'image-id', self.edge)
+        self.prepared = (self.r, self.paths, dict.fromkeys(self.paths, b'reviewed'), config(self.r), 'image-id', self.edge, '후로기')
         def read(path, mode=None, directory=False):
             if path == w.REQUEST:
                 return json.dumps(self.r).encode()
@@ -711,7 +805,8 @@ class ApplyTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         for name, kwargs in [('protected', {'side_effect': read}), ('snapshot_edge', {'return_value': self.edge}),
-                             ('compose', {}), ('healthy', {}), ('external', {}), ('reload_caddy', {})]:
+                             ('compose', {}), ('healthy', {}), ('external', {}), ('candidate_page', {}),
+                             ('verify_api_compatibility', {}), ('reload_caddy', {})]:
             p = patch.object(w, name, **kwargs)
             setattr(self, name, p.start())
             self.addCleanup(p.stop)
@@ -779,6 +874,21 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(evidence['status'], 'completed')
         self.assertEqual(evidence['image'], self.r['image'])
         self.external.assert_called_once()
+        self.candidate_page.assert_called_once_with(self.r, '후로기')
+
+    def test_candidate_page_failure_rolls_back_existing_web(self):
+        old = copy.deepcopy(config(self.r))
+        old['services']['web']['image'] = 'ghcr.io/h66rogi/rogichat-web@sha256:' + '9' * 64
+        original = json.dumps(old).encode()
+        self.current.write_bytes(original)
+        self.site.write_bytes(b'previous-site')
+        self.candidate_page.side_effect = w.Rejected('candidate channel page did not render')
+        with patch.object(w, 'docker', return_value=b'[{"Id":"old-image"}]'):
+            with self.assertRaisesRegex(w.Rejected, 'previous web state restored'):
+                w.apply(self.prepared)
+        self.assertEqual(self.current.read_bytes(), original)
+        self.assertEqual(self.site.read_bytes(), b'previous-site')
+        self.assertEqual(self.external.call_count, 3)
 
     def test_receipt_write_failure_rolls_back_activation(self):
         original_atomic = w.atomic

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import errno
 import fcntl
 import hashlib
+from html.parser import HTMLParser
 import importlib.util
 import json
 import os
@@ -249,6 +251,125 @@ def names(request):
     return short, f'rogichat-{short}-web', 'https://qa.rogi.chat' if short == 'qa' else 'https://rogi.chat'
 
 
+CHANNEL_SOURCE = 'apps/web/src/features/channel/content/feature-page.tsx'
+BACKEND_SHARED_FILES = {'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.node-version'}
+
+
+def backend_input(path):
+    return (path.startswith(('apps/api/', 'packages/', 'patches/'))
+            or path.startswith('infrastructure/runtime/') and not path.startswith('infrastructure/runtime/web/')
+            or path in BACKEND_SHARED_FILES)
+
+
+def api_revision(request):
+    short, _, _ = names(request)
+    revisions = []
+    for role in ('api', 'worker'):
+        container = decode(docker('inspect', f'rogichat-{short}-{role}'))[0]
+        require(container['State']['Running'] and container['State'].get('Health', {}).get('Status') == 'healthy',
+                'paired backend is unhealthy')
+        revision = container['Config']['Labels'].get('org.opencontainers.image.revision')
+        require(matches(SHA, revision), 'paired backend source unavailable')
+        revisions.append(revision)
+    require(revisions[0] == revisions[1], 'paired backend sources differ')
+    return revisions[0]
+
+
+def verify_api_compatibility(request):
+    """Do not activate a web candidate ahead of backend code it may require."""
+    running = api_revision(request)
+    source = request['source_sha']
+    if running == source:
+        return
+    comparison = github(f'compare/{running}...{source}')
+    require(comparison.get('status') in ('ahead', 'identical')
+            and comparison.get('merge_base_commit', {}).get('sha') == running,
+            'paired backend source is not a candidate ancestor')
+    files = comparison.get('files')
+    require(type(files) is list and len(files) < 300 and type(comparison.get('total_commits')) is int
+            and comparison['total_commits'] <= 250, 'backend source comparison incomplete')
+    for item in files:
+        require(type(item) is dict and type(item.get('filename')) is str,
+                'backend source comparison invalid')
+        paths = [item['filename']]
+        if item.get('status') == 'renamed':
+            require(type(item.get('previous_filename')) is str, 'backend source rename invalid')
+            paths.append(item['previous_filename'])
+        require(not any(backend_input(path) for path in paths),
+                'candidate requires a newer backend release')
+
+
+def candidate_channel(request):
+    """Check the candidate's source-bound channel against the running API before activation."""
+    item = github(f"contents/{CHANNEL_SOURCE}?ref={request['source_sha']}")
+    require(type(item) is dict and item.get('path') == CHANNEL_SOURCE and item.get('encoding') == 'base64')
+    source = base64.b64decode(item['content'], validate=False)
+    require(len(source) <= 100_000)
+    blob = hashlib.sha1(b'blob ' + str(len(source)).encode() + b'\0' + source).hexdigest()
+    require(item.get('sha') == blob, 'channel source blob changed')
+    identifiers = re.findall(rb"^export const CHANNEL_IDENTIFIER = '([a-z0-9_-]{1,64})';$", source, re.MULTILINE)
+    require(len(identifiers) == 1, 'candidate channel identifier unavailable')
+    identifier = identifiers[0].decode('ascii')
+    origin = 'https://api.qa.rogi.chat' if request['environment'] == 'qa' else 'https://api.rogi.chat'
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with opener.open(origin + '/v1/channel/' + identifier, timeout=15) as response:
+            require(response.status == 200, 'candidate channel API unavailable')
+            name_data = response.read(262_145)
+            require(len(name_data) <= 262_144, 'candidate channel API response too large')
+    except urllib.error.HTTPError as error:
+        error.close()
+        raise Rejected('candidate channel API unavailable') from None
+    channel = decode(name_data)
+    require(type(channel) is dict and type(channel.get('name')) is str
+            and 0 < len(channel['name']) <= 128, 'candidate channel API response invalid')
+    return channel['name']
+
+
+class VisibleHeadings(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.hidden = 0
+        self.heading = 0
+        self.headings = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ('script', 'style', 'template', 'noscript'):
+            self.hidden += 1
+        elif tag == 'h1' and not self.hidden:
+            self.heading += 1
+            self.headings.append('')
+
+    def handle_endtag(self, tag):
+        if tag in ('script', 'style', 'template', 'noscript'):
+            self.hidden = max(0, self.hidden - 1)
+        elif tag == 'h1' and not self.hidden:
+            self.heading = max(0, self.heading - 1)
+
+    def handle_data(self, data):
+        if self.heading and not self.hidden:
+            self.headings[-1] += data
+
+
+def candidate_page(request, channel_name):
+    """Require the activated candidate to render its real channel page."""
+    _, _, origin = names(request)
+    opener = urllib.request.build_opener(NoRedirect)
+    try:
+        with opener.open(origin + '/', timeout=20) as response:
+            require(response.status == 200 and response.headers.get_content_type() == 'text/html',
+                    'candidate channel page unavailable')
+            page = response.read(1_000_001)
+            require(len(page) <= 1_000_000, 'candidate channel page too large')
+    except urllib.error.HTTPError as error:
+        error.close()
+        raise Rejected('candidate channel page unavailable') from None
+    headings = VisibleHeadings()
+    headings.feed(page.decode('utf-8', 'replace'))
+    require(channel_name in (heading.strip() for heading in headings.headings),
+            'candidate channel page did not render')
+
+
 QA_MEDIA_STORAGE_ORIGINS = '["https://36875e4c357ab3a6fcfabe48f617dfb7.r2.cloudflarestorage.com"]'
 PREVIOUS_QA_IMAGE_WITHOUT_MEDIA_ORIGIN = 'ghcr.io/h66rogi/rogichat-web@sha256:d568a8069d37875d301d3c036bbef7727ebf0948924a77f3df52fb23c0221b46'
 
@@ -338,6 +459,8 @@ def preflight():
         verify_image(image, request)
     config['x-rogichat-release'] = {'image': request['image'], 'execution_image': execution(request)}
     verify_ci(request)
+    verify_api_compatibility(request)
+    channel_name = candidate_channel(request)
     edge = snapshot_edge(request)
     _, name, _ = names(request)
     existing = docker('ps', '-aq', '--filter', f'name=^/{name}$').decode().split()
@@ -346,7 +469,7 @@ def preflight():
         require(len(existing) == 1)
         labels = decode(docker('inspect', existing[0]))[0]['Config']['Labels']
         require(labels.get('com.docker.compose.project') == name and labels.get('com.docker.compose.service') == 'web')
-    return request, paths, artifacts, config, image['Id'], edge
+    return request, paths, artifacts, config, image['Id'], edge, channel_name
 
 
 def sync_directory(path):
@@ -496,7 +619,7 @@ def external(request):
 
 
 def apply(prepared):
-    request, paths, artifacts, config, image_id, edge = prepared
+    request, paths, artifacts, config, image_id, edge, channel_name = prepared
     previous = protected(CURRENT) if CURRENT.exists() else None
     previous_site = protected(SITE) if SITE.exists() else None
     require((previous is None) == (previous_site is None), 'inconsistent previous web release')
@@ -526,6 +649,7 @@ def apply(prepared):
         require(digest(protected(QA, 0o600)) == request['completed_qa_sha256'])
     require(all(protected(paths[k]) == v for k, v in artifacts.items()), 'release artifacts changed')
     require(snapshot_edge(request) == edge, 'edge changed during request')
+    verify_api_compatibility(request)
     receipt = RECEIPTS / request['request_id']
     fd = os.open(receipt, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w') as f:
@@ -542,6 +666,7 @@ def apply(prepared):
         atomic(SITE, artifacts['site'])
         reload_caddy(caddy_id)
         external(request)
+        candidate_page(request, channel_name)
         require(all(protected(paths[k]) == v for k, v in artifacts.items()), 'release artifacts changed during activation')
         require(protected(SITE) == artifacts['site'], 'web site changed during activation')
         verify_promotion(request)

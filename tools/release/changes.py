@@ -25,6 +25,11 @@ SHARED_FILES = {
     'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'apps/api/package.json',
     'tools/operations/backend_archive.py',
 }
+WEB_ONLY_FILES = {
+    'tools/operations/web_release.py',
+    'tools/operations/test_web_release.py',
+    'tools/operations/web-release.md',
+}
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
 )
@@ -34,6 +39,8 @@ SHA = re.compile(r'[a-f0-9]{40}\Z')
 
 def classify_path(path: str) -> tuple[bool, bool]:
     """Return web/backend impact. Unknown paths intentionally affect both."""
+    if path in WEB_ONLY_FILES:
+        return True, False
     if path in SHARED_FILES or path.startswith(SHARED_PREFIXES):
         return True, True
     if path.startswith(WEB_PREFIXES):
