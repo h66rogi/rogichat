@@ -19,12 +19,13 @@ test.describe('channel shell', () => {
       await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
     }
     const menu = page.getByRole('navigation', { name: '채널 메뉴' }).last();
-    await expect(menu.getByRole('link')).toHaveText(['프로필', '채팅', '규칙·이용 안내', '일정', '옷장', '노래책', '내 설정']);
+    await expect(menu.getByRole('link')).toHaveText(['프로필', '채팅', '규칙·이용 안내', '일정', '옷장', '노래책', '셋리스트', '내 설정']);
     await expect(menu.getByRole('link', { name: '규칙·이용 안내' })).toHaveAttribute('aria-current', 'page');
     for (const [label, href] of [
       ['일정', '/schedule'],
       ['옷장', '/wardrobe'],
       ['노래책', '/musicbook'],
+      ['셋리스트', '/setlist'],
     ]) {
       await expect(menu.getByRole('link', { name: label })).toHaveAttribute('href', href);
     }
