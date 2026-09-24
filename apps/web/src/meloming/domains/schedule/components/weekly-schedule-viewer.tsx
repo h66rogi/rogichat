@@ -311,7 +311,7 @@ export function WeeklyScheduleViewer({
       className={cn(
         "mb-8",
         isGoogleMonth &&
-          "mb-0 flex h-[calc(100svh_-_var(--site-sticky-top)_-_var(--page-section-header-height))] min-h-[520px] flex-col overflow-hidden md:h-[calc(100dvh_-_var(--card-gap)_-_var(--card-gap)_-_var(--page-section-header-height))] md:min-h-0"
+          "mb-0 flex h-full min-h-0 flex-col overflow-hidden"
       )}
     >
       {!fitCalendarToViewport && (

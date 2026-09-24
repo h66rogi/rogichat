@@ -13,6 +13,7 @@ export const CHANNEL_IDENTIFIER = 'hurogi';
 type FeaturePageProps = {
   children: ReactNode;
   relatedLink?: { href: string; label: string };
+  fillHeight?: boolean;
 };
 
 export async function featureMetadata(title: string, description: string): Promise<Metadata> {
@@ -27,7 +28,7 @@ export async function featureMetadata(title: string, description: string): Promi
   };
 }
 
-export async function FeaturePage({ children, relatedLink }: FeaturePageProps) {
+export async function FeaturePage({ children, relatedLink, fillHeight = false }: FeaturePageProps) {
   const [channel, permission] = await Promise.all([
     getChannelIdentifierServer(CHANNEL_IDENTIFIER),
     getChannelIdentifierPermissionServer(CHANNEL_IDENTIFIER),
@@ -35,11 +36,17 @@ export async function FeaturePage({ children, relatedLink }: FeaturePageProps) {
   if (!channel) notFound();
   if (permission && !permission.view) return <UserNotFoundError />;
 
-  return (
-    <PageErrorBoundary>
+  const content = (
+    <>
       <ChannelNewLayoutHeader user={CHANNEL_IDENTIFIER} isWide={channel.layoutWidth === 'wide'} permissionData={permission} />
       {relatedLink && <div className="flex justify-end px-4 py-2"><Link href={relatedLink.href} className="rounded-full border border-line px-4 py-2 text-sm font-medium text-ink hover:bg-surface-soft">{relatedLink.label}</Link></div>}
       {children}
+    </>
+  );
+
+  return (
+    <PageErrorBoundary>
+      {fillHeight ? <div className="flex h-full min-h-0 flex-col">{content}</div> : content}
     </PageErrorBoundary>
   );
 }

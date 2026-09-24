@@ -138,7 +138,7 @@ export default function ScheduleSection({
       id="channel-schedule"
       className={cn(
         "channel-box",
-        fitCalendarToViewport && "flex min-h-0 flex-col"
+        fitCalendarToViewport && "flex min-h-0 flex-1 flex-col"
       )}
     >
       {showSectionHeader && (
