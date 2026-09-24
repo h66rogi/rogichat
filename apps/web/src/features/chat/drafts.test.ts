@@ -85,10 +85,11 @@ describe('scoped drafts', () => {
 
 describe('formatters', () => {
   it('labels today and yesterday relative to the given now', () => {
-    const now = new Date(2026, 8, 20, 15, 0, 0);
-    assert.equal(formatDateLabel(new Date(2026, 8, 20, 1, 0, 0), now), '오늘');
-    assert.equal(formatDateLabel(new Date(2026, 8, 19, 23, 59, 0), now), '어제');
-    assert.notEqual(formatDateLabel(new Date(2026, 8, 18), now), '어제');
+    // Chat dates use Korea time on both the server and the browser.
+    const now = new Date('2026-09-20T06:00:00.000Z');
+    assert.equal(formatDateLabel(new Date('2026-09-19T16:00:00.000Z'), now), '오늘');
+    assert.equal(formatDateLabel(new Date('2026-09-19T14:59:00.000Z'), now), '어제');
+    assert.notEqual(formatDateLabel(new Date('2026-09-17T15:00:00.000Z'), now), '어제');
   });
 
   it('collapses line breaks and truncates excerpts', () => {

@@ -32,7 +32,9 @@ test.describe('public routes', () => {
   test('/rules is public content', async ({ page }) => {
     await page.goto('/rules');
     await expect(page.getByRole('heading', { level: 1, name: '이용 안내' })).toBeVisible();
-    await expect(page.getByText('개인답장이 공개될 수 있어요')).toBeVisible();
+    const publicationHeading = page.getByRole('heading', { level: 2, name: '개인답장이 공개될 수 있어요' });
+    await expect(publicationHeading).toHaveCount(1);
+    await expect(publicationHeading).toBeVisible();
   });
 
   for (const route of ['/chat', '/settings']) {
@@ -43,6 +45,11 @@ test.describe('public routes', () => {
       await expect(page.getByTestId('settings-view')).toHaveCount(0);
     });
   }
+  test('anonymous chat renders the login gate in the first HTML response', async ({ request }) => {
+    const response = await request.get('/chat');
+    expect(response.status()).toBe(200);
+    expect(await response.text()).toContain('로그인 후 이용할 수 있어요');
+  });
   test('/login requires terms and reports provider failure truthfully', async ({ page }) => {
     await page.goto('/login?reason=cancelled');
     await expect(page.getByText('로그인을 취소했어요. 다시 시도할 수 있어요.')).toBeVisible();
@@ -64,6 +71,17 @@ test.describe('public routes', () => {
   test('/auth/complete verifies the session instead of claiming success', async ({ page }) => {
     await page.goto('/auth/complete');
     await expect(page.getByRole('heading', { name: '로기챗 로그인' })).toBeVisible();
+  });
+  test('private SSR lock accepts only the configured web origin', async ({ request }) => {
+    const path = '/auth/private-render-lock';
+    const headers = { host: 'qa.rogi.chat', origin: 'https://qa.rogi.chat' };
+    const locked = await request.post(path, { headers });
+    expect(locked.status()).toBe(204);
+    expect(locked.headers()['set-cookie']).toContain('__Host-rogi_private_render_lock=1');
+    expect((await request.post(path, { headers: { ...headers, origin: 'https://other.example' } })).status()).toBe(403);
+    const unlocked = await request.delete(path, { headers });
+    expect(unlocked.status()).toBe(204);
+    expect(unlocked.headers()['set-cookie']).toContain('Max-Age=0');
   });
   for (const route of ['/preview', '/preview/chat/fan', '/preview/chat/streamer', '/preview/settings', '/demo', '/mock', '/fixtures']) {
     test(`${route} is absent from the production application`, async ({ request }) => {

@@ -140,6 +140,24 @@ function ScopedChatRoom({
     return defaultTarget;
   });
   const [drafts, setDrafts] = useState<ChatDrafts>(() => composerMemory?.getComposer().drafts ?? {});
+  // A resumed tab can receive a newer authorized quote while the composer stays
+  // mounted. Refresh only the quote preview; preserve the user's typed body.
+  const [observedItems, setObservedItems] = useState(items);
+  if (observedItems !== items) {
+    setObservedItems(items);
+    const authoritative = composerMemory?.getComposer().drafts;
+    if (authoritative) setDrafts(current => {
+      let changed = false;
+      const next = { ...current };
+      for (const [key, draft] of Object.entries(current)) {
+        const quote = authoritative[key]?.quote;
+        if (!draft.quote || !quote || draft.quote.messageId !== quote.messageId ||
+          (draft.quote.excerpt === quote.excerpt && draft.quote.authorName === quote.authorName)) continue;
+        next[key] = { ...draft, quote }; changed = true;
+      }
+      return changed ? next : current;
+    });
+  }
   useLayoutEffect(() => { if (composerEpoch !== undefined) composerMemory?.saveComposer(drafts, requestedTarget, composerEpoch); }, [composerMemory, composerEpoch, drafts, requestedTarget]);
   /** Draft key whose send is pending, or null. */
   const [submittingKey, setSubmittingKey] = useState<ChatDraftKey | null>(null);

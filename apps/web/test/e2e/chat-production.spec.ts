@@ -36,9 +36,9 @@ test('in-app navigation keeps one chat instance and revocation still clears it',
     await page.getByRole('dialog', { name: '채널 메뉴' }).getByRole('link', { name: '채팅' }).click();
   } else await page.locator('[data-shell-aside]').getByRole('link', { name: '채팅' }).click();
   await expect(page).toHaveURL(/\/chat$/);
-  await expect(page.getByText('채팅 접근을 확인하고 있습니다.')).toBeVisible();
-  await expect(input).toBeHidden();
-  await expect(page.getByText(incoming.content.text, { exact: true })).toBeHidden();
+  await expect(input).toBeVisible();
+  await expect(input).toHaveValue('다른 메뉴를 다녀와도 유지되는 초안');
+  await expect(page.getByText(incoming.content.text, { exact: true })).toBeVisible();
   release();
   await expect(input).toBeVisible();
   await expect(input).toHaveValue('다른 메뉴를 다녀와도 유지되는 초안');
@@ -49,12 +49,37 @@ test('in-app navigation keeps one chat instance and revocation still clears it',
   await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
 });
 
-test('route return never reveals a parked conversation after session revocation', async ({ page, isMobile }) => {
+test('returning from another menu keeps the exact timeline scroll position', async ({ page, isMobile }) => {
+  const { state } = await chatApi(page);
+  state.messages = Array.from({ length: 45 }, (_, index) => ({ ...incoming,
+    id: `55555555-5555-4555-8555-${String(index + 1).padStart(12, '0')}`,
+    createdAt: new Date(Date.parse(incoming.createdAt) + index * 1000).toISOString(),
+    content: { type: 'TEXT', text: `이전 대화 ${index + 1}` },
+  }));
+  await page.goto('/chat');
+  const timeline = page.getByTestId('chat-timeline');
+  await expect(page.getByText('이전 대화 45', { exact: true })).toBeVisible();
+  await timeline.evaluate(element => { element.scrollTop = (element.scrollHeight - element.clientHeight) / 2; });
+  const position = await timeline.evaluate(element => element.scrollTop);
+  expect(position).toBeGreaterThan(100);
+  if (isMobile) await page.getByRole('link', { name: '채널 홈으로 이동' }).click();
+  else await page.locator('[data-shell-aside]').getByRole('link', { name: '프로필' }).click();
+  if (isMobile) {
+    await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
+    await page.getByRole('dialog', { name: '채널 메뉴' }).getByRole('link', { name: '채팅' }).click();
+  } else await page.locator('[data-shell-aside]').getByRole('link', { name: '채팅' }).click();
+  await expect.poll(async () => timeline.evaluate(element => element.scrollTop)).toBeGreaterThan(position - 4);
+  await expect.poll(async () => timeline.evaluate(element => element.scrollTop)).toBeLessThan(position + 4);
+});
+
+test('route return removes a parked conversation when fresh validation reports revocation', async ({ page, isMobile }) => {
   const { account } = await chatApi(page);
   await page.goto('/chat');
   await expect(page.getByTestId('chat-composer-input')).toBeVisible();
   if (isMobile) await page.getByRole('link', { name: '채널 홈으로 이동' }).click();
   else await page.locator('[data-shell-aside]').getByRole('link', { name: '프로필' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByTestId('chat-composer-input')).toBeHidden();
   account.sessionStatus = 401;
   if (isMobile) {
     await page.getByRole('button', { name: '채널 메뉴 열기' }).click();
@@ -79,6 +104,28 @@ test('routine window focus preserves the chat composer and timeline', async ({ p
   await expect(input).toHaveAttribute('data-focus-mount', 'retained');
   await expect(page.getByText(incoming.content.text, { exact: true })).toBeVisible();
   expect(state.snapshots).toBeGreaterThan(0);
+});
+
+test('tab visibility return keeps the exact mounted composer after session validation', async ({ page }) => {
+  await chatApi(page);
+  await page.goto('/chat');
+  const input = page.getByTestId('chat-composer-input');
+  await expect(input).toBeVisible();
+  await input.fill('탭을 다녀와도 남는 초안');
+  await input.evaluate(element => element.setAttribute('data-tab-mount', 'retained'));
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.locator('[data-private-shield]')).toBeVisible();
+  await expect(input).toBeHidden();
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.locator('[data-private-shield]')).toHaveCount(0);
+  await expect(input).toHaveValue('탭을 다녀와도 남는 초안');
+  await expect(input).toHaveAttribute('data-tab-mount', 'retained');
 });
 const streamerId = '44444444-4444-4444-8444-444444444444';
 const incoming = { id: '55555555-5555-4555-8555-555555555555', version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE' as const, author: { kind: 'member' as const, actorId: streamerId, nickname: '테스트 스트리머', avatar: null }, content: { type: 'TEXT' as const, text: '실제 계약 형식의 개인 메시지' }, quote: null, counterpart: { actorId: streamerId }, allowedActions: { reply: true, publish: false, delete: false } };
@@ -471,18 +518,20 @@ test('new identical composer submissions create separate command identities', as
   expect(state.posts).toHaveLength(2); expect(state.posts[0]?.clientMessageId).not.toBe(state.posts[1]?.clientMessageId);
 });
 
-test('auth-gate pagehide/pageshow unmount preserves same-authority draft quote and exact retry command', async ({ page }) => {
+test('pagehide/pageshow obscures but retains the mounted draft, quote and retry command', async ({ page }) => {
   const { state } = await chatApi(page); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
   await replyToFirstMessage(page); await input.fill('복귀 뒤에도 같은 명령'); await input.press('Enter');
   await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
   const id = state.posts[0]?.clientMessageId;
+  await input.evaluate(element => { element.setAttribute('data-resume-mount', 'retained'); });
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-  await expect(input).toHaveCount(0); await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
+  await expect(page.locator('[data-private-shield]')).toBeVisible();
+  await expect(input).toBeHidden();
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
-  await input.evaluate(element => { element.setAttribute('data-resume-mount', 'retained'); });
+  await expect(input).toHaveAttribute('data-resume-mount', 'retained');
   for (let i = 0; i < 2; i++) {
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
     await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
@@ -496,7 +545,7 @@ test('auth-gate pagehide/pageshow unmount preserves same-authority draft quote a
 test('confirmed session loss scrubs parked drafts before same-token account access returns', async ({ page }) => {
   const { account } = await chatApi(page);
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input'); await input.fill('재인증 후 남으면 안 되는 초안');
-  await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toBeHidden();
   account.sessionStatus = 401;
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
@@ -527,7 +576,7 @@ test('auth-gate resume rebuilds a parked quote from the newly authorized message
   const { state } = await chatApi(page);
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
   await replyToFirstMessage(page); await input.fill('유지할 초안');
-  await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toBeHidden();
   state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '수정된 인용 본문' } }];
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   await expect(input).toHaveValue('유지할 초안');

@@ -15,6 +15,7 @@ import {
 import { cn } from "@/meloming/shared/lib/utils";
 import { Cake, Film, PartyPopper, Video } from "lucide-react";
 import { DayDetailSheet } from "@/meloming/domains/calendar/components/DayDetailSheet";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 
 type MonthlyCalendarVariant = "favorites" | "channel";
 
@@ -286,7 +287,7 @@ export function FavoriteMonthlyCalendar({
                         <Avatar className="size-4">
                           <AvatarImage src={avatar.imageUrl} />
                           <AvatarFallback className="text-[10px]">
-                            {avatar.fallbackText}
+                            <AvatarPlaceholder />
                           </AvatarFallback>
                         </Avatar>
                         <Icon
@@ -419,7 +420,7 @@ export function FavoriteMonthlyCalendar({
                     <Avatar className="size-4">
                       <AvatarImage src={avatar.imageUrl} />
                       <AvatarFallback className="text-[10px]">
-                        {avatar.fallbackText}
+                        <AvatarPlaceholder />
                       </AvatarFallback>
                     </Avatar>
                   )}

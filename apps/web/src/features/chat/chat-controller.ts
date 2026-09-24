@@ -9,6 +9,7 @@ import { reactionSummary, type ReactionState } from './reactions';
 import { actor, cursor, envelope, event, exact, list, membership, mergeMessages, message, projectMessages, receipt, record, string, token, uuid } from './contract';
 import type { ChatRequest, RoomMembership, ServerMessage, SyncKind, Receipt } from './contract';
 import type { ChatActorRef, ChatComposerTarget, ChatComposerSubmission, ChatSubmitResult, ChatTimelineItem } from './types';
+import type { ChatSeed } from '@/core/server/channel-bootstrap';
 
 export interface ChatState {
   storageError: string | null;
@@ -104,7 +105,7 @@ export class ChatController {
   private manifestGeneration: string | null = null;
   private profileGeneration: string | null = null;
   private recipientBinding: string | null = null;
-  private readonly deviceId = crypto.randomUUID();
+  private deviceId = crypto.randomUUID();
   private cacheId = crypto.randomUUID();
   private get commands() { return this.memory.commands; }
   private tombstones = new Map<string, { version: string; createdAt?: string }>();
@@ -121,11 +122,21 @@ export class ChatController {
   private readonly roomId: string;
   private readonly request: ChatRequest;
   private readonly onInvalidate: (() => void) | undefined;
-  constructor(roomId: string, request: ChatRequest, onInvalidate?: () => void, csrfToken?: string, accountPartition?: string, memory?: ChatMemory, environment?: string) {
+  constructor(roomId: string, request: ChatRequest, onInvalidate?: () => void, csrfToken?: string, accountPartition?: string, memory?: ChatMemory, environment?: string, seed?: ChatSeed | null) {
     this.environment = environment; if (environment) activeControllers.add(this);
     this.memory = memory ?? new ChatMemory(); this.retainMemory = memory !== undefined; this.lease = this.memory.activate();
     this.state = { ...initial(), epoch: this.memory.epoch, notice: this.memory.expired ? '오래 보관된 초안은 삭제되었습니다. 미확인 전송은 결과만 조회할 수 있습니다.' : null };
     this.roomId = roomId; this.request = request; this.onInvalidate = onInvalidate; this.accountPartition = accountPartition; this.sessionBinding = csrfToken;
+    if (seed && seed.room.roomId === roomId && seed.sessionBinding === csrfToken && seed.accountPartition === accountPartition) {
+      this.deviceId = seed.deviceId; this.cacheId = seed.cacheId;
+      this.scope = seed.room; this.messages = seed.messages; this.eventCursor = seed.eventCursor; this.historyCursor = seed.historyCursor;
+      this.manifestGeneration = seed.manifestGeneration; this.profileGeneration = seed.profileGeneration;
+      this.recipientBinding = JSON.stringify(seed.recipients.map(item => item.actorId));
+      this.memory.membershipScope = seed.room.membershipScope;
+      this.rememberAuthority(seed.room, seed.recipients);
+      this.state = { ...this.state, phase: 'ready', room: seed.room, profiles: seed.profiles, recipients: seed.recipients,
+        items: projectMessages(seed.messages, seed.room.actorId, [...seed.profiles, ...seed.recipients]), hasOlder: seed.historyCursor !== null };
+    }
   }
   getSnapshot = (): ChatState => this.state;
   privacyContext = (messageId: string) => {
@@ -280,6 +291,16 @@ export class ChatController {
     if (previous) await previous;
     if (this.sending) await this.sendSettled;
     if (!this.dead) await this.refresh();
+  };
+  /** A restored tab rechecks the full visible page and pending command receipts. */
+  refreshAfterResume = async (): Promise<void> => {
+    const previous = this.flight;
+    if (previous) await previous;
+    if (this.sending) await this.sendSettled;
+    if (this.dead) return;
+    this.eventCursor = null;
+    this.recoverySeen.clear();
+    await this.refresh();
   };
   refresh = (): Promise<void> => {
     if (this.dead) return Promise.resolve();

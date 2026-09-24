@@ -37,12 +37,15 @@ interception에만 존재하며 앱 소스·라우트·컨테이너 입력으로
 
 ## 데이터와 개인정보 경계
 
-브라우저는 API origin으로 `credentials: include` 요청을 직접 보낸다. API의 host-only HttpOnly
-쿠키를 Next로 옮기거나 도메인을 넓히지 않는다. `/v1` 프록시가 없다. 읽기는 CSRF 없이 현재 세션을
-확인하고, 변경은 서버가 발급한 CSRF 헤더와 실제 JSON 계약을 사용한다. 원본 오류 본문은 표시·로그하지 않는다.
+브라우저는 API origin으로 `credentials: include` 요청을 직접 보낸다. 환경별 `__Secure-`
+HttpOnly 세션 쿠키는 웹과 API가 공유하는 Domain에만 설정된다. Next는 해당 환경의 쿠키만
+API에 전달해 인증 화면을 SSR한다. `/v1` 프록시는 없다. 서버 SSR 조회도 API의 현재
+세션·권한을 다시 검사하며 `no-store`다. 로그아웃·탈퇴 pending 상태에서는 웹 호스트 전용
+렌더링 잠금 쿠키가 비공개 SSR을 막는다. 브라우저 변경은 서버가 발급한 CSRF 헤더와 실제
+JSON 계약을 사용한다. 원본 오류 본문은 표시·로그하지 않는다.
 
-세션·프로필·채팅 조회 데이터는 메모리에만 둔다. 숨김·pagehide·bfcache 복귀·다른 탭의 세션 변경 시
-private 화면을 제거하고 새 세션을 확인한다. 로그아웃 요청 전에는 불투명한 one-way session digest와
+세션·프로필·채팅 조회 데이터는 브라우저의 비영속 메모리와 요청 범위 SSR에만 둔다. 탭 숨김·pagehide에서는
+비공개 화면을 가리고 복귀 시 새 세션을 확인한다. 같은 세션이면 화면 상태를 유지하고, 세션 변경·권한 취소 시에는 이전 내용을 제거한다. 로그아웃 요청 전에는 불투명한 one-way session digest와
 시도 ID만 pending marker로 저장하며, 결과가 불명확하면 새로고침해도 잠금 상태를 유지한다.
 다른 세션은 기존 로그아웃 재시도로 해제하지 않으며, 늦은 응답은 최신 pending marker를 지우지 않는다.
 

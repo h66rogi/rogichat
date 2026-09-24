@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 import {
   Avatar,
   AvatarFallback,
@@ -292,7 +293,7 @@ function DayDetailHeaderInner({
               <Avatar className="size-6">
                 <AvatarImage src={channel.profileImageUrl ?? undefined} />
                 <AvatarFallback className="text-xs">
-                  {channel.name.slice(0, 1)}
+                  <AvatarPlaceholder />
                 </AvatarFallback>
               </Avatar>
               <span className="text-muted-foreground hover:underline">
@@ -304,7 +305,7 @@ function DayDetailHeaderInner({
               <Avatar className="size-6">
                 <AvatarImage src={channel.profileImageUrl ?? undefined} />
                 <AvatarFallback className="text-xs">
-                  {channel.name.slice(0, 1)}
+                  <AvatarPlaceholder />
                 </AvatarFallback>
               </Avatar>
               <span className="text-muted-foreground">{channel.name}</span>

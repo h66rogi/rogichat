@@ -31,8 +31,8 @@ export function ChannelShell({ channel, children }: { channel: ChannelDescriptor
 
       <ChannelMobileTopBar channel={channel} />
 
-      <div className="flex w-full flex-1 md:px-2 md:pb-2">
-        <div className="flex w-full flex-1 bg-canvas md:rounded-md md:border md:border-line">
+      <div className="flex min-h-0 w-full flex-1 md:px-2 md:pb-2">
+        <div className="flex min-h-0 w-full flex-1 bg-canvas md:rounded-md md:border md:border-line">
           <aside
             data-shell-aside
             className="sticky top-[calc(var(--shell-top-bar-height)+env(safe-area-inset-top,0px))] hidden max-h-[calc(100svh-var(--shell-top-bar-height)-var(--shell-gap))] w-[18rem] shrink-0 flex-col self-start overflow-y-auto md:flex"
@@ -43,8 +43,8 @@ export function ChannelShell({ channel, children }: { channel: ChannelDescriptor
             </div>
           </aside>
 
-          <div className="flex min-w-0 flex-1 flex-col md:border-l md:border-line-subtle">
-            <main data-shell-main className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col md:border-l md:border-line-subtle">
+            <main data-shell-main className="flex min-h-0 min-w-0 flex-1 flex-col">
               {children}
             </main>
             <footer data-shell-footer className="border-t border-line-subtle px-4 py-4 text-[13px] text-muted md:px-6">

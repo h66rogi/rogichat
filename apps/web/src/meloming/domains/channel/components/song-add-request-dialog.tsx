@@ -11,6 +11,7 @@ import {
 import { Alert, AlertDescription } from "@/meloming/shared/components/ui/alert";
 import { Music, Radio, Send } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/meloming/shared/components/ui/avatar";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 import { toast } from "sonner";
 import {
   useChannelSongPermission,
@@ -507,7 +508,7 @@ export function SongAddRequestDialog({
             <Avatar className="size-6 shrink-0">
               <AvatarImage src={channelProfileImageUrl ?? undefined} />
               <AvatarFallback className="text-xs">
-                {channelName.charAt(0).toUpperCase()}
+                <AvatarPlaceholder />
               </AvatarFallback>
             </Avatar>
             <span className="text-sm text-muted-foreground truncate">

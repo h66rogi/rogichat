@@ -23,6 +23,7 @@ import {
 } from "@/meloming/shared/components/ui/alert-dialog";
 import { Music, CheckCircle, XCircle, User, Clock, Loader2, Pencil } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/meloming/shared/components/ui/avatar";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 import { formatDistanceToNow } from "date-fns";
 import { ko } from "date-fns/locale";
 import { toast } from "sonner";
@@ -444,7 +445,7 @@ export function SongRequestReviewDialog({
               <Avatar className="size-6">
                 <AvatarImage src={request.requester.profileImageUrl} />
                 <AvatarFallback className="text-xs">
-                  {request.requester.nickname.charAt(0).toUpperCase()}
+                  <AvatarPlaceholder />
                 </AvatarFallback>
               </Avatar>
               <span>

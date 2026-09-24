@@ -16,7 +16,7 @@ function RoomStatus({ retry }: { retry: () => void }) {
   const state = useRoom();
   return <section aria-label="후로기 기본 채팅방" className="space-y-3 rounded-md border border-line p-5">
     <h2 className="text-[18px] font-semibold">후로기 채팅방</h2>
-    {state.kind === 'checking' && <p role="status">채팅방 참여 상태를 확인하고 있습니다.</p>}
+    {state.kind === 'checking' && <div className="space-y-3" aria-label="채팅방 정보 불러오는 중" role="status"><div className="h-4 w-28 rounded bg-surface-strong motion-safe:animate-pulse" /><div className="h-4 w-52 rounded bg-surface-strong motion-safe:animate-pulse" /></div>}
     {state.kind === 'ready' && <>
       <p>{state.room.name}</p>
       <p className="text-sm text-muted">{state.room.availability === 'OWNER_PENDING' ? '방장 계정을 확인하고 있습니다. 확인이 완료되면 입장할 수 있습니다.' : state.room.joined ? '참여 중인 채팅방입니다.' : '채팅방에 입장하여 후로기와 대화할 수 있습니다.'}</p>

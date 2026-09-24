@@ -9,6 +9,7 @@ import { Clock } from "lucide-react";
 import { cn } from "@/meloming/shared/lib/utils";
 import { useRouter } from "next/navigation";
 import { getStatusMeta } from "@/meloming/domains/schedule/utils/schedule-status";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 
 type ScheduleCardDesktopProps = {
   schedule: Schedule;
@@ -103,7 +104,7 @@ export function ScheduleCardDesktop({
                   src={schedule.channel.profileImageUrl ?? undefined}
                 />
                 <AvatarFallback>
-                  {schedule.channel.name?.slice(0, 1) ?? "?"}
+                  <AvatarPlaceholder />
                 </AvatarFallback>
               </Avatar>
             </div>

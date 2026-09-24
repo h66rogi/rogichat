@@ -10,15 +10,16 @@ import { useRoom } from '@/features/channel/session/use-room';
 import { Button } from '@/shared/ui/button';
 
 export function AdminView() {
-  const { state, refresh } = usePrivateSession();
+  const { state, refresh, obscured } = usePrivateSession();
   if (state.kind !== 'ready') return <PrivateGate state={state} retry={refresh} />;
-  return <AdminAccount key={state.generation} session={state.session} />;
+  return <AdminAccount key={state.generation} session={state.session} obscured={obscured} />;
 }
-function AdminAccount({ session }: { session: Session }) {
+function AdminAccount({ session, obscured }: { session: Session; obscured: boolean }) {
   const api = useApi(); const room = useRoom();
   const [permission, setPermission] = useState<'checking' | 'denied' | 'allowed' | 'error'>('checking');
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
+    if (obscured) return;
     const controller = new AbortController();
     void (async () => {
       try {
@@ -33,7 +34,7 @@ function AdminAccount({ session }: { session: Session }) {
       }
     })();
     return () => controller.abort();
-  }, [api, session, attempt]);
+  }, [api, session, attempt, obscured]);
   if (permission === 'denied') return <StatePanel title="관리자 권한이 필요합니다">이 계정에는 임시 권한 관리 권한이 없습니다.</StatePanel>;
   if (permission === 'error') return <StatePanel title="관리자 권한을 확인하지 못했습니다" retry={() => setAttempt(value => value + 1)} />;
   if (permission !== 'allowed' || room.kind === 'checking') return <StatePanel title="관리 권한을 확인하고 있습니다" />;

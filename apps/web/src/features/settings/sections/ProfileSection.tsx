@@ -4,6 +4,7 @@ import { useId, useState, type ReactNode } from 'react';
 import { Cake, Lock } from 'lucide-react';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
+import { AvatarPlaceholder } from '@/shared/ui/avatar-placeholder';
 import { Button } from '@/shared/ui/button';
 import { Input } from '@/shared/ui/input';
 import { Label } from '@/shared/ui/label';
@@ -65,9 +66,7 @@ export function ProfileSection({
       <div className="flex items-center gap-4">
         {profileAvatar ?? <Avatar className="size-16">
           {model.avatarUrl && <AvatarImage src={model.avatarUrl} alt="" />}
-          <AvatarFallback className="text-[20px]" aria-hidden="true">
-            {model.nickname.charAt(0) || '·'}
-          </AvatarFallback>
+          <AvatarFallback aria-hidden="true"><AvatarPlaceholder /></AvatarFallback>
         </Avatar>}
         <div className="flex min-w-0 flex-col gap-1 text-[14px]">
           <span className="font-semibold text-ink">{model.nickname || '이름 없음'}</span>

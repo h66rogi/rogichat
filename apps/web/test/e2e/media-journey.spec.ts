@@ -89,9 +89,9 @@ test('provider-only avatar renders without storage, retries failure, and explici
     return json(route, profile);
   });
   await page.goto('/settings');
-  await expect(page.getByText('프로필 사진을 불러오지 못했습니다.')).toBeVisible();
+  await expect(page.getByRole('img', { name: '저장된 프로필 사진' })).toBeVisible();
   failed = false;
-  await page.getByRole('button', { name: '사진 다시 보기' }).click();
+  await page.getByRole('button', { name: '프로필 사진 다시 불러오기' }).click();
   await expect(page.getByRole('img', { name: '저장된 프로필 사진' })).toBeVisible();
   await page.getByLabel('닉네임', { exact: true }).fill('새로 정한 이름');
   await page.getByRole('button', { name: '변경 내용 저장' }).click();

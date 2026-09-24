@@ -7,6 +7,7 @@ import {
 } from "@/meloming/shared/components/ui/avatar";
 import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 
 interface UserAvatarProps {
   userName: string;
@@ -89,7 +90,7 @@ export default function UserAvatar({
     >
       <AvatarImage src={profileImageUrl ?? undefined} />
       <AvatarFallback style={fallbackStyle}>
-        {userName ? userName.slice(0, 1) : "?"}
+        <AvatarPlaceholder />
       </AvatarFallback>
     </Avatar>
   );

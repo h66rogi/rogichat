@@ -143,7 +143,7 @@ test('production foreground reauthorizes durable recovery and preserves pending 
   const { state } = await recoveryApi(page);
   await unknownSend(page, '백그라운드에서도 결과 미확인 입력 보존');
   const input = page.getByTestId('chat-composer-input'), snapshots = state.snapshots;
-  await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toHaveCount(0);
+  await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toBeHidden();
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   await expect(input).toHaveValue('백그라운드에서도 결과 미확인 입력 보존');
   await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
@@ -179,7 +179,7 @@ test('production second-tab BUSY preserves input and explicit reconnect restores
   await recoveryApi(page); await page.goto('/chat'); await expect(page.getByTestId('chat-composer-input')).toBeVisible();
   const owner = 'isolated-other-writer'; await foreignLease(page, owner);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-  await expect(page.getByTestId('chat-composer-input')).toHaveCount(0);
+  await expect(page.getByTestId('chat-composer-input')).toBeHidden();
   const second = await context.newPage(); const { state } = await recoveryApi(second); await second.goto('/chat');
   const reconnect = second.getByRole('button', { name: '전송 저장소 다시 연결', exact: true }); await expect(reconnect).toBeVisible();
   const input = second.getByTestId('chat-composer-input'); await expect(input).toBeVisible(); await input.fill('다른 탭 사용 중에도 입력 보존');
@@ -236,7 +236,7 @@ test('receipt recovery blocks dispatch but keeps the draft editable until the re
   const { state } = await recoveryApi(page); await unknownSend(page, '보관된 전송');
   let release!: () => void; state.holdLookup = new Promise<void>(resolve => { release = resolve; });
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-  await expect(page.getByTestId('chat-composer-input')).toHaveCount(0);
+  await expect(page.getByTestId('chat-composer-input')).toBeHidden();
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
   await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
   const input = page.getByTestId('chat-composer-input'); await expect(input).toBeEditable();
