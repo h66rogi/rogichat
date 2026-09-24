@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BookOpen, CalendarDays, Home, Info, MessageSquareText, Settings, Shirt, type LucideIcon } from 'lucide-react';
+import { BookOpen, CalendarDays, Home, Info, ListMusic, MessageSquareText, Settings, Shirt, type LucideIcon } from 'lucide-react';
 
 import { cn } from '@/shared/lib/cn';
 import type { ChannelDescriptor, ChannelFeatureKey } from '../model/channel-descriptor';
@@ -12,7 +12,7 @@ import { channelHref, featureFromPath, menuItemsFor } from '../model/channel-fea
  * Adapted from meloming-front f8907f37e73d0b760eac3c5af2beb48714331c83
  * `src/domains/channel/components/channel/channel-menu-sidebar.tsx` (`TAB_ICONS`, `ChannelSidebarMenuLink`):
  * pill-shaped navigation links with icon, label and `aria-current`. Rogichat changes: no drag-and-drop
- * editor, no feature-settings mutation, no verified/setlist filters, no toast; items come from the channel
+ * editor, no feature-settings mutation, no verified filter, no toast; items come from the channel
  * descriptor and link to their live routes.
  */
 const FEATURE_ICONS: Record<ChannelFeatureKey, LucideIcon> = {
@@ -23,6 +23,7 @@ const FEATURE_ICONS: Record<ChannelFeatureKey, LucideIcon> = {
   schedule: CalendarDays,
   wardrobe: Shirt,
   songbook: BookOpen,
+  setlist: ListMusic,
 };
 
 export function ChannelMenu({ channel, onNavigate }: { channel: ChannelDescriptor; onNavigate?: () => void }) {
