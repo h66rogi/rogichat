@@ -6,6 +6,10 @@ from changes import classify, classify_path
 class ComponentChangesTest(unittest.TestCase):
     def test_web_only(self):
         self.assertEqual(classify(['apps/web/src/app/page.tsx']), (True, False))
+        for path in ('tools/operations/web_release.py',
+                     'tools/operations/test_web_release.py',
+                     'tools/operations/web-release.md'):
+            self.assertEqual(classify_path(path), (True, False), path)
 
     def test_backend_only(self):
         self.assertEqual(classify(['apps/api/src/main.ts']), (False, True))
