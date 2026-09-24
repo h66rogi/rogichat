@@ -116,7 +116,10 @@ already exist in the local daemon with the actual approved RepoDigest.
 Before activation, preflight reads the candidate's channel identifier from the
 exact source commit through GitHub's content API and requires the paired live API
 to return that channel. A published web image cannot activate ahead of a required
-API change. Missing source metadata or API availability fails closed.
+API change. The running API and worker must be healthy at the same source revision.
+If their source is older than the web candidate, the complete GitHub comparison
+must show no API or shared backend runtime input changes. Missing source metadata,
+an incomplete comparison or API availability fails closed.
 
 Activation verifies the previous managed web release is healthy, rechecks request,
 host, artifact bytes, promotion and Caddy bindings, then marks the UUID attempted.

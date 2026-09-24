@@ -252,6 +252,51 @@ def names(request):
 
 
 CHANNEL_SOURCE = 'apps/web/src/features/channel/content/feature-page.tsx'
+BACKEND_SHARED_FILES = {'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.node-version'}
+
+
+def backend_input(path):
+    return (path.startswith(('apps/api/', 'packages/', 'patches/'))
+            or path.startswith('infrastructure/runtime/') and not path.startswith('infrastructure/runtime/web/')
+            or path in BACKEND_SHARED_FILES)
+
+
+def api_revision(request):
+    short, _, _ = names(request)
+    revisions = []
+    for role in ('api', 'worker'):
+        container = decode(docker('inspect', f'rogichat-{short}-{role}'))[0]
+        require(container['State']['Running'] and container['State'].get('Health', {}).get('Status') == 'healthy',
+                'paired backend is unhealthy')
+        revision = container['Config']['Labels'].get('org.opencontainers.image.revision')
+        require(matches(SHA, revision), 'paired backend source unavailable')
+        revisions.append(revision)
+    require(revisions[0] == revisions[1], 'paired backend sources differ')
+    return revisions[0]
+
+
+def verify_api_compatibility(request):
+    """Do not activate a web candidate ahead of backend code it may require."""
+    running = api_revision(request)
+    source = request['source_sha']
+    if running == source:
+        return
+    comparison = github(f'compare/{running}...{source}')
+    require(comparison.get('status') in ('ahead', 'identical')
+            and comparison.get('merge_base_commit', {}).get('sha') == running,
+            'paired backend source is not a candidate ancestor')
+    files = comparison.get('files')
+    require(type(files) is list and len(files) < 300 and type(comparison.get('total_commits')) is int
+            and comparison['total_commits'] <= 250, 'backend source comparison incomplete')
+    for item in files:
+        require(type(item) is dict and type(item.get('filename')) is str,
+                'backend source comparison invalid')
+        paths = [item['filename']]
+        if item.get('status') == 'renamed':
+            require(type(item.get('previous_filename')) is str, 'backend source rename invalid')
+            paths.append(item['previous_filename'])
+        require(not any(backend_input(path) for path in paths),
+                'candidate requires a newer backend release')
 
 
 def candidate_channel(request):
@@ -414,6 +459,7 @@ def preflight():
         verify_image(image, request)
     config['x-rogichat-release'] = {'image': request['image'], 'execution_image': execution(request)}
     verify_ci(request)
+    verify_api_compatibility(request)
     channel_name = candidate_channel(request)
     edge = snapshot_edge(request)
     _, name, _ = names(request)
@@ -603,6 +649,7 @@ def apply(prepared):
         require(digest(protected(QA, 0o600)) == request['completed_qa_sha256'])
     require(all(protected(paths[k]) == v for k, v in artifacts.items()), 'release artifacts changed')
     require(snapshot_edge(request) == edge, 'edge changed during request')
+    verify_api_compatibility(request)
     receipt = RECEIPTS / request['request_id']
     fd = os.open(receipt, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, 'w') as f:

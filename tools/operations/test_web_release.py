@@ -227,6 +227,56 @@ class ValidationTests(unittest.TestCase):
             w.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://elsewhere.invalid')
 
 
+class CandidateBackendTests(unittest.TestCase):
+    def containers(self, revision):
+        value = {'State': {'Running': True, 'Health': {'Status': 'healthy'}},
+                 'Config': {'Labels': {'org.opencontainers.image.revision': revision}}}
+        return [json.dumps([value]).encode(), json.dumps([value]).encode()]
+
+    def comparison(self, revision, files):
+        return {'status': 'ahead', 'merge_base_commit': {'sha': revision},
+                'total_commits': 1, 'files': [{'filename': path, 'status': 'modified'} for path in files]}
+
+    def test_same_backend_source_needs_no_compare(self):
+        r = request()
+        with patch.object(w, 'docker', side_effect=self.containers(r['source_sha'])) as docker, \
+                patch.object(w, 'github') as github:
+            w.verify_api_compatibility(r)
+        self.assertEqual(docker.call_count, 2)
+        github.assert_not_called()
+
+    def test_candidate_with_backend_change_is_rejected(self):
+        r = request()
+        revision = '1' * 40
+        for path in ('apps/api/src/modules/messages/messages-core.service.ts', 'pnpm-lock.yaml',
+                     'packages/contracts/index.ts', 'infrastructure/runtime/compose.app.yaml'):
+            with self.subTest(path=path), patch.object(w, 'docker', side_effect=self.containers(revision)), \
+                    patch.object(w, 'github', return_value=self.comparison(revision, [path])):
+                with self.assertRaisesRegex(w.Rejected, 'newer backend'):
+                    w.verify_api_compatibility(r)
+
+    def test_web_only_changes_allow_older_backend(self):
+        r = request()
+        revision = '1' * 40
+        files = ['apps/web/src/app/page.tsx', 'infrastructure/runtime/web/compose.qa.yaml']
+        with patch.object(w, 'docker', side_effect=self.containers(revision)), \
+                patch.object(w, 'github', return_value=self.comparison(revision, files)) as github:
+            w.verify_api_compatibility(r)
+        github.assert_called_once_with(f"compare/{revision}...{r['source_sha']}")
+
+    def test_incomplete_comparison_and_divergent_backend_fail_closed(self):
+        r = request()
+        revision = '1' * 40
+        for result in [dict(self.comparison(revision, []), files=[{'filename': 'apps/web/x'}] * 300),
+                       dict(self.comparison(revision, []), status='diverged'),
+                       dict(self.comparison(revision, []), files=[{'filename': 'apps/web/new',
+                          'previous_filename': 'apps/api/old', 'status': 'renamed'}])]:
+            with self.subTest(result=result), patch.object(w, 'docker', side_effect=self.containers(revision)), \
+                    patch.object(w, 'github', return_value=result):
+                with self.assertRaises(w.Rejected):
+                    w.verify_api_compatibility(r)
+
+
 class CandidatePageTests(unittest.TestCase):
     def source_item(self, identifier):
         source = f"export const CHANNEL_IDENTIFIER = '{identifier}';\n".encode()
@@ -755,7 +805,8 @@ class ApplyTests(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         for name, kwargs in [('protected', {'side_effect': read}), ('snapshot_edge', {'return_value': self.edge}),
-                             ('compose', {}), ('healthy', {}), ('external', {}), ('candidate_page', {}), ('reload_caddy', {})]:
+                             ('compose', {}), ('healthy', {}), ('external', {}), ('candidate_page', {}),
+                             ('verify_api_compatibility', {}), ('reload_caddy', {})]:
             p = patch.object(w, name, **kwargs)
             setattr(self, name, p.start())
             self.addCleanup(p.stop)
