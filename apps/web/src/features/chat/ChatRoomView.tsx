@@ -35,8 +35,8 @@ import type {
  * src/domains/talk/components/room/TalkStreamerView.tsx. From the original only the
  * composition "header + TalkMessageList + TalkMessageInput" and the reply/quote hand-off
  * survive. Removed: feed/fan-filter tabs, the fan list derived from loaded messages, the
- * per-fan message query and the "DM으로 전환" room creation. The streamer now picks
- * SHARED or one of the harness-authorized PRIVATE recipients inside the same timeline.
+ * per-fan message query and the "DM으로 전환" room creation. Everyone writes to
+ * the shared timeline; a streamer can privately reply to a selected message.
  *
  * This component owns UI state only: scoped drafts, quote, current target, per-target
  * result notices. It never sends, authenticates or persists; the harness does that through
@@ -63,15 +63,8 @@ export interface ChatRoomViewProps {
   viewer: ChatActorRef;
   viewerRole: ChatViewerRole;
   items: ChatTimelineItem[];
-  /** FAN only: an explicit server-authorized streamer recipient for PRIVATE replies. */
-  fanRecipient?: ChatActorRef | null | undefined;
-  /** Complete server-permitted actor targets; the room-owner inbox has its own target. */
-  fanRecipients?: readonly ChatActorRef[] | undefined;
-  /** Actual FAN membership permits a private room-owner inbox without inventing an actor. */
-  fanRoomOwner?: boolean | undefined;
   /** STREAMER only: fans the server authorized for PRIVATE replies. SHARED is always available. */
   streamerRecipients?: readonly ChatActorRef[] | undefined;
-  initialTarget?: ChatComposerTarget | undefined;
   /** Absent means sending is not wired yet; the composer says so instead of pretending. */
   onSubmit?: ((submission: ChatComposerSubmission) => ChatSubmitResult | Promise<ChatSubmitResult>) | undefined;
   submitBlockedReason?: string | undefined;
@@ -91,6 +84,7 @@ export function ChatRoomView(props: ChatRoomViewProps) {
 }
 
 const EMPTY_RECIPIENTS: readonly ChatActorRef[] = [];
+const SHARED_TARGET: ChatComposerTarget = { scope: 'SHARED' };
 
 function ScopedChatRoom({
   conversationScopeKey,
@@ -98,11 +92,7 @@ function ScopedChatRoom({
   roomName,
   viewerRole,
   items,
-  fanRecipient = null,
-  fanRecipients,
-  fanRoomOwner = false,
   streamerRecipients = EMPTY_RECIPIENTS,
-  initialTarget,
   onSubmit,
   submitBlockedReason,
   onLoadOlder,
@@ -118,25 +108,15 @@ function ScopedChatRoom({
   const [videoTarget, setVideoTarget] = useState<ChatComposerTarget | null>(null);
   const [stickerTarget, setStickerTarget] = useState<ChatComposerTarget | null>(null);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
-  const permittedFans = useMemo(() => fanRecipients ?? (fanRecipient ? [fanRecipient] : EMPTY_RECIPIENTS), [fanRecipients, fanRecipient]);
   const authorization = useMemo(
-    () => ({ viewerRole, fanRecipient, fanRecipients: permittedFans, fanRoomOwner, streamerRecipients }),
-    [viewerRole, fanRecipient, permittedFans, fanRoomOwner, streamerRecipients],
+    () => ({ viewerRole, streamerRecipients }),
+    [viewerRole, streamerRecipients],
   );
-
-  const targetOptions = useMemo<ChatComposerTarget[]>(() => {
-    if (viewerRole === 'FAN') {
-      return fanRoomOwner ? [{ scope: 'ROOM_OWNER' }, ...permittedFans.map<ChatComposerTarget>(recipient => ({ scope: 'PRIVATE', recipient }))] : permittedFans.map(recipient => ({ scope: 'PRIVATE', recipient }));
-    }
-    return [{ scope: 'SHARED' }, ...streamerRecipients.map<ChatComposerTarget>((recipient) => ({ scope: 'PRIVATE', recipient }))];
-  }, [viewerRole, permittedFans, fanRoomOwner, streamerRecipients]);
-
-  const defaultTarget = viewerRole === 'FAN' && !fanRoomOwner && targetOptions.length !== 1 ? null : targetOptions[0] ?? null;
+  const defaultTarget = SHARED_TARGET;
 
   const [requestedTarget, setRequestedTarget] = useState<ChatComposerTarget | null>(() => {
     const parked = composerMemory?.getComposer().target;
-    if (parked && isAuthorizedTarget(parked, authorization)) return parked;
-    if (initialTarget && isAuthorizedTarget(initialTarget, authorization)) return initialTarget;
+    if (parked?.scope === 'PRIVATE' && composerMemory?.getComposer().drafts[draftKeyFor(parked)]?.quote && isAuthorizedTarget(parked, authorization)) return parked;
     return defaultTarget;
   });
   const [drafts, setDrafts] = useState<ChatDrafts>(() => composerMemory?.getComposer().drafts ?? {});
@@ -182,27 +162,19 @@ function ScopedChatRoom({
     return () => window.clearTimeout(timer);
   }, [announcement]);
 
-  // Until the user interacts, the target follows the first authorized option (a fan's
-  // recipient may arrive after mount). Once committed by an interaction it is pinned:
-  // a revoked or changed recipient then locks the composer and keeps the draft under the
-  // same key. There is never a silent fallback to another target.
-  const draftKeyTarget = requestedTarget ?? defaultTarget;
-  const target = draftKeyTarget !== null && isAuthorizedTarget(draftKeyTarget, authorization) ? draftKeyTarget : null;
+  // A reply only exists while it still has a selected source message. Revoked fan
+  // authority locks the private draft; a removed quote returns to shared chat.
+  const draftKeyTarget = requestedTarget?.scope === 'PRIVATE' && !readDraft(drafts, requestedTarget).quote ? defaultTarget : requestedTarget ?? defaultTarget;
+  const target = isAuthorizedTarget(draftKeyTarget, authorization) ? draftKeyTarget : null;
 
   const commitTarget = useCallback(() => {
     if (requestedTarget === null && draftKeyTarget !== null) setRequestedTarget(draftKeyTarget);
   }, [requestedTarget, draftKeyTarget]);
 
-  const lockedReason = useMemo(() => {
-    if (onSubmit === undefined) return '현재 메시지를 보낼 수 없습니다. 잠시 후 다시 확인해 주세요.';
-    if (target !== null) return undefined;
-    if (draftKeyTarget !== null) return '보낼 대상을 다시 확인하는 중입니다. 작성 중인 내용은 유지됩니다.';
-    if (viewerRole === 'FAN' && permittedFans.length > 1) return '메시지를 보낼 대상을 선택해 주세요.';
-    if (viewerRole === 'FAN') return '지금은 개인 메시지를 보낼 수 있는 대상이 없습니다. 잠시 후 다시 확인해 주세요.';
-    return '보낼 대상이 없습니다.';
-  }, [onSubmit, target, draftKeyTarget, viewerRole, permittedFans.length]);
+  const lockedReason = onSubmit === undefined
+    ? '현재 메시지를 보낼 수 없습니다. 잠시 후 다시 확인해 주세요.'
+    : target !== null ? undefined : '선택한 메시지에 지금 답장할 수 없습니다. 답장을 취소하거나 다시 선택해 주세요.';
 
-  // A fan without an authorized actor or room-owner target has no draft; never fall back to SHARED.
   const currentKey: ChatDraftKey | null = draftKeyTarget ? draftKeyFor(draftKeyTarget) : null;
   const draft = draftKeyTarget ? readDraft(drafts, draftKeyTarget) : EMPTY_DRAFT;
   const notice = currentKey ? (notices[currentKey] ?? null) : null;
@@ -236,37 +208,24 @@ function ScopedChatRoom({
     [draftKeyTarget, currentKey, commitTarget, setNoticeFor],
   );
 
-  const changeTarget = useCallback((next: ChatComposerTarget) => {
-    setRequestedTarget(next);
-  }, []);
-
-  const handleTargetChange = useCallback(
-    (next: ChatComposerTarget) => {
-      if (!isAuthorizedTarget(next, authorization)) {
-        if (currentKey) setNoticeFor(currentKey, { tone: 'error', text: '이 대상에게는 지금 메시지를 보낼 수 없습니다.' });
-        return;
-      }
-      if (isSameTarget(next, requestedTarget)) return;
-      changeTarget(next);
-    },
-    [authorization, requestedTarget, changeTarget, currentKey, setNoticeFor],
-  );
-
   const handleCancelQuote = useCallback(() => {
     if (!draftKeyTarget || !currentKey) return;
     if (isSubmittingCurrent) {
       setNoticeFor(currentKey, { tone: 'info', text: '보내는 중에는 인용을 바꿀 수 없습니다.' });
       return;
     }
-    setDrafts((prev) => writeDraft(prev, draftKeyTarget, { quote: null, retryCommandId: undefined }));
+    setDrafts((prev) => clearDraft(prev, draftKeyTarget));
+    setRequestedTarget(SHARED_TARGET);
   }, [draftKeyTarget, currentKey, isSubmittingCurrent, setNoticeFor]);
 
   const handleReplyPrivate = useCallback(
     (item: ChatMessageItemModel) => {
-      if (!item.allowedActions?.reply) return;
+      if (item.isOwn || !item.allowedActions?.reply) return;
+      setAttachmentsOpen(false);
       const quote = { messageId: item.id, authorName: item.author.displayName, excerpt: truncateExcerpt(item.body) };
 
-      const recipient = (viewerRole === 'FAN' ? permittedFans : streamerRecipients).find((r) => r.actorId === (item.scope === 'PRIVATE' ? item.counterpartActorId : item.author.actorId));
+      if (viewerRole !== 'STREAMER') return;
+      const recipient = streamerRecipients.find((r) => r.actorId === (item.scope === 'PRIVATE' ? item.counterpartActorId : item.author.actorId));
       if (!recipient) {
         if (currentKey) setNoticeFor(currentKey, { tone: 'error', text: `${item.recipient?.displayName ?? (item.isOwn ? '상대방' : item.author.displayName)}님에게는 지금 개인 답장을 보낼 수 없습니다.` });
         return;
@@ -276,13 +235,13 @@ function ScopedChatRoom({
       if (submittingKey === nextKey) {
         // The quote of a draft that is being sent must not change under the pending send.
         setNoticeFor(nextKey, { tone: 'info', text: '보내는 중에는 인용을 바꿀 수 없습니다.' });
-        if (!isSameTarget(next, requestedTarget)) changeTarget(next);
+        if (!isSameTarget(next, requestedTarget)) setRequestedTarget(next);
         return;
       }
-      if (!isSameTarget(next, requestedTarget)) changeTarget(next);
+      if (!isSameTarget(next, requestedTarget)) setRequestedTarget(next);
       setDrafts((prev) => writeDraft(prev, next, { quote, retryCommandId: undefined }));
     },
-    [viewerRole, permittedFans, currentKey, streamerRecipients, requestedTarget, changeTarget, submittingKey, setNoticeFor],
+    [viewerRole, currentKey, streamerRecipients, requestedTarget, submittingKey, setNoticeFor],
   );
 
   const handleSubmit = useCallback(() => {
@@ -315,6 +274,7 @@ function ScopedChatRoom({
       if (result.accepted) {
         // Clear only the exact draft that was sent. Any other draft (or a changed one) stays.
         setDrafts((prev) => (prev[submittedKey] === submittedDraft ? clearDraft(prev, submittedTarget) : prev));
+        if (submittedTarget.scope === 'PRIVATE' && currentKeyRef.current === submittedKey) setRequestedTarget({ scope: 'SHARED' });
       }
 
       if (!result.accepted && result.retryCommandId) {
@@ -341,8 +301,9 @@ function ScopedChatRoom({
     })();
   }, [onSubmit, submitBlockedReason, target, currentKey, submittingKey, drafts, setNoticeFor]);
 
-  const canReply = viewerRole === 'FAN' ? permittedFans.length > 0 : streamerRecipients.length > 0;
-  const attachmentAction = onSubmit && target && media?.configured ? (
+  const canReply = viewerRole === 'STREAMER' && streamerRecipients.length > 0;
+  // Media commands do not carry a source message, so attachments stay in shared chat.
+  const attachmentAction = onSubmit && target?.scope === 'SHARED' && media?.configured ? (
     <Popover.Root open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
       <Popover.Trigger asChild>
         <Button type="button" variant="ghost" size="icon" className="rounded-full text-chat-accent hover:bg-surface-soft" aria-label="첨부 메뉴 열기" aria-expanded={attachmentsOpen}>
@@ -413,8 +374,6 @@ function ScopedChatRoom({
         quote={draft.quote}
         onCancelQuote={handleCancelQuote}
         isSubmitting={isSubmittingCurrent}
-        targetOptions={targetOptions}
-        onTargetChange={handleTargetChange}
         notice={notice}
         announcement={announcement}
         disabled={onSubmit === undefined}

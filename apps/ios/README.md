@@ -69,8 +69,9 @@ Swift 6 / SwiftUI, iOS 18 이상, iPhone 전용 앱이다. QA와 prod는 같은
   COMMIT한 뒤 한 번 요청한다. 화면 이탈은 전송을 재시도하지 않는다. 응답 유실/재시작은
   GET receipt로만 확인하고, 404는 확인 불가로 유지한다. 저장 ACK를 전달·읽음으로 표시하지
   않는다. 삭제 receipt는 보존 본문을 제거하며, 재입장한 기간으로 이전 명령을 바꿔 보내지 않는다.
-- 비공개 새 수신자는 FAN의 실제 private-recipients API로 조회한다. 인용 답장은 최신 C05
-  allowedActions와 SHARED 작성자/PRIVATE counterpart를 검사한 후 원래 대상에 고정한다.
+- 일반 메시지는 전체 채팅으로 보낸다. 스트리머의 비공개 답장은 선택한 메시지의 작성자를
+  실제 private-recipients API와 최신 C05 allowedActions로 확인하고, 원본 메시지와 대상에 고정한다.
+  기존 PRIVATE 메시지에 답장할 때는 counterpart를 확인한다.
   프로필 목록을 발송 권한으로 사용하지 않는다. 사진·영상·스티커도 같은 원래 명령/outbox/receipt
   경로를 사용한다. 실제 예약·파일 전송·처리 상태와 READY를 구별하고, 미디어 작업 기록을
   GRDB에 먼저 저장한다. 유실·재시작은 상태 GET만 수행하며 원본 파일 전송을 반복하지 않는다.

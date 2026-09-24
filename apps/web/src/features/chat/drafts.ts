@@ -47,22 +47,16 @@ export function isSameTarget(a: ChatComposerTarget | null, b: ChatComposerTarget
 
 /**
  * The composer may only target what the harness authorized:
- * - FAN: an enabled room-owner inbox or a provided PRIVATE recipient, never SHARED.
- * - STREAMER: SHARED, or one of the provided fan recipients.
+ * - Everyone: SHARED.
+ * - STREAMER: a server-authorized fan when replying to a selected message.
  * A stale target (recipient no longer authorized) is rejected; the caller keeps the draft.
  */
 export function isAuthorizedTarget(
   target: ChatComposerTarget,
-  options: { viewerRole: 'FAN' | 'STREAMER'; fanRecipient: ChatActorRef | null; fanRecipients?: readonly ChatActorRef[]; fanRoomOwner?: boolean; streamerRecipients: readonly ChatActorRef[] },
+  options: { viewerRole: 'FAN' | 'STREAMER'; streamerRecipients: readonly ChatActorRef[] },
 ): boolean {
-  if (target.scope === 'ROOM_OWNER') return options.viewerRole === 'FAN' && options.fanRoomOwner === true;
-  if (options.viewerRole === 'FAN') {
-    return (
-      target.scope === 'PRIVATE' &&
-      (options.fanRecipients ?? (options.fanRecipient ? [options.fanRecipient] : [])).some(recipient => recipient.actorId === target.recipient.actorId)
-    );
-  }
   if (target.scope === 'SHARED') return true;
+  if (target.scope === 'ROOM_OWNER' || options.viewerRole === 'FAN') return false;
   return options.streamerRecipients.some((r) => r.actorId === target.recipient.actorId);
 }
 

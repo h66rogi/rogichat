@@ -30,7 +30,7 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
     private val caller get() = injectedScope ?: viewModelScope
     private val handle = repository.open(selection)
     val state = handle.state
-    private val mutableDraft = MutableStateFlow(ConversationDraft(privateMessage = mustPrivate()))
+    private val mutableDraft = MutableStateFlow(ConversationDraft(privateMessage = false))
     val draft = mutableDraft.asStateFlow()
     private var polling: Job? = null
     private var resumedBefore = false
@@ -42,37 +42,27 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
                     originalDraft.copy(media = null, mediaScope = null) else originalDraft
                 if (draft !== originalDraft) mutableDraft.value = draft
                 if (current.data == null && !current.loading) {
-                    mutableDraft.value = ConversationDraft(privateMessage = mustPrivate())
+                    mutableDraft.value = ConversationDraft(privateMessage = false)
                 } else if (current.data != null && draft.quote != null) {
                     val latest = current.data.messages.find { it.id == draft.quote.id }
                     mutableDraft.value = if (latest?.replyTarget == null || latest.replyTarget != draft.recipient) {
-                        draft.copy(privateMessage = mustPrivate(), quote = null, recipient = null, recipientRevision = null,
+                        draft.copy(privateMessage = false, quote = null, recipient = null, recipientRevision = null,
                             error = "선택한 메시지에 지금 답장할 수 없어요.")
                     } else draft.copy(quote = latest)
                 }
             }
         }
     }
-    fun roomOwnerAllowed() = selection.membership.mode == RoomMode.FAN && selection.membership.role == RoomRole.FAN
-    fun mustPrivate() = selection.membership.mode == RoomMode.FAN && selection.membership.role != RoomRole.STREAMER
     fun text(value: String) {
         if (!mutableDraft.value.submitting && !mutableDraft.value.uploading && mutableDraft.value.media == null) mutableDraft.value = mutableDraft.value.copy(text = value.substring(0, value.offsetByCodePoints(0, minOf(20000, value.codePointCount(0, value.length)))), error = null)
     }
-    fun choosePrivate(value: Boolean) {
-        if (mutableDraft.value.submitting || mustPrivate() && !value) return
-        mutableDraft.value = mutableDraft.value.copy(privateMessage = value, recipient = null, quote = null, recipientRevision = null, error = null)
-    }
-    fun recipient(value: PrivateRecipient, renderedRevision: RoomId?) {
-        if (mutableDraft.value.submitting || state.value.recipientRevision != renderedRevision) return
-        mutableDraft.value = mutableDraft.value.copy(privateMessage = true, recipient = value.actorId, recipientRevision = renderedRevision, quote = null, error = null)
-    }
     fun reply(message: ConversationMessage, renderedScope: ConversationScope) {
-        if (mutableDraft.value.submitting || state.value.data?.scope != renderedScope) return
+        if (mutableDraft.value.submitting || state.value.data?.scope != renderedScope || selection.membership.role != RoomRole.STREAMER) return
         val current = state.value.data?.messages?.find { it.id == message.id } ?: return
-        if (current != message || current.replyTarget == null) return
+        if (current != message || current.replyTarget == null || (current.author as? MessageAuthor.Member)?.actorId == selection.membership.actorId) return
         mutableDraft.value = mutableDraft.value.copy(privateMessage = true, recipient = current.replyTarget, quote = current, recipientRevision = null, error = null)
     }
-    fun clearReply() { if (!mutableDraft.value.submitting) mutableDraft.value = mutableDraft.value.copy(privateMessage = mustPrivate(), quote = null, recipient = null, recipientRevision = null) }
+    fun clearReply() { if (!mutableDraft.value.submitting) mutableDraft.value = mutableDraft.value.copy(privateMessage = false, quote = null, recipient = null, recipientRevision = null) }
     fun startPolling() {
         if (polling?.isActive == true) return
         val refreshHints = resumedBefore
@@ -91,7 +81,6 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
     fun stopPolling() { polling?.cancel(); polling = null }
     fun refresh() { caller.launch { repository.refresh(handle) } }
     fun history() { caller.launch { repository.history(handle) } }
-    fun moreRecipients() { caller.launch { repository.moreRecipients(handle) } }
     fun reconcile() { caller.launch { repository.reconcile(handle) } }
     fun displayed(scope: ConversationScope, anchor: ScrollAnchor) { caller.launch { repository.displayed(handle, scope, anchor) } }
     fun showActions(message: ConversationMessage, scope: ConversationScope) { caller.launch { repository.selectAction(handle, scope, message) } }
@@ -137,22 +126,21 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
         val text = try { if (draft.media == null) TextCommand.normalizeText(draft.text) else "" } catch (_: Exception) {
             mutableDraft.value = draft.copy(error = "메시지는 공백을 제외해 입력하고, 4,000자 이내로 작성해 주세요."); return
         }
-        val roomOwner = roomOwnerAllowed() && draft.recipient == null && draft.quote == null
-        if (draft.privateMessage && draft.recipient == null && !roomOwner) { mutableDraft.value = draft.copy(error = "메시지를 받을 사람을 선택해 주세요."); return }
+        if (draft.privateMessage && (selection.membership.role != RoomRole.STREAMER || draft.quote == null || draft.recipient == null)) { mutableDraft.value = draft.copy(error = "답장할 메시지를 다시 선택해 주세요."); return }
         val command = TextCommand(RoomId(UUID.randomUUID().toString()), renderedScope.selection.membership.membershipScope,
-            if (roomOwner) "ROOM_OWNER" else if (draft.privateMessage) "PRIVATE" else "SHARED", draft.recipient.takeIf { draft.privateMessage }, draft.quote?.id, text, draft.media)
+            if (draft.privateMessage) "PRIVATE" else "SHARED", draft.recipient.takeIf { draft.privateMessage }, draft.quote?.id, text, draft.media)
         val intent = TextSendIntent(renderedScope, command, draft.recipientRevision)
         mutableDraft.value = draft.copy(submitting = true, error = null)
         caller.launch {
             try {
                 val result = repository.send(handle, intent)
                 mutableDraft.value = if (result.isSuccess) {
-                    if (draft.quote != null) ConversationDraft(privateMessage = mustPrivate())
+                    if (draft.quote != null) ConversationDraft(privateMessage = false)
                     else draft.copy(text = "", submitting = false, error = null, media = null, mediaScope = null)
                 }
                 else draft.copy(submitting = false, error = "메시지를 보내기 위한 저장을 완료하지 못했어요. 다시 확인해 주세요.")
             } finally { if (mutableDraft.value.submitting) mutableDraft.value = mutableDraft.value.copy(submitting = false) }
         }
     }
-    override fun onCleared() { stopPolling(); mutableDraft.value = ConversationDraft(privateMessage = mustPrivate()) }
+    override fun onCleared() { stopPolling(); mutableDraft.value = ConversationDraft(privateMessage = false) }
 }

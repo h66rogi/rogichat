@@ -21,18 +21,17 @@ export default function RulesPage() {
 
       <Section title="채팅은 이렇게 동작해요">
         <ul className="flex list-disc flex-col gap-2 pl-5">
-          <li>팬은 {channel.displayName}에게 개인 메시지를 보낼 수 있어요. 다른 팬에게는 보이지 않아요.</li>
-          <li>{channel.displayName}는 전체 메시지를 보내거나 특정 팬에게 개인답장을 보낼 수 있어요.</li>
-          <li>내 타임라인에는 전체 메시지와 나에게 온 개인답장이 함께 보여요.</li>
+          <li>팬과 {channel.displayName}의 일반 메시지는 채팅방 참여자 모두에게 보여요.</li>
+          <li>{channel.displayName}는 메시지를 선택해 그 작성자에게만 비공개 답장을 보낼 수 있어요.</li>
+          <li>내 타임라인에는 전체 메시지와 나에게 온 비공개 답장이 함께 보여요.</li>
           <li>메시지가 서버에 저장된 것과 상대가 읽은 것은 달라요. 읽음 여부는 표시하지 않아요.</li>
         </ul>
       </Section>
 
-      <Section title="개인답장이 공개될 수 있어요">
+      <Section title="비공개 답장의 범위">
         <p>
-          {channel.displayName}는 자신의 방에서 받은 개인 메시지를 이 방의 참여자 전체에게 공개할 수 있어요.
-          공개본에는 보낸 사람 정보가 붙지 않지만, 내용 자체로 누가 보냈는지 짐작될 수 있어요. 공개되면 곤란한 내용은
-          보내지 않는 것이 좋아요.
+          비공개 답장은 선택한 메시지의 작성자에게만 보여요. 기존에 보낸 비공개 메시지는 계속 대화 기록에 표시될 수 있어요.
+          기존 비공개 메시지가 전체에게 공개된 경우, 공개본에는 작성자 정보가 붙지 않지만 내용으로 작성자를 짐작할 수 있어요.
         </p>
       </Section>
 

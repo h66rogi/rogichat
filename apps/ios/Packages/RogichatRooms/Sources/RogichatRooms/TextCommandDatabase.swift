@@ -21,7 +21,7 @@ extension RoomsDatabase {
             if command.intent == "ROOM_OWNER" {
                 guard scope.room.mode == "FAN", scope.room.role == "FAN" else { throw ConversationError.forbidden }
             } else {
-                guard command.intent == "PRIVATE" ? (scope.room.mode == "FAN" || command.quoteID != nil) : (scope.room.mode == "GROUP" || scope.room.role == "STREAMER") else { throw ConversationError.forbidden }
+                guard command.intent == "PRIVATE" ? (scope.room.mode == "FAN" || command.quoteID != nil) : true else { throw ConversationError.forbidden }
             }
             if let quote = command.quoteID {
                 guard command.intent == "PRIVATE", let data = try Data.fetchOne(db, sql: "SELECT value FROM timeline WHERE room=? AND id=? AND deleted=0", arguments: [scope.room.id, quote]) else { throw ConversationError.forbidden }

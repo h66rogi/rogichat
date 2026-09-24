@@ -32,7 +32,7 @@ test.describe('public routes', () => {
   test('/rules is public content', async ({ page }) => {
     await page.goto('/rules');
     await expect(page.getByRole('heading', { level: 1, name: '이용 안내' })).toBeVisible();
-    const publicationHeading = page.getByRole('heading', { level: 2, name: '개인답장이 공개될 수 있어요' });
+    const publicationHeading = page.getByRole('heading', { level: 2, name: '비공개 답장의 범위' });
     await expect(publicationHeading).toHaveCount(1);
     await expect(publicationHeading).toBeVisible();
   });

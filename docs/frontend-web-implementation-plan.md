@@ -1,5 +1,7 @@
 # 프론트엔드 웹 구현 계획
 
+> 2026-09-24 제품 결정: 일반 메시지는 모든 역할에서 SHARED이며 대상 선택 UI를 제거한다. 스트리머의 PRIVATE 답장은 메시지 선택으로만 시작한다. 아래의 기존 팬 PRIVATE·대상 선택 계획은 이 결정으로 대체한다.
+
 2026-09-20 업데이트. 현재 작업은 **QA와 운영에 동일한 production 웹을 배포하는 실제 API 연결**이다.
 FW00/FW01의 미리보기는 과거 검토 산출물이며, 모든 배포에서 제거했다.
 [production 구현 보고서](frontend-web-production-report.md)가 현재 구현·검증·제한의 기준이다.
@@ -297,11 +299,12 @@ reset은 사유를 공개하지 않으므로 단순 만료로 추정하지 않�
   동일 ID/payload를 POST replay해 receipt를 확인한다. `deleted`는 본문·낙관 표시를 제거하는 종료 상태다.
   확인 권한이 사라지면 scope 정리를 따르며 snapshot에 없다는 이유로 새 ID를 만들어 재전송하지 않는다.
 - UI는 보내는 중·저장 완료·결과 확인 중·거부/재시도·삭제를 구분한다. 서버 저장은 상대방 읽음이 아니다.
-- `SharedDraft`와 `PrivateDraft(recipientActorId, quoteId?)`를 분리하고 입력창에 수신 대상을 항상 표시한다.
-  팬 메시지의 오른쪽→왼쪽 스와이프는 PRIVATE 초안만 연다. 키보드/스크린리더용 답장 버튼도 제공한다.
-- FAN 역할별 입력: **팬은 서버가 인가한 스트리머에게 PRIVATE만**, 스트리머는 SHARED 또는
-  인가된 팬에게 PRIVATE. 팬에게 SHARED 선택을 노출하지 않는다. 빈 타임라인의 첫 팬 전송과
-  스트리머의 PRIVATE 답장 복원까지 FW04의 최소 입력 범위이며 스와이프 등 확장 UX는 FW05다.
+- 일반 입력은 역할에 관계없이 SHARED 초안으로 시작한다. 스트리머가 메시지의 답장 버튼을 누르면
+  원본 메시지와 작성자에 묶인 PRIVATE 초안을 연다. 입력창에는 이 답장의 작성자와 비공개 범위를
+  표시하고 취소하면 전체 채팅으로 돌아간다. 수신 대상 선택 UI는 두지 않는다.
+- 팬은 전체 채팅으로만 새 메시지를 보낸다. 스트리머는 전체 채팅을 보내거나 인가된 팬의
+  메시지를 선택해 PRIVATE 답장을 보낸다. 빈 타임라인의 첫 팬 전송과 스트리머의 PRIVATE
+  답장 복원까지 FW04의 최소 입력 범위다.
 - 개인답장 거부 시 같은 유효 scope의 초안을 보존하고 전송을 막는다. 전체 발송으로 자동 전환하지 않는다.
 - 방장은 자기 방의 private 메시지를 팬의 추가 동의 없이 전체공개할 수 있다. 사용자 동작 확인 UI와
   이용 안내를 두되 팬 승인 절차를 새로 만들지 않는다. 서버의 publication 명령을 사용하고
@@ -359,12 +362,12 @@ private R2의 60초 GET Signed URL은 열람 권한 확인 후 발급받는다. 
 
 | 단계 | 작업·산출물 | 완료 조건 |
 |---|---|---|
-| FW00 | 이식 파일/의존성 목록, DESIGN.md 기준 홈·팬/스트리머 채팅·설정 화면안 | 데스크톱/모바일, 수신 대상·메뉴·기본 채널 경계 리뷰 |
+| FW00 | 이식 파일/의존성 목록, DESIGN.md 기준 홈·팬/스트리머 채팅·설정 화면안 | 데스크톱/모바일, 답장 진입·메뉴·기본 채널 경계 리뷰 |
 | FW01 | Next scaffold, workspace/CI 추가, ChannelShell 선별 이식, 공개 홈·route·공통 UI·SW 기반 | 타입/린트/build, deep link, 모바일 폭/키보드/접근성 확인. 모든 배포에서 preview 경로·데이터 없음 |
 | FW02 | W01–W06/W08 ADR·OpenAPI·공통 JSON·TS adapter | 문서/fixture 초안은 FW01과 병행. 신규 서버 기능 착수는 구조 보정 R5 완료 증거 후; 계약/회귀/모바일 parity |
 | FW03 | 실제 웹 인증·SOOP·callback/복귀·bootstrap·명시적 입장/퇴장·로그아웃 | 실제 QA 계정, 취소/실패/두 탭·복귀, 미확정 로그아웃 잠금·서버 revoke 검증 |
-| FW04 | IndexedDB/outbox, 최소 SHARED/PRIVATE 입력·서버 수신자, 텍스트/삭제 REST, history/snapshot/delta, socket hint | 빈 대화 팬 PRIVATE→스트리머, 스트리머 SHARED/PRIVATE→팬, ACK 유실·reset·manifest 철회·두 탭·DB migration 복구 |
-| FW05 | 스와이프·대상/인용 UX·전체공개·반응 | 수신 대상 혼동 없음, 공개 준비/철회·삭제 cascade·계정/방 격리 |
+| FW04 | IndexedDB/outbox, 팬·스트리머 SHARED 입력과 메시지 선택형 스트리머 PRIVATE 답장, 텍스트/삭제 REST, history/snapshot/delta, socket hint | 빈 대화 팬 SHARED, 스트리머 SHARED/PRIVATE 답장, ACK 유실·reset·manifest 철회·두 탭·DB migration 복구 |
+| FW05 | 메시지 선택·답장 UX·전체공개·반응 | 비공개 답장 대상 확인, 공개 준비/철회·삭제 cascade·계정/방 격리 |
 | FW06 | M08 사진/avatar/스티커 + M09 영상, 프로필 편집 | 양 역할 업로드·처리 실패·삭제·생일 공개, codec·만료 seek/재생 위치 복구 |
 | FW07 | M10 lifecycle·M11 Web Push, 신고/차단·복구 UI | 설치·백그라운드·계정 전환, 지연 알림/binding·삭제·실제 신고 처리 경로 검증 |
 | FW08 | QA 배포·운영 가능한 출시 후보 판정 | 독립 web digest·공개 경로·running release, JS/SW/API/DB rollback 호환, 공통 M12 gate·알려진 제한 |

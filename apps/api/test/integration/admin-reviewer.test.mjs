@@ -136,7 +136,7 @@ test('room self-delegation is period-bound, audited/idempotent and revocable acr
   assert.equal((await f.request(`${grants}/${grant.data.grantId}/revoke`, 'POST', { reason: '검사 종료' }, admin)).status, 204);
   assert.equal((await f.request(`${root}/messages/${message.data.messageId}`, 'GET', undefined, admin)).status, 404);
   assert.equal((await f.request(`${root}/messages/${reply.data.messageId}`, 'GET', undefined, admin)).status, 404);
-  assert.equal((await send('SHARED', admin, scope)).status, 403);
+  assert.equal((await send('SHARED', admin, scope)).status, 200);
   const events = await f.request(`${root}/events?${query}&cursor=${snapshot.data.nextCursor}`, 'GET', undefined, admin); assert.equal(events.data.resetRequired, true);
   assert.equal((await f.request(`${root}/capabilities`, 'GET', undefined, admin)).data.effectiveRole, 'FAN');
   assert.equal((await f.request(`${root}/actors/${f.actorId}/profile`, 'GET', undefined, fan)).status, 404);

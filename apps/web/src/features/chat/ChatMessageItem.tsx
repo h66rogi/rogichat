@@ -6,7 +6,6 @@ import { Popover } from 'radix-ui';
 
 import { ChatActorAvatar } from './ChatActorAvatar';
 import { cn } from '@/shared/lib/cn';
-import { actionMenuItemClass } from '@/shared/ui/action-dialog';
 
 import { ReactionControl } from './ReactionControl';
 import { ChatMediaImages } from './ChatMedia';
@@ -65,7 +64,7 @@ function MessageRow({
 }) {
   const isOwn = item.isOwn;
   const isPrivate = item.scope === 'PRIVATE';
-  const canReply = !item.media && item.allowedActions?.reply === true && onReplyPrivate !== undefined;
+  const canReply = !isOwn && !item.media && item.allowedActions?.reply === true && onReplyPrivate !== undefined;
   const timeLabel = timeLabelFor(item.createdAt);
 
   return (
@@ -99,8 +98,8 @@ function MessageRow({
           </div>
           {(canReply || item.status === 'saved' || (item.allowedActions?.delete && onDelete)) && <div className={cn('flex shrink-0 items-center gap-0.5', isOwn && 'flex-row-reverse')}>
             {item.status === 'saved' && <ReactionControl messageId={item.id} />}
+            {canReply && <button type="button" onClick={() => onReplyPrivate(item)} className="flex size-11 items-center justify-center rounded-full text-chat-accent hover:bg-surface-soft focus-visible:outline-2 focus-visible:outline-focus-ring" aria-label={replyLabelFor(item, viewerRole)} title="비공개 답장" data-testid="chat-reply"><Reply className="size-5" aria-hidden="true" /></button>}
             <MessageActionMenu>
-              {canReply && <Popover.Close asChild><button type="button" onClick={() => onReplyPrivate(item)} className={actionMenuItemClass} aria-label={replyLabelFor(item, viewerRole)} data-testid="chat-reply"><Reply className="size-4" aria-hidden="true" />답장</button></Popover.Close>}
               {item.status === 'saved' && <ChatPrivacyActions messageId={item.id} />}
               {item.allowedActions?.delete && item.status === 'saved' && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}
             </MessageActionMenu>
@@ -221,9 +220,8 @@ function timeLabelFor(iso: string): string {
   return date ? formatTimeLabel(date) : '시각 정보 없음';
 }
 
-function replyLabelFor(item: ChatMessageItemModel, viewerRole: ChatViewerRole): string {
-  if (viewerRole === 'FAN') return '이 메시지를 인용해 답장';
-  return `${item.recipient?.displayName ?? item.author.displayName}님에게 개인 답장`;
+function replyLabelFor(item: ChatMessageItemModel, _viewerRole: ChatViewerRole): string {
+  return `${item.author.displayName}님에게 비공개 답장`;
 }
 
 function MessageActionMenu({ children }: { children: React.ReactNode }) {
