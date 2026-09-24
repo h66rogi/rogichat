@@ -167,7 +167,7 @@ export class ConsolePlaybackService {
   private selectGatewayNodeUrl(videoId: string): string {
     if (this.nodeUrls.length === 0) return this.gatewayBaseUrl;
     const firstByte = crypto.createHash('sha256').update(videoId).digest()[0]!;
-    return this.nodeUrls[firstByte % this.nodeUrls.length];
+    return this.nodeUrls[firstByte % this.nodeUrls.length]!;
   }
 
   private signCachedUrl(key: string): ResolvedPlayback {
@@ -246,7 +246,7 @@ export class ConsolePlaybackService {
   private selectCachedGatewayNodeUrl(key: string): string {
     if (this.cachedNodeUrls.length === 0) return this.gatewayBaseUrl;
     const firstByte = crypto.createHash('sha256').update(key).digest()[0]!;
-    return this.cachedNodeUrls[firstByte % this.cachedNodeUrls.length];
+    return this.cachedNodeUrls[firstByte % this.cachedNodeUrls.length]!;
   }
 
   // ───────── static utils (재사용 + 테스트 가능) ─────────

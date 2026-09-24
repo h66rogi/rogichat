@@ -3,6 +3,38 @@
   "policy": "Only exact file-content or generated metadata SHA-256 plus listed detector rules. No directory, layer, arbitrary key or future-version exclusions.",
   "files": [
     {
+      "sha256": "08337aba8295f5652056fbd3e6f64cb908e8ce2624990ce147995aa34e24a7b1",
+      "rules": ["generic-api-key"],
+      "source": "ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58",
+      "file": "image config JSON",
+      "review": "Official pinned uv Python base config. The detector matches its public GPG_KEY environment identifier twice; the exact config bytes and rule alone are exempted.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "750be5c0ce95061563e1561019e382823eb1e011ffe7980e9e005eeafd82efa3",
+      "rules": ["private-key"],
+      "source": "ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58",
+      "file": "usr/lib/x86_64-linux-gnu/libgnutls.so.30.34.3",
+      "review": "Exact public GnuTLS shared library bytes from the pinned base layer. Embedded test material triggers the detector; changed library bytes remain blocked.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "b1a9f2699b53c32c1cfc1d6c66b8191354932e2b325a166483c8a2c362b26071",
+      "rules": ["generic-api-key"],
+      "source": "ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58",
+      "file": "usr/bin/openssl",
+      "review": "Exact public OpenSSL executable bytes from the pinned base layer; detector false positive in binary text.",
+      "kind": "file-bytes"
+    },
+    {
+      "sha256": "81be234b9c9f43941507eccac90bbc01faa7bcf18b3f932b9c8430ee49384948",
+      "rules": ["generic-api-key"],
+      "source": "ghcr.io/astral-sh/uv:python3.12-bookworm-slim@sha256:e5b65587bce7de595f299855d7385fe7fca39b8a74baa261ba1b7147afa78e58",
+      "file": "usr/local/bin/uvx",
+      "review": "Exact public uvx launcher script bytes from the pinned base layer; detector false positive in script text.",
+      "kind": "file-bytes"
+    },
+    {
       "sha256": "7574078dbbd67800caf50d6952d0a4a4f941fafc9069d4e97a1bdafd5d62a158",
       "rules": ["generic-api-key"],
       "source": "next-16.2.6",
