@@ -110,8 +110,14 @@ recovery or writes. Unknown recovered records appear as receipt controls without
 restoring draft text; cold recovery performs GET only. Explicit retry performs
 receipt lookup and fresh authorization before same-ID SEND. New writes persist
 before POST, and confirmed receipts settle in IDB before the in-memory result and
-fresh server projection read. Storage failures retain input and expose an explicit
-reconnect control. Logout/confirmed authentication loss synchronously fences
+fresh server projection read. Storage failures retain input. Transient writer
+conflicts retry automatically while the visible chat remains mounted; users can
+also retry immediately. Leaving the chat route or hiding its tab suspends the
+local writer so another visible tab can take over. Returning to the chat
+reauthorizes from the current session and complete manifest before recovery or
+a new send. A routine refresh with unchanged authority renews the current lease
+without aborting an in-flight receipt lookup; changed authority still fences it.
+Logout/confirmed authentication loss synchronously fences
 active stores, then completes the authority-fenced erasure before closing them.
 Product browser cold-restart evidence remains pending aggregate PR verification.
 

@@ -11,6 +11,7 @@ export class DurableOutbox {
   private fence: number | null = null;
   private generation = 0;
   private stopped = false;
+  private locallySuspended = false;
   private authority: OutboxAuthority | null = null;
   private lastGrant: { authority: OutboxAuthority; epoch: number } | null = null;
   private lookup404 = new Set<string>();
@@ -115,6 +116,13 @@ export class DurableOutbox {
   /** Call only after genuine session + COMPLETE manifest + room authorization. Never from stored state. */
   async authorize(value: OutboxAuthority): Promise<void> {
     const authority = normalizeAuthority(value);
+    this.locallySuspended = false;
+    // Routine syncs must not revoke this tab's own in-flight receipt lookup.
+    // Reuse a live grant and only mint a new fence after an actual handoff/loss.
+    if (this.fence !== null && this.authority && JSON.stringify(this.authority) === JSON.stringify(authority)) {
+      try { await this.assertCurrent(); return; }
+      catch (error) { if (!(error instanceof OutboxError) || error.code !== 'LEASE_LOST') throw error; }
+    }
     const generation = ++this.generation;
     this.operationAbort.abort(); this.operationAbort = new AbortController();
     this.authority = null; this.fence = null; this.lookup404.clear();
@@ -185,6 +193,8 @@ export class DurableOutbox {
     });
   }
   suspend(): void {
+    if (this.locallySuspended || this.stopped) return;
+    this.locallySuspended = true;
     const fence = this.fence;
     this.generation++; this.authority = null; this.fence = null; this.lookup404.clear(); this.operationAbort.abort();
     for (const tx of this.pending) { try { tx.abort(); } catch { /* A committed transaction needs no abort. */ } }

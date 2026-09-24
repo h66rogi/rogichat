@@ -213,6 +213,25 @@ test('same-instance authority ABA aborts the original transport before late ACK 
   expect(result).toEqual({ failed: true, hasResult: false, hasPayload: false });
 });
 
+test('routine same-authority refresh keeps an in-flight send and its receipt valid', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID(), clientMessageId = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const outbox = await DurableOutbox.open('same-authority'); await outbox.authorize(authority);
+    await outbox.prepare(roomId, { clientMessageId, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'keep send alive' } });
+    await outbox.beforeSend(clientMessageId);
+    const inFlightSignal = outbox.signal;
+    await outbox.authorize(authority);
+    await outbox.settle({ clientMessageId, messageId: crypto.randomUUID(), status: 'committed', version: '1' });
+    const committed = (await outbox.recover(roomId))[0]?.result?.status === 'committed';
+    const keptSignal = !inFlightSignal.aborted && inFlightSignal === outbox.signal;
+    outbox.close(); return { committed, keptSignal };
+  });
+  expect(result).toEqual({ committed: true, keptSignal: true });
+});
+
 test('detached session revoke erases closed-owner payload and protects a successor session', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const modulePath = '/__outbox_test/outbox/indexeddb.js';
