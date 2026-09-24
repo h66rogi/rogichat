@@ -538,7 +538,9 @@ test('pagehide/pageshow obscures but retains the mounted draft, quote and retry 
     await expect(input).toHaveAttribute('data-resume-mount', 'retained');
   }
   await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
-  state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
+  state.failSend = false;
+  await page.getByTestId('chat-composer-send').click();
+  await expect(input).toHaveValue('');
   await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]?.clientMessageId).toBe(id);
 });
 

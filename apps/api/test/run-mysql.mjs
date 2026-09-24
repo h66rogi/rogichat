@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { createConnection } from 'mysql2/promise';
 import { unusedPort, waitFor } from './helpers.mjs';
+import { selectShard } from './support/shard.mjs';
 
 let directory;
 let server;
@@ -106,6 +107,7 @@ try {
     if (requested.some(name => !/^[a-z0-9-]+\.test\.mjs$/.test(name) || !integrationFiles.includes(join('test', suite, name)))) throw new Error('unknown integration test');
     integrationFiles = requested.map(name => join('test', suite, name));
   }
+  integrationFiles = selectShard(integrationFiles, process.argv);
   if (!integrationFiles.length) throw new Error('integration tests missing');
   testProcess = spawn(process.execPath, ['--test', '--test-concurrency=1', ...integrationFiles], {
     stdio: 'inherit', env: {
