@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { getChannelIdentifierServer } from "@/meloming/domains/channel/apis/channels-server";
+import { getChannelIdentifierPermissionServer, getChannelIdentifierServer } from "@/meloming/domains/channel/apis/channels-server";
 import { getMenuViewer } from "@/meloming/features/home-new/auth/get-menu-viewer";
 import { REQUEST_PATHNAME_HEADER } from "@/meloming/shared/lib/request-pathname";
 
@@ -34,6 +34,14 @@ export default async function ManageLayout({
   const channel = await getChannelIdentifierServer(user);
 
   if (!channel) {
+    notFound();
+  }
+
+  // The web/API shared session cookie lets the server establish management
+  // admission before rendering any copied client management component.
+  const permission = await getChannelIdentifierPermissionServer(user);
+  if (!permission || !(permission.isOwner || permission.manageContent || permission.manageSettings ||
+    permission.manageProfile || permission.manageGuestbook || permission.manageCustomization || permission.manageEmoticons)) {
     notFound();
   }
 
