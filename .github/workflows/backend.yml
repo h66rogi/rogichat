@@ -149,9 +149,9 @@ jobs:
           bytes=$(docker image inspect --format '{{.Size}}' "$image")
           printf 'Migration image size: %s bytes\n' "$bytes"
           test "$bytes" -lt 1000000000
-          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$image" \
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
             --mount "type=bind,src=$PWD/apps/api/test/migration-image.mjs,dst=/run/migration-image-check.mjs,readonly" \
-            /run/migration-image-check.mjs
+            "$image" /run/migration-image-check.mjs
   verify:
     if: always()
     needs: [changes, static, integration, image-safety]
