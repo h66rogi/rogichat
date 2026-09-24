@@ -5,7 +5,7 @@ import { installApi, json, TEST_ACTOR_ID, TEST_ROOM_ID, TEST_SCOPES } from './ap
 // Only isolated API fixtures. These exercise the real production route/composer,
 // controller and native IndexedDB; no product test route or runtime global exists.
 const recipientId = '44444444-4444-4444-8444-444444444444';
-async function recoveryApi(page: Page, shared?: { posts: Record<string, unknown>[]; lookups: string[]; messages: ServerMessage[]; failSend: boolean; commitOnLookup: boolean; holdLookup: Promise<void> | null; holdSend: Promise<void> | null; holdProjection?: Promise<void> | null; snapshots: number }) {
+async function recoveryApi(page: Page, shared?: { posts: Record<string, unknown>[]; lookups: string[]; messages: ServerMessage[]; failSend: boolean; commitOnLookup: boolean; holdLookup: Promise<void> | null; holdSend: Promise<void> | null; holdProjection?: Promise<void> | null; deferProjection?: boolean; pendingProjection?: ServerMessage; snapshots: number }) {
   const account = await installApi(page, true); account.joined = true;
   const state = shared ?? { posts: [] as Record<string, unknown>[], lookups: [] as string[], messages: [] as ServerMessage[], failSend: true, commitOnLookup: false, holdLookup: null as Promise<void> | null, holdSend: null as Promise<void> | null, holdProjection: null as Promise<void> | null, snapshots: 0 };
   const committed = (body: Record<string, unknown>): ServerMessage => ({
@@ -41,7 +41,8 @@ async function recoveryApi(page: Page, shared?: { posts: Record<string, unknown>
       const body = route.request().postDataJSON() as Record<string, unknown>; state.posts.push(body);
       if (state.holdSend) await state.holdSend;
       if (state.failSend) { await json(route, {}, 503); return; }
-      const message = committed(body); state.messages = [...state.messages.filter(item => item.id !== message.id), message];
+      const message = committed(body); state.pendingProjection = message;
+      if (!state.deferProjection) state.messages = [...state.messages.filter(item => item.id !== message.id), message];
       await json(route, { clientMessageId: body.clientMessageId, messageId: message.id, status: 'committed', version: '1' }); return;
     }
     await route.fallback();
@@ -117,16 +118,25 @@ test('uncertain message resolves in the mounted chat without a manual lookup or 
 test('confirmed send remains visible until the server timeline catches up', async ({ page }) => {
   const { state } = await recoveryApi(page);
   state.failSend = false;
+  state.deferProjection = true;
   await page.goto('/chat');
   const input = page.getByTestId('chat-composer-input'); await expect(input).toBeVisible();
-  let release!: () => void;
-  state.holdProjection = new Promise<void>(resolve => { release = resolve; });
+  let releaseSend!: () => void;
+  state.holdSend = new Promise<void>(resolve => { releaseSend = resolve; });
   await input.fill('화면에서 사라지지 않는 메시지'); await input.press('Enter');
   await expect.poll(() => state.posts.length).toBe(1);
+  // Hold the projection only after POST starts. Holding it earlier can block
+  // authorization before the send reaches the server at all.
+  let releaseProjection!: () => void;
+  state.holdProjection = new Promise<void>(resolve => { releaseProjection = resolve; });
+  state.holdSend = null; releaseSend();
   const outgoing = page.getByTestId('chat-outgoing-message');
   await expect(outgoing).toContainText('보냄');
   await expect(outgoing.getByText('화면에서 사라지지 않는 메시지', { exact: true })).toBeVisible();
-  state.holdProjection = null; release();
+  expect(state.pendingProjection).toBeDefined();
+  state.messages = [state.pendingProjection!];
+  state.deferProjection = false;
+  state.holdProjection = null; releaseProjection();
   await expect(outgoing).toHaveCount(0);
   await expect(page.getByTestId('chat-timeline').getByText('화면에서 사라지지 않는 메시지', { exact: true })).toBeVisible();
 });
