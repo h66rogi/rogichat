@@ -28,22 +28,20 @@ import type { CalendarAnniversary } from "@/meloming/domains/schedule/types/anni
 import type {
   CalendarBroadcastRecord,
   CalendarClipRecord,
-  CalendarSetlistSummary,
 } from "@/meloming/domains/calendar/types/channel-calendar";
 import { BroadcastRecordCardMobile } from "@/meloming/domains/calendar/components/cards/BroadcastRecordCardMobile";
 import { ClipRecordCardMobile } from "@/meloming/domains/calendar/components/cards/ClipRecordCardMobile";
-import { SetlistRecordCardMobile } from "@/meloming/domains/calendar/components/cards/SetlistRecordCardMobile";
 import { AnniversaryCardMobile } from "@/meloming/domains/schedule/components/weekly/AnniversaryCardMobile";
 import { ScheduleCardMobile } from "@/meloming/domains/schedule/components/weekly/ScheduleCardMobile";
-import { Clock, Film, Music, PartyPopper, Video } from "lucide-react";
+import { Clock, Film, PartyPopper, Video } from "lucide-react";
 import { cn } from "@/meloming/shared/lib/utils";
 
 /**
  * Task 1.10 — 통합 캘린더 v2 의 일자 상세 시트.
  *
  * 모바일은 bottom sheet, 데스크톱은 모달 형태로 표시된다. 선택된 일자의
- * 5종 이벤트(기념일 / 셋리스트 / 방송 기록 / 노래 클립 / 일정)를 한 번에
- * 보여주며, 각 카드 클릭 시 외부 핸들러(onSetlistClick / onBroadcastClick /
+ * 4종 이벤트(기념일 / 방송 기록 / 노래 클립 / 일정)를 한 번에
+ * 보여주며, 각 카드 클릭 시 외부 핸들러(onBroadcastClick /
  * onClipClick / onScheduleClick) 가 호출된다.
  */
 export interface DayDetailSheetProps {
@@ -51,7 +49,6 @@ export interface DayDetailSheetProps {
   onOpenChange: (open: boolean) => void;
   selectedDate: Date | null;
   anniversaries: CalendarAnniversary[];
-  setlists: CalendarSetlistSummary[];
   broadcasts: CalendarBroadcastRecord[];
   /**
    * 노래 클립 목록. 빈 배열이면 섹션 미표시.
@@ -69,7 +66,6 @@ export interface DayDetailSheetProps {
   };
   onScheduleClick?: (schedule: Schedule) => void;
   onAddSchedule?: (date: Date) => void;
-  onSetlistClick?: (setlist: CalendarSetlistSummary) => void;
   onBroadcastClick?: (broadcast: CalendarBroadcastRecord) => void;
   onClipClick?: (clip: CalendarClipRecord) => void;
   /**
@@ -117,12 +113,10 @@ interface DayDetailBodyProps
   extends Pick<
     DayDetailSheetProps,
     | "anniversaries"
-    | "setlists"
     | "broadcasts"
     | "clips"
     | "schedules"
     | "onScheduleClick"
-    | "onSetlistClick"
     | "onBroadcastClick"
     | "onClipClick"
     | "hideScheduleChannel"
@@ -132,18 +126,16 @@ interface DayDetailBodyProps
 
 function DayDetailBody({
   anniversaries,
-  setlists,
   broadcasts,
   clips = [],
   schedules,
   onScheduleClick,
-  onSetlistClick,
   onBroadcastClick,
   onClipClick,
   hideScheduleChannel,
   closeAndCall,
 }: DayDetailBodyProps) {
-  // 일정 정렬: 종일 → 시간순. spec 5.4 — setlist 위 broadcast 아래는 이미 prop 단위로 분리.
+  // 일정 정렬: 종일 → 시간순.
   const { allDay, timed } = useMemo(() => {
     const ad: Schedule[] = [];
     const td: Schedule[] = [];
@@ -159,11 +151,10 @@ function DayDetailBody({
 
   const hasAny =
     anniversaries.length +
-      setlists.length +
-      broadcasts.length +
-      clips.length +
-      allDay.length +
-      timed.length >
+    broadcasts.length +
+    clips.length +
+    allDay.length +
+    timed.length >
     0;
 
   if (!hasAny) {
@@ -188,27 +179,6 @@ function DayDetailBody({
           {anniversaries.map((ann) => (
             <li key={ann.id}>
               <AnniversaryCardMobile anniversary={ann} />
-            </li>
-          ))}
-        </Section>
-      )}
-
-      {setlists.length > 0 && (
-        <Section
-          icon={<Music className="size-4 text-rose-500" />}
-          title="노래 방송"
-          count={setlists.length}
-        >
-          {setlists.map((sl) => (
-            <li key={`setlist-${sl.sessionId}`}>
-              <SetlistRecordCardMobile
-                setlist={sl}
-                onClick={
-                  onSetlistClick
-                    ? (s) => closeAndCall(onSetlistClick, s)
-                    : undefined
-                }
-              />
             </li>
           ))}
         </Section>
@@ -360,14 +330,12 @@ export function DayDetailSheet({
   onOpenChange,
   selectedDate,
   anniversaries,
-  setlists,
   broadcasts,
   clips = [],
   schedules,
   channel,
   onScheduleClick,
   onAddSchedule,
-  onSetlistClick,
   onBroadcastClick,
   onClipClick,
   enableChannelLink,
@@ -378,7 +346,6 @@ export function DayDetailSheet({
 
   const totalCount =
     anniversaries.length +
-    setlists.length +
     broadcasts.length +
     clips.length +
     schedules.filter((s) => !s.isCanceled).length;
@@ -432,12 +399,10 @@ export function DayDetailSheet({
             {selectedDate ? (
               <DayDetailBody
                 anniversaries={anniversaries}
-                setlists={setlists}
                 broadcasts={broadcasts}
                 clips={clips}
                 schedules={schedules}
                 onScheduleClick={onScheduleClick}
-                onSetlistClick={onSetlistClick}
                 onBroadcastClick={onBroadcastClick}
                 onClipClick={onClipClick}
                 hideScheduleChannel={hideScheduleChannel}
@@ -477,12 +442,10 @@ export function DayDetailSheet({
           {selectedDate ? (
             <DayDetailBody
               anniversaries={anniversaries}
-              setlists={setlists}
               broadcasts={broadcasts}
               clips={clips}
               schedules={schedules}
               onScheduleClick={onScheduleClick}
-              onSetlistClick={onSetlistClick}
               onBroadcastClick={onBroadcastClick}
               onClipClick={onClipClick}
               closeAndCall={closeAndCall}

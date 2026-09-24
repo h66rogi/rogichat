@@ -10,11 +10,11 @@ import { MelomingCalendarService } from './meloming-calendar.service.js';
 
 function query(request: Request, search: boolean) {
   const raw = request.query as Record<string, unknown>;
-  const flags = ['includeSchedules', 'includeBroadcasts', 'includeSetlists', 'includeAnniversaries', 'includeClips'] as const;
+  const flags = ['includeSchedules', 'includeBroadcasts', 'includeAnniversaries', 'includeClips'] as const;
   const allowed = ['from', 'to', ...flags, ...(search ? ['q', 'limit'] : [])];
   if (Object.keys(raw).some(key => !allowed.includes(key))) throw new ApiError('INVALID_REQUEST', 400);
   if (typeof raw.from !== 'string' || raw.from.length > 40 || typeof raw.to !== 'string' || raw.to.length > 40) throw new ApiError('INVALID_REQUEST', 400);
-  const result: { from: string; to: string; q?: string; limit?: number; includeSchedules?: boolean; includeBroadcasts?: boolean; includeSetlists?: boolean; includeAnniversaries?: boolean; includeClips?: boolean } = { from: raw.from, to: raw.to };
+  const result: { from: string; to: string; q?: string; limit?: number; includeSchedules?: boolean; includeBroadcasts?: boolean; includeAnniversaries?: boolean; includeClips?: boolean } = { from: raw.from, to: raw.to };
   for (const flag of flags) {
     const value = raw[flag];
     if (value === undefined) continue;

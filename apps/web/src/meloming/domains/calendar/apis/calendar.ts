@@ -8,7 +8,7 @@ import type {
 
 /**
  * GET /v1/channels/{identifier}/calendar
- * 채널 통합 캘린더 (예정 일정 + 방송 기록 + 노래방송 기록 + 기념일).
+ * 채널 통합 캘린더 (예정 일정 + 방송 기록 + 기념일).
  *
  * 백엔드: meloming-back/src/channel/channel-calendar.controller.ts
  * - identifier: 숫자 ID 또는 webPath
@@ -25,7 +25,6 @@ export async function getChannelCalendar(
     from,
     to,
     includeBroadcasts,
-    includeSetlists,
     includeAnniversaries,
     includeSchedules,
     includeClips,
@@ -36,7 +35,6 @@ export async function getChannelCalendar(
     to,
     // 백엔드 DTO 가 'true'/'false' 문자열을 boolean 으로 transform 하므로 그대로 전달.
     includeBroadcasts,
-    includeSetlists,
     includeAnniversaries,
     includeSchedules,
     includeClips,
@@ -54,7 +52,7 @@ export async function getChannelCalendar(
 
 /**
  * GET /v1/channels/{identifier}/calendar/search
- * 채널 통합 캘린더 검색 (일정 + 방송 기록 + 노래방송 + 클립 + 기념일).
+ * 채널 통합 캘린더 검색 (일정 + 방송 기록 + 클립 + 기념일).
  *
  * 백엔드: meloming-back/src/channel/channel-calendar.controller.ts (searchCalendar)
  * - q: 검색 키워드 (필수)
@@ -72,7 +70,6 @@ export async function searchChannelCalendar(
     from,
     to,
     includeBroadcasts,
-    includeSetlists,
     includeAnniversaries,
     includeSchedules,
     includeClips,
@@ -84,7 +81,6 @@ export async function searchChannelCalendar(
     from,
     to,
     includeBroadcasts,
-    includeSetlists,
     includeAnniversaries,
     includeSchedules,
     includeClips,

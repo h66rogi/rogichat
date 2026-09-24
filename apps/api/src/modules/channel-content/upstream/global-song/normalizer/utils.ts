@@ -1,4 +1,3 @@
-/* eslint-disable no-useless-escape -- original Meloming regex source */
 /**
  * Shared utilities for artist and title normalizers.
  */

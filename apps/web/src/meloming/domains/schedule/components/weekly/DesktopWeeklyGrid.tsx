@@ -4,13 +4,11 @@ import type { CalendarAnniversary } from "@/meloming/domains/schedule/types/anni
 import type {
   CalendarBroadcastRecord,
   CalendarClipRecord,
-  CalendarSetlistSummary,
 } from "@/meloming/domains/calendar/types/channel-calendar";
 import { ScheduleCardDesktop } from "./ScheduleCardDesktop";
 import { AnniversaryCardDesktop } from "./AnniversaryCardDesktop";
 import { BroadcastRecordCardDesktop } from "@/meloming/domains/calendar/components/cards/BroadcastRecordCardDesktop";
 import { ClipRecordCardDesktop } from "@/meloming/domains/calendar/components/cards/ClipRecordCardDesktop";
-import { SetlistRecordCardDesktop } from "@/meloming/domains/calendar/components/cards/SetlistRecordCardDesktop";
 import { Plus } from "lucide-react";
 import { cn } from "@/meloming/shared/lib/utils";
 
@@ -23,13 +21,10 @@ type DesktopWeeklyGridProps = {
   anniversaries?: CalendarAnniversary[];
   /** v2 통합 캘린더의 broadcast 기록. v1 경로에서는 빈 배열. */
   broadcasts?: CalendarBroadcastRecord[];
-  /** v2 통합 캘린더의 setlist 요약. v1 경로에서는 빈 배열. */
-  setlists?: CalendarSetlistSummary[];
   /** v2 통합 캘린더의 노래 클립. v1 경로에서는 빈 배열. */
   clips?: CalendarClipRecord[];
   /** Task 1.10 에서 DayDetailSheet 와 연결될 클릭 핸들러. */
   onBroadcastClick?: (broadcast: CalendarBroadcastRecord) => void;
-  onSetlistClick?: (setlist: CalendarSetlistSummary) => void;
   /** Task 1.11 — 노래 클립 카드 클릭 핸들러. */
   onClipClick?: (clip: CalendarClipRecord) => void;
 };
@@ -151,32 +146,6 @@ function groupBroadcastsByDate(
   return res;
 }
 
-function groupSetlistsByDate(
-  setlists: CalendarSetlistSummary[],
-  isoStart: string
-) {
-  const res: Record<string, CalendarSetlistSummary[]> = {};
-  const days = getWeekDays(isoStart);
-  const startDate = days[0];
-  const endDate = days[6];
-
-  for (const s of setlists) {
-    const start = new Date(s.startedAt);
-    if (Number.isNaN(start.getTime())) continue;
-    const day = startOfDay(start);
-    if (day < startDate || day > endDate) continue;
-    const key = toKey(day);
-    res[key] ||= [];
-    res[key].push(s);
-  }
-
-  Object.keys(res).forEach((k) => {
-    res[k].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-  });
-
-  return res;
-}
-
 function groupClipsByDate(
   clips: CalendarClipRecord[],
   isoStart: string
@@ -211,10 +180,8 @@ export function DesktopWeeklyGrid({
   hideChannel = false,
   anniversaries = [],
   broadcasts = [],
-  setlists = [],
   clips = [],
   onBroadcastClick,
-  onSetlistClick,
   onClipClick,
 }: DesktopWeeklyGridProps) {
   const weekDays = useMemo(() => getWeekDays(weekStart), [weekStart]);
@@ -226,10 +193,6 @@ export function DesktopWeeklyGrid({
   const broadcastsByDate = useMemo(
     () => groupBroadcastsByDate(broadcasts, weekStart),
     [broadcasts, weekStart]
-  );
-  const setlistsByDate = useMemo(
-    () => groupSetlistsByDate(setlists, weekStart),
-    [setlists, weekStart]
   );
   const clipsByDate = useMemo(
     () => groupClipsByDate(clips, weekStart),
@@ -243,13 +206,11 @@ export function DesktopWeeklyGrid({
         const dayEvents = byDate[key] || [];
         const dayAnniversaries = anniversariesByDate[key] || [];
         const dayBroadcasts = broadcastsByDate[key] || [];
-        const daySetlists = setlistsByDate[key] || [];
         const dayClips = clipsByDate[key] || [];
         const hasContent =
           dayEvents.length > 0 ||
           dayAnniversaries.length > 0 ||
           dayBroadcasts.length > 0 ||
-          daySetlists.length > 0 ||
           dayClips.length > 0;
         const isTodayDate = isToday(day);
         const dayOfWeek = day.getDay();
@@ -292,14 +253,7 @@ export function DesktopWeeklyGrid({
               {dayAnniversaries.map((ann) => (
                 <AnniversaryCardDesktop key={ann.id} anniversary={ann} />
               ))}
-              {/* anniversary → setlist → broadcast → clip → schedule — spec 5.4 + clip 확장 */}
-              {daySetlists.map((s) => (
-                <SetlistRecordCardDesktop
-                  key={`${key}-setlist-${s.sessionId}`}
-                  setlist={s}
-                  onClick={onSetlistClick}
-                />
-              ))}
+              {/* anniversary → broadcast → clip → schedule — spec 5.4 + clip 확장 */}
               {dayBroadcasts.map((b) => (
                 <BroadcastRecordCardDesktop
                   key={`${key}-broadcast-${b.sessionKey}`}

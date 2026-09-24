@@ -61,7 +61,6 @@ export function useChannelCalendar(
     staleTime?: number;
     gcTime?: number;
     includeBroadcasts?: boolean;
-    includeSetlists?: boolean;
     includeAnniversaries?: boolean;
     includeSchedules?: boolean;
     includeClips?: boolean;
@@ -75,7 +74,6 @@ export function useChannelCalendar(
     from: fromStr,
     to: toStr,
     includeBroadcasts: options?.includeBroadcasts,
-    includeSetlists: options?.includeSetlists,
     includeAnniversaries: options?.includeAnniversaries,
     includeSchedules: options?.includeSchedules,
     includeClips: options?.includeClips,
@@ -89,7 +87,6 @@ export function useChannelCalendar(
       fromStr,
       toStr,
       options?.includeBroadcasts ?? null,
-      options?.includeSetlists ?? null,
       options?.includeAnniversaries ?? null,
       options?.includeSchedules ?? null,
       options?.includeClips ?? null,

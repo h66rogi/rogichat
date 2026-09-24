@@ -48,7 +48,6 @@ import { setChannelCalendarHeaderControls } from "@/meloming/domains/channel/com
 import type {
   CalendarBroadcastRecord,
   CalendarClipRecord,
-  CalendarSetlistSummary,
 } from "@/meloming/domains/calendar/types/channel-calendar";
 
 type WeeklyScheduleViewerProps = {
@@ -62,12 +61,7 @@ type WeeklyScheduleViewerProps = {
   onScheduleClick?: (schedule: Schedule) => void;
   onEmptyClick?: (date: Date) => void;
   anniversaries?: CalendarAnniversary[];
-  /**
-   * Task 1.10 — v2 통합 캘린더의 setlist/broadcast 카드 클릭 핸들러.
-   * DayDetailSheet 시트 안의 카드 클릭 시 호출되며, 부모(섹션)에서
-   * setlist 상세 다이얼로그 / broadcast 정보 패널을 띄우는 데 사용.
-   */
-  onSetlistClick?: (setlist: CalendarSetlistSummary) => void;
+  /** v2 통합 캘린더의 방송 기록 카드 클릭 핸들러. */
   onBroadcastClick?: (broadcast: CalendarBroadcastRecord) => void;
   /** Task 1.11 — 노래 클립 카드 클릭 시 클립 상세 페이지 이동. */
   onClipClick?: (clip: CalendarClipRecord) => void;
@@ -85,7 +79,6 @@ export function WeeklyScheduleViewer({
   onScheduleClick,
   onEmptyClick,
   anniversaries,
-  onSetlistClick,
   onBroadcastClick,
   onClipClick,
   fitCalendarToViewport = false,
@@ -221,15 +214,10 @@ export function WeeklyScheduleViewer({
     activeLegacyQuery.data,
   ]);
 
-  // v2 응답의 broadcasts / setlists 는 Task 1.9 부터 셀 렌더링에 사용.
-  // Task 1.10 에서 DayDetailSheet 와 연동될 click handler 는 후속 task.
   const broadcasts: CalendarBroadcastRecord[] = useMemo(() => {
     if (!calendarV2Enabled) return [];
     return activeCalendarQuery.data?.broadcasts ?? [];
   }, [calendarV2Enabled, activeCalendarQuery.data]);
-
-  // Rogichat keeps setlists in the musicbook flow, outside the schedule.
-  const setlists: CalendarSetlistSummary[] = [];
 
   const clips: CalendarClipRecord[] = useMemo(() => {
     if (!calendarV2Enabled) return [];
@@ -526,11 +514,9 @@ export function WeeklyScheduleViewer({
               schedules={schedules}
               anniversaries={anniversaries ?? []}
               broadcasts={broadcasts}
-              setlists={setlists}
               clips={clips}
               onScheduleClick={onScheduleClick}
               onAddSchedule={onEmptyClick}
-              onSetlistClick={onSetlistClick}
               onBroadcastClick={onBroadcastClick}
               onClipClick={onClipClick}
               hideChannel={true}
@@ -542,12 +528,10 @@ export function WeeklyScheduleViewer({
               schedules={schedules}
               anniversaries={anniversaries ?? []}
               broadcasts={broadcasts}
-              setlists={setlists}
               clips={clips}
               variant="channel"
               onScheduleClick={onScheduleClick}
               onAddSchedule={onEmptyClick}
-              onSetlistClick={onSetlistClick}
               onBroadcastClick={onBroadcastClick}
               onClipClick={onClipClick}
               fitToViewport={fitCalendarToViewport}
@@ -563,9 +547,7 @@ export function WeeklyScheduleViewer({
             onEmptyClick={onEmptyClick}
             anniversaries={anniversaries}
             broadcasts={broadcasts}
-            setlists={setlists}
             clips={clips}
-            onSetlistClick={onSetlistClick}
             onBroadcastClick={onBroadcastClick}
             onClipClick={onClipClick}
             hideChannel={true}
@@ -579,9 +561,7 @@ export function WeeklyScheduleViewer({
             hideChannel={true}
             anniversaries={anniversaries}
             broadcasts={broadcasts}
-            setlists={setlists}
             clips={clips}
-            onSetlistClick={onSetlistClick}
             onBroadcastClick={onBroadcastClick}
             onClipClick={onClipClick}
           />

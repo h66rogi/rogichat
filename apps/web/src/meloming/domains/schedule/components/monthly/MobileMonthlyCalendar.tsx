@@ -6,14 +6,12 @@ import type { CalendarAnniversary } from "@/meloming/domains/schedule/types/anni
 import type {
   CalendarBroadcastRecord,
   CalendarClipRecord,
-  CalendarSetlistSummary,
 } from "@/meloming/domains/calendar/types/channel-calendar";
 import { cn } from "@/meloming/shared/lib/utils";
 import { ScheduleCardMobile } from "../weekly/ScheduleCardMobile";
 import { AnniversaryCardMobile } from "../weekly/AnniversaryCardMobile";
 import { BroadcastRecordCardMobile } from "@/meloming/domains/calendar/components/cards/BroadcastRecordCardMobile";
 import { ClipRecordCardMobile } from "@/meloming/domains/calendar/components/cards/ClipRecordCardMobile";
-import { SetlistRecordCardMobile } from "@/meloming/domains/calendar/components/cards/SetlistRecordCardMobile";
 import { DayDetailSheet } from "@/meloming/domains/calendar/components/DayDetailSheet";
 import { CalendarIcon } from "lucide-react";
 
@@ -23,15 +21,12 @@ type MobileMonthlyCalendarProps = {
   anniversaries: CalendarAnniversary[];
   /** v2 통합 캘린더의 broadcast 기록. v1 경로에서는 빈 배열. */
   broadcasts?: CalendarBroadcastRecord[];
-  /** v2 통합 캘린더의 setlist 요약. v1 경로에서는 빈 배열. */
-  setlists?: CalendarSetlistSummary[];
   /** v2 통합 캘린더의 노래 클립. v1 경로에서는 빈 배열. */
   clips?: CalendarClipRecord[];
   onScheduleClick?: (schedule: Schedule) => void;
   onAddSchedule?: (date: Date) => void;
   /** Task 1.10 에서 DayDetailSheet 와 연결될 클릭 핸들러. */
   onBroadcastClick?: (broadcast: CalendarBroadcastRecord) => void;
-  onSetlistClick?: (setlist: CalendarSetlistSummary) => void;
   /** Task 1.11 — 노래 클립 카드 클릭 핸들러. */
   onClipClick?: (clip: CalendarClipRecord) => void;
   hideChannel?: boolean;
@@ -65,12 +60,10 @@ export function MobileMonthlyCalendar({
   schedules,
   anniversaries,
   broadcasts = [],
-  setlists = [],
   clips = [],
   onScheduleClick,
   onAddSchedule,
   onBroadcastClick,
-  onSetlistClick,
   onClipClick,
   hideChannel = false,
   fitToViewport = false,
@@ -124,7 +117,6 @@ export function MobileMonthlyCalendar({
         schedules: Schedule[];
         anniversaries: CalendarAnniversary[];
         broadcasts: CalendarBroadcastRecord[];
-        setlists: CalendarSetlistSummary[];
         clips: CalendarClipRecord[];
       }
     >();
@@ -135,7 +127,6 @@ export function MobileMonthlyCalendar({
           schedules: [],
           anniversaries: [],
           broadcasts: [],
-          setlists: [],
           clips: [],
         });
       return map.get(key)!;
@@ -153,13 +144,6 @@ export function MobileMonthlyCalendar({
       if (!date) continue;
       const key = ymd(toStartOfDay(date));
       ensure(key).broadcasts.push(b);
-    }
-
-    for (const sl of setlists) {
-      const date = parseISOToDate(sl.startedAt);
-      if (!date) continue;
-      const key = ymd(toStartOfDay(date));
-      ensure(key).setlists.push(sl);
     }
 
     for (const c of clips) {
@@ -213,23 +197,19 @@ export function MobileMonthlyCalendar({
       bucket.broadcasts.sort((a, b) =>
         a.startedAt.localeCompare(b.startedAt)
       );
-      bucket.setlists.sort((a, b) =>
-        a.startedAt.localeCompare(b.startedAt)
-      );
       bucket.clips.sort((a, b) =>
         a.createdAt.localeCompare(b.createdAt)
       );
     }
 
     return map;
-  }, [schedules, anniversaries, broadcasts, setlists, clips]);
+  }, [schedules, anniversaries, broadcasts, clips]);
 
   const selectedKey = ymd(selectedDate);
   const selectedData = dataByDay.get(selectedKey);
   const selectedSchedules = selectedData?.schedules ?? [];
   const selectedAnniversaries = selectedData?.anniversaries ?? [];
   const selectedBroadcasts = selectedData?.broadcasts ?? [];
-  const selectedSetlists = selectedData?.setlists ?? [];
   const selectedClips = selectedData?.clips ?? [];
 
   const handleDateClick = (date: Date) => {
@@ -279,7 +259,6 @@ export function MobileMonthlyCalendar({
           const hasSchedules = (data?.schedules.length ?? 0) > 0;
           const hasAnniversaries = (data?.anniversaries.length ?? 0) > 0;
           const hasBroadcasts = (data?.broadcasts.length ?? 0) > 0;
-          const hasSetlists = (data?.setlists.length ?? 0) > 0;
           const hasClips = (data?.clips.length ?? 0) > 0;
           const isCurrentMonth = d.getMonth() === month.getMonth();
           const isSelected = isSameDay(d, selectedDate);
@@ -337,12 +316,6 @@ export function MobileMonthlyCalendar({
                     className="w-2 h-2 shrink-0 rounded-full bg-amber-500"
                   />
                 )}
-                {hasSetlists && (
-                  <div
-                    data-testid="dot-setlist"
-                    className="w-2 h-2 shrink-0 rounded-full bg-rose-500"
-                  />
-                )}
                 {hasBroadcasts && (
                   <div
                     data-testid="dot-broadcast"
@@ -379,13 +352,11 @@ export function MobileMonthlyCalendar({
           onOpenChange={setIsDaySheetOpen}
           selectedDate={selectedDate}
           anniversaries={selectedAnniversaries}
-          setlists={selectedSetlists}
           broadcasts={selectedBroadcasts}
           clips={selectedClips}
           schedules={selectedSchedules}
           onScheduleClick={onScheduleClick}
           onAddSchedule={onAddSchedule}
-          onSetlistClick={onSetlistClick}
           onBroadcastClick={onBroadcastClick}
           onClipClick={onClipClick}
           hideScheduleChannel={hideChannel}
@@ -414,7 +385,6 @@ export function MobileMonthlyCalendar({
         {selectedSchedules.length === 0 &&
         selectedAnniversaries.length === 0 &&
         selectedBroadcasts.length === 0 &&
-        selectedSetlists.length === 0 &&
         selectedClips.length === 0 ? (
           <div className="text-center py-10 text-muted-foreground">
             <CalendarIcon className="size-10 mx-auto mb-2 opacity-20" />
@@ -425,14 +395,7 @@ export function MobileMonthlyCalendar({
             {selectedAnniversaries.map((ann) => (
               <AnniversaryCardMobile key={ann.id} anniversary={ann} />
             ))}
-            {/* anniversary → setlist → broadcast → clip → schedule — spec 5.4 + clip 확장 */}
-            {selectedSetlists.map((sl) => (
-              <SetlistRecordCardMobile
-                key={`setlist-${sl.sessionId}`}
-                setlist={sl}
-                onClick={onSetlistClick}
-              />
-            ))}
+            {/* anniversary → broadcast → clip → schedule — spec 5.4 + clip 확장 */}
             {selectedBroadcasts.map((b) => (
               <BroadcastRecordCardMobile
                 key={`broadcast-${b.sessionKey}`}

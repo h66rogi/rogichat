@@ -11,12 +11,12 @@ import { expandBirthdayInRange, expandMilestonesInRange } from './upstream/chann
 type CalendarQuery = {
   from: string; to: string; q?: string; limit?: number;
   includeSchedules?: boolean; includeAnniversaries?: boolean;
-  includeBroadcasts?: boolean; includeSetlists?: boolean; includeClips?: boolean;
+  includeBroadcasts?: boolean; includeClips?: boolean;
 };
 type CalendarAnniversary = { id: null; source: 'AUTO'; type: 'BIRTHDAY' | 'BROADCAST_MILESTONE'; title: string; date: string };
 type CalendarSearchItem = {
   type: 'SCHEDULE' | 'ANNIVERSARY' | 'CLIP'; date: string; title: string; subtitle: string | null;
-  scheduleId: number | null; sessionKey: null; sessionId: null; clipId: number | null; anniversaryType: string | null;
+  scheduleId: number | null; sessionKey: null; clipId: number | null; anniversaryType: string | null;
 };
 
 /** Meloming ChannelCalendarService, bound to Rogichat's owner room and selected schedule/anniversary sources. */
@@ -90,7 +90,7 @@ export class MelomingCalendarService {
     ]);
     return {
       channelId: '1', range: { from: query.from, to: query.to },
-      schedules: this.unwrap(schedulesResult, 'schedules'), broadcasts: [], setlists: [],
+      schedules: this.unwrap(schedulesResult, 'schedules'), broadcasts: [],
       anniversaries: this.unwrap(anniversariesResult, 'anniversaries'), clips: this.unwrap(clipsResult, 'clips'),
     };
   }
@@ -110,7 +110,7 @@ export class MelomingCalendarService {
           .filter(a => a.title.toLowerCase().includes(term.toLowerCase()))
           .map((a): CalendarSearchItem => ({ type: 'ANNIVERSARY', date: a.date, title: a.title,
             subtitle: a.type === 'BIRTHDAY' ? '생일' : '기념일', scheduleId: null,
-            sessionKey: null, sessionId: null, clipId: null, anniversaryType: a.type }));
+            sessionKey: null, clipId: null, anniversaryType: a.type }));
       }),
       query.includeClips === false ? Promise.resolve([] as CalendarSearchItem[]) : this.transactions.read(async tx => {
         const { roomId } = await this.repository.primary(tx);
@@ -120,7 +120,7 @@ export class MelomingCalendarService {
             clipChannels: { where: { channelId: roomId }, select: { song: { select: { title: true } } } } } });
         return rows.map((row): CalendarSearchItem => ({ type: 'CLIP', date: row.createdAt.toISOString(),
           title: row.title, subtitle: row.clipChannels[0]?.song?.title ?? null,
-          scheduleId: null, sessionKey: null, sessionId: null, clipId: row.id, anniversaryType: null }));
+          scheduleId: null, sessionKey: null, clipId: row.id, anniversaryType: null }));
       }),
     ]);
     const merged = [ ...this.unwrap(schedulesResult, 'search:schedules'), ...this.unwrap(anniversariesResult, 'search:anniversaries'), ...this.unwrap(clipsResult, 'search:clips') ];
@@ -152,7 +152,7 @@ export class MelomingCalendarService {
       });
       return rows.map((r): CalendarSearchItem => ({ type: 'SCHEDULE', date: r.startAt.toISOString(), title: r.title,
         subtitle: r.location ?? this.snippet(r.content), scheduleId: r.id,
-        sessionKey: null, sessionId: null, clipId: null, anniversaryType: null }));
+        sessionKey: null, clipId: null, anniversaryType: null }));
     });
   }
 
