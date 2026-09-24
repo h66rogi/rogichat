@@ -24,7 +24,7 @@ export function ManagementSidebar({
 }: ManagementSidebarProps) {
   return (
     // ManageShell 의 Inset Card 레이아웃 (Frame Overlay 패턴) 안에 정렬됨.
-    // - left: rail width + card gap (카드 좌측 시작점)
+    // - left: ManageShell 카드의 좌측 간격
     // - top: thin header 아래 카드 시작점, bottom: card gap
     // - h: auto (top/bottom 으로 높이 결정, h-svh override)
     // - 좌측 모서리 둥글기: 카드 좌측 모서리 따라 rounded-l-xl
@@ -36,7 +36,7 @@ export function ManagementSidebar({
     <Sidebar
       variant="sidebar"
       collapsible="offcanvas"
-      className="md:left-[calc(var(--rail-width)+var(--card-gap-left))]! md:top-[var(--site-sticky-top)]! md:bottom-[var(--card-gap)]! md:h-auto! md:rounded-l-xl! md:overflow-hidden! transition-[left] duration-300 ease-out"
+      className="md:left-[var(--card-gap)]! md:top-[var(--site-sticky-top)]! md:bottom-[var(--card-gap)]! md:h-auto! md:rounded-l-xl! md:overflow-hidden! transition-[left] duration-300 ease-out"
     >
       <SidebarHeader className="p-3">
         <ManagementSidebarHeader
