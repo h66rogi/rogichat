@@ -56,7 +56,7 @@ private actor ModelConversation: ConversationCoordinating {
         while model.sending { precondition(Date() < deadline); try await Task.sleep(for: .milliseconds(1)) }
     }
     @MainActor static func main() async throws {
-        let scope = try scope(); let original = try message()
+        let scope = try scope(mode: "FAN", role: "STREAMER"); let original = try message()
         let remote = ModelConversation(scope: scope, value: listing([original])); let model = ConversationScreenModel(coordinator: remote)
         await model.load(); model.draft = "  원문  "
         await remote.failPrewrite(true); model.send(); try await finish(model)
@@ -92,19 +92,19 @@ private actor ModelConversation: ConversationCoordinating {
         let fanScope = try Self.scope(mode: "FAN", role: "FAN")
         let fanRemote = ModelConversation(scope: fanScope, value: listing([original]))
         let fan = ConversationScreenModel(coordinator: fanRemote)
-        await fan.load(); await fan.loadRecipients(); fan.draft = "방장에게"
-        check(fan.recipients.isEmpty && fan.canSend && fan.targetName == "방장에게만")
+        await fan.load(); fan.draft = "전체 채팅에"
+        check(fan.canSend && fan.targetName == "전체 채팅")
         fan.send(); await fanRemote.wait()
-        check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
+        check(await fanRemote.lastCommand()?.intent == "SHARED")
         check(await fanRemote.lastCommand()?.recipientActorID == nil)
         await fanRemote.complete(.unknown); try await finish(fan)
-        fan.reply(to: original); fan.draft = "개인 답장"; fan.send(); await fanRemote.wait()
-        check(await fanRemote.lastCommand()?.intent == "PRIVATE")
-        check(await fanRemote.lastCommand()?.recipientActorID == peerID)
+        fan.reply(to: original); check(fan.quote == nil)
+        fan.draft = "계속 전체 채팅"; fan.send(); await fanRemote.wait()
+        check(await fanRemote.lastCommand()?.intent == "SHARED")
+        check(await fanRemote.lastCommand()?.recipientActorID == nil)
         await fanRemote.complete(.committed); try await finish(fan)
-        fan.choose(nil); check(fan.roomOwnerTarget)
         let attachment = Task { try await fan.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: messageID)) }
-        await fanRemote.wait(); check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
+        await fanRemote.wait(); check(await fanRemote.lastCommand()?.intent == "SHARED")
         await fanRemote.complete(.unknown); _ = try await attachment.value
         print("iOS conversation model: pre-write draft preservation, owned single send, unknown outcome, edited draft, GROUP private quote, stale row and scope invalidation passed")
     }

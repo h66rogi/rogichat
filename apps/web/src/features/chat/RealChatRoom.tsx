@@ -133,7 +133,6 @@ function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { se
     composerMemory={controller} composerEpoch={state.epoch}
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
-    fanRecipients={recipients} fanRoomOwner={room.role === 'FAN'}
     streamerRecipients={recipients}
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}
     submitBlockedReason={state.storageError ?? (state.commandBusy || reconnecting ? '이전 전송 결과를 확인하고 있습니다. 입력은 계속 작성할 수 있습니다.' : undefined)}

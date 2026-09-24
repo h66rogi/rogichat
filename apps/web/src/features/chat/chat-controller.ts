@@ -263,7 +263,7 @@ export class ChatController {
       if (next && (recipientCursors.has(next) || recipientCursors.size >= 200)) throw new Error('INVALID_RESPONSE');
       if (next) recipientCursors.add(next);
     } while (next);
-    this.commands.quarantine(command => command.payload.intent === 'ROOM_OWNER' ? found.role !== 'FAN' : command.payload.intent === 'SHARED' ? found.role !== 'STREAMER' : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
+    this.commands.quarantine(command => command.payload.intent === 'ROOM_OWNER' ? found.role !== 'FAN' : command.payload.intent === 'SHARED' ? false : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
     const binding = JSON.stringify(recipients.map(recipient => recipient.actorId));
     if (this.recipientBinding && this.recipientBinding !== binding) throw new ResetRequired();
     guard();
@@ -591,7 +591,7 @@ export class ChatController {
   }
   private payloadAuthorized(body: { intent: 'SHARED' | 'PRIVATE' | 'ROOM_OWNER'; recipientActorId?: string; quoteId?: string }, room: RoomMembership, recipients = this.state.recipients): boolean {
     if (body.intent === 'ROOM_OWNER') return room.role === 'FAN' && body.recipientActorId === undefined && body.quoteId === undefined;
-    if (body.intent === 'SHARED' ? room.role !== 'STREAMER' : !recipients.some(p => p.actorId === body.recipientActorId && p.actorId !== room.actorId)) return false;
+    if (body.intent === 'SHARED' ? false : !recipients.some(p => p.actorId === body.recipientActorId && p.actorId !== room.actorId)) return false;
     if (body.quoteId) {
       const quote = this.messages.find(m => m.id === body.quoteId);
       if (!quote?.allowedActions.reply || body.intent !== 'PRIVATE' || (quote.audience === 'PRIVATE' ? quote.counterpart?.actorId : quote.author.kind === 'member' ? quote.author.actorId : null) !== body.recipientActorId) return false;

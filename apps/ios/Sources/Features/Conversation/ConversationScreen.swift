@@ -10,7 +10,6 @@ struct ConversationScreen: View {
     @State private var visibleIDs: [String] = []
     @State private var atLatest = true
     @State private var visible = false
-    @State private var selectingRecipient = false
     @FocusState private var composing: Bool
     @Environment(\.scenePhase) private var scenePhase
     let onReopen: () -> Void
@@ -106,7 +105,6 @@ struct ConversationScreen: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in if phase == .active, visible { Task { await model.refresh() } } }
-        .sheet(isPresented: $selectingRecipient) { recipientPicker }
         .sheet(isPresented: $showMedia) { mediaSheet }
         .sheet(isPresented: $showStickers) {
             if let features { NavigationStack {
@@ -134,11 +132,6 @@ struct ConversationScreen: View {
                     Spacer(minLength: 8)
                     Button { model.cancelReply() } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("답장 취소")
                 }.padding(.horizontal)
-            } else if model.scope.room.mode == "FAN" {
-                Button { selectingRecipient = true } label: {
-                    Label(model.targetName, systemImage: model.privateTarget == nil && model.sharedAllowed ? "person.2" : "lock")
-                        .font(.subheadline.weight(.medium))
-                }.padding(.horizontal).disabled(model.sending)
             }
             HStack(alignment: .bottom, spacing: 10) {
                 if features != nil {
@@ -193,7 +186,7 @@ struct ConversationScreen: View {
             if !mine { Spacer(minLength: 36) }
         }.contextMenu {
             if let features { Button("메시지 작업", systemImage: "ellipsis.circle") { features.select(message); showActions = features.token != nil } }
-            if message.replyRecipient != nil { Button("비공개 답장", systemImage: "arrowshape.turn.up.left") { model.reply(to: message); composing = true } }
+            if !mine && model.scope.room.role == "STREAMER" && message.replyRecipient != nil { Button("비공개 답장", systemImage: "arrowshape.turn.up.left") { model.reply(to: message); composing = true } }
         }.accessibilityElement(children: .contain)
     }
     @ViewBuilder private func messageContent(_ message: ConversationMessage) -> some View {
@@ -252,27 +245,6 @@ struct ConversationScreen: View {
     private func time(_ value: String) -> String {
         let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f.date(from: value)?.formatted(date: .abbreviated, time: .shortened) ?? ""
-    }
-    private var recipientPicker: some View {
-        NavigationStack {
-            List {
-                if model.roomOwnerAllowed { Button("방장에게만") { model.choose(nil); selectingRecipient = false } }
-                if model.sharedAllowed { Button("전체 대화") { model.choose(nil); selectingRecipient = false } }
-                Section("비공개 메시지") {
-                    ForEach(model.recipients) { candidate in
-                        Button(candidate.nickname) { model.choose(candidate); selectingRecipient = false }
-                    }
-                    if model.recipientsLoading { ProgressView("받는 사람을 확인하는 중") }
-                    else if let error = model.recipientsError {
-                        Text(error).foregroundStyle(.secondary)
-                        Button("다시 확인") { Task { await model.loadRecipients() } }
-                    } else if model.recipients.isEmpty && !model.roomOwnerAllowed { Text("현재 비공개 메시지를 보낼 수 있는 사람이 없어요.").foregroundStyle(.secondary) }
-                    if model.recipientsNext != nil { Button("더 보기") { Task { await model.loadRecipients(more: true) } }.disabled(model.recipientsLoading) }
-                }
-            }.navigationTitle("받는 사람").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { selectingRecipient = false } } }
-                .task { await model.loadRecipients() }
-        }
     }
 }
 

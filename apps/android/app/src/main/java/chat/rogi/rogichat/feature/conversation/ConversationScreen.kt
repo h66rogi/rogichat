@@ -25,7 +25,7 @@ import chat.rogi.rogichat.core.media.*
 import chat.rogi.rogichat.feature.media.*
 import chat.rogi.rogichat.feature.messageactions.*
 import chat.rogi.rogichat.core.design.ScreenStatus
-import chat.rogi.rogichat.core.network.RoomMode
+import chat.rogi.rogichat.core.network.RoomRole
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -122,7 +122,7 @@ fun ConversationScreen(model: ConversationViewModel) {
                 }
                 items(data.messages.asReversed(), key = { it.id.value }) { message ->
                     MessageBubble(message, (message.author as? MessageAuthor.Member)?.actorId == model.selection.membership.actorId, media?.client,
-                        onReply = { model.reply(message, data.scope) }, onActions = { model.showActions(message, data.scope) },
+                        canReply = model.selection.membership.role == RoomRole.STREAMER, onReply = { model.reply(message, data.scope) }, onActions = { model.showActions(message, data.scope) },
                         profile = data.profiles.find { it.actorId == (message.author as? MessageAuthor.Member)?.actorId })
                 }
                 if (data.historyCursor != null) item { TextButton(onClick = model::history, modifier = Modifier.fillMaxWidth()) { Text("이전 메시지 보기") } }
@@ -133,30 +133,10 @@ fun ConversationScreen(model: ConversationViewModel) {
             }
             HorizontalDivider()
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (model.selection.membership.mode == RoomMode.FAN && !model.mustPrivate()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = !draft.privateMessage, onClick = { model.choosePrivate(false) }, label = { Text("전체 대화") }, enabled = !draft.submitting)
-                    FilterChip(selected = draft.privateMessage, onClick = { model.choosePrivate(true) }, label = { Text("개인 대화") }, enabled = !draft.submitting)
-                }
                 visibleQuote?.let { quote ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text("답장: ${quote.textSummary()}", Modifier.weight(1f), maxLines = 2, style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = model::clearReply, enabled = !draft.submitting) { Text("취소") }
-                    }
-                }
-                if (draft.privateMessage && draft.quote == null) {
-                    var choosing by remember { mutableStateOf(false) }
-                    Box {
-                        TextButton(onClick = { choosing = true }, enabled = !draft.submitting) {
-                            Text(state.recipients.find { it.actorId == draft.recipient }?.nickname?.let { "$it 님에게" } ?: if (model.roomOwnerAllowed()) "방장에게만" else "받는 사람 선택")
-                        }
-                        DropdownMenu(expanded = choosing, onDismissRequest = { choosing = false }) {
-                            if (model.roomOwnerAllowed()) DropdownMenuItem(text = { Text("방장에게만") }, onClick = { choosing = false; model.clearReply() })
-                            state.recipients.forEach { recipient -> DropdownMenuItem(text = { Text(recipient.nickname) }, onClick = {
-                                choosing = false; model.recipient(recipient, state.recipientRevision)
-                            }) }
-                            if (state.recipients.isEmpty() && !model.roomOwnerAllowed()) DropdownMenuItem(text = { Text("지금 선택할 수 있는 사람이 없어요.") }, onClick = {}, enabled = false)
-                            if (state.recipientNext != null) DropdownMenuItem(text = { Text("더 보기") }, onClick = model::moreRecipients)
-                        }
                     }
                 }
                 if (media != null) {
@@ -178,7 +158,7 @@ fun ConversationScreen(model: ConversationViewModel) {
                     }
                 }
                 OutlinedTextField(value = draft.text, onValueChange = model::text, modifier = Modifier.fillMaxWidth(), maxLines = 5,
-                    enabled = !draft.submitting && !draft.uploading && draft.media == null, placeholder = { Text(if (draft.privateMessage) "개인 메시지" else "메시지") },
+                    enabled = !draft.submitting && !draft.uploading && draft.media == null, placeholder = { Text(if (visibleQuote != null) "비공개 답장" else "전체 채팅에 메시지 보내기") },
                     supportingText = draft.error?.let { { Text(it) } }, isError = draft.error != null)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     Button(onClick = { model.send(data.scope) }, enabled = !state.sending && !draft.submitting && !draft.uploading && (draft.text.isNotBlank() || draft.media != null) && (draft.quote == null || visibleQuote != null)) { Text("보내기") }
@@ -194,7 +174,7 @@ private fun ConversationMessage.textSummary() = when (val content = content) {
 }
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun MessageBubble(message: ConversationMessage, own: Boolean, media: MediaClient?, onReply: () -> Unit, onActions: () -> Unit, profile: ConversationProfile?) {
+private fun MessageBubble(message: ConversationMessage, own: Boolean, media: MediaClient?, canReply: Boolean, onReply: () -> Unit, onActions: () -> Unit, profile: ConversationProfile?) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
         val author = when (val author = message.author) { MessageAuthor.Anonymous -> "익명"; is MessageAuthor.Member -> author.nickname }
         if (media != null && profile != null && message.author is MessageAuthor.Member) {
@@ -224,7 +204,7 @@ private fun MessageBubble(message: ConversationMessage, own: Boolean, media: Med
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(DateTimeFormatter.ofPattern("M월 d일 HH:mm").withZone(ZoneId.systemDefault()).format(message.createdAt), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (message.replyTarget != null) TextButton(onClick = onReply) { Text("답장") }
+            if (canReply && !own && message.replyTarget != null) TextButton(onClick = onReply) { Text("답장") }
             TextButton(onClick = onActions) { Text("메시지 메뉴") }
         }
     }

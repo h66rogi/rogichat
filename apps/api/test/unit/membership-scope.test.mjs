@@ -43,7 +43,7 @@ test('locked membership and scope validation precede committed and deleted recei
     const body = input();
     const legacy = { clientMessageId: body.clientMessageId, intent: 'SHARED', recipientActorId: null, quoteId: null, content: { type: 'TEXT', text: 'é' } };
     const digest = createHmac('sha256', key).update('message-command:v1:').update(JSON.stringify(legacy)).digest();
-    const repo = { room: async () => ({ status: 'ACTIVE' }), member: async () => viewer, receipt: async () => { receiptReads++; return { deleted, message_id: 'previous', digest_version: 1, payload_digest: digest }; } };
+    const repo = { pendingOwner: async () => false, room: async () => ({ status: 'ACTIVE' }), member: async () => viewer, receipt: async () => { receiptReads++; return { deleted, message_id: 'previous', digest_version: 1, payload_digest: digest }; } };
     const core = new MessagesCoreService(repo, { lockRoomSendOwner: async () => null, requireActiveMember: async () => { if (!membership) throw Object.assign(new Error(), { code: 'NOT_FOUND' }); return viewer; } });
     core.load = async () => ({ id: 'previous', version: '18446744073709551615' }); core.readable = async () => true;
     await assert.rejects(core.send({}, roomId, userId, { ...body, membershipScope: 'A'.repeat(43) }, key, audience), { code: 'MEMBERSHIP_SCOPE_MISMATCH' });

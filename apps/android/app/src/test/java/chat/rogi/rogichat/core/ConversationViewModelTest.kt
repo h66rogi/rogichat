@@ -27,27 +27,28 @@ class ConversationViewModelTest {
         override suspend fun send(handle: ConversationHandle, intent: TextSendIntent): Result<Unit> { sent = intent; return Result.success(Unit) }
     }
     private fun data(message: ConversationMessage) = ConversationData(scope, listOf(message), emptyList(), true, SyncCursor("events"), null, emptyList())
-    @Test fun fanWithoutRecipientsSendsToRoomOwnerAndPrivateReplyRemainsExplicit() = runTest {
+    @Test fun fanWithoutRecipientsSendsToSharedChatAndCannotStartPrivateReply() = runTest {
         val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.FAN))
         val fanScope = scope.copy(selection = selected)
         val original = ConversationDtos.message(messageProjection())
         val state = MutableStateFlow(ConversationState(loading = false, data = data(original).copy(scope = fanScope)))
         val repository = Repository(state)
         val model = ConversationViewModel(repository, selected, backgroundScope)
-        runCurrent(); assertTrue(model.roomOwnerAllowed()); assertTrue(state.value.recipients.isEmpty())
-        model.text("방장 수신함"); model.send(fanScope); runCurrent()
-        assertEquals("ROOM_OWNER", repository.sent!!.command.intent)
+        runCurrent(); assertTrue(state.value.recipients.isEmpty())
+        model.text("전체 채팅"); model.send(fanScope); runCurrent()
+        assertEquals("SHARED", repository.sent!!.command.intent)
         assertNull(repository.sent!!.command.recipient); assertNull(repository.sent!!.recipientRevision)
-        model.reply(original, fanScope); model.text("특정 메시지 답장"); model.send(fanScope); runCurrent()
-        assertEquals("PRIVATE", repository.sent!!.command.intent); assertEquals(original.replyTarget, repository.sent!!.command.recipient)
-        model.clearReply(); model.text("다시 방장에게"); model.send(fanScope); runCurrent()
-        assertEquals("ROOM_OWNER", repository.sent!!.command.intent)
+        model.reply(original, fanScope); assertNull(model.draft.value.quote)
+        model.text("계속 전체 채팅"); model.send(fanScope); runCurrent()
+        assertEquals("SHARED", repository.sent!!.command.intent)
     }
     @Test fun equalVersionProjectionReplacesQuotedBodyAndRemovedReplyClearsOriginalContentAndTarget() = runTest {
         val original = ConversationDtos.message(messageProjection())
-        val state = MutableStateFlow(ConversationState(loading = false, data = data(original)))
-        val model = ConversationViewModel(Repository(state), selection, backgroundScope)
-        runCurrent(); model.text("작성 중 답장"); model.reply(original, scope)
+        val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.STREAMER))
+        val streamerScope = scope.copy(selection = selected)
+        val state = MutableStateFlow(ConversationState(loading = false, data = data(original).copy(scope = streamerScope)))
+        val model = ConversationViewModel(Repository(state), selected, backgroundScope)
+        runCurrent(); model.text("작성 중 답장"); model.reply(original, streamerScope)
         val changed = original.copy(content = MessageContent.Text("새로 허용된 본문"))
         assertEquals(changed, model.draft.value.visibleQuote(data(changed))) // No stale frame before observer dispatch.
         assertNull(model.draft.value.visibleQuote(data(changed.copy(actions = changed.actions.copy(reply = false)))))
@@ -60,9 +61,11 @@ class ConversationViewModelTest {
     }
     @Test fun counterpartChangeNeverSilentlyRetargetsReplyAndAuthorityCloseErasesDraft() = runTest {
         val original = ConversationDtos.message(messageProjection()).copy(audience = "PRIVATE", counterpart = ACTOR_ID)
-        val state = MutableStateFlow(ConversationState(loading = false, data = data(original)))
-        val model = ConversationViewModel(Repository(state), selection, backgroundScope)
-        runCurrent(); model.text("보내지 않은 내용"); model.reply(original, scope)
+        val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.STREAMER))
+        val streamerScope = scope.copy(selection = selected)
+        val state = MutableStateFlow(ConversationState(loading = false, data = data(original).copy(scope = streamerScope)))
+        val model = ConversationViewModel(Repository(state), selected, backgroundScope)
+        runCurrent(); model.text("보내지 않은 내용"); model.reply(original, streamerScope)
         state.value = state.value.copy(data = data(original.copy(counterpart = CONVERSATION_ID))); runCurrent()
         assertNull(model.draft.value.quote); assertNull(model.draft.value.recipient)
         state.value = ConversationState(loading = false); runCurrent()

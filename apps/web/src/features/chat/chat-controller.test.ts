@@ -905,9 +905,9 @@ void test('ROOM_OWNER send and retry preserve an actor-free command under fresh 
     await controller.refresh(); await controller.retry(result.retryCommandId!);
     assert.equal(posts, 2); assert.deepEqual(bodies[1], bodies[0]);
     assert.equal((await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '인용 주입', quoteMessageId: source().id })).accepted, false);
-    assert.equal((await controller.send({ target: { scope: 'SHARED' }, body: '공개 주입' })).accepted, false);
+    assert.equal((await controller.send({ target: { scope: 'SHARED' }, body: '전체 채팅' })).accepted, true);
     role = 'STREAMER'; await controller.refreshHints();
     assert.equal((await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '역할 변경' })).accepted, false);
-    assert.equal(posts, 2);
+    assert.equal(posts, 3);
   } finally { controller.dispose(); }
 });
