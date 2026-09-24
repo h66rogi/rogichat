@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import type { SessionCredentials } from '../auth/auth-context.js';
@@ -22,7 +23,7 @@ export class MelomingConsoleLyricsService {
   async getLyrics(credentials: SessionCredentials | ConsoleCredentials, params: {
     identifier: string; songId: number; liveSessionId?: number; songRequestId?: number; includeRichsync: boolean;
   }) {
-    if (params.identifier !== 'hurogi' && params.identifier !== '1') throw new ApiError('NOT_FOUND', 404);
+    if (!isChannelIdentifier(params.identifier, true)) throw new ApiError('NOT_FOUND', 404);
     const { roomId, result } = await this.transactions.read(async tx => {
       const roomId = 'consoleToken' in credentials
         ? (await this.repository.requireConsoleToken(tx, credentials.consoleToken)).roomId

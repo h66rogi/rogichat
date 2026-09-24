@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { ApiTags } from '@nestjs/swagger';
 import { Controller, Delete, Get, Headers, Inject, Param, Post, Req, Res, StreamableFile } from '@nestjs/common';
 import type { Request, Response } from 'express';
@@ -8,7 +9,7 @@ import { ApiError } from '../auth/auth-primitives.js';
 import { channelDoc } from './channel-content.openapi.js';
 import { MelomingMrVideoService } from './meloming-mr-video.service.js';
 
-function channel(identifier:string){if(identifier!=='hurogi'&&identifier!=='1')throw new ApiError('NOT_FOUND',404);}
+function channel(identifier:string){if(!isChannelIdentifier(identifier, true))throw new ApiError('NOT_FOUND',404);}
 function id(value:string){if(!/^[1-9]\d{0,9}$/.test(value)||!Number.isSafeInteger(Number(value)))throw new ApiError('INVALID_REQUEST',400);return Number(value);}
 
 @ApiTags('Songs/MR Video')

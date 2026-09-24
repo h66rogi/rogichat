@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { ApiTags } from '@nestjs/swagger';
 import { Controller, Delete, Get, Inject, Param, Post, Put, Req } from '@nestjs/common';
 import type { Request } from 'express';
@@ -11,7 +12,7 @@ import { MelomingCategoryService } from './meloming-category.service.js';
 import { MelomingArtistService } from './meloming-artist.service.js';
 
 function channel(value: string): void {
-  if (value !== '1' && value !== 'hurogi') throw new ApiError('NOT_FOUND', 404);
+  if (!isChannelIdentifier(value, true)) throw new ApiError('NOT_FOUND', 404);
 }
 function id(value: string): number {
   if (!/^[1-9]\d{0,9}$/.test(value) || !Number.isSafeInteger(Number(value))) throw new ApiError('INVALID_REQUEST', 400);

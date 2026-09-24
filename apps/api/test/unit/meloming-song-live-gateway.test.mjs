@@ -22,7 +22,7 @@ test('copied song-live client joins its room and receives queue changes', async 
   t.after(()=>client.disconnect());
   await once(client,'connect');
   const joined=once(client,'joined');
-  client.emit('join',{identifier:'hurogi'});
+  client.emit('join',{identifier:'h66rogi'});
   assert.deepEqual((await joined)[0],{channelId:1,room:'song-live:channel:1',session:null});
   const event=once(client,'request.added');
   gateway.broadcast('request.added',{sessionId:12});

@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import type { Server as HttpServer } from 'node:http';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Inject, Injectable } from '@nestjs/common';
@@ -37,7 +38,7 @@ export class MelomingSongLiveGateway implements OnApplicationBootstrap, OnModule
       if (this.lifecycle.draining) { socket.disconnect(true); return; }
       socket.on('join', (data: unknown) => {
         if (!data || typeof data !== 'object' || Array.isArray(data) ||
-          Object.keys(data).length !== 1 || (data as { identifier?: unknown }).identifier !== 'hurogi') {
+          Object.keys(data).length !== 1 || !isChannelIdentifier((data as { identifier?: unknown }).identifier)) {
           socket.emit('error', { message: 'Invalid channel identifier' });
           return;
         }

@@ -82,13 +82,13 @@ test('copied song clips persist, enforce owner/fan paths, approve requests, and 
   const clips=new MelomingClipService(db.transactions,auth,repository);
   const schedule=new ChannelScheduleService(db.transactions,auth,repository);
   const calendar=new MelomingCalendarService(db.transactions,auth,repository,schedule);
-  assert.equal((await clips.list('hurogi',{})).total,0);
+  assert.equal((await clips.list('h66rogi',{})).total,0);
   const song=await songs.create({token:ownerId},{title:'클립 노래',artistName:'후로기',categoryNames:['노래']});
   const body={title:'첫 클립',platform:'YOUTUBE',videoId:'dQw4w9WgXcQ',primaryChannel:{channelId:1,songId:song.id}};
   await assert.rejects(clips.create({token:fanId},body),error=>error.getStatus()===403);
   const direct=await clips.create({token:ownerId},body);
   assert.equal(direct.channels[0].songId,song.id);
-  assert.equal((await clips.list('hurogi',{songId:String(song.id)})).items[0].id,direct.id);
+  assert.equal((await clips.list('h66rogi',{songId:String(song.id)})).items[0].id,direct.id);
   assert.equal((await clips.detail(direct.id)).title,'첫 클립');
   assert.deepEqual(await clips.permission({token:fanId}),{channelId:1,hasPermission:false,canRequestClip:true});
   await assert.rejects(clips.createRequest({token:ownerId},{channelId:1,songId:song.id,title:'승인 불가',platform:'YOUTUBE',videoId:'dQw4w9WgXcQ'}),error=>error.getStatus()===403);
@@ -100,17 +100,17 @@ test('copied song clips persist, enforce owner/fan paths, approve requests, and 
   const approved=await clips.processRequest({token:ownerId},request.id,'approve');
   assert.equal(approved.status,'APPROVED');
   assert.ok(approved.approvedClipId);
-  assert.equal((await clips.list('hurogi',{songId:String(song.id)})).total,2);
+  assert.equal((await clips.list('h66rogi',{songId:String(song.id)})).total,2);
   const window={from:new Date(Date.now()-86_400_000).toISOString(),to:new Date(Date.now()+86_400_000).toISOString()};
   assert.equal((await calendar.getCalendar(window,{})).clips.length,2);
   assert.ok((await calendar.searchCalendar({...window,q:'팬 클립'},{})).items.some(item=>item.clipId===approved.approvedClipId));
   const cleanup=new AccountCleanupRepository();
   assert.equal(await db.transactions.write(tx=>cleanup.channelContent(tx,fanId,100)),1);
-  assert.equal((await clips.list('hurogi',{songId:String(song.id)})).total,2);
+  assert.equal((await clips.list('h66rogi',{songId:String(song.id)})).total,2);
   assert.equal((await songs.affectedClips({token:ownerId},{ids:[song.id]})).orphanClipCount,2);
   const deleted=await songs.bulkDelete({token:ownerId},{ids:[song.id]});
   assert.deepEqual(new Set(deleted.deletedClipIds),new Set([direct.id,approved.approvedClipId]));
-  assert.equal((await clips.list('hurogi',{})).total,0);
+  assert.equal((await clips.list('h66rogi',{})).total,0);
   await assert.rejects(clips.detail(direct.id),error=>error.getStatus()===404);
   await assert.rejects(clips.resolve({url:'https://www.youtube.com.evil.example/watch?v=dQw4w9WgXcQ'}),error=>error.getStatus()===400);
 });
@@ -176,7 +176,7 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(detail.id,1);
   assert.equal(detail.name,'후로기');
   assert.deepEqual(detail._count,{songs:0,artists:0,categories:0});
-  const channelSettings={name:'후로기',webPath:'hurogi',platformUrl:'',profileImageUrl:'https://api.qa.rogi.chat/v1/upload/image/example.png',
+  const channelSettings={name:'후로기',webPath:'h66rogi',platformUrl:'',profileImageUrl:'https://api.qa.rogi.chat/v1/upload/image/example.png',
     topBannerUrl:null,leftBannerUrl:null,leftBannerLink:null,rightBannerUrl:null,rightBannerLink:null,
     additionalLinks:[{name:'공지',url:'https://example.com/notice'}],themeColor:'#12abef',
     channelDescription:'노래책 공지',visibility:'UNLISTED'};
@@ -538,7 +538,7 @@ test('copied setlist methods filter completed public sessions and enforce owner 
   const repository=new ChannelContentRepository();
   const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
   const setlists=new MelomingSetlistService(db.transactions,auth,repository);
-  assert.deepEqual(await setlists.availability({identifier:'hurogi'}),{available:false,count:0});
+  assert.deepEqual(await setlists.availability({identifier:'h66rogi'}),{available:false,count:0});
   const sessionId=await db.transactions.write(async tx=>{
     const id=await nextChannelContentId(tx.prisma);
     await tx.prisma.liveSession.create({data:{id,channelId:roomId,userId:ownerId,status:'ENDED',
@@ -551,25 +551,25 @@ test('copied setlist methods filter completed public sessions and enforce owner 
       rawArtist:'가수',rawTitle:'대기곡',requesterPlatformId:'test-fan',requesterNickname:'팬',status:'PENDING'}});
     return id;
   });
-  assert.deepEqual(await setlists.availability({identifier:'hurogi'}),{available:true,count:1});
-  const listed=await setlists.publicList({identifier:'hurogi'});
+  assert.deepEqual(await setlists.availability({identifier:'h66rogi'}),{available:true,count:1});
+  const listed=await setlists.publicList({identifier:'h66rogi'});
   assert.equal(listed.total,1);
   assert.equal(listed.setlists[0].sessionId,sessionId);
   assert.equal(listed.setlists[0].completedCount,1);
-  const detail=await setlists.detail(sessionId,{identifier:'hurogi'});
+  const detail=await setlists.detail(sessionId,{identifier:'h66rogi'});
   assert.equal(detail.songs.length,1);
   assert.equal(detail.songs[0].requesterNickname,'');
   assert.equal(detail.songs[0].isAnonymous,true);
   assert.equal(detail.songs[0].clip,null);
-  await assert.rejects(setlists.manage({token:fanId},{identifier:'hurogi'}));
-  assert.equal((await setlists.manage({token:ownerId},{identifier:'hurogi'})).total,1);
-  await assert.rejects(setlists.visibility({token:fanId},sessionId,{identifier:'hurogi'},{visibility:'PRIVATE'}));
-  assert.deepEqual(await setlists.visibility({token:ownerId},sessionId,{identifier:'hurogi'},{visibility:'PRIVATE'}),
+  await assert.rejects(setlists.manage({token:fanId},{identifier:'h66rogi'}));
+  assert.equal((await setlists.manage({token:ownerId},{identifier:'h66rogi'})).total,1);
+  await assert.rejects(setlists.visibility({token:fanId},sessionId,{identifier:'h66rogi'},{visibility:'PRIVATE'}));
+  assert.deepEqual(await setlists.visibility({token:ownerId},sessionId,{identifier:'h66rogi'},{visibility:'PRIVATE'}),
     {sessionId,visibility:'PRIVATE'});
-  assert.deepEqual(await setlists.availability({identifier:'hurogi'}),{available:false,count:0});
-  await assert.rejects(setlists.detail(sessionId,{identifier:'hurogi'}));
-  assert.equal((await setlists.manage({token:ownerId},{identifier:'hurogi'})).setlists[0].visibility,'PRIVATE');
-  await assert.rejects(setlists.publicList({identifier:'hurogi',from:'2026-09-01T00:00:00Z'}));
+  assert.deepEqual(await setlists.availability({identifier:'h66rogi'}),{available:false,count:0});
+  await assert.rejects(setlists.detail(sessionId,{identifier:'h66rogi'}));
+  assert.equal((await setlists.manage({token:ownerId},{identifier:'h66rogi'})).setlists[0].visibility,'PRIVATE');
+  await assert.rejects(setlists.publicList({identifier:'h66rogi',from:'2026-09-01T00:00:00Z'}));
 });
 
 test('copied channel song request settings persist while no live session exists',async t=>{
@@ -593,43 +593,43 @@ test('copied channel song request settings persist while no live session exists'
 test('ported live session start, public active, end and history use owner room',async t=>{
   const {db,ownerId,fanId}=await fixture(t);
   await db.transactions.write(tx=>tx.prisma.platform_soop.create({data:{id:randomUUID(),user_id:ownerId,
-    provider_subject:Buffer.from('hurogi'),status:'VERIFIED',verified_at:new Date()}}));
+    provider_subject:Buffer.from('h66rogi'),status:'VERIFIED',verified_at:new Date()}}));
   const repository=new ChannelContentRepository();
   const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
   const live=new MelomingLiveSessionService(db.transactions,auth,repository);
   const channel=new MelomingChannelService(db.transactions,auth,repository);
-  assert.deepEqual((await channel.detail()).verifications,[{platform:'SOOP',platformChannelId:'hurogi'}]);
+  assert.deepEqual((await channel.detail()).verifications,[{platform:'SOOP',platformChannelId:'h66rogi'}]);
   const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
-  await assert.rejects(live.start({token:fanId},{identifier:'hurogi'},{}));
-  const started=await live.start({token:ownerId},{identifier:'hurogi'},{platform:'SOOP'});
+  await assert.rejects(live.start({token:fanId},{identifier:'h66rogi'},{}));
+  const started=await live.start({token:ownerId},{identifier:'h66rogi'},{platform:'SOOP'});
   assert.equal(started.channelId,1);
   assert.equal(started.status,'ACTIVE');
-  assert.equal(started.platformChannelId,'hurogi');
+  assert.equal(started.platformChannelId,'h66rogi');
   assert.equal(started.settings.maxQueueSize,50);
-  assert.equal((await live.active({token:ownerId},{identifier:'hurogi'})).id,started.id);
-  assert.equal((await live.publicActive({},{identifier:'hurogi'})).sessionId,started.id);
-  await assert.rejects(live.start({token:ownerId},{identifier:'hurogi'},{}));
+  assert.equal((await live.active({token:ownerId},{identifier:'h66rogi'})).id,started.id);
+  assert.equal((await live.publicActive({},{identifier:'h66rogi'})).sessionId,started.id);
+  await assert.rejects(live.start({token:ownerId},{identifier:'h66rogi'},{}));
   await assert.rejects(live.updateSettings({token:fanId},started.id,{maxQueueSize:12}));
   const updated=await live.updateSettings({token:ownerId},started.id,{maxQueueSize:12,requestEnabled:false,paused:true});
   assert.equal(updated.maxQueueSize,12);
   assert.equal(updated.requestEnabled,false);
   assert.equal(updated.paused,false);
-  assert.equal((await live.active({token:ownerId},{identifier:'hurogi'})).settings.maxQueueSize,12);
+  assert.equal((await live.active({token:ownerId},{identifier:'h66rogi'})).settings.maxQueueSize,12);
   await assert.rejects(live.end({token:fanId},started.id));
   const ended=await live.end({token:ownerId},started.id);
   assert.equal(ended.status,'ENDED');
-  assert.equal(await live.active({token:ownerId},{identifier:'hurogi'}),null);
-  assert.equal((await live.history({token:ownerId},{identifier:'hurogi'})).pagination.total,1);
+  assert.equal(await live.active({token:ownerId},{identifier:'h66rogi'}),null);
+  assert.equal((await live.history({token:ownerId},{identifier:'h66rogi'})).pagination.total,1);
   assert.equal((await live.detail({token:ownerId},started.id)).id,started.id);
-  await assert.rejects(live.clone({token:fanId},started.id,{identifier:'hurogi'}));
-  const cloned=await live.clone({token:ownerId},started.id,{identifier:'hurogi'});
+  await assert.rejects(live.clone({token:fanId},started.id,{identifier:'h66rogi'}));
+  const cloned=await live.clone({token:ownerId},started.id,{identifier:'h66rogi'});
   assert.equal(cloned.status,'ACTIVE');
   assert.equal(cloned.settings.requestEnabled,false);
   assert.notEqual(cloned.id,started.id);
   await live.end({token:ownerId},cloned.id);
-  const privateSession=await live.start({token:ownerId},{identifier:'hurogi'},{practiceMode:true});
-  assert.equal((await live.publicActive({},{identifier:'hurogi'})).isLive,false);
-  assert.equal((await live.publicActive({token:ownerId},{identifier:'hurogi'})).sessionId,privateSession.id);
+  const privateSession=await live.start({token:ownerId},{identifier:'h66rogi'},{practiceMode:true});
+  assert.equal((await live.publicActive({},{identifier:'h66rogi'})).isLive,false);
+  assert.equal((await live.publicActive({token:ownerId},{identifier:'h66rogi'})).sessionId,privateSession.id);
   await assert.rejects(requests.queue({}, {sessionId:String(privateSession.id)}));
   await assert.rejects(requests.queue({token:fanId}, {sessionId:String(privateSession.id)}));
   assert.equal((await requests.queue({token:ownerId}, {sessionId:String(privateSession.id)})).total,0);
@@ -683,7 +683,7 @@ test('copied console playback signs gateway URLs and accepts only authentic cach
   const live=new MelomingLiveSessionService(db.transactions,auth,repository);
   const playback=new MelomingConsolePlaybackService(db.transactions,auth,repository);
   const cache=new MelomingVideoCacheService(db.transactions);
-  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const session=await live.start({token:ownerId},{identifier:'h66rogi'},{});
   const videoUrl='https://www.youtube.com/watch?v=dQw4w9WgXcQ';
   await assert.rejects(playback.create({token:fanId},session.id,{videoUrl}),error=>error.getStatus()===403);
   const first=await playback.create({token:ownerId},session.id,{videoUrl});
@@ -717,8 +717,8 @@ test('copied overlay projection uses a stable channel token before and after liv
   const overlay=token=>db.transactions.write(tx=>new OverlayService(tx.prisma,roomId).getOverlayData(token));
   const idle=await overlay(overlayToken);
   assert.equal(idle.isLive,false);
-  assert.equal(idle.channel.webPath,'hurogi');
-  assert.equal(idle.channel.profileImageUrl,'/images/hurogi-profile.png');
+  assert.equal(idle.channel.webPath,'h66rogi');
+  assert.equal(idle.channel.profileImageUrl,'/images/h66rogi-profile.png');
   assert.deepEqual(idle.queue,[]);
   await assert.rejects(overlay('0'.repeat(64)),error=>error.getStatus()===404);
   const songbook=new SongbookService(db.transactions,auth,repository);
@@ -730,7 +730,7 @@ test('copied overlay projection uses a stable channel token before and after liv
     await tx.prisma.globalSongLyrics.create({data:{globalSongId:song.globalSongId,
       body:'[00:01.00]테스트 가사',language:'ko',fetchedAt:new Date(),trackingScript:'https://example.com/script.js'}});
   });
-  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const session=await live.start({token:ownerId},{identifier:'h66rogi'},{});
   assert.equal(session.overlayToken,overlayToken);
   const request=await requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:''});
   const active=await overlay(overlayToken);
@@ -775,7 +775,7 @@ test('ported live song requests persist queue, owner controls and completed setl
     await tx.prisma.song.create({data:{id,title:'원본 곡',titleSearchable:'원본곡',artistId,channelId:roomId}});
     return id;
   });
-  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const session=await live.start({token:ownerId},{identifier:'h66rogi'},{});
   assert.deepEqual(await requests.operator({}, {channelId:'1'}),{isOperator:false});
   assert.deepEqual(await requests.operator({token:ownerId},{channelId:'1'}),{isOperator:true});
   const first=await requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:'',
@@ -799,9 +799,9 @@ test('ported live song requests persist queue, owner controls and completed setl
   assert.equal((await requests.advance({token:ownerId},{sessionId:String(session.id)},'next')).id,first.id);
   assert.equal((await requests.status({token:ownerId},first.id,{status:'COMPLETED'})).status,'COMPLETED');
   await live.end({token:ownerId},session.id);
-  assert.equal((await setlists.publicList({identifier:'hurogi'})).total,1);
-  assert.equal((await setlists.detail(session.id,{identifier:'hurogi'})).songs.length,2);
-  const cloned=await live.clone({token:ownerId},session.id,{identifier:'hurogi'});
+  assert.equal((await setlists.publicList({identifier:'h66rogi'})).total,1);
+  assert.equal((await setlists.detail(session.id,{identifier:'h66rogi'})).songs.length,2);
+  const cloned=await live.clone({token:ownerId},session.id,{identifier:'h66rogi'});
   const clonedRows=await requests.queue({token:ownerId},{sessionId:String(cloned.id),includeCompleted:'true'});
   assert.equal(clonedRows.total,2);
   assert.equal(clonedRows.requests.some(item=>item.status==='COMPLETED'),true);
@@ -822,7 +822,7 @@ test('anonymous web requests use channel permission and server-generated identit
     await tx.prisma.song.create({data:{id,title:'익명 테스트 곡',titleSearchable:'익명테스트곡',artistId,channelId:roomId}});
     return id;
   });
-  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const session=await live.start({token:ownerId},{identifier:'h66rogi'},{});
   const body={liveSessionId:session.id,songId,rawArtist:'가짜',rawTitle:'가짜',anonymousNickname:' 시청자 ',
     requesterPlatformId:'forged',requesterNickname:'forged',source:'DONATION',donationAmount:10000};
   await assert.rejects(requests.create({},body,'anon_test_client'));
@@ -866,7 +866,7 @@ test('copied Meloming pricing settings calculate category and song prices for li
   assert.equal((await pricing.updateItem({token:ownerId},songId,'song',{price:40})).price,40);
   assert.equal((await pricing.songPrice(songId)).formattedPrice,'40별풍선');
   assert.equal((await pricing.calculate({songIds:[songId]}))[0].source,'SONG');
-  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const session=await live.start({token:ownerId},{identifier:'h66rogi'},{});
   const created=await requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:''});
   assert.equal(created.calculatedPrice,40);
   assert.equal(created.formattedPrice,'40별풍선');
@@ -890,7 +890,7 @@ test('copied Omakase settings, balance journal and manual song selection share o
   assert.throws(()=>omakase.update({token:ownerId},{price:-1}));
   assert.equal((await omakase.update({token:ownerId},{enabled:true,displayName:'후로기 선곡',price:100,
     currencyPrices:{SOOP_BALLOON:1}})).price,100);
-  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const session=await live.start({token:ownerId},{identifier:'h66rogi'},{});
   await assert.rejects(omakase.setCount({token:fanId},{liveSessionId:session.id,count:2}));
   assert.equal((await omakase.setCount({token:ownerId},{liveSessionId:session.id,count:2})).count,2);
   assert.equal((await omakase.adjust({token:ownerId},{liveSessionId:session.id,delta:-1,reason:'테스트'})).count,1);

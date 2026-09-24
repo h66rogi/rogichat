@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import type { CommandCredentials, SessionCredentials } from '../auth/auth-context.js';
@@ -12,7 +13,7 @@ export type ConsoleCredentials = { readonly consoleToken: string };
 type LiveCredentials = SessionCredentials | ConsoleCredentials;
 
 function identifier(value: unknown) {
-  if (value !== undefined && value !== 'hurogi' && value !== '1') throw new ApiError('NOT_FOUND', 404);
+  if (value !== undefined && !isChannelIdentifier(value, true)) throw new ApiError('NOT_FOUND', 404);
 }
 function positive(value: unknown, fallback: number, max: number) {
   if (value === undefined) return fallback;

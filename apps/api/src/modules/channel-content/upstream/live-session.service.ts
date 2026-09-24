@@ -195,7 +195,7 @@ export class LiveSessionService {
     const duration = session.endedAt ? Math.floor((session.endedAt.getTime() - session.startedAt.getTime()) / 1000 / 60) : null;
     return { id: session.id, platform: session.platform, status: session.status, startedAt: session.startedAt,
       endedAt: session.endedAt, duration,
-      channel: { id: 1, name: session.channel.name, webPath: 'hurogi', profileImageUrl: '/images/hurogi-profile.png' },
+      channel: { id: 1, name: session.channel.name, webPath: 'h66rogi', profileImageUrl: '/images/h66rogi-profile.png' },
       settings: session.settings, stats,
       songRequests: session.songRequests.map((req,index) => ({ id: req.id, order: index + 1,
         title: req.song?.title || req.rawTitle, artist: req.song?.artist?.name || req.rawArtist,

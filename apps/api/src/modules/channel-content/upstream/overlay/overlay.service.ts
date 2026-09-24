@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { canonicalProfileImageUrl } from '../../channel-identity.js';
 import { LiveSessionType, SongRequestSource } from '../../../../generated/prisma/client.js';
 import type { Prisma } from '../../../../generated/prisma/client.js';
 import { OverlayLayoutService } from '../overlay-layout.service.js';
@@ -40,8 +41,8 @@ export class OverlayService {
     });
     if (!room || room.id !== this.roomId) throw new NotFoundException();
     const channel = {
-      id: 1, name: room.name, webPath: 'hurogi',
-      profileImageUrl: room.channelDisplaySettings?.profileImageUrl ?? '/images/hurogi-profile.png',
+      id: 1, name: room.name, webPath: 'h66rogi',
+      profileImageUrl: canonicalProfileImageUrl(room.channelDisplaySettings?.profileImageUrl),
       themeColor: room.channelDisplaySettings?.themeColor ?? '#ff8c9d',
     };
 

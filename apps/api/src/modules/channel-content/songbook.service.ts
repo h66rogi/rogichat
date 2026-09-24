@@ -45,7 +45,7 @@ function songResponse(song: SongRow, favorite = false, manager = false) {
     artist: { id: song.artist.id, name: song.artist.name, channelId: 1, createdAt: song.artist.createdAt?.toISOString() ?? '' },
     songCategories: song.songCategories.map(sc => ({ id: sc.id, songId: sc.songId, categoryId: sc.categoryId,
       category: categories.find(c => c.id === sc.categoryId)! })),
-    channel: { id: 1, name: '후로기', webPath: 'hurogi', themeColor: '#ff8c9d', profileImageUrl: '/images/hurogi-profile.png',
+    channel: { id: 1, name: '후로기', webPath: 'h66rogi', themeColor: '#ff8c9d', profileImageUrl: '/images/h66rogi-profile.png',
       user: {id:1,nickname:'후로기'} },
     totalFavorites: song._count.userLikes, categories, isFavorite: favorite,
     ...(manager ? {sheetMusics:song.sheetMusics,sheetMusicUrl:song.sheetMusics[0]?.url ?? null,sheetMusicType:song.sheetMusics[0]?.type ?? null} : {}) };

@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { ApiTags } from '@nestjs/swagger';
 import { Controller, Delete, Get, Inject, Param, Patch, Post, Put, Req } from '@nestjs/common';
 import type { Request } from 'express';
@@ -11,7 +12,7 @@ import { MelomingMusicbookSettingsService } from './meloming-musicbook-settings.
 import { MelomingSongLiveGateway } from './meloming-song-live.gateway.js';
 
 function channel(identifier: string): void {
-  if (identifier !== 'hurogi') throw new ApiError('NOT_FOUND', 404);
+  if (!isChannelIdentifier(identifier)) throw new ApiError('NOT_FOUND', 404);
 }
 
 @ApiTags('Channel/Meloming compatibility')
