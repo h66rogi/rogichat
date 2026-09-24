@@ -1,26 +1,35 @@
 import type { OutboxPayload } from './model';
 import type { Receipt } from '../contract';
-import { applyAuthority, applyReceipt, emptyState, expire, insert, normalizeAuthority, normalizePayload, OUTBOX_LIMITS, OutboxError, permitted, type OutboxAuthority, type OutboxRecord, type OutboxState } from './model';
+import { applyAuthority, applyReceipt, emptyState, expire, insert, normalizeAuthority, normalizePayload, OutboxError, permitted, type OutboxAuthority, type OutboxRecord, type OutboxState } from './model';
 
 export { OUTBOX_LIMITS, OutboxError, outboxSessionKey } from './model';
 export type { OutboxAuthority, OutboxRecord, OutboxRoom } from './model';
 
-/** Native IDB is the arbiter. BroadcastChannel is deliberately unnecessary for correctness. */
+/** Native IDB serializes records, while every authorized tab can send independently. */
 export class DurableOutbox {
-  private readonly owner = crypto.randomUUID();
-  private fence: number | null = null;
+  private authorityEpoch: number | null = null;
   private generation = 0;
   private stopped = false;
   private locallySuspended = false;
   private authority: OutboxAuthority | null = null;
   private lastGrant: { authority: OutboxAuthority; epoch: number } | null = null;
+  private preparedHere = new Set<string>();
   private lookup404 = new Set<string>();
   private readonly pending = new Set<IDBTransaction>();
   private readonly abort = new AbortController();
   private operationAbort = new AbortController();
   private readonly db: IDBDatabase;
-  private constructor(db: IDBDatabase) {
+  private readonly channel: BroadcastChannel | null;
+  private readonly changeListeners = new Set<() => void>();
+  private constructor(db: IDBDatabase, environment: string) {
     this.db = db;
+    let channel: BroadcastChannel | null = null;
+    try { if (typeof BroadcastChannel !== 'undefined') channel = new BroadcastChannel(`rogichat-outbox-${environment}`); }
+    catch { /* Polling and server wake-ups remain the source of truth. */ }
+    this.channel = channel;
+    if (channel) channel.onmessage = event => {
+      if (event.data === 'changed' && !this.stopped) for (const listener of this.changeListeners) listener();
+    };
     db.onversionchange = () => this.close();
     db.onclose = () => this.close();
     if (typeof window !== 'undefined') {
@@ -28,11 +37,15 @@ export class DurableOutbox {
       window.addEventListener('pagehide', () => this.suspend(), options);
       window.addEventListener('pageshow', event => { if (event.persisted) this.suspend(); }, options);
       document.addEventListener('freeze', () => this.suspend(), options);
-      document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') this.suspend(); }, options);
     }
   }
   /** Abort in-flight transport as soon as this tab loses its local authority. */
   get signal(): AbortSignal { return this.operationAbort.signal; }
+  onChange(listener: () => void): () => void {
+    this.changeListeners.add(listener);
+    return () => { this.changeListeners.delete(listener); };
+  }
+  private announceChange() { try { this.channel?.postMessage('changed'); } catch { /* Server sync still converges. */ } }
   /** Logout must erase the captured session even after every chat controller unmounts. */
   static async revokeSession(environment: string, accountPartition: string, sessionKey: string): Promise<void> {
     const identity = normalizeAuthority({ accountPartition, sessionKey, rooms: [] });
@@ -66,7 +79,7 @@ export class DurableOutbox {
       request.onerror = () => reject(new OutboxError(request.error?.name === 'VersionError' ? 'UPDATE_REQUIRED' : 'STORAGE_FAILED'));
       request.onsuccess = () => {
         if (failed) { request.result.close(); return; }
-        const outbox = new DurableOutbox(request.result);
+        const outbox = new DurableOutbox(request.result, environment);
         // Observe only an erasure fence, never unlock or expose persisted authority/content.
         void outbox.transaction(state => {
           expire(state, Date.now());
@@ -88,7 +101,7 @@ export class DurableOutbox {
         try {
           if (this.stopped || generation !== this.generation) throw new OutboxError('LOCKED');
           const state = request.result as OutboxState | undefined;
-          // An evicted/corrupt store is never recreated by an active writer.
+          // An evicted/corrupt store is never recreated by an active connection.
           if (!state || state.schema !== 1 || !Number.isSafeInteger(state.fence) || !Number.isSafeInteger(state.authorityEpoch) || !Array.isArray(state.records)) throw new OutboxError('UPDATE_REQUIRED');
           result = structuredClone(work(state));
           tx.objectStore('state').put(state, 'singleton');
@@ -106,44 +119,50 @@ export class DurableOutbox {
     });
   }
   private guard(state: OutboxState) {
-    if (!this.authority || this.fence === null) throw new OutboxError('LOCKED');
-    if (state.owner !== this.owner || state.fence !== this.fence || state.leaseUntil <= Date.now() || JSON.stringify(state.authority) !== JSON.stringify(this.authority)) {
-      this.operationAbort.abort(); this.authority = null; this.fence = null; this.lookup404.clear(); throw new OutboxError('LEASE_LOST');
+    if (!this.authority || this.authorityEpoch === null) throw new OutboxError('LOCKED');
+    if (state.authorityEpoch !== this.authorityEpoch || JSON.stringify(state.authority) !== JSON.stringify(this.authority)) {
+      this.operationAbort.abort(); this.authority = null; this.authorityEpoch = null; this.preparedHere.clear(); this.lookup404.clear(); throw new OutboxError('AUTHORITY_CHANGED');
     }
     expire(state, Date.now());
-    state.leaseUntil = Date.now() + OUTBOX_LIMITS.leaseMs;
   }
   /** Call only after genuine session + COMPLETE manifest + room authorization. Never from stored state. */
   async authorize(value: OutboxAuthority): Promise<void> {
     const authority = normalizeAuthority(value);
     this.locallySuspended = false;
-    // Routine syncs must not revoke this tab's own in-flight receipt lookup.
-    // Reuse a live grant and only mint a new fence after an actual handoff/loss.
-    if (this.fence !== null && this.authority && JSON.stringify(this.authority) === JSON.stringify(authority)) {
+    // A routine refresh never interrupts an in-flight command in this tab.
+    if (this.authorityEpoch !== null && this.authority && JSON.stringify(this.authority) === JSON.stringify(authority)) {
       try { await this.assertCurrent(); return; }
-      catch (error) { if (!(error instanceof OutboxError) || error.code !== 'LEASE_LOST') throw error; }
+      catch (error) { if (!(error instanceof OutboxError) || error.code !== 'AUTHORITY_CHANGED') throw error; }
     }
     const generation = ++this.generation;
     this.operationAbort.abort(); this.operationAbort = new AbortController();
-    this.authority = null; this.fence = null; this.lookup404.clear();
+    this.authority = null; this.authorityEpoch = null; this.preparedHere.clear(); this.lookup404.clear();
     const grant = await this.transaction(state => {
       const now = Date.now();
-      if (state.owner !== null && state.owner !== this.owner && state.leaseUntil > now && JSON.stringify(state.authority) === JSON.stringify(authority)) throw new OutboxError('BUSY');
-      if (state.fence >= Number.MAX_SAFE_INTEGER || state.authorityEpoch >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
-      if (JSON.stringify(state.authority) !== JSON.stringify(authority)) state.authorityEpoch++;
-      state.fence++; state.owner = this.owner; state.leaseUntil = now + OUTBOX_LIMITS.leaseMs;
+      const changed = JSON.stringify(state.authority) !== JSON.stringify(authority);
+      if (changed) {
+        if (state.authorityEpoch >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
+        state.authorityEpoch++;
+      }
       applyAuthority(state, authority, now);
-      // Every recovered command (even a crash before SEND) starts receipt-first.
-      for (const record of state.records) record.attempted = true;
-      return { fence: state.fence, epoch: state.authorityEpoch };
+      // Recovery always looks up the receipt first. Do not change another tab's
+      // unattempted command while it is between prepare() and beforeSend().
+      return { epoch: state.authorityEpoch, changed };
     }, generation);
     if (generation !== this.generation) throw new OutboxError('LOCKED');
-    this.fence = grant.fence; this.authority = authority; this.lastGrant = { authority, epoch: grant.epoch };
+    this.authorityEpoch = grant.epoch; this.authority = authority; this.lastGrant = { authority, epoch: grant.epoch };
+    if (grant.changed) this.announceChange();
   }
   async assertCurrent(): Promise<void> { await this.transaction(state => { this.guard(state); }); }
   async prepare(roomId: string, value: OutboxPayload): Promise<OutboxRecord> {
     const payload = normalizePayload(value);
-    return this.transaction(state => { this.guard(state); return insert(state, roomId, payload, Date.now()); });
+    const { record, created } = await this.transaction(state => {
+      this.guard(state);
+      const created = !state.records.some(record => record.clientMessageId === payload.clientMessageId);
+      return { record: insert(state, roomId, payload, Date.now()), created };
+    });
+    if (created) this.preparedHere.add(payload.clientMessageId);
+    return record;
   }
   async recover(roomId: string): Promise<OutboxRecord[]> {
     return this.transaction(state => {
@@ -175,15 +194,18 @@ export class DurableOutbox {
     const payload = await this.transaction(state => {
       const record = this.record(state, id);
       if (!record.payload || record.result || !permitted(record, this.authority!)) throw new OutboxError('READ_ONLY');
-      if (record.attempted && !(explicitRetry && this.lookup404.has(id))) throw new OutboxError('RECEIPT_FIRST');
+      if (!this.preparedHere.has(id) && !(explicitRetry && this.lookup404.has(id))) throw new OutboxError('RECEIPT_FIRST');
       this.lookup404.delete(id); record.attempted = true;
       return record.payload;
     });
+    this.preparedHere.delete(id);
     return normalizePayload(payload);
   }
   async settle(value: Receipt): Promise<void> {
     await this.transaction(state => { applyReceipt(this.record(state, value.clientMessageId), value); });
+    this.preparedHere.delete(value.clientMessageId);
     this.lookup404.delete(value.clientMessageId);
+    this.announceChange();
   }
   /** Scope/quote/capability loss scrubs payload without reminting or retaining a private projection. */
   async quarantine(ids?: readonly string[]): Promise<void> {
@@ -191,48 +213,31 @@ export class DurableOutbox {
       this.guard(state);
       for (const record of state.records) if (!ids || ids.includes(record.clientMessageId)) { delete record.payload; if (record.result?.status !== 'deleted') delete record.result; }
     });
+    if (!ids) this.preparedHere.clear(); else for (const id of ids) this.preparedHere.delete(id);
   }
   suspend(): void {
     if (this.locallySuspended || this.stopped) return;
     this.locallySuspended = true;
-    const fence = this.fence;
-    this.generation++; this.authority = null; this.fence = null; this.lookup404.clear(); this.operationAbort.abort();
+    this.generation++; this.authority = null; this.authorityEpoch = null; this.preparedHere.clear(); this.lookup404.clear(); this.operationAbort.abort();
     for (const tx of this.pending) { try { tx.abort(); } catch { /* A committed transaction needs no abort. */ } }
-    if (!this.stopped) this.releaseLease(fence);
-  }
-  private releaseLease(fence: number | null): void {
-    // Only ownership metadata may finish after close/suspend. It must not depend on
-    // the now-invalid local generation, or every ordinary unmount would hold 30s.
-    // Reauthorization clears the local fence before its transaction completes.
-    // Queue cleanup even then: IDB serializes it after pending grants and before
-    // any later authorize call. The unique owner check protects other instances.
-    try {
-      const tx = this.db.transaction('state', 'readwrite');
-      const store = tx.objectStore('state'), request = store.get('singleton');
-      request.onsuccess = () => {
-        const state = request.result as OutboxState | undefined;
-        if (state?.schema === 1 && state.owner === this.owner && (fence === null || state.fence === fence)) {
-          state.owner = null; state.leaseUntil = 0; store.put(state, 'singleton');
-        }
-      };
-      tx.onerror = () => { /* Expiry is the fallback; no payload or outcome writes. */ };
-    } catch { /* A closed/evicted database cannot authorize further sends. */ }
   }
   /** Confirmed account/session loss. Fence every tab before erasing all persisted content. */
   async revoke(): Promise<void> {
     const grant = this.lastGrant;
     this.suspend();
-    await this.transaction(state => {
+    const revoked = await this.transaction(state => {
       // A stale logout completion cannot erase a successor session's new input.
-      if (!grant || state.authorityEpoch !== grant.epoch || JSON.stringify(state.authority) !== JSON.stringify(grant.authority)) return;
-      if (state.fence >= Number.MAX_SAFE_INTEGER || state.authorityEpoch >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
-      state.fence++; state.authorityEpoch++; state.owner = null; state.leaseUntil = 0; state.authority = null;
+      if (!grant || state.authorityEpoch !== grant.epoch || JSON.stringify(state.authority) !== JSON.stringify(grant.authority)) return false;
+      if (state.authorityEpoch >= Number.MAX_SAFE_INTEGER) throw new OutboxError('UPDATE_REQUIRED');
+      state.authorityEpoch++; state.authority = null;
       for (const record of state.records) { delete record.payload; if (record.result?.status !== 'deleted') delete record.result; }
+      return true;
     });
     if (this.lastGrant === grant) this.lastGrant = null;
+    if (revoked) this.announceChange();
   }
   close(): void {
     if (this.stopped) return;
-    this.suspend(); this.stopped = true; this.abort.abort(); this.db.close();
+    this.suspend(); this.stopped = true; this.abort.abort(); this.changeListeners.clear(); this.channel?.close(); this.db.close();
   }
 }

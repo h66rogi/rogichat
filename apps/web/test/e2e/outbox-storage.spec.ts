@@ -51,7 +51,7 @@ test('native IDB cold restart locks data, GET404 cannot send, explicit retry pre
   expect(result.afterRead).toEqual(['SEND', 'GET']); expect(result.calls).toEqual(['SEND', 'GET', 'GET', 'SEND']);
 });
 
-test('native atomic ownership, session ABA scrub, stale ACK and lifecycle locks', async ({ page }) => {
+test('concurrent tabs retain session ABA scrub, stale ACK and lifecycle locks', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const modulePath = '/__outbox_test/outbox/indexeddb.js';
     const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
@@ -60,7 +60,8 @@ test('native atomic ownership, session ABA scrub, stale ACK and lifecycle locks'
     const first = await DurableOutbox.open('ownership'), second = await DurableOutbox.open('ownership');
     await first.authorize(a);
     await first.prepare(roomId, { clientMessageId, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'erase me' } });
-    const busy = await second.authorize(a).then(() => false, () => true);
+    await second.authorize(a);
+    const shared = (await second.recover(roomId))[0]?.payload?.content;
     await second.authorize({ ...a, sessionKey: 'b'.repeat(64) });
     const fenced = await first.settle({ clientMessageId, status: 'deleted' }).then(() => false, () => true);
     await second.authorize(a);
@@ -68,12 +69,12 @@ test('native atomic ownership, session ABA scrub, stale ACK and lifecycle locks'
     const noResurrection = await second.prepare(roomId, { clientMessageId, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'erase me' } }).then(() => false, () => true);
     window.dispatchEvent(new PageTransitionEvent('pagehide'));
     const suspended = await second.beforeLookup(clientMessageId).then(() => false, () => true);
-    first.close(); second.close(); return { busy, fenced, scrubbed: !record.payload, noResurrection, suspended };
+    first.close(); second.close(); return { shared, fenced, scrubbed: !record.payload, noResurrection, suspended };
   });
-  expect(result).toEqual({ busy: true, fenced: true, scrubbed: true, noResurrection: true, suspended: true });
+  expect(result).toEqual({ shared: { type: 'TEXT', text: 'erase me' }, fenced: true, scrubbed: true, noResurrection: true, suspended: true });
 });
 
-test('versionchange closes old writer and newer schema is preserved with update-required', async ({ page }) => {
+test('versionchange closes old connection and newer schema is preserved with update-required', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const modulePath = '/__outbox_test/outbox/indexeddb.js';
     const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
@@ -111,24 +112,64 @@ test('native aborted persistence refuses network and leaves composer input intac
   expect(result).toEqual({ failed: true, sends: 0, input: 'keep composer input', count: 0 });
 });
 
-test('two browser tabs cannot acquire concurrent same-account writer leases', async ({ page, context }) => {
-  await page.evaluate(async () => {
+test('two browser tabs authorize and send distinct commands concurrently', async ({ page, context }) => {
+  const first = await page.evaluate(async () => {
     const modulePath = '/__outbox_test/outbox/indexeddb.js';
     const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID(), id = crypto.randomUUID();
     const outbox = await DurableOutbox.open('tabs');
-    await outbox.authorize({ accountPartition: 'A'.repeat(43), sessionKey: 'a'.repeat(64), rooms: [] });
+    await outbox.authorize({ accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] });
+    await outbox.prepare(roomId, { clientMessageId: id, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'first tab' } });
+    return { roomId, id };
   });
   const second = await context.newPage(); await second.goto('/__outbox_test/harness');
-  expect(await second.evaluate(async () => {
+  const result = await second.evaluate(async ({ roomId, id }) => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), otherId = crypto.randomUUID();
+    const outbox = await DurableOutbox.open('tabs');
+    await outbox.authorize({ accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] });
+    const recovered = await outbox.recover(roomId);
+    const receiptFirst = await outbox.beforeSend(id).then(() => false, error => error.code === 'RECEIPT_FIRST');
+    await outbox.prepare(roomId, { clientMessageId: otherId, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'second tab' } });
+    const sent = await outbox.beforeSend(otherId);
+    outbox.close(); return { recovered: recovered.map(record => record.clientMessageId), receiptFirst, sent: sent.clientMessageId, otherId };
+  }, first);
+  expect(result).toEqual({ recovered: [first.id], receiptFirst: true, sent: result.otherId, otherId: result.otherId });
+  expect(await page.evaluate(async roomId => {
     const modulePath = '/__outbox_test/outbox/indexeddb.js';
     const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
     const outbox = await DurableOutbox.open('tabs');
-    const busy = await outbox.authorize({ accountPartition: 'A'.repeat(43), sessionKey: 'a'.repeat(64), rooms: [] }).then(() => false, error => error.code === 'BUSY');
-    outbox.close(); return busy;
-  })).toBe(true);
+    const token = 'A'.repeat(43);
+    await outbox.authorize({ accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] });
+    const records = await outbox.recover(roomId); outbox.close(); return records.map(record => record.clientMessageId);
+  }, first.roomId)).toEqual([first.id, result.otherId]);
 });
 
-test('late network ACK after lease takeover cannot mutate durable command outcome', async ({ page }) => {
+test('an unexpired owner from the previous client cannot block a newly opened tab', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const modulePath = '/__outbox_test/outbox/indexeddb.js';
+    const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID(), id = crypto.randomUUID();
+    const authority = { accountPartition: token, sessionKey: 'a'.repeat(64), rooms: [{ roomId, membershipScope: token, authorizationRevision: token }] };
+    const first = await DurableOutbox.open('legacy-owner'); await first.authorize(authority); first.close();
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open('rogichat-outbox-legacy-owner', 1);
+      request.onsuccess = () => {
+        const db = request.result, tx = db.transaction('state', 'readwrite'), store = tx.objectStore('state'), read = store.get('singleton');
+        read.onsuccess = () => { const state = read.result; state.owner = 'previous-tab'; state.fence = 42; state.leaseUntil = Date.now() + 30_000; store.put(state, 'singleton'); };
+        tx.oncomplete = () => { db.close(); resolve(); }; tx.onabort = () => { db.close(); reject(Error('legacy fixture failed')); };
+      };
+      request.onerror = () => reject(Error('legacy fixture failed'));
+    });
+    const second = await DurableOutbox.open('legacy-owner'); await second.authorize(authority);
+    await second.prepare(roomId, { clientMessageId: id, membershipScope: token, intent: 'SHARED', content: { type: 'TEXT', text: 'no waiting' } });
+    const body = await second.beforeSend(id); second.close(); return body.content;
+  });
+  expect(result).toEqual({ type: 'TEXT', text: 'no waiting' });
+});
+
+test('late network ACK after authority change cannot mutate durable command outcome', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const modulePath = '/__outbox_test/outbox/indexeddb.js', transportPath = '/__outbox_test/outbox/transport.js';
     const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
@@ -169,7 +210,7 @@ test('missing native store state refuses writes instead of recreating evicted co
   expect(result).toBe(true);
 });
 
-test('confirmed revoke crosses same-session lease handoff but cannot cross authority ABA', async ({ page }) => {
+test('confirmed revoke fences every same-session tab but cannot cross authority ABA', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const modulePath = '/__outbox_test/outbox/indexeddb.js';
     const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
@@ -310,7 +351,7 @@ test('actual controller recovers an uncertain native record after a cold restart
   expect(result.after.commands).toHaveLength(1); expect(result.lookups).toBeGreaterThan(0);
 });
 
-test('suspend during reauthorization releases the previous lease without waiting for expiry', async ({ page }) => {
+test('suspending one tab never blocks another tab or its receipt-first recovery', async ({ page }) => {
   const result = await page.evaluate(async () => {
     const modulePath = '/__outbox_test/outbox/indexeddb.js';
     const { DurableOutbox } = await import(modulePath) as typeof StorageModule;
@@ -326,7 +367,7 @@ test('suspend during reauthorization releases the previous lease without waiting
       await second.authorize(authority);
       const records = await second.recover(roomId);
       const receiptFirst = await second.beforeSend(payload.clientMessageId).then(() => false, error => error.code === 'RECEIPT_FIRST');
-      // Repeated suspension must not release a later grant queued behind cleanup.
+      // Repeated suspension must not invalidate a later authorization.
       second.suspend(); second.suspend(); await second.authorize(authority);
       await second.assertCurrent();
       return { recovered: records[0]?.payload, receiptFirst };

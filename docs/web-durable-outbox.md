@@ -1,10 +1,10 @@
 # Durable web command outbox (source integration)
 
-This branch is stacked directly on PR59 `cd34c5c2733df61fa0e9a72a704f6ad6b79be547`.
-It does not change PR59, QA, main, deployment, runtime schema, or reference trees.
-Backend wire contract read: frozen `f9197a31d61b7c34256e92f0bcb73ee255275d40`,
-`docs/membership-scope-contract.md` and `apps/api/src/modules/messages/dto/message.openapi.ts`.
-Media wire union was confirmed with the separately owned controller implementation.
+Current browser storage contract for durable message commands. The server wire
+contract is defined by `docs/membership-scope-contract.md`,
+`apps/api/src/modules/messages/dto/message.openapi.ts` and the message command
+controller. The existing v1 browser database remains readable across this
+multi-tab change.
 
 ## Controller contract
 
@@ -39,10 +39,10 @@ The environment must be the canonical QA/production configuration, not a URL.
    not synthesize a message projection or imply recipient read status.
 7. `quarantine(ids?)` scrubs payload for revoked quotes/capabilities. Current
    complete-manifest authorization scrubs old account/session/M/A records.
-   `suspend()` immediately aborts/locks on reset/background; call `revoke()` for
-   confirmed account/session loss. `close()` ends the owner. Native pagehide,
-   pageshow, document freeze and hidden visibility also suspend automatically.
-   Foreground remains locked until genuine reauthorization.
+   `suspend()` aborts only this tab's work on route exit or document freeze;
+   call `revoke()` for confirmed account/session loss. `close()` ends this local
+   connection. Hiding a tab does not interrupt an in-flight send or prevent
+   another tab from sending. Pagehide/pageshow require fresh authorization.
 
 `outbox/transport.ts` supplies optional `sendOutbox`, `reconcileOutbox`, and
 `retryOutbox` adapters with `{verify,lookup,send}` callbacks. `verify` must check
@@ -54,15 +54,17 @@ the controller still owns fresh projection loading and composer rendering.
 ## Atomic storage, privacy, limits and lifecycle
 
 A native IndexedDB version-1 database per environment contains one bounded state
-record. IDB readwrite serialization covers authority, command outcomes, receipt
-mapping and lease updates together. There is no second optimistic message cache.
-Ownership uses a random tab ID, monotonically increasing integer fence and
-30-second lease. Every operation validates the lease/authority inside its
-transaction; background/close releases opportunistically and failures fall back
-to lease expiry. BroadcastChannel is unnecessary for correctness. Fresh changed
-session/M/A authority fences an older tab and irreversibly scrubs old payloads;
-A→B→A cannot restore them. A separate monotonic authority epoch allows confirmed revocation across an ordinary
-same-session lease handoff while rejecting stale revocation across authority ABA.
+record. IDB readwrite transactions serialize authority, command records and
+receipts. Every authorized tab can append its own command. The server's
+`clientMessageId` receipt makes a repeated same-command POST idempotent, while
+a tab-local prepared-ID set keeps cold recovery receipt-first. The v1
+owner/fence/lease fields remain inert so existing browser storage and pending
+commands survive rollout. No operation waits for or renews a tab lease.
+A monotonic authority epoch fences changed session/M/A authority and confirmed
+revocation across all tabs; changed authority irreversibly scrubs old payloads,
+including A→B→A. BroadcastChannel carries only a content-free change hint after
+receipt settlement or authority change. Other tabs recheck current server/session
+state and the shared store; correctness does not depend on that hint arriving.
 
 Limits: 256 command records, 2 MiB encoded records, 15-minute payload eligibility,
 24-hour receipt identity retention, maximum 10,000 complete-manifest rooms.
@@ -77,11 +79,11 @@ URLs, File/Blob objects or transport error bodies are stored. TEXT is NFC with
 VIDEO exactly one, STICKER a catalog sticker UUID. Extra runtime fields are
 removed by allowlisted reconstruction and asset arrays are copied/frozen.
 
-Versionchange closes/stops the old writer; blocked/newer databases produce
+Versionchange closes/stops an old connection; blocked/newer databases produce
 UPDATE_REQUIRED without database deletion. Failed/quota/aborted transactions
 produce fixed storage errors, no SEND, and no accepted result. A missing state
 record in a live connection is treated as incompatible/evicted, never recreated
-by that writer. Storage eviction across a full restart can remove recovery
+by that connection. Storage eviction across a full restart can remove recovery
 identities; no code recreates or automatically replays an absent command.
 
 The JS contract requires DB schema 1 and backend sync schema 2. Service workers
@@ -99,7 +101,8 @@ identity, cross-tab ownership, session ABA, stale ACK, pagehide, versionchange,
 and an injected native transaction quota failure. Production UI mounting and
 cold-restart/unknown-send browser verification are owned jointly with the
 controller integrator and remain required before product completion is claimed.
-No current QA real-account or deployment success is claimed.
+Browser tests use isolated synthetic accounts; deployment and real-account
+verification are separate release gates.
 
 
 ## Shared controller mount
@@ -110,16 +113,17 @@ recovery or writes. Unknown recovered records appear as receipt controls without
 restoring draft text; cold recovery performs GET only. Explicit retry performs
 receipt lookup and fresh authorization before same-ID SEND. New writes persist
 before POST, and confirmed receipts settle in IDB before the in-memory result and
-fresh server projection read. Storage failures retain input. Transient writer
-conflicts retry automatically while the visible chat remains mounted; users can
-also retry immediately. Leaving the chat route or hiding its tab suspends the
-local writer so another visible tab can take over. Returning to the chat
-reauthorizes from the current session and complete manifest before recovery or
-a new send. A routine refresh with unchanged authority renews the current lease
-without aborting an in-flight receipt lookup; changed authority still fences it.
+fresh server projection read. Storage failures retain input. Transient authority
+changes retry automatically while the visible chat remains mounted; users can
+also retry immediately. Tabs can send while other tabs are open or sending.
+Leaving the chat route suspends only that tab's work. Returning reauthorizes
+from the current session and complete manifest before recovery or a new send.
+A routine refresh with unchanged authority preserves an in-flight send or
+receipt lookup; changed authority still fences it.
 Logout/confirmed authentication loss synchronously fences
 active stores, then completes the authority-fenced erasure before closing them.
-Product browser cold-restart evidence remains pending aggregate PR verification.
+The product browser suite covers cold restart, concurrent tabs and session
+revocation on desktop and mobile Chromium.
 
 ### Recovery test checkpoint
 
@@ -135,7 +139,7 @@ isolated native-storage run. The preceding exact `6cfd92c` leaf also passed the
 `test/e2e/outbox-production.spec.ts` adds six actual production-route cases:
 reload with receipt-first recovery and immutable explicit retry, receipt-only
 recovery requiring a fresh projection, same-account new-session payload scrub,
-BFCache foreground reauthorization/input preservation, second-tab BUSY recovery,
+BFCache foreground reauthorization/input preservation, concurrent tab sending,
 and a real native prepare-write failure followed by storage reconnect and an
 actual user retry. Fixtures and native storage fault injection are isolated to
 tests. These product cases require the composed PR67 production artifact; authoring,

@@ -5,8 +5,8 @@ import type { SendPayload } from '../commands';
 export type OutboxPayload = Omit<SendPayload, 'content'> & { readonly content:
   Readonly<{ type: 'TEXT'; text: string }> | Readonly<{ type: 'PHOTO' | 'VIDEO'; assetIds: readonly string[] }> | Readonly<{ type: 'STICKER'; stickerId: string }> };
 
-export const OUTBOX_LIMITS = Object.freeze({ records: 256, bytes: 2 * 1024 * 1024, payloadMs: 15 * 60_000, identityMs: 24 * 60 * 60_000, leaseMs: 30_000 });
-export type OutboxErrorCode = 'LOCKED' | 'LEASE_LOST' | 'BUSY' | 'STORAGE_FAILED' | 'UPDATE_REQUIRED' | 'CAPACITY' | 'INVALID_COMMAND' | 'RECEIPT_FIRST' | 'READ_ONLY';
+export const OUTBOX_LIMITS = Object.freeze({ records: 256, bytes: 2 * 1024 * 1024, payloadMs: 15 * 60_000, identityMs: 24 * 60 * 60_000 });
+export type OutboxErrorCode = 'LOCKED' | 'AUTHORITY_CHANGED' | 'STORAGE_FAILED' | 'UPDATE_REQUIRED' | 'CAPACITY' | 'INVALID_COMMAND' | 'RECEIPT_FIRST' | 'READ_ONLY';
 export class OutboxError extends Error {
   readonly code: OutboxErrorCode;
   constructor(code: OutboxErrorCode) { super(code); this.code = code; this.name = 'OutboxError'; }
@@ -21,6 +21,8 @@ export interface OutboxRecord {
   attempted: boolean; payload?: OutboxPayload; result?: Receipt;
 }
 export interface OutboxState {
+  // Keep the v1 shape while old browser bundles are open. These legacy fields
+  // are inert: no tab owns the outbox and no operation waits for a lease.
   schema: 1; fence: number; authorityEpoch: number; owner: string | null; leaseUntil: number;
   authority: OutboxAuthority | null; records: OutboxRecord[];
 }
@@ -78,7 +80,7 @@ export function insert(state: OutboxState, roomId: string, payload: OutboxPayloa
   while (records.length >= OUTBOX_LIMITS.records || new TextEncoder().encode(JSON.stringify([...records, record])).length > OUTBOX_LIMITS.bytes) {
     const settled = records.findIndex(record => record.result !== undefined);
     if (settled < 0) throw new OutboxError('CAPACITY');
-    // An absent settled ID cannot be retried/looked up through this owner; no
+    // An absent settled ID cannot be retried/looked up through this store; no
     // unknown command is evicted and no historical payload is reconstructed.
     records.splice(settled, 1);
   }

@@ -34,6 +34,7 @@ export function suspendChatOutboxes() { for (const controller of activeControlle
 export class ChatController {
   private state = initial();
   private outbox: DurableOutbox | undefined;
+  private unsubscribeOutbox: (() => void) | undefined;
   private revoking: Promise<void> | undefined;
   private storageActive = true;
   private storageRetryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -59,8 +60,8 @@ export class ChatController {
   private completeRooms: OutboxRoom[] = [];
   private storageMessage(error: unknown): string {
     const code = error instanceof OutboxError ? error.code : 'STORAGE_FAILED';
-    return code === 'BUSY' || code === 'LEASE_LOST' ? '메시지 전송을 준비하고 있어요. 잠시 후 자동으로 다시 시도합니다. 작성 중인 내용은 유지돼요.'
-      : code === 'UPDATE_REQUIRED' ? '다른 탭에서 열어 둔 로기챗을 새로고침해 주세요. 작성 중인 내용은 유지돼요.'
+    return code === 'AUTHORITY_CHANGED' ? '채팅 상태를 다시 확인하고 있어요. 작성 중인 내용은 유지돼요.'
+      : code === 'UPDATE_REQUIRED' ? '채팅 정보를 다시 불러와야 해요. 이 화면을 새로고침해 주세요. 작성 중인 내용은 유지돼요.'
       : code === 'CAPACITY' ? '확인되지 않은 메시지가 너무 많아요. 이전 메시지의 전송 결과를 먼저 확인해 주세요.'
       : '메시지를 보낼 준비를 마치지 못했어요. 작성 중인 내용은 유지돼요. 다시 시도해 주세요.';
   }
@@ -70,7 +71,7 @@ export class ChatController {
   }
   private reportStorageError(error: unknown) {
     this.publish({ storageError: this.storageMessage(error) });
-    if (!(error instanceof OutboxError) || !['BUSY', 'LEASE_LOST'].includes(error.code) || !this.storageActive || this.dead || this.storageRetryTimer !== null) return;
+    if (!(error instanceof OutboxError) || error.code !== 'AUTHORITY_CHANGED' || !this.storageActive || this.dead || this.storageRetryTimer !== null) return;
     const delay = Math.min(2000, 250 * 2 ** Math.min(this.storageRetryCount++, 3));
     this.storageRetryTimer = setTimeout(() => {
       this.storageRetryTimer = null;
@@ -89,6 +90,7 @@ export class ChatController {
         const store = await DurableOutbox.open(this.environment);
         if (this.dead || signal.aborted || !this.storageActive) { store.close(); return; }
         this.outbox = store;
+        this.unsubscribeOutbox = store.onChange(() => { if (!this.dead && this.storageActive) void this.refresh(); });
       }
       const sessionKey = await outboxSessionKey(this.environment, this.sessionBinding!); guard();
       await this.outbox.authorize({ accountPartition: this.accountPartition!, sessionKey, rooms: this.completeRooms }); guard();
@@ -203,7 +205,7 @@ export class ChatController {
     if (status === 403 || status === 404) { this.memory.scrubAccess(); this.clear(false, true); }
     else this.clear(status === 401, status !== 401);
   }
-  dispose() { this.clearStorageRetry(); if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); this.resolveSend?.(); this.resolveSend = null; activeControllers.delete(this); const store = this.outbox; if (this.revoking) void this.revoking.finally(() => store?.close()); else store?.close(); this.listeners.clear(); }
+  dispose() { this.clearStorageRetry(); this.unsubscribeOutbox?.(); if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); this.resolveSend?.(); this.resolveSend = null; activeControllers.delete(this); const store = this.outbox; if (this.revoking) void this.revoking.finally(() => store?.close()); else store?.close(); this.listeners.clear(); }
   getComposer = () => ({ drafts: structuredClone(this.memory.drafts), target: structuredClone(this.memory.target) });
   saveComposer = (drafts: ChatDrafts, target: ChatComposerTarget | null, epoch: number) => {
     if (!this.dead && this.state.phase === 'ready' && epoch === this.memory.epoch) {
