@@ -28,8 +28,8 @@ export interface ChannelDescriptor {
   features: readonly ChannelFeatureKey[];
 }
 
-export const hurogiChannel: ChannelDescriptor = {
-  key: 'hurogi',
+export const h66rogiChannel: ChannelDescriptor = {
+  key: 'h66rogi',
   displayName: '후로기',
   platformLabel: 'SOOP',
   intro: null,
@@ -40,5 +40,5 @@ export const hurogiChannel: ChannelDescriptor = {
 
 /** Resolves the channel that owns the site root. There is exactly one in the MVP. */
 export function resolveDefaultChannel(): ChannelDescriptor {
-  return hurogiChannel;
+  return h66rogiChannel;
 }
