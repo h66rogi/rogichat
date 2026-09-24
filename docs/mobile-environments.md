@@ -21,9 +21,9 @@ QA와 운영 앱은 별도 설치·데이터 영역을 사용한다. 환경은 �
 ## Android
 
 Android 10/API 29 이상. compile/target API 37, Build Tools 37.0.0,
-AGP 9.4.1, Gradle 9.7.1, JDK 17, Kotlin/Compose compiler 2.4.20,
+AGP 9.4.1, Gradle 9.8.0, JDK 17, Kotlin/Compose compiler 2.4.20,
 Compose BOM 2026.09.00, activity-compose 1.13.0을 사용한다. 탐색·화면 수명은
-navigation-compose 2.10.1과 Lifecycle 2.11.0으로 구현하며, 멜로밍과 같은 Phosphor
+navigation-compose 2.10.2와 Lifecycle 2.11.0으로 구현하며, 멜로밍과 같은 Phosphor
 아이콘 라이브러리 1.0.0의 고지를 앱에 포함한다. 실제 의존 버전은 catalog와 lock을 따른다.
 AGP 내장 Kotlin을 유지하며 별도 kotlin-android 플러그인을 적용하지 않는다.
 컴파일러 2.4.20 선택은 생성된 dependency lock에서도 확인한다.

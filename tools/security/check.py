@@ -22,11 +22,12 @@ PRIVATE_OPS = False
 MAX_BLOB = 16 * 1024 * 1024
 MAX_TOTAL = 512 * 1024 * 1024
 MAX_OBJECTS = 25000
-# Verified against the official Gradle 9.7.1 wrapper checksum. This is an exact
+# Verified against the official Gradle 9.8.0 wrapper checksum. This is an exact
 # path AND content exception, never a wildcard JAR/archive exemption.
-# https://services.gradle.org/distributions/gradle-9.7.1-wrapper.jar.sha256
+# https://services.gradle.org/distributions/gradle-9.8.0-wrapper.jar.sha256
 WRAPPER = "apps/android/gradle/wrapper/gradle-wrapper.jar"
-WRAPPER_SHA256 = "7a9ce74cff467ca1bf60a4fcd9f05185acceda4d0f382434d393e17864262c5d"
+WRAPPER_SHA256 = "238e777fcddd7e34f9708186085def2abd6e08e658505b38718d79d74c21abd5"
+HISTORICAL_WRAPPER_SHA256 = "7a9ce74cff467ca1bf60a4fcd9f05185acceda4d0f382434d393e17864262c5d"
 REVIEWED_FONTS = {
     "apps/web/public/fonts/NanumSquareNeoTTF-aLt.woff2": "f0da0f2329935d3f88f7e4162b68fcdc0be393f74398736ea0967594282ca4e2",
     "apps/web/public/fonts/NanumSquareNeoTTF-bRg.woff2": "d13846b612acc829078aff4f91c272c637c08441b409d46bb1a4c802eb2967c3",
@@ -132,7 +133,7 @@ def inspect_blob(name, data):
             inspect_woff(data, suffix)
         return
     if not PRIVATE_OPS and name == WRAPPER:
-        if hashlib.sha256(data).hexdigest() != WRAPPER_SHA256:
+        if hashlib.sha256(data).hexdigest() not in {WRAPPER_SHA256, HISTORICAL_WRAPPER_SHA256}:
             blocked("Gradle wrapper differs from reviewed upstream artifact")
         # Immutable upstream bytes were audited; Gitleaks also traverses this
         # small, valid ZIP. Bound its expansion before invoking the scanner.
@@ -515,6 +516,9 @@ def run(reader):
     if subprocess.check_output([str(BINARY), "version"], text=True, stderr=subprocess.PIPE, timeout=10).strip() != "8.30.1":
         blocked("unexpected Gitleaks version; reinstall the pinned scanner")
     index = entries(git("ls-files", "--stage", "-z"), index=True)
+    if not PRIVATE_OPS and (WRAPPER not in index or
+                            hashlib.sha256(reader.read(index[WRAPPER], "blob")).hexdigest() != WRAPPER_SHA256):
+        blocked("current Gradle wrapper differs from reviewed upstream artifact")
     if ".gitleaks.toml" not in index:
         blocked("scanner policy must be tracked in the index")
     policy = reader.read(index[".gitleaks.toml"], "blob")
