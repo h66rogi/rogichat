@@ -24,6 +24,7 @@ export const CHANNEL_FEATURES: Record<ChannelFeatureKey, ChannelFeatureConfig> =
   schedule: { key: 'schedule', label: '일정', segment: 'schedule', description: '후로기의 방송 일정과 기념일' },
   wardrobe: { key: 'wardrobe', label: '옷장', segment: 'wardrobe', description: '후로기의 의상과 헤어' },
   songbook: { key: 'songbook', label: '노래책', segment: 'musicbook', description: '후로기의 노래책' },
+  setlist: { key: 'setlist', label: '셋리스트', segment: 'setlist', description: '방송에서 재생됐던 곡을 세션별로 다시 볼 수 있습니다.' },
 };
 
 const CHANNEL_PATH_PREFIX: string = '';
@@ -39,7 +40,6 @@ export function featureFromPath(pathname: string): ChannelFeatureKey | null {
     ? pathname.slice(CHANNEL_PATH_PREFIX.length)
     : pathname;
   if (relative === '/') return 'home';
-  if (relative === '/setlist' || relative.startsWith('/setlist/')) return 'songbook';
   const match = (Object.values(CHANNEL_FEATURES) as ChannelFeatureConfig[]).find((feature) => {
     if (!feature.segment) return false;
     const route = `/${feature.segment}`;

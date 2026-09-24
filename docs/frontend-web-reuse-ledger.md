@@ -26,8 +26,8 @@ npm으로 설치되며 각자의 라이선스를 따른다.
 |---|---|---|---|
 | `src/features/home-new/layout/ChannelShell.tsx` | `apps/web/src/features/channel/shell/channel-shell.tsx` | 얇은 상단바, 카드형 본문(18rem 사이드바 + main + footer), 모바일 64px 상단바 + 오프캔버스 구조 | desktopUI/mobileUI 이중 트리 제거 → 단일 트리(children 1회 mount). SidebarProvider 쿠키·단축키, GlobalThinHeader, HeaderProfileMenu, top-notice 변수, 로고 제외 |
 | `src/features/home-new/layout/ChannelMobileTopBar.tsx` | `.../shell/channel-mobile-top-bar.tsx` | 메뉴 트리거 + 아바타 + 채널명 홈 링크 배치 | react-query·채널 fetch 제거, descriptor prop 주입, 채팅 화면 축약 헤더 추가, Sheet drawer |
-| `src/domains/channel/components/channel/channel-menu-sidebar.tsx` | `.../shell/channel-menu.tsx` | `TAB_ICONS` 패턴, `ChannelSidebarMenuLink`(pill, 아이콘+라벨, `aria-current`) | DnD 편집기, feature settings mutation, setlist/verified 필터, toast 제외. 데이터 있는 기능만 나열 |
-| `src/domains/channel/types/channel-tab.ts` | `.../model/channel-features.ts` | `TabConfig`/`TAB_CONFIG` 형태, `getPathFromTab`/`getTabFromPath` 개념 → `channelHref`/`featureFromPath` | 사이트 루트 경로, prefix 한 곳. musicbook 등 메뉴와 기본 순서 정규화 로직 제외 |
+| `src/domains/channel/components/channel/channel-menu-sidebar.tsx` | `.../shell/channel-menu.tsx` | `TAB_ICONS` 패턴, `ChannelSidebarMenuLink`(pill, 아이콘+라벨, `aria-current`), 셋리스트의 `ListMusic` 아이콘 | DnD 편집기, feature settings mutation, verified/availability 필터, toast 제외. 공개 셋리스트가 아직 없을 때도 빈 상태 페이지를 볼 수 있도록 메뉴 노출 |
+| `src/domains/channel/types/channel-tab.ts` | `.../model/channel-features.ts` | `TabConfig`/`TAB_CONFIG` 형태, `getPathFromTab`/`getTabFromPath` 개념 → `channelHref`/`featureFromPath`, 원본의 독립 `setlist` 탭과 경로 | 사이트 루트 경로, prefix 한 곳. 기본 순서 정규화 로직 제외 |
 | `src/domains/channel/components/channel-layout.tsx` | 홈 구성 순서 참고 | 헤더 → 본문 순서, 섹션 단위 구성 | customCss 주입, 인증 모달, 사이드 배너, ContentWidthProvider, legacy 분기 제외. 코드 복사 없음 |
 | `src/domains/channel/components/channel/user-header.tsx` (sidebar variant) | `.../shell/channel-profile-card.tsx` | 중앙 원형 아바타 + 이름 + 행동 행 배치 | 공유 시트, 즐겨찾기·수치, 뱃지, 관리 링크, 업로드 제외. 확인된 공식 링크만 표시 |
 | `src/domains/channel/components/channel/user-avatar.tsx` | `.../shell/channel-avatar.tsx` | Avatar + 이니셜 fallback | 클릭 이스터에그·hover 확대 제외 |
