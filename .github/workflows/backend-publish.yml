@@ -136,8 +136,9 @@ jobs:
           assert.doesNotMatch(destroy, /new Connection|new Quit|killCon/);
           assert.match(driverRequire('./lib/connection.js').prototype.createSecureContext.toString(), /info\.isMariaDB\(\) && this\.opts\.ssl === true/);
           JS
-          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$migration_image" \
-            -e "const fs=require('node:fs');const path=require('node:path');const p=require('prisma/package.json');const engine=path.dirname(require.resolve('@prisma/engines/package.json',{paths:[require.resolve('prisma/package.json')]}));if(p.version!=='7.10.0'||!fs.existsSync(path.join(engine,'schema-engine-debian-openssl-3.0.x'))||typeof require('mysql2/promise').createConnection!=='function')process.exit(1)"
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$PWD/apps/api/test/migration-image.mjs,dst=/run/migration-image-check.mjs,readonly" \
+            "$migration_image" /run/migration-image-check.mjs
           # Synthetic unreachable loopback DB only. No QA secret/network is used.
           fixture_password=$(openssl rand -hex 16)
           fixture_url="mysql://fixture:$fixture_password@127.0.0.1:3306/fixture"

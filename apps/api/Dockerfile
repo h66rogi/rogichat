@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store
     && rm -rf /root/.cache/pnpm
 
 FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS migration
-# Keep only the migration CLI, driver and schema; the API build tree is not an input.
+# Keep production runtime dependencies and compiled migration hooks, without build tooling.
 # Prisma's engine downloader needs OpenSSL version detection on the slim base.
 RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
     && printf '%s\n' \
@@ -48,8 +48,11 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install --no-install-recommends --yes openssl \
     && rm -rf /var/lib/apt/lists/*
+COPY --from=production-dependencies /workspace/node_modules /workspace/node_modules
 COPY --from=migration-dependencies /workspace/node_modules /workspace/node_modules
+COPY --from=production-dependencies /workspace/apps/api/node_modules /workspace/apps/api/node_modules
 COPY --from=migration-dependencies /workspace/apps/migration/node_modules /workspace/apps/api/node_modules
+COPY --from=build /workspace/apps/api/dist /workspace/apps/api/dist
 COPY apps/api/package.json apps/api/prisma.config.ts /workspace/apps/api/
 COPY apps/api/prisma /workspace/apps/api/prisma
 # Download the exact reviewed schema engine, failing the build on any error.

@@ -149,8 +149,9 @@ jobs:
           bytes=$(docker image inspect --format '{{.Size}}' "$image")
           printf 'Migration image size: %s bytes\n' "$bytes"
           test "$bytes" -lt 1000000000
-          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$image" \
-            -e "const fs=require('node:fs');const path=require('node:path');const p=require('prisma/package.json');const engine=path.dirname(require.resolve('@prisma/engines/package.json',{paths:[require.resolve('prisma/package.json')]}));const checks={version:p.version==='7.10.0',engine:fs.existsSync(path.join(engine,'schema-engine-debian-openssl-3.0.x')),driver:typeof require('mysql2/promise').createConnection==='function',schema:fs.existsSync('prisma/schema.prisma'),isolated:!fs.existsSync('dist/main.js')};console.log(checks);if(Object.values(checks).some(ok=>!ok))process.exit(1)"
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$PWD/apps/api/test/migration-image.mjs,dst=/run/migration-image-check.mjs,readonly" \
+            "$image" /run/migration-image-check.mjs
   verify:
     if: always()
     needs: [changes, static, integration, image-safety]
