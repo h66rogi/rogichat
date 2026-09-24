@@ -12,7 +12,15 @@ const nextConfig: NextConfig = {
     remotePatterns: [],
   },
   async redirects() {
-    return [{ source: '/channel/hurogi', destination: '/', permanent: false }];
+    return [
+      { source: '/channel/hurogi', destination: '/', permanent: false },
+      { source: '/channel/hurogi/schedule', destination: '/schedule', permanent: true },
+      { source: '/channel/hurogi/musicbook', destination: '/musicbook', permanent: true },
+      { source: '/channel/hurogi/wardrobe', destination: '/wardrobe', permanent: true },
+      { source: '/channel/hurogi/wardrobe/:itemId', destination: '/wardrobe/:itemId', permanent: true },
+      { source: '/channel/hurogi/setlist', destination: '/setlist', permanent: true },
+      { source: '/channel/hurogi/setlist/:sessionId', destination: '/setlist/:sessionId', permanent: true },
+    ];
   },
   async headers() {
     return [

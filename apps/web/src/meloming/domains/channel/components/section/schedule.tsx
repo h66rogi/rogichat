@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useChannelIdentifier } from "@/meloming/domains/channel/hooks/channel-identifier-context";
 import Link from "next/link";
 import { Button } from "@/meloming/shared/components/ui/button";
 import { Plus, Settings } from "lucide-react";
@@ -26,7 +27,7 @@ export default function ScheduleSection({
   hideHeading?: boolean;
   fitCalendarToViewport?: boolean;
 }) {
-  const { user } = useParams();
+  const user = useChannelIdentifier();
   const router = useRouter();
 
   const [isFormDialogOpen, setIsFormDialogOpen] = useState(false);

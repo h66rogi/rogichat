@@ -83,7 +83,7 @@ export function ChannelSetlistContent({ user }: { user: string }) {
   const isNewLayout = true;
 
   const goToDetail = (sessionId: number) => {
-    router.push(`/channel/${user}/setlist/${sessionId}`);
+    router.push(`/setlist/${sessionId}`);
   };
 
   return (

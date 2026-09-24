@@ -17,7 +17,7 @@ import {
   TableRow,
   TableCell,
 } from "@/meloming/shared/components/ui/table";
-import { useParams } from "next/navigation";
+import { useChannelIdentifier } from "@/meloming/domains/channel/hooks/channel-identifier-context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { FilterX } from "lucide-react";
@@ -331,9 +331,7 @@ function MusicSheetRow({
   autoOpenEdit,
   onAutoOpenConsumed,
 }: MusicSheetRowProps) {
-  const { user } = useParams();
-  const userParam = Array.isArray(user) ? user[0] : user;
-  const username = userParam || "";
+  const username = useChannelIdentifier();
   const song = row.original;
   const [open, setOpen] = useState(false);
   const hasAutoOpenedRef = useRef(false);

@@ -17,7 +17,7 @@ export function ClipDetailContent({ clipId }: { clipId: number }) {
         thumbnailUrl={clip.thumbnailUrl ?? undefined} title={clip.title} />
       <div className="flex items-center gap-2"><ClipPlatformBadge platform={clip.platform} />
         <h1 className="text-2xl font-bold">{clip.title}</h1></div>
-      {channel && <Link className="text-sm text-primary hover:underline" href={`/channel/${channel.channelWebPath ?? 'hurogi'}/musicbook`}>
+      {channel && <Link className="text-sm text-primary hover:underline" href="/musicbook">
         {channel.channelName}{channel.songTitle ? ` · ${channel.songTitle}` : ""}
       </Link>}
       {clip.description && <p className="whitespace-pre-wrap text-sm text-muted-foreground">{clip.description}</p>}

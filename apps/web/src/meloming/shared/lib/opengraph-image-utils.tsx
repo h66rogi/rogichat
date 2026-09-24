@@ -85,9 +85,7 @@ export async function generateChannelOGImage(
   }
 
   const themeColor = channel.themeColor || "#667eea";
-  const urlPath = pathSuffix
-    ? `rogi.chat/channel/${channel.webPath}/${pathSuffix}`
-    : `rogi.chat/channel/${channel.webPath}`;
+  const urlPath = pathSuffix ? `rogi.chat/${pathSuffix}` : 'rogi.chat';
 
   return new ImageResponse(
     (
@@ -308,4 +306,3 @@ export async function generateChannelOGImage(
     }
   );
 }
-

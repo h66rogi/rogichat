@@ -19,7 +19,7 @@ import clsx from "clsx";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useParams } from "next/navigation";
+import { useChannelIdentifier } from "@/meloming/domains/channel/hooks/channel-identifier-context";
 
 import type { Song, SongCategory } from "@/meloming/domains/channel/types/song";
 import type { LiveSongRequestState } from "@/meloming/domains/channel/types/live-song-request";
@@ -577,9 +577,7 @@ function ActionCell({
   liveRequestState?: LiveSongRequestState;
 }) {
   const queryClient = useQueryClient();
-  const { user } = useParams();
-  const userParam = Array.isArray(user) ? user[0] : user;
-  const username = userParam || "";
+  const username = useChannelIdentifier();
   const { isAuthenticated } = useAuth();
   const toggleFavoriteSong = useToggleFavoriteSong();
   const unFavoriteSong = useUnfavoriteSong();

@@ -133,7 +133,7 @@ function buildColumns(identifier: string) {
         const startedAt = row.original.startedAt;
         return (
           <Link
-            href={`/channel/${identifier}/setlist/${row.original.sessionId}`}
+            href={`/setlist/${row.original.sessionId}`}
             className="flex flex-col group"
             aria-label={`${dayjs(startedAt).format(
               "YYYY-MM-DD HH:mm"

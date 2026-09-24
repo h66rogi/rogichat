@@ -95,7 +95,7 @@ export function ChannelWardrobeContent({ user }: { user: string }) {
             return (
               <Link
                 key={item.id}
-                href={`/channel/${user}/wardrobe/${item.id}`}
+                href={`/wardrobe/${item.id}`}
                 className="group overflow-hidden rounded-lg border bg-card shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <div
