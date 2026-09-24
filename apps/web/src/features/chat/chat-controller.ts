@@ -35,11 +35,23 @@ export class ChatController {
   private state = initial();
   private outbox: DurableOutbox | undefined;
   private revoking: Promise<void> | undefined;
+  private storageActive = true;
+  private storageRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private storageRetryCount = 0;
   matchesSession = (account: string, session: string) => this.accountPartition === account && this.sessionBinding === session;
-  suspendStorage = () => { this.outbox?.suspend(); };
+  suspendStorage = () => {
+    this.storageActive = false;
+    this.clearStorageRetry();
+    this.outbox?.suspend();
+  };
+  resumeStorage = () => {
+    if (this.dead || this.storageActive) return;
+    this.storageActive = true;
+    if (this.state.storageError) void this.refresh();
+  };
   revokeStorage = () => {
     if (!this.outbox) return;
-    this.revoking = this.outbox.revoke().catch(error => { this.publish({ storageError: this.storageMessage(error) }); });
+    this.revoking = this.outbox.revoke().catch(error => { this.reportStorageError(error); });
   };
   private readonly environment: string | undefined;
   private readonly recoverySeen = new Set<string>();
@@ -47,19 +59,35 @@ export class ChatController {
   private completeRooms: OutboxRoom[] = [];
   private storageMessage(error: unknown): string {
     const code = error instanceof OutboxError ? error.code : 'STORAGE_FAILED';
-    return code === 'BUSY' ? '다른 탭 또는 이전 페이지의 전송 확인이 끝나지 않았습니다. 다른 탭을 닫거나 최대 30초 뒤 저장소를 다시 연결해 주세요.'
-      : code === 'UPDATE_REQUIRED' ? '전송 저장소 버전이 변경되었습니다. 다른 탭을 닫고 페이지를 새로 열어 주세요.'
-      : code === 'CAPACITY' ? '미확인 전송 보관 한도에 도달했습니다. 이전 전송 결과를 먼저 확인해 주세요.'
-      : '전송 저장소를 확인하지 못했습니다. 입력은 유지됩니다. 저장소를 다시 연결한 뒤 전송해 주세요.';
+    return code === 'BUSY' || code === 'LEASE_LOST' ? '메시지 전송을 준비하고 있어요. 잠시 후 자동으로 다시 시도합니다. 작성 중인 내용은 유지돼요.'
+      : code === 'UPDATE_REQUIRED' ? '다른 탭에서 열어 둔 로기챗을 새로고침해 주세요. 작성 중인 내용은 유지돼요.'
+      : code === 'CAPACITY' ? '확인되지 않은 메시지가 너무 많아요. 이전 메시지의 전송 결과를 먼저 확인해 주세요.'
+      : '메시지를 보낼 준비를 마치지 못했어요. 작성 중인 내용은 유지돼요. 다시 시도해 주세요.';
+  }
+  private clearStorageRetry() {
+    if (this.storageRetryTimer !== null) clearTimeout(this.storageRetryTimer);
+    this.storageRetryTimer = null;
+  }
+  private reportStorageError(error: unknown) {
+    this.publish({ storageError: this.storageMessage(error) });
+    if (!(error instanceof OutboxError) || !['BUSY', 'LEASE_LOST'].includes(error.code) || !this.storageActive || this.dead || this.storageRetryTimer !== null) return;
+    const delay = Math.min(2000, 250 * 2 ** Math.min(this.storageRetryCount++, 3));
+    this.storageRetryTimer = setTimeout(() => {
+      this.storageRetryTimer = null;
+      if (this.storageActive && !this.dead && (typeof document === 'undefined' || document.visibilityState === 'visible')) void this.refresh();
+    }, delay);
   }
   private async storageAuthorization(room: RoomMembership) {
-    if (!this.environment) return;
+    if (!this.environment || !this.storageActive) return;
     const signal = this.abort.signal;
-    const guard = () => { if (this.dead || signal.aborted) throw new Error('STALE_STORAGE'); };
+    const guard = () => {
+      if (!this.storageActive) this.outbox?.suspend();
+      if (this.dead || signal.aborted || !this.storageActive) throw new Error('STALE_STORAGE');
+    };
     try {
       if (!this.outbox) {
         const store = await DurableOutbox.open(this.environment);
-        if (this.dead || signal.aborted) { store.close(); return; }
+        if (this.dead || signal.aborted || !this.storageActive) { store.close(); return; }
         this.outbox = store;
       }
       const sessionKey = await outboxSessionKey(this.environment, this.sessionBinding!); guard();
@@ -67,6 +95,7 @@ export class ChatController {
       const quarantined = this.commands.pending().filter(command => !('payload' in command)).map(command => command.clientMessageId);
       if (quarantined.length) await this.outbox.quarantine(quarantined); guard();
       const recovered = await this.outbox.recover(room.roomId); guard();
+      if (this.state.storageError) this.recoverySeen.clear();
       const ids = new Set(recovered.map(record => record.clientMessageId));
       this.commands.quarantine(command => !ids.has(command.clientMessageId) && !this.unpersisted.has(command.clientMessageId));
       for (const record of recovered) {
@@ -77,13 +106,14 @@ export class ChatController {
           ? { ...common, payload: record.payload }
           : { ...common, membershipScope: record.membershipScope });
       }
+      this.clearStorageRetry(); this.storageRetryCount = 0;
       this.publish({ storageError: null });
-    } catch (error) { if (!this.dead && !signal.aborted) this.publish({ storageError: this.storageMessage(error) }); }
+    } catch (error) { if (!this.dead && !signal.aborted && this.storageActive) this.reportStorageError(error); }
   }
-  reconnectStorage = async () => { await this.refresh(); };
+  reconnectStorage = async () => { this.clearStorageRetry(); await this.refresh(); };
   private async recoverReceipts() {
     for (const command of this.commands.pending()) {
-      if (this.dead || this.state.storageError || this.state.phase !== 'ready') return;
+      if (this.dead || !this.storageActive || this.state.storageError || this.state.phase !== 'ready') return;
       if (this.recoverySeen.has(command.clientMessageId) || this.unpersisted.has(command.clientMessageId)) continue;
       this.recoverySeen.add(command.clientMessageId);
       await this.reconcile(command.clientMessageId);
@@ -173,7 +203,7 @@ export class ChatController {
     if (status === 403 || status === 404) { this.memory.scrubAccess(); this.clear(false, true); }
     else this.clear(status === 401, status !== 401);
   }
-  dispose() { if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); this.resolveSend?.(); this.resolveSend = null; activeControllers.delete(this); const store = this.outbox; if (this.revoking) void this.revoking.finally(() => store?.close()); else store?.close(); this.listeners.clear(); }
+  dispose() { this.clearStorageRetry(); if (!this.dead) { this.clear(!this.retainMemory, this.retainMemory); if (this.retainMemory) this.memory.park(); else this.memory.lease++; } this.disposed = true; this.abort.abort(); this.resolveSend?.(); this.resolveSend = null; activeControllers.delete(this); const store = this.outbox; if (this.revoking) void this.revoking.finally(() => store?.close()); else store?.close(); this.listeners.clear(); }
   getComposer = () => ({ drafts: structuredClone(this.memory.drafts), target: structuredClone(this.memory.target) });
   saveComposer = (drafts: ChatDrafts, target: ChatComposerTarget | null, epoch: number) => {
     if (!this.dead && this.state.phase === 'ready' && epoch === this.memory.epoch) {
@@ -394,9 +424,9 @@ export class ChatController {
         this.refreshQuotedDrafts();
         this.rememberAuthority(auth.room, auth.recipients);
         this.commands.quarantine(command => !this.payloadAuthorized(command.payload, auth.room, auth.recipients));
-        if (this.outbox && !this.state.storageError) {
+        if (this.storageActive && this.outbox && !this.state.storageError) {
           try { await this.outbox.quarantine(this.commands.pending().filter(command => !('payload' in command)).map(command => command.clientMessageId)); }
-          catch (error) { this.publish({ storageError: this.storageMessage(error) }); }
+          catch (error) { this.reportStorageError(error); }
           if (this.dead || signal.aborted) return;
         }
         this.publish({ ...auth, phase: 'ready', items: projectMessages(this.messages, auth.room.actorId, [...auth.profiles, ...auth.recipients]), hasOlder: this.historyCursor !== null, error: null });
@@ -622,7 +652,7 @@ export class ChatController {
       if (!current()) return;
       if (Number(recordError(error).status) === 401) { this.clear(true); this.onInvalidate?.(); }
       else if (Number(recordError(error).status) === 403) void this.refreshHints();
-      else if (error instanceof OutboxError) this.publish({ storageError: this.storageMessage(error) });
+      else if (error instanceof OutboxError) this.reportStorageError(error);
       else this.publish({ notice: '전송 결과를 확인할 수 없습니다. 조회 실패만으로 저장되지 않았다고 판단하지 않습니다.' });
     } finally { this.endSend(); if (!this.dead) { this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); } }
   };
@@ -732,7 +762,7 @@ export class ChatController {
           void this.refreshHints();
         }
       }
-      if (error instanceof OutboxError && current()) { const reason = this.state.storageError ?? this.storageMessage(error); this.publish({ storageError: reason }); return { accepted: false, retryCommandId: clientMessageId, reason }; }
+      if (error instanceof OutboxError && current()) { const reason = this.state.storageError ?? this.storageMessage(error); this.reportStorageError(error); return { accepted: false, retryCommandId: clientMessageId, reason }; }
       return { accepted: false, retryCommandId: clientMessageId, reason: '전송 결과가 확인되지 않았습니다. 다시 보내기는 같은 전송 기록을 조회하고 현재 권한으로 재확인합니다.' };
     } finally { this.endSend(); if (!this.dead) this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); }
   };

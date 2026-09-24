@@ -61,7 +61,7 @@ async function unknownSend(page: Page, body: string) {
 // bypassing fresh authorization. Payloads and IDs must remain intact meanwhile.
 async function recoveredLookup(page: Page, expectedId: unknown, waitUntilIdle = true) {
   const lookup = page.getByRole('button', { name: '전송 1 결과 조회', exact: true });
-  const reconnect = page.getByRole('button', { name: '전송 저장소 다시 연결', exact: true });
+  const reconnect = page.getByRole('button', { name: '지금 다시 시도', exact: true });
   await expect.poll(async () => await lookup.count() + await reconnect.count()).toBeGreaterThan(0);
   if (!await lookup.count()) {
     const persisted = await page.evaluate(async () => new Promise<{ leaseUntil: number; ids: string[] }>((resolve, reject) => {
@@ -75,7 +75,6 @@ async function recoveredLookup(page: Page, expectedId: unknown, waitUntilIdle = 
     }));
     expect(persisted.ids).toEqual([expectedId]);
     await page.clock.setFixedTime(persisted.leaseUntil + 1);
-    await reconnect.click();
   }
   await expect(lookup).toBeVisible();
   if (waitUntilIdle) await expect(lookup).toBeEnabled();
@@ -175,16 +174,17 @@ async function foreignLease(page: Page, owner: string, release = false) {
   }, { owner, release });
 }
 
-test('production second-tab BUSY preserves input and explicit reconnect restores sending', async ({ page, context }) => {
+test('production second-tab handoff preserves input and restores sending automatically', async ({ page, context }) => {
   await recoveryApi(page); await page.goto('/chat'); await expect(page.getByTestId('chat-composer-input')).toBeVisible();
   const owner = 'isolated-other-writer'; await foreignLease(page, owner);
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await expect(page.getByTestId('chat-composer-input')).toBeHidden();
   const second = await context.newPage(); const { state } = await recoveryApi(second); await second.goto('/chat');
-  const reconnect = second.getByRole('button', { name: '전송 저장소 다시 연결', exact: true }); await expect(reconnect).toBeVisible();
+  const reconnect = second.getByRole('button', { name: '지금 다시 시도', exact: true }); await expect(reconnect).toBeVisible();
+  await expect(second.getByRole('status').first()).toContainText('메시지 전송을 준비하고 있어요.');
   const input = second.getByTestId('chat-composer-input'); await expect(input).toBeVisible(); await input.fill('다른 탭 사용 중에도 입력 보존');
-  await reconnect.click(); await expect(reconnect).toBeEnabled(); await expect(input).toHaveValue('다른 탭 사용 중에도 입력 보존'); expect(state.posts).toHaveLength(0);
-  await foreignLease(second, owner, true); await reconnect.click();
+  await expect(input).toHaveValue('다른 탭 사용 중에도 입력 보존'); expect(state.posts).toHaveLength(0);
+  await foreignLease(second, owner, true);
   await expect(second.getByTestId('chat-composer-send')).toBeEnabled(); await expect(input).toHaveValue('다른 탭 사용 중에도 입력 보존');
   state.failSend = false; await input.press('Enter');
   await expect.poll(() => state.posts.length).toBe(1); await expect(second.getByText('다른 탭 사용 중에도 입력 보존', { exact: true })).toBeVisible();
@@ -205,9 +205,9 @@ test('production aborted IDB write preserves composer and never sends unpersiste
     };
   });
   await input.press('Enter');
-  await expect(page.getByRole('button', { name: '전송 저장소 다시 연결', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '지금 다시 시도', exact: true })).toBeVisible();
   await expect(input).toHaveValue('저장 실패에도 사라지지 않을 입력'); expect(state.posts).toHaveLength(0);
-  await page.getByRole('button', { name: '전송 저장소 다시 연결', exact: true }).click();
+  await page.getByRole('button', { name: '지금 다시 시도', exact: true }).click();
   await expect(page.getByTestId('chat-composer-send')).toBeEnabled(); expect(state.posts).toHaveLength(0);
   state.failSend = false; await input.press('Enter');
   await expect(page.getByText('저장 실패에도 사라지지 않을 입력', { exact: true })).toBeVisible();
