@@ -6,10 +6,17 @@ services:
       MEDIA_ENABLED: "true"
       MEDIA_SECRET_FILE: /run/secrets/media.json
       MEDIA_SCRATCH_DIR: /media-scratch
+      MEDIA_GATEWAY_CONFIG_FILE: /run/secrets/gateway.json
     volumes:
       - type: bind
         source: /etc/rogichat/media.json
         target: /run/secrets/media.json
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: /etc/rogichat/gateway.json
+        target: /run/secrets/gateway.json
         read_only: true
         bind:
           create_host_path: false

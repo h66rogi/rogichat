@@ -1,0 +1,59 @@
+name: Meloming media gateway copy and QA image
+
+on:
+  pull_request:
+  push:
+    branches: [qa]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: media-gateway-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-test-image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify the original R2-capable source and tests
+        run: python3 tools/check_media_gateway_copy.py
+      - name: Run copied gateway tests in an isolated image build
+        run: docker build --platform linux/amd64 --file infrastructure/runtime/media-gateway.Dockerfile --target test .
+      - name: Build gateway image
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 --file infrastructure/runtime/media-gateway.Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/h66rogi/rogichat \
+            --label org.opencontainers.image.revision="$SOURCE_SHA" \
+            --tag "ghcr.io/h66rogi/rogichat-media-gateway:qa-$SOURCE_SHA" .
+      - name: Scan the built image before registry authentication
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 tools/security/install.py
+          image_id=$(docker image inspect --format '{{.Id}}' "ghcr.io/h66rogi/rogichat-media-gateway:qa-$SOURCE_SHA")
+          docker image save "$image_id" | python3 tools/security/image_scan.py -
+      - name: Publish reviewed QA gateway image
+        if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG
+          DOCKER_CONFIG=$(mktemp -d)
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+          unset GHCR_TOKEN
+          docker push "ghcr.io/h66rogi/rogichat-media-gateway:qa-$SOURCE_SHA"
+          docker image inspect --format '{{index .RepoDigests 0}}' "ghcr.io/h66rogi/rogichat-media-gateway:qa-$SOURCE_SHA"

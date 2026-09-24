@@ -3,6 +3,14 @@
   "policy": "Only exact file-content or generated metadata SHA-256 plus listed detector rules. No directory, layer, arbitrary key or future-version exclusions.",
   "files": [
     {
+      "sha256": "7574078dbbd67800caf50d6952d0a4a4f941fafc9069d4e97a1bdafd5d62a158",
+      "rules": ["generic-api-key"],
+      "source": "next-16.2.6",
+      "file": "package/dist/compiled/jsonwebtoken/index.js",
+      "review": "Public Next 16.2.6 bundled jsonwebtoken property assignment, same detector false positive already reviewed for Next 16.3.5. The exact installed file bytes match this hash; only this hash and rule are exempted in the image scanner.",
+      "kind": "file-bytes"
+    },
+    {
       "sha256": "056c2dddba96faa35f4dc0740228a241990561290ff3bd5456c7c7dbc5a7a6b9",
       "rules": ["generic-api-key"],
       "source": "next-16.3.5",
@@ -532,6 +540,7 @@
     }
   ],
   "sources": {
+    "next-16.2.6": "https://registry.npmjs.org/next/-/next-16.2.6.tgz",
     "next-16.3.5": "https://registry.npmjs.org/next/-/next-16.3.5.tgz",
     "aws-client-s3-3.1135.0": "https://registry.npmjs.org/@aws-sdk/client-s3/-/client-s3-3.1135.0.tgz",
     "aws-nested-clients-3.997.45": "https://registry.npmjs.org/@aws-sdk/nested-clients/-/nested-clients-3.997.45.tgz",

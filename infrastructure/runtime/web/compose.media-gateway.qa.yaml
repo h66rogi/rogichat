@@ -1,0 +1,46 @@
+name: rogichat-qa-media
+services:
+  media-gateway:
+    container_name: rogichat-qa-media-gateway
+    image: ${ROGICHAT_MEDIA_GATEWAY_IMAGE:?Set the reviewed immutable gateway image digest}
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1
+    stop_signal: SIGTERM
+    stop_grace_period: 25s
+    env_file:
+      - path: ${ROGICHAT_MEDIA_GATEWAY_ENV_FILE:?Set root-owned gateway env file}
+        required: true
+    environment:
+      OBJECT_STORAGE_MODE: r2
+      OBJECT_STORAGE_REGION: auto
+      OBJECT_STORAGE_BUCKET: rogichat-qa-media
+      OBJECT_STORAGE_PUBLIC_BASE_URL: https://api.qa.rogi.chat
+      CACHED_DELIVERY_MODE: proxy
+      CORS_ALLOWED_ORIGINS_CSV: https://qa.rogi.chat
+      PLAY_CACHE_UPSERT_URL: https://api.qa.rogi.chat/v1/internal/video-cache/upsert
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=536870912,uid=10001,gid=10001,mode=1777
+    expose: ["8080"]
+    networks: [web]
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz',timeout=3)"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 25s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+networks:
+  web:
+    external: true
+    name: rogichat-qa-web

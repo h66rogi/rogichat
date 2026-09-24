@@ -1,6 +1,9 @@
 # frontend commit f8907f37e73d0b760eac3c5af2beb48714331c83
 # backend commit a91393b2362ca8462328c6553f7fbe4b6703c6e1
 # console-only frontend files below originate at meloming-front 55f3012ab70c37d55933090f79b3d3d59976c9c1 (2026-08-15)
+# playback backend files below originate at meloming-back 0c97051b2069bd766644406c8f65c08e8e2289e0 (2026-08-15)
+B	2549b158b81b27a577bb315c3474be1dc2a8f91759992d11190d40305b595e1d	src/console-api/console-playback.service.ts
+B	a51ca1ed660a039e3101500227a19f020c2d846a44dd79612279cdfd7823697c	src/common/utils/youtube-video-id.util.ts
 F	07e2e89c27a8efaac1736ee352743236cceb98a11cacfdfe97409371de38556a	app/(default)/channel/[user]/(manage)/manage/console/page.tsx
 F	8a0941ae1b8297b1eaefb5fce03d28793301cff3f95273dce0c352662693f24a	app/(popup)/console/[user]/page.tsx
 F	f573bbd345475654c6ccb41f9baa2e29d116551bff3d5dec9b29a08a0d114b56	app/(default)/channel/[user]/(channel)/layout.tsx

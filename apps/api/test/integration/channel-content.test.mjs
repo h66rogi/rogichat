@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { createConnection } from 'mysql2/promise';
@@ -40,6 +40,8 @@ import { MelomingClipService } from '../../dist/modules/channel-content/meloming
 import { OverlayService } from '../../dist/modules/channel-content/upstream/overlay/overlay.service.js';
 import { MelomingOverlayLyricsService } from '../../dist/modules/channel-content/meloming-overlay-lyrics.service.js';
 import { MelomingLyricsQuotaService } from '../../dist/modules/channel-content/meloming-lyrics-quota.service.js';
+import { MelomingConsolePlaybackService } from '../../dist/modules/channel-content/meloming-console-playback.service.js';
+import { MelomingVideoCacheService } from '../../dist/modules/channel-content/meloming-video-cache.service.js';
 import { SongAlbumArtService } from '../../dist/modules/channel-content/upstream/song-album-art.service.js';
 import { GlobalSongRedisService } from '../../dist/modules/channel-content/upstream/global-song/global-song-redis.service.js';
 import { GlobalSongMatcherService } from '../../dist/modules/channel-content/upstream/global-song/global-song-matcher.service.js';
@@ -661,6 +663,43 @@ test('copied console token controls live sessions and revocation closes access',
   await assert.rejects(live.active({consoleToken:replacement.consoleToken},{}),error=>error.getStatus()===401);
 });
 
+test('copied console playback signs gateway URLs and accepts only authentic cache callbacks',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const directory=await mkdtemp(join(tmpdir(),'rogichat-gateway-test-'));
+  const previous=process.env.MEDIA_GATEWAY_CONFIG_FILE;
+  t.after(async()=>{if(previous===undefined)delete process.env.MEDIA_GATEWAY_CONFIG_FILE;
+    else process.env.MEDIA_GATEWAY_CONFIG_FILE=previous;await rm(directory,{recursive:true,force:true});});
+  const config={baseUrl:'https://api.qa.rogi.chat',signSecret:randomBytes(32).toString('hex'),
+    callbackSecret:randomBytes(32).toString('hex'),ttlSeconds:1800};
+  process.env.MEDIA_GATEWAY_CONFIG_FILE=join(directory,'gateway.json');
+  await writeFile(process.env.MEDIA_GATEWAY_CONFIG_FILE,JSON.stringify(config),{mode:0o600});
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const playback=new MelomingConsolePlaybackService(db.transactions,auth,repository);
+  const cache=new MelomingVideoCacheService(db.transactions);
+  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const videoUrl='https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  await assert.rejects(playback.create({token:fanId},session.id,{videoUrl}),error=>error.getStatus()===403);
+  const first=await playback.create({token:ownerId},session.id,{videoUrl});
+  assert.equal(first.source,'proxy');
+  const signed=new URL(first.playbackUrl);
+  assert.equal(signed.pathname,'/play');
+  assert.equal(signed.searchParams.get('vid'),'dQw4w9WgXcQ');
+  const exp=signed.searchParams.get('exp');
+  const canonical=`method=GET&path=/play&exp=${exp}&vid=dQw4w9WgXcQ`;
+  assert.equal(signed.searchParams.get('sig'),createHmac('sha256',config.signSecret).update(canonical).digest('hex'));
+  const timestamp=String(Math.floor(Date.now()/1000));
+  const body={videoId:'dQw4w9WgXcQ',r2Key:'youtube/dQw4w9WgXcQ/itag18.mp4',size:123,contentType:'video/mp4'};
+  const signature=createHmac('sha256',config.callbackSecret).update(`${timestamp}|${body.videoId}|${body.r2Key}|${body.size}|${body.contentType}`).digest('hex');
+  await assert.rejects(cache.upsert(timestamp,'0'.repeat(64),body),error=>error.getStatus()===401);
+  await cache.upsert(timestamp,signature,body);
+  const second=await playback.create({token:ownerId},session.id,{videoUrl});
+  assert.equal(second.source,'cached');
+  assert.equal(new URL(second.playbackUrl).pathname,`/cached/${body.r2Key}`);
+  assert.ok((await db.transactions.read(tx=>tx.prisma.videoCacheEntry.findUnique({where:{videoId:body.videoId}}))).lastHitAt);
+});
+
 test('copied overlay projection uses a stable channel token before and after live sessions',async t=>{
   const {db,roomId,ownerId,fanId}=await fixture(t);
   const repository=new ChannelContentRepository();
@@ -697,7 +736,7 @@ test('copied overlay projection uses a stable channel token before and after liv
   const playing=await overlay(overlayToken);
   assert.equal(playing.nowPlaying?.id,request.id);
   assert.equal(playing.setlist[0].status,'PLAYING');
-  const lyrics=new MelomingOverlayLyricsService(db.transactions,repository,new MelomingLyricsQuotaService(db.transactions));
+  const lyrics=new MelomingOverlayLyricsService(db.transactions,repository,new MelomingLyricsQuotaService(db.transactions,repository));
   const firstLyrics=await lyrics.getLyrics({overlayToken,songId,includeRichsync:false});
   assert.equal(firstLyrics.status,'OK');
   assert.equal(firstLyrics.lyrics?.tracking.script,null);

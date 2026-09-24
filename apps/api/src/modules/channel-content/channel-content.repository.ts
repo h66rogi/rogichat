@@ -2,10 +2,14 @@ import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { ApiError } from '../auth/auth-primitives.js';
 import { ChannelWardrobeService } from './upstream/channel-wardrobe.service.js';
+import { ConsolePlaybackService } from './upstream/console-playback.service.js';
 
 /** Meloming's Channel key maps to the one owner-bound Rogichat room. */
 @Injectable()
 export class ChannelContentRepository {
+  consolePlayback(tx: Transaction, config: ConstructorParameters<typeof ConsolePlaybackService>[0]): ConsolePlaybackService {
+    return new ConsolePlaybackService(config, tx.prisma);
+  }
   async lockLyricsQuotaWindow(tx: Transaction, userId: string): Promise<{
     window_started_at: Date | null; window_ends_at: Date | null; used_count: number;
   } | undefined> {

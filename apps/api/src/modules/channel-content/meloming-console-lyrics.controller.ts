@@ -5,6 +5,7 @@ import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
 import { consoleOrSession } from './meloming-console-token.js';
 import { MelomingConsoleLyricsService } from './meloming-console-lyrics.service.js';
+import { channelDoc } from './channel-content.openapi.js';
 
 /** Original console lyrics endpoint, mapped to Rogichat's versioned API and auth. */
 @ApiTags('Console API - Lyrics')
@@ -16,6 +17,7 @@ export class MelomingConsoleLyricsController {
   ) {}
 
   @Get(':songId/lyrics')
+  @channelDoc('melomingConsoleLyrics', '원본 콘솔 노래 가사 조회')
   @Header('Cache-Control', 'no-store')
   @Header('Pragma', 'no-cache')
   @Header('Expires', '0')

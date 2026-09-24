@@ -51,6 +51,9 @@ jobs:
             if test "$env" = qa; then
               ROGICHAT_OVERLAY_IMAGE=ghcr.io/h66rogi/rogichat-overlay@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
                 docker compose -f infrastructure/runtime/web/compose.overlay.qa.yaml config --quiet
+              ROGICHAT_MEDIA_GATEWAY_IMAGE=ghcr.io/h66rogi/rogichat-media-gateway@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+                ROGICHAT_MEDIA_GATEWAY_ENV_FILE=/dev/null \
+                docker compose -f infrastructure/runtime/web/compose.media-gateway.qa.yaml config --quiet
             fi
             if test "$env" = qa; then edge=infrastructure/runtime/compose.bootstrap.yaml; else edge=infrastructure/environments/prod/runtime/compose.bootstrap.yaml; fi
             docker compose -f "$edge" -f "infrastructure/runtime/web/edge.$env.yaml" config --quiet

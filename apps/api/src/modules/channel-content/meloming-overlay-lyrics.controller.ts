@@ -38,7 +38,7 @@ export class MelomingOverlayLyricsController {
   @Get(':songId/lyrics')
   @HttpCode(HttpStatus.OK)
   @Header('Cache-Control', 'no-store')
-  @ApiOperation({ summary: '오버레이 widget Musixmatch 가사 조회' })
+  @ApiOperation({ summary: '오버레이 widget Musixmatch 가사 조회', description: '후로기 OBS 오버레이의 현재 곡 가사를 조회합니다.' })
   @ApiParam({ name: 'songId', type: Number })
   @ApiQuery({ name: 'token', description: 'Overlay token', required: true })
   @ApiQuery({
