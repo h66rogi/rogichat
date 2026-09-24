@@ -28,7 +28,7 @@ export function extractYoutubeVideoId(
 
   if (host === 'youtu.be') {
     const id = url.pathname.replace(/^\/+/, '').split('/')[0];
-    return VIDEO_ID_RE.test(id) ? id : null;
+    return id && VIDEO_ID_RE.test(id) ? id : null;
   }
 
   if (host.endsWith('youtube.com') || host === 'm.youtube.com') {
@@ -40,7 +40,7 @@ export function extractYoutubeVideoId(
       seg.length >= 2 &&
       (seg[0] === 'embed' || seg[0] === 'shorts' || seg[0] === 'live')
     ) {
-      return VIDEO_ID_RE.test(seg[1]) ? seg[1] : null;
+      return seg[1] && VIDEO_ID_RE.test(seg[1]) ? seg[1] : null;
     }
   }
 

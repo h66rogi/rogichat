@@ -166,7 +166,7 @@ export class ConsolePlaybackService {
 
   private selectGatewayNodeUrl(videoId: string): string {
     if (this.nodeUrls.length === 0) return this.gatewayBaseUrl;
-    const firstByte = crypto.createHash('sha256').update(videoId).digest()[0];
+    const firstByte = crypto.createHash('sha256').update(videoId).digest()[0]!;
     return this.nodeUrls[firstByte % this.nodeUrls.length];
   }
 
@@ -245,7 +245,7 @@ export class ConsolePlaybackService {
 
   private selectCachedGatewayNodeUrl(key: string): string {
     if (this.cachedNodeUrls.length === 0) return this.gatewayBaseUrl;
-    const firstByte = crypto.createHash('sha256').update(key).digest()[0];
+    const firstByte = crypto.createHash('sha256').update(key).digest()[0]!;
     return this.cachedNodeUrls[firstByte % this.cachedNodeUrls.length];
   }
 
