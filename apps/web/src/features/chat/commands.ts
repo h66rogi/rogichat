@@ -23,6 +23,8 @@ export class SendCommands {
   private records = new Map<string, CommandRecord>();
   pending(): UnknownCommand[] { return [...this.records.values()].filter((value): value is UnknownCommand => value.status === 'unknown'); }
   get(id: string) { return this.records.get(id); }
+  /** A command whose durable prepare failed was never eligible for transport. */
+  discardUnsent(id: string) { if (this.records.get(id)?.status === 'unknown') this.records.delete(id); }
   create(room: RoomMembership, accountPartition: string, sessionBinding: string, membershipGeneration: number, body: Omit<SendPayload, 'clientMessageId' | 'membershipScope'>): PendingCommand {
     if (this.records.size >= 256) {
       const settled = [...this.records.values()].find(value => value.status !== 'unknown');

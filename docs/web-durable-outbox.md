@@ -109,9 +109,11 @@ verification are separate release gates.
 
 The production room passes the canonical environment to the durable owner. Full
 live session and complete membership-manifest checks authorize the store before
-recovery or writes. Unknown recovered records appear as receipt controls without
-restoring draft text; cold recovery performs GET only. Explicit retry performs
-receipt lookup and fresh authorization before same-ID SEND. New writes persist
+recovery or writes. Authorized unresolved records appear as outgoing messages in
+the timeline without restoring composer text. The room checks receipts on recovery
+and on subsequent visible refreshes; a lookup never replays a send. The retry
+action on that message performs receipt lookup and fresh authorization before
+same-ID SEND. A slow receipt check does not block a separate new message. New writes persist
 before POST, and confirmed receipts settle in IDB before the in-memory result and
 fresh server projection read. Storage failures retain input. Transient authority
 changes retry automatically while the visible chat remains mounted; users can

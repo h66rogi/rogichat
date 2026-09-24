@@ -143,13 +143,14 @@ function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { se
         <Button variant="outline" size="sm" disabled={reconnecting} onClick={() => { void reconnect(); }}>{reconnecting ? '다시 시도하는 중' : '지금 다시 시도'}</Button>
       </div>}
     </section>
-    <section aria-label="전송 결과 확인" className="shrink-0">{state.commands.map((command, index) => <div key={command.id} role="group" aria-label={`결과 미확인 전송 ${index + 1}`} className="flex flex-wrap items-center gap-2 px-4 py-2 text-sm"><span>결과 미확인 전송 {index + 1}</span><Button variant="outline" aria-label={`전송 ${index + 1} 결과 조회`} disabled={state.commandBusy} onClick={() => { void controller.reconcile(command.id); }}>결과 조회</Button>{command.canRetry && <Button variant="outline" aria-label={`전송 ${index + 1} 같은 전송 다시 시도`} disabled={state.commandBusy} onClick={() => { void controller.retry(command.id); }}>같은 전송 다시 시도</Button>}</div>)}</section><div className="min-h-0 flex-1"><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
+    <div className="min-h-0 flex-1"><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
     composerMemory={controller} composerEpoch={state.epoch}
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
+    outgoing={state.outgoing} outgoingBusy={state.commandBusy} onRetryOutgoing={controller.retry}
     streamerRecipients={recipients}
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}
-    submitBlockedReason={state.storageError ? '잠시 후 전송할 수 있어요.' : (state.commandBusy || reconnecting ? '이전 전송 결과를 확인하고 있습니다. 입력은 계속 작성할 수 있습니다.' : undefined)}
+    submitBlockedReason={state.storageError ? '잠시 후 전송할 수 있어요.' : (state.commandBusy || reconnecting ? '잠시만 기다려 주세요. 입력은 계속할 수 있어요.' : undefined)}
     onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} isLoadingOlder={state.loadingOlder}
     connectionNotice={connected ? undefined : '실시간 연결을 다시 시도하고 있습니다. 메시지는 주기적으로 확인합니다.'}
   /></ReactionContext.Provider></div></div></SessionMediaProvider></ChatPrivacyContext.Provider>;
