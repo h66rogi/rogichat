@@ -1,14 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronUp, LoaderCircle } from 'lucide-react';
+import { Check, ChevronUp, CircleAlert, LoaderCircle } from 'lucide-react';
 
 import { Button } from '@/shared/ui/button';
 import { cn } from '@/shared/lib/cn';
 
 import { ChatMessageItem } from './ChatMessageItem';
 import { formatDateLabel, isSameDay, parseIsoDate, truncateExcerpt } from './formatters';
-import type { ChatMessageItemModel, ChatTimelineItem, ChatViewerRole, ChatSubmitResult } from './types';
+import type { ChatMessageItemModel, ChatOutgoingMessage, ChatTimelineItem, ChatViewerRole, ChatSubmitResult } from './types';
 
 /**
  * Scrollable message timeline with date separators.
@@ -26,6 +26,9 @@ import type { ChatMessageItemModel, ChatTimelineItem, ChatViewerRole, ChatSubmit
 
 export interface ChatTimelineProps {
   items: ChatTimelineItem[];
+  outgoing?: readonly ChatOutgoingMessage[] | undefined;
+  onRetryOutgoing?: ((id: string) => void | Promise<void>) | undefined;
+  outgoingBusy?: boolean | undefined;
   viewerRole: ChatViewerRole;
   onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
@@ -43,6 +46,7 @@ const TOP_LOAD_THRESHOLD_PX = 80;
 
 export function ChatTimeline({
   items,
+  outgoing = [], onRetryOutgoing, outgoingBusy = false,
   viewerRole,
   onReplyPrivate,
   onDelete,
@@ -57,6 +61,7 @@ export function ChatTimeline({
   const wasAtBottomRef = useRef(true);
   const lastScrollTopRef = useRef(0);
   const prevItemsRef = useRef<ChatTimelineItem[] | null>(null);
+  const previousOutgoingRef = useRef<readonly string[] | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [unseenCount, setUnseenCount] = useState(0);
 
@@ -144,6 +149,13 @@ export function ChatTimeline({
     }
   }, [items, scrollToBottom]);
 
+  useLayoutEffect(() => {
+    const ids = outgoing.map(item => item.id);
+    const previous = previousOutgoingRef.current;
+    previousOutgoingRef.current = ids;
+    if (previous && ids.some(id => !previous.includes(id))) scrollToBottom('auto');
+  }, [outgoing, scrollToBottom]);
+
   // Clear the announcement so the same text can be re-announced later.
   useEffect(() => {
     if (!announcement) return;
@@ -183,7 +195,7 @@ export function ChatTimeline({
             </li>
           )}
 
-          {items.length === 0 && (
+          {items.length === 0 && outgoing.length === 0 && (
             <li className="flex flex-1 items-center justify-center px-6 py-16 text-center text-[14px] text-muted">
               아직 메시지가 없습니다. 첫 메시지를 보내면 여기에 표시됩니다.
             </li>
@@ -202,6 +214,19 @@ export function ChatTimeline({
               </li>
             ),
           )}
+          {outgoing.map(item => <li key={`outgoing-${item.id}`} data-item-id={`outgoing-${item.id}`} data-testid="chat-outgoing-message">
+            <div className="flex justify-end px-3 py-1">
+              <div className="flex max-w-[min(100%,36rem)] flex-col items-end gap-1">
+                <div className="min-w-0 whitespace-pre-wrap break-words rounded-2xl rounded-br-xs bg-chat-accent px-3.5 py-2.5 text-[15px] leading-[1.45] text-canvas">
+                  {item.kind === 'TEXT' ? item.body : item.kind === 'PHOTO' ? '사진' : item.kind === 'VIDEO' ? '영상' : '스티커'}
+                </div>
+                <div className="flex items-center gap-2 px-1 text-[12px] text-muted" role="status">
+                  {item.saved ? <><Check className="size-3.5" aria-hidden="true" />보냄</> : item.sending || item.checking ? <><LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />{item.sending ? '보내는 중' : '확인 중'}</> : <><CircleAlert className="size-3.5" aria-hidden="true" />전송 상태 확인 중</>}
+                  {!item.sending && !item.checking && item.canRetry && onRetryOutgoing && <button type="button" className="rounded-full px-2 py-1 font-semibold text-chat-accent hover:bg-surface-soft focus-visible:outline-2 focus-visible:outline-focus-ring" disabled={outgoingBusy} onClick={() => void onRetryOutgoing(item.id)}>다시 보내기</button>}
+                </div>
+              </div>
+            </div>
+          </li>)}
         </ol>
       </div>
 

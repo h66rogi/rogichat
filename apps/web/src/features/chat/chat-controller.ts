@@ -8,17 +8,18 @@ import { type SendPayload, type PendingCommand, type UnknownCommand } from './co
 import { reactionSummary, type ReactionState } from './reactions';
 import { actor, cursor, envelope, event, exact, list, membership, mergeMessages, message, projectMessages, receipt, record, string, token, uuid } from './contract';
 import type { ChatRequest, RoomMembership, ServerMessage, SyncKind, Receipt } from './contract';
-import type { ChatActorRef, ChatComposerTarget, ChatComposerSubmission, ChatSubmitResult, ChatTimelineItem } from './types';
+import type { ChatActorRef, ChatComposerTarget, ChatComposerSubmission, ChatOutgoingMessage, ChatSubmitResult, ChatTimelineItem } from './types';
 import type { ChatSeed } from '@/core/server/channel-bootstrap';
 
 export interface ChatState {
   storageError: string | null;
   commands: { id: string; canRetry: boolean }[]; commandBusy: boolean;
+  outgoing: ChatOutgoingMessage[];
   reactions: Record<string, ReactionState>; reactionRevision: number;
   phase: 'loading' | 'ready' | 'error'; notice: string | null; epoch: number; room: RoomMembership | null;
   profiles: ChatActorRef[]; recipients: ChatActorRef[]; items: ChatTimelineItem[]; hasOlder: boolean; loadingOlder: boolean; error: string | null;
 }
-const initial = (): ChatState => ({ storageError: null, commands: [], commandBusy: false, reactions: {}, reactionRevision: 0, phase: 'loading', notice: null, epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, loadingOlder: false, error: null });
+const initial = (): ChatState => ({ storageError: null, commands: [], commandBusy: false, outgoing: [], reactions: {}, reactionRevision: 0, phase: 'loading', notice: null, epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, loadingOlder: false, error: null });
 const inaccessible = (error: unknown) => [401, 403, 404].includes(Number(recordError(error).status));
 function recordError(error: unknown): { status?: unknown; code?: unknown } { return error !== null && typeof error === 'object' ? error : {}; }
 class ResetRequired extends Error {}
@@ -55,14 +56,14 @@ export class ChatController {
     this.revoking = this.outbox.revoke().catch(error => { this.reportStorageError(error); });
   };
   private readonly environment: string | undefined;
-  private readonly recoverySeen = new Set<string>();
+  private readonly recoverySeen = new Map<string, number>();
   private readonly unpersisted = new Set<string>();
   private completeRooms: OutboxRoom[] = [];
   private storageMessage(error: unknown): string {
     const code = error instanceof OutboxError ? error.code : 'STORAGE_FAILED';
     return code === 'AUTHORITY_CHANGED' ? '채팅 상태를 다시 확인하고 있어요. 작성 중인 내용은 유지돼요.'
       : code === 'UPDATE_REQUIRED' ? '채팅 정보를 다시 불러와야 해요. 이 화면을 새로고침해 주세요. 작성 중인 내용은 유지돼요.'
-      : code === 'CAPACITY' ? '확인되지 않은 메시지가 너무 많아요. 이전 메시지의 전송 결과를 먼저 확인해 주세요.'
+      : code === 'CAPACITY' ? '전송 대기 중인 메시지가 많아요. 잠시 후 다시 시도해 주세요.'
       : '메시지를 보낼 준비를 마치지 못했어요. 작성 중인 내용은 유지돼요. 다시 시도해 주세요.';
   }
   private clearStorageRetry() {
@@ -114,10 +115,13 @@ export class ChatController {
   }
   reconnectStorage = async () => { this.clearStorageRetry(); await this.refresh(); };
   private async recoverReceipts() {
-    for (const command of this.commands.pending()) {
+    const pending = this.commands.pending();
+    const ids = new Set(pending.map(command => command.clientMessageId));
+    for (const id of this.recoverySeen.keys()) if (!ids.has(id)) this.recoverySeen.delete(id);
+    for (const command of pending) {
       if (this.dead || !this.storageActive || this.state.storageError || this.state.phase !== 'ready') return;
-      if (this.recoverySeen.has(command.clientMessageId) || this.unpersisted.has(command.clientMessageId)) continue;
-      this.recoverySeen.add(command.clientMessageId);
+      if ((this.recoverySeen.get(command.clientMessageId) ?? 0) + 12000 > Date.now() || this.unpersisted.has(command.clientMessageId)) continue;
+      this.recoverySeen.set(command.clientMessageId, Date.now());
       await this.reconcile(command.clientMessageId);
     }
   }
@@ -140,12 +144,22 @@ export class ChatController {
   private deviceId = crypto.randomUUID();
   private cacheId = crypto.randomUUID();
   private get commands() { return this.memory.commands; }
+  private discardUnpersisted(id: string): boolean {
+    if (!this.unpersisted.delete(id)) return false;
+    this.commands.discardUnsent(id);
+    this.memory.drafts = Object.fromEntries(Object.entries(this.memory.drafts).map(([key, draft]) =>
+      [key, draft.retryCommandId === id ? { ...draft, retryCommandId: undefined } : draft]));
+    return true;
+  }
   private tombstones = new Map<string, { version: string; createdAt?: string }>();
+  private readonly awaitingProjection = new Map<string, { messageId: string; command: PendingCommand }>();
   private scope: RoomMembership | null = null;
   private projectionGeneration = 0;
   private accountPartition: string | undefined;
   private sessionBinding: string | undefined;
   private sending = false;
+  private activeCommandId: string | null = null;
+  private readonly reconciling = new Set<string>();
   private sendSettled: Promise<void> = Promise.resolve();
   private resolveSend: (() => void) | null = null;
   private deleting = false;
@@ -157,7 +171,7 @@ export class ChatController {
   constructor(roomId: string, request: ChatRequest, onInvalidate?: () => void, csrfToken?: string, accountPartition?: string, memory?: ChatMemory, environment?: string, seed?: ChatSeed | null) {
     this.environment = environment; if (environment) activeControllers.add(this);
     this.memory = memory ?? new ChatMemory(); this.retainMemory = memory !== undefined; this.lease = this.memory.activate();
-    this.state = { ...initial(), epoch: this.memory.epoch, notice: this.memory.expired ? '오래 보관된 초안은 삭제되었습니다. 미확인 전송은 결과만 조회할 수 있습니다.' : null };
+    this.state = { ...initial(), epoch: this.memory.epoch, notice: this.memory.expired ? '오래 보관된 입력 내용이 정리되었습니다.' : null };
     this.roomId = roomId; this.request = request; this.onInvalidate = onInvalidate; this.accountPartition = accountPartition; this.sessionBinding = csrfToken;
     if (seed && seed.room.roomId === roomId && seed.sessionBinding === csrfToken && seed.accountPartition === accountPartition) {
       this.deviceId = seed.deviceId; this.cacheId = seed.cacheId;
@@ -185,6 +199,18 @@ export class ChatController {
     if (this.dead) return;
     this.state = { ...this.state, ...patch, epoch: this.memory.epoch };
     this.state.commands = this.commands.pending().map(command => ({ id: command.clientMessageId, canRetry: this.commandAuthorized(command) }));
+    for (const [id, pending] of this.awaitingProjection) {
+      if (this.messages.some(message => message.id === pending.messageId) || !this.commandAuthorized(pending.command)) this.awaitingProjection.delete(id);
+    }
+    this.state.outgoing = this.commands.pending().flatMap(command => {
+      if (!this.commandAuthorized(command) || !('payload' in command) || this.unpersisted.has(command.clientMessageId)) return [];
+      const content = command.payload.content;
+      return [{ id: command.clientMessageId, body: content.type === 'TEXT' ? content.text : '', kind: content.type,
+        sending: this.sending && this.activeCommandId === command.clientMessageId,
+        checking: this.reconciling.has(command.clientMessageId), saved: false, canRetry: !this.sending && !this.reconciling.has(command.clientMessageId) }];
+    }).concat([...this.awaitingProjection].map(([id, pending]) => ({ id,
+      body: pending.command.payload.content.type === 'TEXT' ? pending.command.payload.content.text : '',
+      kind: pending.command.payload.content.type, sending: false, checking: false, saved: true, canRetry: false })));
     this.state.commandBusy = this.sending;
     if (patch.items) this.state.reactions = Object.fromEntries(Object.entries(this.state.reactions).filter(([id, value]) => this.messages.some(message => message.id === id && message.version === value.version)));
     for (const listener of this.listeners) listener();
@@ -195,6 +221,7 @@ export class ChatController {
     this.abort.abort(); this.abort = new AbortController(); this.cacheId = crypto.randomUUID();
     this.reactionFlights = new Set(); this.reactionCooldown = 0;
     this.messages = []; this.tombstones.clear(); this.scope = null; this.projectionGeneration++; this.eventCursor = null; this.historyCursor = null;
+    this.awaitingProjection.clear();
     this.manifestGeneration = null; this.profileGeneration = null; this.recipientBinding = null;
     this.refreshPending = false;
     if (forgetAttempts) this.memory.clearAll(); else if (!preserveComposer) this.memory.clearComposer();
@@ -309,12 +336,14 @@ export class ChatController {
       queueMicrotask(() => { if (!this.dead) void this.refresh(); });
     }
   }
-  private beginSend() {
+  private beginSend(id: string) {
     this.sending = true;
+    this.activeCommandId = id;
     this.sendSettled = new Promise(resolve => { this.resolveSend = resolve; });
   }
   private endSend() {
     this.sending = false;
+    this.activeCommandId = null;
     this.resolveSend?.(); this.resolveSend = null;
   }
   /** A route entry must use a read started after any earlier read or send has settled. */
@@ -634,10 +663,10 @@ export class ChatController {
   reconcile = async (id: string): Promise<void> => {
     await this.flight;
     const command = this.commands.get(id);
-    if (this.dead || this.sending || this.deleting || this.state.phase !== 'ready' || command?.status !== 'unknown' || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== this.roomId) return;
+    if (this.dead || this.sending || this.deleting || this.reconciling.has(id) || this.state.phase !== 'ready' || command?.status !== 'unknown' || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== this.roomId) return;
     const signal = this.abort.signal; const projection = this.projectionGeneration;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration;
-    this.beginSend(); this.publish({ notice: null });
+    this.reconciling.add(id); this.publish({});
     try {
       await this.verifySession(); if (!current()) return;
       const auth = await this.authorization(); if (!current()) return; this.publish(auth);
@@ -649,27 +678,30 @@ export class ChatController {
       await this.verifySession(); if (!active()) return;
       if (this.outbox) { await this.outbox.assertCurrent(); if (!active()) return; await this.outbox.settle(result); if (!active()) return; }
       this.commandResult(result);
-      this.publish({ notice: result.status === 'deleted' ? '이 전송은 이미 삭제된 메시지입니다.' : '메시지 저장 결과를 확인했습니다.' });
+      if (result.status === 'deleted') this.publish({ notice: '이 메시지는 이미 삭제되었습니다.' });
     } catch (error) {
       if (!current()) return;
       if (Number(recordError(error).status) === 401) { this.clear(true); this.onInvalidate?.(); }
       else if (Number(recordError(error).status) === 403) void this.refreshHints();
       else if (error instanceof OutboxError) this.reportStorageError(error);
-      else this.publish({ notice: '전송 결과를 확인할 수 없습니다. 조회 실패만으로 저장되지 않았다고 판단하지 않습니다.' });
-    } finally { this.endSend(); if (!this.dead) { this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); } }
+      // A missing receipt is ordinary during an interrupted send. The inline
+      // message remains available for an exact retry; the next refresh checks again.
+    } finally { this.reconciling.delete(id); if (!this.dead) { this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); } }
   };
   retry = async (id: string): Promise<void> => {
     const command = this.commands.get(id);
-    if (command?.status !== 'unknown' || !('payload' in command) || !this.commandAuthorized(command)) return;
+    if (command?.status !== 'unknown' || !('payload' in command) || !this.commandAuthorized(command) || this.reconciling.has(id)) return;
     const signal = this.abort.signal; const projection = this.projectionGeneration;
     const payload = command.payload;
     const recipient = this.state.recipients.find(item => item.actorId === payload.recipientActorId);
     if (payload.intent === 'PRIVATE' && !recipient) return;
     const result = await this.send({ target: payload.intent === 'SHARED' ? { scope: 'SHARED' } : payload.intent === 'ROOM_OWNER' ? { scope: 'ROOM_OWNER' } : { scope: 'PRIVATE', recipient: recipient! }, body: payload.content.type === 'TEXT' ? payload.content.text : '', retryCommandId: id, ...(payload.quoteId ? { quoteMessageId: payload.quoteId } : {}) });
-    if (!this.dead && !signal.aborted && projection === this.projectionGeneration) this.publish({ notice: result.accepted ? result.note ?? '메시지 저장 결과를 확인했습니다.' : result.reason });
+    if (!this.dead && !signal.aborted && projection === this.projectionGeneration && result.accepted && result.note) this.publish({ notice: result.note });
   };
   private commandResult(result: Receipt): ChatSubmitResult {
     if (result.status === 'committed' && this.tombstones.has(result.messageId)) throw new Error('STALE_RECEIPT');
+    const prior = this.commands.get(result.clientMessageId);
+    if (result.status === 'committed' && prior?.status === 'unknown' && 'payload' in prior && this.commandAuthorized(prior)) this.awaitingProjection.set(result.clientMessageId, { messageId: result.messageId, command: prior });
     this.commands.settle(result);
     // A recovered receipt and a direct ACK both require a read after any older flight.
     // revalidate yields until the command releases its sending fence in finally.
@@ -679,6 +711,7 @@ export class ChatController {
   }
   send = async (submission: ChatComposerSubmission): Promise<ChatSubmitResult> => {
     await this.flight;
+    if (submission.retryCommandId && this.reconciling.has(submission.retryCommandId)) return { accepted: false, reason: '메시지 상태를 확인하고 있어요. 잠시 후 다시 시도해 주세요.' };
     const room = this.state.room;
     if (this.dead || this.sending || this.deleting || this.state.phase !== 'ready' || !room || !this.accountPartition || !this.sessionBinding) return { accepted: false, reason: '채팅 연결을 확인한 뒤 다시 시도해 주세요.' };
     const text = submission.body.normalize('NFC');
@@ -703,22 +736,22 @@ export class ChatController {
       const previous = this.commands.get(submission.retryCommandId);
       if (!previous) return { accepted: false, reason: '이 전송 기록은 현재 세션에서 확인할 수 없습니다.' };
       if (previous.status !== 'unknown') return { accepted: true, note: previous.status === 'deleted' ? '이 메시지는 이미 삭제되었습니다.' : '이전에 저장된 전송입니다.' };
-      if (!('payload' in previous)) return { accepted: false, retryCommandId: previous.clientMessageId, reason: '접근 상태가 변경된 이전 전송은 결과 조회만 가능합니다.' };
+      if (!('payload' in previous)) return { accepted: false, retryCommandId: previous.clientMessageId, reason: '이 메시지는 다시 보낼 수 없어요. 상태를 확인하고 있어요.' };
       if (previous.payload.intent !== body.intent || previous.payload.recipientActorId !== body.recipientActorId || previous.payload.quoteId !== body.quoteId || JSON.stringify(previous.payload.content) !== JSON.stringify(content)) return { accepted: false, reason: '다시 시도할 메시지의 내용과 대상이 변경되었습니다.' };
       command = previous;
     } else {
       if (!this.payloadAuthorized(body, room)) return { accepted: false, reason: '이 대상이나 메시지에 지금 전송할 수 없습니다.' };
       try { command = this.commands.create(room, this.accountPartition, this.sessionBinding, this.memory.membershipGeneration, body); if (this.environment) this.unpersisted.add(command.clientMessageId); }
-      catch { return { accepted: false, reason: '미확인 전송이 많습니다. 이전 전송 결과를 먼저 확인해 주세요.' }; }
+      catch { return { accepted: false, reason: '전송 대기 중인 메시지가 많아요. 잠시 후 다시 시도해 주세요.' }; }
     }
     const clientMessageId = command.clientMessageId;
     const draftKey = body.intent === 'SHARED' ? 'shared' : body.intent === 'ROOM_OWNER' ? 'room-owner' : `private:${body.recipientActorId}`;
     const draft = this.memory.drafts[draftKey];
     if (content.type === 'TEXT' && draft && draft.body.trim().normalize('NFC') === text && draft.quote?.messageId === body.quoteId) this.memory.drafts = { ...this.memory.drafts, [draftKey]: { ...draft, retryCommandId: clientMessageId } };
-    if (!this.commandAuthorized(command)) return { accepted: false, retryCommandId: clientMessageId, reason: '참여 상태나 보낼 대상이 변경되었습니다. 이전 전송을 새 참여 상태로 다시 보내지 않습니다.' };
+    if (!this.commandAuthorized(command)) { this.discardUnpersisted(clientMessageId); return { accepted: false, reason: '참여 상태나 보낼 대상이 변경되었습니다. 다시 확인해 주세요.' }; }
     const signal = media ? AbortSignal.any([this.abort.signal, media.lifetime.signal]) : this.abort.signal; const projection = this.projectionGeneration;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration;
-    this.beginSend(); this.publish({});
+    this.beginSend(clientMessageId); this.publish({});
     try {
       await this.verifySession(); if (!current()) throw new Error('STALE_REQUEST');
       if (this.environment) { const auth = await this.authorization(); if (!current()) throw new Error('STALE_REQUEST'); this.publish(auth); if (!this.outbox || this.state.storageError) throw new OutboxError('LOCKED'); if (!this.commandAuthorized(command)) throw new ResetRequired(); }
@@ -744,17 +777,19 @@ export class ChatController {
       const sendSignal = this.outbox?.signal;
       const activeSend = () => current() && !sendSignal?.aborted;
       if (this.outbox) {
-        if (this.unpersisted.has(clientMessageId)) { await this.outbox.prepare(this.roomId, command.payload); if (!activeSend()) throw new Error('STALE_REQUEST'); this.unpersisted.delete(clientMessageId); }
+        if (this.unpersisted.has(clientMessageId)) { await this.outbox.prepare(this.roomId, command.payload); this.unpersisted.delete(clientMessageId); if (!activeSend()) throw new Error('STALE_REQUEST'); }
         if (submission.retryCommandId) { await this.outbox.lookupNotFound(clientMessageId); if (!activeSend()) throw new Error('STALE_REQUEST'); }
         await this.outbox.beforeSend(clientMessageId, Boolean(submission.retryCommandId)); if (!activeSend()) throw new Error('STALE_REQUEST');
+        this.publish({});
       }
-      this.recoverySeen.add(clientMessageId);
+      this.recoverySeen.set(clientMessageId, Date.now());
       const result = receipt(await this.request(this.path('messages'), { method: 'POST', body: command.payload, signal: AbortSignal.any([signal, ...(this.outbox ? [this.outbox.signal] : []), AbortSignal.timeout(20000)]) }), clientMessageId, 'send');
       if (!activeSend()) throw new Error('STALE_REQUEST');
       await this.verifySession(); if (!activeSend()) throw new Error('STALE_REQUEST');
       if (this.outbox) { await this.outbox.assertCurrent(); if (!activeSend()) throw new Error('STALE_REQUEST'); await this.outbox.settle(result); if (!activeSend()) throw new Error('STALE_REQUEST'); }
       return this.commandResult(result);
     } catch (error) {
+      const neverSaved = this.discardUnpersisted(clientMessageId);
       if (current()) {
         const status = Number(recordError(error).status);
         if (status === 401) { this.clear(true); this.publish({ phase: 'error', error: '로그인 상태를 다시 확인해 주세요.' }); this.onInvalidate?.(); }
@@ -764,8 +799,13 @@ export class ChatController {
           void this.refreshHints();
         }
       }
-      if (error instanceof OutboxError && current()) { const reason = this.state.storageError ?? this.storageMessage(error); this.reportStorageError(error); return { accepted: false, retryCommandId: clientMessageId, reason }; }
-      return { accepted: false, retryCommandId: clientMessageId, reason: '전송 결과가 확인되지 않았습니다. 다시 보내기는 같은 전송 기록을 조회하고 현재 권한으로 재확인합니다.' };
+      if (error instanceof OutboxError && current()) {
+        const reason = this.state.storageError ?? this.storageMessage(error);
+        this.reportStorageError(error);
+        return { accepted: false, ...(!neverSaved && this.commandAuthorized(command) ? { pendingDelivery: true, retryCommandId: clientMessageId } : {}), reason };
+      }
+      const pendingDelivery = Boolean(this.outbox && !this.unpersisted.has(clientMessageId) && this.commandAuthorized(command) && (!Number(recordError(error).status) || Number(recordError(error).status) >= 500));
+      return { accepted: false, ...(!neverSaved ? { retryCommandId: clientMessageId } : {}), pendingDelivery: !neverSaved && pendingDelivery, reason: !neverSaved && pendingDelivery ? '메시지 상태를 확인하고 있어요. 필요하면 메시지에서 다시 보낼 수 있어요.' : '메시지를 보내지 못했어요. 다시 시도해 주세요.' };
     } finally { this.endSend(); if (!this.dead) this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); }
   };
 }

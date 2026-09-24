@@ -5,9 +5,9 @@ import { installApi, json, TEST_ACTOR_ID, TEST_ROOM_ID, TEST_SCOPES } from './ap
 // Only isolated API fixtures. These exercise the real production route/composer,
 // controller and native IndexedDB; no product test route or runtime global exists.
 const recipientId = '44444444-4444-4444-8444-444444444444';
-async function recoveryApi(page: Page, shared?: { posts: Record<string, unknown>[]; lookups: string[]; messages: ServerMessage[]; failSend: boolean; commitOnLookup: boolean; holdLookup: Promise<void> | null; holdSend: Promise<void> | null; snapshots: number }) {
+async function recoveryApi(page: Page, shared?: { posts: Record<string, unknown>[]; lookups: string[]; messages: ServerMessage[]; failSend: boolean; commitOnLookup: boolean; holdLookup: Promise<void> | null; holdSend: Promise<void> | null; holdProjection?: Promise<void> | null; snapshots: number }) {
   const account = await installApi(page, true); account.joined = true;
-  const state = shared ?? { posts: [] as Record<string, unknown>[], lookups: [] as string[], messages: [] as ServerMessage[], failSend: true, commitOnLookup: false, holdLookup: null as Promise<void> | null, holdSend: null as Promise<void> | null, snapshots: 0 };
+  const state = shared ?? { posts: [] as Record<string, unknown>[], lookups: [] as string[], messages: [] as ServerMessage[], failSend: true, commitOnLookup: false, holdLookup: null as Promise<void> | null, holdSend: null as Promise<void> | null, holdProjection: null as Promise<void> | null, snapshots: 0 };
   const committed = (body: Record<string, unknown>): ServerMessage => ({
     id: String(body.clientMessageId), version: '1', createdAt: '2026-09-20T01:00:00.000Z', audience: 'PRIVATE',
     author: { kind: 'member', actorId: TEST_ACTOR_ID, nickname: '테스트 팬', avatar: null }, counterpart: { actorId: recipientId },
@@ -25,8 +25,8 @@ async function recoveryApi(page: Page, shared?: { posts: Record<string, unknown>
     if (path === '/v1/sync') { await json(route, { schemaVersion: 2, resetRequired: false, generation: 'isolated-outbox-manifest', rooms: [{ roomId: TEST_ROOM_ID, name: '후로기', actorId: TEST_ACTOR_ID, role: 'FAN', mode: 'FAN', ...TEST_SCOPES }], nextCursor: null, complete: true }); return; }
     if (path.endsWith('/profile-sync')) { await json(route, { ...envelope, generation: 'isolated-outbox-profile', profiles: [{ actorId: TEST_ACTOR_ID, nickname: '테스트 팬', role: 'FAN', avatar: null }, { actorId: recipientId, nickname: '테스트 스트리머', role: 'STREAMER', avatar: null }], nextCursor: null, complete: true }); return; }
     if (path.endsWith('/private-recipients')) { await json(route, { recipients: [{ actorId: recipientId, nickname: '테스트 스트리머', avatar: null }], next: null }); return; }
-    if (path.endsWith('/snapshot')) { state.snapshots++; await json(route, { ...envelope, messages: state.messages, nextCursor: 'isolated-events', historyCursor: null }); return; }
-    if (path.endsWith('/events')) { await json(route, { ...envelope, events: state.messages.map(message => ({ type: 'message.upsert', message })), nextCursor: 'isolated-events', hasMore: false }); return; }
+    if (path.endsWith('/snapshot')) { state.snapshots++; if (state.holdProjection) await state.holdProjection; await json(route, { ...envelope, messages: state.messages, nextCursor: 'isolated-events', historyCursor: null }); return; }
+    if (path.endsWith('/events')) { if (state.holdProjection) await state.holdProjection; await json(route, { ...envelope, events: state.messages.map(message => ({ type: 'message.upsert', message })), nextCursor: 'isolated-events', hasMore: false }); return; }
     if (path.includes('/message-commands/')) {
       const id = path.split('/').at(-1)!; state.lookups.push(id);
       if (state.holdLookup) await state.holdLookup;
@@ -53,16 +53,17 @@ async function unknownSend(page: Page, body: string) {
   await page.goto('/chat');
   const input = page.getByTestId('chat-composer-input'); await expect(input).toBeVisible();
   await input.fill(body); await input.press('Enter');
-  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
-  await expect(input).toHaveValue(body);
+  await expect(page.getByTestId('chat-outgoing-message').getByText(body, { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '다시 보내기', exact: true })).toBeVisible();
+  await expect(input).toHaveValue('');
 }
 
-async function recoveredLookup(page: Page, expectedId: unknown, waitUntilIdle = true) {
-  const lookup = page.getByRole('button', { name: '전송 1 결과 조회', exact: true });
-  await expect(lookup).toBeVisible();
+async function recoveredMessage(page: Page, expectedId: unknown, waitUntilIdle = true) {
+  const outgoing = page.getByTestId('chat-outgoing-message');
+  await expect(outgoing).toBeVisible();
   expect(expectedId).toBeTruthy();
-  if (waitUntilIdle) await expect(lookup).toBeEnabled();
-  return lookup;
+  if (waitUntilIdle) await expect(outgoing.getByRole('button', { name: '다시 보내기' })).toBeEnabled();
+  return outgoing;
 }
 
 test('production outbox reload is receipt-first and explicit retry preserves frozen command', async ({ page }) => {
@@ -72,15 +73,15 @@ test('production outbox reload is receipt-first and explicit retry preserves fro
   await page.reload();
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('');
   expect(state.posts).toHaveLength(1);
-  const lookup = await recoveredLookup(page, state.posts[0]?.clientMessageId);
+  const outgoing = await recoveredMessage(page, state.posts[0]?.clientMessageId);
   expect(state.posts).toHaveLength(1);
-  await lookup.click(); await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
+  await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
   expect(state.lookups.every(id => id === original!.clientMessageId)).toBe(true); expect(state.posts).toHaveLength(1);
   state.failSend = false;
-  await page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true }).click();
+  await outgoing.getByRole('button', { name: '다시 보내기', exact: true }).click();
   await expect(page.getByText('재시작 후 같은 전송만 재시도', { exact: true })).toBeVisible();
   await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]).toEqual(original);
-  await expect(lookup).toHaveCount(0);
+  await expect(outgoing).toHaveCount(0);
 });
 
 test('production cold receipt recovery performs fresh message read without another SEND', async ({ page }) => {
@@ -90,14 +91,44 @@ test('production cold receipt recovery performs fresh message read without anoth
   let release!: () => void;
   state.commitOnLookup = true; state.holdLookup = new Promise<void>(resolve => { release = resolve; });
   await page.reload(); expect(state.posts).toHaveLength(1);
-  const lookup = await recoveredLookup(page, id, false);
+  const outgoing = await recoveredMessage(page, id, false);
   await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
-  await expect(lookup).toBeDisabled(); expect(state.posts).toHaveLength(1);
+  await expect(outgoing).toContainText('확인 중'); expect(state.posts).toHaveLength(1);
   state.holdLookup = null; release();
   await expect(page.getByRole('region', { name: '후로기 메시지', exact: true }).getByText('유실된 ACK는 조회로 복구', { exact: true })).toBeVisible();
   await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
   expect(state.lookups.every(value => value === id)).toBe(true);
-  await expect(lookup).toHaveCount(0); expect(state.posts).toHaveLength(1);
+  await expect(outgoing).toHaveCount(0); expect(state.posts).toHaveLength(1);
+});
+
+test('uncertain message resolves in the mounted chat without a manual lookup or another SEND', async ({ page }) => {
+  await page.clock.install();
+  const { state } = await recoveryApi(page);
+  await unknownSend(page, '자동으로 확인되는 메시지');
+  const id = state.posts[0]?.clientMessageId;
+  state.commitOnLookup = true;
+  await page.clock.fastForward(16_000);
+  await expect.poll(() => state.lookups.filter(value => value === id).length).toBeGreaterThan(0);
+  await expect(page.getByTestId('chat-outgoing-message')).toHaveCount(0);
+  await expect(page.getByTestId('chat-timeline').getByText('자동으로 확인되는 메시지', { exact: true })).toBeVisible();
+  expect(state.posts).toHaveLength(1);
+});
+
+test('confirmed send remains visible until the server timeline catches up', async ({ page }) => {
+  const { state } = await recoveryApi(page);
+  state.failSend = false;
+  await page.goto('/chat');
+  const input = page.getByTestId('chat-composer-input'); await expect(input).toBeVisible();
+  let release!: () => void;
+  state.holdProjection = new Promise<void>(resolve => { release = resolve; });
+  await input.fill('화면에서 사라지지 않는 메시지'); await input.press('Enter');
+  await expect.poll(() => state.posts.length).toBe(1);
+  const outgoing = page.getByTestId('chat-outgoing-message');
+  await expect(outgoing).toContainText('보냄');
+  await expect(outgoing.getByText('화면에서 사라지지 않는 메시지', { exact: true })).toBeVisible();
+  state.holdProjection = null; release();
+  await expect(outgoing).toHaveCount(0);
+  await expect(page.getByTestId('chat-timeline').getByText('화면에서 사라지지 않는 메시지', { exact: true })).toBeVisible();
 });
 
 test('production same-account new session scrubs durable private payload and never restores composer', async ({ page }) => {
@@ -105,7 +136,7 @@ test('production same-account new session scrubs durable private payload and nev
   const body = '이전 세션 전용 비공개 본문'; await unknownSend(page, body);
   account.sessionToken = 'synthetic-csrf-session-B'; await page.reload();
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('');
-  await expect(page.getByRole('button', { name: /같은 전송 다시 시도/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '다시 보내기', exact: true })).toHaveCount(0);
   await expect(page.getByText(body, { exact: true })).toHaveCount(0); expect(state.posts).toHaveLength(1);
   const stored = await page.evaluate(async () => {
     const databases = (await indexedDB.databases()).filter(database => database.name?.startsWith('rogichat-outbox-'));
@@ -128,11 +159,12 @@ test('production foreground reauthorizes durable recovery and preserves pending 
   const input = page.getByTestId('chat-composer-input'), snapshots = state.snapshots;
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide'))); await expect(input).toBeHidden();
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
-  await expect(input).toHaveValue('백그라운드에서도 결과 미확인 입력 보존');
+  await expect(input).toHaveValue('');
+  await expect(page.getByTestId('chat-outgoing-message').getByText('백그라운드에서도 결과 미확인 입력 보존')).toBeVisible();
   await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
   expect(state.posts).toHaveLength(1);
   state.failSend = false;
-  await page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true }).click();
+  await page.getByRole('button', { name: '다시 보내기', exact: true }).click();
   await expect(page.getByText('백그라운드에서도 결과 미확인 입력 보존', { exact: true })).toBeVisible();
   await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]).toEqual(state.posts[0]);
 });
@@ -154,8 +186,10 @@ test('production tabs send independently and converge while one tab has an in-fl
   expect(first.state.posts[1]?.clientMessageId).not.toBe(first.state.posts[0]?.clientMessageId);
   await expect(second.getByText('두 번째 탭의 메시지', { exact: true })).toBeVisible();
   release();
-  await expect(page.getByText('첫 번째 탭의 메시지', { exact: true })).toBeVisible();
-  await expect(second.getByText('첫 번째 탭의 메시지', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('chat-outgoing-message')).toHaveCount(0);
+  await expect(second.getByTestId('chat-outgoing-message')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: '후로기 메시지' }).getByText('첫 번째 탭의 메시지', { exact: true })).toBeVisible();
+  await expect(second.getByRole('region', { name: '후로기 메시지' }).getByText('첫 번째 탭의 메시지', { exact: true })).toBeVisible();
   await expect(page.getByText('두 번째 탭의 메시지', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '지금 다시 시도', exact: true })).toHaveCount(0);
 });
@@ -177,11 +211,12 @@ test('production aborted IDB write preserves composer and never sends unpersiste
   await input.press('Enter');
   await expect(page.getByRole('button', { name: '지금 다시 시도', exact: true })).toBeVisible();
   await expect(input).toHaveValue('저장 실패에도 사라지지 않을 입력'); expect(state.posts).toHaveLength(0);
+  await expect(page.getByTestId('chat-outgoing-message')).toHaveCount(0);
   await page.getByRole('button', { name: '지금 다시 시도', exact: true }).click();
   await expect(page.getByTestId('chat-composer-send')).toBeEnabled(); expect(state.posts).toHaveLength(0);
   state.failSend = false; await input.press('Enter');
   await expect(page.getByText('저장 실패에도 사라지지 않을 입력', { exact: true })).toBeVisible();
-  await expect(input).toHaveValue(''); expect(state.posts).toHaveLength(1); expect(state.lookups.length).toBeGreaterThan(0);
+  await expect(input).toHaveValue(''); expect(state.posts).toHaveLength(1); expect(state.lookups).toHaveLength(0);
 });
 
 test('production settings logout scrubs durable payload after chat controller has unmounted', async ({ page }) => {
@@ -202,7 +237,7 @@ test('production settings logout scrubs durable payload after chat controller ha
 });
 
 
-test('receipt recovery blocks dispatch but keeps the draft editable until the read settles', async ({ page }) => {
+test('receipt recovery leaves new messages sendable while an older receipt is slow', async ({ page }) => {
   const { state } = await recoveryApi(page); await unknownSend(page, '보관된 전송');
   let release!: () => void; state.holdLookup = new Promise<void>(resolve => { release = resolve; });
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
@@ -211,9 +246,10 @@ test('receipt recovery blocks dispatch but keeps the draft editable until the re
   await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
   const input = page.getByTestId('chat-composer-input'); await expect(input).toBeEditable();
   await input.fill('확인 중 작성한 새 초안'); await input.press('Enter');
-  await expect(input).toHaveValue('확인 중 작성한 새 초안');
-  await expect(page.getByTestId('chat-composer-send')).toBeDisabled(); expect(state.posts).toHaveLength(1);
+  await expect.poll(() => state.posts.length).toBe(2);
+  await expect(input).toHaveValue('');
+  expect(state.posts[1]?.clientMessageId).not.toBe(state.posts[0]?.clientMessageId);
   state.holdLookup = null; release();
-  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
-  await expect(input).toHaveValue('확인 중 작성한 새 초안'); expect(state.posts).toHaveLength(1);
+  await expect(page.getByTestId('chat-outgoing-message')).toHaveCount(2);
+  expect(state.posts).toHaveLength(2);
 });
