@@ -4,7 +4,7 @@ import { CHANNEL_IDENTIFIER, FeaturePage, featureMetadata } from '@/features/cha
 export const generateMetadata = () => featureMetadata('옷장', '의상과 헤어 컬렉션을 확인할 수 있습니다.');
 
 export default function WardrobePage() {
-  return <FeaturePage title="옷장" description="후로기의 의상과 헤어" manageSection="wardrobe">
+  return <FeaturePage>
     <ChannelWardrobeContent user={CHANNEL_IDENTIFIER} />
   </FeaturePage>;
 }

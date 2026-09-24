@@ -145,14 +145,16 @@ host-only transaction cookie를 사용한다. 서버 transaction은 이 브라�
 user나 session을 중복 발급하지 않는다. 교환 결과를 확정하지 못한 timeout은
 성공으로 간주하지 않고 새 로그인으로 재시도한다.
 
-로그인 성공 후 API host-only HttpOnly session cookie를 새로 발급하고 고정 웹
+로그인 성공 후 API가 환경별 `__Secure-` HttpOnly session cookie를 발급하고 고정 웹
 origin의 검증된 상대 경로로 303 이동한다. frontend가 토큰을 localStorage에 저장하거나
 callback query에서 계정 정보를 읽지 않는다. 웹→API는 `credentials: include`,
 정확한 `https://qa.rogi.chat` CORS origin, credentials 허용, CSRF token/Origin 검증을
 사용한다. QA/prod는 같은 site일 수 있으므로 SameSite만으로 격리하지 않는다.
-`Domain=.rogi.chat` cookie를 금지하고 환경별 세션 저장소·서명키·audience를 분리한다.
-SSR이 API host-only cookie를 받을 수 없으므로 초기 인증 데이터는 browser→API로
-조회한다. BFF가 필요하면 별도 세션 전달 계약을 먼저 설계한다.
+QA 세션은 `Domain=qa.rogi.chat`과 `__Secure-rogi_qa_session`, 운영 세션은
+`Domain=rogi.chat`과 `__Secure-rogi_prod_session`을 쓴다. 서버는 자기 환경의
+쿠키 이름만 읽고, 별도 세션 저장소·서명키·audience로 권한을 재검증한다.
+운영 쿠키는 QA 하위 도메인에도 전송되므로 QA 웹 서버는 이를 API에 전달하지 않는다.
+OAuth transaction 쿠키는 계속 `__Host-` host-only로 유지한다.
 
 모바일도 system browser로 같은 broker 흐름을 시작한다. API callback 후 검증된
 Universal/App Link에 별도의 일회용 app completion code를 넘기고, 앱이 보관한

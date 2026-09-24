@@ -297,6 +297,14 @@ export function getTabFromPath(pathname: string): ChannelTab {
   // pathname 형식: /channel/{user}/{tab?}
   const parts = pathname.split("/").filter(Boolean);
 
+  // Rogichat mounts the copied channel tabs at the site root.
+  if (parts.length > 0 && parts[0] !== "channel") {
+    const rootTab = Object.values(TAB_CONFIG).find(
+      (config) => config.path === parts[0] && config.path !== ""
+    );
+    return rootTab?.tabName ?? "home";
+  }
+
   if (parts.length < 2 || parts[0] !== "channel") {
     return "home";
   }

@@ -10,14 +10,23 @@ import ScheduleSection from "@/meloming/domains/channel/components/section/sched
 export function ChannelScheduleContent({ user }: { user: string }) {
   const { data: channel } = useChannel(user);
   const isWide = channel?.layoutWidth === "wide";
+  const isNewLayout = true;
 
   return (
     <SectionErrorBoundary section="일정">
       <section
         id="schedule-section"
-        className={cn(!isWide && "container", "mx-auto mt-6 px-4 md:px-6")}
+        className={cn(
+          "mx-auto",
+          isNewLayout
+            ? "mt-0 min-h-0 px-0"
+            : cn(!isWide && "container", "mt-8 px-4 md:px-6")
+        )}
       >
-        <ScheduleSection hideHeading />
+        <ScheduleSection
+          hideHeading={isNewLayout}
+          fitCalendarToViewport={isNewLayout}
+        />
       </section>
     </SectionErrorBoundary>
   );

@@ -7,7 +7,7 @@ import { ApiError, object, opaque, secret } from '../../modules/auth/auth-primit
 import { AuthService } from './auth.service.js';
 import { AUTH_CONFIG } from './auth.tokens.js';
 import { NativeAuthService } from './native-auth.service.js';
-import { cookie, cookieName, oauthCookieName, sessionToken, csrf, readSessionCredentials, readCommandCredentials } from './auth-context.js';
+import { cookie, cookieName, oauthCookieName, sessionCookieOptions, sessionToken, csrf, readSessionCredentials, readCommandCredentials } from './auth-context.js';
 
 const options = (config: AuthConfig): CookieOptions => ({ httpOnly: true, secure: config.secure, sameSite: 'lax', path: '/' });
 
@@ -27,7 +27,10 @@ export class AuthController {
     object(request.body, []);
     const credentials = readCommandCredentials(request, this.config);
     await this.auth.logout(credentials);
-    if (credentials.transport !== 'NATIVE') response.clearCookie(cookieName(this.config, 'session'), options(this.config));
+    if (credentials.transport !== 'NATIVE') {
+      response.clearCookie(cookieName(this.config, 'session'), sessionCookieOptions(this.config));
+      if (this.config.sessionCookieDomain) response.clearCookie('__Host-rogi_session', options(this.config));
+    }
     response.status(204).end();
   }
 
@@ -71,7 +74,8 @@ export class AuthController {
       response.redirect(303, `${this.config.origin}/auth/login?error=AUTH_FAILED`); return;
     }
     const session = await this.auth.callback(state, opaque(query.code), browser, sessionToken(request, this.config));
-    response.cookie(cookieName(this.config, 'session'), session.token, { ...options(this.config), maxAge: 7 * 86400000 });
+    if (this.config.sessionCookieDomain) response.clearCookie('__Host-rogi_session', options(this.config));
+    response.cookie(cookieName(this.config, 'session'), session.token, { ...sessionCookieOptions(this.config), maxAge: 7 * 86400000 });
     response.redirect(303, `${this.config.origin}/`);
   }
 }

@@ -41,7 +41,11 @@ export function cookie(request: HeaderRequest, name: string): string | undefined
   if (matches.length > 1) throw new ApiError('INVALID_REQUEST', 400);
   return matches[0]?.slice(name.length + 1);
 }
-export const cookieName = (config: AuthConfig, kind: 'session' | 'oauth'): string => `${config.secure ? '__Host-' : ''}rogi_${kind}`;
+export const cookieName = (config: AuthConfig, kind: 'session' | 'oauth'): string => {
+  if (kind === 'session' && config.sessionCookieDomain) return `__Secure-rogi_${config.sessionCookieDomain === 'qa.rogi.chat' ? 'qa' : 'prod'}_session`;
+  return `${config.secure ? '__Host-' : ''}rogi_${kind}`;
+};
+export const sessionCookieOptions = (config: AuthConfig) => ({ httpOnly: true, secure: config.secure, sameSite: 'lax' as const, path: '/', ...(config.sessionCookieDomain ? { domain: config.sessionCookieDomain } : {}) });
 export const oauthCookieName = (config: AuthConfig, state: string): string => `${cookieName(config, 'oauth')}_${digest(state).toString('hex')}`;
 export const sessionToken = (request: HeaderRequest, config: AuthConfig): string | undefined => cookie(request, cookieName(config, 'session'));
 export function csrf(request: HeaderRequest, config: AuthConfig): string {
@@ -54,7 +58,8 @@ export function readSessionCredentials(request: HeaderRequest, config: AuthConfi
   const proof = singleHeader(request, 'x-csrf-token');
   if (authorization !== undefined || client !== undefined) {
     if (typeof authorization !== 'string' || !/^Bearer [A-Za-z0-9_-]{43}$/.test(authorization) || proof !== undefined ||
-        cookie(request, 'rogi_session') !== undefined || cookie(request, '__Host-rogi_session') !== undefined) throw new ApiError('INVALID_REQUEST', 400);
+        cookie(request, 'rogi_session') !== undefined || cookie(request, '__Host-rogi_session') !== undefined ||
+        cookie(request, '__Secure-rogi_qa_session') !== undefined || cookie(request, '__Secure-rogi_prod_session') !== undefined) throw new ApiError('INVALID_REQUEST', 400);
     return Object.freeze({ transport: 'NATIVE', token: authorization.slice(7), clientId: nativeClientId(client) });
   }
   const token = sessionToken(request, config);

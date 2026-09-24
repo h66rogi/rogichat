@@ -14,8 +14,11 @@ There is no QA build shape, preview route, synthetic fixture or web `/v1` proxy.
 The server validates the exact environment/API-origin pair at request time and
 renders public configuration into the page, following the [Next.js self-hosting guidance](https://nextjs.org/docs/app/guides/self-hosting). No `NEXT_PUBLIC` build-time origin
 or request Host header selects an API origin. Browser requests go directly to
-the API with `credentials: include`; the API owns host-only cookies, explicit
-credentialed CORS and CSRF protection. Invalid runtime configuration fails closed.
+the API with `credentials: include`; the API issues environment-named HttpOnly
+session cookies scoped to the web/API parent domain, with explicit credentialed
+CORS and CSRF protection. Next forwards only its own environment's cookie for
+server-side reads. OAuth transaction cookies remain API host-only. Invalid runtime
+configuration fails closed.
 
 `ROGICHAT_DEFAULT_ROOM_ID` is optional. An explicit UUID takes precedence; when absent or empty, the web accepts only one server-marked `isDefault: true` room across the directory. Without either binding it shows the unopened state.
 A nonempty value must be a valid UUID. It

@@ -2,6 +2,7 @@
   --radius: var(--radius-sm);
   --channel-sticky-top: var(--shell-top-bar-height);
   --page-content-sticky-top: var(--shell-top-bar-height);
+  --site-sticky-top: var(--shell-top-bar-height);
 }
 
 /* The copied controls use Meloming's background token named `muted`.
@@ -15,5 +16,6 @@
   .rogichat-feature {
     --channel-sticky-top: var(--shell-mobile-top-bar-height);
     --page-content-sticky-top: var(--shell-mobile-top-bar-height);
+    --site-sticky-top: var(--shell-mobile-top-bar-height);
   }
 }

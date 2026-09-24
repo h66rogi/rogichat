@@ -13,7 +13,7 @@ import { NativeAuthController } from '../../dist/modules/auth/native-auth.contro
 import { AUTH_CONFIG } from '../../dist/modules/auth/auth.tokens.js';
 import { SessionRepository } from '../../dist/modules/auth/session.repository.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
-import { cookie, cookieName, oauthCookieName, csrf, readSessionCredentials, readCommandCredentials } from '../../dist/modules/auth/auth-context.js';
+import { cookie, cookieName, oauthCookieName, sessionCookieOptions, csrf, readSessionCredentials, readCommandCredentials } from '../../dist/modules/auth/auth-context.js';
 import { ApiError, digest } from '../../dist/modules/auth/auth-primitives.js';
 import { AuthFlow } from '../../dist/modules/auth/auth-flow.service.js';
 import { Transactions } from '../../dist/infrastructure/database/transactions.js';
@@ -152,6 +152,15 @@ test('transport contexts preserve exact Origin/CSRF/cookie behavior without reta
   assert.ok(Object.isFrozen(read)); assert.ok(Object.isFrozen(command));
   assert.deepEqual(readSessionCredentials({ headers: {} }, settings), {});
   assert.equal(cookieName({ ...settings, secure: true }, 'session'), '__Host-rogi_session');
+  const qa = { ...settings, secure: true, sessionCookieDomain: 'qa.rogi.chat' };
+  const production = { ...settings, secure: true, sessionCookieDomain: 'rogi.chat' };
+  assert.equal(cookieName(qa, 'session'), '__Secure-rogi_qa_session');
+  assert.equal(cookieName(production, 'session'), '__Secure-rogi_prod_session');
+  assert.equal(cookieName(qa, 'oauth'), '__Host-rogi_oauth');
+  assert.deepEqual(sessionCookieOptions(qa), { httpOnly: true, secure: true, sameSite: 'lax', path: '/', domain: 'qa.rogi.chat' });
+  assert.deepEqual(sessionCookieOptions(production), { httpOnly: true, secure: true, sameSite: 'lax', path: '/', domain: 'rogi.chat' });
+  assert.deepEqual(readSessionCredentials({ headers: { cookie: `__Secure-rogi_qa_session=${token}; __Secure-rogi_prod_session=${proof}` } }, qa), { token });
+  assert.deepEqual(readSessionCredentials({ headers: { cookie: `__Secure-rogi_qa_session=${token}; __Secure-rogi_prod_session=${proof}` } }, production), { token: proof });
   assert.equal(oauthCookieName(settings, 'state'), `rogi_oauth_${digest('state').toString('hex')}`);
   for (const headers of [{ ...request.headers, origin: 'https://evil.invalid' }, { ...request.headers, origin: undefined }]) {
     assert.throws(() => readCommandCredentials({ headers }, settings), { code: 'FORBIDDEN' });

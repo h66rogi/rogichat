@@ -6,7 +6,7 @@ import { AUTH_CONFIG } from '../auth.tokens.js';
 import { AuthService } from '../auth.service.js';
 import { ApiError } from '../auth-primitives.js';
 import { nativeAdmission } from '../native-auth.controller.js';
-import { cookieName, readCommandCredentials, readSessionCredentials } from '../auth-context.js';
+import { cookieName, readCommandCredentials, readSessionCredentials, sessionCookieOptions } from '../auth-context.js';
 import { PasswordService } from './password.service.js';
 import { passwordLogin, passwordChange } from './password.dto.js';
 import { passwordDocs } from './password.openapi.js';
@@ -33,7 +33,8 @@ export class PasswordController {
   private async respond(response: Response, result: Awaited<ReturnType<PasswordService['login']>>) {
     if (result.transport === 'NATIVE') response.status(200).json({ tokenType: result.tokenType, accessToken: result.accessToken, expiresAt: result.expiresAt, session: result.session });
     else {
-      response.cookie(cookieName(this.config, 'session'), result.token, { httpOnly: true, secure: this.config.secure, sameSite: 'lax', path: '/', maxAge: 7 * 86400000 });
+      if (this.config.sessionCookieDomain) response.clearCookie('__Host-rogi_session', { httpOnly: true, secure: this.config.secure, sameSite: 'lax', path: '/' });
+      response.cookie(cookieName(this.config, 'session'), result.token, { ...sessionCookieOptions(this.config), maxAge: 7 * 86400000 });
       response.status(200).json(await this.auth.session({ token: result.token }));
     }
   }

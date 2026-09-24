@@ -9,7 +9,7 @@ Compose를 준비했고 web/api용 운영 Compose는 앱 scaffold 이후 추가�
 - DB/cache는 내부 네트워크만 사용, host port 미공개.
 - secret은 image/Compose 본문 대신 권한 제한 파일로 전달.
 - 관리 접근은 Tailscale 위 OpenSSH. SSH 개인키는 GitHub 밖, 공개키는 private ops GitOps로 관리.
-- QA web/API host를 분리하고 API callback TLS·host-only cookie·CORS를 검증.
+- QA web/API host를 분리하고 API callback TLS·환경별 세션 쿠키 도메인·host-only OAuth 쿠키·CORS를 검증.
 - web/api만 개별 교체, 공통 host lock으로 manifest 갱신 직렬화.
 - volume 보존, migration 별도 단일 작업, 이전 digest rollback 가능.
 - 외부 DB backup과 restore drill, disk/log 제한, 실제 HTTP/socket 검증 필수.
