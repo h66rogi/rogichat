@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Transactions } from '../../../../infrastructure/database/transactions.js';
 import { GlobalSongRedisService } from './global-song-redis.service.js';
 
@@ -27,8 +27,6 @@ export interface RecommendationsResponseDto {
  */
 @Injectable()
 export class GlobalSongRecommendationService {
-  private readonly logger = new Logger(GlobalSongRecommendationService.name);
-
   constructor(
     private readonly transactions: Transactions,
     private readonly redis: GlobalSongRedisService,
@@ -92,14 +90,4 @@ export class GlobalSongRecommendationService {
     };
   }
 
-  /**
-   * Get a few post-add recommendations for the quick-add response.
-   */
-  async getPostAddRecommendations(
-    channelId: number,
-    limit = 5,
-  ): Promise<RecommendationItem[]> {
-    const result = await this.getRecommendations(channelId, limit);
-    return result.recommendations;
-  }
 }

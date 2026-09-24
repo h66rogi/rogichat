@@ -1,7 +1,6 @@
 import type { Prisma } from '../../../generated/prisma/client.js';
 import { ALBUM_ART_BLOCKED_URL_PREFIXES } from './album-art-blacklist.js';
 
-type CreateSongDto = {albumArt?:string|null;autoSearchAlbumArt?:boolean;artistName?:string;title:string};
 
 export class SongAlbumArtService {
   private readonly blockedAlbumArtPrefixes = ALBUM_ART_BLOCKED_URL_PREFIXES;
@@ -294,31 +293,6 @@ export class SongAlbumArtService {
         results: [],
       };
     }
-  }
-
-  async processAlbumArt(
-    songDto: CreateSongDto,
-    artistId: number,
-    prisma: Prisma.TransactionClient = this.prisma,
-  ): Promise<string | null> {
-    let finalAlbumArt = songDto.albumArt;
-    if (!finalAlbumArt && songDto.autoSearchAlbumArt) {
-      const artistName =
-        songDto.artistName ||
-        (artistId
-          ? (await prisma.artist.findUnique({ where: { id: artistId } }))?.name
-          : undefined);
-      if (artistName) {
-        const albumArtResult = await this.searchAlbumArtFromDB(
-          songDto.title,
-          artistName,
-        );
-        if (albumArtResult.success && albumArtResult.result)
-          finalAlbumArt = albumArtResult.result.albumArt;
-      }
-    }
-    const sanitizedAlbumArt = this.sanitizeAlbumArtUrl(finalAlbumArt);
-    return sanitizedAlbumArt ?? null;
   }
 
   // ===== Private finders =====

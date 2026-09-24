@@ -138,31 +138,3 @@ export function nativeToKrw(
 ): number {
   return amount * lookupExchangeRate(currencyKey, at).krwPerUnit;
 }
-
-/**
- * 두 재화 금액을 비교합니다.
- *
- * 같은 재화키이면 수량을 직접 비교하고,
- * 다른 재화키이면 KRW로 환산하여 비교합니다.
- *
- * @returns a < b이면 -1, a === b이면 0, a > b이면 1
- * @throws UnknownCurrencyError - 알 수 없는 재화 키
- */
-export function compareAmounts(
-  a: { amount: number; currencyKey: string },
-  b: { amount: number; currencyKey: string },
-  at?: Date,
-): -1 | 0 | 1 {
-  const aKrw =
-    a.currencyKey === b.currencyKey
-      ? a.amount
-      : nativeToKrw(a.amount, a.currencyKey, at);
-  const bKrw =
-    a.currencyKey === b.currencyKey
-      ? b.amount
-      : nativeToKrw(b.amount, b.currencyKey, at);
-
-  if (aKrw < bKrw) return -1;
-  if (aKrw > bKrw) return 1;
-  return 0;
-}

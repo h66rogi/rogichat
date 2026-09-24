@@ -92,19 +92,6 @@ export function sanitizeCurrencyPriceMap(
   return Object.keys(out).length > 0 ? out : null;
 }
 
-export function pickLegacyPrice(
-  currencyPrices: CurrencyPriceMap | null | undefined,
-): number | null {
-  if (!currencyPrices) {
-    return null;
-  }
-  const firstKey = Object.keys(currencyPrices)[0];
-  if (!firstKey) {
-    return null;
-  }
-  return currencyPrices[firstKey] ?? null;
-}
-
 export function sanitizeDifficultyPricesByCurrency(
   value: unknown,
 ): DifficultyPricesByCurrency | null {
@@ -348,20 +335,6 @@ export function getPrimaryCurrencyUnit(
 }
 
 /**
- * 가격과 플랫폼을 받아 포맷팅된 가격 문자열을 반환합니다.
- */
-export function formatPriceWithUnit(
-  price: number | null | undefined,
-  platform: StreamPlatform | undefined | null,
-): string {
-  if (price == null) {
-    return '';
-  }
-  const unit = getCurrencyUnit(platform);
-  return `${price}${unit}`;
-}
-
-/**
  * 재화 키 기반 가격 포맷
  */
 export function formatPriceByCurrencyKey(
@@ -378,24 +351,4 @@ export function formatPriceByCurrencyKey(
     getUnitByCurrencyKey(currencyKey, currencyConfigs) ||
     getCurrencyUnit(platform);
   return `${price}${unit}`;
-}
-
-/**
- * @deprecated 구버전 호환용
- */
-export function formatPriceWithCurrencyConfigs(
-  price: number | null | undefined,
-  platform: StreamPlatform | undefined | null,
-  currencyConfigs?: CurrencyConfig[] | null,
-): string {
-  if (price == null) {
-    return '';
-  }
-  const currencyKey = resolvePricingCurrencyKey(platform, currencyConfigs);
-  return formatPriceByCurrencyKey(
-    price,
-    currencyKey,
-    currencyConfigs,
-    platform,
-  );
 }

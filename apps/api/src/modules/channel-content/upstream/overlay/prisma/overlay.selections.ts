@@ -92,11 +92,3 @@ export const overlaySongRequestSelect = {
     },
   },
 } satisfies Prisma.SongRequestSelect;
-
-export type OverlaySession = Prisma.LiveSessionGetPayload<{
-  select: typeof overlaySessionSelect;
-}>;
-
-export type OverlaySongRequest = Prisma.SongRequestGetPayload<{
-  select: typeof overlaySongRequestSelect;
-}>;

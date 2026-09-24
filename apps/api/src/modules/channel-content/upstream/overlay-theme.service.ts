@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { UpdateOverlayThemeDto } from './dto/request/overlay-theme.request.dto.js';
 import { OverlayThemeResponseDto } from './dto/response/overlay-theme.response.dto.js';
@@ -173,8 +173,6 @@ export const OVERLAY_CHANNEL_THEME_UPDATED_EVENT =
 
 @Injectable()
 export class OverlayThemeService {
-  private readonly logger = new Logger(OverlayThemeService.name);
-
   constructor(private readonly prisma: Prisma.TransactionClient) {}
 
   // ── 관리 UI용 ────────────────────────────────────────

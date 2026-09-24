@@ -137,5 +137,3 @@ export const DEFAULT_SYNC_TOTAL_OVERLAY_LAYOUT = {
     },
   ],
 } as const;
-
-export type TotalOverlayLayout = typeof DEFAULT_TOTAL_OVERLAY_LAYOUT;

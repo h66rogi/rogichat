@@ -104,11 +104,3 @@ export const songRequestHistorySelect = {
     },
   },
 } satisfies Prisma.SongRequestSelect;
-
-export type SongRequestBase = Prisma.SongRequestGetPayload<{
-  select: typeof songRequestBaseSelect;
-}>;
-
-export type SongRequestWithSong = Prisma.SongRequestGetPayload<{
-  select: typeof songRequestWithSongSelect;
-}>;

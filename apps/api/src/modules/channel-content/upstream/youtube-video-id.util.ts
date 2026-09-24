@@ -5,8 +5,7 @@ const VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
  * (`?t=`, `&list=`, `&si=`, `youtu.be/`, `embed/`, `shorts/`,
  * `music.youtube.com/watch?v=`)를 정규화.
  *
- * R2 cache key (`youtube/{videoId}/itag18.mp4`) 생성과 distinct 카운트의
- * source of truth. backend + warming script 양쪽에서 동일하게 사용.
+ * Distinct 카운트에서 사용하는 video ID 정규화.
  */
 export function extractYoutubeVideoId(
   input: string | null | undefined,
@@ -45,11 +44,4 @@ export function extractYoutubeVideoId(
   }
 
   return null;
-}
-
-export function buildR2CacheKey(videoId: string): string {
-  if (!VIDEO_ID_RE.test(videoId)) {
-    throw new Error(`invalid videoId: ${videoId}`);
-  }
-  return `youtube/${videoId}/itag18.mp4`;
 }
