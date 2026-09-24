@@ -5,7 +5,6 @@ import { Button } from '@/shared/ui/button';
 import { MediaUploadPanel } from '@/features/media/components';
 import { ScopedMediaImage, ScopedMediaVideo, useMediaRoomId, useMediaUpload } from '@/features/media/session-ui';
 import type { MediaUpload } from '@/features/media/upload';
-import { targetLabel } from './drafts';
 import type { ChatComposerSubmission, ChatComposerTarget, ChatImageContent, ChatSubmitResult } from './types';
 
 export function ChatMediaImages({ messageId, media }: { messageId: string; media: ChatImageContent }) {
@@ -47,8 +46,8 @@ function PhotoDraft({ upload, roomId, target, onSubmit, onClose, submitBlockedRe
     } catch { setError(`${label} 전송을 확인하지 못했습니다. 같은 첨부로 다시 확인해 주세요.`); }
     finally { pending.current = false; setBusy(false); }
   };
-  return <section aria-label={`${label} 보내기: ${targetLabel(target)}`} className="space-y-3 border-t border-line p-4">
-    <p className="font-semibold">{label} · {targetLabel(target)}</p>
+  return <section aria-label={`${label} 보내기`} className="space-y-3 border-t border-line p-4">
+    <p className="font-semibold">{label} 보내기</p>
     <p className="text-sm">{label}은 글과 별도로 보냅니다. 준비가 완료된 뒤 전송을 눌러 주세요.</p>
     <fieldset disabled={busy}><MediaUploadPanel upload={upload} lifetime={upload.lifetime} kind={kind} roomId={roomId} onReady={id => { if (selected !== id) retryId.current = undefined; setSelected(id); }} /></fieldset>
     {ready && kind === 'VIDEO' && <ScopedMediaVideo assetId={selected} context={{}} revision={`draft:${selected}`} />}

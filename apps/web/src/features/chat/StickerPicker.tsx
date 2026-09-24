@@ -4,7 +4,6 @@ import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/shared/ui/button';
 import { ScopedMediaImage, useMediaRoomId, useMediaScope } from '@/features/media/session-ui';
 import { StickerCatalog } from '@/features/media/sticker-catalog';
-import { targetLabel } from './drafts';
 import type { ChatComposerSubmission, ChatComposerTarget, ChatSubmitResult } from './types';
 
 export function StickerPicker(props: { submitBlockedReason?: string | undefined; target: ChatComposerTarget; onSubmit: (submission: ChatComposerSubmission) => ChatSubmitResult | Promise<ChatSubmitResult>; onClose: () => void }) {
@@ -37,8 +36,8 @@ function CatalogPicker({ catalog, roomId, target, onSubmit, onClose, submitBlock
     } catch { setNotice('스티커 전송을 확인하지 못했습니다. 다시 확인해 주세요.'); }
     finally { pending.current = false; setBusy(false); }
   };
-  return <section className="space-y-3 border-t border-line p-4" aria-label={`스티커 보내기: ${targetLabel(target)}`}>
-    <p className="font-semibold">스티커 · {targetLabel(target)}</p>
+  return <section className="space-y-3 border-t border-line p-4" aria-label="스티커 보내기">
+    <p className="font-semibold">스티커 보내기</p>
     {state.phase === 'loading' && <p role="status">스티커 목록을 불러오고 있습니다.</p>}
     {state.phase === 'error' && <p role="alert">스티커 목록을 확인하지 못했습니다. 다시 시도해 주세요.</p>}
     {state.phase === 'ready' && state.items.length === 0 && <p role="status">사용할 수 있는 스티커가 없습니다.</p>}

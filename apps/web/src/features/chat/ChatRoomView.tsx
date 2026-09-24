@@ -221,6 +221,7 @@ function ScopedChatRoom({
   const handleReplyPrivate = useCallback(
     (item: ChatMessageItemModel) => {
       if (item.isOwn || !item.allowedActions?.reply) return;
+      setAttachmentsOpen(false);
       const quote = { messageId: item.id, authorName: item.author.displayName, excerpt: truncateExcerpt(item.body) };
 
       if (viewerRole !== 'STREAMER') return;
@@ -301,7 +302,8 @@ function ScopedChatRoom({
   }, [onSubmit, submitBlockedReason, target, currentKey, submittingKey, drafts, setNoticeFor]);
 
   const canReply = viewerRole === 'STREAMER' && streamerRecipients.length > 0;
-  const attachmentAction = onSubmit && target && media?.configured ? (
+  // Media commands do not carry a source message, so attachments stay in shared chat.
+  const attachmentAction = onSubmit && target?.scope === 'SHARED' && media?.configured ? (
     <Popover.Root open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
       <Popover.Trigger asChild>
         <Button type="button" variant="ghost" size="icon" className="rounded-full text-chat-accent hover:bg-surface-soft" aria-label="첨부 메뉴 열기" aria-expanded={attachmentsOpen}>

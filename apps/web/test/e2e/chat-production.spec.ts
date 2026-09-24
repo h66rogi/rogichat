@@ -260,6 +260,7 @@ test('real chat keeps IME and pending focus, surfaces failure and retries the sa
   await expect(page.getByTestId('chat-reply')).toBeVisible();
   await replyToFirstMessage(page);
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
+  await expect(page.getByRole('button', { name: '첨부 메뉴 열기' })).toHaveCount(0);
   await input.fill('안녕하세요');
   await input.dispatchEvent('compositionstart'); await input.press('Enter');
   expect(state.posts).toHaveLength(0);
@@ -277,6 +278,7 @@ test('real chat keeps IME and pending focus, surfaces failure and retries the sa
   expect(state.posts).toHaveLength(2); expect(state.posts[0]?.clientMessageId).toBe(state.posts[1]?.clientMessageId);
   expect(state.posts[0]).toMatchObject({ intent: 'PRIVATE', recipientActorId: streamerId, quoteId: incoming.id, content: { type: 'TEXT', text: '안녕하세요' } });
   await expect(page.locator(`[data-item-id="${state.posts[1]?.clientMessageId}"]`).getByTestId('chat-reply')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '첨부 메뉴 열기' })).toBeVisible();
 });
 
 test('empty state is truthful, snapshot failure offers retry, and keyboard view is accessible', async ({ page }) => {

@@ -132,7 +132,7 @@ export function ChatComposer({
             <span className="font-semibold text-body">{quote.authorName}님에게 비공개 답장</span>
             <span className="ml-1.5 text-muted">{quote.excerpt}</span>
           </div>
-          <Button type="button" variant="ghost" size="icon" onClick={onCancelQuote} disabled={isSubmitting} aria-label="인용 취소" data-testid="chat-quote-cancel">
+          <Button type="button" variant="ghost" size="icon" onClick={onCancelQuote} disabled={isSubmitting} aria-label="비공개 답장 취소" data-testid="chat-quote-cancel">
             <X className="size-4" aria-hidden="true" />
           </Button>
         </div>
