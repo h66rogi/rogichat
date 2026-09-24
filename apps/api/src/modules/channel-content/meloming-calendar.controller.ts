@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { ApiTags } from '@nestjs/swagger';
 import { Controller, Get, Inject, Param, Req } from '@nestjs/common';
 import type { Request } from 'express';
@@ -42,13 +43,13 @@ export class MelomingCalendarController {
 
   @Get() @channelDoc('melomingChannelCalendar', '원본 채널 일정 및 기념일 캘린더', 'read')
   getCalendar(@Param('identifier') identifier: string, @Req() request: Request) {
-    if (identifier !== 'hurogi' && identifier !== '1') throw new ApiError('NOT_FOUND', 404);
+    if (!isChannelIdentifier(identifier, true)) throw new ApiError('NOT_FOUND', 404);
     return this.calendar.getCalendar(query(request, false), readSessionCredentials(request, this.config));
   }
 
   @Get('search') @channelDoc('melomingChannelCalendarSearch', '원본 채널 캘린더 검색', 'read')
   searchCalendar(@Param('identifier') identifier: string, @Req() request: Request) {
-    if (identifier !== 'hurogi' && identifier !== '1') throw new ApiError('NOT_FOUND', 404);
+    if (!isChannelIdentifier(identifier, true)) throw new ApiError('NOT_FOUND', 404);
     return this.calendar.searchCalendar(query(request, true), readSessionCredentials(request, this.config));
   }
 }

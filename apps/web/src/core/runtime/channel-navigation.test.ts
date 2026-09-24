@@ -13,7 +13,7 @@ void test('root feature detail paths retain their menu without matching legacy o
   assert.equal(featureFromPath('/wardrobe/item-1'), 'wardrobe');
   assert.equal(featureFromPath('/setlist/123'), 'setlist');
   assert.equal(featureFromPath('/chat/thread'), 'chat');
-  for (const path of ['/channel/another/wardrobe', '/channel/hurogi/wardrobe', '/wardrobe-other', '/chatter', '/unknown', '']) {
+  for (const path of ['/channel/another/wardrobe', '/channel/h66rogi/wardrobe', '/wardrobe-other', '/chatter', '/unknown', '']) {
     assert.equal(featureFromPath(path), null, path);
   }
 });

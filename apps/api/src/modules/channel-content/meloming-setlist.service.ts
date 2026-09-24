@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import type { CommandCredentials, SessionCredentials } from '../auth/auth-context.js';
@@ -17,7 +18,7 @@ function pagination(raw: Record<string, unknown>) {
 }
 
 function identifier(raw: Record<string, unknown>) {
-  if (raw.identifier !== 'hurogi' && raw.identifier !== '1') throw new ApiError('NOT_FOUND', 404);
+  if (!isChannelIdentifier(raw.identifier, true)) throw new ApiError('NOT_FOUND', 404);
 }
 
 @Injectable()

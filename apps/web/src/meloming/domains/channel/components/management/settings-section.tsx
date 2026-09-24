@@ -50,7 +50,7 @@ const channelSettingsSchema = z.object({
   platformUrl: z.string().optional(), // 읽기 전용 (채널 인증을 통해 자동 설정)
   profileImageUrl: z
     .string()
-    .refine((value) => value === "/images/hurogi-profile.png" || /^https:\/\//.test(value), "올바른 URL 형식이 아닙니다.")
+    .refine((value) => value === "/images/h66rogi-profile.png" || /^https:\/\//.test(value), "올바른 URL 형식이 아닙니다.")
     .or(z.literal(""))
     .nullable()
     .transform((v) => (v === "" ? null : v)),

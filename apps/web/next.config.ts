@@ -12,14 +12,22 @@ const nextConfig: NextConfig = {
     remotePatterns: [],
   },
   async redirects() {
+    const channelRoutes = [
+      { suffix: '', destination: '/', permanent: false },
+      { suffix: '/schedule', destination: '/schedule', permanent: true },
+      { suffix: '/musicbook', destination: '/musicbook', permanent: true },
+      { suffix: '/wardrobe', destination: '/wardrobe', permanent: true },
+      { suffix: '/wardrobe/:itemId', destination: '/wardrobe/:itemId', permanent: true },
+      { suffix: '/setlist', destination: '/setlist', permanent: true },
+      { suffix: '/setlist/:sessionId', destination: '/setlist/:sessionId', permanent: true },
+    ];
     return [
-      { source: '/channel/hurogi', destination: '/', permanent: false },
-      { source: '/channel/hurogi/schedule', destination: '/schedule', permanent: true },
-      { source: '/channel/hurogi/musicbook', destination: '/musicbook', permanent: true },
-      { source: '/channel/hurogi/wardrobe', destination: '/wardrobe', permanent: true },
-      { source: '/channel/hurogi/wardrobe/:itemId', destination: '/wardrobe/:itemId', permanent: true },
-      { source: '/channel/hurogi/setlist', destination: '/setlist', permanent: true },
-      { source: '/channel/hurogi/setlist/:sessionId', destination: '/setlist/:sessionId', permanent: true },
+      ...['h66rogi', 'hurogi'].flatMap(identifier => channelRoutes.map(route => ({
+        source: `/channel/${identifier}${route.suffix}`,
+        destination: route.destination,
+        permanent: route.permanent,
+      }))),
+      { source: '/images/hurogi-profile.png', destination: '/images/h66rogi-profile.png', permanent: true },
     ];
   },
   async headers() {

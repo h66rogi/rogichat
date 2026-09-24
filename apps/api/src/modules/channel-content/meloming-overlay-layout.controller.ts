@@ -1,3 +1,4 @@
+import { isChannelIdentifier } from './channel-identity.js';
 import { Controller, Get, Inject, Param, Put, Req } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
@@ -20,13 +21,13 @@ export class MelomingOverlayLayoutController {
 
   @Get(':layoutType') @channelDoc('melomingOverlayLayout', '원본 오버레이 레이아웃 조회', 'read')
   get(@Param('identifier') identifier: string, @Param('layoutType') layoutType: string, @Req() request: Request) {
-    if (identifier !== 'hurogi') throw new ApiError('NOT_FOUND', 404);
+    if (!isChannelIdentifier(identifier)) throw new ApiError('NOT_FOUND', 404);
     return this.layouts.get(consoleOrSession(request, this.config), layoutType);
   }
 
   @Put(':layoutType') @channelDoc('melomingOverlayLayoutUpdate', '원본 오버레이 레이아웃 저장', 'write')
   async update(@Param('identifier') identifier: string, @Param('layoutType') layoutType: string, @Req() request: Request) {
-    if (identifier !== 'hurogi') throw new ApiError('NOT_FOUND', 404);
+    if (!isChannelIdentifier(identifier)) throw new ApiError('NOT_FOUND', 404);
     const result = await this.layouts.update(consoleOrCommand(request, this.config), layoutType, request.body);
     this.gateway.broadcast('settings.updated', {});
     return result;

@@ -1,3 +1,4 @@
+import { canonicalProfileImageUrl, isChannelIdentifier, isChannelProfileImageUrl, profileImageUrlForStorage } from './channel-identity.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import type { Prisma } from '../../generated/prisma/client.js';
@@ -75,9 +76,9 @@ export class MelomingChannelService {
         tx.prisma.category.count({ where: { channelId: roomId } }),
       ]);
       return {
-        id: publicChannelId, name: room.name, webPath: 'hurogi',
+        id: publicChannelId, name: room.name, webPath: 'h66rogi',
         platformUrl: soopId?`https://www.sooplive.co.kr/station/${encodeURIComponent(soopId)}`:null,
-        profileImageUrl: display?.profileImageUrl ?? '/images/hurogi-profile.png', topBannerUrl: null,
+        profileImageUrl: canonicalProfileImageUrl(display?.profileImageUrl), topBannerUrl: null,
         leftBannerUrl: null, leftBannerLink: null, rightBannerUrl: null,
         rightBannerLink: null, additionalLinks: display?.additionalLinks ?? [], themeColor: display?.themeColor ?? '#ff8c9d',
         channelDescription: display?.channelDescription ?? '', createdAt: room.created_at.toISOString(),
@@ -97,9 +98,9 @@ export class MelomingChannelService {
       'additionalLinks', 'themeColor', 'channelDescription', 'visibility'];
     if (Object.keys(body).some(key => !keys.includes(key)) ||
       typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 80 ||
-      body.webPath !== 'hurogi' ||
+      !isChannelIdentifier(body.webPath) ||
       (body.profileImageUrl !== null && (typeof body.profileImageUrl !== 'string' ||
-        body.profileImageUrl.length > 2048 || (body.profileImageUrl !== '/images/hurogi-profile.png' && !/^https:\/\//.test(body.profileImageUrl)))) ||
+        body.profileImageUrl.length > 2048 || (!isChannelProfileImageUrl(body.profileImageUrl) && !/^https:\/\//.test(body.profileImageUrl)))) ||
       !Array.isArray(body.additionalLinks) || body.additionalLinks.length > 5 ||
       body.additionalLinks.some(link => !link || typeof link !== 'object' || Array.isArray(link) ||
         Object.keys(link).some(key => !['name', 'url'].includes(key)) ||
@@ -114,10 +115,10 @@ export class MelomingChannelService {
       await tx.prisma.rooms.update({ where: { id: roomId }, data: { name: (body.name as string).trim() } });
       await tx.prisma.channelDisplaySettings.upsert({
         where: { channelId: roomId },
-        create: { channelId: roomId, profileImageUrl: body.profileImageUrl as string | null,
+        create: { channelId: roomId, profileImageUrl: profileImageUrlForStorage(body.profileImageUrl as string | null),
           additionalLinks: body.additionalLinks as Prisma.InputJsonValue, themeColor: body.themeColor as string,
           channelDescription: body.channelDescription as string, visibility: body.visibility as string },
-        update: { profileImageUrl: body.profileImageUrl as string | null,
+        update: { profileImageUrl: profileImageUrlForStorage(body.profileImageUrl as string | null),
           additionalLinks: body.additionalLinks as Prisma.InputJsonValue, themeColor: body.themeColor as string,
           channelDescription: body.channelDescription as string, visibility: body.visibility as string },
       });

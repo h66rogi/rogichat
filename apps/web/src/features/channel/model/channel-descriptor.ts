@@ -25,17 +25,17 @@ export interface ChannelDescriptor {
   features: readonly ChannelFeatureKey[];
 }
 
-export const hurogiChannel: ChannelDescriptor = {
-  key: 'hurogi',
+export const h66rogiChannel: ChannelDescriptor = {
+  key: 'h66rogi',
   displayName: '후로기',
   intro: null,
   officialLinks: [],
   // SOOP's current h66rogi profile image, confirmed from the official station and VVAVE channel page.
-  avatarSrc: '/images/hurogi-profile.png',
+  avatarSrc: '/images/h66rogi-profile.png',
   features: ['home', 'chat', 'rules', 'schedule', 'wardrobe', 'songbook', 'setlist', 'settings'],
 };
 
 /** Resolves the channel that owns the site root. There is exactly one in the MVP. */
 export function resolveDefaultChannel(): ChannelDescriptor {
-  return hurogiChannel;
+  return h66rogiChannel;
 }
