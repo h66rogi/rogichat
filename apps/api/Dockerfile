@@ -5,6 +5,7 @@ WORKDIR /workspace
 RUN npm install --global pnpm@12.4.2 --ignore-scripts && npm cache clean --force
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/package.json
+COPY apps/migration/package.json ./apps/migration/package.json
 COPY patches ./patches
 
 FROM tooling AS build
@@ -31,10 +32,28 @@ RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store
     && rm -f node_modules/.pnpm/axios@1.15.0*/node_modules/axios/dist/axios.js \
     && rm -rf /root/.cache/pnpm
 
-FROM build AS migration
-# Prisma CLI/engine are confined to this explicitly selected image target.
-# Run only the reviewed pinned engine installation, without any database input.
-RUN node -e "const path=require('node:path'); const pkg=require.resolve('@prisma/engines/package.json',{paths:[require.resolve('prisma/package.json',{paths:['/workspace/apps/api']})]}); require(path.join(path.dirname(pkg),'scripts/postinstall.js'))"
+FROM tooling AS migration-dependencies
+RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store,sharing=locked \
+    pnpm --filter @rogichat/migration... install --frozen-lockfile --ignore-scripts \
+    && rm -rf /root/.cache/pnpm
+
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS migration
+# Keep only the migration CLI, driver and schema; the API build tree is not an input.
+# Prisma's engine downloader needs OpenSSL version detection on the slim base.
+RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
+    && printf '%s\n' \
+      'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://snapshot.debian.org/archive/debian/20260920T000000Z bookworm main' \
+      'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://snapshot.debian.org/archive/debian-security/20260920T000000Z bookworm-security main' \
+      > /etc/apt/sources.list.d/migration.list \
+    && apt-get update \
+    && apt-get install --no-install-recommends --yes openssl \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=migration-dependencies /workspace/node_modules /workspace/node_modules
+COPY --from=migration-dependencies /workspace/apps/migration/node_modules /workspace/apps/api/node_modules
+COPY apps/api/package.json apps/api/prisma.config.ts /workspace/apps/api/
+COPY apps/api/prisma /workspace/apps/api/prisma
+# Download the exact reviewed schema engine, failing the build on any error.
+RUN node -e "const path=require('node:path');const prisma=require.resolve('prisma/package.json',{paths:['/workspace/apps/api']});const dir=path.dirname(require.resolve('@prisma/engines/package.json',{paths:[prisma]}));const fetch=require(require.resolve('@prisma/fetch-engine',{paths:[dir]}));const version=require(require.resolve('@prisma/engines-version',{paths:[dir]})).enginesVersion;fetch.download({binaries:{[fetch.BinaryType.SchemaEngineBinary]:dir},version,binaryTargets:['debian-openssl-3.0.x'],showProgress:false,failSilent:false}).catch(e=>{console.error(e);process.exit(1)})"
 RUN groupadd --gid 10001 rogichat && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin rogichat
 WORKDIR /workspace/apps/api
 ENV NODE_ENV=production

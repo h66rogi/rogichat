@@ -14,7 +14,7 @@ WEB_PREFIXES = (
     'apps/web/', 'tools/web/', 'infrastructure/runtime/web/',
 )
 BACKEND_PREFIXES = (
-    'apps/api/',
+    'apps/api/', 'apps/migration/',
 )
 SHARED_PREFIXES = (
     '.github/workflows/', '.githooks/', 'patches/', 'packages/',

@@ -142,6 +142,15 @@ jobs:
             printf '| %s | %s s | %s s | %s bytes |\n' "$target" "$cold" "$warm" "$bytes" >> "$GITHUB_STEP_SUMMARY"
             docker image save "$image_id" | python3 tools/security/image_scan.py -
           done
+      - name: Verify lean migration image with its real CLI and driver
+        run: |
+          set -euo pipefail
+          image=rogichat-check:migration
+          bytes=$(docker image inspect --format '{{.Size}}' "$image")
+          printf 'Migration image size: %s bytes\n' "$bytes"
+          test "$bytes" -lt 1000000000
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$image" \
+            -e "const fs=require('node:fs');const path=require('node:path');const p=require('prisma/package.json');const engine=path.dirname(require.resolve('@prisma/engines/package.json',{paths:[require.resolve('prisma/package.json')]}));const checks={version:p.version==='7.10.0',engine:fs.existsSync(path.join(engine,'schema-engine-debian-openssl-3.0.x')),driver:typeof require('mysql2/promise').createConnection==='function',schema:fs.existsSync('prisma/schema.prisma'),isolated:!fs.existsSync('dist/main.js')};console.log(checks);if(Object.values(checks).some(ok=>!ok))process.exit(1)"
   verify:
     if: always()
     needs: [changes, static, integration, image-safety]
