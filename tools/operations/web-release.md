@@ -12,7 +12,9 @@ A trusted operator must prepare the edge once, under the same
 `/run/lock/rogichat-deploy.lock` used by backend and web release tools:
 
 1. Create the environment's dedicated bridge network `rogichat-qa-web` or
-   `rogichat-prod-web`. Only Caddy and the corresponding web container may join.
+   `rogichat-prod-web`. QA may also attach the separately managed
+   `rogichat-qa-media-gateway` and `rogichat-qa-overlay` services; production
+   permits only Caddy and the corresponding web container.
 2. Create root-owned, non-group/world-writable directories
    `/opt/rogichat/web/{current,sites,receipts}`. Do not pre-create `web.caddy` or
    `current/compose.json` for an initial release. No parent may be a symlink.
@@ -29,10 +31,11 @@ A trusted operator must prepare the edge once, under the same
 
 The helper requires exactly one running Compose `caddy` service, exactly two
 Caddy networks (existing API plus dedicated web), the exact read-only site and
-main-config mounts, retained `/data` and `/config` mounts, and no third container
-on the web network. It snapshots Caddy identity, image, mounts, HostConfig and
-network names and rejects changes during activation. Initial ports/volume identity
-preservation remains the commissioning operator's responsibility: the helper
+main-config mounts, retained `/data` and `/config` mounts, and only the named
+environment-specific peers on the web network. It snapshots Caddy identity,
+image, mounts, HostConfig, network names and non-web peer identities, and rejects
+changes during activation. Initial ports/volume identity preservation remains
+the commissioning operator's responsibility: the helper
 cannot reconstruct the pre-commissioning state.
 
 ## Trusted files and schemas
