@@ -57,3 +57,34 @@ jobs:
           unset GHCR_TOKEN
           docker push "ghcr.io/h66rogi/rogichat-media-gateway:qa-$SOURCE_SHA"
           docker image inspect --format '{{index .RepoDigests 0}}' "ghcr.io/h66rogi/rogichat-media-gateway:qa-$SOURCE_SHA"
+      - name: Export the reviewed QA image without registry credentials
+        if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          output="$RUNNER_TEMP/rogichat-gateway-export"
+          mkdir -p "$output"
+          docker save "ghcr.io/h66rogi/rogichat-media-gateway:qa-$SOURCE_SHA" -o "$output/image.tar"
+          python3 tools/security/image_scan.py "$output/image.tar"
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          source = os.environ['SOURCE_SHA']
+          image = f'ghcr.io/h66rogi/rogichat-media-gateway:qa-{source}'
+          data = json.loads(subprocess.check_output(['docker', 'image', 'inspect', image]))[0]
+          assert data['Config']['Labels']['org.opencontainers.image.revision'] == source
+          assert len(data['RepoDigests']) == 1
+          archive = pathlib.Path(os.environ['RUNNER_TEMP']) / 'rogichat-gateway-export/image.tar'
+          descriptor = {'source_sha': source, 'image': image,
+                        'config_id': data['Id'], 'registry_digest': data['RepoDigests'][0],
+                        'archive_sha256': hashlib.file_digest(archive.open('rb'), 'sha256').hexdigest()}
+          archive.with_name('descriptor.json').write_text(json.dumps(descriptor, sort_keys=True) + '\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
+        with:
+          name: gateway-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/rogichat-gateway-export/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
