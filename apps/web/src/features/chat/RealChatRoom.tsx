@@ -61,13 +61,8 @@ function ScopedRealChatRoom({ active, suspended = false, visit, session, account
   useEffect(() => {
     if (!controller) return;
     if (!active) { controller.suspendStorage(); return; }
-    const syncVisibility = () => {
-      if (document.visibilityState === 'hidden') controller.suspendStorage();
-      else controller.resumeStorage();
-    };
-    syncVisibility();
-    document.addEventListener('visibilitychange', syncVisibility);
-    return () => { document.removeEventListener('visibilitychange', syncVisibility); controller.suspendStorage(); };
+    controller.resumeStorage();
+    return () => controller.suspendStorage();
   }, [active, controller]);
 
   // Keep the mounted timeline and its scroll position during route changes.
