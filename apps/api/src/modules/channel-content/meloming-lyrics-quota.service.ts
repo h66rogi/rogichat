@@ -1,5 +1,6 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Transactions } from '../../infrastructure/database/transactions.js';
+import { ChannelContentRepository } from './channel-content.repository.js';
 
 const SETTINGS_ID = 1;
 const WINDOW_DAYS = 7 as const;
@@ -15,7 +16,8 @@ type LyricsQuotaStatus = {
 /** Retains Meloming's per-playing-request seven-day ledger and unlimited-by-default setting. */
 @Injectable()
 export class MelomingLyricsQuotaService {
-  constructor(@Inject(Transactions) private readonly transactions: Transactions) {}
+  constructor(@Inject(Transactions) private readonly transactions: Transactions,
+    @Inject(ChannelContentRepository) private readonly repository: ChannelContentRepository) {}
 
   consumeForLyrics(params: { roomId: string; liveSessionId?: number; songRequestId?: number; songId: number }) {
     return this.transactions.write(async tx => {
@@ -35,9 +37,7 @@ export class MelomingLyricsQuotaService {
       const now = await tx.now();
 
       await tx.prisma.lyricsQuotaWindow.upsert({ where: { userId }, create: { userId }, update: {} });
-      const rows = await tx.rows<{ window_started_at: Date | null; window_ends_at: Date | null; used_count: number }>(
-        'SELECT window_started_at,window_ends_at,used_count FROM lyrics_quota_windows WHERE user_id=? FOR UPDATE', [userId]);
-      const row = rows[0];
+      const row = await this.repository.lockLyricsQuotaWindow(tx, userId);
       if (!row) throw new Error('Lyrics quota window lock failed');
 
       const already = await tx.prisma.lyricsQuotaConsumption.findUnique({

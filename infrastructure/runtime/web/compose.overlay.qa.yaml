@@ -1,0 +1,36 @@
+name: rogichat-qa-web
+services:
+  overlay:
+    container_name: rogichat-qa-overlay
+    image: ${ROGICHAT_OVERLAY_IMAGE:?Set the reviewed immutable overlay image digest}
+    restart: unless-stopped
+    user: "10001:10001"
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 768m
+    cpus: 1
+    stop_signal: SIGTERM
+    stop_grace_period: 20s
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=33554432,uid=10001,gid=10001,mode=1777
+      - /app/apps/overlay/.next/cache:rw,noexec,nosuid,nodev,size=67108864,uid=10001,gid=10001,mode=0750
+    expose: ["3000"]
+    networks: [web]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/',{signal:AbortSignal.timeout(2500)}).then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+networks:
+  web:
+    external: true
+    name: rogichat-qa-web

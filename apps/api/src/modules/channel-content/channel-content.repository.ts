@@ -6,6 +6,14 @@ import { ChannelWardrobeService } from './upstream/channel-wardrobe.service.js';
 /** Meloming's Channel key maps to the one owner-bound Rogichat room. */
 @Injectable()
 export class ChannelContentRepository {
+  async lockLyricsQuotaWindow(tx: Transaction, userId: string): Promise<{
+    window_started_at: Date | null; window_ends_at: Date | null; used_count: number;
+  } | undefined> {
+    const rows = await tx.rows<{ window_started_at: Date | null; window_ends_at: Date | null; used_count: number }>(
+      'SELECT window_started_at,window_ends_at,used_count FROM lyrics_quota_windows WHERE user_id=? FOR UPDATE', [userId]);
+    return rows[0];
+  }
+
   async lockPrimary(tx: Transaction): Promise<void> {
     await tx.rows('SELECT `key` FROM default_room_bindings WHERE `key`=? FOR UPDATE', ['primary']);
   }

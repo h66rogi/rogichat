@@ -48,6 +48,10 @@ jobs:
             .tools/caddy adapt --config "infrastructure/runtime/web/Caddyfile.$env" --adapter caddyfile --validate > /dev/null
             ROGICHAT_WEB_IMAGE=ghcr.io/h66rogi/rogichat-web@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
               docker compose -f infrastructure/runtime/web/compose.yaml -f "infrastructure/runtime/web/compose.$env.yaml" config --quiet
+            if test "$env" = qa; then
+              ROGICHAT_OVERLAY_IMAGE=ghcr.io/h66rogi/rogichat-overlay@sha256:0000000000000000000000000000000000000000000000000000000000000000 \
+                docker compose -f infrastructure/runtime/web/compose.overlay.qa.yaml config --quiet
+            fi
             if test "$env" = qa; then edge=infrastructure/runtime/compose.bootstrap.yaml; else edge=infrastructure/environments/prod/runtime/compose.bootstrap.yaml; fi
             docker compose -f "$edge" -f "infrastructure/runtime/web/edge.$env.yaml" config --quiet
           done
