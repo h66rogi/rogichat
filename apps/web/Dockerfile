@@ -7,7 +7,8 @@ COPY apps/web/package.json ./apps/web/package.json
 # Workspace policy includes the reviewed MariaDB patch, even for a filtered web install.
 COPY apps/api/package.json ./apps/api/package.json
 COPY patches ./patches
-RUN pnpm --filter @rogichat/web... install --frozen-lockfile --ignore-scripts \
+RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store,sharing=locked \
+    pnpm --filter @rogichat/web... install --frozen-lockfile --ignore-scripts \
     && rm -rf /root/.cache/pnpm
 COPY apps/web ./apps/web
 COPY tools/web/check-production.mjs tools/web/prepare-runtime.mjs tools/web/runtime-server.mjs ./tools/web/

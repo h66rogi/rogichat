@@ -1,0 +1,34 @@
+# QA release throughput
+
+The QA release jobs classify changed tracked paths before building images. Changes
+under `apps/web` publish the web image; changes under `apps/api` publish the API,
+migration and decoder images. Shared build, workflow, security and operations
+inputs publish both. Unknown paths also publish both. Mobile and documentation
+changes publish neither. `apps/api/package.json` is shared because the web
+Dockerfile copies it. An unavailable Git comparison publishes both.
+
+Web and backend verification have stable required job names even when their
+component is unchanged. Backend static checks and four disposable MySQL
+integration shards run concurrently. A shard owns a separate database and every
+integration test file is selected exactly once. On pull requests, container
+checks still build and scan each relevant image. On QA pushes, the web publisher
+builds, checks and scans the image while source verification runs, waits for the
+exact successful source checks, then authenticates to the registry. This removes
+the duplicate QA web container build. The backend publisher follows the same
+ordering. A skipped web publisher does not start an export.
+
+Docker builds use a BuildKit cache mount for the pnpm download store. It is
+discarded from image layers. Pull request container jobs record cold and warm
+build durations and uncompressed runtime image sizes in their job summaries;
+publisher jobs record release build durations and sizes. Export jobs record the
+transport tar sizes. Compare several runs of the same target, including a cold
+runner and a changed dependency lockfile, before changing the image base or
+transport format. The image scanners and isolated runtime checks remain gates.
+
+The trusted QA receiver may reuse an earlier web artifact only if its source is
+an ancestor of the current QA head and every web release input has the same Git
+blob and file mode. The operations repository owns that policy. Deploy the
+reviewed receiver/poller generation together with the public workflow change;
+otherwise the old poller will report `not-ready:autoexport` after a backend-only
+QA push. Publication, export and a successful workflow do not by themselves
+prove the running host version; verify its receipt and route separately.

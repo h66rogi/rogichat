@@ -28,16 +28,7 @@ jobs:
         id: filter
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] || [ -z "$BASE_SHA" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
-            echo "web=true" >> "$GITHUB_OUTPUT"; exit 0
-          fi
-          if git diff --name-only "$BASE_SHA" HEAD | grep -Eq '^(apps/web/|tools/web/|packages/|patches/|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|\.node-version$|\.github/workflows/web(-(publish|export))?\.yml$|tools/operations/backend_archive.py$|tools/security/|\.dockerignore$)'; then
-            echo "web=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "web=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
 
   verify:
     name: Lint, typecheck, unit, production build and browser
@@ -93,7 +84,7 @@ jobs:
   container:
     name: Production container and all-layer security
     needs: changes
-    if: needs.changes.outputs.web == 'true'
+    if: needs.changes.outputs.web == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -104,7 +95,21 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
-      - run: docker build --platform linux/amd64 --file apps/web/Dockerfile --tag rogichat-web:check .
+      - name: Measure cold and warm Docker builds and runtime size
+        env:
+          DOCKER_BUILDKIT: '1'
+        run: |
+          set -euo pipefail
+          start=$SECONDS
+          docker build --platform linux/amd64 --file apps/web/Dockerfile --tag rogichat-web:check .
+          cold=$((SECONDS - start))
+          image_id=$(docker image inspect --format '{{.Id}}' rogichat-web:check)
+          start=$SECONDS
+          docker build --platform linux/amd64 --file apps/web/Dockerfile --tag rogichat-web:check .
+          warm=$((SECONDS - start))
+          test "$(docker image inspect --format '{{.Id}}' rogichat-web:check)" = "$image_id"
+          bytes=$(docker image inspect --format '{{.Size}}' rogichat-web:check)
+          printf '| Web runtime | %s s | %s s | %s bytes |\n' "$cold" "$warm" "$bytes" >> "$GITHUB_STEP_SUMMARY"
       - run: bash tools/web/check-image.sh rogichat-web:check
       - name: Fail-closed scan of every runtime layer and metadata
         run: |
@@ -130,8 +135,10 @@ jobs:
         run: |
           echo "changes: $CHANGES_RESULT, web changed: '$CHANGED', verify: $VERIFY"
           if [ "$CHANGES_RESULT" != "success" ]; then echo "change detection did not succeed"; exit 1; fi
-          case "$CHANGED:$VERIFY:$CONTAINER" in
-            false:skipped:skipped) echo "no web change; verify skipped"; exit 0 ;;
-            true:success:success) echo "web verified"; exit 0 ;;
+          case "$CHANGED:$VERIFY:$CONTAINER:$GITHUB_EVENT_NAME" in
+            false:skipped:skipped:*) echo "no web change; verify skipped"; exit 0 ;;
+            true:success:success:pull_request|true:success:success:workflow_dispatch)
+              echo "web verified with pre-merge image safety"; exit 0 ;;
+            true:success:skipped:push) echo "web source verified; publisher checks the image"; exit 0 ;;
             *) echo "unexpected combination"; exit 1 ;;
           esac

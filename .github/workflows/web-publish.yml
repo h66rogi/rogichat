@@ -11,39 +11,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verified-source:
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
+  changes:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
     permissions:
       contents: read
-      actions: read
     outputs:
-      evidence: ${{ steps.verify.outputs.evidence }}
+      web: ${{ steps.classify.outputs.web }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version-file: .node-version
-          package-manager-cache: false
-      - name: Require verification of this exact QA push
-        id: verify
+      - id: classify
         env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ github.sha }}
-          SOURCE_REPOSITORY: ${{ github.repository }}
-        run: node tools/web/verify-publication-source.mjs
+          BASE_SHA: ${{ github.event.before }}
+        run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
 
   publish:
-    needs: verified-source
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
+    needs: changes
+    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push' && needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
       contents: read
+      actions: read
       packages: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -57,13 +49,18 @@ jobs:
       - name: Build exact source without registry credentials
         env:
           SOURCE_SHA: ${{ github.sha }}
+          DOCKER_BUILDKIT: '1'
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          start=$SECONDS
           docker build --platform linux/amd64 --file apps/web/Dockerfile \
             --label org.opencontainers.image.source=https://github.com/h66rogi/rogichat \
             --label org.opencontainers.image.revision="$SOURCE_SHA" \
             --tag "ghcr.io/h66rogi/rogichat-web:qa-$SOURCE_SHA" .
+          image="ghcr.io/h66rogi/rogichat-web:qa-$SOURCE_SHA"
+          printf '| Web publication build | %s s | %s bytes |\n' \
+            "$((SECONDS - start))" "$(docker image inspect --format '{{.Size}}' "$image")" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify the same image with both runtime configurations
         env:
           SOURCE_SHA: ${{ github.sha }}
@@ -79,12 +76,19 @@ jobs:
           [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
           docker image save "$image_id" | python3 tools/security/image_scan.py -
           printf '%s\n' "$image_id" > "$RUNNER_TEMP/web.checked-id"
+      - name: Require successful verification of this exact QA push before publishing
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        run: node tools/web/verify-publication-source.mjs
       - name: Publish only the checked image and write promotion proof
         env:
           GHCR_TOKEN: ${{ github.token }}
           GHCR_USER: ${{ github.actor }}
           SOURCE_SHA: ${{ github.sha }}
-          VERIFICATION_EVIDENCE: ${{ needs.verified-source.outputs.evidence }}
+          VERIFICATION_EVIDENCE: ${{ steps.verify.outputs.evidence }}
         run: |
           set -euo pipefail
           export DOCKER_CONFIG
