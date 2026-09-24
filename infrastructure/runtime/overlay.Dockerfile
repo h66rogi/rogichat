@@ -14,6 +14,8 @@ ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 \
     NEXT_PUBLIC_GATEWAY_SOCKET_PATH=/socket.io \
     NEXT_PUBLIC_FRONT_BASE_URL=https://qa.rogi.chat
 RUN pnpm --filter meloming-overlay build
+COPY tools/security/sanitize-overlay-build.mjs /tmp/sanitize-overlay-build.mjs
+RUN node /tmp/sanitize-overlay-build.mjs /workspace/apps/overlay/.next/standalone/apps/overlay/.next
 
 FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
 RUN groupadd --gid 10001 rogichat && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin rogichat
