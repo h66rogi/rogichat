@@ -134,7 +134,7 @@ export class MelomingLiveSongRequestService {
     const dto=createBody(value,true);
     return this.transactions.write(async tx=>{
       const {actor,roomId}=await this.owner(tx,credentials);
-      await this.session(tx,sessionId);
+      await this.session(tx,sessionId,credentials);
       await this.repository.lockPrimary(tx);
       const identity=await this.actor(tx,credentials);
       if (dto.reviveFromRequestId) {
@@ -200,7 +200,7 @@ export class MelomingLiveSongRequestService {
     const sessionId=integer(raw.sessionId);
     if (raw.reason!==undefined && (typeof raw.reason!=='string'||raw.reason.length>255)) throw new ApiError('INVALID_REQUEST',400);
     return this.transactions.write(async tx=>{
-      const {roomId}=await this.owner(tx,credentials);await this.session(tx,sessionId);await this.repository.lockPrimary(tx);
+      const {roomId}=await this.owner(tx,credentials);await this.session(tx,sessionId,credentials);await this.repository.lockPrimary(tx);
       const service=new SongRequestService(tx.prisma,roomId);
       return kind==='next'?service.playNext(sessionId):service.skipCurrent(sessionId,raw.reason as string|undefined);
     });
@@ -217,7 +217,7 @@ export class MelomingLiveSongRequestService {
     if (Object.keys(raw).some(key=>key!=='sessionId')) throw new ApiError('INVALID_REQUEST',400);
     const sessionId=integer(raw.sessionId);
     return this.transactions.write(async tx=>{
-      const {roomId}=await this.owner(tx,credentials);await this.session(tx,sessionId);await this.repository.lockPrimary(tx);
+      const {roomId}=await this.owner(tx,credentials);await this.session(tx,sessionId,credentials);await this.repository.lockPrimary(tx);
       return new SongRequestService(tx.prisma,roomId).clearQueue(sessionId);
     });
   }

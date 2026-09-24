@@ -633,6 +633,10 @@ test('ported live session start, public active, end and history use owner room',
   await assert.rejects(requests.queue({token:fanId}, {sessionId:String(privateSession.id)}));
   assert.equal((await requests.queue({token:ownerId}, {sessionId:String(privateSession.id)})).total,0);
   await assert.rejects(requests.create({token:fanId},{liveSessionId:privateSession.id,rawArtist:'가수',rawTitle:'노래'}));
+  const privateManual=await requests.manual({token:ownerId},privateSession.id,{rawArtist:'연습 가수',rawTitle:'연습 곡'});
+  assert.equal((await requests.advance({token:ownerId},{sessionId:String(privateSession.id)},'next')).id,privateManual.id);
+  await requests.manual({token:ownerId},privateSession.id,{rawArtist:'연습 가수',rawTitle:'다음 연습 곡'});
+  assert.equal((await requests.clear({token:ownerId},{sessionId:String(privateSession.id)})).deletedCount,1);
   await live.end({token:ownerId},privateSession.id);
 });
 
