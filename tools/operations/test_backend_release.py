@@ -282,6 +282,9 @@ class RequestTests(unittest.TestCase):
         result = SimpleNamespace(returncode=0, stdout=json.dumps([ready_container()]).encode(), stderr=b'')
         with patch.object(release.subprocess, 'run', return_value=result):
             self.assertEqual(release.inspect_starting_container('api', 10)['Name'], '/rogichat-qa-api')
+        result.stdout = json.dumps([ready_container('decoder')]).encode()
+        with patch.object(release.subprocess, 'run', return_value=result):
+            self.assertEqual(release.inspect_starting_container('decoder', 10)['Name'], '/rogichat-qa-decoder')
 
     def test_systemd_started_before_compose_create_waits_for_both_healthy(self):
         with patch.object(release, 'inspect_starting_container', side_effect=[ready_container(), None,

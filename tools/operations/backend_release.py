@@ -411,7 +411,7 @@ def caddy_config(container, data):
 
 
 def inspect_starting_container(role, timeout):
-    require(role in ('api', 'worker') and 0 < timeout <= 10)
+    require(role in ('api', 'worker', 'decoder') and 0 < timeout <= 10)
     name = 'rogichat-qa-' + role
     result = subprocess.run(['/usr/bin/docker', 'container', 'inspect', name],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout,
