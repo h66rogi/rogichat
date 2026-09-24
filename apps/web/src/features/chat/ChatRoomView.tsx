@@ -23,6 +23,7 @@ import type {
   ChatComposerSubmission,
   ChatComposerTarget,
   ChatMessageItemModel,
+  ChatOutgoingMessage,
   ChatSubmitResult,
   ChatTimelineItem,
   ChatViewerRole,
@@ -63,6 +64,9 @@ export interface ChatRoomViewProps {
   viewer: ChatActorRef;
   viewerRole: ChatViewerRole;
   items: ChatTimelineItem[];
+  outgoing?: readonly ChatOutgoingMessage[] | undefined;
+  onRetryOutgoing?: ((id: string) => void | Promise<void>) | undefined;
+  outgoingBusy?: boolean | undefined;
   /** STREAMER only: fans the server authorized for PRIVATE replies. SHARED is always available. */
   streamerRecipients?: readonly ChatActorRef[] | undefined;
   /** Absent means sending is not wired yet; the composer says so instead of pretending. */
@@ -92,6 +96,7 @@ function ScopedChatRoom({
   roomName,
   viewerRole,
   items,
+  outgoing = [], onRetryOutgoing, outgoingBusy = false,
   streamerRecipients = EMPTY_RECIPIENTS,
   onSubmit,
   submitBlockedReason,
@@ -271,13 +276,13 @@ function ScopedChatRoom({
       if (!mountedRef.current) return;
       setSubmittingKey(null);
 
-      if (result.accepted) {
+      if (result.accepted || (!result.accepted && result.pendingDelivery)) {
         // Clear only the exact draft that was sent. Any other draft (or a changed one) stays.
         setDrafts((prev) => (prev[submittedKey] === submittedDraft ? clearDraft(prev, submittedTarget) : prev));
         if (submittedTarget.scope === 'PRIVATE' && currentKeyRef.current === submittedKey) setRequestedTarget({ scope: 'SHARED' });
       }
 
-      if (!result.accepted && result.retryCommandId) {
+      if (!result.accepted && result.retryCommandId && !result.pendingDelivery) {
         const retryCommandId = result.retryCommandId;
         setDrafts(prev => prev[submittedKey] === submittedDraft ? writeDraft(prev, submittedTarget, { retryCommandId }) : prev);
       }
@@ -286,7 +291,7 @@ function ScopedChatRoom({
         ? result.note
           ? { tone: 'info', text: result.note }
           : null
-        : { tone: 'error', text: result.reason };
+        : result.pendingDelivery ? null : { tone: 'error', text: result.reason };
       if (resultNotice) setNoticeFor(submittedKey, resultNotice);
 
       // If the user moved to another target meanwhile, tell them where the result landed.
@@ -295,7 +300,7 @@ function ScopedChatRoom({
         setAnnouncement(
           result.accepted
             ? `${label}에게 보낸 메시지가 접수되었습니다.`
-            : `${label}에게 보낸 메시지의 전송을 확인하지 못했습니다. 해당 대상으로 돌아가면 안내와 작성 내용을 볼 수 있습니다.`,
+            : result.pendingDelivery ? `${label}에게 보낸 메시지의 상태를 확인하고 있습니다.` : `${label}에게 메시지를 보내지 못했습니다. 해당 대상으로 돌아가면 안내와 작성 내용을 볼 수 있습니다.`,
         );
       }
     })();
@@ -344,6 +349,9 @@ function ScopedChatRoom({
 
       <ChatTimeline
         items={items}
+        outgoing={outgoing}
+        onRetryOutgoing={onRetryOutgoing}
+        outgoingBusy={outgoingBusy}
         viewerRole={viewerRole}
         onReplyPrivate={canReply ? handleReplyPrivate : undefined}
         onDelete={onDelete}

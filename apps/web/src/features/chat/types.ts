@@ -83,6 +83,17 @@ export interface ChatUnsupportedItemModel {
 
 export type ChatTimelineItem = ChatMessageItemModel | ChatPublicationItemModel | ChatUnsupportedItemModel;
 
+/** An authorized, unresolved local send. Its identity is retained for an exact retry. */
+export interface ChatOutgoingMessage {
+  id: string;
+  body: string;
+  kind: 'TEXT' | 'PHOTO' | 'VIDEO' | 'STICKER';
+  sending: boolean;
+  checking: boolean;
+  saved: boolean;
+  canRetry: boolean;
+}
+
 export type ChatComposerTarget = { scope: 'SHARED' } | { scope: 'ROOM_OWNER' } | { scope: 'PRIVATE'; recipient: ChatActorRef };
 
 export interface ChatComposerSubmission {
@@ -97,4 +108,4 @@ export interface ChatComposerSubmission {
 }
 
 /** Returned by the controller `onSubmit`. On `accepted: false` the composer keeps the draft. */
-export type ChatSubmitResult = { accepted: true; note?: string } | { accepted: false; reason: string; retryCommandId?: string };
+export type ChatSubmitResult = { accepted: true; note?: string } | { accepted: false; reason: string; retryCommandId?: string; pendingDelivery?: boolean };

@@ -239,7 +239,7 @@ test('READY photo retries the same command, preserves text draft and clears byte
   media.ready = true;
   await page.getByRole('button', { name: '이 이미지 사용' }).click();
   await page.getByRole('button', { name: '사진 보내기', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: '전송 결과가 확인되지 않았습니다' })).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: '메시지 상태를 확인하고 있어요' })).toBeVisible();
   fail = false; await page.getByRole('button', { name: '사진 보내기', exact: true }).click();
   const image = page.getByRole('img', { name: '대화 사진 1' });
   await expect(image).toBeVisible();
@@ -271,10 +271,11 @@ test('real chat keeps IME and pending focus, surfaces failure and retries the sa
   await expect(input).toBeFocused(); await expect(input).toHaveAttribute('readonly', '');
   await expect(page.getByTestId('chat-composer-send')).toBeDisabled();
   release(); state.holdSend = null;
-  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
-  await expect(input).toHaveValue('안녕하세요');
-  state.failSend = false; await input.press('Enter');
+  await expect(page.getByTestId('chat-outgoing-message').getByText('안녕하세요', { exact: true })).toBeVisible();
+  await expect(input).toHaveValue('');
+  state.failSend = false; await page.getByRole('button', { name: '다시 보내기', exact: true }).click();
   await expect(input).toHaveValue(''); await expect(page.getByText('안녕하세요', { exact: true })).toBeVisible();
+  await expect.poll(() => state.posts.length).toBe(2);
   expect(state.posts).toHaveLength(2); expect(state.posts[0]?.clientMessageId).toBe(state.posts[1]?.clientMessageId);
   expect(state.posts[0]).toMatchObject({ intent: 'PRIVATE', recipientActorId: streamerId, quoteId: incoming.id, content: { type: 'TEXT', text: '안녕하세요' } });
   await expect(page.locator(`[data-item-id="${state.posts[1]?.clientMessageId}"]`).getByTestId('chat-reply')).toHaveCount(0);
@@ -375,7 +376,7 @@ test('remote deletion clears a selected reply while preserving an uncertain shar
   await page.goto('/chat');
   const input = page.getByTestId('chat-composer-input');
   await input.fill('결과 미확인 메시지'); state.failSend = true; await input.press('Enter');
-  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
+  await expect(page.getByTestId('chat-outgoing-message').getByText('결과 미확인 메시지', { exact: true })).toBeVisible();
   await replyToFirstMessage(page);
   await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
   await input.fill('삭제된 원문을 인용한 초안');
@@ -384,8 +385,9 @@ test('remote deletion clears a selected reply while preserving an uncertain shar
   await expect(input).toHaveValue('');
   await expect(page.getByTestId('chat-quote-preview')).toHaveCount(0);
   state.deletedIds = []; state.failSend = false;
-  await page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true }).click();
-  await expect(page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '다시 보내기', exact: true }).click();
+  await expect(page.getByRole('button', { name: '다시 보내기', exact: true })).toHaveCount(0);
+  await expect.poll(() => state.posts.length).toBe(2);
   expect(state.posts).toHaveLength(2); expect(state.posts[0]?.clientMessageId).toBe(state.posts[1]?.clientMessageId);
 });
 
@@ -519,24 +521,24 @@ test('pagehide/pageshow obscures but retains the mounted draft, quote and retry 
   const { state } = await chatApi(page, true); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
   await replyToFirstMessage(page); await input.fill('복귀 뒤에도 같은 명령'); await input.press('Enter');
-  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
+  await expect(page.getByTestId('chat-outgoing-message').getByText('복귀 뒤에도 같은 명령', { exact: true })).toBeVisible();
   const id = state.posts[0]?.clientMessageId;
   await input.evaluate(element => { element.setAttribute('data-resume-mount', 'retained'); });
   await page.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await expect(page.locator('[data-private-shield]')).toBeVisible();
   await expect(input).toBeHidden();
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
-  await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
-  await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
+  await expect(input).toHaveValue('');
+  await expect(page.getByTestId('chat-outgoing-message').getByText('복귀 뒤에도 같은 명령', { exact: true })).toBeVisible();
   await expect(input).toHaveAttribute('data-resume-mount', 'retained');
   for (let i = 0; i < 2; i++) {
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await expect(input).toHaveValue('복귀 뒤에도 같은 명령');
+    await expect(input).toHaveValue('');
     await expect(input).toHaveAttribute('data-resume-mount', 'retained');
   }
-  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
+  await expect(page.getByRole('button', { name: '다시 보내기', exact: true })).toBeEnabled();
   state.failSend = false;
-  await page.getByTestId('chat-composer-send').click();
+  await page.getByRole('button', { name: '다시 보내기', exact: true }).click();
   await expect(input).toHaveValue('');
   await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]?.clientMessageId).toBe(id);
 });
@@ -558,16 +560,15 @@ for (const churn of ['profiles', 'manifest', 'events-reset'] as const) test(`${c
   const { state, hint } = await chatApi(page, true); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
   await replyToFirstMessage(page); await input.fill('세대 변경에도 같은 초안'); await input.press('Enter');
-  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
+  await expect(page.getByTestId('chat-outgoing-message').getByText('세대 변경에도 같은 초안', { exact: true })).toBeVisible();
   const id = state.posts[0]?.clientMessageId; const snapshots = state.snapshots;
   if (churn === 'profiles') state.profileGeneration = 'profiles-after-unrelated-join';
   else if (churn === 'manifest') state.manifestGeneration = 'manifest-after-unrelated-change';
   else state.resetEvents = true;
   hint(); await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
-  await expect(input).toHaveValue('세대 변경에도 같은 초안');
-  await expect(page.getByTestId('chat-quote-preview')).toContainText(incoming.content.text);
-  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
-  state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('button', { name: '다시 보내기', exact: true })).toBeEnabled();
+  state.failSend = false; await page.getByRole('button', { name: '다시 보내기', exact: true }).click(); await expect(input).toHaveValue('');
   await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]?.clientMessageId).toBe(id);
 });
 
@@ -587,14 +588,13 @@ test('live redaction refreshes the visible quote while preserving draft and expl
   const { state, hint } = await chatApi(page, true); state.failSend = true;
   await page.goto('/chat'); const input = page.getByTestId('chat-composer-input');
   await replyToFirstMessage(page); await input.fill('본문이 바뀌어도 같은 전송'); await input.press('Enter');
-  await expect(page.getByTestId('chat-composer-error')).toContainText('전송 결과가 확인되지 않았습니다');
+  await expect(page.getByTestId('chat-outgoing-message').getByText('본문이 바뀌어도 같은 전송', { exact: true })).toBeVisible();
   const id = state.posts[0]?.clientMessageId;
   state.messages = [{ ...state.messages[0]!, version: '2', content: { type: 'TEXT', text: '현재 허가된 인용 본문' } }]; hint();
-  await expect(page.getByTestId('chat-quote-preview')).toContainText('현재 허가된 인용 본문');
-  await expect(page.getByTestId('chat-quote-preview')).not.toContainText(incoming.content.text);
-  await expect(input).toHaveValue('본문이 바뀌어도 같은 전송');
-  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
-  state.failSend = false; await input.press('Enter'); await expect(input).toHaveValue('');
+  await expect(page.getByTestId('chat-outgoing-message').getByText('본문이 바뀌어도 같은 전송', { exact: true })).toBeVisible();
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('button', { name: '다시 보내기', exact: true })).toBeEnabled();
+  state.failSend = false; await page.getByRole('button', { name: '다시 보내기', exact: true }).click(); await expect(input).toHaveValue('');
   await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[1]?.clientMessageId).toBe(id);
 });
 
@@ -610,8 +610,8 @@ test('room loss from reaction during held SEND scrubs before late send settles a
   state.revoked = false; reactions.status = 200;
   await page.getByRole('button', { name: '다시 시도', exact: true }).click();
   await expect(input).toHaveValue('');
-  await expect(page.getByRole('button', { name: '전송 1 같은 전송 다시 시도', exact: true })).toHaveCount(0);
-  release(); await expect(page.getByRole('button', { name: '전송 1 결과 조회', exact: true })).toBeEnabled();
+  await expect(page.getByRole('button', { name: '다시 보내기', exact: true })).toHaveCount(0);
+  release(); await expect(page.getByTestId('chat-outgoing-message')).toHaveCount(0);
   await expect(input).toHaveValue(''); expect(state.posts).toHaveLength(1);
 });
 
@@ -632,7 +632,7 @@ test('catalog sticker selection sends its exact ID, retains selection on failure
   await page.getByRole('button', { name: '카탈로그 스티커', exact: true }).click();
   await expect(page.getByRole('img', { name: '선택한 스티커: 카탈로그 스티커' })).toBeVisible();
   await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
-  await expect(page.getByText('전송 결과가 확인되지 않았습니다. 다시 보내기는 같은 전송 기록을 조회하고 현재 권한으로 재확인합니다.')).toBeVisible();
+  await expect(page.getByText('메시지 상태를 확인하고 있어요. 필요하면 메시지에서 다시 보낼 수 있어요.')).toBeVisible();
   fail = false; await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
   await expect(page.getByRole('button', { name: '스티커 보내기', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도 글');
