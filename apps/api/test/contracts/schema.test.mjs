@@ -23,6 +23,9 @@ test('readiness manifest matches every generated migration, with no silent schem
     } else if (entry.name === '20260924041000_overlay_theme_layout') {
       assert.match(sql.toString(), /ALTER TABLE `channel_overlay_layouts` MODIFY `id` INTEGER NOT NULL AUTO_INCREMENT;/);
       assert.equal((sql.toString().match(/AUTO_INCREMENT/g) ?? []).length, 1);
+    } else if (entry.name === '20260924044000_lyrics_quota') {
+      assert.match(sql.toString(), /CREATE TABLE `lyrics_quota_consumptions` \([\s\S]*?`id` BIGINT NOT NULL AUTO_INCREMENT,/);
+      assert.equal((sql.toString().match(/AUTO_INCREMENT/g) ?? []).length, 1);
     } else {
       assert.doesNotMatch(sql.toString(), /AUTO_INCREMENT/);
     }

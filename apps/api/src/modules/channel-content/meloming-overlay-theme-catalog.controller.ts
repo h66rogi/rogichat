@@ -1,6 +1,6 @@
 import { Controller, Get, Param } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
-import {
+import type {
   ThemeCatalogDetailResponseDto,
   ThemeCatalogResponseDto,
 } from './upstream/dto/response/overlay-theme.response.dto.js';
@@ -24,7 +24,14 @@ export class MelomingOverlayThemeCatalogController {
   @ApiResponse({
     status: 200,
     description: '카탈로그 조회 성공',
-    type: ThemeCatalogResponseDto,
+    schema: {
+      type: 'object',
+      properties: {
+        themes: { type: 'array', items: { type: 'object', additionalProperties: true } },
+      },
+      required: ['themes'],
+      additionalProperties: false,
+    },
   })
   @Get()
   listThemes(): ThemeCatalogResponseDto {
@@ -43,7 +50,12 @@ export class MelomingOverlayThemeCatalogController {
   @ApiResponse({
     status: 200,
     description: '단일 테마 조회 성공',
-    type: ThemeCatalogDetailResponseDto,
+    schema: {
+      type: 'object',
+      properties: { theme: { type: 'object', additionalProperties: true } },
+      required: ['theme'],
+      additionalProperties: false,
+    },
   })
   @ApiResponse({ status: 404, description: '테마를 찾을 수 없음' })
   @Get(':themeId')
