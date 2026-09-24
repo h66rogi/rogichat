@@ -505,6 +505,26 @@ class EdgeSnapshotTests(unittest.TestCase):
         with self.assertRaises(w.Rejected):
             self.snapshot(self.caddy)
 
+    def test_qa_media_peers_are_allowed_but_pinned_during_activation(self):
+        self.network['Containers']['old-web-id'] = {'Name': 'rogichat-qa-web'}
+        self.network['Containers']['media-id'] = {'Name': 'rogichat-qa-media-gateway'}
+        self.network['Containers']['overlay-id'] = {'Name': 'rogichat-qa-overlay'}
+        baseline = self.snapshot(self.caddy)
+        self.assertEqual(baseline[2], (('caddy', 'caddy'),
+                                       ('rogichat-qa-media-gateway', 'media-id'),
+                                       ('rogichat-qa-overlay', 'overlay-id')))
+        self.network['Containers']['new-web-id'] = self.network['Containers'].pop('old-web-id')
+        self.assertEqual(self.snapshot(self.caddy), baseline)
+        self.network['Containers']['replacement-id'] = self.network['Containers'].pop('media-id')
+        self.assertNotEqual(self.snapshot(self.caddy), baseline)
+
+    def test_production_rejects_qa_media_peers(self):
+        self.r = request('production')
+        self.caddy['NetworkSettings']['Networks'] = {'rogichat-prod-web': {}, 'api-network': {}}
+        self.network['Containers']['media-id'] = {'Name': 'rogichat-qa-media-gateway'}
+        with self.assertRaises(w.Rejected):
+            self.snapshot(self.caddy)
+
 
 class ArchiveTests(unittest.TestCase):
     def approval(self):

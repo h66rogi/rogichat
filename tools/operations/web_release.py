@@ -299,8 +299,17 @@ def snapshot_edge(request):
     require({'/data', '/config'} <= {m['Destination'] for m in caddy['Mounts']})
     members = decode(docker('network', 'inspect', network))[0]
     require(members['Driver'] == 'bridge' and not members['Internal'])
-    require(all(v['Name'] in (caddy['Name'].lstrip('/'), network) for v in (members.get('Containers') or {}).values()))
-    return {k: caddy[k] for k in ('Id', 'Image', 'Mounts', 'HostConfig')}, nets
+    allowed = {caddy['Name'].lstrip('/'), network}
+    if request['environment'] == 'qa':
+        allowed.update(('rogichat-qa-media-gateway', 'rogichat-qa-overlay'))
+    containers = members.get('Containers') or {}
+    require(all(value['Name'] in allowed for value in containers.values()))
+    # The web container is recreated during activation; every other peer must
+    # retain its Docker identity throughout the release.
+    stable_peers = tuple(sorted((value['Name'], container_id) for container_id, value in containers.items()
+                                if value['Name'] != network))
+    require(len({name for name, _ in stable_peers}) == len(stable_peers))
+    return {k: caddy[k] for k in ('Id', 'Image', 'Mounts', 'HostConfig')}, nets, stable_peers
 
 
 def preflight():

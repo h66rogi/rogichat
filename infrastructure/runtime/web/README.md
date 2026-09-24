@@ -29,7 +29,8 @@ make the bucket public. Production does not inherit the QA storage origin.
 
 ## Edge integration
 
-The web network contains only Caddy and the web container. Never attach web to
+The QA web network also contains the separately managed media gateway and overlay;
+the production web network contains only Caddy and the web container. Never attach web to
 the API's default network: the backend's trust-proxy boundary assumes only Caddy
 and the API are permanent peers there.
 
