@@ -1,5 +1,5 @@
 import { ApiTags } from '@nestjs/swagger';
-import { Controller, Get, Inject, Param, Patch, Post, Req } from '@nestjs/common';
+import { Controller, Get, HttpCode, Inject, Param, Patch, Post, Req } from '@nestjs/common';
 import type { Request } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
@@ -54,6 +54,15 @@ export class MelomingLiveSessionController {
     const session=await this.sessions.clone(readCommandCredentials(request,this.config),id(sessionId),request.query as Record<string,unknown>);
     if(session)this.gateway.broadcast('session.started',{sessionId:session.id,isLive:true});
     return session;
+  }
+
+  @Post('sessions/:id/lyrics-playback-state')
+  @HttpCode(204)
+  @channelDoc('melomingLyricsPlaybackState', '원본 가사 재생 상태 동기화', 'write', 204)
+  async lyricsPlaybackState(@Param('id') sessionId: string, @Req() request: Request) {
+    const event = await this.sessions.publishLyricsPlaybackState(
+      readCommandCredentials(request, this.config), id(sessionId), request.body);
+    if (event) this.gateway.broadcastLyricsPlaybackState(event.overlayToken, event.state);
   }
 
   @Get('sessions/history') @channelDoc('melomingLiveSessionHistory', '원본 방송 기록', 'read')

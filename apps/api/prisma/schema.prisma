@@ -268,6 +268,19 @@ model ChannelFeatureSettings {
   @@map("channel_feature_settings")
 }
 
+model ChannelDisplaySettings {
+  channelId          String   @id @map("channel_id") @db.Char(36)
+  profileImageUrl    String?  @map("profile_image_url") @db.VarChar(2048)
+  additionalLinks    Json?    @map("additional_links")
+  themeColor         String   @default("#ff8c9d") @map("theme_color") @db.VarChar(7)
+  channelDescription String?  @map("channel_description") @db.Text
+  visibility         String   @default("PUBLIC") @db.VarChar(8)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  channel            rooms    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@map("channel_display_settings")
+}
+
 /// Copied from Meloming ChannelPricingSettings. The channel key maps to the
 /// owner-bound Rogichat room while the pricing JSON keeps the original shape.
 model ChannelPricingSettings {
@@ -593,16 +606,149 @@ model GlobalSong {
   channelCount     Int                  @default(0) @map("channel_count")
   normVersion      Int                  @default(1) @map("norm_version") @db.SmallInt
   entityConfidence GlobalSongConfidence @default(MEDIUM) @map("entity_confidence")
+  mxmCommontrackId Int? @map("mxm_commontrack_id")
+  mxmTrackId Int? @map("mxm_track_id")
+  mxmHasLyrics Boolean @default(false) @map("mxm_has_lyrics")
+  mxmHasSubtitles Boolean @default(false) @map("mxm_has_subtitles")
+  mxmHasRichsync Boolean @default(false) @map("mxm_has_richsync")
+  mxmInstrumental Boolean @default(false) @map("mxm_instrumental")
+  mxmShareUrl String? @map("mxm_share_url") @db.Text
+  mxmAlbumId Int? @map("mxm_album_id")
+  mxmAlbumName String? @map("mxm_album_name") @db.VarChar(255)
+  mxmAlbumArtUrl String? @map("mxm_album_art_url") @db.Text
+  mxmTrackLengthSec Int? @map("mxm_track_length_sec")
+  mxmRating Int? @map("mxm_rating")
+  mxmExplicit Boolean? @map("mxm_explicit")
+  mxmGenresJson Json? @map("mxm_genres_json")
+  primaryIsrc String? @map("primary_isrc") @db.VarChar(15)
+  iswc String? @map("iswc") @db.VarChar(15)
+  spotifyTrackId String? @map("spotify_track_id") @db.VarChar(30)
+  matcherStatus GlobalSongMatcherStatus @default(PENDING) @map("matcher_status")
+  matcherAttempts Int @default(0) @map("matcher_attempts")
+  matcherLastAt DateTime? @map("matcher_last_at")
+  matcherConfidence MatcherConfidence? @map("matcher_confidence")
+  matcherSource MatcherSource? @map("matcher_source")
   createdAt        DateTime             @default(now()) @map("created_at")
   updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at")
   globalArtist GlobalArtist    @relation(fields: [globalArtistId], references: [id])
   aliases      GlobalSongAlias[]
   songs        Song[]
+  lyrics       GlobalSongLyrics?
   @@unique([normTitle, globalArtistId])
   @@index([normTitle])
   @@index([globalArtistId])
   @@index([channelCount(sort: Desc)])
+  @@index([mxmTrackId])
+  @@index([mxmCommontrackId])
+  @@index([primaryIsrc])
+  @@index([matcherLastAt])
+  @@index([matcherStatus, matcherAttempts, channelCount(sort: Desc)])
   @@map("global_songs")
+}
+
+// Copied from Meloming GlobalSongLyrics; Rogichat starts with an empty catalog.
+model GlobalSongLyrics {
+  globalSongId            Int          @id @map("global_song_id")
+  source                  LyricsSource @default(MUSIXMATCH) @map("source")
+  externalId              String?      @map("external_id") @db.VarChar(50)
+  body                    String       @db.MediumText
+  bodyKoPron              String?      @map("body_ko_pron") @db.MediumText
+  bodyKoPronAt            DateTime?    @map("body_ko_pron_at")
+  bodyTranslation         String?      @map("body_translation") @db.MediumText
+  bodyTranslationLanguage String?      @map("body_translation_language") @db.VarChar(8)
+  bodyTranslationAt       DateTime?    @map("body_translation_at")
+  language                String?      @db.VarChar(8)
+  hasSubtitle             Boolean      @default(false) @map("has_subtitle")
+  subtitleId              String?      @map("subtitle_id") @db.VarChar(50)
+  subtitleBody            String?      @map("subtitle_body") @db.MediumText
+  subtitleLength          Int?         @map("subtitle_length")
+  hasRichsync             Boolean      @default(false) @map("has_richsync")
+  richsyncId              String?      @map("richsync_id") @db.VarChar(50)
+  richsyncBody            String?      @map("richsync_body") @db.LongText
+  copyrightLine           String?      @map("copyright_line") @db.VarChar(500)
+  trackingScript          String?      @map("tracking_script_url") @db.Text
+  trackingPixel           String?      @map("tracking_pixel_url") @db.Text
+  shareUrl                String?      @map("share_url") @db.Text
+  restrictedKr            Boolean      @default(false) @map("restricted_kr")
+  restrictionsRaw         Json?        @map("restrictions_raw")
+  fetchedAt               DateTime     @map("fetched_at")
+  expiresAt               DateTime?    @map("expires_at")
+  updatedAt               DateTime     @updatedAt @map("updated_at")
+  globalSong GlobalSong @relation(fields: [globalSongId], references: [id], onDelete: Cascade)
+  @@index([fetchedAt])
+  @@index([expiresAt])
+  @@map("global_song_lyrics")
+}
+
+// Live lyrics quota tables are copied from Meloming with UUID account/room keys.
+model LyricsQuotaSettings {
+  id              Int      @id @default(1)
+  freeLimit       Int?     @map("free_limit")
+  proLimit        Int?     @map("pro_limit")
+  updatedByUserId String?  @map("updated_by_user_id") @db.Char(36)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+  @@map("lyrics_quota_settings")
+}
+
+model LyricsQuotaWindow {
+  userId          String    @id @map("user_id") @db.Char(36)
+  windowStartedAt DateTime? @map("window_started_at") @db.DateTime(3)
+  windowEndsAt    DateTime? @map("window_ends_at") @db.DateTime(3)
+  usedCount       Int       @default(0) @map("used_count")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+  user users @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([windowEndsAt], map: "idx_lyrics_quota_window_end")
+  @@map("lyrics_quota_windows")
+}
+
+model LyricsQuotaConsumption {
+  id              BigInt   @id @default(autoincrement())
+  userId          String   @map("user_id") @db.Char(36)
+  channelId       String   @map("channel_id") @db.Char(36)
+  liveSessionId   Int      @map("live_session_id")
+  songRequestId   Int      @map("song_request_id")
+  windowStartedAt DateTime @map("window_started_at") @db.DateTime(3)
+  createdAt       DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  user users @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel rooms @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  liveSession LiveSession @relation(fields: [liveSessionId], references: [id], onDelete: Cascade)
+  songRequest SongRequest @relation(fields: [songRequestId], references: [id], onDelete: Cascade)
+  @@unique([channelId, liveSessionId, songRequestId], map: "uq_lyrics_quota_consumption_context")
+  @@index([userId, windowStartedAt], map: "idx_lyrics_quota_user_window")
+  @@map("lyrics_quota_consumptions")
+}
+
+enum GlobalSongMatcherStatus {
+  PENDING
+  MATCHED
+  MATCHED_NO_LYRICS
+  MATCHED_INSTRUMENTAL
+  MATCHED_RESTRICTED
+  MATCHED_DUP_OF_OTHER
+  UNMATCHED
+  MANUAL_NEEDED
+  IGNORED
+  ERROR
+}
+
+enum MatcherConfidence {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum MatcherSource {
+  PRIMARY
+  ALTERNATE_LLM
+  AGENT_RECOVER
+  MANUAL
+}
+
+enum LyricsSource {
+  MUSIXMATCH
+  MANUAL
 }
 
 model GlobalSongAlias {
@@ -646,6 +792,7 @@ model LiveSession {
   songRequests SongRequest[]
   settings     LiveSessionSettings?
   omakaseLedgerEntries OmakaseLedgerEntry[]
+  lyricsQuotaConsumptions LyricsQuotaConsumption[]
 
   @@index([channelId, status], map: "idx_live_session_channel_status")
   @@index([channelId, sessionType, status], map: "idx_live_session_channel_type_status")
@@ -693,6 +840,7 @@ model SongRequest {
   sourceChannel rooms?      @relation("SongRequestSourceChannel", fields: [sourceChannelId], references: [id], onDelete: SetNull)
   requestUser   users?      @relation("userSongRequests", fields: [requestUserId], references: [id], onDelete: SetNull)
   omakaseLedgerEntries OmakaseLedgerEntry[]
+  lyricsQuotaConsumptions LyricsQuotaConsumption[]
 
   @@index([liveSessionId, status], map: "idx_song_request_session_status")
   @@index([liveSessionId, queueOrder], map: "idx_song_request_queue_order")
@@ -985,7 +1133,7 @@ model SongAddRequest {
 // Copied from meloming-back ChannelOverlayLayout. Only the Channel integer FK
 // becomes the owner-bound Rogichat room UUID; musicbook-settings uses this row.
 model ChannelOverlayLayout {
-  id         Int      @id
+  id         Int      @id @default(autoincrement())
   channelId  String   @map("channel_id") @db.Char(36)
   layoutType String   @map("layout_type") @db.VarChar(32)
   layout     Json     @map("layout_json")
@@ -999,6 +1147,33 @@ model ChannelOverlayLayout {
   @@map("channel_overlay_layouts")
 }
 
+/// Meloming channel theme, keyed to Rogichat's owner-bound room.
+model ChannelOverlayTheme {
+  channelId      String   @id @map("channel_id") @db.Char(36)
+  defaultThemeId String   @default("brutalist") @map("default_theme_id") @db.VarChar(64)
+  defaultOptions Json     @default("{}") @map("default_options_json")
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  channel      rooms                       @relation(fields: [channelId], references: [id], onDelete: Restrict)
+  widgetThemes ChannelOverlayWidgetTheme[]
+
+  @@map("channel_overlay_themes")
+}
+
+/// Meloming widget theme overrides. Null values inherit the channel theme.
+model ChannelOverlayWidgetTheme {
+  channelId  String   @map("channel_id") @db.Char(36)
+  widgetType String   @map("widget_type") @db.VarChar(32)
+  themeId    String?  @map("theme_id") @db.VarChar(64)
+  options    Json?    @map("options_json")
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.DateTime(0)
+
+  theme ChannelOverlayTheme @relation(fields: [channelId], references: [channelId], onDelete: Cascade)
+
+  @@id([channelId, widgetType])
+  @@map("channel_overlay_widget_themes")
+}
+
 model users {
   id                    String     @id @db.Char(36)
   status                UserStatus @default(ACTIVE)
@@ -1010,6 +1185,8 @@ model users {
   soop                  platform_soop?
   identities            auth_identities[]
   sessions              auth_sessions[]
+  lyricsQuotaWindow     LyricsQuotaWindow?
+  lyricsQuotaConsumptions LyricsQuotaConsumption[]
   songAddRequests       SongAddRequest[] @relation("SongAddRequestRequester")
   processedSongRequests SongAddRequest[] @relation("SongAddRequestProcessor")
   clipRequests          ClipRequest[] @relation("ClipRequestRequester")
@@ -1149,6 +1326,7 @@ model admin_capabilities {
 model rooms {
   id              String       @id @db.Char(36)
   name            String       @db.VarChar(80)
+  console_token   String?      @unique @db.VarChar(64)
   schedule_notice String?      @db.Text
   mode            RoomMode
   status          RoomStatus   @default(ACTIVE)
@@ -1175,10 +1353,13 @@ model rooms {
   channelFavorites UserChannelFavorite[]
   channelProfile ChannelProfile?
   channelFeatureSettings ChannelFeatureSettings?
+  channelDisplaySettings ChannelDisplaySettings?
   pricingSettings ChannelPricingSettings?
   channelOverlayLayouts ChannelOverlayLayout[]
+  channelOverlayTheme ChannelOverlayTheme?
   songAddRequests SongAddRequest[]
   liveSessions LiveSession[]
+  lyricsQuotaConsumptions LyricsQuotaConsumption[]
   liveRequestSettings ChannelSongRequestSettings?
   omakaseSettings ChannelOmakaseSettings?
   omakaseLedgerEntries OmakaseLedgerEntry[]

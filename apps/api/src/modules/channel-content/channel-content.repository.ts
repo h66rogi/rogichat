@@ -27,4 +27,20 @@ export class ChannelContentRepository {
     if (user?.status !== 'ACTIVE' || !user.creator?.enabled) throw new ApiError('FORBIDDEN', 403);
     return channel.roomId;
   }
+
+  async requireConsoleToken(tx: Transaction, token: string): Promise<{ userId: string; roomId: string }> {
+    if (!/^[a-f0-9]{64}$/.test(token)) throw new ApiError('UNAUTHENTICATED', 401);
+    const room = await tx.prisma.rooms.findUnique({ where: { console_token: token },
+      select: { id: true, owner: { select: { user_id: true } } } });
+    if (!room?.owner?.user_id) throw new ApiError('UNAUTHENTICATED', 401);
+    const roomId = await this.requireOwner(tx, room.owner.user_id);
+    if (roomId !== room.id) throw new ApiError('UNAUTHENTICATED', 401);
+    const owner = await tx.prisma.users.findUnique({ where: { id: room.owner.user_id },
+      select: { reviewer_expires_at: true, soop: { select: { status: true } } } });
+    if (!owner || (owner.soop?.status !== 'VERIFIED' &&
+      (!owner.reviewer_expires_at || owner.reviewer_expires_at <= await tx.now()))) {
+      throw new ApiError('FORBIDDEN', 403);
+    }
+    return { userId: room.owner.user_id, roomId };
+  }
 }

@@ -18,11 +18,13 @@ import { SongRequestsManagement } from "@/meloming/domains/channel/components/ma
 import { ClipRequestsManagement } from "@/meloming/domains/channel/components/management/clip-requests-management";
 import { ScheduleSettingsContent } from "@/meloming/domains/channel/components/management/schedule-settings-content";
 import { WardrobeManagement } from "@/meloming/domains/channel/components/management/wardrobe-management";
-import { LiveManagementContent } from "@/features/live-management-content";
+import { ConsoleSettingsContent } from "@/meloming/domains/channel/components/management/console-settings-content";
+import { useConsoleToken } from "@/meloming/domains/channel/hooks/use-console-token";
+import { openConsolePopup } from "@/meloming/domains/channel/utils/console-popup";
 import { MANAGEMENT_MENU_ITEMS, type ManagementSection } from "@/meloming/domains/channel/components/management/types";
 import { SongRequestSettingsContent } from "@/meloming/domains/overlay/components/song-request-settings-content";
 import { SessionHistory } from "@/meloming/domains/overlay/components/session-history";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/meloming/domains/auth/hooks/use-auth";
 import type { GetChannelIdentifierPermissionResponse } from "@/meloming/domains/channel/types/channel";
 import { AlertCircle } from "lucide-react";
@@ -32,6 +34,7 @@ import {
   AlertTitle,
 } from "@/meloming/shared/components/ui/alert";
 import { SetlistsManagement } from "@/meloming/domains/song-live/components/setlists-management";
+import { SettingsSection } from "@/meloming/domains/channel/components/management/settings-section";
 
 /**
  * 섹션별 필요 권한 정의
@@ -61,6 +64,7 @@ const SECTION_PERMISSIONS: Partial<
   "clip-requests": (p) => p.isOwner || p.manageContent,
   // 신청곡 및 오버레이 설정
   live: (p) => p.isOwner || p.manageSettings,
+  console: (p) => p.isOwner || p.manageSettings,
   "song-request-settings": (p) => p.isOwner || p.manageSettings,
   "session-history": (p) => p.isOwner || p.manageSettings,
   // 채널 설정
@@ -69,7 +73,24 @@ const SECTION_PERMISSIONS: Partial<
   // 셋리스트 관리: 콘텐츠 권한자
   setlists: (p) => p.isOwner || p.manageContent,
   wardrobe: (p) => p.isOwner || p.manageContent,
+  settings: (p) => p.isOwner || p.manageSettings,
 };
+
+/** Copied from the 2026-08-15 Meloming /manage/live popup redirect. */
+function LiveConsoleRedirect({ user }: { user: string }) {
+  const router = useRouter();
+  const { data: consoleTokenData, isLoading: isTokenLoading } = useConsoleToken(user);
+  const openedRef = useRef(false);
+
+  useEffect(() => {
+    if (isTokenLoading || openedRef.current) return;
+    openConsolePopup(user, consoleTokenData?.consoleToken);
+    openedRef.current = true;
+    router.replace(`/channel/${user}/manage`);
+  }, [user, router, consoleTokenData, isTokenLoading]);
+
+  return null;
+}
 
 /**
  * 권한 없음 안내 컴포넌트
@@ -287,12 +308,14 @@ export function ChannelManageContent({ user }: { user: string }) {
           {activeSection === "session-history" && (
             <SessionHistory identifier={user} />
           )}
-          {activeSection === "live" && <LiveManagementContent user={user} />}
+          {activeSection === "console" && <ConsoleSettingsContent user={user} />}
+          {activeSection === "live" && <LiveConsoleRedirect user={user} />}
           {activeSection === "schedule-settings" && (
             <ScheduleSettingsContent user={user} />
           )}
           {activeSection === "setlists" && <SetlistsManagement />}
           {activeSection === "wardrobe" && <WardrobeManagement />}
+          {activeSection === "settings" && <SettingsSection />}
         </SectionErrorBoundary>
       </div>
     </>

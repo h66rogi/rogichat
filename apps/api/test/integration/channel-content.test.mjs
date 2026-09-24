@@ -171,6 +171,17 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(detail.id,1);
   assert.equal(detail.name,'후로기');
   assert.deepEqual(detail._count,{songs:0,artists:0,categories:0});
+  const channelSettings={name:'후로기',webPath:'hurogi',platformUrl:'',profileImageUrl:'https://api.qa.rogi.chat/v1/upload/image/example.png',
+    topBannerUrl:null,leftBannerUrl:null,leftBannerLink:null,rightBannerUrl:null,rightBannerLink:null,
+    additionalLinks:[{name:'공지',url:'https://example.com/notice'}],themeColor:'#12abef',
+    channelDescription:'노래책 공지',visibility:'UNLISTED'};
+  await assert.rejects(channel.update({token:fanId},channelSettings),error=>error.getStatus()===403);
+  await assert.rejects(channel.update({token:ownerId},{...channelSettings,webPath:'other'}),error=>error.getStatus()===400);
+  const savedChannel=await channel.update({token:ownerId},channelSettings);
+  assert.equal(savedChannel.themeColor,'#12abef');
+  assert.equal(savedChannel.channelDescription,'노래책 공지');
+  assert.deepEqual(savedChannel.additionalLinks,channelSettings.additionalLinks);
+  assert.equal((await new MelomingChannelService(db.transactions,auth,repository).detail()).visibility,'UNLISTED');
   assert.deepEqual((await channel.features()).items.filter(item=>item.isEnabled).map(item=>item.key),['musicbook','schedule','setlist','wardrobe']);
   const menuItems = [
     {key:'wardrobe',label:'옷장',isEnabled:true,order:0},
@@ -618,6 +629,33 @@ test('ported live session start, public active, end and history use owner room',
   assert.equal((await requests.queue({token:ownerId}, {sessionId:String(privateSession.id)})).total,0);
   await assert.rejects(requests.create({token:fanId},{liveSessionId:privateSession.id,rawArtist:'가수',rawTitle:'노래'}));
   await live.end({token:ownerId},privateSession.id);
+});
+
+test('copied console token controls live sessions and revocation closes access',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  await db.transactions.write(tx=>tx.prisma.users.update({where:{id:ownerId},
+    data:{reviewer_expires_at:new Date(Date.now()+86_400_000)}}));
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const channel=new MelomingChannelService(db.transactions,auth,repository);
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
+  const {consoleToken}=await channel.consoleToken({token:ownerId});
+  assert.match(consoleToken,/^[a-f0-9]{64}$/);
+  assert.equal((await channel.consoleToken({token:ownerId})).consoleToken,consoleToken);
+  assert.equal((await db.transactions.read(tx=>repository.requireConsoleToken(tx,consoleToken))).userId,ownerId);
+  await assert.rejects(channel.consoleToken({token:fanId}),error=>error.getStatus()===403);
+  const started=await live.start({consoleToken},{},{platform:'SOOP'});
+  assert.equal(started.status,'ACTIVE');
+  assert.equal((await live.active({consoleToken},{})).id,started.id);
+  const manual=await requests.manual({consoleToken},started.id,{rawArtist:'수동 가수',rawTitle:'수동 곡'});
+  assert.equal((await requests.queue({consoleToken},{sessionId:String(started.id)})).requests[0].id,manual.id);
+  const replacement=await channel.regenerateConsoleToken({token:ownerId});
+  assert.notEqual(replacement.consoleToken,consoleToken);
+  await assert.rejects(live.active({consoleToken},{}),error=>error.getStatus()===401);
+  assert.equal((await live.active({consoleToken:replacement.consoleToken},{})).id,started.id);
+  await channel.deleteConsoleToken({token:ownerId});
+  await assert.rejects(live.active({consoleToken:replacement.consoleToken},{}),error=>error.getStatus()===401);
 });
 
 test('ported live song requests persist queue, owner controls and completed setlist',async t=>{

@@ -7,6 +7,8 @@ import type { Socket } from 'socket.io';
 import { LifecycleState } from '../../common/lifecycle/lifecycle-state.js';
 import { AUTH_CONFIG } from '../auth/auth.tokens.js';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
+import { Transactions } from '../../infrastructure/database/transactions.js';
+import { SongRequestService } from './upstream/song-request.service.js';
 
 /** Transport boundary for the copied Meloming /song-live Socket.IO client. */
 @Injectable()
@@ -18,6 +20,7 @@ export class MelomingSongLiveGateway implements OnApplicationBootstrap, OnModule
     @Inject(HttpAdapterHost) private readonly host: HttpAdapterHost,
     @Inject(AUTH_CONFIG) config: AuthConfig,
     @Inject(LifecycleState) private readonly lifecycle: LifecycleState,
+    @Inject(Transactions) private readonly transactions: Transactions,
   ) {
     this.io = new Server({
       path: '/socket.io', transports: ['websocket', 'polling'], serveClient: false,
@@ -47,6 +50,54 @@ export class MelomingSongLiveGateway implements OnApplicationBootstrap, OnModule
       });
       socket.onAny((event: string) => { if (event !== 'join' && event !== 'leave') socket.disconnect(true); });
     });
+    this.io.on('connection', (socket: Socket) => {
+      if (this.lifecycle.draining) { socket.disconnect(true); return; }
+      const token = socket.handshake.query.widgetId;
+      if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) {
+        socket.disconnect(true);
+        return;
+      }
+      void this.transactions.read(async tx => tx.prisma.liveSession.findFirst({
+        where: { overlayToken: token }, select: { id: true },
+      })).then(session => {
+        if (!session || this.lifecycle.draining || !socket.connected) { socket.disconnect(true); return; }
+        void socket.join(`overlay:${token}`);
+        socket.emit('ready');
+        void this.snapshot(token).then(snapshot => {
+          if (snapshot && socket.connected) socket.emit('queue.sync', snapshot);
+        }).catch(() => socket.emit('overlay:sync:error', { message: '동기화에 실패했습니다.' }));
+      }).catch(() => socket.disconnect(true));
+      socket.on('overlay:resume', () => {
+        void this.snapshot(token).then(snapshot => {
+          if (snapshot && socket.connected) socket.emit('queue.sync', snapshot);
+        }).catch(() => socket.emit('overlay:sync:error', { message: '동기화에 실패했습니다.' }));
+      });
+    });
+  }
+
+  private snapshot(token: string) {
+    return this.transactions.read(async tx => {
+      const session = await tx.prisma.liveSession.findFirst({
+        where: { overlayToken: token }, select: { id: true, channelId: true, status: true,
+          settings: true },
+      });
+      if (!session) return null;
+      const requests = new SongRequestService(tx.prisma, session.channelId);
+      const queue = (await requests.getQueueBySessionId(session.id)).requests;
+      const nowPlaying = await requests.getNowPlaying(session.id);
+      return { sessionId: session.id, isLive: session.status === 'ACTIVE',
+        queue, nowPlaying, settings: session.settings, omakase: null };
+    });
+  }
+
+  private async refreshOverlay(): Promise<void> {
+    const active = await this.transactions.read(async tx => tx.prisma.liveSession.findMany({
+      where: { status: 'ACTIVE' }, select: { overlayToken: true },
+    }));
+    for (const { overlayToken } of active) {
+      const snapshot = await this.snapshot(overlayToken);
+      if (snapshot) this.io.to(`overlay:${overlayToken}`).emit('queue.sync', snapshot);
+    }
   }
 
   onApplicationBootstrap(): void {
@@ -57,7 +108,14 @@ export class MelomingSongLiveGateway implements OnApplicationBootstrap, OnModule
 
   broadcast(event: 'request.added' | 'request.updated' | 'request.removed' | 'queue.reordered' |
     'settings.updated' | 'session.started' | 'session.ended', payload: { sessionId?: number; requestId?: number; isLive?: boolean }): void {
-    if (!this.lifecycle.draining) this.io.of('/song-live').to('song-live:channel:1').emit(event, payload);
+    if (this.lifecycle.draining) return;
+    this.io.of('/song-live').to('song-live:channel:1').emit(event, payload);
+    void this.refreshOverlay().catch(() => undefined);
+  }
+
+  broadcastLyricsPlaybackState(overlayToken: string, state: Record<string, unknown>): void {
+    if (this.lifecycle.draining) return;
+    this.io.to(`overlay:${overlayToken}`).emit('lyrics.playback.state', state);
   }
 
   async onModuleDestroy(): Promise<void> {

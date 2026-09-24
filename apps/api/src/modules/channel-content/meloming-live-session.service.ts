@@ -8,6 +8,9 @@ import { nextChannelContentId } from './channel-content-id.js';
 import { LiveSessionService } from './upstream/live-session.service.js';
 import { parseSongRequestSettings } from './meloming-song-request-settings.service.js';
 
+export type ConsoleCredentials = { readonly consoleToken: string };
+type LiveCredentials = SessionCredentials | ConsoleCredentials;
+
 function identifier(value: unknown) {
   if (value !== undefined && value !== 'hurogi' && value !== '1') throw new ApiError('NOT_FOUND', 404);
 }
@@ -23,6 +26,12 @@ export class MelomingLiveSessionService {
     @Inject(AuthService) private readonly auth: AuthService,
     @Inject(ChannelContentRepository) private readonly repository: ChannelContentRepository) {}
 
+  private async owner(tx: Parameters<Parameters<Transactions['write']>[0]>[0], credentials: LiveCredentials) {
+    if ('consoleToken' in credentials) return this.repository.requireConsoleToken(tx, credentials.consoleToken);
+    const actor = await this.auth.require(tx, credentials, true);
+    return { userId: actor.userId, roomId: await this.repository.requireOwner(tx, actor.userId) };
+  }
+
   private async source(tx: Parameters<Parameters<Transactions['write']>[0]>[0], ownerId: string, roomId: string) {
     let alias = await tx.prisma.melomingUserAlias.findUnique({ where: { userId: ownerId }, select: { id: true } });
     if (!alias) alias = await tx.prisma.melomingUserAlias.create({ data: {
@@ -31,7 +40,7 @@ export class MelomingLiveSessionService {
     return new LiveSessionService(tx.prisma,roomId,ownerId,alias.id);
   }
 
-  start(credentials: CommandCredentials, raw: Record<string, unknown>, value: unknown) {
+  start(credentials: CommandCredentials | ConsoleCredentials, raw: Record<string, unknown>, value: unknown) {
     identifier(raw.identifier);
     if (Object.keys(raw).some(key => key !== 'identifier') || !value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError('INVALID_REQUEST', 400);
     const body = value as Record<string, unknown>;
@@ -39,24 +48,22 @@ export class MelomingLiveSessionService {
       (body.platform !== undefined && body.platform !== 'SOOP') ||
       (body.practiceMode !== undefined && typeof body.practiceMode !== 'boolean')) throw new ApiError('INVALID_REQUEST', 400);
     return this.transactions.write(async tx => {
-      const actor = await this.auth.require(tx, credentials, true);
-      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      const { userId, roomId } = await this.owner(tx, credentials);
       await this.repository.lockPrimary(tx);
-      const soop=await tx.prisma.platform_soop.findUnique({where:{user_id:actor.userId},
+      const soop=await tx.prisma.platform_soop.findUnique({where:{user_id:userId},
         select:{status:true,provider_subject:true}});
       const platformChannelId=soop?.status==='VERIFIED'?Buffer.from(soop.provider_subject).toString('utf8'):undefined;
-      return (await this.source(tx,actor.userId,roomId)).startSession({ platform: 'SOOP',
+      return (await this.source(tx,userId,roomId)).startSession({ platform: 'SOOP',
         practiceMode: body.practiceMode === true,...(platformChannelId?{platformChannelId}:{}) });
     });
   }
 
-  active(credentials: SessionCredentials, raw: Record<string, unknown>) {
+  active(credentials: LiveCredentials, raw: Record<string, unknown>) {
     identifier(raw.identifier);
     if (Object.keys(raw).some(key => key !== 'identifier')) throw new ApiError('INVALID_REQUEST', 400);
     return this.transactions.write(async tx => {
-      const actor = await this.auth.require(tx, credentials, true);
-      const roomId = await this.repository.requireOwner(tx, actor.userId);
-      return (await this.source(tx,actor.userId,roomId)).getActiveSession();
+      const { userId, roomId } = await this.owner(tx, credentials);
+      return (await this.source(tx,userId,roomId)).getActiveSession();
     });
   }
 
@@ -75,16 +82,15 @@ export class MelomingLiveSessionService {
     });
   }
 
-  end(credentials: CommandCredentials, sessionId: number) {
+  end(credentials: CommandCredentials | ConsoleCredentials, sessionId: number) {
     return this.transactions.write(async tx => {
-      const actor = await this.auth.require(tx, credentials, true);
-      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      const { userId, roomId } = await this.owner(tx, credentials);
       await this.repository.lockPrimary(tx);
-      return (await this.source(tx,actor.userId,roomId)).endSession(sessionId);
+      return (await this.source(tx,userId,roomId)).endSession(sessionId);
     });
   }
 
-  updateSettings(credentials:CommandCredentials,sessionId:number,value:unknown) {
+  updateSettings(credentials:CommandCredentials | ConsoleCredentials,sessionId:number,value:unknown) {
     if(!value||typeof value!=='object'||Array.isArray(value))throw new ApiError('INVALID_REQUEST',400);
     const raw=value as Record<string,unknown>;
     if(raw.requestEnabled!==undefined&&typeof raw.requestEnabled!=='boolean'||
@@ -92,42 +98,75 @@ export class MelomingLiveSessionService {
     const {requestEnabled,paused,...channelScope}=raw;
     const parsed=parseSongRequestSettings(channelScope);
     return this.transactions.write(async tx=>{
-      const actor=await this.auth.require(tx,credentials,true);
-      const roomId=await this.repository.requireOwner(tx,actor.userId);
+      const { userId, roomId } = await this.owner(tx, credentials);
       await this.repository.lockPrimary(tx);
-      return (await this.source(tx,actor.userId,roomId)).updateSettings(sessionId,{...parsed,
+      return (await this.source(tx,userId,roomId)).updateSettings(sessionId,{...parsed,
         ...(requestEnabled!==undefined?{requestEnabled:requestEnabled as boolean}:{}),
         ...(paused!==undefined?{paused:paused as boolean}:{})});
     });
   }
 
-  clone(credentials:CommandCredentials,sessionId:number,raw:Record<string,unknown>) {
+  clone(credentials:CommandCredentials | ConsoleCredentials,sessionId:number,raw:Record<string,unknown>) {
     identifier(raw.identifier);
     if(Object.keys(raw).some(key=>key!=='identifier'))throw new ApiError('INVALID_REQUEST',400);
     return this.transactions.write(async tx=>{
-      const actor=await this.auth.require(tx,credentials,true);
-      const roomId=await this.repository.requireOwner(tx,actor.userId);
+      const { userId, roomId } = await this.owner(tx, credentials);
       await this.repository.lockPrimary(tx);
-      return (await this.source(tx,actor.userId,roomId)).cloneSession(sessionId);
+      return (await this.source(tx,userId,roomId)).cloneSession(sessionId);
     });
   }
 
-  history(credentials: SessionCredentials, raw: Record<string, unknown>) {
+  /** Adapted from Meloming SessionService.publishLyricsPlaybackState. */
+  publishLyricsPlaybackState(credentials: CommandCredentials | ConsoleCredentials, sessionId: number, value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError('INVALID_REQUEST', 400);
+    const raw = value as Record<string, unknown>;
+    if (Object.keys(raw).some(key => !['songRequestId','playbackSource','anchorMs','anchorAt',
+      'playbackRate','durationMs','offsetMs','clientInstanceId'].includes(key)) ||
+      (raw.songRequestId !== undefined && raw.songRequestId !== null &&
+        (!Number.isSafeInteger(raw.songRequestId) || (raw.songRequestId as number) < 1)) ||
+      !['video','manual'].includes(raw.playbackSource as string) ||
+      typeof raw.anchorMs !== 'number' || !Number.isFinite(raw.anchorMs) || raw.anchorMs < 0 ||
+      (raw.anchorAt !== undefined && raw.anchorAt !== null &&
+        (typeof raw.anchorAt !== 'string' || Number.isNaN(Date.parse(raw.anchorAt)))) ||
+      typeof raw.playbackRate !== 'number' || !Number.isFinite(raw.playbackRate) ||
+        raw.playbackRate < 0.25 || raw.playbackRate > 4 ||
+      typeof raw.durationMs !== 'number' || !Number.isFinite(raw.durationMs) || raw.durationMs < 0 ||
+      typeof raw.offsetMs !== 'number' || !Number.isFinite(raw.offsetMs) ||
+        raw.offsetMs < -60000 || raw.offsetMs > 60000 ||
+      typeof raw.clientInstanceId !== 'string' || !raw.clientInstanceId ||
+        raw.clientInstanceId.length > 64) throw new ApiError('INVALID_REQUEST', 400);
+    return this.transactions.read(async tx => {
+      const { roomId } = await this.owner(tx, credentials);
+      const session = await tx.prisma.liveSession.findFirst({
+        where: { id: sessionId, channelId: roomId },
+        select: { id: true, status: true, overlayToken: true },
+      });
+      if (!session) throw new ApiError('NOT_FOUND', 404);
+      if (session.status !== 'ACTIVE' || !session.overlayToken) return null;
+      return { overlayToken: session.overlayToken, sessionId: session.id,
+        state: { songRequestId: raw.songRequestId ?? null,
+          playbackSource: raw.playbackSource as 'video' | 'manual',
+          anchorMs: raw.anchorMs as number, anchorAt: raw.anchorAt ?? null,
+          playbackRate: raw.playbackRate as number, durationMs: raw.durationMs as number,
+          offsetMs: raw.offsetMs as number, clientInstanceId: raw.clientInstanceId as string,
+          emittedAt: new Date().toISOString() } };
+    });
+  }
+
+  history(credentials: LiveCredentials, raw: Record<string, unknown>) {
     identifier(raw.identifier);
     if (Object.keys(raw).some(key => !['identifier','page','limit'].includes(key))) throw new ApiError('INVALID_REQUEST', 400);
     const page = positive(raw.page,1,1000), limit = positive(raw.limit,10,50);
     return this.transactions.write(async tx => {
-      const actor = await this.auth.require(tx, credentials, true);
-      const roomId = await this.repository.requireOwner(tx, actor.userId);
-      return (await this.source(tx,actor.userId,roomId)).getSessionHistory(page,limit);
+      const { userId, roomId } = await this.owner(tx, credentials);
+      return (await this.source(tx,userId,roomId)).getSessionHistory(page,limit);
     });
   }
 
-  detail(credentials: SessionCredentials, sessionId: number) {
+  detail(credentials: LiveCredentials, sessionId: number) {
     return this.transactions.write(async tx => {
-      const actor = await this.auth.require(tx, credentials, true);
-      const roomId = await this.repository.requireOwner(tx, actor.userId);
-      return (await this.source(tx,actor.userId,roomId)).getSessionDetail(sessionId);
+      const { userId, roomId } = await this.owner(tx, credentials);
+      return (await this.source(tx,userId,roomId)).getSessionDetail(sessionId);
     });
   }
 }

@@ -6,6 +6,10 @@ import { ApiError } from '../auth/auth-primitives.js';
 import { ChannelContentRepository } from './channel-content.repository.js';
 import { nextChannelContentId } from './channel-content-id.js';
 import { SongRequestService } from './upstream/song-request.service.js';
+import type { ConsoleCredentials } from './meloming-live-session.service.js';
+
+type RequestCredentials = SessionCredentials | ConsoleCredentials;
+type WriteCredentials = CommandCredentials | ConsoleCredentials;
 
 function integer(value:unknown):number {
   if (typeof value==='number' && Number.isSafeInteger(value) && value>0) return value;
@@ -28,6 +32,10 @@ function createBody(value:unknown,manual=false) {
   const reviveFromRequestId=raw.reviveFromRequestId===undefined?undefined:integer(raw.reviveFromRequestId);
   if(raw.anonymousNickname!==undefined && (typeof raw.anonymousNickname!=='string'||
     !raw.anonymousNickname.trim()||raw.anonymousNickname.trim().length>20))throw new ApiError('INVALID_REQUEST',400);
+  if (raw.requesterPlatformId !== undefined && (typeof raw.requesterPlatformId !== 'string' ||
+    !raw.requesterPlatformId.trim() || raw.requesterPlatformId.length > 128)) throw new ApiError('INVALID_REQUEST',400);
+  if (raw.requesterNickname !== undefined && (typeof raw.requesterNickname !== 'string' ||
+    !raw.requesterNickname.trim() || raw.requesterNickname.length > 100)) throw new ApiError('INVALID_REQUEST',400);
   return { liveSessionId,songId,rawArtist:typeof raw.rawArtist==='string'?raw.rawArtist:'',
     rawTitle:typeof raw.rawTitle==='string'?raw.rawTitle:'',
     ...(typeof raw.rawMessage==='string'?{rawMessage:raw.rawMessage}:{}),
@@ -35,6 +43,8 @@ function createBody(value:unknown,manual=false) {
     ...(afterRequestId?{afterRequestId}:{}),
     ...(raw.requestType?{requestType:raw.requestType as 'NORMAL'|'RANDOM'}:{}),
     ...(reviveFromRequestId?{reviveFromRequestId}:{}),
+    ...(typeof raw.requesterPlatformId==='string'?{requesterPlatformId:raw.requesterPlatformId}:{}),
+    ...(typeof raw.requesterNickname==='string'?{requesterNickname:raw.requesterNickname}:{}),
     ...(typeof raw.anonymousNickname==='string'?{anonymousNickname:raw.anonymousNickname.trim()}:{}) };
 }
 
@@ -44,24 +54,30 @@ export class MelomingLiveSongRequestService {
     @Inject(AuthService) private readonly auth:AuthService,
     @Inject(ChannelContentRepository) private readonly repository:ChannelContentRepository) {}
 
-  private async session(tx:Parameters<Parameters<Transactions['read']>[0]>[0],id:number,credentials?:SessionCredentials) {
+  private async session(tx:Parameters<Parameters<Transactions['read']>[0]>[0],id:number,credentials?:RequestCredentials) {
     const channel=await this.repository.primary(tx);
     const session=await tx.prisma.liveSession.findFirst({where:{id,channelId:channel.roomId},select:{id:true,status:true,visibility:true}});
     if (!session) throw new ApiError('NOT_FOUND',404);
     if (session.visibility==='PRIVATE') {
-      if (!credentials?.token) throw new ApiError('NOT_FOUND',404);
-      const actor=await this.auth.require(tx,credentials,true);
-      if (actor.userId!==channel.ownerId) throw new ApiError('NOT_FOUND',404);
+      if (!credentials) throw new ApiError('NOT_FOUND',404);
+      const owner = await this.owner(tx,credentials);
+      if (owner.roomId!==channel.roomId) throw new ApiError('NOT_FOUND',404);
     }
     return channel;
   }
-  private async owner(tx:Parameters<Parameters<Transactions['write']>[0]>[0],credentials:SessionCredentials) {
+  private async owner(tx:Parameters<Parameters<Transactions['write']>[0]>[0],credentials:RequestCredentials) {
+    if ('consoleToken' in credentials) {
+      const consoleOwner = await this.repository.requireConsoleToken(tx,credentials.consoleToken);
+      return {actor:{userId:consoleOwner.userId},roomId:consoleOwner.roomId};
+    }
     const actor=await this.auth.require(tx,credentials,true);
     const roomId=await this.repository.requireOwner(tx,actor.userId);
     return {actor,roomId};
   }
-  private async actor(tx:Parameters<Parameters<Transactions['write']>[0]>[0],credentials:SessionCredentials) {
-    const actor=await this.auth.require(tx,credentials,true);
+  private async actor(tx:Parameters<Parameters<Transactions['write']>[0]>[0],credentials:RequestCredentials) {
+    const actor='consoleToken' in credentials
+      ? {userId:(await this.repository.requireConsoleToken(tx,credentials.consoleToken)).userId}
+      : await this.auth.require(tx,credentials,true);
     const channel=await this.repository.primary(tx);
     const user=await tx.prisma.users.findUnique({where:{id:actor.userId},select:{profile:{select:{nickname:true}}}});
     if (!user?.profile) throw new ApiError('FORBIDDEN',403);
@@ -70,21 +86,34 @@ export class MelomingLiveSongRequestService {
     return {userId:actor.userId,nickname:user.profile.nickname,alias:alias.id,operator:channel.ownerId===actor.userId,channel};
   }
 
-  queue(credentials:SessionCredentials,raw:Record<string,unknown>) {
+  queue(credentials:RequestCredentials,raw:Record<string,unknown>) {
     if (Object.keys(raw).some(key=>!['sessionId','includeCompleted'].includes(key)) ||
       (raw.includeCompleted!==undefined && !['true','false'].includes(String(raw.includeCompleted)))) throw new ApiError('INVALID_REQUEST',400);
     const sessionId=integer(raw.sessionId);
     return this.transactions.read(async tx=>{
+      if ('consoleToken' in credentials) await this.repository.requireConsoleToken(tx,credentials.consoleToken);
       const channel=await this.session(tx,sessionId,credentials);
       return new SongRequestService(tx.prisma,channel.roomId).getQueueBySessionId(sessionId,raw.includeCompleted==='true');
     });
   }
 
-  create(credentials:CommandCredentials|SessionCredentials,value:unknown,anonymousPlatformId?:string) {
+  create(credentials:WriteCredentials|SessionCredentials,value:unknown,anonymousPlatformId?:string) {
     const dto=createBody(value);
     return this.transactions.write(async tx=>{
       await this.repository.lockPrimary(tx);
       await this.session(tx,dto.liveSessionId!,credentials);
+      if ('consoleToken' in credentials) {
+        const owner=await this.repository.requireConsoleToken(tx,credentials.consoleToken);
+        if (!dto.requesterPlatformId || !dto.requesterNickname) throw new ApiError('INVALID_REQUEST',400);
+        return new SongRequestService(tx.prisma,owner.roomId).createConsoleRequest({
+          liveSessionId:dto.liveSessionId!,...(dto.songId?{songId:dto.songId}:{}),
+          rawArtist:dto.rawArtist,rawTitle:dto.rawTitle,
+          ...(dto.rawMessage?{rawMessage:dto.rawMessage}:{}),
+          ...(dto.position?{position:dto.position}:{}),
+          ...(dto.afterRequestId?{afterRequestId:dto.afterRequestId}:{}),
+          ...(dto.requestType?{requestType:dto.requestType}:{}),
+          requesterPlatformId:dto.requesterPlatformId,requesterNickname:dto.requesterNickname });
+      }
       if(!credentials.token) {
         if(!dto.anonymousNickname||!anonymousPlatformId)throw new ApiError('UNAUTHENTICATED',401);
         return new SongRequestService(tx.prisma,(await this.repository.primary(tx)).roomId).createAnonymousRequest({
@@ -101,7 +130,7 @@ export class MelomingLiveSongRequestService {
     });
   }
 
-  manual(credentials:CommandCredentials,sessionId:number,value:unknown) {
+  manual(credentials:WriteCredentials,sessionId:number,value:unknown) {
     const dto=createBody(value,true);
     return this.transactions.write(async tx=>{
       const {actor,roomId}=await this.owner(tx,credentials);
@@ -125,16 +154,17 @@ export class MelomingLiveSongRequestService {
     });
   }
 
-  nowPlaying(credentials:SessionCredentials,raw:Record<string,unknown>) {
+  nowPlaying(credentials:RequestCredentials,raw:Record<string,unknown>) {
     if (Object.keys(raw).some(key=>key!=='sessionId')) throw new ApiError('INVALID_REQUEST',400);
     const sessionId=integer(raw.sessionId);
     return this.transactions.read(async tx=>{
+      if ('consoleToken' in credentials) await this.repository.requireConsoleToken(tx,credentials.consoleToken);
       const channel=await this.session(tx,sessionId,credentials);
       return new SongRequestService(tx.prisma,channel.roomId).getNowPlaying(sessionId);
     });
   }
 
-  status(credentials:CommandCredentials,requestId:number,value:unknown) {
+  status(credentials:WriteCredentials,requestId:number,value:unknown) {
     if (!value || typeof value!=='object' || Array.isArray(value) || Object.keys(value).some(key=>!['status','rejectionReason'].includes(key))) throw new ApiError('INVALID_REQUEST',400);
     const raw=value as Record<string,unknown>;
     if (!['PENDING','ACCEPTED','REJECTED','PLAYING','COMPLETED'].includes(String(raw.status)) ||
@@ -146,18 +176,17 @@ export class MelomingLiveSongRequestService {
     });
   }
 
-  remove(credentials:CommandCredentials,requestId:number,mine=false) {
+  remove(credentials:WriteCredentials,requestId:number,mine=false) {
     return this.transactions.write(async tx=>{
-      const actor=await this.auth.require(tx,credentials,true);
-      const channel=await this.repository.primary(tx);
+      const {actor,roomId}=await this.owner(tx,credentials);
       await this.repository.lockPrimary(tx);
-      const service=new SongRequestService(tx.prisma,channel.roomId);
+      const service=new SongRequestService(tx.prisma,roomId);
       if (mine) await service.cancelMyRequest(requestId,actor.userId);
-      else {await this.repository.requireOwner(tx,actor.userId);await service.deleteRequest(requestId);}
+      else await service.deleteRequest(requestId);
     });
   }
 
-  order(credentials:CommandCredentials,requestId:number,value:unknown) {
+  order(credentials:WriteCredentials,requestId:number,value:unknown) {
     if (!value || typeof value!=='object' || Array.isArray(value) || Object.keys(value).length!==1) throw new ApiError('INVALID_REQUEST',400);
     const newOrder=integer((value as {newOrder?:unknown}).newOrder);
     return this.transactions.write(async tx=>{
@@ -166,7 +195,7 @@ export class MelomingLiveSongRequestService {
     });
   }
 
-  advance(credentials:CommandCredentials,raw:Record<string,unknown>,kind:'next'|'skip') {
+  advance(credentials:WriteCredentials,raw:Record<string,unknown>,kind:'next'|'skip') {
     if (Object.keys(raw).some(key=>!['sessionId','reason'].includes(key))) throw new ApiError('INVALID_REQUEST',400);
     const sessionId=integer(raw.sessionId);
     if (raw.reason!==undefined && (typeof raw.reason!=='string'||raw.reason.length>255)) throw new ApiError('INVALID_REQUEST',400);
@@ -177,14 +206,14 @@ export class MelomingLiveSongRequestService {
     });
   }
 
-  playNow(credentials:CommandCredentials,requestId:number) {
+  playNow(credentials:WriteCredentials,requestId:number) {
     return this.transactions.write(async tx=>{
       const {roomId}=await this.owner(tx,credentials);await this.repository.lockPrimary(tx);
       return new SongRequestService(tx.prisma,roomId).playNow(requestId);
     });
   }
 
-  clear(credentials:CommandCredentials,raw:Record<string,unknown>) {
+  clear(credentials:WriteCredentials,raw:Record<string,unknown>) {
     if (Object.keys(raw).some(key=>key!=='sessionId')) throw new ApiError('INVALID_REQUEST',400);
     const sessionId=integer(raw.sessionId);
     return this.transactions.write(async tx=>{
