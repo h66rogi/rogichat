@@ -13,6 +13,7 @@ class ComponentChangesTest(unittest.TestCase):
 
     def test_backend_only(self):
         self.assertEqual(classify(['apps/api/src/main.ts']), (False, True))
+        self.assertEqual(classify(['apps/migration/package.json']), (False, True))
 
     def test_unrelated_and_unknown(self):
         self.assertEqual(classify(['apps/ios/project.yml', 'docs/notes.md']), (False, False))

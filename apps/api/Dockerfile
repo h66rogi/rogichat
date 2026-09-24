@@ -5,6 +5,7 @@ WORKDIR /workspace
 RUN npm install --global pnpm@12.4.2 --ignore-scripts && npm cache clean --force
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/package.json
+COPY apps/migration/package.json ./apps/migration/package.json
 COPY patches ./patches
 
 FROM tooling AS build
@@ -31,8 +32,17 @@ RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store
     && rm -f node_modules/.pnpm/axios@1.15.0*/node_modules/axios/dist/axios.js \
     && rm -rf /root/.cache/pnpm
 
-FROM build AS migration
-# Prisma CLI/engine are confined to this explicitly selected image target.
+FROM tooling AS migration-dependencies
+RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store,sharing=locked \
+    pnpm --filter @rogichat/migration... install --frozen-lockfile --ignore-scripts \
+    && rm -rf /root/.cache/pnpm
+
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS migration
+# Keep only the migration CLI, driver and schema; the API build tree is not an input.
+COPY --from=migration-dependencies /workspace/node_modules /workspace/node_modules
+COPY --from=migration-dependencies /workspace/apps/migration/node_modules /workspace/apps/api/node_modules
+COPY apps/api/package.json apps/api/prisma.config.ts /workspace/apps/api/
+COPY apps/api/prisma /workspace/apps/api/prisma
 # Run only the reviewed pinned engine installation, without any database input.
 RUN node -e "const path=require('node:path'); const pkg=require.resolve('@prisma/engines/package.json',{paths:[require.resolve('prisma/package.json',{paths:['/workspace/apps/api']})]}); require(path.join(path.dirname(pkg),'scripts/postinstall.js'))"
 RUN groupadd --gid 10001 rogichat && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin rogichat

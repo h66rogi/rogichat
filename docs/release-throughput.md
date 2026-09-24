@@ -27,6 +27,13 @@ transport tar sizes. Compare several runs of the same target, including a cold
 runner and a changed dependency lockfile, before changing the image base or
 transport format. The image scanners and isolated runtime checks remain gates.
 
+The migration target installs only the pinned Prisma CLI and MySQL driver in a
+separate workspace package, then copies the API schema and migrations into a
+slim Node image. It excludes the API build tree and runtime dependencies. PR
+image checks require the actual CLI, schema engine and driver, no API server
+bundle, and an image smaller than 1 GB (the previous image was 1,670,142,141
+bytes). Publication repeats the migration CLI check before registry login.
+
 The trusted QA receiver may reuse an earlier web artifact only if its source is
 an ancestor of the current QA head and every web release input has the same Git
 blob and file mode. The operations repository owns that policy. Deploy the
