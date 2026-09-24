@@ -5,16 +5,19 @@ import { useApi } from '@/core/runtime/provider';
 import { PrivateGate, StatePanel } from '@/features/auth/auth-panel';
 import { usePrivateSession } from '@/features/auth/private-session';
 import { RealChatRoom } from '@/features/chat/RealChatRoom';
+import { ChatRoomSkeleton } from '@/features/chat/ChatRoomSkeleton';
 import { Button } from '@/shared/ui/button';
 import { useRoom } from './use-room';
-export function ChannelChat({ active, visit }: { active: boolean; visit: number }) {
+import type { ChannelBootstrap } from '@/core/server/channel-bootstrap';
+export function ChannelChat({ active, visit, initial }: { active: boolean; visit: number; initial: ChannelBootstrap | null }) {
   const { state, refresh } = usePrivateSession();
+  if (state.kind === 'checking' || state.kind === 'hidden') return <ChatRoomSkeleton />;
   if (state.kind !== 'ready') return <PrivateGate state={state} retry={refresh} />;
-  return <AuthorizedChat key={state.generation} active={active} visit={visit} session={state.session} accountId={state.profile.id} scope={`${state.profile.id}:${state.generation}`} refresh={refresh} />;
+  return <AuthorizedChat key={state.generation} active={active} visit={visit} session={state.session} accountId={state.profile.id} scope={`${state.profile.id}:${state.generation}`} refresh={refresh} initial={initial} />;
 }
-function AuthorizedChat({ active, visit, session, accountId, scope, refresh }: { active: boolean; visit: number; session: Session; accountId: string; scope: string; refresh: () => void }) {
+function AuthorizedChat({ active, visit, session, accountId, scope, refresh, initial }: { active: boolean; visit: number; session: Session; accountId: string; scope: string; refresh: () => void; initial: ChannelBootstrap | null }) {
   const api = useApi();
-  const state = useRoom();
+  const state = useRoom(initial?.sessionBinding === session.csrfToken && initial.accountPartition === session.accountPartition ? initial.room : undefined);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);
@@ -29,11 +32,11 @@ function AuthorizedChat({ active, visit, session, accountId, scope, refresh }: {
     }
     finally { pending.current = false; setBusy(false); }
   };
-  if (state.kind === 'checking') return <StatePanel title="채팅방 참여 상태를 확인하고 있어요" />;
+  if (state.kind === 'checking') return <ChatRoomSkeleton />;
   if (state.kind === 'unconfigured') return <StatePanel title="아직 채팅방이 열리지 않았어요" retry={refresh}>후로기의 채팅방이 준비되면 여기에서 참여할 수 있습니다.</StatePanel>;
   if (state.kind === 'unavailable') return <StatePanel title="지금은 채팅방에 접근할 수 없어요" retry={refresh}>채팅방이 열려 있는지 다시 확인해 주세요.</StatePanel>;
   if (state.kind === 'error') return <StatePanel title="채팅방 정보를 가져오지 못했어요" retry={refresh}>연결 상태를 확인하고 다시 시도해 주세요.</StatePanel>;
   if (state.room.availability === 'OWNER_PENDING') return <StatePanel title="후로기 채팅방을 준비하고 있어요" retry={refresh}>방장 계정을 확인하고 있습니다. 확인이 완료되면 입장할 수 있습니다.</StatePanel>;
   if (!state.room.joined) return <StatePanel title="후로기 채팅방에 참여하기"><p>팬은 후로기에게 개인 메시지를 보낼 수 있습니다. 개인 메시지는 방장이 전체 공개할 수 있습니다.</p>{error && <p role="alert">{error}</p>}<Button className="mt-4" disabled={busy} onClick={() => void join(state.room.roomId)}>{busy ? '입장 확인 중' : '채팅방 입장'}</Button></StatePanel>;
-  return <RealChatRoom active={active} visit={visit} session={session} accountId={accountId} key={scope + state.room.roomId} roomId={state.room.roomId} sessionScopeKey={scope} accountPartition={session.accountPartition} apiOrigin={api.origin} csrfToken={session.csrfToken} request={request} onInvalidate={refresh} />;
+  return <RealChatRoom active={active} visit={visit} session={session} accountId={accountId} key={scope + state.room.roomId} roomId={state.room.roomId} sessionScopeKey={scope} accountPartition={session.accountPartition} apiOrigin={api.origin} csrfToken={session.csrfToken} request={request} onInvalidate={refresh} seed={initial?.chat?.room.roomId === state.room.roomId && initial.chat.sessionBinding === session.csrfToken && initial.chat.accountPartition === session.accountPartition ? initial.chat : null} />;
 }

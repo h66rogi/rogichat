@@ -8,9 +8,11 @@
  */
 
 export const QUOTE_EXCERPT_MAX = 60;
+const displayZone = 'Asia/Seoul';
+const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: displayZone, year: 'numeric', month: '2-digit', day: '2-digit' });
 
 export function isSameDay(a: Date, b: Date): boolean {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  return dayKey.format(a) === dayKey.format(b);
 }
 
 export function parseIsoDate(value: string): Date | null {
@@ -20,17 +22,16 @@ export function parseIsoDate(value: string): Date | null {
 
 /** "오늘", "어제", or a full Korean date such as "2026년 9월 20일". */
 export function formatDateLabel(date: Date, now: Date = new Date()): string {
-  const yesterday = new Date(now);
-  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterday = new Date(now.getTime() - 86400000);
 
   if (isSameDay(date, now)) return '오늘';
   if (isSameDay(date, yesterday)) return '어제';
-  return date.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+  return date.toLocaleDateString('ko-KR', { timeZone: displayZone, year: 'numeric', month: 'long', day: 'numeric' });
 }
 
 /** "오후 3:07" style time label. */
 export function formatTimeLabel(date: Date): string {
-  return date.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' });
+  return date.toLocaleTimeString('ko-KR', { timeZone: displayZone, hour: 'numeric', minute: '2-digit' });
 }
 
 /** Cut a single-line excerpt for quotes and previews. Collapses line breaks first. */

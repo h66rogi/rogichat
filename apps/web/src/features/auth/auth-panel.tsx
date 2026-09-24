@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ApiError, type Session } from '@/core/api/client';
 import { useApi } from '@/core/runtime/provider';
 import { Button } from '@/shared/ui/button';
+import { PageSkeleton } from '@/shared/ui/page-skeleton';
 import { cleanupBinding, eraseSessionOutbox, erasePendingOutbox, outboxEnvironment } from './outbox-cleanup';
 import { AccountDeletionControl, AccountDeletionRecovery } from '@/features/privacy';
 import { readDeletion, browserPrivacyStore } from '@/features/privacy/deletion';
@@ -22,7 +23,7 @@ export function PrivateGate({ state, retry, allowAccountDeletion = false }: { st
   if (state.kind === 'logoutPending') return <LogoutRecovery />;
   if (state.kind === 'unauthenticated') return <StatePanel title="로그인 후 이용할 수 있어요"><Button asChild><Link href="/login">SOOP으로 로그인</Link></Button></StatePanel>;
   if (state.kind === 'error') return <StatePanel title="연결을 확인할 수 없어요" retry={retry}>{state.message}</StatePanel>;
-  return <StatePanel title="로그인 상태를 확인하고 있어요">잠시만 기다려 주세요.</StatePanel>;
+  return <PageSkeleton />;
 }
 function DeletionRecoveryGate({ retry }: { retry: () => void }) {
   const api = useApi(); const [phase, setPhase] = useState<'checking' | 'ready' | 'error'>('checking'); const [attempt, setAttempt] = useState(0);

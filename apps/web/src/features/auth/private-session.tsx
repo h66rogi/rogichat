@@ -11,6 +11,7 @@ import { cleanupBinding, outboxEnvironment } from './outbox-cleanup';
 import { ACCOUNT_DELETION_PENDING, PRIVACY_CHANGED, isAccountDeletionPending, readDeletion, browserPrivacyStore } from '@/features/privacy/deletion';
 
 import { LOGOUT_PENDING, beginLogout, clearLogout } from '@/core/api/logout-marker';
+import { clearPrivateRenderLock, setPrivateRenderLock } from '@/core/api/private-render-lock';
 export { LOGOUT_PENDING } from '@/core/api/logout-marker';
 const INVALIDATE = 'rogichat-session-invalidated';
 const CURRENT_BINDING = 'rogichat.current-session-binding';
@@ -32,18 +33,21 @@ export function invalidateSession() {
 export async function setLogoutPending(binding: string, origin: string, session: Session) {
   const sessionKey = await cleanupBinding(origin, session);
   if (localStorage.getItem(CURRENT_BINDING) !== binding) throw new Error('SESSION_CHANGED');
-  revokeChatOutboxes(session.accountPartition, session.csrfToken); forgetChatMemory();
-  const marker = beginLogout(localStorage, binding, crypto.randomUUID(), { environment: outboxEnvironment(origin), sessionKey });
-  invalidateSession();
-  return marker;
+  await setPrivateRenderLock();
+  try {
+    revokeChatOutboxes(session.accountPartition, session.csrfToken); forgetChatMemory();
+    const marker = beginLogout(localStorage, binding, crypto.randomUUID(), { environment: outboxEnvironment(origin), sessionKey });
+    invalidateSession();
+    return marker;
+  } catch (error) { await clearPrivateRenderLock().catch(() => {}); throw error; }
 }
 export function clearLogoutPending(expected: string) {
-  if (clearLogout(localStorage, expected)) invalidateSession();
+  if (clearLogout(localStorage, expected)) { void clearPrivateRenderLock().catch(() => {}); invalidateSession(); }
 }
 export type PrivateState = { kind: 'checking' | 'hidden' | 'unauthenticated' | 'logoutPending' } | { kind: 'deletionPending'; operation: string } | { kind: 'linkRequired'; session: Session } | { kind: 'error'; message: string } | { kind: 'ready'; session: Session; profile: Profile; generation: number };
 const PrivateSessionContext = createContext<{ state: PrivateState; refresh: () => void } | null>(null);
-export function PrivateSessionProvider({ children }: { children: ReactNode }) {
-  const session = usePrivateSessionState();
+export function PrivateSessionProvider({ children, initialState = { kind: 'checking' } }: { children: ReactNode; initialState?: PrivateState }) {
+  const session = usePrivateSessionState(initialState);
   return <PrivateSessionContext.Provider value={session}>{children}</PrivateSessionContext.Provider>;
 }
 export function usePrivateSession() {
@@ -52,11 +56,11 @@ export function usePrivateSession() {
   return session;
 }
 /** Memory only: no credentials or private response data enter browser storage. */
-function usePrivateSessionState() {
+function usePrivateSessionState(initialState: PrivateState) {
   const api = useApi();
-  const [state, setState] = useState<PrivateState>({ kind: 'checking' });
-  const generation = useRef(0);
-  const latest = useRef<PrivateState>({ kind: 'checking' });
+  const [state, setState] = useState<PrivateState>(initialState);
+  const generation = useRef(initialState.kind === 'ready' ? initialState.generation : 0);
+  const latest = useRef<PrivateState>(initialState);
   const update = useCallback((value: PrivateState | ((previous: PrivateState) => PrivateState)) => {
     setState(previous => { const next = typeof value === 'function' ? value(previous) : value; latest.current = next; return next; });
   }, []);
@@ -92,6 +96,7 @@ function usePrivateSessionState() {
         if (session.authenticated !== true || !session.csrfToken || !['VERIFIED', 'REQUIRED'].includes(session.soopLinkStatus)) throw new ApiError(502, 'INVALID_SESSION');
         const binding = await sessionBinding(session.csrfToken);
         if (current !== generation.current || !mounted.current) return;
+        if (latest.current.kind === 'ready' && latest.current.session.csrfToken !== session.csrfToken) update({ kind: 'checking' });
         publishSessionBinding(binding);
         if (!sessionAllowsChat(session)) {
           if (session.soopLinkStatus !== 'REQUIRED') throw new ApiError(403, 'FORBIDDEN');
@@ -103,6 +108,7 @@ function usePrivateSessionState() {
         const profile = await api.profile(controller.signal);
         const confirmed = await api.session(controller.signal);
         if (confirmed.csrfToken !== session.csrfToken || confirmed.accountPartition !== session.accountPartition || confirmed.soopLinkStatus !== session.soopLinkStatus || !sessionAllowsChat(confirmed)) throw new ApiError(403, 'SESSION_CHANGED');
+        if (current !== generation.current || !mounted.current) return;
         if (current === generation.current && mounted.current) {
           const previous = latest.current;
           const stableGeneration = previous.kind === 'ready' && previous.session.csrfToken === session.csrfToken && previous.session.accountPartition === session.accountPartition && previous.profile.id === profile.id ? previous.generation : current;
@@ -137,7 +143,7 @@ function usePrivateSessionState() {
     window.addEventListener('focus', focus);
     window.addEventListener('storage', storage);
     window.addEventListener(INVALIDATE, refresh); window.addEventListener(PRIVACY_CHANGED, refresh);
-    const initial = window.setTimeout(refresh, 0);
+    const initial = window.setTimeout(() => revalidate(latest.current.kind === 'ready'), 0);
     const invalidateGeneration = () => { ++generation.current; };
     return () => {
       window.clearTimeout(initial);

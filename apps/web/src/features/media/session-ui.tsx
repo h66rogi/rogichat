@@ -4,6 +4,7 @@ import { createContext, useContext, useLayoutEffect, useRef, useState, type Reac
 import { useApi, useMediaStorageOrigins } from '@/core/runtime/provider';
 import { invalidateSession } from '@/features/auth/private-session';
 import { AuthorizedMediaImage } from './components';
+import { AvatarPlaceholder } from '@/shared/ui/avatar-placeholder';
 import { imageReferenceKey, type ImageContext, type MediaLifetime } from './contracts';
 import { MediaImageResource } from './image-resource';
 import { MediaSessionScope } from './session-scope';
@@ -42,10 +43,10 @@ export function useMediaUpload() {
   return scope?.configured && upload?.lifetime === scope.lifetime ? upload : null;
 }
 
-export function ScopedMediaImage(props: { assetId: string; context: ImageContext; alt: string; revision?: string }) {
+export function ScopedMediaImage(props: { assetId: string; context: ImageContext; alt: string; revision?: string; presentation?: 'avatar' | 'photo' }) {
   return <ReferenceImage key={JSON.stringify([imageReferenceKey(props.assetId, props.context), props.revision])} {...props} />;
 }
-function ReferenceImage({ assetId, context, alt }: { assetId: string; context: ImageContext; alt: string }) {
+function ReferenceImage({ assetId, context, alt, presentation = 'photo' }: { assetId: string; context: ImageContext; alt: string; presentation?: 'avatar' | 'photo' }) {
   const scope = useMediaScope();
   const [reference] = useState(context);
   const container = useRef<HTMLDivElement>(null);
@@ -63,9 +64,9 @@ function ReferenceImage({ assetId, context, alt }: { assetId: string; context: I
     queueMicrotask(() => { if (active) setResource(current); });
     return () => { active = false; current.dispose(); };
   }, [scope, visible]);
-  return <div ref={container} className="min-h-12">{visible && scope?.configured && resource?.lifetime === scope.lifetime
-    ? <AuthorizedMediaImage resource={resource} lifetime={scope.lifetime} assetId={assetId} context={reference} alt={alt} />
-    : <p role="status">{visible ? '지금은 이미지를 표시할 수 없습니다.' : '이미지'}</p>}</div>;
+  return <div ref={container} className={presentation === 'avatar' ? 'size-full' : 'min-h-12'}>{visible && scope?.configured && resource?.lifetime === scope.lifetime
+    ? <AuthorizedMediaImage resource={resource} lifetime={scope.lifetime} assetId={assetId} context={reference} alt={alt} presentation={presentation} />
+    : presentation === 'avatar' ? <AvatarPlaceholder /> : <div className="h-40 w-full rounded-xl bg-surface-strong motion-safe:animate-pulse" aria-label="이미지 불러오는 중" role="status" />}</div>;
 }
 
 

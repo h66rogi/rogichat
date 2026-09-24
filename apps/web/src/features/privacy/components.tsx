@@ -5,6 +5,7 @@ import { Megaphone } from 'lucide-react';
 import type { Session } from '../../core/api/client';
 import { forgetChatMemory } from '../chat/chat-memory';
 import { invalidateSession } from '../auth/private-session';
+import { clearPrivateRenderLock, setPrivateRenderLock } from '../../core/api/private-render-lock';
 import { Button } from '../../shared/ui/button';
 import { actionDialogContentClass, actionDialogFooterClass, actionDialogOverlayClass, actionMenuItemClass } from '../../shared/ui/action-dialog';
 import { PrivacyClient } from './client';
@@ -38,7 +39,7 @@ function DeletionForm({ origin, session, onBlocked, onPrepare, cleanupBinding }:
   useEffect(() => { callbacks.current = { onBlocked, onPrepare, cleanupBinding }; }, [onBlocked, onPrepare, cleanupBinding]);
   useEffect(() => {
     const instance = new DeletionFlow(new PrivacyClient(origin), browserPrivacyStore, setState, session => blocked(session, callbacks.current.onBlocked), {
-      cleanupBinding: session => callbacks.current.cleanupBinding(session), onPrepare: session => callbacks.current.onPrepare(session),
+      cleanupBinding: session => callbacks.current.cleanupBinding(session), onPrepare: session => callbacks.current.onPrepare(session), suppressServerRender: setPrivateRenderLock, restoreServerRender: clearPrivateRenderLock,
     });
     flow.current = instance;
     return () => { instance.dispose(); flow.current = null; };
@@ -60,7 +61,7 @@ export function AccountDeletionRecovery({ origin, onResume, onBlocked, onPrepare
   useEffect(() => { callbacks.current = { onResume, onBlocked, onPrepare, cleanupBinding }; }, [onResume, onBlocked, onPrepare, cleanupBinding]);
   useEffect(() => {
     const instance = new DeletionFlow(new PrivacyClient(origin), browserPrivacyStore, setState, session => blocked(session, callbacks.current.onBlocked), {
-      cleanupBinding: session => callbacks.current.cleanupBinding(session), onPrepare: session => callbacks.current.onPrepare(session),
+      cleanupBinding: session => callbacks.current.cleanupBinding(session), onPrepare: session => callbacks.current.onPrepare(session), suppressServerRender: setPrivateRenderLock, restoreServerRender: clearPrivateRenderLock,
     });
     flow.current = instance;
     const recover = () => { void instance.recover(); };
@@ -76,7 +77,7 @@ export function AccountDeletionRecovery({ origin, onResume, onBlocked, onPrepare
   }, [origin, epoch]);
   const resume = () => {
     try {
-      if (flow.current?.dismiss()) { privacyChanged(); callbacks.current.onResume(); }
+      if (flow.current?.dismiss()) { void clearPrivateRenderLock().catch(() => {}); privacyChanged(); callbacks.current.onResume(); }
     } catch { setState('storageError'); }
   };
   const retry = async () => {

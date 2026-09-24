@@ -27,6 +27,7 @@ import { extractApiErrorMessage } from "@/meloming/shared/lib/api-error";
 import { useRef, useState } from "react";
 import { useUploadImage } from "@/meloming/shared/hooks/use-upload";
 import ImageCropDialog from "@/meloming/shared/components/common/image-crop-dialog";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 import {
   Avatar,
   AvatarFallback,
@@ -277,7 +278,7 @@ export function SettingsSection() {
                           alt="channel profile"
                         />
                         <AvatarFallback>
-                          {form.watch("name").slice(0, 1).toUpperCase()}
+                          <AvatarPlaceholder />
                         </AvatarFallback>
                       </Avatar>
                       <div className="pointer-events-none absolute inset-0 rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100 flex items-center justify-center">

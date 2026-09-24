@@ -28,6 +28,7 @@ import {
 import { Alert, AlertDescription } from "@/meloming/shared/components/ui/alert";
 import { X, Music, Loader2, ArrowLeft, Link as LinkIcon, Radio, Send, AlertCircle, Upload } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/meloming/shared/components/ui/avatar";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 import { toast } from "sonner";
 import { useImageUpload } from "@/meloming/shared/hooks/use-image-upload";
 import { useCreateClip } from "@/meloming/domains/clip/hooks/use-clips";
@@ -752,7 +753,7 @@ export function ClipCreateDialog({
             <Avatar className="size-6 shrink-0">
               <AvatarImage src={channelProfileImageUrl ?? undefined} />
               <AvatarFallback className="text-xs">
-                {channelName.charAt(0).toUpperCase()}
+                <AvatarPlaceholder />
               </AvatarFallback>
             </Avatar>
             <span className="text-sm text-muted-foreground truncate">

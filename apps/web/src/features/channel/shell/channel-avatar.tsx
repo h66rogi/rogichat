@@ -1,4 +1,5 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@/shared/ui/avatar';
+import { AvatarPlaceholder } from '@/shared/ui/avatar-placeholder';
 import { cn } from '@/shared/lib/cn';
 
 /**
@@ -19,9 +20,7 @@ export function ChannelAvatar({
   return (
     <Avatar className={cn('size-24', className)}>
       {src ? <AvatarImage src={src} alt={`${name} 프로필 사진`} /> : null}
-      <AvatarFallback aria-label={src ? undefined : `${name} 기본 프로필`} className="text-[28px]">
-        {name.slice(0, 1)}
-      </AvatarFallback>
+      <AvatarFallback aria-label={src ? undefined : `${name} 기본 프로필`}><AvatarPlaceholder /></AvatarFallback>
     </Avatar>
   );
 }

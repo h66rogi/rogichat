@@ -8,6 +8,7 @@ import { Badge } from "@/meloming/shared/components/ui/badge";
 import { Cake, PartyPopper } from "lucide-react";
 import { cn } from "@/meloming/shared/lib/utils";
 import { useRouter } from "next/navigation";
+import { AvatarPlaceholder } from "@/shared/ui/avatar-placeholder";
 
 type AnniversaryCardMobileProps = {
   anniversary: CalendarAnniversary;
@@ -68,7 +69,7 @@ export function AnniversaryCardMobile({
               }}
               className="text-white text-xs"
             >
-              {anniversary.channelName.charAt(0)}
+              <AvatarPlaceholder className="bg-transparent text-white" />
             </AvatarFallback>
           </Avatar>
         </div>
@@ -102,4 +103,3 @@ export function AnniversaryCardMobile({
     </div>
   );
 }
-

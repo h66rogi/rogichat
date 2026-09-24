@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ChatMemory, sessionChatMemory, forgetChatMemory, MAX_PARKED_ROOMS, PARKED_LIFETIME_MS } from './chat-memory';
 import { ChatController } from './chat-controller';
-import { mergeMessages, message, projectMessages } from './contract';
+import { actor, membership, mergeMessages, message, projectMessages } from './contract';
 import type { ChatRequest, ServerMessage } from './contract';
 
 const scopes = { membershipScope: 'A'.repeat(43), authorizationRevision: 'B'.repeat(42) + 'A' };
@@ -42,6 +42,26 @@ function backend(override?: ChatRequest): ChatRequest {
     throw new Error('Unexpected request');
   };
 }
+void test('server-authenticated snapshot renders immediately and resumes from its event cursor', async () => {
+  let snapshots = 0, events = 0;
+  const seed = { sessionBinding: session.csrfToken, accountPartition: session.accountPartition, room: membership(room),
+    profiles: profiles.map(actor).filter(value => value !== null), recipients: [{ actorId: profiles[1]!.actorId, displayName: profiles[1]!.nickname, avatarUrl: null, role: 'STREAMER' as const }],
+    messages: [source()], eventCursor: 'events-1', historyCursor: 'history-1', manifestGeneration: 'membership-1', profileGeneration: 'profiles-1',
+    deviceId: '00000000-0000-4000-8000-000000000011', cacheId: '00000000-0000-4000-8000-000000000012' };
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.includes('/snapshot?')) snapshots++;
+    if (path.includes('/events?')) events++;
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, new ChatMemory(), undefined, seed);
+  try {
+    assert.equal(controller.getSnapshot().phase, 'ready');
+    assert.deepEqual(controller.getSnapshot().items.map(item => item.id), [source().id]);
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().phase, 'ready');
+    assert.equal(snapshots, 0);
+    assert.equal(events, 1);
+  } finally { controller.dispose(); }
+});
 void test('a wake received during an in-flight read schedules one trailing read', async () => {
   let release!: (value: unknown) => void;
   let reached!: () => void;

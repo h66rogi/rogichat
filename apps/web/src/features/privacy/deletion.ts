@@ -10,6 +10,8 @@ export interface DeletionMarker { version: 1; operation: string; account: string
 export interface DeletionPreparation {
   cleanupBinding(session: Session): Promise<string>;
   onPrepare(session: Session): Promise<void>;
+  suppressServerRender?(): Promise<void>;
+  restoreServerRender?(): Promise<void>;
 }
 export interface MarkerStore { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 /** Accessing window.localStorage itself can throw; defer it into guarded operations. */
@@ -113,6 +115,7 @@ export class DeletionFlow {
       if (session.accountPartition !== expected.accountPartition || session.csrfToken !== expected.csrfToken) { this.set('differentAccount'); return; }
       const outbox = await this.preparation.cleanupBinding(session); this.current(marker ?? undefined);
       if (typeof outbox !== 'string' || !/^[a-f0-9]{64}$/.test(outbox)) throw new Error('INVALID_CLEANUP_BINDING');
+      await this.preparation.suppressServerRender?.(); this.current(marker ?? undefined);
       if (!marker) {
         // Recheck after async derivation; another tab may have created an intent.
         if (readDeletion(this.store)) { this.set('unknown'); return; }
@@ -138,7 +141,10 @@ export class DeletionFlow {
       }
     } catch (error) {
       if (this.state === 'blocked') return;
-      if (!marker || !dispatched) { this.set(preparing ? 'prepareError' : 'storageError'); return; }
+      if (!marker || !dispatched) {
+        if (!marker) await this.preparation.restoreServerRender?.().catch(() => {});
+        this.set(preparing ? 'prepareError' : 'storageError'); return;
+      }
       if (error instanceof ApiError && error.code === 'RECENT_AUTH_REQUIRED') {
         try { updateDeletion(this.store, marker, 'reauth'); } catch { /* Existing unknown marker is conservative. */ }
         this.set('reauth');

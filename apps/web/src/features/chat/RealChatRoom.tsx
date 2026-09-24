@@ -11,9 +11,11 @@ import { io } from 'socket.io-client';
 import { Button } from '@/shared/ui/button';
 import { ReactionContext } from './ReactionControl';
 import { ChatRoomView } from './ChatRoomView';
+import { ChatRoomSkeleton } from './ChatRoomSkeleton';
 import { sessionChatMemory } from './chat-memory';
 import { ChatController } from './chat-controller';
 import type { ChatRequest } from './contract';
+import type { ChatSeed } from '@/core/server/channel-bootstrap';
 
 // Shared across mounts so delayed cleanup cannot match a newer page binding.
 const wakeBindings = new WakeBindingRegistry();
@@ -30,34 +32,39 @@ export interface RealChatRoomProps {
   csrfToken: string;
   request: ChatRequest;
   onInvalidate?: (() => void) | undefined;
+  seed?: ChatSeed | null;
 }
 
 export function RealChatRoom(props: RealChatRoomProps) {
   return <ScopedRealChatRoom key={`${props.accountPartition}:${props.sessionScopeKey}:${props.roomId}`} {...props} />;
 }
 
-function ScopedRealChatRoom({ active, visit, session, accountId, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate }: RealChatRoomProps) {
-  const [controller, setController] = useState<ChatController | null>(null);
+function ScopedRealChatRoom({ active, visit, session, accountId, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate, seed }: RealChatRoomProps) {
+  const [controller, setController] = useState<ChatController | null>(() => seed ? new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition,
+    typeof window === 'undefined' ? undefined : sessionChatMemory(accountPartition, csrfToken, roomId),
+    typeof window === 'undefined' ? undefined : apiOrigin === 'https://api.qa.rogi.chat' ? 'qa' : 'production', seed) : null);
   const [connected, setConnected] = useState(false);
-  const [authorizedVisit, setAuthorizedVisit] = useState<number | null>(null);
   useEffect(() => {
+    if (seed) return;
     const current = new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition, sessionChatMemory(accountPartition, csrfToken, roomId), apiOrigin === 'https://api.qa.rogi.chat' ? 'qa' : 'production');
     let mounted = true;
     queueMicrotask(() => { if (mounted) setController(current); });
     return () => { mounted = false; current.dispose(); };
-  }, [roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate]);
+  }, [roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate, seed]);
+  useEffect(() => {
+    if (!seed || !controller) return;
+    return () => controller.dispose();
+  }, [controller, seed]);
 
-  // The visit number changes during route render, so a parked room is hidden
-  // before paint until this visit has independently reauthorized its data.
+  // Keep the mounted timeline and its scroll position during route changes.
+  // The controller checks the session and membership again in the background.
   useEffect(() => {
     if (!active || !controller) return;
-    let current = true;
-    void controller.refreshForEntry().then(() => { if (current) setAuthorizedVisit(visit); });
-    return () => { current = false; };
+    void controller.refreshForEntry();
   }, [active, controller, visit]);
 
   useEffect(() => {
-    if (!active || !controller || authorizedVisit !== visit) return;
+    if (!active || !controller) return;
     let current = true;
     let stopWake: (() => void) | undefined;
     void Promise.all([sessionBinding(accountId), sessionBinding(csrfToken)]).then(([account, sessionId]) => {
@@ -93,12 +100,10 @@ function ScopedRealChatRoom({ active, visit, session, accountId, roomId, apiOrig
       current = false; stopWake?.(); socket.removeAllListeners(); socket.disconnect(); setConnected(false);
       window.clearInterval(timer); window.removeEventListener('online', online);
     };
-  }, [active, authorizedVisit, visit, controller, accountId, apiOrigin, csrfToken, onInvalidate]);
-  if (!controller) return <p className="p-6 text-muted" role="status">채팅을 불러오는 중입니다.</p>;
-  const checkingAccess = authorizedVisit !== visit;
+  }, [active, controller, accountId, apiOrigin, csrfToken, onInvalidate]);
+  if (!controller) return <ChatRoomSkeleton />;
   return <>
-    {checkingAccess && active && <p className="p-6 text-muted" role="status">채팅 접근을 확인하고 있습니다.</p>}
-    <div hidden={checkingAccess || !active} className={checkingAccess || !active ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
+    <div hidden={!active} className={!active ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
       <LiveRoom controller={controller} connected={connected} csrf={csrfToken} roomId={roomId} session={session} origin={apiOrigin} />
     </div>
   </>;
@@ -109,7 +114,7 @@ function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { se
   const [reconnecting, setReconnecting] = useState(false);
   const reconnect = async () => { if (reconnecting) return; setReconnecting(true); try { await controller.reconnectStorage(); } finally { setReconnecting(false); } };
   const lifetime = useMemo(() => controller.mediaLifetime(state.epoch), [controller, state.epoch]);
-  if (state.phase === 'loading') return <p className="p-6 text-muted" role="status">채팅을 불러오는 중입니다.</p>;
+  if (state.phase === 'loading') return <ChatRoomSkeleton />;
   if (state.phase === 'error' || !state.room) return (
     <section className="flex flex-col items-start gap-4 p-6" aria-label="채팅 연결">
       <p role="alert">{state.error ?? '채팅 정보를 확인하지 못했습니다.'}</p>

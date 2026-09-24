@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/shared/ui/button';
+import { AvatarPlaceholder } from '@/shared/ui/avatar-placeholder';
 import type { ImageContext, MediaKind, MediaLifetime } from './contracts';
 import { imageReferenceKey } from './contracts';
 import type { MediaImageResource } from './image-resource';
@@ -48,8 +49,8 @@ export function MediaUploadPanel({ upload, lifetime, kind, roomId, onReady }: {
 }
 
 /** Resource and context must be stable and scoped to this exact visible reference. */
-export function AuthorizedMediaImage({ resource, lifetime, assetId, context, alt }: {
-  resource: MediaImageResource; lifetime: MediaLifetime; assetId: string; context: ImageContext; alt: string;
+export function AuthorizedMediaImage({ resource, lifetime, assetId, context, alt, presentation = 'photo' }: {
+  resource: MediaImageResource; lifetime: MediaLifetime; assetId: string; context: ImageContext; alt: string; presentation?: 'avatar' | 'photo';
 }) {
   const state = useSyncExternalStore(resource.subscribe, resource.getSnapshot, resource.getSnapshot);
   useEffect(() => { void resource.load(assetId, context); return () => resource.clear(); }, [resource, assetId, context]);
@@ -57,10 +58,15 @@ export function AuthorizedMediaImage({ resource, lifetime, assetId, context, alt
   if (state.phase === 'ready' && state.objectUrl && state.referenceKey === imageReferenceKey(assetId, context)) {
     // Only a local, expiring blob URL. Next's image proxy must not cache private media.
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={state.objectUrl} alt={alt} className="max-h-96 max-w-full rounded-sm object-contain" onError={() => resource.clear()} />;
+    return <img src={state.objectUrl} alt={alt} className={presentation === 'avatar' ? 'size-full rounded-full object-cover' : 'max-h-96 max-w-full rounded-sm object-contain'} onError={() => resource.clear()} />;
   }
+  if (presentation === 'avatar') return <div className="relative size-full">
+    <AvatarPlaceholder />
+    {(state.phase === 'unavailable' || state.phase === 'expired') && <button type="button" className="absolute inset-0 rounded-full" aria-label="프로필 사진 다시 불러오기" onClick={() => { void resource.load(assetId, context); }} />}
+  </div>;
+  if (state.phase === 'loading' || state.phase === 'empty') return <div className="h-40 w-full rounded-xl bg-surface-strong motion-safe:animate-pulse" role="status" aria-label="이미지 불러오는 중" />;
   return <div className="space-y-2">
-    <p role="status">{state.phase === 'loading' ? '이미지를 불러오고 있습니다.' : state.phase === 'expired' ? '이미지 접근 시간이 만료되었습니다.' : '이미지를 표시할 수 없습니다.'}</p>
-    {state.phase !== 'loading' && <Button type="button" variant="outline" onClick={() => { void resource.load(assetId, context); }}>다시 불러오기</Button>}
+    <p role="status">{state.phase === 'expired' ? '이미지 접근 시간이 만료되었습니다.' : '이미지를 표시할 수 없습니다.'}</p>
+    <Button type="button" variant="outline" onClick={() => { void resource.load(assetId, context); }}>다시 불러오기</Button>
   </div>;
 }
