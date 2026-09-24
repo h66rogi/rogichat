@@ -38,9 +38,3 @@ export function isOptionalAnimationEvent(
 ): value is OptionalAnimationEvent {
   return (OPTIONAL_ANIMATION_EVENTS as readonly string[]).includes(value);
 }
-
-export function isThemeAnimationEvent(
-  value: string,
-): value is ThemeAnimationEvent {
-  return isRequiredAnimationEvent(value) || isOptionalAnimationEvent(value);
-}

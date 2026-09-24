@@ -39,31 +39,6 @@ export function toKstYmd(date: Date): string {
   return kstTime.toISOString().slice(0, 10);
 }
 
-/**
- * KST "오늘(YYYY-MM-DD)" 문자열을 반환합니다.
- * - 내부 계산과 동일하게 KST 기준으로 날짜 경계가 정해집니다.
- */
-export function getTodayKstYmdString(now: Date = new Date()): string {
-  return getTodayKstYmd(now);
-}
-
-/**
- * KST 기준 "오늘 00:00"을 기준으로 `daysUntil`만큼 더한 시각을 ISO 문자열로 반환합니다.
- * - 예: daysUntil=0 => 오늘(KST) 00:00의 UTC ISO
- * - 홈 하이라이트 등에서 "날짜 단위" 비교/정렬을 안정적으로 하기 위한 용도
- */
-export function getUpcomingEventDateIso(
-  daysUntil: number,
-  now: Date = new Date(),
-): string {
-  const todayYmd = getTodayKstYmd(now);
-  const todayKstMidnightUtc = parseKstYmd(todayYmd);
-  const target = new Date(
-    todayKstMidnightUtc.getTime() + daysUntil * MS_PER_DAY,
-  );
-  return target.toISOString();
-}
-
 export function calculateMilestonesFromDate(
   debutDate: Date,
   now: Date = new Date(),

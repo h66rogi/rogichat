@@ -1,4 +1,3 @@
-/* eslint-disable no-useless-escape -- original Meloming regex source */
 /**
  * Shared utilities for artist and title normalizers.
  */
@@ -9,17 +8,6 @@ export function normalizeToken(token: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .replace(/[A-Z]/g, (c) => c.toLowerCase());
-}
-
-/**
- * Sanitize a normalized string for safe use in Redis keys.
- * Redis keys use `:` as a namespace separator, so we replace any
- * `:` in user-derived content with `_` to prevent key collision.
- * Also strips `*`, `?`, `\n`, `\0` which could interfere with
- * SCAN patterns or cause protocol issues.
- */
-export function sanitizeForRedisKey(value: string): string {
-  return value.replace(/[:\*\?\n\0]/g, '_');
 }
 
 /** Deduplicate strings preserving insertion order. */

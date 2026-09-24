@@ -78,14 +78,3 @@ export interface SongForPricing {
     };
   }>;
 }
-
-/**
- * 채널 가격 설정 정보
- */
-export interface PricingSettingsData {
-  pricingEnabled: boolean;
-  defaultPrice: number | null;
-  defaultPrices: CurrencyPriceMap | null;
-  difficultyPrices: DifficultyPrices | null;
-  difficultyPricesByCurrency: DifficultyPricesByCurrency | null;
-}

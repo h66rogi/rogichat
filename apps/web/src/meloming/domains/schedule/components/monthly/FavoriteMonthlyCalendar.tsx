@@ -6,7 +6,6 @@ import type { CalendarAnniversary } from "@/meloming/domains/schedule/types/anni
 import type {
   CalendarBroadcastRecord,
   CalendarClipRecord,
-  CalendarSetlistSummary,
 } from "@/meloming/domains/calendar/types/channel-calendar";
 import {
   Avatar,
@@ -14,7 +13,7 @@ import {
   AvatarImage,
 } from "@/meloming/shared/components/ui/avatar";
 import { cn } from "@/meloming/shared/lib/utils";
-import { Cake, Film, Music, PartyPopper, Video } from "lucide-react";
+import { Cake, Film, PartyPopper, Video } from "lucide-react";
 import { DayDetailSheet } from "@/meloming/domains/calendar/components/DayDetailSheet";
 
 type MonthlyCalendarVariant = "favorites" | "channel";
@@ -25,8 +24,6 @@ type FavoriteMonthlyCalendarProps = {
   anniversaries: CalendarAnniversary[];
   /** v2 통합 캘린더의 broadcast 기록. v1 경로에서는 빈 배열. */
   broadcasts?: CalendarBroadcastRecord[];
-  /** v2 통합 캘린더의 setlist 요약. v1 경로에서는 빈 배열. */
-  setlists?: CalendarSetlistSummary[];
   /** v2 통합 캘린더의 노래 클립. v1 경로에서는 빈 배열. */
   clips?: CalendarClipRecord[];
   variant?: MonthlyCalendarVariant;
@@ -34,7 +31,6 @@ type FavoriteMonthlyCalendarProps = {
   onAddSchedule?: (date: Date) => void;
   /** Task 1.10 에서 DayDetailSheet 와 연결될 클릭 핸들러. */
   onBroadcastClick?: (broadcast: CalendarBroadcastRecord) => void;
-  onSetlistClick?: (setlist: CalendarSetlistSummary) => void;
   /** Task 1.11 — 노래 클립 카드 클릭 핸들러. */
   onClipClick?: (clip: CalendarClipRecord) => void;
   /** 채널 신 UI에서 6주 그리드를 뷰포트 안에 맞추는 압축 레이아웃. */
@@ -43,7 +39,6 @@ type FavoriteMonthlyCalendarProps = {
 
 type DayBucket = {
   anniversaries: CalendarAnniversary[];
-  setlists: CalendarSetlistSummary[];
   broadcasts: CalendarBroadcastRecord[];
   clips: CalendarClipRecord[];
   allDay: Schedule[];
@@ -52,7 +47,6 @@ type DayBucket = {
 
 type MonthlyItem =
   | { kind: "anniversary"; anniversary: CalendarAnniversary }
-  | { kind: "setlist"; setlist: CalendarSetlistSummary }
   | { kind: "broadcast"; broadcast: CalendarBroadcastRecord }
   | { kind: "clip"; clip: CalendarClipRecord }
   | { kind: "schedule"; schedule: Schedule; isAllDay: boolean };
@@ -121,13 +115,11 @@ export function FavoriteMonthlyCalendar({
   schedules,
   anniversaries,
   broadcasts = [],
-  setlists = [],
   clips = [],
   variant = "favorites",
   onScheduleClick,
   onAddSchedule,
   onBroadcastClick,
-  onSetlistClick,
   onClipClick,
   fitToViewport = false,
 }: FavoriteMonthlyCalendarProps) {
@@ -159,7 +151,6 @@ export function FavoriteMonthlyCalendar({
       if (existing) return existing;
       const next: DayBucket = {
         anniversaries: [],
-        setlists: [],
         broadcasts: [],
         clips: [],
         allDay: [],
@@ -174,13 +165,6 @@ export function FavoriteMonthlyCalendar({
       if (!date) continue;
       const key = ymd(toStartOfDay(date));
       ensure(key).anniversaries.push(ann);
-    }
-
-    for (const sl of setlists) {
-      const date = parseISOToDate(sl.startedAt);
-      if (!date) continue;
-      const key = ymd(toStartOfDay(date));
-      ensure(key).setlists.push(sl);
     }
 
     for (const b of broadcasts) {
@@ -213,9 +197,6 @@ export function FavoriteMonthlyCalendar({
         return a.daysUntil - b.daysUntil;
       });
 
-      bucket.setlists.sort((a, b) =>
-        a.startedAt.localeCompare(b.startedAt)
-      );
       bucket.broadcasts.sort((a, b) =>
         a.startedAt.localeCompare(b.startedAt)
       );
@@ -235,7 +216,7 @@ export function FavoriteMonthlyCalendar({
     }
 
     return map;
-  }, [anniversaries, schedules, broadcasts, setlists, clips]);
+  }, [anniversaries, schedules, broadcasts, clips]);
 
   const openDayModal = (d: Date) => {
     setModalDate(d);
@@ -250,10 +231,6 @@ export function FavoriteMonthlyCalendar({
       ...(bucket?.anniversaries ?? []).map((a) => ({
         kind: "anniversary" as const,
         anniversary: a,
-      })),
-      ...(bucket?.setlists ?? []).map((sl) => ({
-        kind: "setlist" as const,
-        setlist: sl,
       })),
       ...(bucket?.broadcasts ?? []).map((b) => ({
         kind: "broadcast" as const,
@@ -336,43 +313,6 @@ export function FavoriteMonthlyCalendar({
                       </span>
                     )}
                   </div>
-                </li>
-              );
-            }
-
-            if (item.kind === "setlist") {
-              const setlist = item.setlist;
-              const isActive = !setlist.endedAt;
-              return (
-                <li key={`${key}-setlist-${setlist.sessionId}-${idx}`}>
-                  <button
-                    type="button"
-                    className={cn(
-                      "w-full flex items-center gap-1.5 rounded px-1.5 py-1 text-xs text-left",
-                      "hover:bg-accent/40",
-                      fitToViewport && "h-5 py-0 text-[11px] font-medium",
-                      "bg-rose-50 text-rose-900 dark:bg-rose-900/20 dark:text-rose-200"
-                    )}
-                    title={`노래 방송 — ${setlist.completedCount}곡`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onSetlistClick?.(setlist);
-                    }}
-                  >
-                    <Music
-                      className={cn(
-                        "size-3.5 shrink-0",
-                        fitToViewport && "size-3"
-                      )}
-                    />
-                    <span className="shrink-0 text-[10px] tabular-nums">
-                      {formatTime(setlist.startedAt)}
-                    </span>
-                    <span className="line-clamp-1 flex-1">
-                      {setlist.completedCount}곡
-                      {isActive && " (진행 중)"}
-                    </span>
-                  </button>
                 </li>
               );
             }
@@ -568,7 +508,6 @@ export function FavoriteMonthlyCalendar({
           const bucket = bucketsByDay.get(key);
           const count =
             (bucket?.anniversaries.length ?? 0) +
-            (bucket?.setlists.length ?? 0) +
             (bucket?.broadcasts.length ?? 0) +
             (bucket?.clips.length ?? 0) +
             (bucket?.allDay.length ?? 0) +
@@ -649,13 +588,11 @@ export function FavoriteMonthlyCalendar({
         onOpenChange={setIsDayModalOpen}
         selectedDate={modalDate}
         anniversaries={modalBucket?.anniversaries ?? []}
-        setlists={modalBucket?.setlists ?? []}
         broadcasts={modalBucket?.broadcasts ?? []}
         clips={modalBucket?.clips ?? []}
         schedules={modalSchedules}
         onScheduleClick={onScheduleClick}
         onAddSchedule={onAddSchedule}
-        onSetlistClick={onSetlistClick}
         onBroadcastClick={onBroadcastClick}
         onClipClick={onClipClick}
         // favorites variant 은 일정 카드에 채널 아바타 + 이름을 노출.

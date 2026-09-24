@@ -11,6 +11,9 @@ const nextConfig: NextConfig = {
     // No remote image host is approved yet; the neutral placeholder is an inline SVG.
     remotePatterns: [],
   },
+  async redirects() {
+    return [{ source: '/channel/hurogi', destination: '/', permanent: false }];
+  },
   async headers() {
     return [
       {

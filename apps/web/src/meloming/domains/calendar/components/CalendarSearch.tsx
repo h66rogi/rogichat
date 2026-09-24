@@ -21,11 +21,11 @@ import type {
  * 부모의 overflow-hidden(뷰포트 고정 레이아웃)에 잘리지 않는다.
  *
  * 결과 클릭:
- *   - 노래방송(SETLIST) / 클립(CLIP): 전용 상세 페이지로 이동 (router)
+ *   - 클립(CLIP): 전용 상세 페이지로 이동 (router)
  *   - 그 외(일정/방송기록/기념일): `onSelectDate` 로 캘린더를 해당 날짜로 이동
  *
  * 색상 컨벤션은 캘린더 안내와 일치:
- *   일정=blue / 방송기록=slate / 노래방송=rose / 클립=emerald / 기념일=amber
+ *   일정=blue / 방송기록=slate / 클립=emerald / 기념일=amber
  */
 const TYPE_META: Record<
   CalendarSearchItemType,
@@ -33,7 +33,6 @@ const TYPE_META: Record<
 > = {
   SCHEDULE: { label: "방송 일정", dot: "bg-blue-500", text: "text-blue-600" },
   BROADCAST: { label: "방송 기록", dot: "bg-slate-400", text: "text-slate-600" },
-  SETLIST: { label: "노래 방송", dot: "bg-rose-500", text: "text-rose-600" },
   CLIP: { label: "노래 클립", dot: "bg-emerald-500", text: "text-emerald-600" },
   ANNIVERSARY: { label: "기념일", dot: "bg-amber-500", text: "text-amber-600" },
 };
@@ -58,7 +57,6 @@ function formatDate(iso: string): string {
 function itemKey(item: CalendarSearchItem, idx: number): string {
   const id =
     item.scheduleId ??
-    item.sessionId ??
     item.clipId ??
     item.sessionKey ??
     item.anniversaryType ??
@@ -75,7 +73,7 @@ export function CalendarSearchButton({
   align = "end",
   triggerClassName,
 }: {
-  /** 채널 식별자 (webPath 또는 numeric id). 검색 API + setlist URL 에 사용. */
+  /** 채널 식별자 (webPath 또는 numeric id). 검색 API 에 사용. */
   identifier: string;
   /** 일정/방송기록/기념일 결과 클릭 시 캘린더를 해당 날짜로 이동시키는 콜백. */
   onSelectDate: (date: Date) => void;
@@ -107,7 +105,7 @@ export function CalendarSearchButton({
     enabled: open,
   });
 
-  const items = data?.items.filter((item) => item.type !== "SETLIST") ?? [];
+  const items = data?.items ?? [];
   const hasQuery = debounced.length >= 1;
 
   const handleSelect = (item: CalendarSearchItem) => {

@@ -209,13 +209,6 @@ export class OverlayLayoutService {
     }
   }
 
-  async getLayout(
-    channelId: string,
-    layoutType: OverlayLayoutType,
-  ): Promise<Record<string, unknown>> {
-    return (await this.getLayoutSnapshot(channelId, layoutType)).layout;
-  }
-
   async getLayoutSnapshot(
     channelId: string,
     layoutType: OverlayLayoutType,

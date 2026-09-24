@@ -9,34 +9,10 @@
  */
 import type { Schedule } from "@/meloming/domains/schedule/types/schedule";
 
-/** 통합 캘린더 응답에 담겨오는 setlist 요약. 백엔드 PublicSetlistSummaryDto 와 일치. */
-export interface CalendarSetlistSummary {
-  /** 세션 ID */
-  sessionId: number;
-  /** 방송 플랫폼 (CHZZK / SOOP / CIME / YOUTUBE) — null 가능 */
-  platform: string | null;
-  /** 세션 시작 시각 (ISO8601) */
-  startedAt: string;
-  /** 세션 종료 시각 (ISO8601) — 진행 중이면 null */
-  endedAt: string | null;
-  /** 재생 완료된 곡 수 */
-  completedCount: number;
-  /** 세션 진행 시간 (분) — 진행 중이면 null */
-  durationMinutes: number | null;
-  /** 카드 미리보기용 앨범아트 URL 목록 (재생 순서대로 distinct, 최대 6장) */
-  albumArtPreviews: string[];
-  /**
-   * broadcasts 응답과 매칭하기 위한 세션 키.
-   * 형식: `${platform}:${platformChannelId}:${startedAt.toISOString()}`.
-   * platform / platformChannelId 가 모두 있는 경우에만 채워진다.
-   */
-  sessionKey: string | null;
-}
-
 /** 통합 캘린더 응답에 담겨오는 broadcast 기록. 백엔드 CalendarBroadcastDto 와 일치. */
 export interface CalendarBroadcastRecord {
   /**
-   * setlist 매칭용 세션 키.
+   * 방송 세션 키.
    * 형식: `${platform}:${platformChannelId}:${startedAt.toISOString()}`.
    */
   sessionKey: string;
@@ -123,8 +99,6 @@ export interface ChannelCalendarResponse {
   schedules: Schedule[];
   /** 방송 기록 목록 (ranking-back). */
   broadcasts: CalendarBroadcastRecord[];
-  /** 셋리스트 목록 (재생 완료 곡 ≥ 1 의 종료 세션). */
-  setlists: CalendarSetlistSummary[];
   /** 기념일 목록 (Phase 1 은 자동 계산만). */
   anniversaries: CalendarAnniversary[];
   /**
@@ -141,14 +115,13 @@ export interface ChannelCalendarResponse {
 export type CalendarSearchItemType =
   | "SCHEDULE"
   | "BROADCAST"
-  | "SETLIST"
   | "CLIP"
   | "ANNIVERSARY";
 
 /**
  * 통합 캘린더 검색 결과 1건. 백엔드 CalendarSearchItemDto 와 1:1 매핑.
  *
- * 5종을 하나의 flat 리스트로 합치므로 표시용 공통 필드(type/date/title/subtitle)
+ * 결과를 하나의 flat 리스트로 합치므로 표시용 공통 필드(type/date/title/subtitle)
  * 와 타입별 식별자를 함께 담는다. 해당 타입이 아닌 식별자는 null.
  */
 export interface CalendarSearchItem {
@@ -162,10 +135,8 @@ export interface CalendarSearchItem {
   subtitle: string | null;
   /** SCHEDULE 일 때 일정 ID. 그 외 null. */
   scheduleId: number | null;
-  /** BROADCAST/SETLIST 일 때 세션 키. 그 외 null. */
+  /** BROADCAST 일 때 세션 키. 그 외 null. */
   sessionKey: string | null;
-  /** SETLIST 일 때 세션 ID. 그 외 null. */
-  sessionId: number | null;
   /** CLIP 일 때 클립 ID. 그 외 null. */
   clipId: number | null;
   /** ANNIVERSARY 일 때 기념일 종류. 그 외 null. */
@@ -198,8 +169,6 @@ export interface GetCalendarSearchParams {
   to: string;
   /** 방송기록 포함 여부 (default: true) */
   includeBroadcasts?: boolean;
-  /** 셋리스트 포함 여부 (default: true) */
-  includeSetlists?: boolean;
   /** 기념일 포함 여부 (default: true) */
   includeAnniversaries?: boolean;
   /** 일정 포함 여부 (default: true) */
@@ -220,8 +189,6 @@ export interface GetChannelCalendarParams {
   to: string;
   /** 방송기록 포함 여부 (default: true) */
   includeBroadcasts?: boolean;
-  /** 셋리스트 포함 여부 (default: true) */
-  includeSetlists?: boolean;
   /** 기념일 포함 여부 (default: true) */
   includeAnniversaries?: boolean;
   /** 일정 포함 여부 (default: true) */

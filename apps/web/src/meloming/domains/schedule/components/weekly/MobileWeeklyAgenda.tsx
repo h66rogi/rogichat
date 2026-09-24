@@ -4,14 +4,12 @@ import type { CalendarAnniversary } from "@/meloming/domains/schedule/types/anni
 import type {
   CalendarBroadcastRecord,
   CalendarClipRecord,
-  CalendarSetlistSummary,
 } from "@/meloming/domains/calendar/types/channel-calendar";
 import { cn } from "@/meloming/shared/lib/utils";
 import { ScheduleCardMobile } from "./ScheduleCardMobile";
 import { AnniversaryCardMobile } from "./AnniversaryCardMobile";
 import { BroadcastRecordCardMobile } from "@/meloming/domains/calendar/components/cards/BroadcastRecordCardMobile";
 import { ClipRecordCardMobile } from "@/meloming/domains/calendar/components/cards/ClipRecordCardMobile";
-import { SetlistRecordCardMobile } from "@/meloming/domains/calendar/components/cards/SetlistRecordCardMobile";
 import { ChevronDown, ChevronUp, Plus } from "lucide-react";
 
 type MobileWeeklyAgendaProps = {
@@ -22,13 +20,10 @@ type MobileWeeklyAgendaProps = {
   anniversaries?: CalendarAnniversary[];
   /** v2 통합 캘린더의 broadcast 기록. v1 경로에서는 빈 배열. */
   broadcasts?: CalendarBroadcastRecord[];
-  /** v2 통합 캘린더의 setlist 요약. v1 경로에서는 빈 배열. */
-  setlists?: CalendarSetlistSummary[];
   /** v2 통합 캘린더의 노래 클립. v1 경로에서는 빈 배열. */
   clips?: CalendarClipRecord[];
   /** Task 1.10 에서 DayDetailSheet 와 연결될 클릭 핸들러. */
   onBroadcastClick?: (broadcast: CalendarBroadcastRecord) => void;
-  onSetlistClick?: (setlist: CalendarSetlistSummary) => void;
   /** Task 1.11 — 노래 클립 카드 클릭 핸들러. */
   onClipClick?: (clip: CalendarClipRecord) => void;
   hideChannel?: boolean;
@@ -148,32 +143,6 @@ function groupBroadcastsByDate(
   return res;
 }
 
-function groupSetlistsByDate(
-  setlists: CalendarSetlistSummary[],
-  isoStart: string
-) {
-  const res: Record<string, CalendarSetlistSummary[]> = {};
-  const days = getWeekDays(isoStart);
-  const startDate = days[0];
-  const endDate = days[6];
-
-  for (const s of setlists) {
-    const start = new Date(s.startedAt);
-    if (Number.isNaN(start.getTime())) continue;
-    const day = startOfDay(start);
-    if (day < startDate || day > endDate) continue;
-    const key = toKey(day);
-    res[key] ||= [];
-    res[key].push(s);
-  }
-
-  Object.keys(res).forEach((k) => {
-    res[k].sort((a, b) => a.startedAt.localeCompare(b.startedAt));
-  });
-
-  return res;
-}
-
 function groupClipsByDate(
   clips: CalendarClipRecord[],
   isoStart: string
@@ -207,10 +176,8 @@ export function MobileWeeklyAgenda({
   onEmptyClick,
   anniversaries = [],
   broadcasts = [],
-  setlists = [],
   clips = [],
   onBroadcastClick,
-  onSetlistClick,
   onClipClick,
   hideChannel = false,
 }: MobileWeeklyAgendaProps) {
@@ -226,10 +193,6 @@ export function MobileWeeklyAgenda({
   const broadcastsByDate = useMemo(
     () => groupBroadcastsByDate(broadcasts, weekStart),
     [broadcasts, weekStart]
-  );
-  const setlistsByDate = useMemo(
-    () => groupSetlistsByDate(setlists, weekStart),
-    [setlists, weekStart]
   );
   const clipsByDate = useMemo(
     () => groupClipsByDate(clips, weekStart),
@@ -329,13 +292,11 @@ export function MobileWeeklyAgenda({
         const daySchedules = grouped[dateKey] || [];
         const dayAnniversaries = anniversariesByDate[dateKey] || [];
         const dayBroadcasts = broadcastsByDate[dateKey] || [];
-        const daySetlists = setlistsByDate[dateKey] || [];
         const dayClips = clipsByDate[dateKey] || [];
         const hasContent =
           daySchedules.length > 0 ||
           dayAnniversaries.length > 0 ||
           dayBroadcasts.length > 0 ||
-          daySetlists.length > 0 ||
           dayClips.length > 0;
         const isTodayDate = isToday(day);
 
@@ -397,7 +358,6 @@ export function MobileWeeklyAgenda({
                       daySchedules.length +
                       dayAnniversaries.length +
                       dayBroadcasts.length +
-                      daySetlists.length +
                       dayClips.length;
                     return total > 0 ? `${total}건` : null;
                   })()}
@@ -418,14 +378,7 @@ export function MobileWeeklyAgenda({
                     {dayAnniversaries.map((ann) => (
                       <AnniversaryCardMobile key={ann.id} anniversary={ann} />
                     ))}
-                    {/* anniversary → setlist → broadcast → clip → schedule — spec 5.4 + clip 확장 */}
-                    {daySetlists.map((s) => (
-                      <SetlistRecordCardMobile
-                        key={`setlist-${s.sessionId}`}
-                        setlist={s}
-                        onClick={onSetlistClick}
-                      />
-                    ))}
+                    {/* anniversary → broadcast → clip → schedule — spec 5.4 + clip 확장 */}
                     {dayBroadcasts.map((b) => (
                       <BroadcastRecordCardMobile
                         key={`broadcast-${b.sessionKey}`}

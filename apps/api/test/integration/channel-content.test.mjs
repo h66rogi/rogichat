@@ -217,7 +217,8 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   const calendarWindow={from:'2026-09-01',to:'2026-10-01'};
   const initialCalendar=await calendar.getCalendar(calendarWindow,{});
   assert.equal(initialCalendar.anniversaries.filter(item=>item.type==='BIRTHDAY').length,1);
-  assert.deepEqual(initialCalendar.setlists,[]);
+  assert.deepEqual(initialCalendar.broadcasts,[]);
+  assert.equal(Object.hasOwn(initialCalendar,'setlists'),false);
   const first=await db.transactions.write(tx=>new ChannelWardrobeService(tx.prisma).getPublicWardrobe(roomId));
   assert.deepEqual(first.categories.map(row=>row.name),['의상','헤어']);
   assert.equal(first.items.length,0);
@@ -633,6 +634,10 @@ test('ported live session start, public active, end and history use owner room',
   await assert.rejects(requests.queue({token:fanId}, {sessionId:String(privateSession.id)}));
   assert.equal((await requests.queue({token:ownerId}, {sessionId:String(privateSession.id)})).total,0);
   await assert.rejects(requests.create({token:fanId},{liveSessionId:privateSession.id,rawArtist:'가수',rawTitle:'노래'}));
+  const privateManual=await requests.manual({token:ownerId},privateSession.id,{rawArtist:'연습 가수',rawTitle:'연습 곡'});
+  assert.equal((await requests.advance({token:ownerId},{sessionId:String(privateSession.id)},'next')).id,privateManual.id);
+  await requests.manual({token:ownerId},privateSession.id,{rawArtist:'연습 가수',rawTitle:'다음 연습 곡'});
+  assert.equal((await requests.clear({token:ownerId},{sessionId:String(privateSession.id)})).deletedCount,1);
   await live.end({token:ownerId},privateSession.id);
 });
 

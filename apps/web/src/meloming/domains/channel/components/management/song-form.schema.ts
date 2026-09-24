@@ -109,7 +109,4 @@ export function createSongFormSchema(options?: {
   return options?.requireProficiency ? requireProficiency(schema) : schema;
 }
 
-export const songFormSchema = baseSongFormSchema;
-export const relaxedSongFormSchema = baseRelaxedSongFormSchema;
-
 export type SongFormValues = z.input<typeof baseSongFormSchema>;
