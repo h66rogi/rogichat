@@ -1,0 +1,189 @@
+/* =========================================================================
+ * 3d-depth theme — keyframes
+ *
+ * CSS identifiers cannot start with a digit, so while the theme id is
+ * `3d-depth` and the auto-namespaced animation name is `3d-depth-{name}`,
+ * we cannot use that directly as a CSS @keyframes name. Instead, keyframes
+ * here are prefixed with `depth3d-` (digit moved to second position so the
+ * identifier is CSS-valid). The widget components reference these by the
+ * same `depth3d-` prefix directly — they do NOT call buildAnimationShorthand
+ * with the namespaced name for static CSS animations.
+ *
+ * Aesthetic: CSS 3D transforms with perspective, tilted cards, multi-layer
+ * shadows. Cards appear to float in 3D space, recede into depth on exit, and
+ * jump toward the camera on donation events.
+ * ========================================================================= */
+
+/* ---------------------------------------------------------------------------
+ * Track change — card flip. The card swings on its Y axis as the old track
+ * recedes and the new one lands. We go from the card's resting tilt (-10deg)
+ * to near edge-on and back so the transition reads as a physical rotation
+ * rather than a simple fade.
+ * ------------------------------------------------------------------------- */
+@keyframes depth3d-card-flip {
+  0% {
+    transform: perspective(800px) rotateY(-10deg) rotateX(5deg) translateZ(0);
+    opacity: 1;
+  }
+  50% {
+    transform: perspective(800px) rotateY(90deg) rotateX(5deg) translateZ(-20px);
+    opacity: 0.35;
+  }
+  100% {
+    transform: perspective(800px) rotateY(-10deg) rotateX(5deg) translateZ(0);
+    opacity: 1;
+  }
+}
+
+@keyframes depth3d-card-flip-out {
+  0% {
+    transform: perspective(800px) rotateY(-10deg) rotateX(5deg) translateZ(0);
+    opacity: 1;
+  }
+  100% {
+    transform: perspective(800px) rotateY(90deg) rotateX(5deg) translateZ(-20px);
+    opacity: 0;
+  }
+}
+
+@keyframes depth3d-card-flip-in {
+  0% {
+    transform: perspective(800px) rotateY(-100deg) rotateX(5deg) translateZ(-20px);
+    opacity: 0;
+  }
+  60% {
+    transform: perspective(800px) rotateY(2deg) rotateX(5deg) translateZ(0);
+    opacity: 1;
+  }
+  100% {
+    transform: perspective(800px) rotateY(-10deg) rotateX(5deg) translateZ(0);
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Chat enter — depth slide. Messages surface from deep in Z space, pulling
+ * forward to their resting plane with a sharp shadow resolution.
+ * ------------------------------------------------------------------------- */
+@keyframes depth3d-depth-slide {
+  0% {
+    transform: translateZ(-50px) translateY(6px);
+    opacity: 0;
+  }
+  60% {
+    transform: translateZ(6px) translateY(-1px);
+    opacity: 1;
+  }
+  100% {
+    transform: translateZ(0) translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Chat exit / generic recede — cards retreat into depth. Used for chat.exit.
+ * ------------------------------------------------------------------------- */
+@keyframes depth3d-recede {
+  0% {
+    transform: translateZ(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateZ(-100px);
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Queue add — depth pop. Items arrive by popping forward with a slight
+ * scale-up, then settle into place. The overshoot sells the 3D pop.
+ * ------------------------------------------------------------------------- */
+@keyframes depth3d-depth-pop {
+  0% {
+    transform: scale(0.9) translateZ(-30px);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.03) translateZ(8px);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) translateZ(0);
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Queue remove — recede-out. Items drift back into depth while fading.
+ * ------------------------------------------------------------------------- */
+@keyframes depth3d-recede-out {
+  0% {
+    transform: translateZ(0);
+    opacity: 1;
+  }
+  100% {
+    transform: translateZ(-50px);
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Donation — card jump. A big forward lift with deeper shadow; reads as the
+ * whole card physically leaping off the surface toward the viewer.
+ * ------------------------------------------------------------------------- */
+@keyframes depth3d-card-jump {
+  0% {
+    transform: translateY(0) translateZ(0);
+    box-shadow:
+      25px 25px 60px rgba(0, 0, 0, 0.5),
+      -4px -4px 15px rgba(255, 255, 255, 0.02);
+  }
+  30% {
+    transform: translateY(-14px) translateZ(30px);
+    box-shadow:
+      35px 40px 90px rgba(0, 0, 0, 0.65),
+      0 0 50px rgba(99, 102, 241, 0.35),
+      -6px -6px 20px rgba(255, 255, 255, 0.06);
+  }
+  60% {
+    transform: translateY(-6px) translateZ(14px);
+    box-shadow:
+      30px 34px 75px rgba(0, 0, 0, 0.55),
+      0 0 34px rgba(99, 102, 241, 0.25),
+      -5px -5px 18px rgba(255, 255, 255, 0.04);
+  }
+  100% {
+    transform: translateY(0) translateZ(0);
+    box-shadow:
+      25px 25px 60px rgba(0, 0, 0, 0.5),
+      -4px -4px 15px rgba(255, 255, 255, 0.02);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Decorative idle float — very subtle ambient Z-axis drift for the idle card.
+ * Purely decorative and lightweight so it doesn't compete with donations.
+ * ------------------------------------------------------------------------- */
+@keyframes depth3d-float {
+  0%,
+  100% {
+    transform: translateZ(0);
+  }
+  50% {
+    transform: translateZ(6px);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Track-transition phase classes — applied by useTrackTransition hook.
+ * Matches the card-flip durations defined in config.ts (400 exit / 700 enter).
+ * ------------------------------------------------------------------------- */
+.theme-track-exiting-3d-depth {
+  animation: depth3d-card-flip-out 400ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform-style: preserve-3d;
+}
+
+.theme-track-entering-3d-depth {
+  animation: depth3d-card-flip-in 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  transform-style: preserve-3d;
+}

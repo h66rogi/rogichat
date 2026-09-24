@@ -1,10 +1,10 @@
-import { Music, Tag, User, Plus, Home, ListMusic, ListOrdered, Radio, CalendarCog, History, ScrollText, Shirt, FileDown, Film } from "lucide-react";
+import { Music, Tag, User, Plus, Home, ListMusic, ListOrdered, Radio, CalendarCog, History, ScrollText, Shirt, FileDown, Film, Settings, Gamepad2 } from "lucide-react";
 
 // 관리 메뉴 아이템 타입
 export type ManagementSection =
   | "home" | "songs" | "songbook-download" | "add-song" | "categories"
-  | "artists" | "song-requests" | "clip-requests" | "live" | "song-request-settings"
-  | "session-history" | "schedule-settings" | "setlists" | "wardrobe";
+  | "artists" | "song-requests" | "clip-requests" | "live" | "console" | "song-request-settings"
+  | "session-history" | "schedule-settings" | "setlists" | "wardrobe" | "settings";
 
 export interface ManagementMenuItem {
   id: ManagementSection;
@@ -21,6 +21,7 @@ export const MANAGEMENT_GROUPS = {
   SONGBOOK: "노래책",
   SONG_REQUEST: "신청곡",
   CONTENT: "콘텐츠 관리",
+  SETTINGS: "채널 관리",
 } as const;
 
 export type ManagementGroup =
@@ -90,6 +91,13 @@ export const MANAGEMENT_MENU_ITEMS: ManagementMenuItem[] = [
     group: MANAGEMENT_GROUPS.SONG_REQUEST,
   },
   {
+    id: "console",
+    label: "리모컨 (신청곡 콘솔)",
+    icon: Gamepad2,
+    description: "OBS 콘솔 접속 URL 및 토큰 관리",
+    group: MANAGEMENT_GROUPS.SONG_REQUEST,
+  },
+  {
     id: "session-history",
     label: "신청곡 기록",
     icon: History,
@@ -117,6 +125,13 @@ export const MANAGEMENT_MENU_ITEMS: ManagementMenuItem[] = [
     description: "의상, 헤어 등 이미지 항목을 관리합니다",
     group: MANAGEMENT_GROUPS.CONTENT,
     badge: "NEW",
+  },
+  {
+    id: "settings",
+    label: "설정",
+    icon: Settings,
+    description: "채널 및 노래책 설정",
+    group: MANAGEMENT_GROUPS.SETTINGS,
   },
   {
     id: "live",

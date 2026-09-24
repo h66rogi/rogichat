@@ -7,6 +7,23 @@ qa.rogi.chat {
 	handle @infra {
 		respond "rogichat qa web edge ready" 200
 	}
+	# The unchanged OBS overlay routes share this origin with the copied
+	# management pages. Only Next's generated asset path needs isolation.
+	handle_path /_overlay-next/* {
+		reverse_proxy rogichat-qa-overlay:3000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up -CF-Connecting-IP
+			header_up -Forwarded
+		}
+	}
+	@overlay path /overlay /overlay/* /sync-overlay/* /fonts/* /logo/* /legacy/* /theme-showcase/* /api/soop-emoticons
+	handle @overlay {
+		reverse_proxy rogichat-qa-overlay:3000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up -CF-Connecting-IP
+			header_up -Forwarded
+		}
+	}
 	handle {
 		reverse_proxy rogichat-qa-web:3000 {
 			header_up X-Forwarded-For {remote_host}

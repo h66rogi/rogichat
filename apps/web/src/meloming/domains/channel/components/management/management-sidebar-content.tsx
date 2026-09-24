@@ -25,6 +25,7 @@ import {
   BookOpen,
   ListOrdered,
   Palette,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/meloming/shared/lib/utils";
@@ -35,6 +36,7 @@ const GROUP_ICONS: Record<ManagementGroup, LucideIcon> = {
   [MANAGEMENT_GROUPS.SONGBOOK]: BookOpen,
   [MANAGEMENT_GROUPS.SONG_REQUEST]: ListOrdered,
   [MANAGEMENT_GROUPS.CONTENT]: Palette,
+  [MANAGEMENT_GROUPS.SETTINGS]: Settings,
 };
 import { useChannelPermission } from "@/meloming/domains/channel/hooks/use-channel";
 import type { GetChannelIdentifierPermissionResponse } from "@/meloming/domains/channel/types/channel";
@@ -66,11 +68,13 @@ const SECTION_PERMISSIONS: Partial<Record<ManagementSection, (p: GetChannelIdent
   "song-requests": p => p.isOwner || p.manageContent,
   "clip-requests": p => p.isOwner || p.manageContent,
   live: p => p.isOwner || p.manageSettings,
+  console: p => p.isOwner || p.manageSettings,
   "song-request-settings": p => p.isOwner || p.manageSettings,
   "session-history": p => p.isOwner || p.manageSettings,
   "schedule-settings": p => p.isOwner || p.manageContent,
   setlists: p => p.isOwner || p.manageContent,
   wardrobe: p => p.isOwner || p.manageContent,
+  settings: p => p.isOwner || p.manageSettings,
 };
 
 // 그룹 컴포넌트 (접이식)
@@ -361,6 +365,19 @@ export function ManagementSidebarContent({
     );
   }, [activeSection, contentItems]);
 
+  const settingsItems = useMemo(() => {
+    const items = MANAGEMENT_MENU_ITEMS.filter(
+      (item) => item.group === MANAGEMENT_GROUPS.SETTINGS
+    );
+    return filterByPermission(items);
+  }, [permission]);
+
+  const settingsDefaultOpen = useMemo(() => {
+    return settingsItems.some(
+      (item) => activeSection === item.id || activeSection.startsWith(`${item.id}/`)
+    );
+  }, [activeSection, settingsItems]);
+
   return (
     <>
     <div className="flex flex-col h-full">
@@ -466,6 +483,15 @@ export function ManagementSidebarContent({
             items={contentItems}
             activeSection={activeSection}
             defaultOpen={contentDefaultOpen}
+            onNavigate={handleNavigate}
+            getUrlForSection={getUrlForSection}
+          />
+
+          <MenuGroup
+            groupKey={MANAGEMENT_GROUPS.SETTINGS}
+            items={settingsItems}
+            activeSection={activeSection}
+            defaultOpen={settingsDefaultOpen}
             onNavigate={handleNavigate}
             getUrlForSection={getUrlForSection}
           />

@@ -1,0 +1,100 @@
+/* =========================================================================
+ * concert-poster theme — keyframes
+ *
+ * Aesthetic: bold concert-poster typography. No blur, no slow fades.
+ * Movement is decisive — slide-in with overshoot to feel like a stamped
+ * poster being slapped onto a wall. Each keyframe is namespaced as
+ * `concert-poster-{name}` to match `namespacedAnimationName`.
+ * ========================================================================= */
+
+@keyframes concert-poster-poster-slide {
+  0% {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes concert-poster-poster-slide-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+@keyframes concert-poster-poster-stamp {
+  0% {
+    opacity: 0;
+    transform: translateY(-6px) scale(1.08);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(1px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes concert-poster-poster-fade-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+
+@keyframes concert-poster-poster-slide-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes concert-poster-poster-spotlight {
+  0% {
+    transform: scale(0.92);
+    filter: brightness(1);
+  }
+  35% {
+    transform: scale(1.04);
+    filter: brightness(1.4);
+  }
+  70% {
+    transform: scale(0.99);
+    filter: brightness(1.1);
+  }
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
+}
+
+.theme-track-exiting-concert-poster {
+  animation: concert-poster-poster-slide-out 200ms cubic-bezier(0.5, 0, 0.75, 0)
+    forwards;
+}
+
+.theme-track-entering-concert-poster {
+  animation: concert-poster-poster-slide 320ms cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+}

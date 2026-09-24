@@ -2,10 +2,22 @@ import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import { ApiError } from '../auth/auth-primitives.js';
 import { ChannelWardrobeService } from './upstream/channel-wardrobe.service.js';
+import { ConsolePlaybackService } from './upstream/console-playback.service.js';
 
 /** Meloming's Channel key maps to the one owner-bound Rogichat room. */
 @Injectable()
 export class ChannelContentRepository {
+  consolePlayback(tx: Transaction, config: ConstructorParameters<typeof ConsolePlaybackService>[0]): ConsolePlaybackService {
+    return new ConsolePlaybackService(config, tx.prisma);
+  }
+  async lockLyricsQuotaWindow(tx: Transaction, userId: string): Promise<{
+    window_started_at: Date | null; window_ends_at: Date | null; used_count: number;
+  } | undefined> {
+    const rows = await tx.rows<{ window_started_at: Date | null; window_ends_at: Date | null; used_count: number }>(
+      'SELECT window_started_at,window_ends_at,used_count FROM lyrics_quota_windows WHERE user_id=? FOR UPDATE', [userId]);
+    return rows[0];
+  }
+
   async lockPrimary(tx: Transaction): Promise<void> {
     await tx.rows('SELECT `key` FROM default_room_bindings WHERE `key`=? FOR UPDATE', ['primary']);
   }
@@ -26,5 +38,21 @@ export class ChannelContentRepository {
     const user = await tx.prisma.users.findUnique({ where: { id: userId }, select: { status: true, creator: { select: { enabled: true } } } });
     if (user?.status !== 'ACTIVE' || !user.creator?.enabled) throw new ApiError('FORBIDDEN', 403);
     return channel.roomId;
+  }
+
+  async requireConsoleToken(tx: Transaction, token: string): Promise<{ userId: string; roomId: string }> {
+    if (!/^[a-f0-9]{64}$/.test(token)) throw new ApiError('UNAUTHENTICATED', 401);
+    const room = await tx.prisma.rooms.findUnique({ where: { console_token: token },
+      select: { id: true, owner: { select: { user_id: true } } } });
+    if (!room?.owner?.user_id) throw new ApiError('UNAUTHENTICATED', 401);
+    const roomId = await this.requireOwner(tx, room.owner.user_id);
+    if (roomId !== room.id) throw new ApiError('UNAUTHENTICATED', 401);
+    const owner = await tx.prisma.users.findUnique({ where: { id: room.owner.user_id },
+      select: { reviewer_expires_at: true, soop: { select: { status: true } } } });
+    if (!owner || (owner.soop?.status !== 'VERIFIED' &&
+      (!owner.reviewer_expires_at || owner.reviewer_expires_at <= await tx.now()))) {
+      throw new ApiError('FORBIDDEN', 403);
+    }
+    return { userId: room.owner.user_id, roomId };
   }
 }

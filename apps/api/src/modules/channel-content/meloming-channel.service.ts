@@ -1,4 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { randomBytes } from 'node:crypto';
+import type { Prisma } from '../../generated/prisma/client.js';
 import { Transactions } from '../../infrastructure/database/transactions.js';
 import type { CommandCredentials, SessionCredentials } from '../auth/auth-context.js';
 import { AuthService } from '../auth/auth.service.js';
@@ -62,7 +64,8 @@ export class MelomingChannelService {
   detail() {
     return this.transactions.read(async tx => {
       const { roomId, ownerId } = await this.repository.primary(tx);
-      const room = await tx.prisma.rooms.findUniqueOrThrow({ where: { id: roomId }, select: { name: true, created_at: true, schedule_notice: true } });
+      const room = await tx.prisma.rooms.findUniqueOrThrow({ where: { id: roomId }, select: { name: true, created_at: true, schedule_notice: true, channelDisplaySettings: true } });
+      const display = room.channelDisplaySettings;
       const soop=ownerId?await tx.prisma.platform_soop.findUnique({where:{user_id:ownerId},
         select:{status:true,provider_subject:true}}):null;
       const soopId=soop?.status==='VERIFIED'?Buffer.from(soop.provider_subject).toString('utf8'):null;
@@ -74,15 +77,108 @@ export class MelomingChannelService {
       return {
         id: publicChannelId, name: room.name, webPath: 'hurogi',
         platformUrl: soopId?`https://www.sooplive.co.kr/station/${encodeURIComponent(soopId)}`:null,
-        profileImageUrl: '/images/hurogi-profile.png', topBannerUrl: null,
+        profileImageUrl: display?.profileImageUrl ?? '/images/hurogi-profile.png', topBannerUrl: null,
         leftBannerUrl: null, leftBannerLink: null, rightBannerUrl: null,
-        rightBannerLink: null, additionalLinks: [], themeColor: '#ff8c9d',
-        channelDescription: '', createdAt: room.created_at.toISOString(),
-        updatedAt: room.created_at.toISOString(), _count: { songs, artists, categories },
-        layoutType: 'new', visibility: 'PUBLIC', scheduleNotice: room.schedule_notice,
+        rightBannerLink: null, additionalLinks: display?.additionalLinks ?? [], themeColor: display?.themeColor ?? '#ff8c9d',
+        channelDescription: display?.channelDescription ?? '', createdAt: room.created_at.toISOString(),
+        updatedAt: display?.updatedAt.toISOString() ?? room.created_at.toISOString(), _count: { songs, artists, categories },
+        layoutType: 'new', visibility: display?.visibility ?? 'PUBLIC', scheduleNotice: room.schedule_notice,
         isOwnerProSubscriber: false, isOwnerAmbassador: false, isFounder: false,
         isVerified: Boolean(soopId), verifications: soopId?[{platform:'SOOP',platformChannelId:soopId}]:[],
       };
+    });
+  }
+
+  async update(credentials: CommandCredentials, value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError('INVALID_REQUEST', 400);
+    const body = value as Record<string, unknown>;
+    const keys = ['name', 'webPath', 'platformUrl', 'profileImageUrl', 'topBannerUrl',
+      'leftBannerUrl', 'leftBannerLink', 'rightBannerUrl', 'rightBannerLink',
+      'additionalLinks', 'themeColor', 'channelDescription', 'visibility'];
+    if (Object.keys(body).some(key => !keys.includes(key)) ||
+      typeof body.name !== 'string' || !body.name.trim() || body.name.trim().length > 80 ||
+      body.webPath !== 'hurogi' ||
+      (body.profileImageUrl !== null && (typeof body.profileImageUrl !== 'string' ||
+        body.profileImageUrl.length > 2048 || (body.profileImageUrl !== '/images/hurogi-profile.png' && !/^https:\/\//.test(body.profileImageUrl)))) ||
+      !Array.isArray(body.additionalLinks) || body.additionalLinks.length > 5 ||
+      body.additionalLinks.some(link => !link || typeof link !== 'object' || Array.isArray(link) ||
+        Object.keys(link).some(key => !['name', 'url'].includes(key)) ||
+        typeof link.name !== 'string' || !link.name.trim() || link.name.length > 100 ||
+        typeof link.url !== 'string' || link.url.length > 2048 || !/^https:\/\//.test(link.url)) ||
+      typeof body.themeColor !== 'string' || !/^#[0-9a-fA-F]{6}$/.test(body.themeColor) ||
+      typeof body.channelDescription !== 'string' || body.channelDescription.length > 65535 ||
+      !['PUBLIC', 'UNLISTED'].includes(body.visibility as string)) throw new ApiError('INVALID_REQUEST', 400);
+    await this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { name: (body.name as string).trim() } });
+      await tx.prisma.channelDisplaySettings.upsert({
+        where: { channelId: roomId },
+        create: { channelId: roomId, profileImageUrl: body.profileImageUrl as string | null,
+          additionalLinks: body.additionalLinks as Prisma.InputJsonValue, themeColor: body.themeColor as string,
+          channelDescription: body.channelDescription as string, visibility: body.visibility as string },
+        update: { profileImageUrl: body.profileImageUrl as string | null,
+          additionalLinks: body.additionalLinks as Prisma.InputJsonValue, themeColor: body.themeColor as string,
+          channelDescription: body.channelDescription as string, visibility: body.visibility as string },
+      });
+    });
+    return this.detail();
+  }
+
+  overlayToken(credentials: SessionCredentials) {
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      const room = await tx.prisma.rooms.findUniqueOrThrow({ where: { id: roomId }, select: { overlay_token: true } });
+      if (room.overlay_token) return { overlayToken: room.overlay_token };
+      const overlayToken = randomBytes(32).toString('hex');
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { overlay_token: overlayToken } });
+      return { overlayToken };
+    });
+  }
+
+  regenerateOverlayToken(credentials: CommandCredentials) {
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      const token = randomBytes(32).toString('hex');
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { overlay_token: token } });
+      await tx.prisma.liveSession.updateMany({ where: { channelId: roomId, status: 'ACTIVE' },
+        data: { overlayToken: token } });
+      return { overlayToken: token };
+    });
+  }
+
+  // Meloming's channel.consoleToken is retained on Rogichat's one-to-one room.
+  // GET has the same lazy creation semantics as the copied channel controller.
+  consoleToken(credentials: SessionCredentials) {
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      const room = await tx.prisma.rooms.findUniqueOrThrow({ where: { id: roomId }, select: { console_token: true } });
+      if (room.console_token) return { consoleToken: room.console_token };
+      const consoleToken = randomBytes(32).toString('hex');
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { console_token: consoleToken } });
+      return { consoleToken };
+    });
+  }
+
+  regenerateConsoleToken(credentials: CommandCredentials) {
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      const consoleToken = randomBytes(32).toString('hex');
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { console_token: consoleToken } });
+      return { consoleToken };
+    });
+  }
+
+  deleteConsoleToken(credentials: CommandCredentials) {
+    return this.transactions.write(async tx => {
+      const actor = await this.auth.require(tx, credentials, true);
+      const roomId = await this.repository.requireOwner(tx, actor.userId);
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { console_token: null } });
+      return { message: '콘솔 토큰이 삭제되었습니다.' };
     });
   }
 

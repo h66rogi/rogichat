@@ -54,7 +54,8 @@ test('controllers are transport-only, services contain no SQL, repositories cann
     'ChannelSongRequestSettingsService', 'LiveSessionService', 'OmakaseService',
     'SessionSetlistService', 'SongAddRequestService', 'SongExportService',
     'SongHelperService', 'SongPricingService', 'SongRequestQueueService',
-    'SongRequestService',
+    'SongRequestService', 'LyricsRetrievalService', 'OverlayLayoutService',
+    'OverlayService', 'OverlayThemeService',
   ]);
   const copiedSqlHelpers = new Set([
     'modules/channel-content/upstream/song-autocomplete.service.ts',

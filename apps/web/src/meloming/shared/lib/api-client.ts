@@ -3,6 +3,9 @@ import type { AxiosError, AxiosInstance } from "axios";
 import { normalizeAxiosErrorMessage } from "./api-error";
 import { rogichatApiOrigin, rogichatCsrfToken } from "@/core/meloming-api-bridge";
 
+// The copied Meloming console popup marks token-only requests with this flag.
+export const CONSOLE_TOKEN_FLAG = "_consoleTokenRequest";
+
 export const apiClient = axios.create({
   baseURL: "/v1",
   withCredentials: true,
@@ -31,7 +34,8 @@ function attachRogichatRequestInterceptor(instance: AxiosInstance, version: "v1"
       config.url === "/song-requests" && config.data !== null &&
       typeof config.data === "object" && typeof config.data.anonymousNickname === "string" &&
       config.data.anonymousNickname.trim().length > 0;
-    if (!anonymousRequest && method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+    if (!anonymousRequest && !((config as unknown as Record<string, unknown>)[CONSOLE_TOKEN_FLAG]) &&
+      method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
       config.headers.set("X-CSRF-Token", await rogichatCsrfToken());
     }
     return config;

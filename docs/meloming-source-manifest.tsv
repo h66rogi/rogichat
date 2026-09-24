@@ -1,5 +1,11 @@
 # frontend commit f8907f37e73d0b760eac3c5af2beb48714331c83
 # backend commit a91393b2362ca8462328c6553f7fbe4b6703c6e1
+# console-only frontend files below originate at meloming-front 55f3012ab70c37d55933090f79b3d3d59976c9c1 (2026-08-15)
+# playback backend files below originate at meloming-back 0c97051b2069bd766644406c8f65c08e8e2289e0 (2026-08-15)
+B	2549b158b81b27a577bb315c3474be1dc2a8f91759992d11190d40305b595e1d	src/console-api/console-playback.service.ts
+B	a51ca1ed660a039e3101500227a19f020c2d846a44dd79612279cdfd7823697c	src/common/utils/youtube-video-id.util.ts
+F	07e2e89c27a8efaac1736ee352743236cceb98a11cacfdfe97409371de38556a	app/(default)/channel/[user]/(manage)/manage/console/page.tsx
+F	8a0941ae1b8297b1eaefb5fce03d28793301cff3f95273dce0c352662693f24a	app/(popup)/console/[user]/page.tsx
 F	f573bbd345475654c6ccb41f9baa2e29d116551bff3d5dec9b29a08a0d114b56	app/(default)/channel/[user]/(channel)/layout.tsx
 F	c2fea293680eed486cfe9863fd766f3590ec6e777fadf6423ef6cc75c3f6b125	app/(default)/channel/[user]/(channel)/musicbook/opengraph-image.tsx
 F	582ecd0ac27d88447f32017b15d57afe06796962bf55549717e74e2ce013b79d	app/(default)/channel/[user]/(channel)/musicbook/page.tsx
@@ -135,7 +141,7 @@ F	c4c2cee05b0536a4b4990e3edb950616a386182f5b745bc0469a31160056938b	domains/chann
 F	7d4caeb46ffd3c01af70cc2d54df9af3a9fa1dbd201822ea4e244eafe4c7fa0d	domains/channel/components/management/channel-feature-settings-management.tsx
 F	1c39740b229e7be27ba91549c0afb6ffe89eb4a7db16f67a09c3ca8323b6a225	domains/channel/components/management/channel-select-dialog.tsx
 F	addc4f080a7145f76cbbdcf20c7c8481f27f2f1fa0c10489547ef9b5a7812a51	domains/channel/components/management/clip-requests-management.tsx
-F	fc656dd107cf538da9bf338d8091f971b258410de30f41b2f8ef4fc0f0aaee09	domains/channel/components/management/console-settings-content.tsx
+F	2fee81a5e6d239a8e39aeb69661a58b2452198799209265f06117f7dc5a012e5	domains/channel/components/management/console-settings-content.tsx
 F	60c15b5a7dd58252aa7e2782bb2dc5921e57309c33bc450174d6f763b46007ca	domains/channel/components/management/decoration-management.tsx
 F	298d3a51b50dd5d1412aee695874abab6bbf747b33fe0cb0692592a78420fd26	domains/channel/components/management/decoration/ai-main-panel.tsx
 F	81b9f766ecbfb097833165bfbb7e1135cb5941bb5dc1f6c0deef5a2212738fc8	domains/channel/components/management/decoration/css-editor.tsx
@@ -275,7 +281,7 @@ F	fb601aa32dc49aa1d0a3581739b61d67eb89b4e91672295e307915d868708a37	domains/chann
 F	a74951ec2dffdf613f561595a662bd65c7ff7431bcaa55d9d21f2ce592115ae9	domains/channel/types/wardrobe.ts
 F	c9b3d5b5e3ab133609484f6ae797b0cc72b4405205ac0ca2f857142169dea4e6	domains/channel/utils/category-sort.ts
 F	7fa0a9690a9c911862f82b845197e731c360acf2d9fb1c6ab634d4923a0a4779	domains/channel/utils/channel-feature-settings.ts
-F	8d3d0097b941650f64ba8980a665cc7067ff44cb2fa706ac471700da810ed119	domains/channel/utils/console-popup.ts
+F	d50c71503591b797b4dc8f0cc9b584f6813b2b1bcda5df74b1e560279f623f1a	domains/channel/utils/console-popup.ts
 F	afa13ca6e0d68f4472eb6309ca60354ab09e92a7319f3a88ab1aa086f18054ac	domains/channel/utils/css-parser.ts
 F	76f543fa8b849cd603b7cf0438b6a4ae1e980080ac1197580619a4b4ec57d3f4	domains/channel/utils/donation-amount-format.ts
 F	e8fa3bd91dc4323009171bb7a88f555403718b2d35590638c7510003e400ff42	domains/channel/utils/sanitize-currency-price-map.ts
@@ -1168,3 +1174,16 @@ B	f8e644ae348f9df90aeb8a4f53a1e6bb9e931300e2dc73548845500b31fda2e7	src/serper/dt
 B	7110dc5a83dbdc92eabf21004701388a83e6a4d013aafd6efb0934b8b2083895	src/serper/searxng-image-search.service.ts
 B	f09ff019ccc47ebe36028f2dac83d22ed61b5c951d06eb07ae3953103032c539	src/serper/serper.controller.ts
 B	7184d51fcc9ad6241c45443d74e3126e8c1f77aacb7c702ac37d8c904e7c4429	src/serper/serper.service.ts
+F	f96e43fdf02eb9d151488593e6ce059310cea05b13e2ed939866b787e47ba923	domains/overlay/apis/console-lyrics.ts
+F	00c2c6642189a03e096c832f3d721499344f27899960a3f6b45a7414d38141bc	domains/overlay/apis/gateway-playback.ts
+F	cb2aa60a6dce2b49b937f1eea6f5cb969628b92d3f24edfa3a36c50157c99fef	domains/overlay/components/console-karaoke-suggestions.tsx
+F	abe14b2936ce0e3a1434e82e578d20276ba8f78e22e433df7ab968dbf20dedad	domains/overlay/components/live-console-content.tsx
+F	39880e8389a36ed65b15dc1d17335f308a231482b7fe266c9e798f27cbc068a2	domains/overlay/components/lyrics-panel.tsx
+F	d597a0f4eadf7b4c0ec7c3f020127286d7d13d8c00cd4d3fc1c4deba6ac93b0f	domains/overlay/components/pitch-shift-control.tsx
+F	9452616717f0f7361a05fa14bdba0a9ee75cc942ccb62f46019a7a3b2501d8a0	domains/overlay/components/pitch-shift-section.tsx
+F	f0d9878001cb22bb0fa754ce797d4fa45f9103b9864e3bdc97e464e764e2b58a	domains/overlay/hooks/use-console-lyrics.ts
+F	66e8c52d0c001a5e3cc6594e2e4eb7f9304f2fb59780476fa62c4044b80943b9	domains/overlay/hooks/use-overlay-socket.ts
+F	f1b6b49b8c7933103fea8526858e567f92b68053911f34119fa7c5c404cf4e8f	domains/overlay/hooks/use-pitch-shift.ts
+F	363554eb3172f2a2085ffee4c08c6a2b9b7e6cd92672b1d6deec09604a061ea3	domains/overlay/hooks/use-youtube-player.ts
+F	b8cbf0092bacde7081a2df5df1ccfc5875b88e909a93fbad83ee65a7b922f005	domains/overlay/utils/is-cors-media-playback-url.ts
+A	0569095bec76093e1290fdff0e7b7eb96309f464d07ce5cdf617cbfe001f5e1b	audio-worklets/soundtouch-processor.js

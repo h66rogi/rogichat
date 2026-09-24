@@ -61,6 +61,23 @@ export class SongRequestService {
     return this.project(created);
   }
 
+  /** Source ConsoleSongRequestController.createRequest: trust operator-supplied requester identity only here. */
+  async createConsoleRequest(dto:{liveSessionId:number;songId?:number;rawArtist:string;rawTitle:string;rawMessage?:string;
+    requestType?:'NORMAL'|'RANDOM';position?:'FRONT'|'BACK'|'AFTER';afterRequestId?:number;
+    requesterPlatformId:string;requesterNickname:string}) {
+    if (!dto.requesterPlatformId.trim() || !dto.requesterNickname.trim() ||
+      dto.requesterPlatformId.length > 128 || dto.requesterNickname.length > 100) throw new ApiError('INVALID_REQUEST',400);
+    const created = await this.queue.addToQueue(dto.liveSessionId, {
+      ...(dto.songId ? {songId:dto.songId}:{}),rawArtist:dto.rawArtist,rawTitle:dto.rawTitle,
+      ...(dto.rawMessage ? {rawMessage:dto.rawMessage}:{}),
+      requesterPlatformId:dto.requesterPlatformId,requesterNickname:dto.requesterNickname,
+      allowManualBypass:true,requestType:dto.requestType ?? 'NORMAL',
+      ...(dto.position ? {insertPosition:dto.position}:{}),
+      ...(dto.afterRequestId ? {insertAfterRequestId:dto.afterRequestId}:{}),
+    });
+    return this.project(created);
+  }
+
   /** Source public anonymous identity reconstruction and channel setting gate. */
   async createAnonymousRequest(dto:{liveSessionId:number;songId?:number;rawArtist:string;rawTitle:string;rawMessage?:string;
     requestType?:'NORMAL'|'RANDOM'},anonymousNickname:string,platformId:string) {

@@ -18,6 +18,7 @@ FRONTEND = ROOT / 'apps/web/src/meloming'
 QA_MANIFEST = ROOT / 'docs/meloming-qa-source-manifest.tsv'
 ASSETS = ROOT / 'apps/web/public'
 FRONTEND_ROUTES = ROOT / 'apps/web/src/app/(meloming-channel)/channel/[user]'
+POPUP_ROUTE = ROOT / 'apps/web/src/app/(popup)/console/[user]/page.tsx'
 MOUNTED_ADAPTATIONS = ROOT / 'docs/meloming-mounted-route-adaptations.tsv'
 SOURCE_ROUTE_PREFIX = 'app/(default)/channel/[user]/'
 TEXT_SUFFIXES = {'.ts', '.tsx', '.js', '.jsx', '.css'}
@@ -90,6 +91,9 @@ def main() -> None:
             assert digest(content) == mounted_adaptations[relative], f'Adapted route diverged: {path}'
         else:
             assert digest(content.replace(b'@/meloming/', b'@/')) == source_hash, f'Copied route diverged: {path}'
+    popup_source = POPUP_ROUTE.read_bytes().replace(b'@/meloming/', b'@/').replace(b'void params.then(', b'params.then(')
+    assert digest(popup_source) == \
+        manifest['frontend']['app/(popup)/console/[user]/page.tsx'], 'Copied console popup diverged'
     for relative, expected_hash in manifest['assets'].items():
         path = ASSETS / relative
         assert digest(path.read_bytes()) == expected_hash, f'Copied asset diverged: {path}'

@@ -1,0 +1,41 @@
+{
+  "_comment": "meloming-back theme-manifest catalog의 폰트 family 메타 mirror. catalog.ts 변경 시 이 파일도 동시 업데이트해야 한다 (PR review에서 강제). check-themes.mjs가 이 mirror와 overlay.css / font-loader.ts의 LOCAL_GOOGLE_FONT_FAMILIES 정합성을 검증한다.",
+  "_generatedFrom": "meloming-back@qa src/overlay/theme-manifest/catalog.ts (2026-06-13 local mirror refresh)",
+  "google": [
+    "Barlow",
+    "Black Han Sans",
+    "IBM Plex Sans",
+    "IBM Plex Sans JP",
+    "IBM Plex Sans KR",
+    "Inter",
+    "Nanum Myeongjo",
+    "Nanum Pen Script",
+    "Noto Sans KR",
+    "Noto Serif KR",
+    "Orbitron",
+    "Oxanium",
+    "Press Start 2P",
+    "Pretendard",
+    "Rajdhani",
+    "Roboto Condensed",
+    "Silkscreen",
+    "VT323"
+  ],
+  "bundled": [
+    "Black Han Sans",
+    "Cafe24 Ssurround",
+    "Cafe24Ohsquare",
+    "Cafe24Surround",
+    "CookieRun",
+    "DungGeunMo",
+    "Gmarket Sans",
+    "MapoFlowerIsland",
+    "Nanum Myeongjo",
+    "Nanum Pen Script",
+    "NanumSquare Neo",
+    "Noto Sans KR",
+    "Noto Serif KR",
+    "Pretendard",
+    "omyu_pretty"
+  ]
+}

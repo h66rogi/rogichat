@@ -41,4 +41,11 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260924030000_meloming_global_song', checksum: 'c5f128e972aee25b4d49f9568489ba027edfe4465497573ebab086992a5dc3eb' },
   { name: '20260924033000_channel_feature_settings', checksum: 'b2797189e387d941f6569a4b9fdd6c65dca86e99f3be26196dff5e8469704737' },
   { name: '20260924034500_songbook_clips', checksum: 'a322f0cd322ee934076b9ea7cf4b3169cd76958e3232385333f3623563520d6e' },
+  { name: '20260924040000_channel_display_settings', checksum: '4247be807a04f76132c5cada28021a07be582abfa51aa959d7841e9023b05f86' },
+  { name: '20260924041000_overlay_theme_layout', checksum: 'a31bf6a5cdbef6e9356db65d2f41460877a156f6972f813d557d0fc02628ffef' },
+  { name: '20260924042000_console_token', checksum: '1bcae245704c190f8c4425ffadfc14f9fb6b1267ced5a4ff8c244e59583cf211' },
+  { name: '20260924043000_global_song_lyrics', checksum: 'e0a683f134e6a4c4eb381f5f49e950cf4aa96efccbbc037e245615e13d12c8a4' },
+  { name: '20260924044000_lyrics_quota', checksum: '7796668c2f431df2d2881d58066ee3de21b2449d1613bcae9d2ba08041b4f8a1' },
+  { name: '20260924045000_channel_overlay_token', checksum: '42549d9ab79e2f9c85273427faaabb8edfc7e6ccd8007e9349693c1cdfb23370' },
+  { name: '20260924050000_meloming_video_cache', checksum: '2e6d323ee62fc3de6f73c5702dfba6e554881516b4207052a84c463b75e6b283' },
 ];

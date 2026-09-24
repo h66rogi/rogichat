@@ -1,8 +1,8 @@
 import 'reflect-metadata';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 import { createConnection } from 'mysql2/promise';
@@ -37,6 +37,11 @@ import { MelomingMrVideoService } from '../../dist/modules/channel-content/melom
 import { MelomingPricingService } from '../../dist/modules/channel-content/meloming-pricing.service.js';
 import { MelomingOmakaseService } from '../../dist/modules/channel-content/meloming-omakase.service.js';
 import { MelomingClipService } from '../../dist/modules/channel-content/meloming-clip.service.js';
+import { OverlayService } from '../../dist/modules/channel-content/upstream/overlay/overlay.service.js';
+import { MelomingOverlayLyricsService } from '../../dist/modules/channel-content/meloming-overlay-lyrics.service.js';
+import { MelomingLyricsQuotaService } from '../../dist/modules/channel-content/meloming-lyrics-quota.service.js';
+import { MelomingConsolePlaybackService } from '../../dist/modules/channel-content/meloming-console-playback.service.js';
+import { MelomingVideoCacheService } from '../../dist/modules/channel-content/meloming-video-cache.service.js';
 import { SongAlbumArtService } from '../../dist/modules/channel-content/upstream/song-album-art.service.js';
 import { GlobalSongRedisService } from '../../dist/modules/channel-content/upstream/global-song/global-song-redis.service.js';
 import { GlobalSongMatcherService } from '../../dist/modules/channel-content/upstream/global-song/global-song-matcher.service.js';
@@ -171,6 +176,17 @@ test('ported channel schema serves empty content, persists wardrobe/songbook, ge
   assert.equal(detail.id,1);
   assert.equal(detail.name,'후로기');
   assert.deepEqual(detail._count,{songs:0,artists:0,categories:0});
+  const channelSettings={name:'후로기',webPath:'hurogi',platformUrl:'',profileImageUrl:'https://api.qa.rogi.chat/v1/upload/image/example.png',
+    topBannerUrl:null,leftBannerUrl:null,leftBannerLink:null,rightBannerUrl:null,rightBannerLink:null,
+    additionalLinks:[{name:'공지',url:'https://example.com/notice'}],themeColor:'#12abef',
+    channelDescription:'노래책 공지',visibility:'UNLISTED'};
+  await assert.rejects(channel.update({token:fanId},channelSettings),error=>error.getStatus()===403);
+  await assert.rejects(channel.update({token:ownerId},{...channelSettings,webPath:'other'}),error=>error.getStatus()===400);
+  const savedChannel=await channel.update({token:ownerId},channelSettings);
+  assert.equal(savedChannel.themeColor,'#12abef');
+  assert.equal(savedChannel.channelDescription,'노래책 공지');
+  assert.deepEqual(savedChannel.additionalLinks,channelSettings.additionalLinks);
+  assert.equal((await new MelomingChannelService(db.transactions,auth,repository).detail()).visibility,'UNLISTED');
   assert.deepEqual((await channel.features()).items.filter(item=>item.isEnabled).map(item=>item.key),['musicbook','schedule','setlist','wardrobe']);
   const menuItems = [
     {key:'wardrobe',label:'옷장',isEnabled:true,order:0},
@@ -618,6 +634,125 @@ test('ported live session start, public active, end and history use owner room',
   assert.equal((await requests.queue({token:ownerId}, {sessionId:String(privateSession.id)})).total,0);
   await assert.rejects(requests.create({token:fanId},{liveSessionId:privateSession.id,rawArtist:'가수',rawTitle:'노래'}));
   await live.end({token:ownerId},privateSession.id);
+});
+
+test('copied console token controls live sessions and revocation closes access',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  await db.transactions.write(tx=>tx.prisma.users.update({where:{id:ownerId},
+    data:{reviewer_expires_at:new Date(Date.now()+86_400_000)}}));
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const channel=new MelomingChannelService(db.transactions,auth,repository);
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
+  const {consoleToken}=await channel.consoleToken({token:ownerId});
+  assert.match(consoleToken,/^[a-f0-9]{64}$/);
+  assert.equal((await channel.consoleToken({token:ownerId})).consoleToken,consoleToken);
+  assert.equal((await db.transactions.read(tx=>repository.requireConsoleToken(tx,consoleToken))).userId,ownerId);
+  await assert.rejects(channel.consoleToken({token:fanId}),error=>error.getStatus()===403);
+  const started=await live.start({consoleToken},{},{platform:'SOOP'});
+  assert.equal(started.status,'ACTIVE');
+  assert.equal((await live.active({consoleToken},{})).id,started.id);
+  const manual=await requests.manual({consoleToken},started.id,{rawArtist:'수동 가수',rawTitle:'수동 곡'});
+  assert.equal((await requests.queue({consoleToken},{sessionId:String(started.id)})).requests[0].id,manual.id);
+  const replacement=await channel.regenerateConsoleToken({token:ownerId});
+  assert.notEqual(replacement.consoleToken,consoleToken);
+  await assert.rejects(live.active({consoleToken},{}),error=>error.getStatus()===401);
+  assert.equal((await live.active({consoleToken:replacement.consoleToken},{})).id,started.id);
+  await channel.deleteConsoleToken({token:ownerId});
+  await assert.rejects(live.active({consoleToken:replacement.consoleToken},{}),error=>error.getStatus()===401);
+});
+
+test('copied console playback signs gateway URLs and accepts only authentic cache callbacks',async t=>{
+  const {db,ownerId,fanId}=await fixture(t);
+  const directory=await mkdtemp(join(tmpdir(),'rogichat-gateway-test-'));
+  const previous=process.env.MEDIA_GATEWAY_CONFIG_FILE;
+  t.after(async()=>{if(previous===undefined)delete process.env.MEDIA_GATEWAY_CONFIG_FILE;
+    else process.env.MEDIA_GATEWAY_CONFIG_FILE=previous;await rm(directory,{recursive:true,force:true});});
+  const config={baseUrl:'https://api.qa.rogi.chat',signSecret:randomBytes(32).toString('hex'),
+    callbackSecret:randomBytes(32).toString('hex'),ttlSeconds:1800};
+  process.env.MEDIA_GATEWAY_CONFIG_FILE=join(directory,'gateway.json');
+  await writeFile(process.env.MEDIA_GATEWAY_CONFIG_FILE,JSON.stringify(config),{mode:0o600});
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const playback=new MelomingConsolePlaybackService(db.transactions,auth,repository);
+  const cache=new MelomingVideoCacheService(db.transactions);
+  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  const videoUrl='https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+  await assert.rejects(playback.create({token:fanId},session.id,{videoUrl}),error=>error.getStatus()===403);
+  const first=await playback.create({token:ownerId},session.id,{videoUrl});
+  assert.equal(first.source,'proxy');
+  const signed=new URL(first.playbackUrl);
+  assert.equal(signed.pathname,'/play');
+  assert.equal(signed.searchParams.get('vid'),'dQw4w9WgXcQ');
+  const exp=signed.searchParams.get('exp');
+  const canonical=`method=GET&path=/play&exp=${exp}&vid=dQw4w9WgXcQ`;
+  assert.equal(signed.searchParams.get('sig'),createHmac('sha256',config.signSecret).update(canonical).digest('hex'));
+  const timestamp=String(Math.floor(Date.now()/1000));
+  const body={videoId:'dQw4w9WgXcQ',r2Key:'youtube/dQw4w9WgXcQ/itag18.mp4',size:123,contentType:'video/mp4'};
+  const signature=createHmac('sha256',config.callbackSecret).update(`${timestamp}|${body.videoId}|${body.r2Key}|${body.size}|${body.contentType}`).digest('hex');
+  await assert.rejects(cache.upsert(timestamp,'0'.repeat(64),body),error=>error.getStatus()===401);
+  await cache.upsert(timestamp,signature,body);
+  const second=await playback.create({token:ownerId},session.id,{videoUrl});
+  assert.equal(second.source,'cached');
+  assert.equal(new URL(second.playbackUrl).pathname,`/cached/${body.r2Key}`);
+  assert.ok((await db.transactions.read(tx=>tx.prisma.videoCacheEntry.findUnique({where:{videoId:body.videoId}}))).lastHitAt);
+});
+
+test('copied overlay projection uses a stable channel token before and after live sessions',async t=>{
+  const {db,roomId,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const channel=new MelomingChannelService(db.transactions,auth,repository);
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
+  const {overlayToken}=await channel.overlayToken({token:ownerId});
+  assert.match(overlayToken,/^[a-f0-9]{64}$/);
+  const overlay=token=>db.transactions.write(tx=>new OverlayService(tx.prisma,roomId).getOverlayData(token));
+  const idle=await overlay(overlayToken);
+  assert.equal(idle.isLive,false);
+  assert.equal(idle.channel.webPath,'hurogi');
+  assert.equal(idle.channel.profileImageUrl,'/images/hurogi-profile.png');
+  assert.deepEqual(idle.queue,[]);
+  await assert.rejects(overlay('0'.repeat(64)),error=>error.getStatus()===404);
+  const songbook=new SongbookService(db.transactions,auth,repository);
+  const song=await songbook.create({token:ownerId},{title:'오버레이 곡',artistName:'오버레이 가수',
+    categoryNames:['노래'],lyricsText:'비공개 메모'});
+  const songId=song.id;
+  await db.transactions.write(async tx=>{
+    await tx.prisma.globalSong.update({where:{id:song.globalSongId},data:{matcherStatus:'MATCHED'}});
+    await tx.prisma.globalSongLyrics.create({data:{globalSongId:song.globalSongId,
+      body:'[00:01.00]테스트 가사',language:'ko',fetchedAt:new Date(),trackingScript:'https://example.com/script.js'}});
+  });
+  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  assert.equal(session.overlayToken,overlayToken);
+  const request=await requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:''});
+  const active=await overlay(overlayToken);
+  assert.equal(active.isLive,true);
+  assert.equal(active.queue[0].id,request.id);
+  assert.equal(JSON.stringify(active).includes('비공개 메모'),false);
+  await requests.advance({token:ownerId},{sessionId:String(session.id)},'next');
+  const playing=await overlay(overlayToken);
+  assert.equal(playing.nowPlaying?.id,request.id);
+  assert.equal(playing.setlist[0].status,'PLAYING');
+  const lyrics=new MelomingOverlayLyricsService(db.transactions,repository,new MelomingLyricsQuotaService(db.transactions,repository));
+  const firstLyrics=await lyrics.getLyrics({overlayToken,songId,includeRichsync:false});
+  assert.equal(firstLyrics.status,'OK');
+  assert.equal(firstLyrics.lyrics?.tracking.script,null);
+  assert.equal(firstLyrics.quota?.consumed,true);
+  const repeatLyrics=await lyrics.getLyrics({overlayToken,songId,includeRichsync:false});
+  assert.equal(repeatLyrics.quota?.alreadyConsumed,true);
+  assert.equal((await db.transactions.read(tx=>tx.prisma.lyricsQuotaConsumption.count())),1);
+  await assert.rejects(lyrics.getLyrics({overlayToken:'0'.repeat(64),songId,includeRichsync:false}),
+    error=>error.getStatus()===404);
+  await live.end({token:ownerId},session.id);
+  assert.equal((await overlay(overlayToken)).isLive,false);
+  assert.equal((await channel.overlayToken({token:ownerId})).overlayToken,overlayToken);
+  const rotated=await channel.regenerateOverlayToken({token:ownerId});
+  assert.notEqual(rotated.overlayToken,overlayToken);
+  await assert.rejects(overlay(overlayToken),error=>error.getStatus()===404);
+  assert.equal((await overlay(rotated.overlayToken)).isLive,false);
 });
 
 test('ported live song requests persist queue, owner controls and completed setlist',async t=>{

@@ -29,6 +29,14 @@ api.qa.rogi.chat {
 	handle @infra {
 		respond "rogichat QA edge ready" 200
 	}
+	@mediaGateway path /play /cached/*
+	handle @mediaGateway {
+		reverse_proxy rogichat-qa-media-gateway:8080 {
+			header_up X-Forwarded-For {remote_host}
+			header_up -CF-Connecting-IP
+			header_up -Forwarded
+		}
+	}
 	handle {
 		# Use the globally unique container name, not the shared Compose alias "api".
 		# DNS-only public ingress: Caddy is the sole proxy hop. Discard caller IP

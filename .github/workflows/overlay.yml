@@ -1,0 +1,75 @@
+name: Meloming overlay copy
+
+on:
+  pull_request:
+  push:
+    branches: [qa]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: overlay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-build:
+    name: Exact source, theme catalog and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Verify original files and locked dependencies
+        run: |
+          python3 tools/check_overlay_copy.py
+          npm install --global pnpm@12.4.2 --ignore-scripts
+          pnpm install --frozen-lockfile
+      - name: Validate original theme catalog
+        run: pnpm --filter meloming-overlay check:themes
+      - name: Compile original OBS overlay in CI
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_API_BASE_URL: https://api.qa.rogi.chat
+          NEXT_PUBLIC_GATEWAY_BASE_URL: https://api.qa.rogi.chat
+          NEXT_PUBLIC_GATEWAY_SOCKET_PATH: /socket.io
+          NEXT_PUBLIC_FRONT_BASE_URL: https://qa.rogi.chat
+        run: pnpm --filter meloming-overlay build
+      - name: Build the QA OBS image from the verified source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 --file infrastructure/runtime/overlay.Dockerfile \
+            --label org.opencontainers.image.source=https://github.com/h66rogi/rogichat \
+            --label org.opencontainers.image.revision="$SOURCE_SHA" \
+            --tag "ghcr.io/h66rogi/rogichat-overlay:qa-$SOURCE_SHA" .
+      - name: Scan the built image before any registry authentication
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          python3 tools/security/install.py
+          image_id=$(docker image inspect --format '{{.Id}}' "ghcr.io/h66rogi/rogichat-overlay:qa-$SOURCE_SHA")
+          docker image save "$image_id" | python3 tools/security/image_scan.py -
+      - name: Publish reviewed QA overlay image
+        if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_USER: ${{ github.actor }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export DOCKER_CONFIG
+          DOCKER_CONFIG=$(mktemp -d)
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true; rm -rf "$DOCKER_CONFIG"' EXIT
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+          unset GHCR_TOKEN
+          docker push "ghcr.io/h66rogi/rogichat-overlay:qa-$SOURCE_SHA"
+          docker image inspect --format '{{index .RepoDigests 0}}' "ghcr.io/h66rogi/rogichat-overlay:qa-$SOURCE_SHA"

@@ -1,0 +1,330 @@
+/* =========================================================================
+ * neon-cyberpunk theme — keyframes
+ *
+ * Each keyframe is namespaced as `neon-cyberpunk-{name}` to match
+ * `namespacedAnimationName(themeId, name)` from animation-utils. The
+ * AnimationDef.name field stores the un-namespaced name; the static CSS
+ * here uses the namespaced form so it's consumable by the widget components.
+ *
+ * Aesthetic: Cyberpunk 2077 — magenta + cyan + purple neon signs over deep
+ * black. Multi-layer text-shadow glow, scanline overlays, glitch slicing.
+ * ========================================================================= */
+
+/* ---------------------------------------------------------------------------
+ * Track change — rapid translate(±2px) + clip-path slices + hue-rotate.
+ * The exit half tears the old track apart with horizontal clip slices while
+ * the enter half snaps it back into place with inverse movement.
+ * ------------------------------------------------------------------------- */
+@keyframes neon-cyberpunk-glitch-transition {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0);
+    clip-path: inset(0 0 0 0);
+    filter: hue-rotate(0deg) saturate(1);
+  }
+  15% {
+    opacity: 0.9;
+    transform: translate(-2px, 1px);
+    clip-path: inset(6% 0 14% 0);
+    filter: hue-rotate(25deg) saturate(1.4);
+  }
+  30% {
+    opacity: 0.7;
+    transform: translate(2px, -1px);
+    clip-path: inset(20% 0 30% 0);
+    filter: hue-rotate(-30deg) saturate(1.6);
+  }
+  50% {
+    opacity: 0.4;
+    transform: translate(-3px, 2px);
+    clip-path: inset(40% 0 40% 0);
+    filter: hue-rotate(60deg) saturate(1.8);
+  }
+  65% {
+    opacity: 0.55;
+    transform: translate(2px, -2px);
+    clip-path: inset(10% 0 55% 0);
+    filter: hue-rotate(-60deg) saturate(1.6);
+  }
+  80% {
+    opacity: 0.8;
+    transform: translate(-1px, 0);
+    clip-path: inset(0 0 20% 0);
+    filter: hue-rotate(15deg) saturate(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+    clip-path: inset(0 0 0 0);
+    filter: hue-rotate(0deg) saturate(1);
+  }
+}
+
+@keyframes neon-cyberpunk-glitch-transition-out {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0);
+    clip-path: inset(0 0 0 0);
+    filter: hue-rotate(0deg) saturate(1);
+  }
+  25% {
+    opacity: 0.9;
+    transform: translate(-2px, 1px);
+    clip-path: inset(6% 0 14% 0);
+    filter: hue-rotate(25deg) saturate(1.4);
+  }
+  55% {
+    opacity: 0.55;
+    transform: translate(3px, -2px);
+    clip-path: inset(20% 0 35% 0);
+    filter: hue-rotate(-45deg) saturate(1.7);
+  }
+  80% {
+    opacity: 0.25;
+    transform: translate(-3px, 2px);
+    clip-path: inset(35% 0 45% 0);
+    filter: hue-rotate(60deg) saturate(2);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(4px, -3px);
+    clip-path: inset(50% 0 50% 0);
+    filter: hue-rotate(90deg) saturate(2.2);
+  }
+}
+
+@keyframes neon-cyberpunk-glitch-transition-in {
+  0% {
+    opacity: 0;
+    transform: translate(-4px, 3px);
+    clip-path: inset(50% 0 50% 0);
+    filter: hue-rotate(-90deg) saturate(2.2);
+  }
+  25% {
+    opacity: 0.35;
+    transform: translate(3px, -2px);
+    clip-path: inset(30% 0 40% 0);
+    filter: hue-rotate(60deg) saturate(1.8);
+  }
+  55% {
+    opacity: 0.7;
+    transform: translate(-2px, 1px);
+    clip-path: inset(15% 0 20% 0);
+    filter: hue-rotate(-25deg) saturate(1.4);
+  }
+  80% {
+    opacity: 0.9;
+    transform: translate(1px, 0);
+    clip-path: inset(5% 0 8% 0);
+    filter: hue-rotate(15deg) saturate(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+    clip-path: inset(0 0 0 0);
+    filter: hue-rotate(0deg) saturate(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Chat enter — opacity 0 + weak shadow → 1 + strong multi-layer glow.
+ * The shadow "charges up" as the message resolves into visibility.
+ * ------------------------------------------------------------------------- */
+@keyframes neon-cyberpunk-neon-fadein {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+    text-shadow:
+      0 0 2px currentColor,
+      0 0 4px currentColor;
+  }
+  40% {
+    opacity: 0.7;
+    transform: translateX(0);
+    text-shadow:
+      0 0 6px currentColor,
+      0 0 12px currentColor,
+      0 0 24px currentColor;
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    text-shadow:
+      0 0 10px currentColor,
+      0 0 20px currentColor,
+      0 0 40px currentColor;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Chat exit — rapid translate + opacity to 0 with vertical slice tear.
+ * ------------------------------------------------------------------------- */
+@keyframes neon-cyberpunk-glitch-out {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0);
+    clip-path: inset(0 0 0 0);
+    filter: saturate(1);
+  }
+  30% {
+    opacity: 0.7;
+    transform: translate(3px, -1px);
+    clip-path: inset(10% 0 30% 0);
+    filter: saturate(1.6) hue-rotate(30deg);
+  }
+  60% {
+    opacity: 0.35;
+    transform: translate(-4px, 2px);
+    clip-path: inset(30% 0 10% 0);
+    filter: saturate(2) hue-rotate(-30deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(6px, -3px);
+    clip-path: inset(45% 0 45% 0);
+    filter: saturate(2.4) hue-rotate(60deg);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Queue add — horizontal neon scan sweep across the item, revealing it.
+ * Combined with a small translate so the list feels like a CRT line-scan
+ * populating the row.
+ * ------------------------------------------------------------------------- */
+@keyframes neon-cyberpunk-scan-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(-16px);
+    background-position: -120% 0;
+    filter: brightness(0.6) saturate(1.8);
+  }
+  40% {
+    opacity: 0.85;
+    transform: translateX(-2px);
+    background-position: 0% 0;
+    filter: brightness(1.4) saturate(1.4);
+  }
+  70% {
+    opacity: 1;
+    transform: translateX(0);
+    background-position: 50% 0;
+    filter: brightness(1.15) saturate(1.2);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+    background-position: 120% 0;
+    filter: brightness(1) saturate(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Queue remove — neon dim with shrinking glow.
+ * ------------------------------------------------------------------------- */
+@keyframes neon-cyberpunk-neon-dim {
+  0% {
+    opacity: 1;
+    text-shadow:
+      0 0 10px currentColor,
+      0 0 20px currentColor,
+      0 0 40px currentColor;
+    filter: brightness(1);
+  }
+  50% {
+    opacity: 0.3;
+    text-shadow:
+      0 0 4px currentColor,
+      0 0 8px currentColor;
+    filter: brightness(0.6);
+  }
+  100% {
+    opacity: 0;
+    text-shadow: 0 0 1px currentColor;
+    filter: brightness(0.3);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Donation — box-shadow explosion. Expands from 0 → huge → back to rest.
+ * Variables in the shadow reference the card's primary neon color so the
+ * explosion matches the active palette.
+ * ------------------------------------------------------------------------- */
+@keyframes neon-cyberpunk-glow-explosion {
+  0% {
+    box-shadow:
+      0 0 0 0 rgba(255, 0, 255, 0.0),
+      0 0 0 0 rgba(0, 255, 247, 0.0);
+    transform: scale(1);
+  }
+  20% {
+    box-shadow:
+      0 0 40px 6px rgba(255, 0, 255, 0.75),
+      0 0 80px 12px rgba(0, 255, 247, 0.55);
+    transform: scale(1.02);
+  }
+  40% {
+    box-shadow:
+      0 0 100px 20px rgba(255, 0, 255, 0.9),
+      0 0 180px 30px rgba(0, 255, 247, 0.7),
+      0 0 240px 40px rgba(123, 47, 247, 0.5);
+    transform: scale(1.035);
+  }
+  70% {
+    box-shadow:
+      0 0 60px 12px rgba(255, 0, 255, 0.55),
+      0 0 120px 20px rgba(0, 255, 247, 0.35);
+    transform: scale(1.015);
+  }
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(255, 0, 255, 0.0),
+      0 0 0 0 rgba(0, 255, 247, 0.0);
+    transform: scale(1);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Decorative idle effects
+ * ------------------------------------------------------------------------- */
+@keyframes neon-cyberpunk-status-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.25);
+  }
+}
+
+@keyframes neon-cyberpunk-scanline-drift {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 0 4px;
+  }
+}
+
+@keyframes neon-cyberpunk-signal-blink {
+  0%,
+  48% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Track-transition phase classes — applied by useTrackTransition hook
+ * ------------------------------------------------------------------------- */
+.theme-track-exiting-neon-cyberpunk {
+  animation: neon-cyberpunk-glitch-transition-out 300ms ease-in forwards;
+}
+
+.theme-track-entering-neon-cyberpunk {
+  animation: neon-cyberpunk-glitch-transition-in 500ms ease-out forwards;
+}

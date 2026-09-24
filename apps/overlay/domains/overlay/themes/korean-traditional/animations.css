@@ -1,0 +1,139 @@
+/* =========================================================================
+ * korean-traditional theme — keyframes
+ *
+ * Each keyframe is namespaced as `korean-traditional-{name}` to match
+ * `namespacedAnimationName(themeId, name)` from animation-utils. The
+ * AnimationDef.name field stores the un-namespaced name; the static CSS
+ * here uses the namespaced form so it's consumable by the widget components.
+ *
+ * Korean traditional aesthetic: hanji paper, sumi ink brush strokes,
+ * unrolling scrolls, blooming ink, and red seal stamps pressed onto paper.
+ * ========================================================================= */
+
+/* Track change — brush stroke reveal. The text is unveiled left-to-right as
+   if a calligraphy brush is sweeping across the page. */
+@keyframes korean-traditional-brush-stroke {
+  0% {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+    transform: translateX(-6px);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    transform: translateX(0);
+  }
+}
+
+/* Track change exit — gentle ink dissolve to the right (used as exit phase) */
+@keyframes korean-traditional-brush-stroke-out {
+  0% {
+    opacity: 1;
+    clip-path: inset(0 0 0 0);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    clip-path: inset(0 0 0 100%);
+    filter: blur(1px);
+  }
+}
+
+/* Chat enter — scroll unroll. Vertical reveal as if unfurling a hanji scroll. */
+@keyframes korean-traditional-scroll-unroll {
+  0% {
+    opacity: 0;
+    transform: scaleY(0);
+    transform-origin: top center;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+    transform-origin: top center;
+  }
+}
+
+/* Chat exit — scroll roll. The card rolls back up. */
+@keyframes korean-traditional-scroll-roll {
+  0% {
+    opacity: 1;
+    transform: scaleY(1);
+    transform-origin: top center;
+  }
+  100% {
+    opacity: 0;
+    transform: scaleY(0);
+    transform-origin: top center;
+  }
+}
+
+/* Queue add — soft fade. A gentle hanji-like opacity + lift. */
+@keyframes korean-traditional-soft-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Queue remove — ink bleed. Fades out with a soft blur as if absorbed. */
+@keyframes korean-traditional-ink-bleed {
+  0% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    filter: blur(3px);
+  }
+}
+
+/* Donation — stamp press. A red seal is pressed firmly onto the paper. */
+@keyframes korean-traditional-stamp-press {
+  0% {
+    opacity: 0;
+    transform: scale(0.8) rotate(-8deg);
+  }
+  45% {
+    opacity: 1;
+    transform: scale(1.05) rotate(-2deg);
+  }
+  70% {
+    opacity: 1;
+    transform: scale(0.98) rotate(-3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(-4deg);
+  }
+}
+
+/* Decorative ambient — gentle paper sway used by static page elements. */
+@keyframes korean-traditional-paper-sway {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
+/* Track-transition phase classes — applied by useTrackTransition hook.
+   Matches the brush-stroke durations defined in config.ts. */
+.theme-track-exiting-korean-traditional {
+  animation: korean-traditional-brush-stroke-out 400ms ease-out forwards;
+}
+
+.theme-track-entering-korean-traditional {
+  animation: korean-traditional-brush-stroke 800ms ease-out forwards;
+}

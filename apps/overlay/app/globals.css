@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  --background: transparent;
+  --foreground: #171717;
+  --font-body-default: "NanumSquare Neo", "Pretendard Variable", Pretendard,
+    -apple-system, BlinkMacSystemFont, system-ui, "Segoe UI",
+    "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "Helvetica Neue",
+    Arial, sans-serif;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: transparent;
+    --foreground: #ededed;
+  }
+}
+
+html,
+body {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+body {
+  color: var(--foreground);
+  font-family: var(--font-body-default);
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}
