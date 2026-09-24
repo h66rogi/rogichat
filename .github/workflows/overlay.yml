@@ -1,0 +1,42 @@
+name: Meloming overlay copy
+
+on:
+  pull_request:
+  push:
+    branches: [qa]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: overlay-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-and-build:
+    name: Exact source, theme catalog and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Verify original files and locked dependencies
+        run: |
+          python3 tools/check_overlay_copy.py
+          npm install --global pnpm@12.4.2 --ignore-scripts
+          pnpm install --frozen-lockfile
+      - name: Validate original theme catalog
+        run: pnpm --filter meloming-overlay check:themes
+      - name: Compile original OBS overlay in CI
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+          NEXT_PUBLIC_API_BASE_URL: https://api.qa.rogi.chat
+          NEXT_PUBLIC_GATEWAY_BASE_URL: https://api.qa.rogi.chat
+          NEXT_PUBLIC_GATEWAY_SOCKET_PATH: /socket.io
+          NEXT_PUBLIC_FRONT_BASE_URL: https://qa.rogi.chat
+        run: pnpm --filter meloming-overlay build

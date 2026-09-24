@@ -1,0 +1,87 @@
+/* =========================================================================
+ * sports-ticker theme — keyframes
+ *
+ * TV broadcast lower-third aesthetic. Each keyframe namespaced as
+ * `sports-ticker-{name}` for `namespacedAnimationName`. Movement is
+ * decisive: slide-in from the side, marquee scroll, blink for LIVE.
+ * ========================================================================= */
+
+@keyframes sports-ticker-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sports-ticker-banner-slide {
+  0% {
+    opacity: 0;
+    transform: translateX(-32px);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sports-ticker-banner-slide-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@keyframes sports-ticker-ticker-scroll-in {
+  0% {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes sports-ticker-scroll-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+}
+
+@keyframes sports-ticker-scroll-loop {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes sports-ticker-live-blink {
+  0%,
+  50%,
+  100% {
+    opacity: 1;
+  }
+  25%,
+  75% {
+    opacity: 0.35;
+  }
+}

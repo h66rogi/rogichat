@@ -126,12 +126,14 @@ export class MelomingChannelService {
   }
 
   overlayToken(credentials: SessionCredentials) {
-    return this.transactions.read(async tx => {
+    return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
       const roomId = await this.repository.requireOwner(tx, actor.userId);
-      const session = await tx.prisma.liveSession.findFirst({ where: { channelId: roomId },
-        orderBy: { id: 'desc' }, select: { overlayToken: true } });
-      return { overlayToken: session?.overlayToken ?? '' };
+      const room = await tx.prisma.rooms.findUniqueOrThrow({ where: { id: roomId }, select: { overlay_token: true } });
+      if (room.overlay_token) return { overlayToken: room.overlay_token };
+      const overlayToken = randomBytes(32).toString('hex');
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { overlay_token: overlayToken } });
+      return { overlayToken };
     });
   }
 
@@ -139,11 +141,10 @@ export class MelomingChannelService {
     return this.transactions.write(async tx => {
       const actor = await this.auth.require(tx, credentials, true);
       const roomId = await this.repository.requireOwner(tx, actor.userId);
-      const session = await tx.prisma.liveSession.findFirst({ where: { channelId: roomId },
-        orderBy: { id: 'desc' }, select: { id: true } });
-      if (!session) throw new ApiError('NOT_FOUND', 404);
       const token = randomBytes(32).toString('hex');
-      await tx.prisma.liveSession.update({ where: { id: session.id }, data: { overlayToken: token } });
+      await tx.prisma.rooms.update({ where: { id: roomId }, data: { overlay_token: token } });
+      await tx.prisma.liveSession.updateMany({ where: { channelId: roomId, status: 'ACTIVE' },
+        data: { overlayToken: token } });
       return { overlayToken: token };
     });
   }

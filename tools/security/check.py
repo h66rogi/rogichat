@@ -43,6 +43,40 @@ REVIEWED_PNG = {
     "apps/web/public/static/cime_square.png": "ca2e7277480266f58427f46f0cd367afb13349e30130a9c767dd539eacf552be",
     "apps/web/public/static/soop-square.png": "ca183b75de8233df7172f689d827f9c148d0c0e7321e85103bd6d64355b0b1c6",
 }
+# The standalone Meloming OBS overlay ships 26 selectable self-hosted Google
+# font families. Their CSS references 1,609 WOFF2 subsets, so pruning the
+# binaries would silently break font selection for Korean/Japanese text. Pin
+# the complete upstream binary set by path and SHA-256 via its reviewed Merkle-
+# style listing in the exact-copy manifest; changes require a policy edit.
+OVERLAY_BINARY_SET_SHA256 = "50aa52ecf38c7510ab29f220970689f82bf1b51ba72559dcd4ca46c20c7afac3"
+OVERLAY_BINARY_SUFFIXES = {".woff", ".woff2", ".png", ".ico"}
+
+
+def reviewed_overlay_binaries():
+    manifest = ROOT / "docs/meloming-overlay-source-manifest.tsv"
+    try:
+        rows = manifest.read_text().splitlines()
+        if not rows[0].startswith("# source-repo=dylabs/meloming-overlay source-commit=540dd2a ") or rows[1] != "path\tsha256":
+            blocked("overlay binary source manifest is invalid")
+        result = {}
+        for row in rows[2:]:
+            name, digest = row.split("\t")
+            if PurePosixPath(name).suffix.lower() not in OVERLAY_BINARY_SUFFIXES:
+                continue
+            path = "apps/overlay/" + name
+            if path in result or not re.fullmatch(r"[a-f0-9]{64}", digest):
+                blocked("overlay binary source manifest is invalid")
+            result[path] = digest
+        listing = "".join(f"{name.removeprefix('apps/overlay/')}\t{digest}\n"
+                          for name, digest in sorted(result.items()))
+        if len(result) != 1624 or hashlib.sha256(listing.encode()).hexdigest() != OVERLAY_BINARY_SET_SHA256:
+            blocked("overlay binary source set differs from reviewed upstream")
+        return result
+    except (OSError, ValueError, IndexError):
+        blocked("overlay binary source manifest is unreadable")
+
+
+REVIEWED_OVERLAY_BINARIES = reviewed_overlay_binaries() if not PRIVATE_OPS and (ROOT / "docs/meloming-overlay-source-manifest.tsv").exists() else {}
 SSH_REGEX = r"(?:ssh-(?:rsa|ed25519|dss)(?:-cert-v01@openssh\.com)?|ecdsa-sha2-nistp(?:256|384|521)(?:-cert-v01@openssh\.com)?|sk-ssh-ed25519@openssh\.com|sk-ecdsa-sha2-nistp256@openssh\.com)\s+[A-Za-z0-9+/]{20,}={0,3}"
 PUBLIC_REGEX = r"(?:-----BEGIN (?:RSA |EC )?PUBLIC KEY-----|---- BEGIN SSH2 PUBLIC KEY ----)\r?\n"
 KEY_PATH = r"(^|/)access/qa/keys/[a-z0-9_-]+\.pub$"
@@ -86,6 +120,17 @@ def operational_json(value):
 def inspect_blob(name, data):
     if len(data) > MAX_BLOB:
         blocked("blob size exceeds reviewed scan budget")
+    if name in REVIEWED_OVERLAY_BINARIES:
+        if hashlib.sha256(data).hexdigest() != REVIEWED_OVERLAY_BINARIES[name]:
+            blocked("overlay binary differs from reviewed upstream artifact")
+        suffix = PurePosixPath(name).suffix.lower()
+        if suffix == ".png":
+            inspect_png(data, reviewed_metadata=True)
+        elif suffix == ".ico":
+            inspect_ico(data)
+        else:
+            inspect_woff(data, suffix)
+        return
     if not PRIVATE_OPS and name == WRAPPER:
         if hashlib.sha256(data).hexdigest() != WRAPPER_SHA256:
             blocked("Gradle wrapper differs from reviewed upstream artifact")
@@ -161,6 +206,46 @@ def inspect_blob(name, data):
         else:
             if operational_json(value):
                 blocked("operational Terraform document")
+
+
+def inspect_woff(data, suffix):
+    if suffix == ".woff2":
+        if len(data) < 48:
+            blocked("reviewed overlay font header is truncated")
+        signature, flavor, length, tables, reserved, sfnt_size, compressed_size = struct.unpack(
+            ">4s4sIHHII", data[:24])
+        if (signature != b"wOF2" or flavor not in {b"\0\1\0\0", b"OTTO"} or
+                length != len(data) or not 0 < tables <= 255 or reserved or
+                sfnt_size == 0 or compressed_size == 0 or 48 + compressed_size > len(data)):
+            blocked("reviewed overlay WOFF2 structure is invalid")
+        return
+    if len(data) < 44:
+        blocked("reviewed overlay font header is truncated")
+    signature, flavor, length, tables, reserved, sfnt_size = struct.unpack(
+        ">4s4sIHHI", data[:20])
+    if (signature != b"wOFF" or flavor not in {b"\0\1\0\0", b"OTTO"} or
+            length != len(data) or not 0 < tables <= 255 or reserved or sfnt_size == 0 or
+            44 + tables * 20 > len(data)):
+        blocked("reviewed overlay WOFF structure is invalid")
+    for offset in range(44, 44 + tables * 20, 20):
+        _, start, compressed_size, original_size, _ = struct.unpack(">4sIIII", data[offset:offset + 20])
+        if start < 44 + tables * 20 or not 0 < compressed_size <= original_size or start + compressed_size > len(data):
+            blocked("reviewed overlay WOFF table is invalid")
+
+
+def inspect_ico(data):
+    if len(data) < 22 or data[:4] != b"\0\0\1\0":
+        blocked("reviewed overlay icon header is invalid")
+    count = struct.unpack("<H", data[4:6])[0]
+    if not 1 <= count <= 32 or 6 + count * 16 > len(data):
+        blocked("reviewed overlay icon directory is invalid")
+    for offset in range(6, 6 + count * 16, 16):
+        size, start = struct.unpack("<II", data[offset + 8:offset + 16])
+        if size < 40 or start < 6 + count * 16 or start + size > len(data):
+            blocked("reviewed overlay icon image is invalid")
+        image = data[start:start + size]
+        if not image.startswith((b"\x89PNG\r\n\x1a\n", b"(\0\0\0")):
+            blocked("reviewed overlay icon image format is invalid")
 
 
 def inspect_png(data, reviewed_metadata=False):

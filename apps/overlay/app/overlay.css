@@ -1,0 +1,310 @@
+/* ==========================================
+   오버레이 전용 폰트 로드
+   ========================================== */
+
+/* Google catalog fonts are self-hosted under /fonts/google and loaded on demand
+   by domains/overlay/themes/shared/font-loader.ts. Keep this file free of
+   external font @import rules for OBS Browser Source reliability. */
+
+/* ==========================================
+   Core catalog family aliases
+   ----------------------------------------
+   모든 테마 fallback chain이 'Pretendard' / 'NanumSquare Neo'를 공유한다.
+   OBS/XSplit 구형 CEF와 일부 PC 네트워크 정책에서는 외부 @import가 실패하거나
+   늦게 적용되는 사례가 있어 core fallback은 public/fonts 자체 호스팅을 우선한다.
+   ========================================== */
+
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 45 920;
+  font-style: normal;
+  font-display: swap;
+  src: local('Pretendard Variable'),
+       url('/fonts/PretendardVariable.woff2') format('woff2');
+}
+
+/* NanumSquare Neo는 Windows OBS/CEF에서 variable WOFF 매칭이 흔들릴 수 있어
+   고정 weight 파일을 기본으로 선언한다. */
+@font-face {
+  font-family: 'NanumSquare Neo';
+  font-weight: 300;
+  font-style: normal;
+  font-display: block;
+  src: local('NanumSquareNeo Light'),
+       local('NanumSquareNeoLight'),
+       url('/fonts/NanumSquareNeoTTF-aLt.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'NanumSquare Neo';
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+  src: local('NanumSquareNeo Regular'),
+       local('NanumSquareNeo'),
+       url('/fonts/NanumSquareNeoTTF-bRg.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'NanumSquare Neo';
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+  src: local('NanumSquareNeo Bold'),
+       local('NanumSquareNeoBold'),
+       url('/fonts/NanumSquareNeoTTF-cBd.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'NanumSquare Neo';
+  font-weight: 800;
+  font-style: normal;
+  font-display: block;
+  src: local('NanumSquareNeo ExtraBold'),
+       local('NanumSquareNeoExtraBold'),
+       url('/fonts/NanumSquareNeoTTF-dEb.woff') format('woff');
+}
+
+@font-face {
+  font-family: 'NanumSquare Neo';
+  font-weight: 900;
+  font-style: normal;
+  font-display: block;
+  src: local('NanumSquareNeo Heavy'),
+       local('NanumSquareNeoHeavy'),
+       url('/fonts/NanumSquareNeoTTF-eHv.woff') format('woff');
+}
+
+/* CookieRun (SIL OFL) — 자체 호스팅. */
+@font-face {
+  font-family: 'CookieRun';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/CookieRun-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'CookieRun';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/CookieRun-Bold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'CookieRun';
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/CookieRun-Black.woff2') format('woff2');
+}
+
+/* Cafe24 Ssurround (SIL OFL) — 자체 호스팅.
+   정식 family 이름은 'Cafe24 Ssurround' (공백 + Ss). catalog kawaii 테마가
+   이 이름으로 등록되어 있어 직접 매칭. catalog 다른 곳의 'Cafe24Surround'
+   (공백X + S 한 개) 표기를 위해 alias 추가. */
+@font-face {
+  font-family: 'Cafe24 Ssurround';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/Cafe24Ssurround.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Cafe24Surround';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/Cafe24Ssurround.woff2') format('woff2');
+}
+
+[data-overlay-widget='lyrics'] {
+  white-space: pre-line;
+}
+
+/* Cafe24 Ohsquare (SIL OFL) — 자체 호스팅.
+   upstream CSS는 'Cafe24 Ohsquare' (공백) family로 정의하지만 catalog는
+   'Cafe24Ohsquare' (공백X) 표기라 catalog 이름으로 직접 정의. */
+@font-face {
+  font-family: 'Cafe24Ohsquare';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/Cafe24Ohsquare.woff2') format('woff2');
+}
+
+/* Gmarket Sans — 자체 호스팅 우선 (Light 300 / Medium 500 / Bold 700). */
+@font-face {
+  font-family: 'Gmarket Sans';
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/GmarketSansLight.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Gmarket Sans';
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/GmarketSansMedium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Gmarket Sans';
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/GmarketSansBold.woff2') format('woff2');
+}
+
+/* MapoFlowerIsland — 자체 호스팅 (public/fonts/).
+   fonts-archive 미러 없고 noonfonts CDN은 다른 폰트들이 dead된 사례 있어
+   안정성 확보 위해 자체 호스팅으로 전환. */
+@font-face {
+  font-family: 'MapoFlowerIsland';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/MapoFlowerIslandA.woff') format('woff');
+}
+
+/* omyu_pretty — 자체 호스팅 (public/fonts/). 사유 동일. */
+@font-face {
+  font-family: 'omyu_pretty';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url('/fonts/omyu_pretty.woff2') format('woff2');
+}
+
+/* DungGeunMo (NeoDunggeunmo, SIL OFL 1.1) — 자체 호스팅.
+   upstream CSS가 직접 'DungGeunMo' family로 정의하므로 catalog 이름과
+   바로 매칭 (이전 NeoDunggeunmo alias 불필요). retro-pixel 테마 전용. */
+@font-face {
+  font-family: 'DungGeunMo';
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: local('NeoDunggeunmo'),
+       url('/fonts/DungGeunMo.woff2') format('woff2');
+}
+
+/* ==========================================
+   오버레이 전용 스타일 - OBS 브라우저 소스용
+   ========================================== */
+html.overlay-document,
+html.overlay-document body,
+body.overlay-body {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html.overlay-document,
+html.overlay-document body {
+  margin: 0;
+  overflow: hidden !important;
+}
+
+.overlay-root {
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: transparent !important;
+  background-color: transparent !important;
+  font-family: var(--font-body-default);
+}
+
+/*
+   OBS 29/30 and older XSplit Browser Source runtimes can be backed by
+   Chromium 70/80-era CEF, while OBS 31 moved to a much newer Chromium line.
+   In that runtime, transparent page compositing is fragile when
+   backdrop-filter / -webkit-backdrop-filter participates in the layer tree.
+   The beforeInteractive compatibility script marks those runtimes with
+   `no-overlay-backdrop-filter`, then this author-important rule overrides
+   both inline React styles and Tailwind backdrop blur utilities.
+*/
+html.no-overlay-backdrop-filter .overlay-root,
+html.no-overlay-backdrop-filter .overlay-root * {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.overlay-legacy-chromium .overlay-root,
+html.overlay-legacy-chromium .overlay-root *,
+html.obs-legacy-cef .overlay-root,
+html.obs-legacy-cef .overlay-root * {
+  mix-blend-mode: normal !important;
+}
+
+html.no-overlay-backdrop-filter [data-liquid-glass-filter] {
+  display: none !important;
+}
+
+/*
+   Lyrics-specific fallback for OBS Browser Source and old XSplit.
+   The default lyrics view uses inline mask-image gradients for the three-line
+   viewport. OBS Browser Source transparent compositing can drop text layers
+   inside those masked containers even on newer CEF, which makes only the
+   actual lyric text look blank while surrounding UI still renders. Keep this
+   scoped to lyrics so other widget artwork can retain its visual treatment.
+*/
+html.obs-browser-source [data-overlay-widget='lyrics'],
+html.obs-browser-source [data-overlay-widget='lyrics'] *,
+html.obs-browser-source [data-overlay-lyrics-widget],
+html.obs-browser-source [data-overlay-lyrics-widget] *,
+html.overlay-legacy-chromium [data-overlay-lyrics-widget],
+html.overlay-legacy-chromium [data-overlay-lyrics-widget] *,
+html.overlay-legacy-chromium [data-overlay-widget='lyrics'],
+html.overlay-legacy-chromium [data-overlay-widget='lyrics'] *,
+html.obs-legacy-cef [data-overlay-lyrics-widget],
+html.obs-legacy-cef [data-overlay-lyrics-widget] *,
+html.obs-legacy-cef [data-overlay-widget='lyrics'],
+html.obs-legacy-cef [data-overlay-widget='lyrics'] * {
+  -webkit-text-fill-color: currentColor !important;
+  visibility: visible !important;
+  white-space: pre-line !important;
+  text-rendering: auto;
+}
+
+html.obs-browser-source [data-overlay-widget='lyrics'] *,
+html.obs-browser-source [data-overlay-lyrics-widget] *,
+html.overlay-legacy-chromium [data-overlay-lyrics-widget] *,
+html.overlay-legacy-chromium [data-overlay-widget='lyrics'] *,
+html.obs-legacy-cef [data-overlay-widget='lyrics'] *,
+html.obs-legacy-cef [data-overlay-lyrics-widget] * {
+  mask-image: none !important;
+  -webkit-mask-image: none !important;
+  clip-path: none !important;
+}
+
+html.obs-browser-source [data-overlay-widget='lyrics'] li,
+html.obs-browser-source [data-overlay-widget='lyrics'] div,
+html.obs-browser-source [data-overlay-lyrics-widget] li,
+html.obs-browser-source [data-overlay-lyrics-widget] div,
+html.overlay-legacy-chromium [data-overlay-lyrics-widget] li,
+html.overlay-legacy-chromium [data-overlay-lyrics-widget] div,
+html.overlay-legacy-chromium [data-overlay-widget='lyrics'] li,
+html.overlay-legacy-chromium [data-overlay-widget='lyrics'] div,
+html.obs-legacy-cef [data-overlay-lyrics-widget] li,
+html.obs-legacy-cef [data-overlay-lyrics-widget] div,
+html.obs-legacy-cef [data-overlay-widget='lyrics'] li,
+html.obs-legacy-cef [data-overlay-widget='lyrics'] div {
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+/* Windows CEF(OBS Browser Source)에서 스크롤바가 두껍게 회색으로 렌더링되어
+   queue / setlist 오버레이 위에 흉하게 보인다. `data-overlay-scroll`은
+   AutoScrollContainer가 이미 사용 중인 explicit 마커로, 모든 queue 위젯의
+   실제 스크롤 요소(대부분 <ul>/<div>)와 SetlistAutoScroll container에
+   부여되어 있다. 이 marker 기반으로 scope를 제한하여 chatbox 등 다른
+   overlay UI의 스크롤바에는 영향을 주지 않는다.
+   overflow 자체는 유지되므로 scrollTop 기반 자동 스크롤 애니메이션은 정상
+   동작. !important는 테마가 동적으로 주입하는 후속 규칙을 이기기 위해 필요. */
+[data-overlay-scroll] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+[data-overlay-scroll]::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}

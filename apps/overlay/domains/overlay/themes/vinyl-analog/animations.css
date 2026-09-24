@@ -1,0 +1,127 @@
+/* =========================================================================
+ * vinyl-analog theme — keyframes
+ *
+ * Each keyframe is namespaced as `vinyl-analog-{name}` to match
+ * `namespacedAnimationName(themeId, name)` from animation-utils. The
+ * AnimationDef.name field stores the un-namespaced name; the static CSS
+ * here uses the namespaced form so it's consumable by the widget components.
+ *
+ * Vinyl-analog aesthetic: LP discs, serif fonts, warm wood tones. Motion is
+ * gentle and tactile — paper, records, warm lamp glows.
+ * ========================================================================= */
+
+/* Continuous disc rotation — applied to the LP disc when showSpinAnimation is true.
+   Duration is controlled inline via the spinSpeed option. */
+@keyframes vinyl-analog-spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* Track change — LP swap. Outgoing track lifts up and fades; new one drops in
+   from above like swapping a record on the turntable. */
+@keyframes vinyl-analog-lp-swap {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+}
+
+@keyframes vinyl-analog-lp-swap-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Chat enter — vintage slide. Paper-light translate from the right. */
+@keyframes vinyl-analog-vintage-slide {
+  0% {
+    opacity: 0;
+    transform: translateX(20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Chat exit — paper fade. Opacity 1 -> 0 with slight translateY lift. */
+@keyframes vinyl-analog-paper-fade {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* Queue add — record slide. New record slides in from the left. */
+@keyframes vinyl-analog-record-slide {
+  0% {
+    opacity: 0;
+    transform: translateX(-30px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Queue remove — record slide out to the right. */
+@keyframes vinyl-analog-record-slide-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(30px);
+  }
+}
+
+/* Donation — gold glow. Box-shadow pulses from soft to bright gold. */
+@keyframes vinyl-analog-gold-glow {
+  0% {
+    box-shadow:
+      0 0 0 1px rgba(212, 175, 55, 0.4),
+      0 0 12px rgba(212, 175, 55, 0.25),
+      0 0 24px rgba(212, 175, 55, 0.1);
+  }
+  50% {
+    box-shadow:
+      0 0 0 2px rgba(212, 175, 55, 0.9),
+      0 0 28px rgba(212, 175, 55, 0.75),
+      0 0 60px rgba(212, 175, 55, 0.5);
+  }
+  100% {
+    box-shadow:
+      0 0 0 1px rgba(212, 175, 55, 0.4),
+      0 0 12px rgba(212, 175, 55, 0.25),
+      0 0 24px rgba(212, 175, 55, 0.1);
+  }
+}
+
+/* Track-transition phase classes — applied by useTrackTransition hook.
+   Matches the lp-swap durations defined in config.ts. */
+.theme-track-exiting-vinyl-analog {
+  animation: vinyl-analog-lp-swap 400ms cubic-bezier(0.4, 0, 0.6, 1) forwards;
+}
+
+.theme-track-entering-vinyl-analog {
+  animation: vinyl-analog-lp-swap-in 700ms cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+}

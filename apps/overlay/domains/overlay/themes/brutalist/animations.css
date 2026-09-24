@@ -1,0 +1,135 @@
+/* =========================================================================
+ * brutalist theme — keyframes
+ *
+ * Each keyframe is namespaced as `brutalist-{name}` to match
+ * `namespacedAnimationName(themeId, name)` from animation-utils. The
+ * AnimationDef.name field stores the un-namespaced name; the static CSS
+ * here uses the namespaced form so it's consumable by the widget components.
+ *
+ * Brutalist aesthetic: no easing curves, no blur, no soft fades.
+ * Everything is instant, hard, and loud.
+ * ========================================================================= */
+
+/* Track change — hard cut. Barely-there flash, no smooth transition. */
+@keyframes brutalist-hardcut {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+
+@keyframes brutalist-hardcut-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Chat enter — stamp. Overshoots at 1.3 then squishes to 0.95, rebounds to
+   1.05, settles at 1. Mimics a rubber stamp being slammed onto paper. */
+@keyframes brutalist-stamp {
+  0% {
+    opacity: 0;
+    transform: translate(-4px, -6px) scale(1.3);
+  }
+  40% {
+    opacity: 1;
+    transform: translate(1px, 1px) scale(0.95);
+  }
+  70% {
+    transform: translate(0, 0) scale(1.05);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+/* Chat exit — disappear. Snap-out, no fade curve. */
+@keyframes brutalist-disappear {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(4px, 0);
+  }
+  51% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(4px, 0);
+  }
+}
+
+/* Queue add — slap-in. Item smacks in from the left, overshoots past zero. */
+@keyframes brutalist-slap-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* Queue remove — slap-out. Exits hard to the right. */
+@keyframes brutalist-slap-out {
+  0% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+}
+
+/* Donation — screen-flash. Toggles background between accent and bg.
+   Intentionally jarring. Used on the chatbox frame when a donation arrives. */
+@keyframes brutalist-screen-flash {
+  0% {
+    background-color: var(--brutalist-flash-from, #f5f5dc);
+  }
+  15% {
+    background-color: var(--brutalist-flash-to, #ffff00);
+  }
+  30% {
+    background-color: var(--brutalist-flash-from, #f5f5dc);
+  }
+  45% {
+    background-color: var(--brutalist-flash-to, #ffff00);
+  }
+  60% {
+    background-color: var(--brutalist-flash-from, #f5f5dc);
+  }
+  75% {
+    background-color: var(--brutalist-flash-to, #ffff00);
+  }
+  100% {
+    background-color: var(--brutalist-flash-from, #f5f5dc);
+  }
+}
+
+/* Track-transition phase classes — applied by useTrackTransition hook.
+   Near-instant on both sides: brutalist doesn't believe in crossfades. */
+.theme-track-exiting-brutalist {
+  animation: brutalist-hardcut-out 50ms steps(1, end) forwards;
+}
+
+.theme-track-entering-brutalist {
+  animation: brutalist-hardcut 50ms steps(1, end) forwards;
+}

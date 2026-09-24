@@ -12,6 +12,15 @@ export class LiveSessionService {
   constructor(private readonly prisma: Prisma.TransactionClient, private readonly channelId: string,
     private readonly ownerId: string, private readonly ownerAlias: number) {}
 
+  private async channelOverlayToken(): Promise<string> {
+    const room = await this.prisma.rooms.findUniqueOrThrow({ where: { id: this.channelId },
+      select: { overlay_token: true } });
+    if (room.overlay_token) return room.overlay_token;
+    const token = randomBytes(32).toString('hex');
+    await this.prisma.rooms.update({ where: { id: this.channelId }, data: { overlay_token: token } });
+    return token;
+  }
+
   private async withEffectiveSettings(session: { id: number; settings: { requestEnabled: boolean; paused: boolean } | null }) {
     const channelSettings = await new ChannelSongRequestSettingsService(this.prisma).getByChannelId(this.channelId);
     const effective = mergeEffectiveSongRequestSettings(session.settings, channelSettings);
@@ -36,10 +45,11 @@ export class LiveSessionService {
     }, select: { id: true } });
     if (activeSession) throw new ApiError('INVALID_REQUEST', 400);
     await new ChannelSongRequestSettingsService(this.prisma).getByChannelId(this.channelId);
+    const overlayToken = await this.channelOverlayToken();
     const sessionId = await nextChannelContentId(this.prisma);
     const session = await this.prisma.liveSession.create({ data: {
       id: sessionId, channelId: this.channelId, userId: this.ownerId,
-      platform: 'SOOP', platformChannelId: dto.platformChannelId ?? null, overlayToken: randomBytes(32).toString('hex'),
+      platform: 'SOOP', platformChannelId: dto.platformChannelId ?? null, overlayToken,
       status: LiveSessionStatus.ACTIVE, sessionType: LiveSessionType.STANDARD,
       visibility: dto.practiceMode ? 'PRIVATE' : 'PUBLIC', playbackRevision: 1,
     }, select: { id: true } });
@@ -102,9 +112,10 @@ export class LiveSessionService {
     const active=await this.prisma.liveSession.findFirst({where:{channelId:this.channelId,status:LiveSessionStatus.ACTIVE,sessionType:LiveSessionType.STANDARD},select:{id:true}});
     if(active)throw new ApiError('CONFLICT',409);
     await new ChannelSongRequestSettingsService(this.prisma).getByChannelId(this.channelId);
+    const overlayToken = await this.channelOverlayToken();
     const id=await nextChannelContentId(this.prisma);
     await this.prisma.liveSession.create({data:{id,channelId:this.channelId,userId:this.ownerId,
-      platform:source.platform,platformChannelId:source.platformChannelId,overlayToken:randomBytes(32).toString('hex'),
+      platform:source.platform,platformChannelId:source.platformChannelId,overlayToken,
       status:LiveSessionStatus.ACTIVE,sessionType:LiveSessionType.STANDARD,playbackRevision:1}});
     await this.prisma.liveSessionSettings.create({data:{id:await nextChannelContentId(this.prisma),liveSessionId:id,
       requestEnabled:source.settings?.requestEnabled??true,paused:false}});

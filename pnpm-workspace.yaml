@@ -1,6 +1,7 @@
 packages:
   - apps/api
   - apps/web
+  - apps/overlay
   - packages/*
 
 strictPeerDependencies: true
@@ -23,6 +24,11 @@ allowBuilds:
   gl@9.0.0-rc.10: false
   '*': false
   '@scarf/scarf@1.4.0': false # Swagger UI install telemetry is unnecessary.
+  # Overlay's pinned Next runtime uses prebuilt optional native packages.
+  sharp@0.34.5: false
+  unrs-resolver@1.12.2: false
+  sharp: set this to true or false
+  unrs-resolver: set this to true or false
 
 # Prisma 7.10.0 pins the vulnerable connector; keep its only driver on the
 # reviewed security release, including transitive adapter resolution.

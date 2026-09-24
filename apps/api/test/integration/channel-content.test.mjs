@@ -37,6 +37,9 @@ import { MelomingMrVideoService } from '../../dist/modules/channel-content/melom
 import { MelomingPricingService } from '../../dist/modules/channel-content/meloming-pricing.service.js';
 import { MelomingOmakaseService } from '../../dist/modules/channel-content/meloming-omakase.service.js';
 import { MelomingClipService } from '../../dist/modules/channel-content/meloming-clip.service.js';
+import { OverlayService } from '../../dist/modules/channel-content/upstream/overlay/overlay.service.js';
+import { MelomingOverlayLyricsService } from '../../dist/modules/channel-content/meloming-overlay-lyrics.service.js';
+import { MelomingLyricsQuotaService } from '../../dist/modules/channel-content/meloming-lyrics-quota.service.js';
 import { SongAlbumArtService } from '../../dist/modules/channel-content/upstream/song-album-art.service.js';
 import { GlobalSongRedisService } from '../../dist/modules/channel-content/upstream/global-song/global-song-redis.service.js';
 import { GlobalSongMatcherService } from '../../dist/modules/channel-content/upstream/global-song/global-song-matcher.service.js';
@@ -656,6 +659,61 @@ test('copied console token controls live sessions and revocation closes access',
   assert.equal((await live.active({consoleToken:replacement.consoleToken},{})).id,started.id);
   await channel.deleteConsoleToken({token:ownerId});
   await assert.rejects(live.active({consoleToken:replacement.consoleToken},{}),error=>error.getStatus()===401);
+});
+
+test('copied overlay projection uses a stable channel token before and after live sessions',async t=>{
+  const {db,roomId,ownerId,fanId}=await fixture(t);
+  const repository=new ChannelContentRepository();
+  const auth={require:async(_tx,credentials)=>({userId:credentials.token,sessionId:randomUUID()})};
+  const channel=new MelomingChannelService(db.transactions,auth,repository);
+  const live=new MelomingLiveSessionService(db.transactions,auth,repository);
+  const requests=new MelomingLiveSongRequestService(db.transactions,auth,repository);
+  const {overlayToken}=await channel.overlayToken({token:ownerId});
+  assert.match(overlayToken,/^[a-f0-9]{64}$/);
+  const overlay=token=>db.transactions.write(tx=>new OverlayService(tx.prisma,roomId).getOverlayData(token));
+  const idle=await overlay(overlayToken);
+  assert.equal(idle.isLive,false);
+  assert.equal(idle.channel.webPath,'hurogi');
+  assert.equal(idle.channel.profileImageUrl,'/images/hurogi-profile.png');
+  assert.deepEqual(idle.queue,[]);
+  await assert.rejects(overlay('0'.repeat(64)),error=>error.getStatus()===404);
+  const songbook=new SongbookService(db.transactions,auth,repository);
+  const song=await songbook.create({token:ownerId},{title:'오버레이 곡',artistName:'오버레이 가수',
+    categoryNames:['노래'],lyricsText:'비공개 메모'});
+  const songId=song.id;
+  await db.transactions.write(async tx=>{
+    await tx.prisma.globalSong.update({where:{id:song.globalSongId},data:{matcherStatus:'MATCHED'}});
+    await tx.prisma.globalSongLyrics.create({data:{globalSongId:song.globalSongId,
+      body:'[00:01.00]테스트 가사',language:'ko',fetchedAt:new Date(),trackingScript:'https://example.com/script.js'}});
+  });
+  const session=await live.start({token:ownerId},{identifier:'hurogi'},{});
+  assert.equal(session.overlayToken,overlayToken);
+  const request=await requests.create({token:fanId},{liveSessionId:session.id,songId,rawArtist:'',rawTitle:''});
+  const active=await overlay(overlayToken);
+  assert.equal(active.isLive,true);
+  assert.equal(active.queue[0].id,request.id);
+  assert.equal(JSON.stringify(active).includes('비공개 메모'),false);
+  await requests.advance({token:ownerId},{sessionId:String(session.id)},'next');
+  const playing=await overlay(overlayToken);
+  assert.equal(playing.nowPlaying?.id,request.id);
+  assert.equal(playing.setlist[0].status,'PLAYING');
+  const lyrics=new MelomingOverlayLyricsService(db.transactions,repository,new MelomingLyricsQuotaService(db.transactions));
+  const firstLyrics=await lyrics.getLyrics({overlayToken,songId,includeRichsync:false});
+  assert.equal(firstLyrics.status,'OK');
+  assert.equal(firstLyrics.lyrics?.tracking.script,null);
+  assert.equal(firstLyrics.quota?.consumed,true);
+  const repeatLyrics=await lyrics.getLyrics({overlayToken,songId,includeRichsync:false});
+  assert.equal(repeatLyrics.quota?.alreadyConsumed,true);
+  assert.equal((await db.transactions.read(tx=>tx.prisma.lyricsQuotaConsumption.count())),1);
+  await assert.rejects(lyrics.getLyrics({overlayToken:'0'.repeat(64),songId,includeRichsync:false}),
+    error=>error.getStatus()===404);
+  await live.end({token:ownerId},session.id);
+  assert.equal((await overlay(overlayToken)).isLive,false);
+  assert.equal((await channel.overlayToken({token:ownerId})).overlayToken,overlayToken);
+  const rotated=await channel.regenerateOverlayToken({token:ownerId});
+  assert.notEqual(rotated.overlayToken,overlayToken);
+  await assert.rejects(overlay(overlayToken),error=>error.getStatus()===404);
+  assert.equal((await overlay(rotated.overlayToken)).isLive,false);
 });
 
 test('ported live song requests persist queue, owner controls and completed setlist',async t=>{
