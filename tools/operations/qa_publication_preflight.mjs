@@ -4,7 +4,12 @@ import { remoteImage } from './qa_registry.mjs';
 const REPOSITORY = 'h66rogi/rogichat';
 const SHA = /^[a-f0-9]{40}$/;
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
-const JOBS = { web: 'Web publication result', backend: 'Backend publication result' };
+const PUBLICATION = {
+  web: { job: 'Web publication result', path: '.github/workflows/qa-web-publication.yml',
+    name: 'QA web image publication' },
+  backend: { job: 'Backend publication result', path: '.github/workflows/qa-backend-publication.yml',
+    name: 'QA backend image publication' },
+};
 
 async function github(path, token, fetcher) {
   const response = await fetcher(`https://api.github.com/repos/${REPOSITORY}/${path}`, {
@@ -22,7 +27,7 @@ function completeList(value, key) {
 }
 
 export async function completedPublication(kind, sourceSha, token, fetcher = fetch) {
-  if (!JOBS[kind] || !SHA.test(sourceSha ?? '') || !token) throw new Error('Invalid recovery request');
+  if (!PUBLICATION[kind] || !SHA.test(sourceSha ?? '') || !token) throw new Error('Invalid recovery request');
   const markerName = `qa-${kind}-published-${sourceSha}`;
   const markerQuery = new URLSearchParams({ name: markerName, per_page: '100' });
   const found = await github(`actions/artifacts?${markerQuery}`, token, fetcher);
@@ -39,8 +44,8 @@ export async function completedPublication(kind, sourceSha, token, fetcher = fet
     const run = await github(`actions/runs/${runId}`, token, fetcher);
     if (run.id !== runId || run.head_sha !== sourceSha || run.head_branch !== 'qa'
         || !['workflow_run', 'schedule', 'workflow_dispatch'].includes(run.event)
-        || run.path !== '.github/workflows/qa-publication.yml'
-        || run.name !== 'QA verified image publication'
+        || run.path !== PUBLICATION[kind].path
+        || run.name !== PUBLICATION[kind].name
         || run.repository?.full_name !== REPOSITORY
         || run.head_repository?.full_name !== REPOSITORY
         || run.status !== 'completed' || run.conclusion !== 'success'
@@ -48,7 +53,7 @@ export async function completedPublication(kind, sourceSha, token, fetcher = fet
     const jobs = await github(`actions/runs/${runId}/attempts/${run.run_attempt}/jobs?per_page=100`,
       token, fetcher);
     if (!completeList(jobs, 'jobs')) continue;
-    const aggregate = jobs.jobs.filter(job => job.name === JOBS[kind]);
+    const aggregate = jobs.jobs.filter(job => job.name === PUBLICATION[kind].job);
     if (aggregate.length !== 1 || aggregate[0].run_id !== runId
         || aggregate[0].run_attempt !== run.run_attempt
         || aggregate[0].status !== 'completed' || aggregate[0].conclusion !== 'success') continue;
@@ -75,7 +80,9 @@ export async function publicationNeeds(changed, eventName, sourceSha, token,
     backend: ['rogichat-api', 'rogichat-api-migration', 'rogichat-media-decoder'],
   };
   const needs = { web: changed.web, backend: changed.backend };
-  if (eventName !== 'schedule') return needs;
+  if (!['workflow_run', 'schedule', 'workflow_dispatch'].includes(eventName)) {
+    throw new Error('Unsupported publication preflight event');
+  }
   for (const component of ['web', 'backend']) {
     if (!changed[component]) continue;
     const existing = await Promise.all(required[component].map(repository =>

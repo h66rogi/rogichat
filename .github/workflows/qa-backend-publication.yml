@@ -1,4 +1,4 @@
-name: QA verified image publication
+name: QA backend image publication
 
 on:
   workflow_run:
@@ -6,7 +6,7 @@ on:
     types: [completed]
     branches: [qa]
   schedule:
-    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
+    - cron: '4,9,14,19,24,29,34,39,44,49,54,59 * * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -14,7 +14,7 @@ permissions: {}
 # A delayed completion event or scheduled recovery cannot race another publisher
 # for the same source. Each component also checks the immutable tag after scanning.
 concurrency:
-  group: qa-publication-${{ github.event.workflow_run.head_sha || github.sha }}
+  group: qa-backend-publication-${{ github.event.workflow_run.head_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
@@ -28,7 +28,6 @@ jobs:
     outputs:
       ready: ${{ steps.verify.outputs.ready }}
       source_sha: ${{ steps.verify.outputs.source_sha }}
-      web: ${{ steps.preflight.outputs.web }}
       backend: ${{ steps.preflight.outputs.backend }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -58,26 +57,15 @@ jobs:
             printf 'web=true\nbackend=true\n' >> "$GITHUB_OUTPUT"
             echo 'Ambiguous QA change boundary; publish both components'
           fi
-      - name: Recover only missing images on scheduled sweep
+      - name: Skip only verified completed backend publications
         id: preflight
         if: steps.verify.outputs.ready == 'true'
         env:
           GHCR_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ steps.verify.outputs.source_sha }}
-          WEB_CHANGED: ${{ steps.classify.outputs.web }}
+          WEB_CHANGED: 'false'
           BACKEND_CHANGED: ${{ steps.classify.outputs.backend }}
         run: node tools/operations/qa_publication_preflight.mjs
-
-  publish-web:
-    needs: gate
-    if: needs.gate.outputs.ready == 'true' && needs.gate.outputs.web == 'true'
-    permissions:
-      contents: read
-      actions: read
-      packages: write
-    uses: ./.github/workflows/web-publish.yml
-    with:
-      source_sha: ${{ needs.gate.outputs.source_sha }}
 
   publish-backend:
     needs: gate
@@ -89,29 +77,6 @@ jobs:
     uses: ./.github/workflows/backend-publish.yml
     with:
       source_sha: ${{ needs.gate.outputs.source_sha }}
-
-  web-result:
-    name: Web publication result
-    needs: [gate, publish-web]
-    if: always() && needs.gate.outputs.ready == 'true' && needs.publish-web.result == 'success'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      actions: read
-    steps:
-      - name: Record completed web publication for bounded recovery
-        env:
-          SOURCE_SHA: ${{ needs.gate.outputs.source_sha }}
-        run: |
-          test "${#SOURCE_SHA}" -eq 40
-          printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/qa-web-published.txt"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: qa-web-published-${{ needs.gate.outputs.source_sha }}
-          path: ${{ runner.temp }}/qa-web-published.txt
-          if-no-files-found: error
-          retention-days: 90
-          overwrite: true
 
   backend-result:
     name: Backend publication result

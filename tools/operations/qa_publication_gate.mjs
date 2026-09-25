@@ -28,7 +28,7 @@ export function selectSource(eventName, event, checkoutSha, qaSha) {
   if (eventName !== 'workflow_run') throw new Error('Unsupported publication event');
   const run = event?.workflow_run;
   const workflow = Object.keys(REQUIRED).find(path => run?.path === `.github/workflows/${path}`);
-  if (event?.repository?.full_name !== REPOSITORY || !workflow
+  if (event?.repository?.full_name !== REPOSITORY || workflow !== 'mobile.yml'
       || !validRun(run, workflow, qaSha)) throw new Error('Untrusted workflow_run identity');
   if (run.status !== 'completed' || run.conclusion !== 'success') {
     return { ready: false, reason: 'Triggering verification was not successful' };

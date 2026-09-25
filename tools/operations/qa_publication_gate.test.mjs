@@ -24,8 +24,8 @@ function api({ retry = false, failedJob = null, failedAttempt = false } = {}) {
     if (match) {
       const workflow = match[1];
       const index = workflows.indexOf(workflow);
-      const runs = [fixture(workflow, 100 + index, retry && index === 0 ? 2 : 1,
-        failedAttempt && index === 0 ? 'failure' : 'success')];
+      const runs = [fixture(workflow, 100 + index, retry && index === 4 ? 2 : 1,
+        failedAttempt && index === 4 ? 'failure' : 'success')];
       return new Response(JSON.stringify({ workflow_runs: runs, total_count: runs.length }));
     }
     match = url.match(/runs\/(\d+)\/attempts\/(\d+)\/jobs\?/);
@@ -44,7 +44,7 @@ function api({ retry = false, failedJob = null, failedAttempt = false } = {}) {
       const attempt = Number(match[2]);
       const workflow = workflows[id - 100];
       return new Response(JSON.stringify(fixture(workflow, id, attempt,
-        failedAttempt && id === 100 ? 'failure' : 'success')));
+        failedAttempt && id === 104 ? 'failure' : 'success')));
     }
     throw new Error(`Unexpected API call: ${url}`);
   };
@@ -52,7 +52,7 @@ function api({ retry = false, failedJob = null, failedAttempt = false } = {}) {
 }
 
 test('duplicate successful completion has the same trusted source and attempt', async () => {
-  const trigger = fixture('web.yml', 100);
+  const trigger = fixture('mobile.yml', 104);
   const selected = selectSource('workflow_run', { repository: { full_name: REPO },
     workflow_run: trigger }, SHA, SHA);
   const checked = await exactChecks(SHA, 'token', api());
@@ -65,30 +65,32 @@ test('duplicate successful completion has the same trusted source and attempt', 
 
 test('out of order completion from an older attempt cannot authorize publication', async () => {
   const old = selectSource('workflow_run', { repository: { full_name: REPO },
-    workflow_run: fixture('web.yml', 100, 1) }, SHA, SHA);
+    workflow_run: fixture('mobile.yml', 104, 1) }, SHA, SHA);
   const checked = await exactChecks(SHA, 'token', api({ retry: true }));
   assert.equal(checked.ready, true);
   assert.equal(triggerIsLatest(old.trigger, checked.evidence), false);
   const latest = selectSource('workflow_run', { repository: { full_name: REPO },
-    workflow_run: fixture('web.yml', 100, 2) }, SHA, SHA);
+    workflow_run: fixture('mobile.yml', 104, 2) }, SHA, SHA);
   assert.equal(triggerIsLatest(latest.trigger, checked.evidence), true);
 });
 
 test('failed completion, failed rerun, and failed aggregate job remain closed', async () => {
   const failed = selectSource('workflow_run', { repository: { full_name: REPO },
-    workflow_run: fixture('web.yml', 100, 2, 'failure') }, SHA, SHA);
+    workflow_run: fixture('mobile.yml', 104, 2, 'failure') }, SHA, SHA);
   assert.equal(failed.ready, false);
   assert.equal((await exactChecks(SHA, 'token', api({ failedAttempt: true }))).ready, false);
   assert.equal((await exactChecks(SHA, 'token', api({ failedJob: 'mobile.yml' }))).ready, false);
 });
 
 test('wrong repository, stale QA source, and forged event are rejected', () => {
-  const run = fixture('web.yml', 100);
+  const run = fixture('mobile.yml', 104);
   assert.throws(() => selectSource('workflow_run', { repository: { full_name: 'attacker/fork' },
     workflow_run: run }, SHA, SHA), /Untrusted/);
   assert.equal(selectSource('workflow_run', { repository: { full_name: REPO },
     workflow_run: run }, 'b'.repeat(40), SHA).ready, false);
   assert.throws(() => selectSource('push', {}, SHA, SHA), /Unsupported/);
+  assert.throws(() => selectSource('workflow_run', { repository: { full_name: REPO },
+    workflow_run: fixture('web.yml', 100) }, SHA, SHA), /Untrusted/);
 });
 
 test('registry decision never overwrites a different checked image', () => {
@@ -106,11 +108,17 @@ test('scheduled recovery rebuilds a missing component and skips complete existin
     'token', lookup, async kind => kind === 'web');
   assert.deepEqual(needs, { web: false, backend: true });
   assert.deepEqual(await publicationNeeds({ web: true, backend: true },
-    'workflow_run', SHA, 'token', lookup), { web: true, backend: true });
+    'workflow_run', SHA, 'token', lookup, async kind => kind === 'web'),
+  { web: false, backend: true });
+  assert.deepEqual(await publicationNeeds({ web: true, backend: false },
+    'workflow_run', SHA, 'token', async () => ({ manifestDigest: `sha256:${'d'.repeat(64)}` }),
+    async () => false), { web: true, backend: false });
 });
 
-function recoveryApi({ failedJob = false, missingProof = false, wrongAttempt = false,
-  failedRun = false } = {}) {
+function recoveryApi({ kind = 'web', failedJob = false, missingProof = false,
+  wrongAttempt = false, failedRun = false, otherComponent = false } = {}) {
+  const selected = otherComponent ? (kind === 'web' ? 'backend' : 'web') : kind;
+  const title = selected === 'web' ? 'Web' : 'Backend';
   const artifact = name => ({ id: 42, name, expired: false,
     digest: `sha256:${'e'.repeat(64)}`,
     workflow_run: { id: 12, head_sha: SHA, head_branch: 'qa' } });
@@ -119,15 +127,15 @@ function recoveryApi({ failedJob = false, missingProof = false, wrongAttempt = f
     const path = parsed.pathname;
     let result;
     if (path.endsWith('/actions/artifacts')) {
-      result = { total_count: 1, artifacts: [artifact(`qa-web-published-${SHA}`)] };
+      result = { total_count: 1, artifacts: [artifact(`qa-${kind}-published-${SHA}`)] };
     } else if (path.endsWith('/actions/runs/12')) {
       result = { id: 12, run_attempt: 2, head_sha: SHA, head_branch: 'qa',
-        event: 'workflow_run', path: '.github/workflows/qa-publication.yml',
-        name: 'QA verified image publication', status: 'completed',
+        event: 'workflow_run', path: `.github/workflows/qa-${selected}-publication.yml`,
+        name: `QA ${selected} image publication`, status: 'completed',
         conclusion: failedRun ? 'failure' : 'success',
         repository: { full_name: REPO }, head_repository: { full_name: REPO } };
     } else if (path.endsWith('/actions/runs/12/attempts/2/jobs')) {
-      result = { total_count: 1, jobs: [{ name: 'Web publication result', run_id: 12,
+      result = { total_count: 1, jobs: [{ name: `${title} publication result`, run_id: 12,
         run_attempt: wrongAttempt ? 1 : 2, status: 'completed',
         conclusion: failedJob ? 'failure' : 'success' }] };
     } else if (path.endsWith('/actions/runs/12/artifacts')) {
@@ -141,13 +149,27 @@ function recoveryApi({ failedJob = false, missingProof = false, wrongAttempt = f
 test('scheduled completion requires exact successful aggregate and original web proof', async () => {
   assert.equal(await completedPublication('web', SHA, 'token', recoveryApi()), true);
   for (const scenario of [{ failedJob: true }, { wrongAttempt: true },
-    { failedRun: true }, { missingProof: true }]) {
+    { failedRun: true }, { missingProof: true }, { otherComponent: true }]) {
     assert.equal(await completedPublication('web', SHA, 'token', recoveryApi(scenario)),
       false, JSON.stringify(scenario));
   }
   const existing = async () => ({ manifestDigest: `sha256:${'f'.repeat(64)}` });
   assert.deepEqual(await publicationNeeds({ web: true, backend: false }, 'schedule',
     SHA, 'token', existing, async () => false), { web: true, backend: false });
+});
+
+test('backend recovery accepts only its independent successful publication run', async () => {
+  assert.equal(await completedPublication('backend', SHA, 'token', recoveryApi({ kind: 'backend' })), true);
+  for (const change of [{ otherComponent: true }, { failedJob: true }, { failedRun: true }]) {
+    assert.equal(await completedPublication('backend', SHA, 'token', recoveryApi({ kind: 'backend', ...change })),
+      false, JSON.stringify(change));
+  }
+});
+
+test('rate limited gate and recovery fail closed until a later scheduled sweep', async () => {
+  const limited = async () => new Response('{}', { status: 429 });
+  await assert.rejects(exactChecks(SHA, 'token', limited), /API failed \(429\)/);
+  await assert.rejects(completedPublication('web', SHA, 'token', limited), /API failed \(429\)/);
 });
 
 test('final publication check requires current QA head or exact ancestor', async () => {
