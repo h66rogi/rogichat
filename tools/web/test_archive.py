@@ -344,6 +344,71 @@ class AutomaticExportTests(unittest.TestCase):
                     patch.object(archive, 'download_proof', return_value=data), \
                     self.assertRaises(ValueError):
                 archive.resolve_publication('test-only')
+    def new_publication_case(self, root, event='workflow_run'):
+        descriptor, proof, _, payload, env, metadata, approval = self.setup_case(root, event)
+        publication_id = descriptor['verification_runs'].pop('web-publish.yml')
+        descriptor['verification_runs'][archive.core.NEW_PUBLICATION_WORKFLOW] = publication_id
+        publisher = metadata[f'actions/runs/{publication_id}/attempts/1']
+        publisher.update(event='workflow_run', path='.github/workflows/qa-publication.yml',
+                         name='QA verified image publication')
+        payload['workflow_run'] = publisher
+        Path(env['GITHUB_EVENT_PATH']).write_text(json.dumps(payload))
+        proof['verification'] = [item for item in proof['verification']
+                                 if item['workflow'] in archive.core.FIVE_QA_WORKFLOWS]
+        data = zipped_proof(proof)
+        metadata[f'actions/runs/{publication_id}/artifacts?per_page=100']['artifacts'][0]['digest'] = (
+            'sha256:' + archive.core.sha256(data))
+        metadata[f'actions/runs/{publication_id}/attempts/1/jobs?per_page=100'] = {
+            'total_count': 1, 'jobs': [{
+                'name': archive.core.PUBLICATION_JOB, 'run_id': publication_id,
+                'run_attempt': 1, 'status': 'completed', 'conclusion': 'success',
+            }]}
+        if event == 'workflow_dispatch':
+            env['EXPORT_PUBLICATION_RUN_ID'] = str(publication_id)
+            env['EXPORT_PUBLICATION_ATTEMPT'] = '1'
+        return descriptor, proof, data, payload, env, metadata, approval
+
+    def test_new_publication_auto_and_manual_bind_exact_proof_and_aggregate(self):
+        for event in ('workflow_run', 'workflow_dispatch'):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as temp:
+                descriptor, proof, data, _, env, metadata, _ = self.new_publication_case(Path(temp), event)
+                with patch.dict(archive.os.environ, env), patch.object(archive.core, 'api',
+                        side_effect=lambda path, token: metadata[path]) as api, \
+                        patch.object(archive, 'download_proof', return_value=data):
+                    actual, original = archive.resolve_publication('test-only')
+                self.assertEqual(actual['verification_runs'], descriptor['verification_runs'])
+                self.assertEqual(original, data)
+                self.assertEqual(proof['publicationAttempt'], 1)
+                if event == 'workflow_dispatch':
+                    self.assertFalse(any('actions/workflows/web-publish.yml/runs?' in call.args[0]
+                                         for call in api.call_args_list))
+
+    def test_new_publication_rejects_wrong_run_and_aggregate_identity(self):
+        for change in ('event', 'path', 'sha', 'missing_check', 'job_status', 'job_attempt', 'duplicate_job'):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temp:
+                descriptor, proof, data, payload, env, metadata, _ = self.new_publication_case(Path(temp))
+                publication_id = descriptor['verification_runs'][archive.core.NEW_PUBLICATION_WORKFLOW]
+                publisher = metadata[f'actions/runs/{publication_id}/attempts/1']
+                listing = metadata[f'actions/runs/{publication_id}/attempts/1/jobs?per_page=100']
+                if change == 'event': publisher['event'] = 'pull_request'
+                elif change == 'path': publisher['path'] = '.github/workflows/web-publish.yml'
+                elif change == 'sha': publisher['head_sha'] = 'f' * 40
+                elif change == 'missing_check':
+                    proof['verification'].pop()
+                    data = zipped_proof(proof)
+                    metadata[f'actions/runs/{publication_id}/artifacts?per_page=100']['artifacts'][0]['digest'] = (
+                        'sha256:' + archive.core.sha256(data))
+                elif change == 'job_status': listing['jobs'][0]['conclusion'] = 'failure'
+                elif change == 'job_attempt': listing['jobs'][0]['run_attempt'] = 2
+                else:
+                    listing['jobs'].append(copy.deepcopy(listing['jobs'][0]))
+                    listing['total_count'] = 2
+                payload['workflow_run'] = publisher
+                Path(env['GITHUB_EVENT_PATH']).write_text(json.dumps(payload))
+                with patch.dict(archive.os.environ, env), patch.object(archive.core, 'api',
+                        side_effect=lambda path, token: metadata[path]), \
+                        patch.object(archive, 'download_proof', return_value=data), self.assertRaises(ValueError):
+                    archive.resolve_publication('test-only')
 
     def test_automatic_and_manual_resolve_original_proof_before_pull(self):
         for event in ('workflow_run', 'workflow_dispatch'):

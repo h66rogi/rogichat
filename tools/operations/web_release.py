@@ -39,6 +39,7 @@ RECEIPTS = ROOT / 'receipts'
 SOURCE = 'https://github.com/h66rogi/rogichat'
 CHECKS = {'web.yml', 'security.yml', 'infrastructure.yml'}
 WORKFLOWS = CHECKS | {'backend.yml', 'mobile.yml', 'web-publish.yml'}
+NEW_WORKFLOWS = CHECKS | {'backend.yml', 'mobile.yml', 'qa-publication.yml'}
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 HASH = re.compile(r'[a-f0-9]{64}\Z')
 IMAGE = re.compile(r'ghcr\.io/h66rogi/rogichat-web@sha256:[a-f0-9]{64}\Z')
@@ -115,7 +116,8 @@ def validate_request(value, now=None):
         require(matches(HASH, value['completed_qa_sha256']) and matches(SHA, value['promotion_sha']))
         require(type(value['promotion_runs']) is dict and set(value['promotion_runs']) == CHECKS)
         require(all(type(v) is int and v > 0 for v in value['promotion_runs'].values()))
-    require(type(value['verification_runs']) is dict and set(value['verification_runs']) == WORKFLOWS)
+    require(type(value['verification_runs']) is dict
+            and set(value['verification_runs']) in (WORKFLOWS, NEW_WORKFLOWS))
     require(all(type(v) is int and v > 0 for v in value['verification_runs'].values()))
     require(type(value['request_id']) is str and str(uuid.UUID(value['request_id'])) == value['request_id'])
     require(type(value['expires_at']) is int and now < value['expires_at'] <= now + 3600)
@@ -171,10 +173,22 @@ def verify_runs(runs, sha, branch):
     for workflow, run_id in runs.items():
         value = github(f'actions/runs/{run_id}')
         require(value['head_sha'] == sha and value['head_branch'] == branch
-                and value['event'] == 'push' and value['status'] == 'completed' and value['conclusion'] == 'success'
+                and value['event'] in ({'workflow_run', 'schedule', 'workflow_dispatch'}
+                                       if workflow == 'qa-publication.yml' and branch == 'qa' else {'push'})
+                and value['status'] == 'completed' and value['conclusion'] == 'success'
                 and value['repository']['full_name'] == 'h66rogi/rogichat'
                 and value['head_repository']['full_name'] == 'h66rogi/rogichat'
                 and value['path'] == '.github/workflows/' + workflow)
+        if workflow == 'qa-publication.yml':
+            require(value['name'] == 'QA verified image publication'
+                    and type(value['run_attempt']) is int and value['run_attempt'] > 0)
+            listing = github(f"actions/runs/{run_id}/attempts/{value['run_attempt']}/jobs?per_page=100")
+            require(type(listing['total_count']) is int and 0 < listing['total_count'] <= 100
+                    and type(listing['jobs']) is list and len(listing['jobs']) == listing['total_count'])
+            jobs = [job for job in listing['jobs'] if job['name'] == 'Web publication result']
+            require(len(jobs) == 1 and jobs[0]['run_id'] == run_id
+                    and jobs[0]['run_attempt'] == value['run_attempt']
+                    and jobs[0]['status'] == 'completed' and jobs[0]['conclusion'] == 'success')
 
 
 def verify_promotion(request):
