@@ -70,13 +70,98 @@ class AutomaticTests(unittest.TestCase):
             r=request(); r['archive'][key]=value
             with self.assertRaises(ValueError): auto.validate_request(r,policy())
 
-    def test_source_must_still_be_current_qa(self):
-        archive=MagicMock(); archive.api.return_value={'object':{'sha':'b'*40}}
+    def test_fresh_exact_source_requires_current_qa_checks(self):
+        archive=MagicMock()
+        head='a'*40
+        def api(path):
+            if path=='git/ref/heads/qa':
+                return {'ref':'refs/heads/qa','object':{'sha':head}}
+            if path.startswith('actions/workflows/'):
+                return {'total_count':1,'workflow_runs':[{'id':1}]}
+            self.fail(path)
+        archive.api.side_effect=api
+        auto.fresh(request(),archive)
+        archive.verify_source.assert_called_once_with(head,request()['verification_runs'])
+        self.assertEqual(archive.verify_run.call_count,5)
+
+    def backend_tree(self, *, changed=None, added=None, truncated=False, mode='100644'):
+        paths=auto.BACKEND_REQUIRED_INPUTS | {'apps/api/src/main.ts', 'patches/driver.patch',
+            'infrastructure/runtime/Caddyfile.app', '.github/workflows/security.yml',
+            'tools/security/check.py', 'packages/common/index.ts',
+            'apps/web/src/main.ts', 'apps/ios/Sources/App.swift', 'docs/release.md'}
+        entries=[{'path':path,'type':'blob','mode':mode,
+                  'sha':('b'*40 if path==changed else 'a'*40)} for path in sorted(paths)]
+        if added:
+            entries.append({'path':added,'type':'blob','mode':'100644','sha':'c'*40})
+        return {'truncated':truncated,'tree':entries}
+
+    def test_backend_ancestor_uses_complete_immutable_input_tree(self):
+        source='a'*40; head='b'*40
+        old=self.backend_tree()
+        new=self.backend_tree(changed='apps/ios/Sources/App.swift',added='apps/web/src/extra.ts')
+        def api(path):
+            if path=='git/trees/'+source+'?recursive=1': return old
+            if path=='git/trees/'+head+'?recursive=1': return new
+            if path=='compare/'+source+'...'+head:
+                return {'status':'ahead','merge_base_commit':{'sha':source},
+                        'files':[{'filename':'apps/api/src/main.ts'}], 'total_commits':400}
+            self.fail(path)
+        auto.equivalent_backend_source(api,source,head)
+        # Compare's file list may be truncated after 300 paths. We never read it.
+        for important in ('apps/api/src/main.ts','patches/driver.patch','package.json',
+                          'pnpm-lock.yaml','tools/security/check.py',
+                          'tools/release/changes.py','infrastructure/runtime/Caddyfile.app',
+                          '.github/workflows/security.yml','packages/common/index.ts'):
+            with self.subTest(important=important), self.assertRaises(ValueError):
+                auto.equivalent_backend_source(lambda path: (
+                    self.backend_tree(changed=important) if path.endswith(head+'?recursive=1')
+                    else old if path.endswith(source+'?recursive=1') else api(path)), source, head)
+
+    def test_ancestor_rejects_divergence_unknown_tree_and_unsafe_entries(self):
+        source='a'*40; head='b'*40
+        old=self.backend_tree()
+        def api(path):
+            if path=='git/trees/'+source+'?recursive=1': return old
+            if path=='git/trees/'+head+'?recursive=1': return self.backend_tree()
+            return {'status':'diverged','merge_base_commit':{'sha':'c'*40}}
+        with self.assertRaises(ValueError): auto.equivalent_backend_source(api,source,head)
+        for bad in (self.backend_tree(truncated=True),
+                    self.backend_tree(added='apps/api/unknown.ts',mode='120000'),
+                    {'truncated':False,'tree':[entry for entry in self.backend_tree()['tree']
+                                               if entry['path']!='package.json']}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                auto.backend_inputs(lambda _:bad,source)
+
+    def test_fresh_ancestor_fails_if_latest_check_fails_or_qa_moves(self):
+        source='a'*40; head='b'*40
+        old=self.backend_tree()
+        for fail in ('check','moving'):
+            with self.subTest(fail=fail):
+                archive=MagicMock(); refs=0
+                def api(path):
+                    nonlocal refs
+                    if path=='git/ref/heads/qa':
+                        refs+=1
+                        return {'ref':'refs/heads/qa','object':{'sha':
+                            'c'*40 if fail=='moving' and refs==2 else head}}
+                    if path.startswith('git/trees/'): return old
+                    if path=='compare/'+source+'...'+head:
+                        return {'status':'ahead','merge_base_commit':{'sha':source}}
+                    if path.startswith('actions/workflows/'):
+                        return {'total_count':1,'workflow_runs':[{'id':1}]}
+                    self.fail(path)
+                archive.api.side_effect=api
+                if fail=='check': archive.verify_run.side_effect=ValueError('failed current check')
+                with self.assertRaises(ValueError): auto.fresh(request(),archive)
+
+    def test_fresh_rejects_main_ref_and_metadata_failure(self):
+        archive=MagicMock()
+        archive.api.return_value={'ref':'refs/heads/main','object':{'sha':'a'*40}}
         with self.assertRaises(ValueError): auto.fresh(request(),archive)
         archive.verify_source.assert_not_called()
-        archive.api.return_value={'object':{'sha':'a'*40}}
-        auto.fresh(request(),archive)
-        archive.verify_source.assert_called_once()
+        archive.api.side_effect=OSError('unavailable')
+        with self.assertRaises(OSError): auto.fresh(request(),archive)
+        archive.verify_source.assert_not_called()
 
     @patch.object(auto,'protected',return_value=b'print("never execute")')
     def test_import_rejects_unpinned_helper(self,_):

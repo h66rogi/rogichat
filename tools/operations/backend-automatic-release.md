@@ -69,8 +69,10 @@ reviewed template/helper version; unknown current edge changes fail closed.
 
 The root-installed `/etc/rogichat/backend-automatic-request.json` contains exactly:
 
-- `environment`: `qa`; `source_sha`: current full QA head; `request_id`: canonical
-  UUID; `expires_at`: integer Unix seconds, future and no more than one hour away.
+- `environment`: `qa`; `source_sha`: full SHA of the verified backend image
+  artifact; `request_id`: canonical UUID; `expires_at`: integer Unix seconds,
+  future and no more than one hour away. An ancestor source is eligible only
+  while the complete backend input tree matches the current QA head.
 - `policy_sha256`: hash of UTF-8 Python `json.dumps(policy, sort_keys=True,
   separators=(',', ':'))`; no trailing newline. Policy fields are ASCII. Migration
   dictionary key order has no semantic effect.
@@ -103,6 +105,18 @@ semantic. Existing exact-source contract CI also checks source SQL checksums.
 
 Automatic-export event support requires separately reviewing and pinning the
 future archive verifier; this PR does not loosen existing producer checks.
+
+An unrelated QA merge after image publication may advance HEAD. The automatic
+helper reads complete immutable Git trees for the candidate and current QA
+commits, comparing blob hashes and modes for every tracked path except the
+explicitly excluded Android, iOS, web, mobile/web tooling and documentation
+trees, plus three unrelated root files. The backend Dockerfile, lockfile, workspace
+manifests, packages, patches, runtime templates, release and security tools,
+and workflows stay in the compared set. A changed or unknown backend input,
+truncated tree, unsafe entry, non-ancestor, failed current-head check, or moving
+QA ref rejects activation. GitHub compare's paginated file list is not used as
+the equivalence proof. The request and immutable image retain their original
+source SHA; they are never relabeled as the newer QA head.
 
 Initial `/var/lib/rogichat/backend-automatic/current.json` must be commissioned
 from the running, reviewed compatible release. It contains exactly `source_sha`,
@@ -151,8 +165,11 @@ readiness is deliberately not claimed by verification alone.
 
 `--apply` is a later root-owned host action. Under the common nonblocking lock:
 
-1. Revalidate policy/request, expiry, exact current QA head and all exact checks;
-   verify current host state and pinned templates; run the trusted readonly probe.
+1. Revalidate policy/request and expiry. Require the image source to equal or
+   precede the current QA head, compare every relevant Git tree blob and mode,
+   and verify all five required push workflows at the current head as well as
+   the original source checks. Verify current host state and pinned templates;
+   run the trusted readonly probe.
 2. Verify archive and immutable candidate source manifest completely. Create `request-<uuid>` in the private state
    directory, save consumed request and previous state/configuration, and fsync
    both directories. An interrupted/failed consumed request cannot be replayed.

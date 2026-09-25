@@ -38,6 +38,19 @@ TEMPLATES = {'compose': 'infrastructure/runtime/compose.app.yaml',
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
 NEW_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml',
                  'mobile.yml', 'qa-backend-publication.yml'}
+CURRENT_CHECKS = {'web.yml', 'backend.yml', 'mobile.yml', 'security.yml', 'infrastructure.yml'}
+# Excluded paths are not copied by apps/api/Dockerfile and do not supply the
+# backend templates, lockfile, release logic, scanner or workflow contracts.
+# Every other tracked blob is conservatively part of the backend input set.
+BACKEND_IGNORED_PREFIXES = ('apps/android/', 'apps/ios/', 'apps/web/',
+                            'docs/', 'tools/mobile/', 'tools/web/')
+BACKEND_IGNORED_FILES = {'README.md', 'LICENSE', '.gitignore'}
+BACKEND_REQUIRED_INPUTS = {'.dockerignore', 'package.json', 'pnpm-lock.yaml',
+                           'pnpm-workspace.yaml', 'apps/api/Dockerfile',
+                           'apps/migration/package.json',
+                           'tools/operations/backend_archive.py',
+                           'tools/release/changes.py',
+                           '.github/workflows/backend-publish.yml'}
 
 
 def require(value):
@@ -121,10 +134,63 @@ def validate_request(r, p, now=None):
     return r
 
 
+def backend_inputs(api, source):
+    """Compare immutable tree blobs/modes, not GitHub's truncated diff list."""
+    require(type(source) is str and SHA.fullmatch(source))
+    tree = api('git/trees/' + source + '?recursive=1')
+    require(type(tree) is dict and tree.get('truncated') is False
+            and type(tree.get('tree')) is list and len(tree['tree']) <= 100000)
+    result, seen = {}, set()
+    for entry in tree['tree']:
+        require(type(entry) is dict and type(entry.get('path')) is str)
+        path = entry['path']
+        require(path not in seen and path and not path.startswith('/')
+                and all(part not in ('', '.', '..') for part in path.split('/')))
+        seen.add(path)
+        if path in BACKEND_IGNORED_FILES or path.startswith(BACKEND_IGNORED_PREFIXES):
+            continue
+        if entry.get('type') == 'tree':
+            continue
+        require(entry.get('type') == 'blob' and entry.get('mode') in ('100644', '100755')
+                and type(entry.get('sha')) is str and SHA.fullmatch(entry['sha']))
+        result[path] = (entry['sha'], entry['mode'])
+    require(BACKEND_REQUIRED_INPUTS <= result.keys())
+    return result
+
+
+def equivalent_backend_source(api, source, head):
+    require(type(source) is str and SHA.fullmatch(source)
+            and type(head) is str and SHA.fullmatch(head))
+    if source == head:
+        return
+    require(backend_inputs(api, source) == backend_inputs(api, head))
+    compare = api('compare/' + source + '...' + head)
+    require(type(compare) is dict and compare.get('status') == 'ahead'
+            and compare.get('merge_base_commit', {}).get('sha') == source)
+
+
+def current_qa_checks(api, head, archive):
+    """The latest QA head itself must pass the five required push workflows."""
+    for workflow in sorted(CURRENT_CHECKS):
+        listing = api(f'actions/workflows/{workflow}/runs?branch=qa&event=push&head_sha={head}&per_page=1')
+        require(type(listing) is dict and type(listing.get('total_count')) is int
+                and listing['total_count'] >= 1 and type(listing.get('workflow_runs')) is list
+                and len(listing['workflow_runs']) == 1)
+        archive.verify_run(listing['workflow_runs'][0], head, workflow)
+
+
 def fresh(r, archive):
     require(time.time() < r['expires_at'])
-    require(archive.api('git/ref/heads/qa')['object']['sha'] == r['source_sha'])
+    ref = archive.api('git/ref/heads/qa')
+    require(type(ref) is dict and ref.get('ref') == 'refs/heads/qa')
+    head = ref.get('object', {}).get('sha')
+    require(type(head) is str and SHA.fullmatch(head))
     archive.verify_source(r['source_sha'], r['verification_runs'])
+    equivalent_backend_source(archive.api, r['source_sha'], head)
+    current_qa_checks(archive.api, head, archive)
+    # A later merge never silently changes the request's source or image. The
+    # next invocation will check the new head and choose a separate candidate.
+    require(archive.api('git/ref/heads/qa').get('object', {}).get('sha') == head)
 
 
 def verify_current(r, p, helper):
