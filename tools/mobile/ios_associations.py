@@ -44,9 +44,12 @@ def verify_binding(entitlements, profile, cfg, certificate, *, now=None):
         raise ValueError("Actual QA signing certificate differs from the pinned identity")
 
 
-def _run(command, *, data=None):
+def _run(command, *, data=None, temporary_root=None):
+    environment = cli_environment()
+    if temporary_root is not None:
+        environment["TMPDIR"] = str(temporary_root)
     try:
-        result = subprocess.run(command, input=data, capture_output=True, env=cli_environment(), timeout=60)
+        result = subprocess.run(command, input=data, capture_output=True, env=environment, timeout=60)
     except subprocess.TimeoutExpired:
         raise ValueError("Signed capability inspection timed out") from None
     if result.returncode:
@@ -54,22 +57,23 @@ def _run(command, *, data=None):
     return result.stdout
 
 
-def _plist(command, *, data=None):
+def _plist(command, *, data=None, temporary_root=None):
     try:
-        value = plistlib.loads(_run(command, data=data))
+        value = plistlib.loads(_run(command, data=data, temporary_root=temporary_root))
         if not isinstance(value, dict): raise ValueError()
         return value
     except (plistlib.InvalidFileException, ValueError, TypeError, OverflowError) as error:
         raise ValueError("Invalid signed native permissions") from error
 
 
-def inspect_signed_callback(executable, profile_data, cfg):
+def inspect_signed_callback(executable, profile_data, cfg, *, temporary_root=None):
     require_qa_signing(cfg)
-    _run(["codesign", "--verify", "--strict", str(executable)])
-    signed = _plist(["codesign", "-d", "--entitlements", ":-", str(executable)])
-    profile = _plist(["security", "cms", "-D"], data=profile_data)
-    with tempfile.TemporaryDirectory(prefix="rogichat-qa-certificate-") as temporary:
+    _run(["codesign", "--verify", "--strict", str(executable)], temporary_root=temporary_root)
+    signed = _plist(["codesign", "-d", "--entitlements", ":-", str(executable)], temporary_root=temporary_root)
+    profile = _plist(["security", "cms", "-D"], data=profile_data, temporary_root=temporary_root)
+    with tempfile.TemporaryDirectory(prefix="rogichat-qa-certificate-", dir=temporary_root) as temporary:
         prefix = str(Path(temporary) / "signer")
-        _run(["codesign", "-d", "--extract-certificates=" + prefix, str(executable)])
+        _run(["codesign", "-d", "--extract-certificates=" + prefix, str(executable)],
+             temporary_root=temporary_root)
         certificate = Path(prefix + "0").read_bytes()
     verify_binding(signed, profile, cfg, certificate)

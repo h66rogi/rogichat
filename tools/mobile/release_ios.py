@@ -1,5 +1,6 @@
 """QA archive, validated export and explicitly invoked TestFlight upload."""
 import json
+import os
 from pathlib import Path
 import plistlib
 import shutil
@@ -12,6 +13,36 @@ from ios_associations import inspect_signed_callback, require_qa_signing
 from ios_dependencies import inspect_ios_dependencies, XCODE_RESOLVED_FLAGS
 
 from release_common import APP_ID, API_URL, ROOT, AppStoreConnect, capture, external, manifest, new_output, private_write, run, save_manifest, sha256, tree_sha256
+
+
+def _temporary_root(directory):
+    """Keep QA release scratch data beside its private artifacts, outside Git."""
+    directory = external(directory)
+    metadata = directory.stat()
+    if metadata.st_uid != os.getuid() or metadata.st_mode & 0o022:
+        raise ValueError("QA release artifact directory must not be writable by other users")
+    temporary = directory / ".qa-temp"
+    try:
+        temporary.mkdir(mode=0o700)
+    except FileExistsError:
+        pass
+    try:
+        descriptor = os.open(temporary, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        raise ValueError("QA release temporary directory must be a private directory") from None
+    try:
+        metadata = os.fstat(descriptor)
+        if metadata.st_uid != os.getuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise ValueError("QA release temporary directory must be owned by the current user with mode 700")
+    finally:
+        os.close(descriptor)
+    return temporary
+
+
+def _temporary_environment(directory):
+    environment = os.environ.copy()
+    environment["TMPDIR"] = str(_temporary_root(directory))
+    return environment
 
 
 def unlock_signing(cfg):
@@ -32,15 +63,18 @@ def inspect_info(info, number, version):
 
 def inspect_archive(path, number, version, cfg):
     require_qa_signing(cfg)
+    temporary = _temporary_root(path.parent)
     app = path / "Products/Applications/Rogichat.app"
     with (app / "Info.plist").open("rb") as stream:
         info = plistlib.load(stream)
     inspect_info(info, number, version)
     inspect_ios_app(app, info.get("CFBundleExecutable", ""))
-    capture(["codesign", "--verify", "--deep", "--strict", str(app)])
+    capture(["codesign", "--verify", "--deep", "--strict", str(app)],
+            env=_temporary_environment(path.parent))
     if not (app / "embedded.mobileprovision").is_file():
         raise ValueError("Archive has no provisioning profile")
-    inspect_signed_callback(app, (app / "embedded.mobileprovision").read_bytes(), cfg)
+    inspect_signed_callback(app, (app / "embedded.mobileprovision").read_bytes(), cfg,
+                            temporary_root=temporary)
     return app / info["CFBundleExecutable"]
 
 
@@ -63,7 +97,8 @@ def inspect_ipa(path, number, version, cfg):
             raise ValueError("Duplicate IPA entries")
         # Verify the whole signed app and its sealed resources in an isolated
         # directory, not only entitlement text from an extracted executable.
-        with tempfile.TemporaryDirectory(prefix="rogichat-ipa-callback-") as directory:
+        temporary = _temporary_root(path.parent)
+        with tempfile.TemporaryDirectory(prefix="rogichat-ipa-callback-", dir=temporary) as directory:
             app = Path(directory) / "Rogichat.app"
             app.mkdir(mode=0o700)
             for entry in ipa.infolist():
@@ -81,8 +116,9 @@ def inspect_ipa(path, number, version, cfg):
                         shutil.copyfileobj(source, destination)
                     target.chmod(0o700 if entry.external_attr >> 16 & 0o111 else 0o600)
             (app / info["CFBundleExecutable"]).chmod(0o700)
-            capture(["codesign", "--verify", "--deep", "--strict", str(app)])
-            inspect_signed_callback(app, ipa.read(profile), cfg)
+            capture(["codesign", "--verify", "--deep", "--strict", str(app)],
+                    env=_temporary_environment(path.parent))
+            inspect_signed_callback(app, ipa.read(profile), cfg, temporary_root=temporary)
 
 
 def archive(cfg, number, version):
@@ -103,7 +139,8 @@ def archive(cfg, number, version):
          "CODE_SIGN_STYLE=Manual", "DEVELOPMENT_TEAM=" + cfg["ios"]["team_id"],
          "CODE_SIGN_IDENTITY=" + cfg["ios"]["signing_certificate"],
          "ROGICHAT_PROVISIONING_PROFILE=" + cfg["ios"]["provisioning_profile"],
-         "CURRENT_PROJECT_VERSION=" + str(number), "MARKETING_VERSION=" + version, "archive"], directory / "archive.log")
+         "CURRENT_PROJECT_VERSION=" + str(number), "MARKETING_VERSION=" + version, "archive"], directory / "archive.log",
+        env=_temporary_environment(directory))
     executable = inspect_archive(path, number, version, cfg)
     manifest_path = save_manifest(directory, "ios", number, version,
                                   {"archive_info": path / "Info.plist", "executable": executable})
@@ -140,7 +177,8 @@ def export(cfg, manifest_path):
     options = directory / "ExportOptions.plist"
     private_write(options, plistlib.dumps(export_options(cfg["ios"]["team_id"], "export", cfg["ios"])).decode())
     run(["xcodebuild", "-exportArchive", "-archivePath", str(working), "-exportOptionsPlist", str(options),
-         "-exportPath", str(directory / "export"), *asc.signing_args()], directory / "export.log")
+         "-exportPath", str(directory / "export"), *asc.signing_args()], directory / "export.log",
+        env=_temporary_environment(directory))
     manifest(manifest_path, "ios")  # Xcode cannot alter the canonical signed archive.
     ipas = list((directory / "export").glob("*.ipa"))
     if len(ipas) != 1:
@@ -148,7 +186,7 @@ def export(cfg, manifest_path):
     inspect_ipa(ipas[0], value["build_number"], value["version"], cfg)
     run(["xcrun", "altool", "--validate-app", str(ipas[0]), "--api-key", cfg["ios"]["key_id"],
          "--api-issuer", cfg["ios"]["issuer_id"], "--p8-file-path", str(external(cfg["ios"]["key_file"]))],
-        directory / "apple-validation.log")
+        directory / "apple-validation.log", env=_temporary_environment(directory))
     value["artifacts"]["ipa"] = {"path": str(ipas[0]), "sha256": sha256(ipas[0])}
     value["apple_validated"] = True
     private_write(manifest_path, json.dumps(value, indent=2) + "\n")
@@ -199,7 +237,8 @@ def upload(cfg, manifest_path):
                "upload_archive_path": str(working)}
     private_write(attempt, json.dumps(receipt) + "\n")
     run(["xcodebuild", "-exportArchive", "-archivePath", str(working), "-exportOptionsPlist", str(options),
-         "-exportPath", str(directory / "upload"), *asc.signing_args()], directory / "upload.log")
+         "-exportPath", str(directory / "upload"), *asc.signing_args()], directory / "upload.log",
+        env=_temporary_environment(directory))
     receipt["state"] = "transport_completed"
     private_write(attempt, json.dumps(receipt) + "\n")
     print("Upload transport completed. Run ios-finalize to verify processing, Korean notes and approved internal tester access.")

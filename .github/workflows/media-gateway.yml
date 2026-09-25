@@ -2,6 +2,18 @@ name: Meloming media gateway copy and QA image
 
 on:
   pull_request:
+    paths:
+      - '.github/workflows/media-gateway.yml'
+      - '.dockerignore'
+      - '.gitleaks.toml'
+      - 'AGENTS.md'
+      - 'apps/media-gateway/**'
+      - 'docs/meloming-media-gateway-source-manifest.tsv'
+      - 'infrastructure/runtime/media-gateway.Dockerfile'
+      - 'infrastructure/runtime/web/compose.media-gateway.qa.yaml'
+      - 'infrastructure/runtime/Caddyfile.app'
+      - 'tools/check_media_gateway_copy.py'
+      - 'tools/security/**'
   push:
     branches: [qa]
 
