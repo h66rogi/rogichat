@@ -13,7 +13,8 @@ jobs:
   changes:
     runs-on: ubuntu-24.04
     outputs:
-      changed: ${{ steps.paths.outputs.changed }}
+      android: ${{ steps.paths.outputs.android }}
+      ios: ${{ steps.paths.outputs.ios }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -26,7 +27,7 @@ jobs:
         run: python3 tools/mobile/changed.py
   android:
     needs: changes
-    if: needs.changes.outputs.changed == 'true'
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -65,7 +66,7 @@ jobs:
           python3 tools/mobile/qa_release.py --config "$RUNNER_TEMP/rogichat-signing-test/config.json" android-build --build-number 7
   android-storage:
     needs: changes
-    if: needs.changes.outputs.changed == 'true'
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -84,9 +85,26 @@ jobs:
           sudo chmod a+rw /dev/kvm
       - name: Verify actual Keystore and on-disk SQLite with an isolated emulator
         run: python3 tools/mobile/check_android_storage.py
-  ios:
+  ios-state:
     needs: changes
-    if: needs.changes.outputs.changed == 'true'
+    if: needs.changes.outputs.ios == 'true'
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Check product state and test-only scenario isolation without a simulator
+        run: python3 tools/mobile/check_ios_wireframe.py
+      - name: Verify signing security with a disposable keychain
+        env:
+          ROGICHAT_TEST_DISPOSABLE_KEYCHAIN: '1'
+        run: python3 -m unittest discover -s tools/mobile -p 'test_*.py'
+  ios-build:
+    needs: changes
+    if: needs.changes.outputs.ios == 'true'
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -100,36 +118,30 @@ jobs:
           python3 tools/mobile/install_xcodegen.py
           .tools/xcodegen-2.44.1/xcodegen/bin/xcodegen generate --spec apps/ios/project.yml
           git diff --exit-code -- apps/ios/Rogichat.xcodeproj
-      - name: Check product state and test-only scenario isolation without a simulator
-        run: python3 tools/mobile/check_ios_wireframe.py
-      - name: Verify signing security with a disposable keychain
-        env:
-          ROGICHAT_TEST_DISPOSABLE_KEYCHAIN: '1'
-        run: python3 -m unittest discover -s tools/mobile -p 'test_*.py'
       - name: Build and inspect QA and production bundles
         run: python3 tools/mobile/build_ios.py
   required:
     name: Mobile required checks
     if: always()
-    needs: [changes, android, android-storage, ios]
+    needs: [changes, android, android-storage, ios-state, ios-build]
     runs-on: ubuntu-24.04
     steps:
-      - name: Require successful builds when mobile inputs changed
+      - name: Require successful builds for each affected platform
         env:
           CHANGE_RESULT: ${{ needs.changes.result }}
-          CHANGED: ${{ needs.changes.outputs.changed }}
+          ANDROID_CHANGED: ${{ needs.changes.outputs.android }}
+          IOS_CHANGED: ${{ needs.changes.outputs.ios }}
           ANDROID_RESULT: ${{ needs.android.result }}
           ANDROID_STORAGE_RESULT: ${{ needs.android-storage.result }}
-          IOS_RESULT: ${{ needs.ios.result }}
+          IOS_STATE_RESULT: ${{ needs.ios-state.result }}
+          IOS_BUILD_RESULT: ${{ needs.ios-build.result }}
         run: |
           test "$CHANGE_RESULT" = success
-          if test "$CHANGED" = true; then
-            test "$ANDROID_RESULT" = success
-            test "$ANDROID_STORAGE_RESULT" = success
-            test "$IOS_RESULT" = success
-          else
-            test "$CHANGED" = false
-            test "$ANDROID_RESULT" = skipped
-            test "$ANDROID_STORAGE_RESULT" = skipped
-            test "$IOS_RESULT" = skipped
-          fi
+          case "$ANDROID_CHANGED:$ANDROID_RESULT:$ANDROID_STORAGE_RESULT" in
+            true:success:success|false:skipped:skipped) ;;
+            *) echo "unexpected Android result"; exit 1 ;;
+          esac
+          case "$IOS_CHANGED:$IOS_STATE_RESULT:$IOS_BUILD_RESULT" in
+            true:success:success|false:skipped:skipped) ;;
+            *) echo "unexpected iOS result"; exit 1 ;;
+          esac
