@@ -31,6 +31,9 @@ LOCK = Path('/run/lock/rogichat-deploy.lock')
 HASH = re.compile(r'[a-f0-9]{64}\Z')
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 IMAGE = re.compile(r'sha256:[a-f0-9]{64}\Z')
+REPOSITORY = 'h66rogi/rogichat'
+REPOSITORY_ID = 1377178939
+MAX_PROOF_ZIP = 1024 * 1024
 TEMPLATES = {'compose': 'infrastructure/runtime/compose.app.yaml',
              'unit': 'infrastructure/runtime/rogichat-app@.service',
              'caddy': 'infrastructure/runtime/Caddyfile.app',
@@ -82,6 +85,49 @@ def pinned_module(name, expected):
     # Compile checked bytes, never unpinned pycache or candidate imports.
     exec(compile(raw, str(path), 'exec'), module.__dict__)
     return module
+
+
+def bind_metadata_client(helper, archive, client):
+    """Use only a trusted, injected read-only App client for GitHub metadata.
+
+    The request and archive cannot select this capability. The installed caller
+    supplies it in memory; no token is read from the environment, CLI or disk.
+    """
+    require(client is not None and callable(getattr(client, 'fresh', None))
+            and callable(getattr(client, 'download_artifact', None)))
+
+    def read(path):
+        require(type(path) is str)
+        try:
+            value = client.fresh(path)
+            require(type(value) in (dict, list))
+            return value
+        except Exception:
+            raise ValueError('automatic release rejected') from None
+
+    repository = read('')
+    require(type(repository) is dict and repository.get('full_name') == REPOSITORY
+            and type(repository.get('id')) is int and repository['id'] == REPOSITORY_ID
+            and repository.get('private') is False and repository.get('fork') is False)
+
+    def archive_api(path, token=None):
+        require(token is None)
+        return read(path)
+
+    def proof_artifact(artifact_id, token=None):
+        require(token is None and type(artifact_id) is int and artifact_id > 0)
+        try:
+            raw = client.download_artifact(artifact_id)
+            require(type(raw) is bytes and 0 < len(raw) <= MAX_PROOF_ZIP)
+            return raw
+        except Exception:
+            raise ValueError('automatic release rejected') from None
+
+    # Both pinned modules resolve these names at call time. In particular the
+    # archive proof ZIP must never fall through to its anonymous URL opener.
+    archive.api = archive_api
+    archive.download_publication_artifact = proof_artifact
+    helper.github_read = read
 
 
 def validate_policy(p):
@@ -399,10 +445,11 @@ def sync_directory(path):
         os.close(fd)
 
 
-def main():
+def main(metadata_client=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
+    require(metadata_client is not None)
     require(os.geteuid() == 0)
     require(Path(__file__).absolute() == ROOT / 'backend_automatic_release.py')
     protected(Path(__file__).absolute())
@@ -410,6 +457,7 @@ def main():
     r = validate_request(json.loads(protected(REQUEST, 0o600)), p)
     helper = pinned_module('backend_release', p['release_helper_sha256'])
     archive = pinned_module('backend_archive', p['archive_helper_sha256'])
+    bind_metadata_client(helper, archive, metadata_client)
     # Lock is preinstalled root-owned 0600; no symlink/parent traversal or new
     # inode on concurrent invocations. The manual deployer uses the same lock.
     with deployment_lock():

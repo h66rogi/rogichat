@@ -11,8 +11,8 @@ existing production verification remains separate.
 A trusted administrator installs these files under `/opt/rogichat/automatic`,
 root-owned and not writable by the receiver, candidate or application:
 
-- `backend_automatic_release.py` (this reviewed version, invoked using
-  `/usr/bin/python3 -I /opt/rogichat/automatic/backend_automatic_release.py`).
+- `backend_automatic_release.py` (this reviewed version, invoked by a separate
+  root-installed caller using Python isolated mode and `main(metadata_client)`).
 - Exact reviewed copies of `backend_release.py` and `backend_archive.py`. Their
   bytes are pinned in policy and compiled from checked bytes, ignoring pycache.
 - `backend_schema_readonly.mjs`, separately reviewed and SHA256-pinned in policy.
@@ -38,6 +38,19 @@ The private receiver/poller belongs to the infrastructure coordinator. It stages
 trusted QA source templates and `export.zip` in `/opt/rogichat/releases/<source_sha>`
 using a privileged, independently reviewed installation boundary. Neither GitHub
 webhook data nor a candidate may write policy, helper code or current state.
+
+The trusted caller must inject a repository-scoped, read-only GitHub App metadata
+client in memory. Its `fresh(path)` returns uncached JSON for an exact allowlisted
+repository API path; `download_artifact(id)` returns bounded authenticated proof
+ZIP bytes. The helper verifies the expected repository identity before any host
+action and routes both pinned modules' metadata and proof reads through the
+client. An absent client, wrong repository, non-JSON response, failed/expired
+authorization or oversized proof fails closed. The standalone script entry has
+no client and therefore rejects. A root-owned private bridge must pin the client
+implementation, supply its short-lived token through a restricted channel,
+enforce read-only App permissions and exact path/redirect limits, and keep the
+client valid through final verification. This bridge is not commissioned here;
+the candidate, archive and request cannot select a client or provide a token.
 
 ## Policy version 1
 
@@ -104,7 +117,7 @@ retrieval failure or oversized data fail closed. Property order within a row is
 semantic. Existing exact-source contract CI also checks source SQL checksums.
 
 Automatic-export event support requires separately reviewing and pinning the
-future archive verifier; this PR does not loosen existing producer checks.
+proof-verifying archive verifier. This PR does not loosen producer checks.
 
 An unrelated QA merge after image publication may advance HEAD. The automatic
 helper reads complete immutable Git trees for the candidate and current QA

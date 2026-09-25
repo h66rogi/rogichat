@@ -10,6 +10,7 @@ class ProbeTests(unittest.TestCase):
 
 import copy
 import json
+import sys
 import tempfile
 import time
 from unittest.mock import MagicMock, patch
@@ -35,6 +36,48 @@ def request():
 
 
 class AutomaticTests(unittest.TestCase):
+    def test_unattended_entry_requires_injected_client_before_host_access(self):
+        with patch.object(sys, 'argv', ['backend_automatic_release.py']), \
+             patch.object(auto, 'protected') as protected:
+            with self.assertRaises(ValueError):
+                auto.main()
+            protected.assert_not_called()
+
+    def test_app_client_routes_all_pinned_metadata_and_proof_reads(self):
+        client = MagicMock()
+        client.fresh.side_effect = lambda path: (
+            {'id': auto.REPOSITORY_ID, 'full_name': auto.REPOSITORY,
+             'private': False, 'fork': False} if path == '' else {'path': path})
+        client.download_artifact.return_value = b'proof zip bytes'
+        helper, archive = MagicMock(), MagicMock()
+        auto.bind_metadata_client(helper, archive, client)
+        self.assertEqual(archive.api('git/ref/heads/qa'), {'path': 'git/ref/heads/qa'})
+        self.assertEqual(archive.api('actions/runs/7', None), {'path': 'actions/runs/7'})
+        self.assertEqual(helper.github_read('actions/runs/7'), {'path': 'actions/runs/7'})
+        self.assertEqual(archive.download_publication_artifact(7, None), b'proof zip bytes')
+        client.download_artifact.assert_called_once_with(7)
+        with self.assertRaises(ValueError):
+            archive.api('actions/runs/7', 'untrusted-token')
+        with self.assertRaises(ValueError):
+            archive.download_publication_artifact(7, 'untrusted-token')
+
+    def test_app_client_rejects_wrong_repo_failure_and_oversized_proof(self):
+        helper, archive = MagicMock(), MagicMock()
+        client = MagicMock()
+        client.fresh.return_value = {'id': auto.REPOSITORY_ID + 1,
+                                     'full_name': auto.REPOSITORY, 'private': False, 'fork': False}
+        with self.assertRaises(ValueError):
+            auto.bind_metadata_client(helper, archive, client)
+        client.fresh.side_effect = lambda path: (
+            {'id': auto.REPOSITORY_ID, 'full_name': auto.REPOSITORY,
+             'private': False, 'fork': False} if path == '' else (_ for _ in ()).throw(OSError('secret')))
+        auto.bind_metadata_client(helper, archive, client)
+        with self.assertRaisesRegex(ValueError, '^automatic release rejected$'):
+            archive.api('actions/runs/7')
+        client.download_artifact.return_value = b'x' * (auto.MAX_PROOF_ZIP + 1)
+        with self.assertRaises(ValueError):
+            archive.download_publication_artifact(7)
+
     def test_manual_media_unit_cannot_enter_automatic_activation(self):
         files = {key: key.encode() for key in auto.TEMPLATES}
         files['unit'] = b'ExecStart=-f /opt/rogichat/app/compose.features.yaml'
