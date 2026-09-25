@@ -2,6 +2,7 @@ package chat.rogi.rogichat.feature.rooms
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -24,6 +25,7 @@ import chat.rogi.rogichat.core.network.RoomAvailability
 import chat.rogi.rogichat.core.network.RoomMode
 import chat.rogi.rogichat.core.network.RoomId
 import chat.rogi.rogichat.core.network.Membership
+import chat.rogi.rogichat.core.conversation.ConversationSelection
 import chat.rogi.rogichat.core.rooms.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -32,10 +34,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.regular.ChatCircle
+import com.adamglin.phosphoricons.regular.GearSix
+import com.adamglin.phosphoricons.regular.MagnifyingGlass
 
 interface RoomsRepository {
     val roomRefreshRequests: StateFlow<Long>? get() = null
@@ -90,6 +95,17 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
     }
     fun leaveIntent(room: Membership, renderedCycle: RoomId) =
         RoomCommandIntent(accountScope, room.roomId, RoomAction.LEAVE, renderedCycle, room.membershipScope)
+    suspend fun leaveConversation(selected: ConversationSelection): String? {
+        val current = mutable.value.directory ?: return "대화 참여 상태를 다시 확인해 주세요."
+        val room = current.memberships.firstOrNull { it.roomId == selected.membership.roomId }
+        if (selected.account != accountScope || room != selected.membership ||
+            mutable.value.loading || commandBlocks()) return "대화 참여 상태를 다시 확인해 주세요."
+        submit(leaveIntent(room, current.cycle))
+        val result = state.first { it.command?.busy != true }
+        if (result.error != null) return result.error
+        if (result.directory?.memberships?.none { it.roomId == room.roomId } == true) return null
+        return "대화에서 나가지 못했어요. 다시 시도해 주세요."
+    }
     fun submit(intent: RoomCommandIntent) {
         if (commandBlocks() || mutable.value.command?.busy == true) return
         val before = mutable.value
@@ -151,33 +167,16 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoomsScreen(model: RoomsViewModel, onOpen: ((Membership, RoomId) -> Unit)? = null) {
+fun RoomsScreen(model: RoomsViewModel, onOpenSettings: () -> Unit,
+                onOpen: ((Membership, RoomId) -> Unit)? = null) {
     val state by model.state.collectAsStateWithLifecycle()
     val directory = state.directory
     val command = state.command
-    var leaveTarget by remember { mutableStateOf<Pair<Membership, RoomCommandIntent>?>(null) }
     var query by remember { mutableStateOf("") }
     var discoveryQuery by remember { mutableStateOf("") }
     var showingDiscovery by remember { mutableStateOf(false) }
-    LaunchedEffect(directory?.cycle, command?.phase, leaveTarget?.second?.cycle) {
-        if (leaveTarget?.second?.cycle != directory?.cycle) leaveTarget = null
-    }
-    // Adapted Meloming MoreScreen/MyReviewsScreen's selected-target destructive AlertDialog.
-    leaveTarget?.takeIf { it.second.cycle == directory?.cycle }?.let { (room, intent) ->
-        AlertDialog(
-            onDismissRequest = { leaveTarget = null },
-            title = { Text("대화에서 나가기") },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("${room.name}에서 나가시겠어요?\n나가도 보낸 메시지는 삭제되지 않아요.")
-            } },
-            confirmButton = {
-                TextButton(onClick = { leaveTarget = null; model.submit(intent) }) {
-                    Text("나가기", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = { TextButton(onClick = { leaveTarget = null }) { Text("취소") } },
-        )
-    }
+    var showingSearch by remember { mutableStateOf(false) }
+    var selectedMode by remember { mutableStateOf<RoomMode?>(null) }
     if (showingDiscovery && directory != null) {
         val joinedIds = directory.memberships.map { it.roomId }.toSet()
         val discoverable = directory.discovered.filter {
@@ -224,6 +223,39 @@ fun RoomsScreen(model: RoomsViewModel, onOpen: ((Membership, RoomId) -> Unit)? =
         }
     }
     Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("채팅", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+            IconButton(onClick = { showingSearch = !showingSearch; if (!showingSearch) query = "" }) {
+                Icon(PhosphorIcons.Regular.MagnifyingGlass, contentDescription = "대화 검색")
+            }
+            IconButton(onClick = { showingDiscovery = true }, enabled = directory != null) {
+                Box(contentAlignment = Alignment.TopEnd) {
+                    Icon(PhosphorIcons.Regular.ChatCircle, contentDescription = "새 대화 찾기")
+                    Text("+", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            IconButton(onClick = onOpenSettings) {
+                Icon(PhosphorIcons.Regular.GearSix, contentDescription = "설정")
+            }
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            .padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(null to "전체", RoomMode.FAN to "팬 대화", RoomMode.GROUP to "그룹 대화").forEach { (mode, label) ->
+                val chosen = selectedMode == mode
+                Surface(shape = CircleShape,
+                    color = if (chosen) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.clickable { selectedMode = mode }) {
+                    Text(label, Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
+                        color = if (chosen) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurface,
+                        style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+        if (showingSearch) OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth()
+            .padding(horizontal = 20.dp, vertical = 6.dp), singleLine = true,
+            placeholder = { Text("대화 검색") })
         state.notice?.let { notice ->
             Text(notice, Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -238,44 +270,33 @@ fun RoomsScreen(model: RoomsViewModel, onOpen: ((Membership, RoomId) -> Unit)? =
             directory == null -> ScreenStatus("대화 목록을 확인하지 못했어요", state.error.orEmpty(), onRetry = model::reload)
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
                 item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(query, { query = it }, Modifier.weight(1f), singleLine = true,
-                            placeholder = { Text("대화 검색") })
-                        TextButton(onClick = { showingDiscovery = true }, enabled = !state.loading,
-                            modifier = Modifier.semantics { contentDescription = "대화 찾기" }) { Text("대화 찾기") }
+                    val visible = directory.memberships.filter {
+                        (selectedMode == null || it.mode == selectedMode) && it.name.contains(query, ignoreCase = true)
                     }
-                    val visible = directory.memberships.filter { it.name.contains(query, ignoreCase = true) }
-                    if (visible.isEmpty()) Text(if (query.isEmpty()) "아직 대화가 없어요. 대화를 찾아 참여해 보세요." else "검색 결과가 없어요.",
+                    if (visible.isEmpty()) Text(if (query.isNotEmpty() || selectedMode != null) "검색 결과가 없어요." else "아직 대화가 없어요. 대화를 찾아 참여해 보세요.",
                         Modifier.padding(20.dp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                items(directory.memberships.filter { it.name.contains(query, ignoreCase = true) },
+                items(directory.memberships.filter {
+                    (selectedMode == null || it.mode == selectedMode) && it.name.contains(query, ignoreCase = true)
+                },
                     key = { "member-${it.roomId.value}" }) { room ->
-                    var menuOpen by remember(room.roomId) { mutableStateOf(false) }
-                    ListItem(
-                        headlineContent = { Text(room.name, maxLines = 1) },
-                        supportingContent = { Text(if (room.mode == RoomMode.FAN) "팬 대화" else "그룹 대화") },
-                        leadingContent = { RoomAvatar() },
-                        trailingContent = {
-                            Box {
-                                IconButton(onClick = { menuOpen = true }, enabled = !state.loading && !state.loadingMore,
-                                    modifier = Modifier.semantics { contentDescription = "${room.name} 더 보기" }) {
-                                    Text("⋯", style = MaterialTheme.typography.titleLarge)
-                                }
-                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                    DropdownMenuItem(text = { Text("대화에서 나가기", color = MaterialTheme.colorScheme.error) },
-                                        onClick = {
-                                            menuOpen = false
-                                            leaveTarget = room to model.leaveIntent(room, directory.cycle)
-                                        })
-                                }
-                            }
-                        },
-                        modifier = Modifier.clickable(enabled = onOpen != null && !state.loading && !state.loadingMore) {
+                    Row(Modifier.fillMaxWidth()
+                        .clickable(enabled = onOpen != null && !state.loading && !state.loadingMore) {
                             onOpen?.invoke(room, directory.cycle)
-                        }.semantics { contentDescription = "${room.name} 대화 열기" },
-                    )
+                        }.semantics { contentDescription = "${room.name} 대화 열기" }
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                        RoomAvatar()
+                        Column(Modifier.weight(1f)) {
+                            Text(room.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                            Spacer(Modifier.height(4.dp))
+                            Text(if (room.mode == RoomMode.FAN) "팬 대화" else "그룹 대화",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                        }
+                    }
                 }
                 state.error?.let { error -> item {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),

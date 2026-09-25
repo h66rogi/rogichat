@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -160,13 +161,14 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
         NavHost(navController = nav, startDestination = "talks",
             modifier = Modifier.padding(insets).consumeWindowInsets(insets)) {
             composable("talks") {
-                ProductPage(if (session.access == ShellAccess.SIGNED_OUT) "로기챗" else "대화", scroll = false) {
+                ProductPage(if (session.access == ShellAccess.SIGNED_OUT) "로기챗" else "대화", scroll = false,
+                    showTopBar = session.access != ShellAccess.READY) {
                     when (session.access) {
                         ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy || authState.active || deletionState.blocksSession, sessionModel::signIn, session.notice, services.access?.let { sessionModel::password }, services.auth?.rulesUrl)
                         ShellAccess.LINK_REQUIRED -> LinkAccountScreen(operation.busy || authState.active, if (services.actions?.canLinkSoop == true) sessionModel::linkSoop else null)
                         ShellAccess.READY -> if (services.rooms != null && session.accountPartition != null) {
                             val roomsModel: RoomsViewModel = viewModel { RoomsViewModel(services.rooms, RoomsAccountScope(requireNotNull(privateAccount).id, session.generation, requireNotNull(session.accountPartition))) }
-                            RoomsScreen(roomsModel, onOpen = services.conversations?.let {
+                            RoomsScreen(roomsModel, onOpenSettings = { open("settings") }, onOpen = services.conversations?.let {
                                 { membership, renderedCycle ->
                                     conversationNavigation.selected = ConversationSelection(RoomsAccountScope(requireNotNull(privateAccount).id,
                                         session.generation, requireNotNull(session.accountPartition)), membership, renderedCycle)
@@ -246,7 +248,47 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                     val model: ConversationViewModel = viewModel(key = "conversation-${selected.directoryCycle.value}-${selected.membership.roomId.value}") {
                         ConversationViewModel(repository, selected)
                     }
-                    ProductPage(selected.membership.name, { nav.popBackStack() }, scroll = false) { ConversationScreen(model) }
+                    val roomsOwner = remember(backStack) { nav.getBackStackEntry("talks") }
+                    val roomsModel: RoomsViewModel = viewModel(viewModelStoreOwner = roomsOwner) {
+                        RoomsViewModel(requireNotNull(services.rooms), selected.account)
+                    }
+                    var menuOpen by remember(selected) { mutableStateOf(false) }
+                    var confirmLeave by remember(selected) { mutableStateOf(false) }
+                    var leaveError by remember(selected) { mutableStateOf<String?>(null) }
+                    var leaving by remember(selected) { mutableStateOf(false) }
+                    val actionScope = rememberCoroutineScope()
+                    if (confirmLeave) AlertDialog(
+                        onDismissRequest = { confirmLeave = false },
+                        title = { Text("대화에서 나갈까요?") },
+                        text = { Text("나가도 보낸 메시지는 삭제되지 않아요.") },
+                        confirmButton = { TextButton(onClick = {
+                            confirmLeave = false
+                            leaving = true
+                            actionScope.launch {
+                                val error = roomsModel.leaveConversation(selected)
+                                leaving = false
+                                if (error == null) nav.popBackStack() else leaveError = error
+                            }
+                        }) { Text("나가기", color = MaterialTheme.colorScheme.error) } },
+                        dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("취소") } },
+                    )
+                    leaveError?.let { error -> AlertDialog(onDismissRequest = { leaveError = null },
+                        title = { Text("대화에서 나가지 못했어요") }, text = { Text(error) },
+                        confirmButton = { TextButton(onClick = { leaveError = null }) { Text("확인") } }) }
+                    ProductPage(selected.membership.name, { nav.popBackStack() }, scroll = false,
+                        actions = {
+                            Box {
+                                IconButton(onClick = { menuOpen = true }, enabled = !leaving) {
+                                    Text("⋮", style = MaterialTheme.typography.titleLarge)
+                                }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    DropdownMenuItem(text = { Text("대화에서 나가기") }, onClick = {
+                                        menuOpen = false
+                                        confirmLeave = true
+                                    })
+                                }
+                            }
+                        }) { ConversationScreen(model) }
                 } else if (session.access == ShellAccess.READY && roomContent != null) {
                     backStack.arguments?.getString("roomId")?.let { roomContent(it) { nav.popBackStack() } }
                 } else LaunchedEffect(Unit) { nav.popBackStack() }
@@ -257,9 +299,11 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
 
 @Composable
 private fun ProductPage(title: String, onBack: (() -> Unit)? = null, scroll: Boolean = true,
+                        showTopBar: Boolean = true,
+                        actions: @Composable RowScope.() -> Unit = {},
                         content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        AppTopBar(title, onBack)
+        if (showTopBar) AppTopBar(title, onBack, actions)
         Column(Modifier.weight(1f).fillMaxWidth()
             .then(if (scroll) Modifier.verticalScroll(rememberScrollState()) else Modifier), content = content)
     }

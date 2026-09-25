@@ -26,7 +26,7 @@ import com.adamglin.phosphoricons.regular.ArrowLeft
 // Preserve animated icon selection; add visible labels, tab semantics and scalable height.
 @Composable
 fun AppNavigationBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
-    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
+    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.background) {
         Column {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
             Row(Modifier.navigationBarsPadding().fillMaxWidth().heightIn(min = 64.dp)
@@ -36,18 +36,16 @@ fun AppNavigationBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
                 AppTab.entries.forEach { tab ->
                     val chosen = selected == tab
                     val color by animateColorAsState(
-                        if (chosen) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        if (chosen) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                         tween(200), label = "tab tint")
-                    Column(Modifier.weight(1f).heightIn(min = 56.dp)
+                    Column(Modifier.weight(1f).heightIn(min = 52.dp)
                         .selectable(chosen, role = Role.Tab, onClick = { onSelect(tab) })
                         .padding(vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        verticalArrangement = Arrangement.Center) {
                         Icon(when (tab) {
                             AppTab.TALKS -> if (chosen) PhosphorIcons.Fill.ChatCircle else PhosphorIcons.Regular.ChatCircle
                             AppTab.SETTINGS -> if (chosen) PhosphorIcons.Fill.GearSix else PhosphorIcons.Regular.GearSix
-                        }, contentDescription = null, modifier = Modifier.size(25.dp), tint = color)
-                        Text(tab.label, color = color, style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (chosen) FontWeight.SemiBold else FontWeight.Normal)
+                        }, contentDescription = tab.label, modifier = Modifier.size(28.dp), tint = color)
                     }
                 }
             }

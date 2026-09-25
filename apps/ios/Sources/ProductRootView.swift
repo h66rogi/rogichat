@@ -172,7 +172,8 @@ struct ProductRootView: View {
                 if let scope = session.roomsScope {
                     RoomsScreen(model: roomsFeatures.model(scope: scope) {
                         RoomsScreenModel(repository: RoomsRepository(remote: NativeRoomsRemote(session: session), storage: roomsStorage, scope: scope), scope: scope)
-                    }, onOpenConversation: { navigation.open(.chat) })
+                    }, onOpenConversation: { navigation.open(.chat) },
+                       onOpenSettings: { navigation.selectTab(.settings) })
                         .id(scope.clientScope)
                 } else {
                     ContentUnavailableView("대화방을 확인할 수 없어요", systemImage: "bubble.left.and.bubble.right", description: Text("계정 정보를 다시 확인해 주세요."))
@@ -200,6 +201,13 @@ struct ProductRootView: View {
                 ConversationScreen(model: model, session: session, environment: nativeEnvironment.rawValue, accountID: session.account!.id, onReopen: {
                     roomsFeatures.closeConversation()
                     navigation.pop(to: [], in: .talks)
+                }, onLeave: {
+                    let error = await roomsFeatures.leaveCurrentConversation()
+                    if error == nil {
+                        roomsFeatures.closeConversation()
+                        navigation.pop(to: [], in: .talks)
+                    }
+                    return error
                 }).id(model.scope.cacheID)
             } else { ContentUnavailableView("대화에 접근할 수 없어요", systemImage: "lock") }
         case .report:

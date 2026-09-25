@@ -2,6 +2,7 @@ package chat.rogi.rogichat.core
 
 import androidx.lifecycle.ViewModelStore
 import chat.rogi.rogichat.core.navigation.ShellAccess
+import chat.rogi.rogichat.core.conversation.ConversationSelection
 import chat.rogi.rogichat.core.auth.*
 import chat.rogi.rogichat.core.network.*
 import chat.rogi.rogichat.core.rooms.*
@@ -58,6 +59,21 @@ private suspend fun TestScope.mutationFixture(clock: Clock = Clock.fixed(NOW, Zo
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RoomMutationSessionTest {
+    @Test fun conversationMenuLeavesOnlyTheCurrentMembership() = runTest {
+        val f = mutationFixture()
+        val model = RoomsViewModel(f.gateway, f.scope, backgroundScope)
+        runCurrent()
+        val selected = ConversationSelection(f.scope, f.directory.memberships.single(), f.directory.cycle)
+        val stale = selected.copy(membership = selected.membership.copy(membershipScope = RoomScopeToken("D".repeat(42) + "A")))
+        assertNotNull(model.leaveConversation(stale))
+        assertEquals(0, f.api.leaves)
+        f.api.leave = { _, _ -> f.api.manifest = { manifestJson(rooms = "") } }
+        val result = async { model.leaveConversation(selected) }
+        runCurrent()
+        assertNull(result.await())
+        assertTrue(model.state.value.directory!!.memberships.isEmpty())
+        assertEquals(1, f.api.leaves)
+    }
     @Test fun joinInvalidatesBeforePostAndOnlyCompleteManifestPublishesAllRoomAuthorization() = runTest {
         val f = mutationFixture()
         val revised = RoomScopeToken("D".repeat(42) + "A")
