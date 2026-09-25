@@ -423,3 +423,17 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | R75 | R51·R52의 Rogichat `ConversationScreenModel`/`ConversationViewModel`, Room/GRDB 저장소와 보호 scope | **기존 구현 직접 확장**: 같은 권한의 대화 투영·초안·스크롤 위치를 유지하며 이벤트만 갱신한다. 새 인증 경로나 별도 화면용 저장소를 만들지 않았다. Messenger 수준의 재진입 요구는 기존 Meloming Talk/TalkV2 구조로 해결할 수 없고 사용자 제외 조건도 유지한다. |
 | R76 | R55·R64·R67의 기존 `AuthorizedMedia`/`MediaClient`/provider 이미지 경로와 최신 QA의 `MoreView` | **기존 전송 재사용 + 표시 캐시 추가**: 프로필 기본 이미지와 접근 범위가 묶인 제한된 이미지 캐시를 추가했다. 새 더보기 화면도 계정별 기본 이미지와 같은 계정 갱신 시 기존 프로필 표시를 유지한다. 기존 lease 검사와 종료 시 미디어 파일 삭제는 유지한다. 전역 URL 캐시나 새 이미지 SDK는 권한 철회 경계를 만족하지 않아 사용하지 않았다. |
 | R77 | R53·R54의 실제 사진/동영상 선택, R56·R57의 메시지 작업·반응, 기존 Rogichat 작성창 | **기존 구현 직접 확장**: 첨부 설명을 같은 메시지로 보내고 반응을 말풍선에서 표시·선택·취소한다. 신고·삭제 확인창의 대상 포착 방식은 유지한다. 새 서버 설명 필드는 웹의 엄격한 메시지 파서와 표시 흐름에도 연결했다. |
+
+## 후로기 채널 네이티브 이식
+
+| ID | 원본 commit/path → 대상 | 복사한 코드와 수정 이유 |
+|---|---|---|
+| R78 | Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17` `core/model/.../{channel/Channel.kt,channel/ChannelFeatureSettings.kt,song/Song.kt,schedule/Schedule.kt}` → `apps/android/.../feature/channel/{ChannelModels,ChannelFeatureSettings,ChannelSongModels,ChannelScheduleModels}.kt` | **파일 복사 후 패키지 수정**. 원본 DTO/domain 변환과 feature-settings 필드를 그대로 사용한다. 후로기 고정 ID·webPath를 사용하는 API 저장소는 원본 `ChannelApi.kt`/`ChannelRepositoryImpl.kt`의 typed 호출 구조를 옮겼다. |
+| R79 | Android 같은 SHA `feature/channel/ChannelDetailScreen.kt`의 `ChannelProfileHero`, `ChannelGlassActionButton`, `ChannelSectionRail`; `component/SongbookTab.kt`의 `SongItem`, `component/ScheduleTab.kt`의 `ScheduleItem`, `component/ChannelModernSections.kt`의 `WardrobeTile` → `ChannelNativeHub.kt`, `ChannelRows.kt`, `ChannelDetailScreen.kt` | **구현 본문 복사 후 수정**. 원본 프로필·유리 카드·가로 메뉴·노래/일정 행·옷장 타일을 유지한다. 후로기에서 활성화된 노래책·일정·셋리스트·옷장만 메뉴에 넣고, 별도 계약이 필요한 선물·Pro·후여르·멜로밍 채팅·비활성 메뉴의 버튼을 제거했다. 기존 앱에 Coil이 없으므로 한정된 공개 이미지 어댑터를 추가하고 기본 프로필은 같은 저장소의 후로기 자산을 번들한다. |
+| R80 | iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b` `Domain/Models/{Channel,ChannelFeatureSettings,Song,Schedule}.swift` → `Sources/Features/Channel/{ChannelModels,ChannelFeatureSettings,ChannelSongModels,ChannelScheduleModels}.swift` | **원본 모델·DTO·domain 변환 코드 복사**. 백엔드가 유지한 멜로밍 응답 필드를 그대로 디코딩한다. |
+| R81 | iOS 같은 SHA `Presentation/Channel/{ChannelDetailViewModel,ChannelNativeHubViews,SongBookView,ScheduleView}.swift`의 profile hero·section rail·search bar·schedule row, wardrobe section → `Sources/Features/Channel/{ChannelDetailViewModel,ChannelNativeHubViews,SongBookSearchBar,ChannelScheduleRow,ChannelWardrobeView}.swift` | **원본 파일/구조/화면 본문 복사 후 수정**. 단일 채널 API와 활성 메뉴에 연결했다. Kingfisher가 현 앱 의존성이 아니므로 SwiftUI AsyncImage와 동일 저장소의 후로기 프로필 자산으로 바꿨다. 멜로밍 전용 선물·멤버십·후여르·채널톡/채팅 UX는 가져오지 않았다. 원본에 없는 셋리스트 native read 화면은 후로기 백엔드 계약에 맞춰 추가했다. |
+| R82 | iOS 같은 SHA `Presentation/Navigation/MainTabView.swift`와 기존 Rogichat `AppShell`/`ShellNavigation`; Android 같은 SHA `ChannelDetailViewModel.kt`와 기존 `AppNavigation`/`AppEntry` → 양 OS 채널 탭·화면 상태/공개 조회 | **기존 네이티브 shell과 원본 channel 상태 흐름 확장**. 로그인 전에도 채널 공개 콘텐츠를 조회한다. 공개 채널 API에는 네이티브 인증 헤더를 보내지 않는다. QA 실응답에서 노래책·일정이 그 헤더를 거절하는 것을 확인했다. 채널 정보/메뉴/옷장/즐겨찾기 수/셋리스트는 같은 계약을 사용한다. |
+
+원본 저장소는 읽기만 했다. 활성 메뉴의 공개 조회는 실제 API/진짜 빈 상태로 연결했다.
+원본의 채널 소유자 편집·팬 즐겨찾기/신청곡/방명록 상호작용은 모바일 보호 세션에 맞춘
+쓰기 계약이 아직 없으므로 버튼을 노출하지 않는다. 이 범위는 공개 채널 표시와 구분한다.

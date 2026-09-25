@@ -152,7 +152,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     override suspend fun signIn(provider: SignInProvider) = unavailable()
     override suspend fun linkSoop() = beginAuthentication(AuthIntent.LINK)
     private fun unavailable(): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
-    fun services(push: NativePushCoordinator? = null) = ProductServices(session, this, this, access = this, auth = this.takeIf { auth != null }, notificationPreferences = this, rooms = this.takeIf { roomsStore != null }, deletion = this.takeIf { deletionStore != null }, conversations = conversationServices(), push = push, blocks = blockServices(), accountMedia = (roomsStore as? AccountFeatureStore)?.let { AccountMediaRepository(this, it) })
+    fun services(push: NativePushCoordinator? = null, channel: chat.rogi.rogichat.feature.channel.ChannelRepository? = null) = ProductServices(session, this, this, access = this, auth = this.takeIf { auth != null }, notificationPreferences = this, rooms = this.takeIf { roomsStore != null }, deletion = this.takeIf { deletionStore != null }, conversations = conversationServices(), push = push, blocks = blockServices(), accountMedia = (roomsStore as? AccountFeatureStore)?.let { AccountMediaRepository(this, it) }, channel = channel)
 
     private fun blockServices(): AccountBlocksCoordinator? {
         val storage = roomsStore as? AccountFeatureStore ?: return null
