@@ -5,6 +5,7 @@ WORKDIR /workspace
 RUN npm install --global pnpm@12.4.2 --ignore-scripts && npm cache clean --force
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/package.json
+COPY apps/decoder/package.json ./apps/decoder/package.json
 COPY apps/migration/package.json ./apps/migration/package.json
 COPY patches ./patches
 
@@ -35,6 +36,13 @@ RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store
 FROM tooling AS migration-dependencies
 RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store,sharing=locked \
     pnpm --filter @rogichat/migration... install --frozen-lockfile --ignore-scripts \
+    && rm -rf /root/.cache/pnpm
+
+FROM tooling AS decoder-dependencies
+# The isolated decoder imports only sharp outside Node builtins and compiled
+# local media modules. Keep the full API dependency tree out of this image.
+RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store,sharing=locked \
+    pnpm --filter @rogichat/decoder install --prod --frozen-lockfile --ignore-scripts \
     && rm -rf /root/.cache/pnpm
 
 FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS migration
@@ -80,10 +88,13 @@ STOPSIGNAL SIGTERM
 ENTRYPOINT ["node"]
 CMD ["dist/main.js"]
 
-# Decoder uses the same pinned Node base, lockfile and native sharp dependency tree.
+# Decoder uses the same pinned Node base and a sharp-only locked dependency tree.
+# Install ffmpeg before copying source so source changes keep this large apt layer cached.
 # Snapshot pins ffmpeg and every transitive apt dependency; apt signature checks stay on.
-FROM runtime-base AS decoder
-USER root
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS decoder
+RUN groupadd --gid 10001 rogichat && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin rogichat
+WORKDIR /app/apps/api
+ENV NODE_ENV=production
 RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
     && printf '%s\n' \
       'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://snapshot.debian.org/archive/debian/20260920T000000Z bookworm main' \
@@ -93,7 +104,13 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
     && apt-get install --no-install-recommends --yes ffmpeg=7:5.1.9-0+deb12u1 \
     && rm -rf /var/lib/apt/lists/* \
     && install -d -o 10001 -g 10001 -m 0700 /run/decoder
+COPY --from=decoder-dependencies /workspace/node_modules /app/node_modules
+COPY --from=decoder-dependencies /workspace/apps/decoder/node_modules ./node_modules
+COPY --from=build /workspace/apps/api/package.json ./package.json
+COPY --from=build /workspace/apps/api/dist ./dist
 USER 10001:10001
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["node"]
 CMD ["dist/media-decoder-main.js"]
 
 # Keep the default build target and runtime artifact unchanged.

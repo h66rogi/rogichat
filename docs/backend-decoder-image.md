@@ -6,8 +6,10 @@ The explicit `decoder` Docker target publishes as
 10001. The default Docker target remains the API runtime. Decoding stays in the
 separate decoder process graph, never in the API or worker.
 
-The image reuses the digest-pinned Node 24 Bookworm base and locked production
-module tree, including sharp 0.35.4 and its native optional dependencies.
+The image reuses the digest-pinned Node 24 Bookworm base and installs a separate,
+locked decoder dependency tree containing sharp 0.35.4 and its native optional
+dependencies. The API's database, HTTP and provider packages are absent. The
+compiled decoder still comes from the same reviewed API source and build.
 FFmpeg/FFprobe come from Debian's signed 2026-09-20 snapshot, pinned to
 `7:5.1.9-0+deb12u1`; the snapshot also fixes transitive dependencies. Release
 signatures and package hashes remain mandatory; only snapshot expiry checking

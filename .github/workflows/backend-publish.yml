@@ -32,7 +32,23 @@ jobs:
           python3 tools/security/install.py
           python3 tools/security/check.py all
       - name: Build decoder without registry or service credentials
-        run: docker build --platform linux/amd64 --file apps/api/Dockerfile --target decoder --tag rogichat-decoder-check .
+        run: |
+          docker build --platform linux/amd64 --file apps/api/Dockerfile --target decoder --tag rogichat-decoder-check .
+          bytes=$(docker image inspect --format '{{.Size}}' rogichat-decoder-check)
+          printf '| Decoder PR image | %s bytes |\n' "$bytes" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify decoder has only its native runtime dependencies
+        run: |
+          docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            rogichat-decoder-check --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { createRequire } from 'node:module';
+          import sharp from 'sharp';
+          const require = createRequire(import.meta.url);
+          assert.equal(typeof sharp, 'function');
+          for (const name of ['@nestjs/core', '@prisma/client', 'mariadb']) {
+            assert.throws(() => require.resolve(name), { code: 'MODULE_NOT_FOUND' });
+          }
+          JS
       - name: Real native codecs, isolated IPC and graceful stop
         run: python3 tools/operations/test_decoder_image.py rogichat-decoder-check
       - name: Scan all decoder image layers and metadata
