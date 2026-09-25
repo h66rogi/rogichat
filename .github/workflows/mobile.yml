@@ -44,6 +44,7 @@ jobs:
             apps/android/gradle.properties
             apps/android/gradle/wrapper/gradle-wrapper.properties
             apps/android/gradle/libs.versions.toml
+            tools/mobile/check_android.py
       - name: Install pinned Android SDK packages
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - name: Reject synthetic product entry points in either environment
@@ -74,6 +75,7 @@ jobs:
             apps/android/gradle.properties
             apps/android/gradle/wrapper/gradle-wrapper.properties
             apps/android/gradle/libs.versions.toml
+            tools/mobile/release_android.py
       - name: Install pinned Android SDK packages
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - name: Build signed QA APK and AAB using an ephemeral test key
@@ -110,6 +112,7 @@ jobs:
             apps/android/gradle.properties
             apps/android/gradle/wrapper/gradle-wrapper.properties
             apps/android/gradle/libs.versions.toml
+            tools/mobile/check_android_storage.py
       - name: Install fixed platform and storage-test system image
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" "platform-tools" "emulator" "system-images;android-36;google_apis;x86_64"'
       - name: Allow this ephemeral hosted runner to use KVM
