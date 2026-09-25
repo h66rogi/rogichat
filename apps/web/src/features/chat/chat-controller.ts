@@ -689,7 +689,7 @@ export class ChatController {
     const payload = command.payload;
     const recipient = this.state.recipients.find(item => item.actorId === payload.recipientActorId);
     if (payload.intent === 'PRIVATE' && !recipient) return;
-    const result = await this.send({ target: payload.intent === 'SHARED' ? { scope: 'SHARED' } : payload.intent === 'ROOM_OWNER' ? { scope: 'ROOM_OWNER' } : { scope: 'PRIVATE', recipient: recipient! }, body: payload.content.type === 'TEXT' ? payload.content.text : '', retryCommandId: id, ...(payload.quoteId ? { quoteMessageId: payload.quoteId } : {}) });
+    const result = await this.send({ target: payload.intent === 'SHARED' ? { scope: 'SHARED' } : payload.intent === 'ROOM_OWNER' ? { scope: 'ROOM_OWNER' } : { scope: 'PRIVATE', recipient: recipient! }, body: payload.content.type === 'TEXT' ? payload.content.text : payload.content.type === 'STICKER' ? '' : payload.content.caption ?? '', retryCommandId: id, ...(payload.quoteId ? { quoteMessageId: payload.quoteId } : {}) });
     if (!this.dead && !signal.aborted && projection === this.projectionGeneration && result.accepted && result.note) this.publish({ notice: result.note });
   };
   private commandResult(result: Receipt): ChatSubmitResult {
@@ -714,11 +714,12 @@ export class ChatController {
     const media = submission.photo ?? submission.video ?? submission.sticker;
     if ([submission.photo, submission.video, submission.sticker].filter(Boolean).length > 1) return { accepted: false, reason: '첨부는 종류별로 따로 보내 주세요.' };
     try {
-      if (media && (text || submission.quoteMessageId)) throw new Error('MEDIA_ONLY');
-      if (submission.photo) content = { type: 'PHOTO', assetIds: [submission.photo.readyAsset('PHOTO', this.roomId)] };
-      else if (submission.video) content = { type: 'VIDEO', assetIds: [submission.video.readyAsset('VIDEO', this.roomId)] };
-      else if (submission.sticker) content = { type: 'STICKER', stickerId: submission.sticker.readySticker(this.roomId) };
-      else if (!text && prior?.status === 'unknown' && 'payload' in prior && prior.payload.content.type !== 'TEXT') content = prior.payload.content;
+      const caption = text.trim() ? text : undefined;
+      if (caption && ([...caption].length > 4000 || new TextEncoder().encode(caption).length > 16384 || caption.includes('\0'))) throw new Error('INVALID_TEXT');
+      if (submission.photo) content = { type: 'PHOTO', assetIds: [submission.photo.readyAsset('PHOTO', this.roomId)], ...(caption ? { caption } : {}) };
+      else if (submission.video) content = { type: 'VIDEO', assetIds: [submission.video.readyAsset('VIDEO', this.roomId)], ...(caption ? { caption } : {}) };
+      else if (submission.sticker) { if (text || submission.quoteMessageId) throw new Error('STICKER_ONLY'); content = { type: 'STICKER', stickerId: submission.sticker.readySticker(this.roomId) }; }
+      else if (prior?.status === 'unknown' && 'payload' in prior && prior.payload.content.type !== 'TEXT') content = prior.payload.content;
       else {
         if (!text.trim() || [...text].length > 4000 || new TextEncoder().encode(text).length > 16384 || text.includes('\0')) throw new Error('INVALID_TEXT');
         content = { type: 'TEXT', text };

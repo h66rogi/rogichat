@@ -407,3 +407,11 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | ID | 원본·대상 | 재사용과 변경 경계 |
 |---|---|---|
 | R73 | QA20 `d95a34adf71c38f888ddddc759bd6fce7d921046`의 Android/iOS `AuthorizedMedia` provider-avatar decoder | **기존 구현 직접 재사용**: BitmapFactory bounds/downsample와 ImageIO index-0 thumbnail을 테스트 가능한 ProviderAvatarDecoder로 옮긴다. 기존 20 MP/256 기준을 보존하고 provider MIME에만 GIF를 추가한다. 멜로밍 채팅 UX·다른 이미지 라이브러리·원본 설정을 가져오지 않는다. 합성 GIF는 테스트 소스에만 둔다. |
+
+## 채팅 재진입·반응·첨부 UX 개선 — 2026-09-26
+
+| ID | 기존 기반 | 대상과 재사용·변경 경계 |
+|---|---|---|
+| R74 | R51·R52의 Rogichat `ConversationScreenModel`/`ConversationViewModel`, Room/GRDB 저장소와 보호 scope | **기존 구현 직접 확장**: 같은 권한의 대화 투영·초안·스크롤 위치를 유지하며 이벤트만 갱신한다. 새 인증 경로나 별도 화면용 저장소를 만들지 않았다. Messenger 수준의 재진입 요구는 기존 Meloming Talk/TalkV2 구조로 해결할 수 없고 사용자 제외 조건도 유지한다. |
+| R75 | R55·R64·R67의 기존 `AuthorizedMedia`/`MediaClient`/provider 이미지 경로 | **기존 전송 재사용 + 표시 캐시 추가**: 프로필 기본 이미지와 접근 범위가 묶인 제한된 이미지 캐시를 추가했다. 기존 lease 검사와 종료 시 미디어 파일 삭제는 유지한다. 전역 URL 캐시나 새 이미지 SDK는 권한 철회 경계를 만족하지 않아 사용하지 않았다. |
+| R76 | R53·R54의 실제 사진/동영상 선택, R56·R57의 메시지 작업·반응, 기존 Rogichat 작성창 | **기존 구현 직접 확장**: 첨부 설명을 같은 메시지로 보내고 반응을 말풍선에서 표시·선택·취소한다. 신고·삭제 확인창의 대상 포착 방식은 유지한다. 새 서버 설명 필드는 웹의 엄격한 메시지 파서와 표시 흐름에도 연결했다. |

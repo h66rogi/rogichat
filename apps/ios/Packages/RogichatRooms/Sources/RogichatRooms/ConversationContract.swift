@@ -90,9 +90,9 @@ public struct MessageAttachment: Codable, Equatable, Sendable {
     }
 }
 public enum MessageContent: Codable, Equatable, Sendable {
-    case text(String?), photo([MessageAttachment]), video([MessageAttachment])
+    case text(String?), photo([MessageAttachment], caption: String?), video([MessageAttachment], caption: String?)
     case sticker(stickerId: String, assetId: String, width: Int, height: Int)
-    enum CodingKeys: String, CodingKey, Hashable { case type, text, attachments, stickerId, assetId, width, height }
+    enum CodingKeys: String, CodingKey, Hashable { case type, text, attachments, caption, stickerId, assetId, width, height }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
@@ -100,10 +100,12 @@ public enum MessageContent: Codable, Equatable, Sendable {
             guard Set(c.allKeys) == [.type, .text] else { throw ConversationError.invalidResponse }
             self = .text(try c.decodeIfPresent(String.self, forKey: .text))
         case "PHOTO", "VIDEO":
-            guard Set(c.allKeys) == [.type, .attachments] else { throw ConversationError.invalidResponse }
+            guard Set(c.allKeys).subtracting([.caption]) == [.type, .attachments] else { throw ConversationError.invalidResponse }
             let items = try c.decode([MessageAttachment].self, forKey: .attachments); let video = try c.decode(String.self, forKey: .type) == "VIDEO"
             guard !items.isEmpty, items.count <= (video ? 1 : 4), Set(items.map(\.assetId)).count == items.count else { throw ConversationError.invalidResponse }
-            self = video ? .video(items) : .photo(items)
+            let caption = try c.decodeIfPresent(String.self, forKey: .caption)
+            if let caption { guard (try? ConversationWire.normalizedText(caption)) == caption else { throw ConversationError.invalidResponse } }
+            self = video ? .video(items, caption: caption) : .photo(items, caption: caption)
         case "STICKER":
             guard Set(c.allKeys) == [.type, .stickerId, .assetId, .width, .height] else { throw ConversationError.invalidResponse }
             let sticker = try c.decode(String.self, forKey: .stickerId); let asset = try c.decode(String.self, forKey: .assetId); let width = try c.decode(Int.self, forKey: .width); let height = try c.decode(Int.self, forKey: .height)
@@ -116,8 +118,8 @@ public enum MessageContent: Codable, Equatable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .text(let text): try c.encode("TEXT", forKey: .type); try c.encode(text, forKey: .text)
-        case .photo(let items): try c.encode("PHOTO", forKey: .type); try c.encode(items, forKey: .attachments)
-        case .video(let items): try c.encode("VIDEO", forKey: .type); try c.encode(items, forKey: .attachments)
+        case .photo(let items, let caption): try c.encode("PHOTO", forKey: .type); try c.encode(items, forKey: .attachments); try c.encodeIfPresent(caption, forKey: .caption)
+        case .video(let items, let caption): try c.encode("VIDEO", forKey: .type); try c.encode(items, forKey: .attachments); try c.encodeIfPresent(caption, forKey: .caption)
         case .sticker(let id, let asset, let width, let height): try c.encode("STICKER", forKey: .type); try c.encode(id, forKey: .stickerId); try c.encode(asset, forKey: .assetId); try c.encode(width, forKey: .width); try c.encode(height, forKey: .height)
         }
     }
@@ -140,6 +142,12 @@ public struct MessageCounterpart: Codable, Equatable, Sendable {
         guard RoomsWire.uuid(actorId) else { throw ConversationError.invalidResponse }
     }
 }
+public struct ConversationReactionCount: Codable, Equatable, Sendable { public let emoji: String; public let count: Int64 }
+public struct ConversationReactions: Codable, Equatable, Sendable {
+    public let counts: [ConversationReactionCount]
+    public let mine: String?
+    public static let empty = Self(counts: [], mine: nil)
+}
 public struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     public let id: String
     public let version: MessageVersion
@@ -150,13 +158,15 @@ public struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     public let quote: MessageQuote?
     public let counterpart: MessageCounterpart?
     public let allowedActions: MessageActions
-    enum CodingKeys: CodingKey { case id, version, createdAt, audience, author, content, quote, counterpart, allowedActions }
+    public let reactions: ConversationReactions
+    enum CodingKeys: CodingKey { case id, version, createdAt, audience, author, content, quote, counterpart, allowedActions, reactions }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id); version = try c.decode(MessageVersion.self, forKey: .version); createdAt = try c.decode(String.self, forKey: .createdAt)
         audience = try c.decode(String.self, forKey: .audience); author = try c.decode(MessageAuthor.self, forKey: .author); content = try c.decode(MessageContent.self, forKey: .content)
         guard RoomsWire.uuid(id), ConversationWire.timestamp(createdAt), ["SHARED", "PRIVATE"].contains(audience), c.contains(.quote), c.contains(.counterpart) else { throw ConversationError.invalidResponse }
         quote = try c.decodeIfPresent(MessageQuote.self, forKey: .quote); counterpart = try c.decodeIfPresent(MessageCounterpart.self, forKey: .counterpart); allowedActions = try c.decode(MessageActions.self, forKey: .allowedActions)
+        reactions = try c.decodeIfPresent(ConversationReactions.self, forKey: .reactions) ?? .empty
         if audience == "SHARED", counterpart != nil { throw ConversationError.invalidResponse }
         if case .anonymous = author, counterpart != nil || allowedActions.reply { throw ConversationError.invalidResponse }
     }
@@ -165,6 +175,7 @@ public struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
         try c.encode(id, forKey: .id); try c.encode(version, forKey: .version); try c.encode(createdAt, forKey: .createdAt)
         try c.encode(audience, forKey: .audience); try c.encode(author, forKey: .author); try c.encode(content, forKey: .content)
         try c.encode(quote, forKey: .quote); try c.encode(counterpart, forKey: .counterpart); try c.encode(allowedActions, forKey: .allowedActions)
+        try c.encode(reactions, forKey: .reactions)
     }
     public var replyRecipient: String? {
         guard allowedActions.reply else { return nil }

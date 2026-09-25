@@ -195,7 +195,7 @@ class NativeTransportTest {
         val store = TestStore(); val api = TestApi().apply { postBlock = { throw ApiException(503, "UNAVAILABLE") } }
         val model = gateway(store, api); model.restore(); model.signOut()
         assertNull(store.value); assertEquals(ShellAccess.SIGNED_OUT, model.session.value.access)
-        assertTrue(model.session.value.notice!!.contains("확인하지 못했어요"))
+        assertEquals("이 기기에서 로그아웃했어요.", model.session.value.notice)
     }
     @Test fun fullProfileIsFetchedForRestrictedAccountAndSaveUpdatesSummaryWithoutEpochReset() = runTest {
         val api = TestApi().apply { getBlock = { if (it == ApiRoute.SESSION) projection(linked = false) else profile() } }

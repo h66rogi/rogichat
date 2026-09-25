@@ -51,7 +51,7 @@ struct SettingsScreen: View {
                 }
                 if hasDeletionHistory {
                     SettingsSection(title: "기기 기록") {
-                        SettingsRow(icon: "doc.text", title: "탈퇴 요청 기록", subtitle: "접수 결과와 기기 정리", tint: .gray, action: onDeletionHistory)
+                        SettingsRow(icon: "doc.text", title: "탈퇴 요청 기록", subtitle: "탈퇴 처리 내역", tint: .gray, action: onDeletionHistory)
                     }
                 }
                 SettingsSection(title: "앱 정보") {

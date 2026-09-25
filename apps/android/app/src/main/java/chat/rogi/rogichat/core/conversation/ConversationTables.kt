@@ -94,6 +94,7 @@ interface ConversationDao {
     @Query("SELECT cursor FROM conversation_pages WHERE roomId=:room AND purpose=:purpose") suspend fun pages(room: String, purpose: String): List<String>
     @Insert suspend fun page(value: ConversationPage)
     @Query("DELETE FROM conversation_pages WHERE roomId=:room") suspend fun clearPages(room: String)
+    @Query("DELETE FROM conversation_pages WHERE roomId=:room AND purpose='profiles'") suspend fun clearProfilePages(room: String)
     @Query("SELECT * FROM conversation_outbox WHERE roomId=:room ORDER BY createdAtMs ASC, clientMessageId COLLATE BINARY ASC") suspend fun outbox(room: String): List<ConversationOutboxRow>
     @Query("SELECT COUNT(*) FROM conversation_outbox") suspend fun outboxCount(): Int
     @Query("SELECT * FROM conversation_outbox WHERE roomId=:room AND clientMessageId=:command") suspend fun command(room: String, command: String): ConversationOutboxRow?

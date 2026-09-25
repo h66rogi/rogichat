@@ -92,7 +92,7 @@ function MessageRow({
               item.status === 'rejected' && 'opacity-80',
             )}
           >
-            {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : item.body}
+            {item.media ? <><ChatMediaImages messageId={item.id} media={item.media} />{item.body && <p className="mt-2 whitespace-pre-wrap break-words">{item.body}</p>}</> : item.body}
           </div>
 
           <div className="flex shrink-0 flex-col items-end gap-0.5 pb-0.5 text-[12px] text-muted">
@@ -181,7 +181,7 @@ function PublicationRow({ item, onDelete }: { item: ChatPublicationItemModel; on
           </span>
           <time dateTime={item.createdAt}>{timeLabelFor(item.createdAt)}</time>
         </div>
-        {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>}
+        {item.media ? <><ChatMediaImages messageId={item.id} media={item.media} />{item.body && <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>}</> : <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>}
         <div className="flex items-center gap-1"><ReactionControl messageId={item.id} initialSummary={item.reactions} /><MessageActionMenu><ChatPrivacyActions messageId={item.id} />{item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}</MessageActionMenu></div>
       </div>
     </div>

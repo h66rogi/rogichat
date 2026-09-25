@@ -126,6 +126,6 @@ class AccountBlocksCoordinator(private val gateway: AccountFeatureGateway, priva
             }
             load(entry) // Fresh current state is not proof the preceding unknown command succeeded.
         } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { publish(entry, entry.state.value.copy(token = null, blocks = emptyList(), complete = false, busy = false, error = "요청 결과를 기기에 반영하지 못했어요. 현재 상태를 다시 확인해 주세요.")) }
+        catch (_: Exception) { publish(entry, entry.state.value.copy(busy = false, error = "차단 해제 상태를 확인하지 못했어요. 다시 시도해 주세요.")) }
     } } }
 }
