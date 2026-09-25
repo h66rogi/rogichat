@@ -37,7 +37,7 @@ TEMPLATES = {'compose': 'infrastructure/runtime/compose.app.yaml',
              'bootstrap': 'infrastructure/runtime/Caddyfile.bootstrap'}
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
 NEW_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml',
-                 'mobile.yml', 'qa-publication.yml'}
+                 'mobile.yml', 'qa-backend-publication.yml'}
 
 
 def require(value):

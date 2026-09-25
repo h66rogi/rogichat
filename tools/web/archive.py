@@ -23,6 +23,9 @@ spec = importlib.util.spec_from_file_location('rogichat_web_archive_core', Path(
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 core.WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml', 'web-publish.yml'}
+core.NEW_PUBLICATION_WORKFLOW = 'qa-web-publication.yml'
+core.NEW_PUBLICATION_NAME = 'QA web image publication'
+core.NEW_WORKFLOWS = core.FIVE_QA_WORKFLOWS | {core.NEW_PUBLICATION_WORKFLOW}
 core.PUBLICATION_JOB = 'Web publication result'
 core.ROLES = {'runtime': 'rogichat-web'}
 IMAGE_FILES = {'descriptor.json', 'runtime.tar', 'runtime.manifest.json'}

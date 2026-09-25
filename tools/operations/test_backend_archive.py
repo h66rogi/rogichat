@@ -101,7 +101,7 @@ class ArchiveTests(unittest.TestCase):
             'repository': {'full_name': archive.REPOSITORY},
             'head_repository': {'full_name': archive.REPOSITORY},
             'path': '.github/workflows/' + workflow,
-            'name': 'QA verified image publication' if workflow == archive.NEW_PUBLICATION_WORKFLOW else workflow,
+            'name': 'QA backend image publication' if workflow == archive.NEW_PUBLICATION_WORKFLOW else workflow,
         } for workflow, identity in runs.items()}
         job_path = f'actions/runs/{publication_id}/attempts/1/jobs?per_page=100'
         results[job_path] = {'total_count': 1, 'jobs': [{

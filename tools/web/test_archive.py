@@ -349,8 +349,8 @@ class AutomaticExportTests(unittest.TestCase):
         publication_id = descriptor['verification_runs'].pop('web-publish.yml')
         descriptor['verification_runs'][archive.core.NEW_PUBLICATION_WORKFLOW] = publication_id
         publisher = metadata[f'actions/runs/{publication_id}/attempts/1']
-        publisher.update(event='workflow_run', path='.github/workflows/qa-publication.yml',
-                         name='QA verified image publication')
+        publisher.update(event='workflow_run', path='.github/workflows/qa-web-publication.yml',
+                         name='QA web image publication')
         payload['workflow_run'] = publisher
         Path(env['GITHUB_EVENT_PATH']).write_text(json.dumps(payload))
         proof['verification'] = [item for item in proof['verification']
@@ -391,7 +391,7 @@ class AutomaticExportTests(unittest.TestCase):
                 publisher = metadata[f'actions/runs/{publication_id}/attempts/1']
                 listing = metadata[f'actions/runs/{publication_id}/attempts/1/jobs?per_page=100']
                 if change == 'event': publisher['event'] = 'pull_request'
-                elif change == 'path': publisher['path'] = '.github/workflows/web-publish.yml'
+                elif change == 'path': publisher['path'] = '.github/workflows/qa-backend-publication.yml'
                 elif change == 'sha': publisher['head_sha'] = 'f' * 40
                 elif change == 'missing_check':
                     proof['verification'].pop()

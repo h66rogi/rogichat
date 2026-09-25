@@ -39,7 +39,7 @@ RECEIPTS = ROOT / 'receipts'
 SOURCE = 'https://github.com/h66rogi/rogichat'
 CHECKS = {'web.yml', 'security.yml', 'infrastructure.yml'}
 WORKFLOWS = CHECKS | {'backend.yml', 'mobile.yml', 'web-publish.yml'}
-NEW_WORKFLOWS = CHECKS | {'backend.yml', 'mobile.yml', 'qa-publication.yml'}
+NEW_WORKFLOWS = CHECKS | {'backend.yml', 'mobile.yml', 'qa-web-publication.yml'}
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 HASH = re.compile(r'[a-f0-9]{64}\Z')
 IMAGE = re.compile(r'ghcr\.io/h66rogi/rogichat-web@sha256:[a-f0-9]{64}\Z')
@@ -174,13 +174,13 @@ def verify_runs(runs, sha, branch):
         value = github(f'actions/runs/{run_id}')
         require(value['head_sha'] == sha and value['head_branch'] == branch
                 and value['event'] in ({'workflow_run', 'schedule', 'workflow_dispatch'}
-                                       if workflow == 'qa-publication.yml' and branch == 'qa' else {'push'})
+                                       if workflow == 'qa-web-publication.yml' and branch == 'qa' else {'push'})
                 and value['status'] == 'completed' and value['conclusion'] == 'success'
                 and value['repository']['full_name'] == 'h66rogi/rogichat'
                 and value['head_repository']['full_name'] == 'h66rogi/rogichat'
                 and value['path'] == '.github/workflows/' + workflow)
-        if workflow == 'qa-publication.yml':
-            require(value['name'] == 'QA verified image publication'
+        if workflow == 'qa-web-publication.yml':
+            require(value['name'] == 'QA web image publication'
                     and type(value['run_attempt']) is int and value['run_attempt'] > 0)
             listing = github(f"actions/runs/{run_id}/attempts/{value['run_attempt']}/jobs?per_page=100")
             require(type(listing['total_count']) is int and 0 < listing['total_count'] <= 100

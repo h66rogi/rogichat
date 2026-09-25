@@ -49,7 +49,7 @@ ARTIFACTS = {
 FEATURE_ARTIFACTS = {'media': 'infrastructure/runtime/compose.media.yaml'}
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
 NEW_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml',
-                 'mobile.yml', 'qa-publication.yml'}
+                 'mobile.yml', 'qa-backend-publication.yml'}
 
 
 class Rejected(ValueError):
@@ -165,13 +165,13 @@ def verify_ci(request):
         result = github_read(f'actions/runs/{run_id}')
         require(result['head_sha'] == request['source_sha'] and result['head_branch'] == 'qa'
                 and result['event'] in ({'workflow_run', 'schedule', 'workflow_dispatch'}
-                                        if workflow == 'qa-publication.yml' else {'push'})
+                                        if workflow == 'qa-backend-publication.yml' else {'push'})
                 and result['status'] == 'completed'
                 and result['conclusion'] == 'success' and result['repository']['full_name'] == 'h66rogi/rogichat'
                 and result['head_repository']['full_name'] == 'h66rogi/rogichat'
                 and result['path'] == '.github/workflows/' + workflow)
-        if workflow == 'qa-publication.yml':
-            require(result['name'] == 'QA verified image publication'
+        if workflow == 'qa-backend-publication.yml':
+            require(result['name'] == 'QA backend image publication'
                     and type(result['run_attempt']) is int and result['run_attempt'] > 0)
             listing = github_read(f"actions/runs/{run_id}/attempts/{result['run_attempt']}/jobs?per_page=100")
             require(type(listing['total_count']) is int and 0 < listing['total_count'] <= 100

@@ -27,7 +27,8 @@ REPOSITORY = 'h66rogi/rogichat'
 SOURCE = 'https://github.com/' + REPOSITORY
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
 FIVE_QA_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'}
-NEW_PUBLICATION_WORKFLOW = 'qa-publication.yml'
+NEW_PUBLICATION_WORKFLOW = 'qa-backend-publication.yml'
+NEW_PUBLICATION_NAME = 'QA backend image publication'
 NEW_WORKFLOWS = FIVE_QA_WORKFLOWS | {NEW_PUBLICATION_WORKFLOW}
 NEW_PUBLICATION_EVENTS = {'workflow_run', 'schedule', 'workflow_dispatch'}
 PUBLICATION_JOB = 'Backend publication result'
@@ -105,7 +106,7 @@ def verify_publication_run(value, sha, token=None):
             and value['repository']['full_name'] == REPOSITORY
             and value['head_repository']['full_name'] == REPOSITORY
             and value['path'] == '.github/workflows/' + NEW_PUBLICATION_WORKFLOW
-            and value['name'] == 'QA verified image publication'
+            and value['name'] == NEW_PUBLICATION_NAME
             and type(value['id']) is int and value['id'] > 0
             and type(value['run_attempt']) is int and value['run_attempt'] > 0)
     listing = api(f"actions/runs/{value['id']}/attempts/{value['run_attempt']}/jobs?per_page=100", token)
