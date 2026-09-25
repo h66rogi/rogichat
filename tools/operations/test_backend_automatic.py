@@ -48,14 +48,14 @@ class AutomaticTests(unittest.TestCase):
         client.fresh.side_effect = lambda path: (
             {'id': auto.REPOSITORY_ID, 'full_name': auto.REPOSITORY,
              'private': False, 'fork': False} if path == '' else {'path': path})
-        client.download_artifact.return_value = b'proof zip bytes'
+        client.artifact_zip.return_value = b'proof zip bytes'
         helper, archive = MagicMock(), MagicMock()
         auto.bind_metadata_client(helper, archive, client)
         self.assertEqual(archive.api('git/ref/heads/qa'), {'path': 'git/ref/heads/qa'})
         self.assertEqual(archive.api('actions/runs/7', None), {'path': 'actions/runs/7'})
         self.assertEqual(helper.github_read('actions/runs/7'), {'path': 'actions/runs/7'})
         self.assertEqual(archive.download_publication_artifact(7, None), b'proof zip bytes')
-        client.download_artifact.assert_called_once_with(7)
+        client.artifact_zip.assert_called_once_with(7)
         with self.assertRaises(ValueError):
             archive.api('actions/runs/7', 'untrusted-token')
         with self.assertRaises(ValueError):
@@ -74,7 +74,7 @@ class AutomaticTests(unittest.TestCase):
         auto.bind_metadata_client(helper, archive, client)
         with self.assertRaisesRegex(ValueError, '^automatic release rejected$'):
             archive.api('actions/runs/7')
-        client.download_artifact.return_value = b'x' * (auto.MAX_PROOF_ZIP + 1)
+        client.artifact_zip.return_value = b'x' * (auto.MAX_PROOF_ZIP + 1)
         with self.assertRaises(ValueError):
             archive.download_publication_artifact(7)
 

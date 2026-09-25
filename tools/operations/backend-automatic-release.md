@@ -41,7 +41,7 @@ webhook data nor a candidate may write policy, helper code or current state.
 
 The trusted caller must inject a repository-scoped, read-only GitHub App metadata
 client in memory. Its `fresh(path)` returns uncached JSON for an exact allowlisted
-repository API path; `download_artifact(id)` returns bounded authenticated proof
+repository API path; `artifact_zip(id)` returns bounded authenticated proof
 ZIP bytes. The helper verifies the expected repository identity before any host
 action and routes both pinned modules' metadata and proof reads through the
 client. An absent client, wrong repository, non-JSON response, failed/expired

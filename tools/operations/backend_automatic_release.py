@@ -94,7 +94,7 @@ def bind_metadata_client(helper, archive, client):
     supplies it in memory; no token is read from the environment, CLI or disk.
     """
     require(client is not None and callable(getattr(client, 'fresh', None))
-            and callable(getattr(client, 'download_artifact', None)))
+            and callable(getattr(client, 'artifact_zip', None)))
 
     def read(path):
         require(type(path) is str)
@@ -117,7 +117,7 @@ def bind_metadata_client(helper, archive, client):
     def proof_artifact(artifact_id, token=None):
         require(token is None and type(artifact_id) is int and artifact_id > 0)
         try:
-            raw = client.download_artifact(artifact_id)
+            raw = client.artifact_zip(artifact_id)
             require(type(raw) is bytes and 0 < len(raw) <= MAX_PROOF_ZIP)
             return raw
         except Exception:
