@@ -383,6 +383,7 @@ subject·partition·권한 키가 아니다. 수동 이름·사진·사진 삭�
 |---|---|---|
 | R68 | 기존 Rogichat ConversationScreen/ViewModel, TextCommand, Room/GRDB outbox, MediaClient/ConversationMedia; 기반 원본은 R64 이전의 공통 UI·상태 재사용 항목 | **기존 제품 구현 직접 확장**: ROOM_OWNER를 기존 전송·영속·receipt 복구·미디어 명령에 추가한다. 멜로밍 채팅 UX는 사용자 제외 조건을 유지하며 가져오지 않는다. 멜로밍의 원본 일반 로그인·설정은 이 새 수신함 계약을 구현하지 않으므로 별도 채팅 계층 복사로 대체하지 않는다. 서버가 결정한 FAN 권한 및 실제 recipient projection을 그대로 사용한다. |
 | R69 | Meloming `18a33bbf`의 `Presentation/Talk/Components/TalkInputBar.swift`와 기존 Rogichat `ConversationScreen`, `MediaPicker`, `ConversationFeatureModel` | **기존 Rogichat 흐름 확장 + 신규 카메라 어댑터**: 메시지 명령·영속 전송·미디어 업로드·스티커 picker는 그대로 연결하고 iOS 대화방에 단독 입력바, 첨부 확장판, 카메라 촬영, 메시지 묶음 표시를 적용한다. Meloming Talk/TalkV2 입력바·버블은 사용자가 재사용을 제외했으며 로기챗의 첨부·비공개 답장·영속 전송 계약과도 맞지 않아 이식하지 않는다. `Features/Media/CameraCapture.swift`는 기존 카메라 촬영 구현이 없어 신규 작성했다. |
+| R69a | Rogichat `5c1a627`의 `ConversationScreen`, `StickerPicker`, `AuthorizedMedia`, `MediaClient.stickers` | **기존 제품 구현 직접 확장**: 입력 초점·입력 내용·키보드 또는 스티커 패널 높이 변화에 따라 마지막 메시지로 이동한다. 전체 화면 스티커 목록은 입력창에 붙은 이미지 격자로 바꾸되 기존 승인 카탈로그, 방 권한이 걸린 이미지 접근, STICKER 명령 전송을 재사용한다. Meloming Talk/TalkV2 대화 UX는 사용자 제외 조건을 유지한다. Twitch와 OGQ 이미지는 플랫폼별 사용 권한·계약과 서버 메시지 형식이 없어 복사하거나 임의 카탈로그로 노출하지 않는다. |
 
 R66의 `OWNER_PENDING` 처리 코드는 과거 계약의 호환 처리다. 실제 팬 접근이 가능한
 기본방은 방장 미가입 여부와 무관하게 READY이며, 이번 앱은 그 상태에서 수신 actor 없이
@@ -408,10 +409,16 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 |---|---|---|
 | R73 | QA20 `d95a34adf71c38f888ddddc759bd6fce7d921046`의 Android/iOS `AuthorizedMedia` provider-avatar decoder | **기존 구현 직접 재사용**: BitmapFactory bounds/downsample와 ImageIO index-0 thumbnail을 테스트 가능한 ProviderAvatarDecoder로 옮긴다. 기존 20 MP/256 기준을 보존하고 provider MIME에만 GIF를 추가한다. 멜로밍 채팅 UX·다른 이미지 라이브러리·원본 설정을 가져오지 않는다. 합성 GIF는 테스트 소스에만 둔다. |
 
+## iOS 1.2.3 더보기 화면
+
+| ID | 원본·대상 | 재사용과 변경 경계 |
+|---|---|---|
+| R74 | meloming-ios build 26 시점 `d133fb4`의 `Meloming/Presentation/More/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `Presentation/Common/Components/NotificationButton.swift`, `Presentation/Navigation/MainTabView.swift` → `Sources/Features/Settings/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `NotificationButton.swift`, `Sources/Core/Design/AppShell.swift` | **원본 코드 복사 후 계약 수정**: `MoreView`의 `moreListView`/`listSections`/로그인 행/고정 헤더/앱 정보와 `ServiceGridSection`의 행·타일 코드, `ServiceItem` 모델, 알림 버튼의 색상·크기 코드를 파일·구조 그대로 가져왔다. 상위 `NavigationStack`은 기존 `AppShell`이 소유하므로 중복하지 않고, Kingfisher/인증·채널·배지·웹뷰·개발자 도구의 멜로밍 전용 코드와 8번째 전체보기 슬롯은 로기챗 실기능이 없어 제거했다. 프로필/로그아웃/탭/알림/서비스 목적지만 로기챗 세션과 QA·Prod 실제 경로로 바꿨다. 활성 최신 소스의 `MyPageView`를 1.2.3 화면으로 간주하지 않는다. |
+
 ## 채팅 재진입·반응·첨부 UX 개선 — 2026-09-26
 
 | ID | 기존 기반 | 대상과 재사용·변경 경계 |
 |---|---|---|
-| R74 | R51·R52의 Rogichat `ConversationScreenModel`/`ConversationViewModel`, Room/GRDB 저장소와 보호 scope | **기존 구현 직접 확장**: 같은 권한의 대화 투영·초안·스크롤 위치를 유지하며 이벤트만 갱신한다. 새 인증 경로나 별도 화면용 저장소를 만들지 않았다. Messenger 수준의 재진입 요구는 기존 Meloming Talk/TalkV2 구조로 해결할 수 없고 사용자 제외 조건도 유지한다. |
-| R75 | R55·R64·R67의 기존 `AuthorizedMedia`/`MediaClient`/provider 이미지 경로 | **기존 전송 재사용 + 표시 캐시 추가**: 프로필 기본 이미지와 접근 범위가 묶인 제한된 이미지 캐시를 추가했다. 기존 lease 검사와 종료 시 미디어 파일 삭제는 유지한다. 전역 URL 캐시나 새 이미지 SDK는 권한 철회 경계를 만족하지 않아 사용하지 않았다. |
-| R76 | R53·R54의 실제 사진/동영상 선택, R56·R57의 메시지 작업·반응, 기존 Rogichat 작성창 | **기존 구현 직접 확장**: 첨부 설명을 같은 메시지로 보내고 반응을 말풍선에서 표시·선택·취소한다. 신고·삭제 확인창의 대상 포착 방식은 유지한다. 새 서버 설명 필드는 웹의 엄격한 메시지 파서와 표시 흐름에도 연결했다. |
+| R75 | R51·R52의 Rogichat `ConversationScreenModel`/`ConversationViewModel`, Room/GRDB 저장소와 보호 scope | **기존 구현 직접 확장**: 같은 권한의 대화 투영·초안·스크롤 위치를 유지하며 이벤트만 갱신한다. 새 인증 경로나 별도 화면용 저장소를 만들지 않았다. Messenger 수준의 재진입 요구는 기존 Meloming Talk/TalkV2 구조로 해결할 수 없고 사용자 제외 조건도 유지한다. |
+| R76 | R55·R64·R67의 기존 `AuthorizedMedia`/`MediaClient`/provider 이미지 경로 | **기존 전송 재사용 + 표시 캐시 추가**: 프로필 기본 이미지와 접근 범위가 묶인 제한된 이미지 캐시를 추가했다. 기존 lease 검사와 종료 시 미디어 파일 삭제는 유지한다. 전역 URL 캐시나 새 이미지 SDK는 권한 철회 경계를 만족하지 않아 사용하지 않았다. |
+| R77 | R53·R54의 실제 사진/동영상 선택, R56·R57의 메시지 작업·반응, 기존 Rogichat 작성창 | **기존 구현 직접 확장**: 첨부 설명을 같은 메시지로 보내고 반응을 말풍선에서 표시·선택·취소한다. 신고·삭제 확인창의 대상 포착 방식은 유지한다. 새 서버 설명 필드는 웹의 엄격한 메시지 파서와 표시 흐름에도 연결했다. |

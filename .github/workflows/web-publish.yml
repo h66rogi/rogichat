@@ -7,8 +7,8 @@ on:
 permissions: {}
 
 concurrency:
-  group: web-publish-qa
-  cancel-in-progress: true
+  group: web-publish-qa-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   changes:
