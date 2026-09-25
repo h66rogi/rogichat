@@ -29,7 +29,18 @@ jobs:
           persist-credentials: false
       - name: Install pinned secret scanner
         run: python3 tools/security/install.py
+      - name: Decide whether security tests are required
+        id: test_plan
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MERGE_SHA: ${{ github.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python3 tools/security/needs_tests.py
       - name: Test enforcement
+        if: ${{ always() && (github.event_name != 'pull_request' || steps.test_plan.outputs.run_tests != 'false') }}
         run: python3 -m unittest discover -s tools/security -p 'test_*.py'
       - name: Scan tracked files and all history
+        if: ${{ always() }}
         run: python3 tools/security/check.py all
