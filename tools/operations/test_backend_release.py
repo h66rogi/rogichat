@@ -1,6 +1,6 @@
 """Synthetic temporary files only; no Docker, network, host configuration or DB."""
 import copy
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import ExitStack, redirect_stderr, redirect_stdout
 import io
 import json
 from pathlib import Path
@@ -48,6 +48,17 @@ def media_fixture():
     return value
 
 
+def no_ddl_fixture():
+    value = media_fixture()
+    value.update(migration_policy='verify-only', schema_sha256='9' * 64,
+                 probe_sha256='a' * 64, ca_sha256='b' * 64,
+                 previous={'source_sha': 'c' * 40,
+                           'runtime_id': 'sha256:' + 'd' * 64,
+                           'decoder_id': 'sha256:' + 'e' * 64})
+    value['artifacts']['schema_manifest'] = 'f' * 64
+    return value
+
+
 def ready_container(role='api'):
     request = fixture()
     return {'Name': '/rogichat-qa-' + role, 'Config': {'Image': request['runtime_image']},
@@ -59,6 +70,186 @@ def ready_container(role='api'):
 
 
 class RequestTests(unittest.TestCase):
+    def test_no_ddl_request_is_manual_legacy_media_only_and_fully_pinned(self):
+        value = no_ddl_fixture()
+        self.assertIs(release.validate_request(value), value)
+        for change in ('missing_schema', 'missing_probe', 'missing_previous', 'wrong_workflows',
+                       'no_media', 'no_archive', 'unknown_mode', 'missing_manifest'):
+            bad = copy.deepcopy(value)
+            if change == 'missing_schema':
+                del bad['schema_sha256']
+            elif change == 'missing_probe':
+                del bad['probe_sha256']
+            elif change == 'missing_previous':
+                del bad['previous']['decoder_id']
+            elif change == 'wrong_workflows':
+                bad['verification_runs'] = {name: 1 for name in release.NEW_WORKFLOWS}
+            elif change == 'no_media':
+                bad['features'] = []
+            elif change == 'no_archive':
+                del bad['archive']
+            elif change == 'unknown_mode':
+                bad['migration_policy'] = 'deploy'
+            else:
+                del bad['artifacts']['schema_manifest']
+            with self.subTest(change=change), self.assertRaises((ValueError, KeyError)):
+                release.validate_request(bad)
+
+    def test_no_ddl_schema_manifest_rejects_code_and_migration_drift(self):
+        manifest = (Path(__file__).parents[2] /
+                    release.SCHEMA_MANIFEST).read_bytes()
+        rows = release.parse_schema_manifest(manifest)
+        self.assertEqual(len(rows), 48)
+        for candidate in (manifest + b'\nprocess.exit(0)',
+                          manifest.replace(rows[0]['checksum'].encode(), b'0' * 64, 1),
+                          b'export const migrationManifest = []'):
+            if candidate == manifest:
+                continue
+            with self.subTest(candidate=candidate[:40]), self.assertRaises((ValueError, UnicodeDecodeError)):
+                if candidate.startswith(b'export const migrationManifest = []'):
+                    release.parse_schema_manifest(candidate)
+                else:
+                    parsed = release.parse_schema_manifest(candidate)
+                    release.require(parsed == rows)
+
+    def test_no_ddl_activation_uses_existing_media_health_without_migrator(self):
+        value = no_ddl_fixture()
+        files = {'bootstrap': b'bootstrap', 'compose': b'compose',
+                 'feature_media': b'media', 'unit': b'unit', 'caddy': b'caddy'}
+
+        class Response:
+            status = 200
+            def __init__(self, url): self.url = url
+            def __enter__(self): return self
+            def __exit__(self, *_): return False
+            def geturl(self): return self.url
+
+        class ForbiddenInput:
+            def read(self, *_): raise AssertionError('migrator stdin read')
+
+        with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
+            events = []
+            stack.enter_context(patch.object(release, 'RELEASES', Path(root)))
+            stack.enter_context(patch.object(release, 'verify_no_ddl_candidate'))
+            head = stack.enter_context(patch.object(release, 'verify_qa_head'))
+            stack.enter_context(patch.object(release, 'verify_previous_runtime'))
+            probe = stack.enter_context(patch.object(release, 'readonly_schema_probe'))
+            stack.enter_context(patch.object(release, 'protected', return_value=b'previous'))
+            written = stack.enter_context(patch.object(release, 'atomic'))
+            sync = stack.enter_context(patch.object(release, 'fsync_directory'))
+            caddy = stack.enter_context(patch.object(release, 'caddy_config'))
+            stops = stack.enter_context(patch.object(release, 'run'))
+            start = stack.enter_context(patch.object(release, 'start_units'))
+            health = stack.enter_context(patch.object(release, 'wait_health'))
+            stack.enter_context(patch.object(release, 'compose_requires_vapid', return_value=False))
+            stack.enter_context(patch.object(release, 'get_caddy', return_value='caddy-id'))
+            stack.enter_context(patch.object(release.urllib.request, 'urlopen', side_effect=lambda url, timeout: Response(url)))
+            stack.enter_context(patch.object(release, 'cleanup_migration', side_effect=AssertionError('migrator cleanup')))
+            stack.enter_context(patch.object(release, 'docker', side_effect=AssertionError('migrator or image mutation')))
+            stack.enter_context(patch.object(release.sys, 'stdin', SimpleNamespace(buffer=ForbiddenInput())))
+            written.side_effect = lambda path, *_: events.append('consumed' if path.name == 'consumed.json' else 'write')
+            sync.side_effect = lambda *_: events.append('fsync')
+            head.side_effect = lambda *_: events.append('head')
+            caddy.side_effect = lambda *_: events.append('caddy')
+            release.deploy_no_ddl(value, files, 'caddy-id')
+            self.assertEqual(events[events.index('consumed'):events.index('caddy') + 1],
+                             ['consumed', 'fsync', 'fsync', 'head', 'caddy'])
+            self.assertEqual([call.args[0] for call in sync.call_args_list],
+                             [Path(root) / ('backup-' + value['request_id']), Path(root)])
+            self.assertEqual(probe.call_count, 2)
+            self.assertEqual(head.call_count, 2)
+            self.assertEqual([call.args[0][-1] for call in stops.call_args_list],
+                             ['rogichat-app@decoder', 'rogichat-app@worker', 'rogichat-app@api'])
+            start.assert_called_once_with(b'bootstrap', value)
+            health.assert_called_once_with(value)
+
+    def test_no_ddl_baseline_rejects_stale_env_and_inactive_unit(self):
+        value = no_ddl_fixture()
+        previous = value['previous']
+        expected = (f"ROGICHAT_API_IMAGE={previous['runtime_id']}\n"
+                    f"ROGICHAT_WORKER_IMAGE={previous['runtime_id']}\n"
+                    f"ROGICHAT_EDGE_NETWORK={value['edge_network']}\n"
+                    f"ROGICHAT_DECODER_IMAGE={previous['decoder_id']}\n").encode()
+
+        def inspect(*args):
+            if args[0] == 'inspect':
+                role = args[1].removeprefix('rogichat-qa-')
+                image = previous['decoder_id'] if role == 'decoder' else previous['runtime_id']
+                return json.dumps([{'Name': '/' + args[1], 'Image': image,
+                    'Config': {'Image': image, 'Labels': {
+                        'org.opencontainers.image.revision': previous['source_sha'],
+                        'org.opencontainers.image.source': release.SOURCE}}}]).encode()
+            image = args[2]
+            return json.dumps([{'Id': image, 'Os': 'linux', 'Architecture': 'amd64',
+                'Config': {'User': '10001:10001', 'Labels': {
+                    'org.opencontainers.image.revision': previous['source_sha']}}}]).encode()
+
+        with patch.object(release, 'protected', return_value=expected), \
+                patch.object(release, 'run', return_value=b'active\n'), \
+                patch.object(release, 'wait_health') as health, \
+                patch.object(release, 'docker', side_effect=inspect):
+            release.verify_previous_runtime(value)
+            baseline = health.call_args.args[0]
+            self.assertEqual(baseline['archive']['runtime_execution_id'], previous['runtime_id'])
+            self.assertEqual(baseline['archive']['decoder_execution_id'], previous['decoder_id'])
+        with patch.object(release, 'protected', return_value=expected + b'EXTRA=1\n'), \
+                patch.object(release, 'run', side_effect=AssertionError('unit check after bad env')), \
+                self.assertRaises(release.Rejected):
+            release.verify_previous_runtime(value)
+        with patch.object(release, 'protected', return_value=expected), \
+                patch.object(release, 'run', side_effect=[b'active\n', b'inactive\n']), \
+                patch.object(release, 'wait_health', side_effect=AssertionError('health after inactive')), \
+                self.assertRaises(release.Rejected):
+            release.verify_previous_runtime(value)
+
+    def test_no_ddl_post_activation_schema_drift_fails_closed(self):
+        value = no_ddl_fixture()
+        files = {'bootstrap': b'bootstrap', 'compose': b'compose',
+                 'feature_media': b'media', 'unit': b'unit', 'caddy': b'caddy'}
+        with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
+            stack.enter_context(patch.object(release, 'RELEASES', Path(root)))
+            stack.enter_context(patch.object(release, 'verify_no_ddl_candidate'))
+            stack.enter_context(patch.object(release, 'verify_qa_head'))
+            stack.enter_context(patch.object(release, 'verify_previous_runtime'))
+            stack.enter_context(patch.object(release, 'readonly_schema_probe',
+                                       side_effect=[None, release.Rejected('drift')]))
+            stack.enter_context(patch.object(release, 'protected', return_value=b'previous'))
+            stack.enter_context(patch.object(release, 'atomic'))
+            stack.enter_context(patch.object(release, 'fsync_directory'))
+            stack.enter_context(patch.object(release, 'caddy_config'))
+            stack.enter_context(patch.object(release, 'run'))
+            stack.enter_context(patch.object(release, 'start_units'))
+            stack.enter_context(patch.object(release, 'wait_health'))
+            stack.enter_context(patch.object(release, 'compose_requires_vapid', return_value=False))
+            stack.enter_context(patch.object(release, 'get_caddy', return_value='caddy-id'))
+            closed = stack.enter_context(patch.object(release, 'fail_closed'))
+            with self.assertRaises(release.Rejected):
+                release.deploy_no_ddl(value, files, 'caddy-id')
+            closed.assert_called_once_with('caddy-id', b'bootstrap', value)
+
+    def test_no_ddl_head_move_before_drain_consumes_request_but_keeps_incumbent(self):
+        value = no_ddl_fixture()
+        files = {'bootstrap': b'bootstrap', 'compose': b'compose',
+                 'feature_media': b'media', 'unit': b'unit', 'caddy': b'caddy'}
+        with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
+            stack.enter_context(patch.object(release, 'RELEASES', Path(root)))
+            stack.enter_context(patch.object(release, 'verify_no_ddl_candidate'))
+            stack.enter_context(patch.object(release, 'verify_previous_runtime'))
+            stack.enter_context(patch.object(release, 'readonly_schema_probe'))
+            stack.enter_context(patch.object(release, 'protected', return_value=b'previous'))
+            writes = stack.enter_context(patch.object(release, 'atomic'))
+            stack.enter_context(patch.object(release, 'fsync_directory'))
+            stack.enter_context(patch.object(release, 'verify_qa_head', side_effect=release.Rejected('head moved')))
+            caddy = stack.enter_context(patch.object(release, 'caddy_config'))
+            stop = stack.enter_context(patch.object(release, 'run'))
+            closed = stack.enter_context(patch.object(release, 'fail_closed'))
+            with self.assertRaises(release.Rejected):
+                release.deploy_no_ddl(value, files, 'caddy-id')
+            self.assertTrue(any(call.args[0].name == 'consumed.json' for call in writes.call_args_list))
+            caddy.assert_not_called()
+            stop.assert_not_called()
+            closed.assert_not_called()
+
     def test_event_publication_verification_requires_exact_aggregate(self):
         value = fixture()
         value['verification_runs'] = {name: index for index, name in enumerate(sorted(release.NEW_WORKFLOWS), 1)}

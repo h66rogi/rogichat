@@ -47,6 +47,8 @@ ARTIFACTS = {
     'migration_entry': 'tools/operations/migrate_entry.mjs',
 }
 FEATURE_ARTIFACTS = {'media': 'infrastructure/runtime/compose.media.yaml'}
+SCHEMA_MANIFEST = 'apps/api/src/infrastructure/database/schema-manifest.ts'
+READONLY_PROBE = Path('/opt/rogichat/operations/backend_schema_readonly.mjs')
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
 NEW_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml',
                  'mobile.yml', 'qa-backend-publication.yml'}
@@ -72,7 +74,8 @@ def selected_features(value):
 
 def artifacts_for(request):
     return {**ARTIFACTS, **{'feature_' + feature: FEATURE_ARTIFACTS[feature]
-                           for feature in selected_features(request.get('features', []))}}
+                           for feature in selected_features(request.get('features', []))},
+            **({'schema_manifest': SCHEMA_MANIFEST} if request.get('migration_policy') == 'verify-only' else {})}
 
 
 def image_roles(request):
@@ -85,8 +88,22 @@ def validate_request(value):
               'previous_caddy_sha256', 'request_id', 'expires_at'}
     require(type(value) is dict)
     features = selected_features(value.get('features', []))
-    optional = ({'features'} if 'features' in value else set()) | ({'decoder_image'} if 'media' in features else set())
+    no_ddl = value.get('migration_policy') == 'verify-only'
+    no_ddl_fields = {'migration_policy', 'schema_sha256', 'probe_sha256', 'ca_sha256', 'previous'}
+    optional = ({'features'} if 'features' in value else set()) | ({'decoder_image'} if 'media' in features else set()) | (no_ddl_fields if no_ddl else set())
     require(set(value) in (fields | optional, fields | optional | {'archive'}) and value['environment'] == 'qa')
+    if no_ddl:
+        # A separate operator action is required at the CLI. The automatic
+        # release helper never accepts this legacy publication contract.
+        require(features == ['media'] and 'archive' in value
+                and set(value['verification_runs']) == WORKFLOWS)
+        require(all(type(value[key]) is str and HASH.fullmatch(value[key])
+                    for key in ('schema_sha256', 'probe_sha256', 'ca_sha256')))
+        previous = value['previous']
+        require(type(previous) is dict and set(previous) == {'source_sha', 'runtime_id', 'decoder_id'}
+                and type(previous['source_sha']) is str and SHA.fullmatch(previous['source_sha'])
+                and all(type(previous[key]) is str and re.fullmatch(r'sha256:[a-f0-9]{64}', previous[key])
+                        for key in ('runtime_id', 'decoder_id')))
     require(('decoder_image' in value) == ('media' in features))
     if 'archive' in value:
         archive = value['archive']
@@ -247,6 +264,114 @@ def verify_release_images(request):
         require('media' not in selected_features(request.get('features', [])))
         for key in ('runtime_image', 'migration_image'):
             verify_image(request[key], request['source_sha'])
+
+
+def parse_schema_manifest(raw):
+    """Read only the static manifest grammar, never execute candidate TypeScript."""
+    require(0 < len(raw) <= 65536)
+    text = '\n'.join(line for line in raw.decode('utf-8').splitlines()
+                     if not line.lstrip().startswith('//'))
+    match = re.fullmatch(r'\s*export\s+const\s+migrationManifest\s*:\s*readonly\s*'
+                         r'\{\s*name\s*:\s*string\s*;\s*checksum\s*:\s*string\s*}\s*\[\]'
+                         r'\s*=\s*\[(.*)]\s*;\s*', text, re.DOTALL)
+    require(match is not None)
+    remaining, rows = match[1].strip(), []
+    while remaining:
+        row = re.match(r'\{([^{}]*)}\s*(,|$)', remaining)
+        require(row is not None)
+        fields = row[1].split(',')
+        require(len(fields) == 2)
+        value = {}
+        for field in fields:
+            item = re.fullmatch(r"\s*(name|checksum)\s*:\s*(['\"])([a-z0-9_]+)\2\s*", field)
+            require(item is not None and item[1] not in value)
+            value[item[1]] = item[3]
+        require(set(value) == {'name', 'checksum'})
+        rows.append(value)
+        require(len(rows) <= 100)
+        remaining = remaining[row.end():].strip()
+    return rows
+
+
+def verify_qa_head(source_sha):
+    ref = github_read('git/ref/heads/qa')
+    require(type(ref) is dict and ref.get('ref') == 'refs/heads/qa'
+            and ref.get('object', {}).get('sha') == source_sha)
+
+
+def verify_no_ddl_candidate(request, files):
+    require(request['migration_policy'] == 'verify-only'
+            and parse_schema_manifest(files['schema_manifest']) == request['migrations'])
+    # The one-time operator mode changes image identities only. It does not
+    # silently switch host runtime, media or ingress templates.
+    for key, target in [('compose', APP / 'compose.app.yaml'),
+                        ('feature_media', FEATURE_COMPOSE), ('unit', UNIT), ('caddy', CADDY)]:
+        require(digest(protected(target)) == digest(files[key]))
+    verify_qa_head(request['source_sha'])
+
+
+def verify_previous_runtime(request):
+    previous = request['previous']
+    expected_env = (f"ROGICHAT_API_IMAGE={previous['runtime_id']}\n"
+                    f"ROGICHAT_WORKER_IMAGE={previous['runtime_id']}\n"
+                    f"ROGICHAT_EDGE_NETWORK={request['edge_network']}\n"
+                    f"ROGICHAT_DECODER_IMAGE={previous['decoder_id']}\n").encode()
+    require(protected(IMAGES, mode=0o600) == expected_env)
+    for role in ('api', 'worker', 'decoder'):
+        require(run(['/usr/bin/systemctl', 'show', 'rogichat-app@' + role,
+                     '--property=ActiveState', '--value']).strip() == b'active')
+    baseline = {**request, 'archive': {**request['archive'],
+                'runtime_execution_id': previous['runtime_id'],
+                'decoder_execution_id': previous['decoder_id']}}
+    wait_health(baseline)
+    for role, image in (('api', previous['runtime_id']), ('worker', previous['runtime_id']),
+                        ('decoder', previous['decoder_id'])):
+        item = json.loads(docker('inspect', 'rogichat-qa-' + role))[0]
+        require(item['Name'] == '/rogichat-qa-' + role and item['Image'] == image
+                and item['Config']['Image'] == image
+                and item['Config']['Labels'].get('org.opencontainers.image.revision') == previous['source_sha']
+                and item['Config']['Labels'].get('org.opencontainers.image.source') == SOURCE)
+        local = json.loads(docker('image', 'inspect', image))[0]
+        require(local['Id'] == image and local['Os'] == 'linux' and local['Architecture'] == 'amd64'
+                and local['Config']['User'] == '10001:10001'
+                and local['Config']['Labels'].get('org.opencontainers.image.revision') == previous['source_sha'])
+
+
+def readonly_schema_probe(request):
+    require(digest(protected(READONLY_PROBE)) == request['probe_sha256'])
+    require(digest(protected(CA)) == request['ca_sha256'])
+    protected(RUNTIME_SECRET, mode=0o440)
+    image = request['previous']['runtime_id']
+    local = json.loads(docker('image', 'inspect', image))[0]
+    require(local['Id'] == image and local['Os'] == 'linux' and local['Architecture'] == 'amd64'
+            and local['Config']['User'] == '10001:10001'
+            and local['Config']['Labels'].get('org.opencontainers.image.revision') == request['previous']['source_sha']
+            and local['Config']['Labels'].get('org.opencontainers.image.source') == SOURCE)
+    name = 'rogichat-qa-schema-' + str(uuid.uuid4())
+    with tempfile.TemporaryDirectory(prefix='rogichat-schema-', dir='/var/tmp') as temporary:
+        approval = Path(temporary) / 'policy.json'
+        approval.write_text(json.dumps({key: request[key] for key in
+                            ('environment', 'database_host_sha256', 'schema_sha256', 'migrations')}))
+        approval.chmod(0o444)
+        mounts = [(READONLY_PROBE, '/run/probe/probe.mjs'),
+                  (approval, '/run/probe/policy.json'),
+                  (RUNTIME_SECRET, '/run/secrets/database.json'),
+                  (CA, '/run/secrets/rds-ca.pem')]
+        args = ['run', '--rm', '--pull', 'never', '--name', name, '--entrypoint', 'node',
+                '--user', '10001:10001', '--network', request['edge_network'],
+                '--read-only', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+                '--memory', '192m', '--pids-limit', '64', '--log-driver', 'none']
+        for source, target in mounts:
+            args.extend(['--mount', f'type=bind,src={source},dst={target},readonly'])
+        try:
+            result = json.loads(docker(*args, image, '/run/probe/probe.mjs', timeout=60))
+            require(result == {'schema': 'exact', 'schema_sha256': request['schema_sha256'],
+                               'runtime_grants': 'dml-only', 'migrations': request['migrations']})
+        finally:
+            ids = docker('ps', '-a', '--filter', 'name=^/' + name + '$', '--format', '{{.ID}}').decode().split()
+            require(len(ids) <= 1)
+            if ids:
+                docker('rm', '-f', name)
 
 
 def verify_media_secret(request):
@@ -414,6 +539,17 @@ def atomic(path, data, mode=0o644):
     finally:
         if os.path.exists(name):
             os.unlink(name)
+
+
+def fsync_directory(path):
+    fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    try:
+        metadata = os.fstat(fd)
+        require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0
+                and not metadata.st_mode & 0o022)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
 
 
 def caddy_config(container, data):
@@ -661,13 +797,64 @@ def deploy(request, files, container):
             cleanup_migration(name, secret_path)
 
 
+def deploy_no_ddl(request, files, container):
+    """Operator-only image replacement; the migrator image is never executed."""
+    require(request['migration_policy'] == 'verify-only')
+    verify_no_ddl_candidate(request, files)
+    verify_previous_runtime(request)
+    readonly_schema_probe(request)
+    backup = RELEASES / ('backup-' + request['request_id'])
+    backup.mkdir(mode=0o700)
+    for name, path in {'compose': APP / 'compose.app.yaml', 'feature_compose': FEATURE_COMPOSE,
+                       'images': IMAGES, 'unit': UNIT, 'caddy': CADDY}.items():
+        atomic(backup / name, protected(path), 0o600)
+    # Once consumed, a failed activation needs a new operator approval.
+    atomic(backup / 'consumed.json', json.dumps(request).encode(), 0o600)
+    fsync_directory(backup)
+    fsync_directory(backup.parent)
+    # A moving QA head before drain consumes this one-time request, but does
+    # not make a healthy incumbent fail closed when no host change began.
+    verify_qa_head(request['source_sha'])
+    try:
+        caddy_config(container, files['bootstrap'])
+        for role in ('decoder', 'worker', 'api'):
+            run(['/usr/bin/systemctl', 'stop', 'rogichat-app@' + role], timeout=40)
+        atomic(APP / 'compose.app.yaml', files['compose'])
+        atomic(FEATURE_COMPOSE, files['feature_media'])
+        image_env = (f"ROGICHAT_API_IMAGE={execution_image(request, 'runtime')}\n"
+                     f"ROGICHAT_WORKER_IMAGE={execution_image(request, 'runtime')}\n"
+                     f"ROGICHAT_EDGE_NETWORK={request['edge_network']}\n"
+                     f"ROGICHAT_DECODER_IMAGE={execution_image(request, 'decoder')}\n")
+        atomic(IMAGES, image_env.encode(), 0o600)
+        atomic(UNIT, files['unit'])
+        start_units(files['bootstrap'], request)
+        wait_health(request)
+        readonly_schema_probe(request)
+        verify_qa_head(request['source_sha'])
+        if compose_requires_vapid(files['compose']):
+            verify_live_vapid('qa')
+        require(get_caddy(request['edge_network']) == container)
+        caddy_config(container, files['caddy'])
+        for route in ('/live', '/ready', '/_infra/health'):
+            with urllib.request.urlopen('https://api.qa.rogi.chat' + route, timeout=10) as response:
+                require(response.status == 200 and response.geturl() == 'https://api.qa.rogi.chat' + route)
+        atomic(backup / 'completed', b'QA no-DDL runtime, schema and public route verified.\n', 0o600)
+    except BaseException:
+        fail_closed(container, files['bootstrap'], request)
+        raise
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--apply', action='store_true')
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument('--apply', action='store_true')
+    action.add_argument('--apply-no-ddl', action='store_true')
     args = parser.parse_args()
     require(os.geteuid() == 0)
     protected(Path(__file__).absolute())
     request = validate_request(json.loads(protected(REQUEST, mode=0o600)))
+    require(not args.apply_no_ddl or request.get('migration_policy') == 'verify-only')
+    require(not args.apply or request.get('migration_policy') != 'verify-only')
     release = RELEASES / request['source_sha']
     files = {key: protected(release / relative) for key, relative in artifacts_for(request).items()}
     require(all(digest(files[key]) == expected for key, expected in request['artifacts'].items()))
@@ -682,7 +869,11 @@ def main():
     verify_vapid_secret(files['compose'], execution_image(request, 'runtime'))
     container = get_caddy(request['edge_network'])
     require(not (RELEASES / ('backup-' + request['request_id'])).exists())
-    if not args.apply:
+    if request.get('migration_policy') == 'verify-only':
+        verify_no_ddl_candidate(request, files)
+        verify_previous_runtime(request)
+        readonly_schema_probe(request)
+    if not (args.apply or args.apply_no_ddl):
         print('QA release preflight verified; no app, DB or configuration changes made.')
         return
     fd = os.open(LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
@@ -696,12 +887,19 @@ def main():
         verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
         verify_vapid_secret(files['compose'], execution_image(request, 'runtime'))
         verify_media_secret(request)
+        if args.apply_no_ddl:
+            verify_no_ddl_candidate(request, files)
+            verify_previous_runtime(request)
+            readonly_schema_probe(request)
         def interrupt(*_):
             raise Rejected('interrupted')
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
             signal.signal(sig, interrupt)
-        deploy(request, files, container)
-    print('QA API and worker release verified; migration and public route gates passed.')
+        if args.apply_no_ddl:
+            deploy_no_ddl(request, files, container)
+        else:
+            deploy(request, files, container)
+    print('QA backend release verified; schema and public route gates passed.')
 
 
 if __name__ == '__main__':
