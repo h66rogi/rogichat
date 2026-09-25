@@ -18,39 +18,26 @@ struct AppShell<Content: View>: View {
     let onPop: ([AppPage], AppTab) -> Void
     @ViewBuilder let content: (AppPage) -> Content
 
+    private var selection: Binding<AppTab> { Binding(get: { navigation.tab }, set: { onTab($0) }) }
     var body: some View {
-        VStack(spacing: 0) {
-            stack(navigation.tab)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if navigation.path(for: navigation.tab).isEmpty {
-                footer
+        Group {
+            if #available(iOS 26.0, *) {
+                TabView(selection: selection) {
+                    Tab("대화", systemImage: "bubble.left.and.bubble.right.fill", value: AppTab.talks) { stack(.talks) }
+                    Tab("채널", systemImage: "music.note.house", value: AppTab.channel) { stack(.channel) }
+                    Tab("더보기", systemImage: "ellipsis", value: AppTab.settings) { stack(.settings) }
+                }
+            } else {
+                TabView(selection: selection) {
+                    stack(.talks).tabItem { Label("대화", systemImage: "bubble.left.and.bubble.right.fill") }.tag(AppTab.talks)
+                    stack(.channel).tabItem { Label("채널", systemImage: "music.note.house") }.tag(AppTab.channel)
+                    stack(.settings).tabItem { Label("더보기", systemImage: "ellipsis") }.tag(AppTab.settings)
+                }
             }
         }
         .tint(AppTheme.accent)
         .environment(\.foregroundEpoch, foreground.epoch)
         .onChange(of: scenePhase, initial: true) { _, phase in foreground.transition(phase == .active) }
-    }
-    private var footer: some View {
-        HStack(spacing: 0) {
-            tabButton(.talks, symbol: "bubble.left.and.bubble.right.fill", label: "채팅")
-            tabButton(.channel, symbol: "music.note.house", label: "채널")
-            tabButton(.settings, symbol: "ellipsis", label: "더보기")
-        }
-        .padding(.top, 11).padding(.bottom, 7)
-        .background(Color(uiColor: .systemBackground))
-        .overlay(alignment: .top) { Divider() }
-    }
-    private func tabButton(_ tab: AppTab, symbol: String, label: String) -> some View {
-        Button { onTab(tab) } label: {
-            Image(systemName: symbol)
-                .font(.system(size: 25, weight: .medium))
-                .foregroundStyle(navigation.tab == tab ? .primary : .secondary)
-                .frame(maxWidth: .infinity, minHeight: 42)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
-        .accessibilityAddTraits(navigation.tab == tab ? .isSelected : [])
     }
     private func stack(_ tab: AppTab) -> some View {
         NavigationStack(path: Binding(get: { navigation.path(for: tab) }, set: { onPop($0, tab) })) {
