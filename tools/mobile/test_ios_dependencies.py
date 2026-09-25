@@ -159,6 +159,7 @@ class IOSDependenciesTests(unittest.TestCase):
                 patch.object(release_ios, "new_output", return_value=self.root / "output"), \
                 patch.object(release_ios, "run", side_effect=StopBeforeSDK()) as run:
             apple.return_value.signing_args.return_value = ["-allowProvisioningUpdates"]
+            (self.root / "output").mkdir()
             with self.assertRaises(StopBeforeSDK):
                 release_ios.archive(cfg, 12, "0.1.0")
             apple.return_value.bundle.assert_called_once_with()
@@ -175,6 +176,7 @@ class IOSDependenciesTests(unittest.TestCase):
         self.assertNotIn("CODE_SIGNING_ALLOWED=NO", command)
         self.assertNotIn("-allowProvisioningUpdates", command)
         self.assertEqual(command[-1], "archive")
+        self.assertEqual(Path(run.call_args.kwargs["env"]["TMPDIR"]), (self.root / "output/.qa-temp").resolve())
 
     def test_generated_profile_mapping_is_owned_only_by_application_configurations(self):
         root = Path(__file__).resolve().parents[2]

@@ -2,8 +2,10 @@
 from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
+import os
 from pathlib import Path
 import subprocess
+import tempfile
 import unittest
 from unittest.mock import patch
 
@@ -91,7 +93,7 @@ class CallbackSigningTests(unittest.TestCase):
     def test_actual_extracted_certificate_is_bound_and_temporary_files_are_removed(self):
         captured = []
         def run(command, **kwargs):
-            captured.append(command)
+            captured.append((command, kwargs))
             # codesign takes an optional value only with '='; a separate value
             # is interpreted as another input path, not an output prefix.
             self.assertNotIn("--extract-certificates", command)
@@ -101,11 +103,24 @@ class CallbackSigningTests(unittest.TestCase):
                 self.assertEqual(command[-1], "unit-app")
                 Path(extracts[0].split("=", 1)[1] + "0").write_bytes(self.certificate)
             return b""
-        with patch.object(guard, "_run", side_effect=run), patch.object(guard, "_plist", side_effect=[self.signed, self.profile]):
-            guard.inspect_signed_callback("unit-app", b"unit-profile", self.cfg)
-        self.assertEqual(captured[0], ["codesign", "--verify", "--strict", "unit-app"])
-        prefix = next(arg.split("=", 1)[1] for arg in captured[-1] if arg.startswith("--extract-certificates="))
-        self.assertFalse(Path(prefix).parent.exists())
+        with tempfile.TemporaryDirectory() as directory:
+            temporary_root = Path(directory)
+            with patch.object(guard, "_run", side_effect=run), patch.object(guard, "_plist", side_effect=[self.signed, self.profile]) as plist:
+                guard.inspect_signed_callback("unit-app", b"unit-profile", self.cfg, temporary_root=temporary_root)
+            self.assertEqual(captured[0][0], ["codesign", "--verify", "--strict", "unit-app"])
+            self.assertTrue(all(kwargs["temporary_root"] == temporary_root for _, kwargs in captured))
+            self.assertTrue(all(call.kwargs["temporary_root"] == temporary_root for call in plist.call_args_list))
+            prefix = next(arg.split("=", 1)[1] for arg in captured[-1][0] if arg.startswith("--extract-certificates="))
+            self.assertEqual(Path(prefix).parent.parent, temporary_root)
+            self.assertFalse(Path(prefix).parent.exists())
+
+    def test_signed_inspection_child_inherits_external_temp_path(self):
+        original_temp = os.environ.get("TMPDIR")
+        with tempfile.TemporaryDirectory() as directory, patch.object(guard.subprocess, "run") as child:
+            child.return_value = subprocess.CompletedProcess(["codesign"], 0, b"verified", b"")
+            self.assertEqual(guard._run(["codesign", "--verify"], temporary_root=Path(directory)), b"verified")
+            self.assertEqual(child.call_args.kwargs["env"]["TMPDIR"], directory)
+        self.assertEqual(os.environ.get("TMPDIR"), original_temp)
 
     def test_inspector_timeout_suppresses_command_details(self):
         with patch.object(guard.subprocess, "run", side_effect=subprocess.TimeoutExpired(["not-public"], 60)):
