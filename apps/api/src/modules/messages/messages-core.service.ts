@@ -20,13 +20,14 @@ import { projectMessageDto } from './message-projection.js';
 import { RoomMediaCoreService } from '../media/room-media-core.service.js';
 import { StickersCoreService } from '../stickers/stickers-core.service.js';
 import type { MessageReadModel } from './message-projection.js';
+import { MessagesQueryService } from './messages-query.service.js';
 
 // Transaction-scoped domain operations. Does not own a pool, session, request, or transaction.
 // HTTP admission belongs to MessagesService; workers use explicit trusted transaction ports.
 @Injectable()
 export class MessagesCoreService {
   constructor(@Inject(MessagesRepository) private readonly repository: MessagesRepository,
-    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService, @Inject(StickersCoreService) private readonly stickers: StickersCoreService, @Inject(MessageEligibilityService) private readonly eligibility: MessageEligibilityService) {}
+    @Inject(AccessService) private readonly access: AccessService, @Inject(JobsCoreService) private readonly jobs: JobsCoreService, @Inject(RoomStateService) private readonly roomState: RoomStateService, @Inject(RoomMediaCoreService) private readonly roomMedia: RoomMediaCoreService, @Inject(StickersCoreService) private readonly stickers: StickersCoreService, @Inject(MessageEligibilityService) private readonly eligibility: MessageEligibilityService, @Inject(MessagesQueryService) private readonly queries: MessagesQueryService) {}
 
   load(tx: Transaction, roomId: string, messageId: string) { return this.repository.load(tx, roomId, messageId); }
 
@@ -50,14 +51,14 @@ export class MessagesCoreService {
 
   async project(tx: Transaction, viewer: ActiveMember, row: MessageRow) {
     if (!await this.readable(tx, viewer, row)) throw new ApiError('NOT_FOUND', 404);
-    let quote: { id: string; content: { type: 'TEXT'; text: string } } | null = null;
+    let quote: { id: string; authorName: string; content: { type: 'TEXT'; text: string } } | null = null;
     if (row.quote_id && !row.deletion_root_id) {
       const source = await this.load(tx, row.room_id, row.quote_id);
       const sameAudience = source && (source.stream_kind === 'ROOM_SHARED' || source.stream_id === row.stream_id ||
         row.stream_kind === 'RESTRICTED' && source.sender_member_id !== row.sender_member_id &&
         Boolean(await this.repository.quotePair(tx, row.room_id, row.stream_id, row.sender_member_id, source.sender_member_id)));
       if (source && sameAudience && await this.readable(tx, viewer, source) && source.content_kind === 'TEXT' && source.text_content !== null) {
-        quote = { id: source.id, content: { type: 'TEXT', text: source.text_content } };
+        quote = { id: source.id, authorName: source.deletion_root_id ? '공개된 메시지' : source.nickname || '사용자', content: { type: 'TEXT', text: source.text_content } };
       }
     }
     let content: MessageReadModel['content'];
@@ -68,7 +69,8 @@ export class MessagesCoreService {
       content = { type: row.content_kind, attachments: attachments.map(a => ({ assetId: String(a.id), width: Number(a.width), height: Number(a.height), variant: String(a.variant) })) };
     } else throw new ApiError('NOT_FOUND', 404);
     const hints = (await this.eligibility.project(tx, viewer, [row.id])).get(row.id)!;
-    return projectMessageDto({ ...hints, id: row.id, version: String(row.version), createdAt: row.created_at,
+    const reactions = (await this.queries.reactions(tx, viewer, [row.id])).get(row.id)!;
+    return projectMessageDto({ ...hints, reactions, id: row.id, version: String(row.version), createdAt: row.created_at,
       audience: row.stream_kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
       author: row.deletion_root_id ? { kind: 'anonymous' } : { kind: 'member', actorId: row.sender_member_id, nickname: row.nickname ?? '사용자', avatar: row.avatar_id ? { assetId: row.avatar_id } : null }, content, quote });
   }

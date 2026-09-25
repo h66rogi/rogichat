@@ -85,9 +85,10 @@ test('GET snapshot history event parity and equal-version stale action refresh u
   const f = fixture();
   const row = { ...f.message, version: '7', created_order: '1', created_at: new Date('2026-09-20T00:00:00Z'), stream_kind: 'RESTRICTED',
     kind: 'RESTRICTED', quote_id: null, avatar_id: null, nickname: '사용자', blocked: 0 };
-  const core = new MessagesCoreService({}, {}, {}, {}, {}, {}, f.service);
+  const reactionQuery = { reactions: async () => new Map([[row.id, { counts: [], mine: null }]]) };
+  const core = new MessagesCoreService({}, {}, {}, {}, {}, {}, f.service, reactionQuery);
   core.readable = async tx => { assert.equal(tx, f.tx); return true; };
-  const query = new MessagesQueryService({ page: async tx => { assert.equal(tx, f.tx); return [row]; } }, f.service);
+  const query = new MessagesQueryService({ page: async tx => { assert.equal(tx, f.tx); return [row]; }, reactions: async () => new Map([[row.id, { counts: [], mine: null }]]) }, f.service, { blockedActors: async () => [] });
   const original = await core.project(f.tx, f.viewer, row);
   for (const window of [{ kind: 'snapshot', from: '1' }, { kind: 'history', from: '2' }, { kind: 'events', from: '0', high: '1' }]) {
     const page = await query.page(f.tx, f.viewer, window, 10); assert.deepEqual(page.items[0].message, original);

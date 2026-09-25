@@ -15,7 +15,7 @@ test('message mapper preserves the legacy DTO, bigint precision, text null and n
   assert.deepEqual(projectMessageDto(model()), {
     id: 'message-fixture', version: '18446744073709551615', createdAt: '2026-01-01T01:02:03.004Z', audience: 'PRIVATE',
     author: { kind: 'member', actorId: 'room-scoped-actor', nickname: '합성 사용자', avatar: null },
-    content: { type: 'TEXT', text: '합성 본문' }, quote: null, counterpart: null, allowedActions: { reply: false, publish: false, delete: false },
+    content: { type: 'TEXT', text: '합성 본문' }, quote: null, reactions: { counts: [], mine: null }, counterpart: null, allowedActions: { reply: false, publish: false, delete: false },
   });
   const nullable = projectMessageDto(model({ version: '12', content: { type: 'TEXT', text: null },
     author: { kind: 'member', actorId: 'actor', nickname: null, avatar: { assetId: 'avatar' } } }));
@@ -35,8 +35,8 @@ test('anonymous projection drops identity and allowlists fields at every nested 
   const result = projectMessageDto(input);
   assert.deepEqual(result.author, { kind: 'anonymous' });
   assert.deepEqual(result.content, { type: 'TEXT', text: '공개 본문' });
-  assert.deepEqual(result.quote, { id: 'visible-quote', content: { type: 'TEXT', text: '열람 가능 인용' } });
-  assert.deepEqual(Object.keys(result), ['id', 'version', 'createdAt', 'audience', 'counterpart', 'allowedActions', 'author', 'content', 'quote']);
+  assert.deepEqual(result.quote, { id: 'visible-quote', authorName: '사용자', content: { type: 'TEXT', text: '열람 가능 인용' } });
+  assert.deepEqual(Object.keys(result), ['id', 'version', 'createdAt', 'audience', 'counterpart', 'allowedActions', 'author', 'content', 'reactions', 'quote']);
   assert.equal(JSON.stringify(result).includes('private-'), false);
 });
 

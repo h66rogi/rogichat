@@ -11,7 +11,8 @@ export const message: Schema = object({
   author: { oneOf: [object({ kind: enumeration('anonymous') }), object({ kind: enumeration('member'), actorId: uuid, nickname: text, avatar })] },
   content: { oneOf: [textContent, object({ type: enumeration('PHOTO', 'VIDEO'), attachments: array(attachment) }),
     object({ type: enumeration('STICKER'), stickerId: uuid, assetId: uuid, width: integer, height: integer })] },
-  quote: nullable(object({ id: uuid, content: object({ type: enumeration('TEXT'), text }) })),
+  reactions: object({ counts: array(object({ emoji: text, count: { ...integer, minimum: 1 } })), mine: nullable(text) }),
+  quote: nullable(object({ id: uuid, authorName: text, content: object({ type: enumeration('TEXT'), text }) })),
 });
 const inputContent: Schema = { oneOf: [
   object({ type: enumeration('TEXT'), text: { type: 'string', minLength: 1, maxLength: 4000, description: 'NFC 정규화 후 비공백, 최대 4,000 코드포인트 및 UTF-8 16,384 bytes. NUL 금지.' } }),

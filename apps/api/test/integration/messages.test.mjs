@@ -98,7 +98,7 @@ test('same-key concurrent commands and API restart return one durable message, e
   assert.equal(stored.receipts[0].payload_digest.length, 32);
   for (const records of [stored.receipts, stored.events, stored.jobs]) assert.ok(!JSON.stringify(records).includes(body.content.text));
   const view = await f.get(f.fan1, ack.messageId); assert.equal(view.status, 200);
-  assert.deepEqual(keys(view.body), ['allowedActions', 'audience', 'author', 'content', 'counterpart', 'createdAt', 'id', 'quote', 'version']);
+  assert.deepEqual(keys(view.body), ['allowedActions', 'audience', 'author', 'content', 'counterpart', 'createdAt', 'id', 'quote', 'reactions', 'version']);
   assert.deepEqual(keys(view.body.author), ['actorId', 'avatar', 'kind', 'nickname']);
   for (const forbidden of [f.owner.id, body.clientMessageId, stored.messages[0].stream_id]) assert.ok(!JSON.stringify(view.body).includes(forbidden));
 });
@@ -149,6 +149,7 @@ test('quotes cannot widen private audiences and deleting a source removes copied
   const reply = await f.send(f.owner, { ...f.command('독립 답장', 'PRIVATE', f.fan1.actor), quoteId });
   assert.equal(reply.status, 200);
   assert.equal((await f.get(f.fan1, reply.body.messageId)).body.quote.content.text, '원본 비밀');
+  assert.equal((await f.get(f.fan1, reply.body.messageId)).body.quote.authorName, '합성 팬 하나');
   const deletion = await f.remove(f.fan1, quoteId); assert.equal(deletion.status, 200);
   const view = await f.get(f.owner, reply.body.messageId);
   assert.equal(view.status, 200); assert.equal(view.body.quote, null); assert.equal(view.body.content.text, '독립 답장');

@@ -297,6 +297,23 @@ test('real chat keeps IME and pending focus, surfaces failure and retries the sa
   await expect(page.getByRole('button', { name: '첨부 메뉴 열기' })).toBeVisible();
 });
 
+test('reaction counts render with the timeline and a named quote jumps to its source', async ({ page }) => {
+  const { state } = await chatApi(page);
+  const source = { ...incoming, reactions: { counts: [{ emoji: '👍', count: 2 }], mine: '👍' } };
+  const reply = { ...incoming, id: '66666666-6666-4666-8666-666666666666', createdAt: '2026-09-20T01:01:00.000Z',
+    quote: { id: source.id, authorName: '테스트 스트리머', content: { type: 'TEXT' as const, text: source.content.text } },
+    reactions: { counts: [], mine: null }, content: { type: 'TEXT' as const, text: '답장 본문' } };
+  state.messages = [source, reply];
+  let reactionReads = 0;
+  page.on('request', request => { if (request.url().includes('/reactions')) reactionReads++; });
+  await page.goto('/chat');
+  const sourceRow = page.locator(`[data-item-id="${source.id}"]`);
+  await expect(sourceRow.getByTestId('chat-reaction-trigger')).toContainText('👍2');
+  expect(reactionReads).toBe(0);
+  await page.getByRole('button', { name: '테스트 스트리머님의 원본 메시지로 이동' }).click();
+  await expect(sourceRow).toBeFocused();
+});
+
 test('empty state is truthful, snapshot failure offers retry, and keyboard view is accessible', async ({ page }) => {
   const { state } = await chatApi(page); state.messages = []; state.failSnapshot = true;
   await page.goto('/chat'); await expect(page.getByRole('alert').filter({ hasText: '메시지를 불러오지 못했습니다' })).toBeVisible();

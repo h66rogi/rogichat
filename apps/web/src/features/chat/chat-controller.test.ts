@@ -161,7 +161,7 @@ void test('actual DTO mapping does not guess private recipient, quote author, av
   const item = projectMessages([dto], '00000000-0000-4000-8000-000000000002', [])[0]!;
   assert.equal(item.kind, 'message'); if (item.kind !== 'message') return;
   assert.equal(item.recipient, undefined); assert.equal(item.author.role, undefined);
-  assert.equal(item.author.avatarUrl, null); assert.equal(item.quote?.authorName, '인용 메시지'); assert.equal(item.status, 'saved');
+  assert.equal(item.author.avatarUrl, null); assert.equal(item.quote?.authorName, '사용자'); assert.equal(item.status, 'saved');
   const publication = projectMessages([{ ...source(), audience: 'SHARED', author: { kind: 'anonymous' }, counterpart: null, allowedActions: { reply: false, publish: false, delete: true } }], '00000000-0000-4000-8000-000000000002', [])[0]!;
   assert.equal(publication.kind, 'publication'); assert.equal('author' in publication, false); assert.equal('quote' in publication, false);
 });

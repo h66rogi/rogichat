@@ -1,4 +1,5 @@
 import type { ChatActorRef, ChatTimelineItem } from './types';
+import { reactionSummary, type ReactionSummary } from './reactions';
 
 export type ChatRequest = (path: string, options?: { method?: 'POST' | 'PUT' | 'DELETE'; body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
 export interface RoomMembership { roomId: string; name: string; actorId: string; role: 'FAN' | 'STREAMER'; mode: 'FAN'; membershipScope: string; authorizationRevision: string }
@@ -6,7 +7,8 @@ export interface ServerMessage {
   id: string; version: string; createdAt: string; audience: 'SHARED' | 'PRIVATE';
   author: { kind: 'anonymous' } | { kind: 'member'; actorId: string; nickname: string; avatar: { assetId: string } | null };
   content: { type: 'TEXT'; text: string | null } | { type: 'PHOTO' | 'VIDEO'; attachments: { assetId: string; width: number; height: number; variant: string }[] } | { type: 'STICKER'; stickerId: string; assetId: string; width: number; height: number };
-  quote: { id: string; content: { type: 'TEXT'; text: string } } | null;
+  quote: { id: string; authorName?: string; content: { type: 'TEXT'; text: string } } | null;
+  reactions?: ReactionSummary;
   counterpart: { actorId: string } | null;
   allowedActions: { reply: boolean; publish: boolean; delete: boolean };
 }
@@ -70,7 +72,7 @@ export function actor(value: unknown): ChatActorRef | null {
   return { actorId: uuid(data.actorId), displayName: text(data.nickname), role: data.role, avatarUrl: null, ...(savedAvatar ? { avatarAssetId: savedAvatar.assetId } : {}), ...(data.providerAvatarAvailable === true ? { providerAvatarAvailable: true } : {}) };
 }
 export function message(value: unknown): ServerMessage {
-  const data = exact(value, ['id', 'version', 'createdAt', 'audience', 'author', 'content', 'quote', 'counterpart', 'allowedActions']);
+  const data = exact(value, ['id', 'version', 'createdAt', 'audience', 'author', 'content', 'quote', 'counterpart', 'allowedActions'], ['reactions']);
   const author = record(data.author); const content = record(data.content);
   const createdAt = string(data.createdAt);
   if (!/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(createdAt) || !Number.isFinite(Date.parse(createdAt)) || new Date(createdAt).toISOString() !== createdAt || !['SHARED', 'PRIVATE'].includes(String(data.audience))) throw new Error('INVALID_RESPONSE');
@@ -82,11 +84,11 @@ export function message(value: unknown): ServerMessage {
   else if (content.type === 'PHOTO' || content.type === 'VIDEO') { exact(content, ['type', 'attachments']); parsedContent = { type: content.type, attachments: list(content.attachments).map(value => { const a = exact(value, ['assetId', 'width', 'height', 'variant']); return { assetId: uuid(a.assetId), width: integer(a.width), height: integer(a.height), variant: text(a.variant) }; }) }; }
   else { exact(content, ['type', 'stickerId', 'assetId', 'width', 'height']); if (content.type !== 'STICKER') throw new Error('INVALID_RESPONSE'); parsedContent = { type: 'STICKER', stickerId: uuid(content.stickerId), assetId: uuid(content.assetId), width: integer(content.width), height: integer(content.height) }; }
   let quote: ServerMessage['quote'] = null;
-  if (data.quote !== null) { const source = exact(data.quote, ['id', 'content']); const quoted = exact(source.content, ['type', 'text']); if (quoted.type !== 'TEXT') throw new Error('INVALID_RESPONSE'); quote = { id: uuid(source.id), content: { type: 'TEXT', text: text(quoted.text) } }; }
+  if (data.quote !== null) { const source = exact(data.quote, ['id', 'content'], ['authorName']); const quoted = exact(source.content, ['type', 'text']); if (quoted.type !== 'TEXT') throw new Error('INVALID_RESPONSE'); quote = { id: uuid(source.id), ...(source.authorName === undefined ? {} : { authorName: text(source.authorName) }), content: { type: 'TEXT', text: text(quoted.text) } }; }
   const counterpart = data.counterpart === null ? null : { actorId: uuid(exact(data.counterpart, ['actorId']).actorId) };
   if (data.audience === 'SHARED' && counterpart !== null) throw new Error('INVALID_RESPONSE');
   const actions = exact(data.allowedActions, ['reply', 'publish', 'delete']);
-  return { id: uuid(data.id), version: version(data.version), createdAt, audience: data.audience as 'SHARED' | 'PRIVATE', author: parsedAuthor, content: parsedContent, quote, counterpart, allowedActions: { reply: bool(actions.reply), publish: bool(actions.publish), delete: bool(actions.delete) } };
+  return { id: uuid(data.id), version: version(data.version), createdAt, audience: data.audience as 'SHARED' | 'PRIVATE', author: parsedAuthor, content: parsedContent, quote, counterpart, ...(data.reactions === undefined ? {} : { reactions: reactionSummary(data.reactions) }), allowedActions: { reply: bool(actions.reply), publish: bool(actions.publish), delete: bool(actions.delete) } };
 }
 export type MessageEvent = { type: 'message.upsert'; message: ServerMessage } | { type: 'message.deleted'; messageId: string; version: string };
 export function event(value: unknown): MessageEvent { const data = record(value); if (data.type === 'message.deleted') { exact(data, ['type', 'messageId', 'version']); return { type: 'message.deleted', messageId: uuid(data.messageId), version: version(data.version) }; } exact(data, ['type', 'message']); if (data.type !== 'message.upsert') throw new Error('INVALID_RESPONSE'); return { type: 'message.upsert', message: message(data.message) }; }
@@ -109,13 +111,13 @@ export function projectMessages(messages: readonly ServerMessage[], viewerId: st
       : content.type === 'STICKER' ? { type: 'STICKER' as const, revision: item.version, assets: [{ assetId: content.assetId, width: content.width, height: content.height }], stickerId: content.stickerId } : undefined;
     if (!media && (content.type !== 'TEXT' || content.text === null)) return { kind: 'unsupported', id: item.id, scope: item.audience, createdAt: item.createdAt, allowedActions: item.allowedActions };
     const body = content.type === 'TEXT' ? content.text! : '';
-    if (item.author.kind === 'anonymous') return { kind: 'publication', id: item.id, body, createdAt: item.createdAt, allowedActions: item.allowedActions, ...(media ? { media } : {}) };
+    if (item.author.kind === 'anonymous') return { kind: 'publication', id: item.id, body, createdAt: item.createdAt, allowedActions: item.allowedActions, ...(item.reactions ? { reactions: item.reactions } : {}), ...(media ? { media } : {}) };
     const author = item.author;
     const recipient = profiles.find(p => p.actorId === item.counterpart?.actorId);
-    return { kind: 'message', id: item.id, scope: item.audience, createdAt: item.createdAt, body, allowedActions: item.allowedActions, ...(media ? { media } : {}),
+    return { kind: 'message', id: item.id, scope: item.audience, createdAt: item.createdAt, body, allowedActions: item.allowedActions, ...(item.reactions ? { reactions: item.reactions } : {}), ...(media ? { media } : {}),
       ...(recipient ? { recipient } : {}), counterpartActorId: item.counterpart?.actorId ?? null,
       author: { actorId: author.actorId, displayName: author.nickname, avatarUrl: null, ...(author.avatar ? { avatarAssetId: author.avatar.assetId } : {}), ...(profiles.find(p => p.actorId === author.actorId)?.providerAvatarAvailable ? { providerAvatarAvailable: true } : {}), role: profiles.find(p => p.actorId === author.actorId)?.role }, isOwn: author.actorId === viewerId, status: 'saved',
-      ...(item.quote ? { quote: { messageId: item.quote.id, authorName: '인용 메시지', excerpt: item.quote.content.text } } : {}) };
+      ...(item.quote ? { quote: { messageId: item.quote.id, authorName: item.quote.authorName ?? '사용자', excerpt: item.quote.content.text } } : {}) };
   });
 }
 export const displayOrder = (a: ServerMessage, b: ServerMessage): number => a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;

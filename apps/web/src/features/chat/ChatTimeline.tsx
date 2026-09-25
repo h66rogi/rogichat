@@ -64,6 +64,32 @@ export function ChatTimeline({
   const previousOutgoingRef = useRef<readonly string[] | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [unseenCount, setUnseenCount] = useState(0);
+  const [quoteTarget, setQuoteTarget] = useState<string | null>(null);
+  const [quoteNotice, setQuoteNotice] = useState('');
+
+  const navigateQuote = useCallback((messageId: string) => {
+    setQuoteNotice('');
+    setQuoteTarget(messageId);
+  }, []);
+
+  useEffect(() => {
+    if (!quoteTarget || isLoadingOlder) return;
+    const row = [...(viewportRef.current?.querySelectorAll<HTMLElement>('[data-item-id]') ?? [])]
+      .find(item => item.dataset.itemId === quoteTarget);
+    if (row) {
+      row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      row.focus({ preventScroll: true });
+      // The DOM row exists only after the requested history page has committed.
+      setQuoteTarget(null);
+    } else if (hasOlder && onLoadOlder) {
+      void onLoadOlder();
+    } else {
+      // Exhausted history is known only after checking the newly rendered rows.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setQuoteNotice('원본 메시지가 현재 볼 수 있는 기록에 없습니다.');
+      setQuoteTarget(null);
+    }
+  }, [quoteTarget, items, hasOlder, isLoadingOlder, onLoadOlder]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
     const el = viewportRef.current;
@@ -177,6 +203,7 @@ export function ChatTimeline({
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring"
         data-testid="chat-timeline"
       >
+        {quoteNotice && <p role="status" className="sticky top-0 z-10 bg-surface-soft px-4 py-2 text-sm text-body">{quoteNotice}</p>}
         <ol className="flex min-h-full flex-col py-2">
           {(hasOlder || isLoadingOlder) && (
             <li className="flex justify-center py-2">
@@ -209,8 +236,8 @@ export function ChatTimeline({
                 <span className="h-px flex-1 bg-line-subtle" aria-hidden="true" />
               </li>
             ) : (
-              <li key={entry.item.id} data-item-id={entry.item.id} data-testid="chat-timeline-item">
-                <ChatMessageItem item={entry.item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} />
+              <li key={entry.item.id} data-item-id={entry.item.id} data-testid="chat-timeline-item" tabIndex={-1} className="focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-chat-accent">
+                <ChatMessageItem item={entry.item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} onQuoteNavigate={navigateQuote} />
               </li>
             ),
           )}

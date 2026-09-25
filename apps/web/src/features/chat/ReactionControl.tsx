@@ -3,12 +3,13 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import { SmilePlus } from 'lucide-react';
 import { Popover } from 'radix-ui';
 import type { ChatController, ChatState } from './chat-controller';
+import type { ReactionSummary } from './reactions';
 
 export const ReactionContext = createContext<{ controller: ChatController; reactions: ChatState['reactions']; reactionRevision: number } | null>(null);
 const choices = [['👍', '좋아요'], ['❤️', '하트'], ['😂', '웃음'], ['🎉', '축하'], ['😮', '놀람'], ['😢', '슬픔']] as const;
 
 /** The picker is a direct message action; the API returns anonymous aggregates only. */
-export function ReactionControl({ messageId }: { messageId: string }) {
+export function ReactionControl({ messageId, initialSummary }: { messageId: string; initialSummary?: ReactionSummary }) {
   const context = useContext(ReactionContext);
   const [open, setOpen] = useState(false);
   const state = context?.reactions[messageId];
@@ -16,12 +17,12 @@ export function ReactionControl({ messageId }: { messageId: string }) {
   const revision = context?.reactionRevision;
   useEffect(() => {
     // Updated message versions invalidate the aggregate; only an open picker rereads it.
-    if (open && !state && controller) void controller.react(messageId);
-  }, [open, state, controller, messageId, revision]);
+    if (open && !state && !initialSummary && controller) void controller.react(messageId);
+  }, [open, state, initialSummary, controller, messageId, revision]);
   if (!controller) return null;
-  const ready = state?.phase === 'ready';
+  const ready = state?.phase === 'ready' || (!state && initialSummary !== undefined);
   const busy = state?.phase === 'loading';
-  const summary = ready ? state.summary : null;
+  const summary = state?.phase === 'ready' ? state.summary : state?.phase === 'loading' || !state ? initialSummary : null;
   const counts = summary?.counts ?? [];
   const choose = (emoji: string) => {
     if (!ready || !summary) return;
@@ -31,10 +32,10 @@ export function ReactionControl({ messageId }: { messageId: string }) {
   return <div className="flex min-w-0 items-center gap-1">
     <Popover.Root open={open} onOpenChange={next => {
       setOpen(next);
-      if (next && !state) void controller.react(messageId);
+      if (next && !state && !initialSummary) void controller.react(messageId);
     }}>
       <Popover.Trigger asChild>
-        <button type="button" aria-label="메시지에 반응" aria-expanded={open} data-testid="chat-reaction-trigger" className="flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2 text-sm text-muted hover:bg-surface-soft hover:text-ink focus-visible:text-ink">
+        <button type="button" aria-label="메시지에 반응" aria-expanded={open} aria-busy={busy} data-testid="chat-reaction-trigger" className="flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full px-2 text-sm text-muted hover:bg-surface-soft hover:text-ink focus-visible:text-ink">
           {counts.length ? <span className="flex items-center gap-0.5" aria-hidden="true">{counts.slice(0, 3).map(({ emoji, count }) => <span key={emoji}>{emoji}<span className="text-xs">{count}</span></span>)}</span> : <SmilePlus className="size-4" aria-hidden="true" />}
           {summary?.mine && <span className="sr-only">내 반응: {summary.mine}</span>}
         </button>
