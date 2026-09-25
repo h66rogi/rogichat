@@ -86,6 +86,18 @@ struct ConversationScreen: View {
                     } action: { _, value in
                         atLatest = value; features?.observeVisible(visibleIDs.first, atLatest: value)
                     }
+                    .onScrollGeometryChange(for: CGSize.self) { $0.containerSize } action: { _, _ in
+                        if composing || showStickers { scrollToLatest(proxy) }
+                    }
+                    .onChange(of: composing) { _, focused in
+                        if focused { scrollToLatest(proxy) }
+                    }
+                    .onChange(of: model.draft) { _, _ in
+                        if composing { scrollToLatest(proxy) }
+                    }
+                    .onChange(of: showStickers) { _, open in
+                        if open { scrollToLatest(proxy) }
+                    }
                     .onChange(of: features?.move) { _, move in
                         switch move {
                         case .latest: withAnimation { proxy.scrollTo("conversation-bottom", anchor: .bottom) }
@@ -138,7 +150,7 @@ struct ConversationScreen: View {
             if let listing = model.listing { features?.projectionChanged(listing, history: model.loadingHistory) }
         }
         .onChange(of: model.active) { _, active in if !active { features?.close(); showActions = false; showMedia = false; showCamera = false; showStickers = false; showAttachments = false } }
-        .onChange(of: composing) { _, focused in if focused { showAttachments = false } }
+        .onChange(of: composing) { _, focused in if focused { showAttachments = false; showStickers = false } }
         .onAppear { visible = true }
         .onDisappear { visible = false }
         .task(id: scenePhase == .active) {
@@ -172,15 +184,14 @@ struct ConversationScreen: View {
         .alert("사진을 사용할 수 없어요", isPresented: $cameraError) {
             Button("확인", role: .cancel) {}
         } message: { Text("다시 촬영하거나 사진을 선택해 주세요.") }
-        .sheet(isPresented: $showStickers) {
-            if let features { NavigationStack {
-                StickerPicker(client: features.media) { content in
-                    if case .sticker(let id) = content { _ = try await model.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: id)); showStickers = false }
-                }.navigationTitle("스티커").toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { showStickers = false } } }
-            } }
-        }
         .sheet(isPresented: $showActions, onDismiss: { features?.dismissActions() }) {
             if let features, let token = features.token { ConversationActionsSheet(features: features, token: token, onClose: { showActions = false }) }
+        }
+    }
+    private func scrollToLatest(_ proxy: ScrollViewProxy) {
+        Task { @MainActor in
+            await Task.yield()
+            proxy.scrollTo("conversation-bottom", anchor: .bottom)
         }
     }
     private var composer: some View {
@@ -221,11 +232,19 @@ struct ConversationScreen: View {
                 .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 12).padding(.bottom, 8)
             }
+            if showStickers, let features {
+                StickerPicker(client: features.media, sending: model.sending) { sticker in
+                    _ = try await model.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: sticker.id))
+                }
+                .frame(height: 280)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             if showAttachments { attachmentTray.transition(.move(edge: .bottom).combined(with: .opacity)) }
             HStack(alignment: .bottom, spacing: 8) {
                 if features != nil {
                     Button {
                         composing = false
+                        showStickers = false
                         withAnimation(.easeInOut(duration: 0.2)) { showAttachments.toggle() }
                     } label: {
                         Image(systemName: showAttachments ? "xmark.circle.fill" : "plus.circle.fill")
@@ -242,12 +261,12 @@ struct ConversationScreen: View {
                         .submitLabel(.send)
                         .onSubmit { model.send() }
                         .accessibilityLabel("메시지 내용")
-                    if model.draft.isEmpty, features != nil {
-                        Button { composing = false; showAttachments = false; showStickers = true } label: {
-                            Image(systemName: "face.smiling")
+                    if features != nil {
+                        Button { toggleStickers() } label: {
+                            Image(systemName: showStickers ? "keyboard" : "face.smiling")
                                 .font(.system(size: 21))
                                 .frame(width: 42, height: 42)
-                        }.accessibilityLabel("스티커 선택")
+                        }.accessibilityLabel(showStickers ? "키보드 열기" : "스티커 선택")
                     }
                 }
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
@@ -267,6 +286,16 @@ struct ConversationScreen: View {
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .top) { Color(uiColor: .separator).opacity(0.35).frame(height: 0.5) }
     }
+    private func toggleStickers() {
+        if showStickers {
+            showStickers = false
+            composing = true
+        } else {
+            composing = false
+            showAttachments = false
+            withAnimation(.easeInOut(duration: 0.2)) { showStickers = true }
+        }
+    }
     private var attachmentTray: some View {
         HStack(spacing: 0) {
             attachmentAction("카메라", icon: "camera.fill",
@@ -285,7 +314,7 @@ struct ConversationScreen: View {
                     showMedia = true
                 }
             }
-            attachmentAction("스티커", icon: "face.smiling") { showStickers = true }
+            attachmentAction("스티커", icon: "face.smiling") { toggleStickers() }
         }
         .padding(.horizontal, 12).padding(.top, 14).padding(.bottom, 8)
         .background(Color(uiColor: .systemBackground))
