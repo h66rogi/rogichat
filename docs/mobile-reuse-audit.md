@@ -420,7 +420,7 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 
 | ID | 원본·대상 | 재사용과 변경 경계 |
 |---|---|---|
-| R74 | meloming-ios build 26 시점 `d133fb4`의 `Meloming/Presentation/More/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `Presentation/Common/Components/NotificationButton.swift`, `Presentation/Navigation/MainTabView.swift` → `Sources/Features/Settings/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `NotificationButton.swift`, `Sources/Core/Design/AppShell.swift` | **원본 코드 복사 후 계약 수정**: `MoreView`의 `moreListView`/`listSections`/로그인 행/고정 헤더/앱 정보와 `ServiceGridSection`의 행·타일 코드, `ServiceItem` 모델, 알림 버튼의 색상·크기 코드를 파일·구조 그대로 가져왔다. 상위 `NavigationStack`은 기존 `AppShell`이 소유하므로 중복하지 않고, Kingfisher/인증·채널·배지·웹뷰·개발자 도구의 멜로밍 전용 코드와 8번째 전체보기 슬롯은 로기챗 실기능이 없어 제거했다. 프로필/로그아웃/탭/알림/서비스 목적지만 로기챗 세션과 QA·Prod 실제 경로로 바꿨다. 활성 최신 소스의 `MyPageView`를 1.2.3 화면으로 간주하지 않는다. |
+| R74 | meloming-ios build 26 시점 `d133fb4`의 `Meloming/Presentation/More/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `Presentation/Common/Components/NotificationButton.swift`, `Presentation/Navigation/MainTabView.swift` → `Sources/Features/Settings/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `NotificationButton.swift`, `Sources/Core/Design/AppShell.swift` | **원본 코드 복사 후 계약 수정**: `MoreView`의 `moreListView`/`listSections`/로그인 행/고정 헤더/앱 정보와 `ServiceGridSection`의 행·타일 코드, `ServiceItem` 모델, 알림 버튼의 색상·크기 코드를 파일·구조 그대로 가져왔다. 상위 `NavigationStack`은 기존 `AppShell`이 소유하므로 중복하지 않고, Kingfisher/인증·채널·배지·웹뷰·개발자 도구의 멜로밍 전용 코드와 8번째 전체보기 슬롯은 로기챗 실기능이 없어 제거했다. 프로필/로그아웃/알림/서비스 목적지만 로기챗 세션과 QA·Prod 실제 경로로 바꿨다. 하단 탐색의 시각 구조는 R78의 대화 목록 요구에 따라 조정하고 `더보기` 목적지는 유지한다. 활성 최신 소스의 `MyPageView`를 1.2.3 화면으로 간주하지 않는다. |
 
 ## 채팅 재진입·반응·첨부 UX 개선 — 2026-09-26
 
@@ -448,3 +448,9 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | ID | 원본·대상 | 재사용과 변경 경계 |
 |---|---|---|
 | R83 | meloming-ios build 26 시점 `d133fb4`의 `Meloming/Presentation/More/MoreView.swift` 버전 탭 진입 코드와 `DeveloperToolsView.swift` → `Sources/Features/Settings/MoreView.swift`, `DeveloperToolsView.swift`; 기존 `SettingsScreen.swift`의 계정 권한 코드 재배치 | **원본 코드 복사 후 계약 수정**: 2초 간격 초기화·7회 버전 탭·시트 진입, 개발자 도구 `List`의 현재 설정·푸시 알림 행과 권한 상태 매핑을 복사했다. 로기챗의 QA/운영은 별도 빌드·자격 증명 영역이므로 런타임 서버 전환은 적용하지 않고 현재 빌드의 실제 URL만 표시한다. FCM 토큰과 수동 재등록은 로기챗의 APNs 계약에 없으므로 제거했다. `관리자` 임시 권한 도구는 서버 `/me` 권한으로 제한하여 이 화면에 옮기고, 일반 비밀번호 변경은 계정 관리 화면에 둔다. |
+
+## 모바일 대화 목록 정리
+
+| ID | 원본 commit/path | 대상 | 필요한 변경 |
+|---|---|---|---|
+| R84 | R40·R42의 Android `RoomsViewModel` StateFlow와 iOS `RoomsScreenModel` Loadable, R44·R45의 선택 대상 확인창. 원본 SHA는 R39–R43과 같다. | 양 OS 방 목록·대화 화면, iOS `AppShell`, Android `AppNavigationBar` | **기존 구현 수정 재사용**: 확인된 참여 목록과 명령 대상·cycle 검증은 유지한다. 재조회 중 목록을 보존하고 갱신 문구를 행에서 제거한다. 사용자 제공 카카오톡 화면의 상단 검색·새 대화·설정, 가로 필터, 원형 이미지 영역과 전체 행 대화 열기, 하단 탐색 구조를 실제 로기챗 기능에 맞춰 적용한다. QA의 채널 탭도 하단 탐색에 유지한다. `나가기`는 목록에서 제거하고 대화 화면 메뉴에서 원래 참여 권한을 다시 확인한 뒤 실행한다. 실제 계약에 없는 광고·읽지 않음 수·마지막 메시지와 시간은 생성하지 않는다. 멜로밍 Talk/TalkV2 화면은 사용자 제외 조건이므로 재사용하지 않는다. |

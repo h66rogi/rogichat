@@ -96,6 +96,23 @@ final class RoomsScreenModel {
         commandAction = intent.action; error = nil
         commandTask = Task { await self.finishCommand(intent, ticket: ticket) }
     }
+    func leaveConversation(_ selected: ConversationScope) async -> String? {
+        guard selected.account === scope,
+              let room = listing?.memberships.first(where: {
+                  $0.id == selected.room.id && $0.membershipScope == selected.room.membershipScope
+              }),
+              let intent = selection(roomID: room.id, roomName: room.name, displayedCycle: listing?.cycle,
+                                     action: .leave, membership: room.membershipScope)
+        else { return "대화 참여 상태를 다시 확인해 주세요." }
+        submit(intent)
+        await commandTask?.value
+        if let error { return error }
+        guard listing?.memberships.contains(where: { $0.id == room.id }) == false else {
+            return "대화에서 나가지 못했어요. 다시 시도해 주세요."
+        }
+        selected.invalidate()
+        return nil
+    }
     private func finishCommand(_ intent: RoomCommandIntent, ticket: UUID) async {
         defer { if revision == ticket { commandAction = nil; commandTask = nil } }
         do {
@@ -136,6 +153,12 @@ final class RoomsFeatureOwner {
         return model
     }
     var conversation: ConversationScreenModel? { current?.model.conversation }
+    func leaveCurrentConversation() async -> String? {
+        guard let current, let conversation = current.model.conversation else {
+            return "대화 참여 상태를 다시 확인해 주세요."
+        }
+        return await current.model.leaveConversation(conversation.scope)
+    }
     func closeConversation() { current?.model.closeConversation() }
     func refreshCurrent() async { await current?.model.refresh() }
     func clear() { current = nil }

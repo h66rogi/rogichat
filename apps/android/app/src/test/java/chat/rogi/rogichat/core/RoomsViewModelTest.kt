@@ -76,4 +76,30 @@ class RoomsViewModelTest {
         model.more(); model.more(); runCurrent(); assertEquals(1, calls)
         gate.complete(Unit); runCurrent(); assertEquals(loaded, model.state.value.directory); assertNotNull(model.state.value.error)
     }
+    @Test fun refreshKeepsVisibleConversationsWhileLoadingAndOnFailure() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        var calls = 0
+        val repository = object : RoomsRepository {
+            override val roomCommands = kotlinx.coroutines.flow.MutableStateFlow(RoomCommandState())
+            override suspend fun submitRoomCommand(intent: RoomCommandIntent) = error("unexpected")
+            override suspend fun recheckRoomCommand(scope: RoomsAccountScope) = error("unexpected")
+            override suspend fun refreshRooms(scope: RoomsAccountScope): Result<RoomDirectory> {
+                if (++calls == 1) return Result.success(empty)
+                gate.await()
+                return Result.failure(IllegalStateException())
+            }
+            override suspend fun moreRooms(scope: RoomsAccountScope, continuation: DiscoveryContinuation) = error("unexpected")
+        }
+        val model = RoomsViewModel(repository, scope, backgroundScope)
+        runCurrent()
+        model.reload()
+        runCurrent()
+        assertTrue(model.state.value.loading)
+        assertEquals(empty, model.state.value.directory)
+        gate.complete(Unit)
+        runCurrent()
+        assertFalse(model.state.value.loading)
+        assertEquals(empty, model.state.value.directory)
+        assertNotNull(model.state.value.error)
+    }
 }

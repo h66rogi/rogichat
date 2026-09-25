@@ -12,6 +12,8 @@ struct ConversationScreen: View {
     @State private var showStickers = false
     @State private var showAttachments = false
     @State private var showActions = false
+    @State private var confirmLeave = false
+    @State private var leaveError: String?
     @State private var playingVideo: ConversationMessage?
     @State private var visibleIDs: [String] = []
     @State private var atLatest = true
@@ -20,10 +22,13 @@ struct ConversationScreen: View {
     @FocusState private var composing: Bool
     @Environment(\.scenePhase) private var scenePhase
     let onReopen: () -> Void
-    init(model: ConversationScreenModel, session: AppSession, environment: String, accountID: String, onReopen: @escaping () -> Void) {
+    let onLeave: () async -> String?
+    init(model: ConversationScreenModel, session: AppSession, environment: String, accountID: String,
+         onReopen: @escaping () -> Void, onLeave: @escaping () async -> String?) {
         _model = State(initialValue: model)
         _features = State(initialValue: try? ConversationFeatureModel(conversation: model, session: session, environment: environment, accountID: accountID))
         self.onReopen = onReopen
+        self.onLeave = onLeave
     }
     var body: some View {
         VStack(spacing: 0) {
@@ -129,11 +134,31 @@ struct ConversationScreen: View {
         .background(Color(uiColor: .systemBackground))
         .navigationTitle(model.scope.room.name)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(.visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .toolbar { ToolbarItem(placement: .topBarTrailing) {
-            Button { Task { await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }
-                .accessibilityLabel("대화 새로고침").disabled(!model.active || model.loading || model.sending || model.checking)
+            Menu {
+                Button("새로고침", systemImage: "arrow.clockwise") { Task { await model.refresh() } }
+                Button(role: .destructive) {
+                    confirmLeave = true
+                } label: { Label("대화에서 나가기", systemImage: "rectangle.portrait.and.arrow.right") }
+            } label: { Image(systemName: "line.3.horizontal") }
+                .accessibilityLabel("대화 메뉴")
+                .disabled(!model.active || model.loading || model.sending || model.checking)
         } }
+        .confirmationDialog("대화에서 나갈까요?", isPresented: $confirmLeave, titleVisibility: .visible) {
+            Button("나가기", role: .destructive) {
+                Task {
+                    if let error = await onLeave() { leaveError = error }
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("나가도 보낸 메시지는 삭제되지 않아요.")
+        }
+        .alert("대화에서 나가지 못했어요", isPresented: Binding(get: { leaveError != nil }, set: { if !$0 { leaveError = nil } })) {
+            Button("확인") { leaveError = nil }
+        } message: { Text(leaveError ?? "") }
         .safeAreaInset(edge: .bottom, spacing: 0) { if model.active, model.listing?.ready == true { composer } }
         .task {
             await model.load()
