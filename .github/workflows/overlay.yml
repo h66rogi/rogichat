@@ -2,6 +2,25 @@ name: Meloming overlay copy
 
 on:
   pull_request:
+    paths:
+      - '.github/workflows/overlay.yml'
+      - '.dockerignore'
+      - '.gitleaks.toml'
+      - '.node-version'
+      - 'AGENTS.md'
+      - 'apps/overlay/**'
+      - 'apps/*/package.json'
+      - 'docs/meloming-overlay-source-manifest.tsv'
+      - 'infrastructure/runtime/overlay.Dockerfile'
+      - 'infrastructure/runtime/web/compose.overlay.qa.yaml'
+      - 'infrastructure/runtime/web/Caddyfile.qa'
+      - 'package.json'
+      - 'packages/**'
+      - 'patches/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'tools/check_overlay_copy.py'
+      - 'tools/security/**'
   push:
     branches: [qa]
 
