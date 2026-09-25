@@ -371,14 +371,21 @@ class AutomaticExportTests(unittest.TestCase):
     def test_new_publication_auto_and_manual_bind_exact_proof_and_aggregate(self):
         for event in ('workflow_run', 'workflow_dispatch'):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as temp:
-                descriptor, proof, data, _, env, metadata, _ = self.new_publication_case(Path(temp), event)
+                descriptor, proof, data, payload, env, metadata, _ = self.new_publication_case(Path(temp), event)
+                self.assertNotEqual(payload['workflow_run']['head_sha'], env['GITHUB_SHA'])
                 with patch.dict(archive.os.environ, env), patch.object(archive.core, 'api',
                         side_effect=lambda path, token: metadata[path]) as api, \
                         patch.object(archive, 'download_proof', return_value=data):
                     actual, original = archive.resolve_publication('test-only')
+                self.assertEqual(actual['source_sha'], payload['workflow_run']['head_sha'])
+                self.assertEqual(actual['producer']['sha'], env['GITHUB_SHA'])
+                self.assertEqual(actual['verification_runs'][archive.core.NEW_PUBLICATION_WORKFLOW],
+                                 payload['workflow_run']['id'])
                 self.assertEqual(actual['verification_runs'], descriptor['verification_runs'])
                 self.assertEqual(original, data)
                 self.assertEqual(proof['publicationAttempt'], 1)
+                self.assertTrue(any(f"compare/{actual['source_sha']}...{env['GITHUB_SHA']}" in call.args[0]
+                                    for call in api.call_args_list))
                 if event == 'workflow_dispatch':
                     self.assertFalse(any('actions/workflows/web-publish.yml/runs?' in call.args[0]
                                          for call in api.call_args_list))
