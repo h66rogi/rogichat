@@ -165,7 +165,7 @@ export function SectionErrorBoundary({
 }) {
   return (
     <ErrorBoundary
-      fallback={(error, resetError) => (
+      fallback={(_error, resetError) => (
         <Alert variant="destructive" className="my-4">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription>
@@ -173,11 +173,7 @@ export function SectionErrorBoundary({
               <div>
                 <strong>{section} 로딩 중 오류가 발생했습니다</strong>
                 <br />
-                <span className="text-sm">일시적인 문제일 수 있습니다.</span>
-                <br />
-                <span className="text-sm">
-                  {error.name}: {error.message}
-                </span>
+                <span className="text-sm">잠시 후 다시 시도해 주세요.</span>
               </div>
               <Button
                 onClick={resetError}
@@ -241,4 +237,3 @@ export function InlineError({
     </Alert>
   );
 }
-

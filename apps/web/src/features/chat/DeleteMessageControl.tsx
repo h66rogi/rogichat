@@ -22,7 +22,7 @@ export function DeleteMessageControl({ onDelete }: { onDelete: () => Promise<Cha
       if (!mounted.current) return;
       if (result.accepted) setOpen(false);
       else setError(result.reason);
-    } catch { if (mounted.current) setError('삭제 결과를 확인하지 못했습니다. 다시 시도해 주세요.'); }
+    } catch { if (mounted.current) setError('메시지 삭제 여부를 확인할 수 없어요. 다시 확인해 주세요.'); }
     finally { pending.current = false; if (mounted.current) setBusy(false); }
   };
   return <AlertDialog.Root open={open} onOpenChange={next => { if (!pending.current) { setOpen(next); setError(''); } }}>

@@ -28,7 +28,7 @@ function AuthorizedChat({ active, suspended, visit, session, accountId, scope, r
     try { await request(`/v1/rooms/${encodeURIComponent(roomId)}/join`, { method: 'POST' }); refresh(); }
     catch (e) {
       if (e instanceof ApiError && e.status === 401) { refresh(); return; }
-      setError(e instanceof ApiError ? e.message : '입장 결과를 확인하지 못했습니다. 다시 확인해 주세요.');
+      setError(e instanceof ApiError ? e.message : '채팅방에 들어갈 수 없어요. 다시 시도해 주세요.');
     }
     finally { pending.current = false; setBusy(false); }
   };

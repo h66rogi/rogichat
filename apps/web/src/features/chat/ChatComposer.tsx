@@ -48,6 +48,8 @@ export interface ChatComposerProps {
   disabled?: boolean | undefined;
   /** Blocks dispatch during recovery without hiding or locking the editable draft. */
   submitBlockedReason?: string | undefined;
+  submitBlocked?: boolean | undefined;
+  onRetryBlocked?: (() => void) | undefined;
   attachmentAction?: ReactNode | undefined;
   className?: string | undefined;
 }
@@ -67,6 +69,8 @@ export function ChatComposer({
   announcement = '',
   disabled = false,
   submitBlockedReason,
+  submitBlocked = false,
+  onRetryBlocked,
   attachmentAction,
   className,
 }: ChatComposerProps) {
@@ -77,7 +81,7 @@ export function ChatComposer({
 
   const locked = target === null || disabled;
   const isEmpty = value.trim().length === 0;
-  const canSend = !locked && !isEmpty && !isSubmitting && !submitBlockedReason;
+  const canSend = !locked && !isEmpty && !isSubmitting && !submitBlocked && !submitBlockedReason;
 
   // Auto-height: measure line-height once per render, cap at MAX_LINES.
   useLayoutEffect(() => {
@@ -192,7 +196,7 @@ export function ChatComposer({
         </div>
       )}
 
-      {submitBlockedReason && <p role="status" className="px-4 pb-2 text-sm text-muted">{submitBlockedReason}</p>}
+      {submitBlockedReason && <div className="flex items-center gap-2 px-4 pb-2 text-sm text-muted"><p role="status" className="flex-1">{submitBlockedReason}</p>{onRetryBlocked && <Button type="button" variant="ghost" size="sm" onClick={onRetryBlocked}>다시 시도</Button>}</div>}
       {/* Two regions so the assertive alert never carries a conflicting polite setting. */}
       <div id={noticeId} className={cn('px-4 text-[13px]', notice || announcement ? 'pb-2' : 'sr-only')} data-testid="chat-composer-notice">
         <p role="alert" className={cn('text-danger', !errorText && 'sr-only')} data-testid="chat-composer-error">

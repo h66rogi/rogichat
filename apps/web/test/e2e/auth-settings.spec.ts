@@ -66,7 +66,7 @@ test('logout locks immediately, survives reload, and retries only the same sessi
   await page.reload();
   await expect(page.getByRole('heading', { name: '로그아웃 확인이 필요해요' })).toBeVisible();
   state.logoutStatus = 204;
-  await page.getByRole('button', { name: '로그아웃 다시 시도' }).click();
+  await page.getByRole('button', { name: '다시 시도' }).click();
   await expect(page.getByRole('heading', { name: '로그인 후 이용할 수 있어요' })).toBeVisible();
   expect(state.logoutCount).toBe(2);
 });
@@ -76,10 +76,10 @@ test('logout recovery never revokes a different login session', async ({ page })
   await page.getByRole('button', { name: '로그아웃', exact: true }).click();
   await expect.poll(() => state.logoutCount).toBe(1);
   state.sessionToken = 'synthetic-csrf-session-B';
-  await page.getByRole('button', { name: '로그아웃 다시 시도' }).click();
-  await expect(page.getByText(/다른 로그인 세션이 확인되었습니다/)).toBeVisible();
+  await page.getByRole('button', { name: '다시 시도' }).click();
+  await expect(page.getByText(/로그인 상태가 달라졌어요/)).toBeVisible();
   expect(state.logoutCount).toBe(1);
-  await page.getByRole('button', { name: '현재 로그인 상태 확인' }).click();
+  await page.getByRole('button', { name: '현재 계정으로 계속하기' }).click();
   await expect(page.getByTestId('settings-view')).toBeVisible();
 });
 test('page restoration discards old private content before fresh authorization', async ({ page }) => {

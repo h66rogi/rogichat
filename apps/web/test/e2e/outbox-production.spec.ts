@@ -94,7 +94,7 @@ test('production cold receipt recovery performs fresh message read without anoth
   await page.reload(); expect(state.posts).toHaveLength(1);
   const outgoing = await recoveredMessage(page, id, false);
   await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
-  await expect(outgoing).toContainText('확인 중'); expect(state.posts).toHaveLength(1);
+  await expect(outgoing).toContainText('보내는 중'); expect(state.posts).toHaveLength(1);
   state.holdLookup = null; release();
   await expect(page.getByRole('region', { name: '후로기 메시지', exact: true }).getByText('유실된 ACK는 조회로 복구', { exact: true })).toBeVisible();
   await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
@@ -219,10 +219,10 @@ test('production aborted IDB write preserves composer and never sends unpersiste
     };
   });
   await input.press('Enter');
-  await expect(page.getByRole('button', { name: '지금 다시 시도', exact: true })).toBeVisible();
+  await expect(page.getByTestId('chat-composer').getByRole('button', { name: '다시 시도', exact: true })).toBeVisible();
   await expect(input).toHaveValue('저장 실패에도 사라지지 않을 입력'); expect(state.posts).toHaveLength(0);
   await expect(page.getByTestId('chat-outgoing-message')).toHaveCount(0);
-  await page.getByRole('button', { name: '지금 다시 시도', exact: true }).click();
+  await page.getByTestId('chat-composer').getByRole('button', { name: '다시 시도', exact: true }).click();
   await expect(page.getByTestId('chat-composer-send')).toBeEnabled(); expect(state.posts).toHaveLength(0);
   state.failSend = false; await input.press('Enter');
   await expect(page.getByText('저장 실패에도 사라지지 않을 입력', { exact: true })).toBeVisible();
