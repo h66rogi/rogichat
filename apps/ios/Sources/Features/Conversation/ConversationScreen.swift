@@ -2,6 +2,8 @@ import SwiftUI
 import RogichatRooms
 
 struct ConversationScreen: View {
+    // A long message can be taller than the viewport, so use a small visible fraction.
+    private static let messageVisibilityThreshold = 0.001
     private struct ProjectionSignal: Equatable {
         let messages: [ConversationMessage]?
         let historyRevision: Int
@@ -245,7 +247,7 @@ struct ConversationScreen: View {
         .onScrollPhaseChange { _, phase in
             if phase == .tracking || phase == .interacting { userNavigated = true }
         }
-        .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.6) { ids in
+        .onScrollTargetVisibilityChange(idType: String.self, threshold: Self.messageVisibilityThreshold) { ids in
             updateVisibleMessages(ids, listing: listing)
         }
         .onScrollGeometryChange(for: Bool.self) { geometry in
@@ -292,7 +294,7 @@ struct ConversationScreen: View {
                     })
                     .padding(.top, sameGroup(previous, message) ? 0 : 12)
                     .id(message.id)
-                    .onScrollVisibilityChange(threshold: 0.6) { isVisible in
+                    .onScrollVisibilityChange(threshold: Self.messageVisibilityThreshold) { isVisible in
                         guard isVisible else { features?.noLongerVisible(message.id); return }
                         if message.id == unreadScrollTarget && !unreadReady {
                             unreadReady = true; reportVisibleMessages()
