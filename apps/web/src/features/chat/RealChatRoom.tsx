@@ -119,8 +119,6 @@ function ScopedRealChatRoom({ active, suspended = false, visit, session, account
 
 function LiveRoom({ controller, csrf, roomId, session, origin }: { session: Session; origin: string; controller: ChatController; csrf: string; roomId: string }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
-  const [reconnecting, setReconnecting] = useState(false);
-  const reconnect = async () => { if (reconnecting) return; setReconnecting(true); try { await controller.reconnectStorage(); } finally { setReconnecting(false); } };
   const lifetime = useMemo(() => controller.mediaLifetime(state.epoch), [controller, state.epoch]);
   if (state.phase === 'loading') return <ChatRoomSkeleton />;
   if (state.phase === 'error' || !state.room) return (
@@ -142,8 +140,7 @@ function LiveRoom({ controller, csrf, roomId, session, origin }: { session: Sess
     streamerRecipients={recipients}
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}
     submitBlockedReason={state.storageError ?? undefined}
-    submitBusy={state.commandBusy || reconnecting}
-    onRetryBlocked={state.storageError ? () => { void reconnect(); } : undefined}
+    submitBusy={state.commandBusy}
     onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} isLoadingOlder={state.loadingOlder}
   /></ReactionContext.Provider></div></div></SessionMediaProvider></ChatPrivacyContext.Provider>;
 }

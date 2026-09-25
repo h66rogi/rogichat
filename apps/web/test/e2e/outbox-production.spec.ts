@@ -219,11 +219,10 @@ test('production aborted IDB write preserves composer and never sends unpersiste
     };
   });
   await input.press('Enter');
-  await expect(page.getByTestId('chat-composer').getByRole('button', { name: '다시 시도', exact: true })).toBeVisible();
+  await expect(page.getByTestId('chat-composer')).toContainText('메시지를 잠시 보낼 수 없어요.');
   await expect(input).toHaveValue('저장 실패에도 사라지지 않을 입력'); expect(state.posts).toHaveLength(0);
   await expect(page.getByTestId('chat-outgoing-message')).toHaveCount(0);
-  await page.getByTestId('chat-composer').getByRole('button', { name: '다시 시도', exact: true }).click();
-  await expect(page.getByTestId('chat-composer-send')).toBeEnabled(); expect(state.posts).toHaveLength(0);
+  await expect(page.getByTestId('chat-composer-send')).toBeEnabled({ timeout: 10000 }); expect(state.posts).toHaveLength(0);
   state.failSend = false; await input.press('Enter');
   await expect(page.getByText('저장 실패에도 사라지지 않을 입력', { exact: true })).toBeVisible();
   await expect(input).toHaveValue(''); expect(state.posts).toHaveLength(1); expect(state.lookups).toHaveLength(0);

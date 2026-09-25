@@ -73,7 +73,6 @@ export interface ChatRoomViewProps {
   onSubmit?: ((submission: ChatComposerSubmission) => ChatSubmitResult | Promise<ChatSubmitResult>) | undefined;
   submitBlockedReason?: string | undefined;
   submitBusy?: boolean | undefined;
-  onRetryBlocked?: (() => void) | undefined;
   onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   actionNotice?: string | undefined;
   onLoadOlder?: (() => void | Promise<void>) | undefined;
@@ -101,7 +100,6 @@ function ScopedChatRoom({
   onSubmit,
   submitBlockedReason,
   submitBusy = false,
-  onRetryBlocked,
   onLoadOlder,
   onDelete,
   actionNotice,
@@ -296,12 +294,12 @@ function ScopedChatRoom({
       if (resultNotice) setNoticeFor(submittedKey, resultNotice);
 
       // If the user moved to another target meanwhile, tell them where the result landed.
-      if (currentKeyRef.current !== submittedKey) {
+      if (currentKeyRef.current !== submittedKey && (result.accepted || !result.pendingDelivery)) {
         const label = targetLabel(submittedTarget);
         setAnnouncement(
           result.accepted
             ? `${label}에게 보낸 메시지가 접수되었습니다.`
-            : result.pendingDelivery ? `${label}에게 보낸 메시지의 상태를 확인하고 있습니다.` : `${label}에게 메시지를 보내지 못했습니다. 해당 대상으로 돌아가면 안내와 작성 내용을 볼 수 있습니다.`,
+            : `${label}에게 메시지를 보내지 못했어요. 작성한 메시지를 확인해 주세요.`,
         );
       }
     })();
@@ -387,7 +385,6 @@ function ScopedChatRoom({
         disabled={onSubmit === undefined}
         submitBlockedReason={submitBlockedReason}
         submitBlocked={submitBusy}
-        onRetryBlocked={onRetryBlocked}
         attachmentAction={attachmentAction}
       />
     </section>
