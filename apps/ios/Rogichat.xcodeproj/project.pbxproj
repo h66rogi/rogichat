@@ -82,6 +82,7 @@
 		CF0214D5F1053B212D24455D /* AccountNotificationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6026A7294F18052158E3A9A7 /* AccountNotificationSection.swift */; };
 		D0D2CC14C176755A33D65340 /* SocketIO-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B54CF3BE6EABC19F7CDCE033 /* SocketIO-LICENSE.txt */; };
 		D26476500D8EA7CB70F68BBC /* NativeCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306959893BFAB5D6566C792A /* NativeCredentialStore.swift */; };
+		D33E7D17E14060F2AEFCC392 /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8EAE88F3B4FA28F2CA058B /* CameraCapture.swift */; };
 		D79B741C389D15DEE9F1CCC4 /* LoadableView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE7D45E9A0D7A79BE411F20E /* LoadableView.swift */; };
 		D8120B02CB1F89B1EF52DD50 /* ConversationEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DC60ACAB0D14D8A24167CDB /* ConversationEndpoint.swift */; };
 		D8DF50E69B64C26FF1E3306E /* StickerPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4BB7DD6D9C8EB06D73B64B8 /* StickerPicker.swift */; };
@@ -178,6 +179,7 @@
 		B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShellNavigation.swift; sourceTree = "<group>"; };
 		B88C17EC349A4A2535F1F1D1 /* SettingsScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsScreen.swift; sourceTree = "<group>"; };
 		B8F2A924EB50FB9970C0A3B3 /* AppleIdentityCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleIdentityCoordinator.swift; sourceTree = "<group>"; };
+		BA8EAE88F3B4FA28F2CA058B /* CameraCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraCapture.swift; sourceTree = "<group>"; };
 		C22B7A9B6C328849C1EB4693 /* MediaDownload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaDownload.swift; sourceTree = "<group>"; };
 		C37A0262F3EFF85CEE1CA59A /* NativePushApplication.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePushApplication.swift; sourceTree = "<group>"; };
 		C75FE2481A3D3E7C4D4986FC /* ForegroundState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForegroundState.swift; sourceTree = "<group>"; };
@@ -305,6 +307,7 @@
 			isa = PBXGroup;
 			children = (
 				069A32E72E92AA9704ED0CC3 /* AuthorizedMedia.swift */,
+				BA8EAE88F3B4FA28F2CA058B /* CameraCapture.swift */,
 				598F80E84F552549FD6FFB71 /* MediaPicker.swift */,
 				B4BB7DD6D9C8EB06D73B64B8 /* StickerPicker.swift */,
 			);
@@ -655,6 +658,7 @@
 				F8C4EF106A0569D61BEC32DF /* AppleIdentityRequest.swift in Sources */,
 				AB606E2750115E256B9BCB61 /* ApplePushPermission.swift in Sources */,
 				1CCA71256831F4A1CCFE83B5 /* AuthorizedMedia.swift in Sources */,
+				D33E7D17E14060F2AEFCC392 /* CameraCapture.swift in Sources */,
 				D8120B02CB1F89B1EF52DD50 /* ConversationEndpoint.swift in Sources */,
 				0F4D994081D460802FA6FA3A /* ConversationFeatures.swift in Sources */,
 				4CE2B9FDAB16A4CB2A8B22B1 /* ConversationScreen.swift in Sources */,

@@ -382,6 +382,7 @@ subject·partition·권한 키가 아니다. 수동 이름·사진·사진 삭�
 | ID | 원본·대상 | 재사용와 새 계약의 경계 |
 |---|---|---|
 | R68 | 기존 Rogichat ConversationScreen/ViewModel, TextCommand, Room/GRDB outbox, MediaClient/ConversationMedia; 기반 원본은 R64 이전의 공통 UI·상태 재사용 항목 | **기존 제품 구현 직접 확장**: ROOM_OWNER를 기존 전송·영속·receipt 복구·미디어 명령에 추가한다. 멜로밍 채팅 UX는 사용자 제외 조건을 유지하며 가져오지 않는다. 멜로밍의 원본 일반 로그인·설정은 이 새 수신함 계약을 구현하지 않으므로 별도 채팅 계층 복사로 대체하지 않는다. 서버가 결정한 FAN 권한 및 실제 recipient projection을 그대로 사용한다. |
+| R69 | Meloming `18a33bbf`의 `Presentation/Talk/Components/TalkInputBar.swift`와 기존 Rogichat `ConversationScreen`, `MediaPicker`, `ConversationFeatureModel` | **기존 Rogichat 흐름 확장 + 신규 카메라 어댑터**: 메시지 명령·영속 전송·미디어 업로드·스티커 picker는 그대로 연결하고 iOS 대화방에 단독 입력바, 첨부 확장판, 카메라 촬영, 메시지 묶음 표시를 적용한다. Meloming Talk/TalkV2 입력바·버블은 사용자가 재사용을 제외했으며 로기챗의 첨부·비공개 답장·영속 전송 계약과도 맞지 않아 이식하지 않는다. `Features/Media/CameraCapture.swift`는 기존 카메라 촬영 구현이 없어 신규 작성했다. |
 
 R66의 `OWNER_PENDING` 처리 코드는 과거 계약의 호환 처리다. 실제 팬 접근이 가능한
 기본방은 방장 미가입 여부와 무관하게 READY이며, 이번 앱은 그 상태에서 수신 actor 없이
