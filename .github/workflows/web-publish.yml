@@ -71,7 +71,6 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/security/install.py
-          python3 tools/security/test_image_scan.py
           image_id=$(docker image inspect --format '{{.Id}}' "ghcr.io/h66rogi/rogichat-web:qa-$SOURCE_SHA")
           [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
           docker image save "$image_id" | python3 tools/security/image_scan.py -

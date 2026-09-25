@@ -8,7 +8,10 @@ class ComponentChangesTest(unittest.TestCase):
         self.assertEqual(classify(['apps/web/src/app/page.tsx']), (True, False))
         for path in ('tools/operations/web_release.py',
                      'tools/operations/test_web_release.py',
-                     'tools/operations/web-release.md'):
+                     'tools/operations/web-release.md',
+                     '.github/workflows/web.yml',
+                     '.github/workflows/web-publish.yml',
+                     '.github/workflows/web-export.yml'):
             self.assertEqual(classify_path(path), (True, False), path)
 
     def test_backend_only(self):
@@ -21,7 +24,7 @@ class ComponentChangesTest(unittest.TestCase):
 
     def test_shared_and_security_inputs(self):
         for path in ('pnpm-lock.yaml', 'patches/mariadb.patch',
-                     'tools/security/image_scan.py', '.github/workflows/web.yml',
+                     'tools/security/image_scan.py',
                      'tools/release/changes.py', 'apps/api/package.json'):
             self.assertEqual(classify_path(path), (True, True), path)
 
