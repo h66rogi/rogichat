@@ -72,6 +72,12 @@ test.describe('public routes', () => {
     await page.goto('/auth/complete');
     await expect(page.getByRole('heading', { name: '로기챗 로그인' })).toBeVisible();
   });
+  test('console popup renders its token entry without a signed-in session', async ({ page }) => {
+    const response = await page.goto('/console/hurogi');
+    expect(response?.status()).toBe(200);
+    await expect(page.getByRole('heading', { name: '콘솔 접속' })).toBeVisible();
+    await expect(page.getByPlaceholder('콘솔 토큰 입력')).toBeVisible();
+  });
   test('private SSR lock accepts only the configured web origin', async ({ request }) => {
     const path = '/auth/private-render-lock';
     const headers = { host: 'qa.rogi.chat', origin: 'https://qa.rogi.chat' };
