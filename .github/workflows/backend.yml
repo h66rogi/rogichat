@@ -154,7 +154,7 @@ jobs:
             warm=$((SECONDS - start))
             test "$(docker image inspect --format '{{.Id}}' "$image")" = "$image_id"
             bytes=$(docker image inspect --format '{{.Size}}' "$image")
-            printf '| %s | %s s | %s s | %s bytes |\n' "$target" "$cold" "$warm" "$bytes" >> "$GITHUB_STEP_SUMMARY"
+            printf '| %s | %s s | %s s | %s bytes |\n' "$target" "$cold" "$warm" "$bytes" | tee -a "$GITHUB_STEP_SUMMARY"
             scan_args+=(--docker-image "$image_id")
           done
           # One scanner invocation retains exact-content scan results across

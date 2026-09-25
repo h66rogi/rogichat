@@ -23,14 +23,20 @@ class ComponentChangesTest(unittest.TestCase):
 
     def test_backend_only(self):
         self.assertEqual(classify(['apps/api/src/main.ts']), (False, True))
+        self.assertEqual(classify(['apps/decoder/package.json']), (False, True))
         self.assertEqual(classify(['apps/migration/package.json']), (False, True))
         for path in changes.BACKEND_ONLY_FILES:
             self.assertEqual(classify_path(path), (False, True), path)
 
-    def test_test_only_backend_change_runs_tests_without_rebuilding_images(self):
+    def test_reviewed_backend_helpers_run_tests_without_rebuilding_images(self):
         tests = ['apps/api/test/run-mysql.mjs',
                  'apps/api/test/support/migration-mode.mjs',
-                 'apps/api/test/unit/migration-mode.test.mjs']
+                 'apps/api/test/unit/migration-mode.test.mjs',
+                 'apps/api/test/support/shard.mjs',
+                 'apps/api/test/unit/shard.test.mjs',
+                 'tools/operations/backend_release.py',
+                 'tools/operations/test_backend_release.py',
+                 'tools/operations/backend-release.md']
         self.assertEqual(classify(tests), (False, True))
         self.assertFalse(backend_image_changed(tests))
         self.assertFalse(backend_image_changed(tests + ['docs/test-plan.md']))
@@ -40,7 +46,9 @@ class ComponentChangesTest(unittest.TestCase):
                               'apps/api/test/migration-image.mjs',
                               'apps/api/test/decoder/video.test.mjs',
                               'apps/api/test/unit/media-image-decoder.test.mjs',
-                              'apps/api/test/unit/unreviewed.test.mjs'):
+                              'apps/api/test/unit/unreviewed.test.mjs',
+                              'tools/operations/backend_archive.py',
+                              'tools/operations/new_release_helper.py'):
             self.assertTrue(backend_image_changed(tests + [release_input]), release_input)
 
     def test_test_only_boundary_writes_backend_without_image_output(self):

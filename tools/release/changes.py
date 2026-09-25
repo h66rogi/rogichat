@@ -14,7 +14,7 @@ WEB_PREFIXES = (
     'apps/web/', 'tools/web/', 'infrastructure/runtime/web/',
 )
 BACKEND_PREFIXES = (
-    'apps/api/', 'apps/migration/',
+    'apps/api/', 'apps/decoder/', 'apps/migration/',
 )
 SHARED_PREFIXES = (
     '.github/workflows/', '.githooks/', 'patches/', 'packages/',
@@ -41,13 +41,21 @@ BACKEND_ONLY_FILES = {
     '.github/workflows/backend-soak.yml',
     '.github/workflows/backend-expansion.yml',
     '.github/workflows/backend-restore.yml',
+    'tools/operations/backend_release.py',
+    'tools/operations/test_backend_release.py',
+    'tools/operations/backend-release.md',
 }
-# Only these MySQL harness files are outside every image verification command.
-# Other test files may be bind-mounted into image checks; unknown paths rebuild.
-BACKEND_NON_IMAGE_TEST_FILES = {
+# Exact backend-only helpers and tests that no image build or verification reads.
+# Other tests can be bind-mounted into image checks; unknown paths rebuild.
+BACKEND_NON_IMAGE_FILES = {
     'apps/api/test/run-mysql.mjs',
     'apps/api/test/support/migration-mode.mjs',
     'apps/api/test/unit/migration-mode.test.mjs',
+    'apps/api/test/support/shard.mjs',
+    'apps/api/test/unit/shard.test.mjs',
+    'tools/operations/backend_release.py',
+    'tools/operations/test_backend_release.py',
+    'tools/operations/backend-release.md',
 }
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
@@ -90,8 +98,8 @@ def classify(paths: list[str]) -> tuple[bool, bool]:
 
 
 def backend_image_changed(paths: list[str]) -> bool:
-    """Skip image work only for reviewed MySQL harness files."""
-    return any(classify_path(path)[1] and path not in BACKEND_NON_IMAGE_TEST_FILES
+    """Skip image work only for exact reviewed backend-only inputs."""
+    return any(classify_path(path)[1] and path not in BACKEND_NON_IMAGE_FILES
                for path in paths)
 
 
