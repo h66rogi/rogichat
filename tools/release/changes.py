@@ -33,10 +33,26 @@ WEB_ONLY_FILES = {
     'tools/operations/test_web_release.py',
     'tools/operations/web-release.md',
 }
+BACKEND_ONLY_FILES = {
+    '.github/workflows/backend.yml',
+    '.github/workflows/backend-publish.yml',
+    '.github/workflows/backend-export.yml',
+    '.github/workflows/backend-quality.yml',
+    '.github/workflows/backend-soak.yml',
+    '.github/workflows/backend-expansion.yml',
+    '.github/workflows/backend-restore.yml',
+}
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
+    'tools/infrastructure/',
 )
-UNRELATED_FILES = {'README.md', 'LICENSE', '.gitignore'}
+UNRELATED_FILES = {
+    'README.md', 'LICENSE', '.gitignore',
+    '.github/workflows/mobile.yml',
+    '.github/workflows/infrastructure.yml',
+    '.github/workflows/overlay.yml',
+    '.github/workflows/media-gateway.yml',
+}
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 
 
@@ -44,14 +60,16 @@ def classify_path(path: str) -> tuple[bool, bool]:
     """Return web/backend impact. Unknown paths intentionally affect both."""
     if path in WEB_ONLY_FILES:
         return True, False
+    if path in BACKEND_ONLY_FILES:
+        return False, True
+    if path in UNRELATED_FILES or path.startswith(UNRELATED_PREFIXES):
+        return False, False
     if path in SHARED_FILES or path.startswith(SHARED_PREFIXES):
         return True, True
     if path.startswith(WEB_PREFIXES):
         return True, False
     if path.startswith(BACKEND_PREFIXES):
         return False, True
-    if path in UNRELATED_FILES or path.startswith(UNRELATED_PREFIXES):
-        return False, False
     return True, True
 
 
