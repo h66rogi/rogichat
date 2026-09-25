@@ -17,8 +17,14 @@ base SHA with the checked-out group head, so a batch is evaluated as one candida
 Backend and web groups run their pre-merge container safety checks when those
 components change. Their required aggregate jobs still report a stable result
 when a component is unchanged. Merge group checks do not publish images; only a
-trusted QA push starts publication. Keep the current QA branch rule until these
-workflows have landed and their merge-group checks are verified.
+trusted QA push starts publication. After the PR's five required checks pass,
+`python3 tools/automation/enqueue_qa_pr.py <PR_NUMBER>` enters the QA merge
+queue. It reads the exact current PR head and uses GitHub's `enqueuePullRequest`
+mutation with `expectedHeadOid` and `jump: false`. A changed head is rejected by
+GitHub; an already queued PR is reported without another mutation. This keeps
+repository-wide auto-merge disabled, because production promotion to `main` has
+a separate review policy. The queue reruns the required checks on its synthetic
+commit before updating QA.
 
 The Security workflow runs the scanner test suite for every PR and QA push.
 Web container verification and publication each scan their actual image layers;
