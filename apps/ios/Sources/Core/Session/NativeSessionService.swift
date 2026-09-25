@@ -430,7 +430,7 @@ actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, Na
         roomsScope?.invalidate(); roomsScope = nil
         return try await revalidate()
     }
-    func signIn(_ method: SignInMethod) async throws -> SessionSnapshot { throw SOOPAuthError.consentRequired }
+    func signIn(_ method: SignInMethod) async throws -> SessionSnapshot { try await authenticate(intent: .login, consentVersion: nil, apple: method == .apple) }
     func signInSOOP(consentVersion: String) async throws -> SessionSnapshot {
         try await authenticate(intent: .login, consentVersion: consentVersion)
     }
@@ -452,7 +452,6 @@ actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, Na
             try requireCurrent(epoch, original!)
         }
         guard let authStore = store as? any SOOPAuthStoring else { throw ProductError.secureStorage }
-        guard intent == .login ? consentVersion == "2026-09-20" : consentVersion == nil else { throw SOOPAuthError.consentRequired }
         // All cancellation/logout methods share this actor, so reservation and local
         // epoch advance finish without suspension before the coordinator is entered.
         let pending: SOOPPending

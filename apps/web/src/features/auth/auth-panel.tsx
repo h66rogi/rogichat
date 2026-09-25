@@ -75,7 +75,6 @@ function LogoutRecovery() {
 }
 export function SoopButton({ intent = 'login', csrf }: { intent?: 'login' | 'link'; csrf?: string }) {
   const api = useApi();
-  const [consent, setConsent] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const start = async () => {
@@ -83,7 +82,7 @@ export function SoopButton({ intent = 'login', csrf }: { intent?: 'login' | 'lin
     try { window.location.assign(await api.authorize(intent, csrf)); }
     catch (e) { setError(e instanceof ApiError ? e.message : 'SOOP 로그인에 연결하지 못했습니다. 다시 시도해 주세요.'); setPending(false); }
   };
-  return <div className="flex flex-col gap-4">{intent === 'login' && <label className="flex items-start gap-3 text-[14px] text-body"><input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} className="mt-1 size-5" /><span><Link className="underline" href="/rules">이용 안내</Link>를 확인했으며, 개인 메시지가 방장에 의해 전체 공개될 수 있음을 이해합니다. (2026-09-20)</span></label>}<Button disabled={pending || (intent === 'login' && !consent)} onClick={() => void start()}>{pending ? 'SOOP에 연결 중' : intent === 'link' ? 'SOOP 계정 연결' : 'SOOP으로 로그인'}</Button>{error && <p role="alert" className="text-danger">{error}</p>}</div>;
+  return <div className="flex flex-col gap-4"><Button disabled={pending} onClick={() => void start()}>{pending ? 'SOOP에 연결 중' : intent === 'link' ? 'SOOP 계정 연결' : 'SOOP으로 로그인'}</Button>{error && <p role="alert" className="text-danger">{error}</p>}</div>;
 }
 
 function LinkRequiredPanel({ session, allowAccountDeletion }: { session: Session; allowAccountDeletion: boolean }) {

@@ -20,7 +20,6 @@ class AppleIdentityContract(private val environment: String) {
     fun startBody(intent: IdentityIntent, proof: AuthProof): String = buildJsonObject {
         put("clientId", "android"); put("intent", intent.name.lowercase())
         put("codeChallenge", proof.challenge); put("returnState", proof.state)
-        if (intent == IdentityIntent.LOGIN) put("termsVersion", "2026-09-20")
     }.toString()
     fun start(text: String): AppleIdentityStart {
         val root = StrictAuthJson.objectValue(text)

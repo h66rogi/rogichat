@@ -22,7 +22,7 @@ async function deletionApi(page: Page) {
   });
   await page.route('**/v1/auth/soop/start', async route => {
     if (route.request().method() === 'OPTIONS') return json(route, null, 204);
-    state.starts++; expect(route.request().postDataJSON()).toEqual({ intent: 'login', termsVersion: '2026-09-20' });
+    state.starts++; expect(route.request().postDataJSON()).toEqual({ intent: 'login' });
     return json(route, { authorizeUrl: 'https://example.invalid/privacy-auth' });
   });
   return { account, state };
@@ -58,14 +58,13 @@ test('recent auth keeps same account binding and requires explicit retry after l
   const { state, account } = await deletionApi(page); state.status = 403;
   await page.goto('/settings'); await confirmDeletion(page);
   await expect(page.getByText(/계정을 보호하기 위해 다시 로그인이 필요해요/)).toBeVisible();
-  await expect(page.getByRole('button', { name: '같은 SOOP 계정으로 다시 로그인' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '같은 SOOP 계정으로 다시 로그인' })).toBeEnabled();
   // Intercept the external provider only inside this test, then visit the real settings route.
   const returnTo = new URL('/settings', page.url()).href;
   await page.route('https://example.invalid/privacy-auth', route => {
     account.sessionToken = 'B'.repeat(42) + 'A'; state.status = 200;
     return route.fulfill({ status: 302, headers: { location: returnTo } });
   });
-  await page.getByLabel(/같은 SOOP 계정으로 로그인합니다/).check();
   await page.getByRole('button', { name: '같은 SOOP 계정으로 다시 로그인' }).click();
   await expect(page.getByText(/이전 탈퇴 요청의 결과가 확인되지 않았어요/)).toBeVisible(); expect(state.starts).toBe(1);
   expect(state.deletes).toBe(1);
@@ -129,8 +128,8 @@ test('PRIVATE TEXT publication requires disclosure, 202 is preparing and publish
   await openPrivacyActions(page);
   await page.getByRole('button', { name: '익명으로 전체 공개' }).click();
   const publicationDialog = page.getByRole('alertdialog', { name: '이 메시지를 공개할까요?' });
-  const publish = publicationDialog.getByRole('button', { name: '익명으로 전체 공개' }); await expect(publish).toBeDisabled();
-  await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await publish.click();
+  const publish = publicationDialog.getByRole('button', { name: '익명으로 전체 공개' }); await expect(publish).toBeEnabled();
+  await publish.click();
   await expect(page.getByText('공개를 마무리하고 있어요.')).toBeVisible(); expect(state.writes).toBe(1);
   const before = state.syncReads; state.publication = 'published';
   await page.getByRole('button', { name: '다시 확인' }).click();
@@ -142,7 +141,7 @@ test('publication ambiguous 404 does not repost and revoked receipt is explicit'
   const state = await privacyChat(page); await page.goto('/chat');
   await openPrivacyActions(page);
   await page.getByRole('button', { name: '익명으로 전체 공개' }).click();
-  await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await page.getByRole('alertdialog', { name: '이 메시지를 공개할까요?' }).getByRole('button', { name: '익명으로 전체 공개' }).click();
+  await page.getByRole('alertdialog', { name: '이 메시지를 공개할까요?' }).getByRole('button', { name: '익명으로 전체 공개' }).click();
   state.unknown = true; await page.getByRole('button', { name: '다시 확인' }).click();
   await expect(page.getByText('공개 여부를 확인할 수 없어요. 다시 확인해 주세요.')).toBeVisible(); expect(state.writes).toBe(1);
   state.unknown = false; state.publication = 'revoked'; await page.getByRole('button', { name: '다시 확인' }).click();

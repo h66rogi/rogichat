@@ -87,7 +87,7 @@ test('recipient HTTP endpoint restricts opposite-role actors to the exact FAN ro
   assert.equal((await f.list()).status, 403);
 });
 
-test('fan first-message lookup permits any eligible current-room streamer, never peers; later sends reauthorize grants', { timeout: 30000 }, async t => {
+test('fan first-message lookup permits only the room owner, never peers or other streamers; later sends reauthorize grants', { timeout: 30000 }, async t => {
   const f = await fixture(t), peer = await f.addFan('합성 비공개 다른 팬'), second = await f.addFan('합성 두 번째 스트리머');
   await f.db.transactions.write(async tx => {
     await tx.prisma.room_members.update({ where: { id: second.actor }, data: { role: 'STREAMER' } });
@@ -96,19 +96,20 @@ test('fan first-message lookup permits any eligible current-room streamer, never
     await tx.prisma.room_members.update({ where: { id: actor }, data: { role: 'STREAMER' } });
   });
   const first = await f.list(f.fan); assert.equal(first.status, 200);
-  assert.deepEqual(first.body.recipients.map(row => row.actorId).sort(), [f.owner.actor, second.actor].sort());
-  for (const hidden of [peer.actor, peer.id, f.outsider.id]) assert.ok(!JSON.stringify(first.body).includes(hidden));
+  assert.deepEqual(first.body.recipients.map(row => row.actorId), [f.owner.actor]);
+  for (const hidden of [peer.actor, peer.id, second.actor, f.outsider.id]) assert.ok(!JSON.stringify(first.body).includes(hidden));
+  assert.equal((await f.sendAs(f.fan, second)).status, 403);
   assert.equal((await f.sendAs(f.fan, f.owner)).status, 200);
   await f.db.transactions.write(tx => tx.prisma.stream_grants.updateMany({ where: { room_id: f.room, member_id: f.fan.actor }, data: { can_send: false } }));
-  assert.deepEqual((await f.list(f.fan)).body.recipients.map(row => row.actorId), [second.actor]);
+  assert.deepEqual((await f.list(f.fan)).body.recipients.map(row => row.actorId), []);
   assert.equal((await f.sendAs(f.fan, f.owner)).status, 403);
   assert.ok((await f.list()).body.recipients.some(row => row.actorId === f.fan.actor));
   await f.db.transactions.write(tx => tx.prisma.stream_grants.updateMany({ where: { room_id: f.room, member_id: f.fan.actor }, data: { can_send: true } }));
-  assert.equal((await f.list(f.fan)).body.recipients.length, 2);
+  assert.deepEqual((await f.list(f.fan)).body.recipients.map(row => row.actorId), [f.owner.actor]);
   // A list is not a capability token: revocation between list and send wins.
   await f.db.transactions.write(async tx => tx.prisma.stream_grants.updateMany({ where: { room_id: f.room, member_id: f.owner.actor }, data: { revoked_at: await tx.now() } }));
   assert.equal((await f.sendAs(f.fan, f.owner)).status, 403);
-  assert.deepEqual((await f.list(f.fan)).body.recipients.map(row => row.actorId), [second.actor]);
+  assert.deepEqual((await f.list(f.fan)).body.recipients.map(row => row.actorId), []);
 });
 
 test('recipient list mirrors both grant reads and sender send, excludes revoked/expired/future/missing pairs without repair', { timeout: 30000 }, async t => {

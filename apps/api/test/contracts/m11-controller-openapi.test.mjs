@@ -116,10 +116,11 @@ test('M11 read-state schemas enforce canonical context, filtered bounded rows an
     check(inputSchema, invalid, false); assert.throws(() => parseReadState(invalid));
   }
   check(output, { messageId: input.messageId }); check(output, { messageId: null });
-  check(snapshot, { readContext: input.readContext, items: [] });
+  const snapshotBase = { readContext: input.readContext, firstUnreadMessageId: null };
+  check(snapshot, { ...snapshotBase, items: [] });
   const rows = Array.from({ length: 100 }, () => ({ messageId: randomUUID() }));
-  check(snapshot, { readContext: input.readContext, items: rows });
-  for (const invalid of [{ items: [] }, { readContext: input.readContext, items: [...rows, rows[0]] }, { readContext: input.readContext, items: [{ messageId: null }] }, { readContext: input.readContext, items: [{ messageId: input.messageId, streamId: randomUUID() }] }, { readContext: input.readContext, items: [], nextCursor: randomUUID() }]) check(snapshot, invalid, false);
+  check(snapshot, { ...snapshotBase, items: rows, firstUnreadMessageId: rows[0].messageId });
+  for (const invalid of [{ items: [] }, { readContext: input.readContext, items: [] }, { ...snapshotBase, items: [...rows, rows[0]] }, { ...snapshotBase, items: [{ messageId: null }] }, { ...snapshotBase, items: [{ messageId: input.messageId, streamId: randomUUID() }] }, { ...snapshotBase, items: [], firstUnreadMessageId: 'invalid' }, { ...snapshotBase, items: [], nextCursor: randomUUID() }]) check(snapshot, invalid, false);
   for (const field of ['last_read_order', 'stream_id', 'period_id', 'userId']) check(output, { messageId: input.messageId, [field]: 'hidden' }, false);
 });
 

@@ -103,10 +103,58 @@ test('same-key concurrent commands and API restart return one durable message, e
   for (const forbidden of [f.owner.id, body.clientMessageId, stored.messages[0].stream_id]) assert.ok(!JSON.stringify(view.body).includes(forbidden));
 });
 
-test('FAN shared messages remain visible while private audience and revoked grants fail closed', { timeout: 20000 }, async t => {
+test('legacy shared fan originals stay private while owner messages and explicit publication remain shared', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  const oldId = await f.db.transactions.write(async tx => {
+    const stream = await tx.prisma.message_streams.findFirst({ where: { room_id: f.room, kind: 'ROOM_SHARED' }, select: { id: true } });
+    const id = randomUUID();
+    await tx.prisma.messages.create({ data: { id, room_id: f.room, stream_id: stream.id,
+      sender_member_id: f.fan1.actor, content_owner_user_id: f.fan1.id,
+      content_kind: 'TEXT', text_content: '기존 공개 팬 메시지', created_order: await nextOrder(tx, f.room) }, select: { id: true } });
+    return id;
+  });
+  const legacy = f.command('이전 앱의 새 팬 메시지');
+  const legacySent = await f.send(f.fan1, legacy);
+  const currentSent = await f.send(f.fan1, f.command('현재 앱의 팬 메시지', 'ROOM_OWNER'));
+  const ownerSent = await f.send(f.owner, { ...f.command('방장 전체 메시지'), quoteId: oldId });
+  for (const sent of [legacySent, currentSent, ownerSent]) assert.equal(sent.status, 200);
+  const reply = await f.send(f.owner, { ...f.command('선택한 팬에게만 답장', 'PRIVATE', f.fan1.actor), quoteId: legacySent.body.messageId });
+  assert.equal(reply.status, 200);
+  assert.deepEqual((await f.send(f.fan1, legacy)).body, legacySent.body, 'legacy receipt keeps the original request digest');
+  assert.equal((await f.get(f.fan2, oldId)).status, 404);
+  for (const who of [f.fan1, f.owner]) assert.equal((await f.get(who, oldId)).body.audience, 'PRIVATE');
+  const fanBShared = await f.get(f.fan2, ownerSent.body.messageId);
+  assert.equal(fanBShared.body.audience, 'SHARED');
+  assert.equal(fanBShared.body.quote, null, 'shared owner message must not project another fan’s legacy original quote');
+  assert.equal((await f.get(f.fan1, ownerSent.body.messageId)).body.quote.id, oldId);
+  const params = `deviceId=${randomUUID()}&cacheId=${randomUUID()}&limit=100`;
+  const fanBSnapshot = await f.call(f.fan2, 'GET', `/rooms/${f.room}/snapshot?${params}`);
+  const fanASnapshot = await f.call(f.fan1, 'GET', `/rooms/${f.room}/snapshot?${params}`);
+  assert.equal(fanBSnapshot.status, 200);
+  assert.equal(fanASnapshot.status, 200);
+  assert.ok(!fanBSnapshot.body.messages.some(message => message.id === oldId));
+  assert.ok(fanASnapshot.body.messages.some(message => message.id === oldId));
+  assert.equal(fanBSnapshot.body.messages.find(message => message.id === ownerSent.body.messageId).quote, null);
+  for (const sent of [legacySent, currentSent]) {
+    for (const who of [f.fan1, f.owner]) assert.equal((await f.get(who, sent.body.messageId)).body.audience, 'PRIVATE');
+    assert.equal((await f.get(f.fan2, sent.body.messageId)).status, 404);
+  }
+  assert.equal((await f.get(f.fan1, reply.body.messageId)).body.quote.id, legacySent.body.messageId);
+  assert.equal((await f.get(f.fan2, reply.body.messageId)).status, 404);
+  assert.equal((await f.get(f.owner, reply.body.messageId)).body.allowedActions.publish, false);
+  assert.equal((await f.call(f.owner, 'POST', `/rooms/${f.room}/messages/${reply.body.messageId}/publications`, {})).status, 400);
+  const rows = await f.db.transactions.read(tx => tx.prisma.messages.findMany({ where: { id: { in: [oldId, legacySent.body.messageId, currentSent.body.messageId] } },
+    select: { id: true, stream_id: true } }));
+  const streamOf = id => rows.find(row => row.id === id).stream_id;
+  assert.equal(streamOf(legacySent.body.messageId), streamOf(currentSent.body.messageId));
+  assert.notEqual(streamOf(oldId), streamOf(currentSent.body.messageId));
+});
+
+test('FAN legacy SHARED sends privately while private audience and revoked grants fail closed', { timeout: 20000 }, async t => {
   const f = await fixture(t);
   const shared = await f.send(f.fan1, f.command()); assert.equal(shared.status, 200);
-  assert.equal((await f.get(f.fan2, shared.body.messageId)).body.audience, 'SHARED');
+  for (const who of [f.fan1, f.owner]) assert.equal((await f.get(who, shared.body.messageId)).body.audience, 'PRIVATE');
+  assert.equal((await f.get(f.fan2, shared.body.messageId)).status, 404);
   assert.equal((await f.send(f.fan1, f.command('팬간 불허', 'PRIVATE', f.fan2.actor))).status, 403);
   assert.equal((await f.send(f.outsider, f.command('외부 불허', 'PRIVATE', f.owner.actor))).status, 404);
   const foreign = await f.db.transactions.write(async tx => {
@@ -189,24 +237,29 @@ test('publication-shaped messages project anonymously and follow source owner/ro
   const publication = await f.db.transactions.write(async tx => {
     const [stream] = await tx.rows("SELECT id FROM message_streams WHERE room_id=? AND kind='ROOM_SHARED'", [f.room]);
     const id = randomUUID(); const order = await nextOrder(tx, f.room);
-    // M07 owns the publish command; this fixture tests the already-required M05 reader's deletion-root boundary.
+    // A derived row without a completed publication must never become fan-visible.
     await tx.execute('INSERT INTO messages (id,room_id,stream_id,sender_member_id,content_owner_user_id,deletion_root_id,text_content,created_order) VALUES (?,?,?,?,?,?,?,?)',
       [id, f.room, stream.id, f.owner.actor, f.fan1.id, original.body.messageId, '공개 원본', String(order)]);
-    return id;
+    return { id, stream: stream.id };
   });
-  const shown = await f.get(f.fan2, publication); assert.equal(shown.status, 200);
+  assert.equal((await f.get(f.fan2, publication.id)).status, 404);
+  await f.db.transactions.write(async tx => {
+    await tx.execute("INSERT INTO message_publications (id,room_id,source_message_id,source_version,publisher_member_id,published_message_id,state) VALUES (?,?,?,?,?,?,'PUBLISHED')",
+      [randomUUID(), f.room, original.body.messageId, '1', f.owner.actor, publication.id]);
+  });
+  const shown = await f.get(f.fan2, publication.id); assert.equal(shown.status, 200);
   assert.deepEqual(shown.body.author, { kind: 'anonymous' }); assert.equal(shown.body.quote, null);
   for (const forbidden of [f.fan1.id, f.fan1.actor, original.body.messageId, f.owner.actor]) assert.ok(!JSON.stringify(shown.body).includes(forbidden));
   await f.db.transactions.write(tx => tx.execute("UPDATE users SET status='SUSPENDED' WHERE id=?", [f.fan1.id]));
-  assert.equal((await f.get(f.fan2, publication)).status, 200);
+  assert.equal((await f.get(f.fan2, publication.id)).status, 200);
   // Also exercise the root guard independently of the projection's own content-owner column.
-  await f.db.transactions.write(tx => tx.execute('UPDATE messages SET content_owner_user_id=? WHERE id=?', [f.owner.id, publication]));
+  await f.db.transactions.write(tx => tx.execute('UPDATE messages SET content_owner_user_id=? WHERE id=?', [f.owner.id, publication.id]));
   await f.db.transactions.write(tx => tx.execute("UPDATE users SET status='DELETING' WHERE id=?", [f.fan1.id]));
-  assert.equal((await f.get(f.fan2, publication)).status, 404);
+  assert.equal((await f.get(f.fan2, publication.id)).status, 404);
   assert.equal((await f.get(f.owner, original.body.messageId)).status, 404);
   await f.db.transactions.write(tx => tx.execute("UPDATE users SET status='ACTIVE' WHERE id=?", [f.fan1.id]));
   await f.remove(f.fan1, original.body.messageId);
-  assert.equal((await f.get(f.fan2, publication)).status, 404);
+  assert.equal((await f.get(f.fan2, publication.id)).status, 404);
 });
 
 test('rollback keeps counter/message/receipt/events/jobs atomic; join/send order fixes history eligibility', { timeout: 20000 }, async t => {

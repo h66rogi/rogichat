@@ -9,7 +9,7 @@ export interface NotificationPreferencesDto { pushEnabled: boolean; generation: 
 export interface PushSubscriptionDto { id: string; generation: string }
 // Resolve stored order back to a currently readable message. No internal offsets/keys.
 export interface OwnReadStateDto { messageId: string | null }
-export interface OwnReadStatesDto { readContext: string; items: OwnReadStateDto[] }
+export interface OwnReadStatesDto { readContext: string; items: OwnReadStateDto[]; firstUnreadMessageId: string | null }
 export interface NotificationPreferencesInput { pushEnabled: boolean; expectedGeneration: string }
 export interface PushSubscriptionInput {
   endpoint: string;

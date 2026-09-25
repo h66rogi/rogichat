@@ -14,7 +14,7 @@ class PasswordInput(val loginId: String? = null, val password: String, val newPa
     fun body() = buildJsonObject {
         put("clientId", "android")
         if (changing) { put("currentPassword", password); put("newPassword", newPassword) }
-        else { put("loginId", loginId); put("password", password); put("termsVersion", CURRENT_TERMS) }
+        else { put("loginId", loginId); put("password", password) }
     }.toString()
     override fun toString() = "PasswordInput([redacted])"
     companion object {
@@ -24,7 +24,7 @@ class PasswordInput(val loginId: String? = null, val password: String, val newPa
     }
 }
 interface AccountAccessActions {
-    suspend fun password(input: PasswordInput, expected: SessionIdentity, termsVersion: String = CURRENT_TERMS): Result<Unit>
+    suspend fun password(input: PasswordInput, expected: SessionIdentity, termsVersion: String = ""): Result<Unit>
     suspend fun access(request: AccessRequest, expected: SessionIdentity): Result<String>
 }
 class AccessRequest private constructor(val method: String, val path: String, val body: String? = null, val status: Int = 200) {

@@ -37,7 +37,7 @@ export class NativeAuthController {
     const body = object(request.body, ['clientId', 'intent', 'codeChallenge', 'codeChallengeMethod', 'returnState', 'termsVersion']);
     const clientId = nativeClientId(body.clientId);
     if ((body.intent !== 'login' && body.intent !== 'link') || body.codeChallengeMethod !== 'S256' ||
-        (body.intent === 'login' ? body.termsVersion !== '2026-09-20' : body.termsVersion !== undefined)) throw new ApiError('INVALID_REQUEST', 400);
+        (body.intent === 'link' && body.termsVersion !== undefined)) throw new ApiError('INVALID_REQUEST', 400);
     const codeChallenge = opaque(body.codeChallenge); const returnState = opaque(body.returnState);
     const credentials = nativeAdmission(request, this.config, clientId);
     await this.auth.charge('start', request.ip);

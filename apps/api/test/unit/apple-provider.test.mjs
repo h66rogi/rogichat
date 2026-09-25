@@ -62,11 +62,11 @@ test('credential sealing binds environment, obligation UUID and purpose', () => 
   assert.throws(() => seal.open(bytes, 'two', 'refresh')); assert.throws(() => seal.open(bytes, 'one', 'proof'));
   assert.throws(() => new AppleSeal(key, 'rogi-production').open(bytes, 'one', 'refresh'));
 });
-test('DTOs reject missing terms, extra provider/profile fields, invalid S256 and arbitrary clients', () => {
-  const input = { clientId: 'ios', intent: 'login', codeChallenge: nonce(), returnState: nonce(), termsVersion: '2026-09-20' };
-  assert.deepEqual(appleStart(input), input);
-  for (const change of [{ clientId: 'other' }, { termsVersion: undefined }, { codeChallenge: 'short' }, { email: 'person@example.invalid' }]) assert.throws(() => appleStart({ ...input, ...change }));
-  assert.throws(() => appleStart({ ...input, intent: 'link' }));
+test('DTOs accept login and reject extra provider/profile fields, invalid S256 and arbitrary clients', () => {
+  const input = { clientId: 'ios', intent: 'login', codeChallenge: nonce(), returnState: nonce() };
+  assert.deepEqual(appleStart(input), { clientId: input.clientId, intent: input.intent, codeChallenge: input.codeChallenge, returnState: input.returnState });
+  for (const change of [{ clientId: 'other' }, { codeChallenge: 'short' }, { email: 'person@example.invalid' }]) assert.throws(() => appleStart({ ...input, ...change }));
+  assert.deepEqual(appleStart({ ...input, intent: 'link' }), { ...input, intent: 'link' });
   assert.throws(() => appleExchange({ clientId: 'ios', transactionId: randomUUID(), code: nonce(), codeVerifier: 'short' }));
   assert.throws(() => appleNativeComplete({ transactionId: randomUUID(), state: nonce(), authorizationCode: 'code', identityToken: 'jwt', codeVerifier: nonce(), user: 'untrusted' }));
 });

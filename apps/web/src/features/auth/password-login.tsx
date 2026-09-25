@@ -1,5 +1,4 @@
 'use client';
-import Link from 'next/link';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError } from '@/core/api/client';
 import { parseSession } from '@/core/api/session-contract';
@@ -22,7 +21,6 @@ export function PasswordLogin() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); if (request.current) return;
     const fields = new FormData(event.currentTarget);
-    if (fields.get('terms') !== 'on') return;
     const controller = new AbortController(); request.current = controller;
     setBusy(true); setError('');
     try {
@@ -30,7 +28,7 @@ export function PasswordLogin() {
       // session. Recover it before issuing another login without command proof.
       try { await api.session(controller.signal); if (!controller.signal.aborted) invalidateSession(); return; }
       catch (error) { if (!(error instanceof ApiError && error.status === 401)) throw error; }
-      const issued = parseSession(await api.request('/v1/auth/password/login', { method: 'POST', body: { clientId: 'web', loginId: String(fields.get('loginId') ?? ''), password: String(fields.get('password') ?? ''), termsVersion: '2026-09-20' }, signal: controller.signal }));
+      const issued = parseSession(await api.request('/v1/auth/password/login', { method: 'POST', body: { clientId: 'web', loginId: String(fields.get('loginId') ?? ''), password: String(fields.get('password') ?? '') }, signal: controller.signal }));
       form.current?.reset();
       const confirmed = await api.session(controller.signal);
       if (issued.accountPartition !== confirmed.accountPartition || issued.csrfToken !== confirmed.csrfToken) throw new ApiError(403, 'SESSION_CHANGED');
@@ -49,7 +47,6 @@ export function PasswordLogin() {
     <p className="text-sm text-body">발급받은 로기챗 계정으로 로그인하세요.</p>
     <label className="flex flex-col gap-2">아이디<input className="min-h-11 rounded-lg border border-line px-3" name="loginId" autoComplete="username" autoCapitalize="none" spellCheck={false} required minLength={3} maxLength={64} pattern={'[A-Za-z0-9][A-Za-z0-9._\\-]{2,63}'} disabled={busy} /></label>
     <label className="flex flex-col gap-2">비밀번호<input className="min-h-11 rounded-lg border border-line px-3" name="password" type="password" autoComplete="current-password" required disabled={busy} /></label>
-    <label className="flex gap-3 text-sm"><input name="terms" type="checkbox" required disabled={busy} className="size-5 shrink-0" /><span><Link href="/rules" className="underline">이용 안내</Link>를 확인했으며, 개인 메시지가 방장에 의해 전체 공개될 수 있음을 이해합니다. (2026-09-20)</span></label>
     <Button type="submit" disabled={busy}>{busy ? '로그인 확인 중' : '아이디로 로그인'}</Button>
     {error && <><p role="alert">{error}</p><Button type="button" variant="outline" disabled={busy} onClick={invalidateSession}>로그인 상태 다시 확인</Button></>}
   </form></details>;

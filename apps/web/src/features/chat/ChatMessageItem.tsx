@@ -177,7 +177,7 @@ function PublicationRow({ item, onDelete }: { item: ChatPublicationItemModel; on
         <div className="flex items-center justify-between gap-2 text-[12px] text-muted">
           <span className="inline-flex items-center gap-1">
             <Megaphone className="size-3.5" aria-hidden="true" />
-            개인 대화에서 공개된 메시지 · 보낸 사람 비공개
+            공유된 메시지
           </span>
           <time dateTime={item.createdAt}>{timeLabelFor(item.createdAt)}</time>
         </div>

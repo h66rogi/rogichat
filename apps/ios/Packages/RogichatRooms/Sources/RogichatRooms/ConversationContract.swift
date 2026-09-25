@@ -153,6 +153,16 @@ public struct ConversationReactions: Codable, Equatable, Sendable {
     }
 }
 public struct MessageActions: Codable, Equatable, Sendable { public let reply: Bool; public let publish: Bool; public let delete: Bool }
+public struct MessageReactionCount: Codable, Equatable, Sendable {
+    public let emoji: String
+    public let count: Int
+}
+public struct MessageReactionSummary: Codable, Equatable, Sendable {
+    public let counts: [MessageReactionCount]
+    public let mine: String?
+    public static let empty = Self(counts: [], mine: nil)
+    public init(counts: [MessageReactionCount], mine: String?) { self.counts = counts; self.mine = mine }
+}
 public struct MessageCounterpart: Codable, Equatable, Sendable {
     public let actorId: String
     enum CodingKeys: CodingKey { case actorId }
@@ -180,6 +190,8 @@ public struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
         guard RoomsWire.uuid(id), ConversationWire.timestamp(createdAt), ["SHARED", "PRIVATE"].contains(audience), c.contains(.quote), c.contains(.counterpart) else { throw ConversationError.invalidResponse }
         quote = try c.decodeIfPresent(MessageQuote.self, forKey: .quote); reactions = try c.decodeIfPresent(ConversationReactions.self, forKey: .reactions) ?? .empty
         counterpart = try c.decodeIfPresent(MessageCounterpart.self, forKey: .counterpart); allowedActions = try c.decode(MessageActions.self, forKey: .allowedActions)
+        guard reactions.counts.allSatisfy({ $0.count > 0 && !$0.emoji.isEmpty }), Set(reactions.counts.map(\.emoji)).count == reactions.counts.count,
+              reactions.mine.map({ mine in reactions.counts.contains(where: { $0.emoji == mine }) }) ?? true else { throw ConversationError.invalidResponse }
         if audience == "SHARED", counterpart != nil { throw ConversationError.invalidResponse }
         if case .anonymous = author, counterpart != nil || allowedActions.reply { throw ConversationError.invalidResponse }
     }

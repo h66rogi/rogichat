@@ -90,7 +90,7 @@ struct AccountAccessSettings: View {
             } else if capabilities?.password.enabled == true {
                 Section("계정 보안") {
                     DisclosureGroup("비밀번호 변경",isExpanded:$showPassword) {
-                        PasswordForm(changing:true,busy:session.busy) { input, _ in Task { await session.password(input) } }.padding(.top,12)
+                        PasswordForm(changing:true,busy:session.busy) { input in Task { await session.password(input) } }.padding(.top,12)
                     }
                 }
             }

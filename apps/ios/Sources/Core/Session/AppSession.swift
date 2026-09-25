@@ -255,16 +255,14 @@ final class AppSession {
             }
         }
     }
-    func signIn(_ method: SignInMethod, consent: Bool = false) async {
+    func signIn(_ method: SignInMethod) async {
         guard access == .signedOut, capabilities.signInMethods.contains(method), !busy else { return }
-        guard consent else { errorMessage = "이용 안내를 확인하고 동의해 주세요."; return }
         let attempt = SessionAttempt(); authAttempt = attempt
-        if method == .soop { await transition { try await self.service.beginSOOP(consentVersion: "2026-09-20", attempt: attempt) } }
-        else { await transition { try await self.service.beginApple(consentVersion: "2026-09-20", link: false, attempt: attempt) } }
+        if method == .soop { await transition { try await self.service.beginSOOP(consentVersion: "", attempt: attempt) } }
+        else { await transition { try await self.service.beginApple(consentVersion: nil, link: false, attempt: attempt) } }
     }
-    func password(_ input: PasswordInput, consent: Bool = false) async {
+    func password(_ input: PasswordInput) async {
         guard capabilities.canPassword, !busy, input.changing ? account != nil : access == .signedOut else { return }
-        guard input.changing || consent else { errorMessage = "이용 안내를 확인하고 동의해 주세요."; return }
         let attempt = SessionAttempt(); authAttempt = attempt
         await transition { try await self.service.password(input, attempt: attempt) }
     }
@@ -672,7 +670,7 @@ struct PasswordInput: Sendable, CustomStringConvertible, CustomDebugStringConver
             value["currentPassword"] = password; value["newPassword"] = newPassword
         } else {
             guard let loginID, loginID.range(of: "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$", options: .regularExpression) != nil else { throw ProductError.invalidResponse }
-            value["loginId"] = loginID; value["password"] = password; value["termsVersion"] = "2026-09-20"
+            value["loginId"] = loginID; value["password"] = password
         }
         return try JSONSerialization.data(withJSONObject: value)
     }

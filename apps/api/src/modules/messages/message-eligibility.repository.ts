@@ -12,7 +12,7 @@ export class MessageEligibilityRepository {
   messages(tx: Transaction, roomId: string, ids: string[]) {
     return tx.prisma.messages.findMany({ where: { room_id: roomId, id: { in: ids } }, select: {
       id: true, room_id: true, sender_member_id: true, deletion_root_id: true, content_kind: true, text_content: true,
-      sender: { select: { user_id: true } },
+      sender: { select: { user_id: true, role: true } },
       stream: { select: { id: true, room_id: true, kind: true, pair: { select: {
         room_id: true, stream_id: true, left_member_id: true, right_member_id: true,
       } } } },

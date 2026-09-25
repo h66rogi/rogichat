@@ -65,7 +65,7 @@ private class DeletionFixture(val owner: CoroutineScope, val clock: Clock = Cloc
     fun resetIntent() = DeletionResetIntent.from(model.session.value, model.deletionState.value)
     suspend fun loginAs(account: String) {
         api.session = projection().replace(OWN, account)
-        model.startLogin(CURRENT_TERMS).getOrThrow()
+        model.startLogin("").getOrThrow()
         val state = requireNotNull(pending).proof.state
         model.handleCallback("https://qa.rogi.chat/mobile/auth/complete?code=${"c".repeat(43)}&state=$state").getOrThrow()
     }
@@ -208,7 +208,7 @@ class AccountDeletionTest {
         androidx.lifecycle.ViewModelStore().apply { put("session", firstUi); clear() }
         uiJob.cancel(); runCurrent() // The feature/caller is gone; the session-owned DELETE is still held.
         assertEquals(1, f.api.deletes)
-        assertTrue(f.model.startLogin(CURRENT_TERMS).exceptionOrNull() is DeletionInProgress)
+        assertTrue(f.model.startLogin("").exceptionOrNull() is DeletionInProgress)
         assertTrue(f.model.resetDeletionData(f.resetIntent()).exceptionOrNull() is DeletionInProgress)
         val ui = SessionViewModel(f.model.services(), backgroundScope)
         ui.deleteAccount(intent); runCurrent(); assertEquals(1, f.api.deletes)

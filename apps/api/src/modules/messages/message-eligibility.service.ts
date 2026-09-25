@@ -41,6 +41,7 @@ export class MessageEligibilityService {
       if (!target) return false;
       if (current.room.mode === 'FAN' && !((current.role === 'FAN' && target.role === 'STREAMER') ||
         (current.role === 'STREAMER' && target.role === 'FAN'))) return false;
+      if (current.room.mode === 'FAN' && current.role === 'FAN' && target.id !== current.room.owner_member_id) return false;
       const pair = pairs.find(pair => (pair.left_member_id === viewer.id && pair.right_member_id === targetId) ||
         (pair.right_member_id === viewer.id && pair.left_member_id === targetId));
       // A shared-author reply may create a new private pair. An existing pair's
@@ -56,7 +57,7 @@ export class MessageEligibilityService {
       // Publication sender is the publisher; content_owner is deliberately unused.
       hints.allowedActions.delete = message.sender.user_id === viewer.user_id;
       hints.allowedActions.publish = Boolean(current && current.role === 'STREAMER' && (current.room.owner_member_id === viewer.id || viewer.temporaryGrantId) &&
-        message.stream.kind === 'RESTRICTED' && !message.deletion_root_id &&
+        (message.stream.kind === 'RESTRICTED' || current.room.mode === 'FAN' && message.stream.kind === 'ROOM_SHARED') && message.sender.role === 'FAN' && !message.deletion_root_id &&
         (message.content_kind === 'PHOTO' || (message.content_kind === 'TEXT' && message.text_content !== null)));
       if (!message.deletion_root_id && message.stream.room_id === viewer.room_id) {
         if (message.stream.kind === 'ROOM_SHARED') hints.allowedActions.reply = eligibleTarget(message.sender_member_id);

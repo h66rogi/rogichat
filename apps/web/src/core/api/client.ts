@@ -58,7 +58,7 @@ export class ApiClient {
     return validateProfile(await this.request<Profile>('/v1/me/profile', signal ? { signal } : {}));
   }
   async authorize(intent: 'login' | 'link', csrf?: string) {
-    const result = await this.request<{ authorizeUrl: string }>('/v1/auth/soop/start', { method: 'POST', body: intent === 'login' ? { intent, termsVersion: '2026-09-20' } : { intent }, ...(csrf ? { csrf } : {}) });
+    const result = await this.request<{ authorizeUrl: string }>('/v1/auth/soop/start', { method: 'POST', body: { intent }, ...(csrf ? { csrf } : {}) });
     const url = new URL(result.authorizeUrl);
     if (url.protocol !== 'https:' || url.username || url.password) throw new ApiError(502, 'INVALID_AUTH_URL');
     return url.href;

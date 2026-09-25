@@ -11,6 +11,7 @@ import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { SessionService } from '../../dist/modules/auth/session.service.js';
 import { createApi } from '../../dist/application.js';
 import { SafeLogger } from '../../dist/infrastructure/observability/logging.js';
+import { MessagesQueryRepository } from '../../dist/modules/messages/messages-query.repository.js';
 
 async function fixture(t) {
   assert.equal(process.env.ROGICHAT_TEST_MYSQL, 'disposable');
@@ -204,6 +205,8 @@ test('private root deletion produces only id-less reset for eligible publication
     const [stream] = await tx.rows("SELECT id FROM message_streams WHERE room_id=? AND kind='ROOM_SHARED'", [f.room]);
     const id = randomUUID(); const order = await nextOrder(tx, f.room);
     await tx.execute('INSERT INTO messages (id,room_id,stream_id,sender_member_id,content_owner_user_id,deletion_root_id,text_content,created_order) VALUES (?,?,?,?,?,?,?,?)', [id, f.room, stream.id, f.owner.actor, f.fan1.id, second, '익명 공개 원본', String(order)]);
+    await tx.execute("INSERT INTO message_publications (id,room_id,source_message_id,source_version,publisher_member_id,published_message_id,state) VALUES (?,?,?,?,?,?,'PUBLISHED')",
+      [randomUUID(), f.room, second, '1', f.owner.actor, id]);
     return id;
   });
   const quotedPublication = await f.send(f.owner, '공개본을 인용한 독립 답장', undefined, publication);
@@ -220,6 +223,52 @@ test('private root deletion produces only id-less reset for eligible publication
   const final = (await f.roomSync(f.fan2, 'snapshot')).body;
   assert.ok(!ids(final.messages).includes(publication));
   assert.equal(final.messages.find(message => message.id === quotedPublication).quote, null);
+});
+
+test('deleting an anonymous copy clears an open fan cache without exposing its private source or notifying a later joiner', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  const source = await f.send(f.fan1, '비공개 원본', f.owner);
+  const copy = await f.db.transactions.write(async tx => {
+    const [stream] = await tx.rows("SELECT id FROM message_streams WHERE room_id=? AND kind='ROOM_SHARED'", [f.room]);
+    const id = randomUUID(); const order = await nextOrder(tx, f.room);
+    await tx.execute('INSERT INTO messages (id,room_id,stream_id,sender_member_id,content_owner_user_id,deletion_root_id,text_content,created_order) VALUES (?,?,?,?,?,?,?,?)',
+      [id, f.room, stream.id, f.owner.actor, f.fan1.id, source, '익명 공개본', String(order)]);
+    await tx.execute("INSERT INTO message_publications (id,room_id,source_message_id,source_version,publisher_member_id,published_message_id,state) VALUES (?,?,?,?,?,?,'PUBLISHED')",
+      [randomUUID(), f.room, source, '1', f.owner.actor, id]);
+    return id;
+  });
+  assert.equal((await f.call(f.outsider, 'POST', `/rooms/${f.room}/join`, {})).status, 200);
+  f.outsider.actor = (await f.db.transactions.read(tx => tx.prisma.room_members.findFirst({ where: { room_id: f.room, user_id: f.outsider.id }, select: { id: true } }))).id;
+  const open = (await f.roomSync(f.fan2, 'snapshot')).body;
+  const later = (await f.roomSync(f.outsider, 'snapshot')).body;
+  assert.ok(ids(open.messages).includes(copy));
+  assert.ok(!JSON.stringify(open).includes(source));
+  assert.ok(!ids(later.messages).includes(copy));
+
+  await f.remove(f.owner, copy);
+  const query = new MessagesQueryRepository();
+  const deletionRows = await f.db.transactions.read(async tx => {
+    const [high] = await tx.rows('SELECT MAX(event_order) AS high FROM room_events WHERE room_id=?', [f.room]);
+    const visibleFrom = async actor => {
+      const [period] = await tx.rows('SELECT p.visible_from_order AS value FROM room_members m JOIN membership_periods p ON p.id=m.active_period_id WHERE m.id=?', [actor]);
+      return String(period.value);
+    };
+    const window = { kind: 'events', from: '0', high: String(high.high) };
+    return {
+      open: await query.page(tx, f.fan2.actor, f.room, await visibleFrom(f.fan2.actor), window, 100, await tx.now()),
+      later: await query.page(tx, f.outsider.actor, f.room, await visibleFrom(f.outsider.actor), window, 100, await tx.now()),
+    };
+  });
+  assert.ok(deletionRows.open.some(row => row.id === copy && Number(row.blocked) === 1));
+  assert.ok(!deletionRows.later.some(row => row.id === copy));
+  const cleared = (await f.roomSync(f.fan2, 'events', { cursor: open.nextCursor })).body;
+  assert.equal(cleared.resetRequired, true); assert.deepEqual(cleared.events, []);
+  assert.ok(!JSON.stringify(cleared).includes(copy)); assert.ok(!JSON.stringify(cleared).includes(source));
+  const unaffected = (await f.roomSync(f.outsider, 'events', { cursor: later.nextCursor })).body;
+  assert.equal(unaffected.resetRequired, false); assert.deepEqual(unaffected.events, []);
+  assert.ok(!JSON.stringify(unaffected).includes(copy)); assert.ok(!JSON.stringify(unaffected).includes(source));
+  assert.ok(!ids((await f.roomSync(f.fan2, 'snapshot')).body.messages).includes(copy));
+  assert.ok(ids((await f.roomSync(f.fan1, 'snapshot')).body.messages).includes(source));
 });
 
 test('C06 shared M/A agrees across join, discovery, manifest, snapshots and profiles; other-room join invalidates only A', { timeout: 20000 }, async t => {
@@ -264,7 +313,7 @@ test('C06 sorts authorized selected messages by millisecond time and UUID withou
   assert.deepEqual(ids(ties.messages), [old, middle, newest].sort());
 });
 
-test('C06 MySQL authorization revision preserves original ACL serialization byte-for-byte within audience domain', { timeout: 20000 }, async t => {
+test('C06 MySQL authorization revision v2 preserves ACL serialization within audience domain', { timeout: 20000 }, async t => {
   const f = await fixture(t); await f.send(f.fan1, 'grant for parity', f.owner);
   const { createHmac } = await import('node:crypto');
   const { SyncRepository } = await import('../../dist/modules/sync/sync.repository.js');
@@ -276,7 +325,7 @@ test('C06 MySQL authorization revision preserves original ACL serialization byte
     const grants = await repo.grants(tx, f.room, viewer.id);
     const revoked = (await new MessagesQueryRepository().stickerRevocations(tx, f.room, viewer.id, viewer.visible_from_order)).map(row => row.id);
     const vector = [viewer.id, viewer.role, viewer.mode, viewer.active_period_id, viewer.visible_from_order, String(state.acl_epoch), state.policy_version, String(state.content_epoch), String(state.membership_generation), grants, revoked];
-    return createHmac('sha256', f.config.key).update('authorization-revision:v1:').update(JSON.stringify([f.config.audience, vector])).digest('base64url');
+    return createHmac('sha256', f.config.key).update('authorization-revision:v2:').update(JSON.stringify([f.config.audience, vector])).digest('base64url');
   });
   const snapshot = (await f.roomSync(f.fan1, 'snapshot')).body;
   assert.equal(snapshot.authorizationRevision, expected);

@@ -19,8 +19,9 @@ struct AuthorizedMedia: View {
     let assetID: String
     let access: MediaAccess
     var avatar = false
+    var zoomable = false
     var body: some View {
-        AuthorizedMediaBody(client: client, assetID: assetID, access: access, avatar: avatar)
+        AuthorizedMediaBody(client: client, assetID: assetID, access: access, avatar: avatar, zoomable: zoomable)
             .id(MediaPresentationIdentity(scopeID: client.scope.presentationID, assetID: assetID, access: access))
     }
 }
@@ -29,11 +30,16 @@ private struct AuthorizedMediaBody: View {
     let assetID: String?
     let access: MediaAccess
     let avatar: Bool
+    let zoomable: Bool
     @State private var taskID: UUID?
     @State private var player: AVPlayer?
     @State private var image: UIImage?
     @State private var failed = false
     @State private var retry = 0
+    @State private var scale: CGFloat = 1
+    @State private var startScale: CGFloat = 1
+    @State private var offset: CGSize = .zero
+    @State private var startOffset: CGSize = .zero
     var body: some View {
         VStack {
             if failed {
@@ -49,7 +55,21 @@ private struct AuthorizedMediaBody: View {
             } else if let player { VideoPlayer(player: player) }
             else if let image {
                 if avatar { Image(uiImage: image).resizable().scaledToFill().accessibilityLabel("프로필 사진") }
-                else { Image(uiImage: image).resizable().scaledToFit() }
+                else {
+                    Image(uiImage: image).resizable().scaledToFit()
+                        .scaleEffect(scale).offset(offset)
+                        .gesture(MagnificationGesture().onChanged { value in
+                            scale = min(max(startScale * value, 1), 5)
+                            if scale == 1 { offset = .zero }
+                        }.onEnded { _ in startScale = scale }, including: zoomable ? .all : .none)
+                        .simultaneousGesture(DragGesture().onChanged { value in
+                            if scale > 1 { offset = CGSize(width: startOffset.width + value.translation.width, height: startOffset.height + value.translation.height) }
+                        }.onEnded { _ in startOffset = offset }, including: zoomable ? .all : .none)
+                        .onTapGesture(count: 2) {
+                            guard zoomable else { return }
+                            scale = scale > 1 ? 1 : 2; startScale = scale; offset = .zero; startOffset = .zero
+                        }
+                }
             }
             else if avatar {
                 Image(systemName: "person.fill").resizable().scaledToFit().padding(7)

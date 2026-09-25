@@ -21,7 +21,8 @@ on the separately approved migration path, not the no-migration automatic lane.
 The three native issuance routes are documented on their actual Nest controller:
 
 - `POST /v1/auth/native/soop/transactions`: strict login/link request alternatives,
-  explicit login consent, client-bound S256 and return state.
+  client-bound S256 and return state. The former login consent requirement has
+  since been removed; the optional legacy field has no effect.
 - `GET /v1/auth/native/soop/launch`: one-use browser launch ticket and 303 response.
 - `POST /v1/auth/native/completions/exchange`: one-use completion code and verifier;
   opaque seven-day credential plus the existing minimal native session DTO.
@@ -46,7 +47,8 @@ not establish actual R2 processing or isolated decoder deployment.
 The initial combined graph exposed two failing OpenAPI inventory tests for missing
 native metadata. These tests were retained and the controller metadata corrected,
 not excluded. Native request schema tests cover consent, unknown fields, PKCE and
-client bindings. Actual native HTTP success/error/redirect responses in the
+client bindings. The consent cases described in the original test run are
+historical; current login does not require it. Actual native HTTP success/error/redirect responses in the
 disposable MySQL suite are now validated against the generated OpenAPI document.
 Health/auth/full exports use existing offline test composition and do not contact
 the broker, a service DB or object storage.

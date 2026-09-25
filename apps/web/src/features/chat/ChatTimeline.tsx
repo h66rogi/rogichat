@@ -34,7 +34,10 @@ export interface ChatTimelineProps {
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
   onLoadOlder?: (() => void | Promise<void>) | undefined;
   hasOlder?: boolean | undefined;
+  historyPageKey?: string | null | undefined;
   isLoadingOlder?: boolean | undefined;
+  firstUnreadMessageId?: string | null | undefined;
+  onVisibleMessage?: ((messageId: string) => void) | undefined;
   ariaLabel?: string | undefined;
   className?: string | undefined;
 }
@@ -52,7 +55,10 @@ export function ChatTimeline({
   onDelete,
   onLoadOlder,
   hasOlder = false,
+  historyPageKey = null,
   isLoadingOlder = false,
+  firstUnreadMessageId = null,
+  onVisibleMessage,
   ariaLabel = '채팅 메시지',
   className,
 }: ChatTimelineProps) {
@@ -62,12 +68,19 @@ export function ChatTimeline({
   const lastScrollTopRef = useRef(0);
   const prevItemsRef = useRef<ChatTimelineItem[] | null>(null);
   const previousOutgoingRef = useRef<readonly string[] | null>(null);
+  const userMovedRef = useRef(false);
+  const positionedUnreadRef = useRef<string | null>(null);
+  const attemptedUnreadPageRef = useRef<string | null>(null);
+  const attemptedQuotePageRef = useRef<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [unseenCount, setUnseenCount] = useState(0);
+  const [showLatest, setShowLatest] = useState(false);
   const [quoteTarget, setQuoteTarget] = useState<string | null>(null);
   const [quoteNotice, setQuoteNotice] = useState('');
 
   const navigateQuote = useCallback((messageId: string) => {
+    userMovedRef.current = true;
+    attemptedQuotePageRef.current = null;
     setQuoteNotice('');
     setQuoteTarget(messageId);
   }, []);
@@ -82,6 +95,9 @@ export function ChatTimeline({
       // The DOM row exists only after the requested history page has committed.
       setQuoteTarget(null);
     } else if (hasOlder && onLoadOlder) {
+      const pageKey = `${quoteTarget}:${historyPageKey ?? ''}`;
+      if (attemptedQuotePageRef.current === pageKey) return;
+      attemptedQuotePageRef.current = pageKey;
       void onLoadOlder();
     } else {
       // Exhausted history is known only after checking the newly rendered rows.
@@ -89,7 +105,7 @@ export function ChatTimeline({
       setQuoteNotice('원본 메시지가 현재 볼 수 있는 기록에 없습니다.');
       setQuoteTarget(null);
     }
-  }, [quoteTarget, items, hasOlder, isLoadingOlder, onLoadOlder]);
+  }, [quoteTarget, items, hasOlder, historyPageKey, isLoadingOlder, onLoadOlder]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior) => {
     const el = viewportRef.current;
@@ -97,6 +113,7 @@ export function ChatTimeline({
     el.scrollTo({ top: el.scrollHeight, behavior });
     wasAtBottomRef.current = true;
     setUnseenCount(0);
+    setShowLatest(false);
   }, []);
 
   // Record the first visible item and its offset so a history prepend can restore it.
@@ -112,8 +129,26 @@ export function ChatTimeline({
       }
     }
     wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD_PX;
+    setShowLatest(!wasAtBottomRef.current);
     if (wasAtBottomRef.current) setUnseenCount(0);
   }, []);
+
+  const reportVisible = useCallback(() => {
+    const el = viewportRef.current;
+    if (!el || !onVisibleMessage) return;
+    if (firstUnreadMessageId && positionedUnreadRef.current !== firstUnreadMessageId && !userMovedRef.current) return;
+    const viewport = el.getBoundingClientRect();
+    const unreadIndex = firstUnreadMessageId && !userMovedRef.current
+      ? items.findIndex(item => item.id === firstUnreadMessageId) : -1;
+    for (const row of el.querySelectorAll<HTMLElement>('[data-item-id]')) {
+      const id = row.dataset.itemId;
+      if (!id) continue;
+      const index = items.findIndex(item => item.id === id);
+      if (index < 0 || (unreadIndex >= 0 && index < unreadIndex)) continue;
+      const box = row.getBoundingClientRect();
+      if (box.top < viewport.bottom && box.bottom > viewport.top) onVisibleMessage(id);
+    }
+  }, [items, firstUnreadMessageId, onVisibleMessage]);
 
   const handleScroll = useCallback(() => {
     const el = viewportRef.current;
@@ -121,13 +156,30 @@ export function ChatTimeline({
     const previousTop = lastScrollTopRef.current;
     lastScrollTopRef.current = el.scrollTop;
     recordAnchor();
+    reportVisible();
 
     const scrollingUp = el.scrollTop < previousTop;
     const overflows = el.scrollHeight > el.clientHeight;
     if (scrollingUp && overflows && hasOlder && !isLoadingOlder && onLoadOlder && el.scrollTop < TOP_LOAD_THRESHOLD_PX) {
       void onLoadOlder();
     }
-  }, [hasOlder, isLoadingOlder, onLoadOlder, recordAnchor]);
+  }, [hasOlder, isLoadingOlder, onLoadOlder, recordAnchor, reportVisible]);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(reportVisible);
+    return () => cancelAnimationFrame(frame);
+  }, [items, firstUnreadMessageId, reportVisible]);
+
+  useEffect(() => {
+    if (!firstUnreadMessageId || positionedUnreadRef.current === firstUnreadMessageId ||
+      userMovedRef.current || items.some(item => item.id === firstUnreadMessageId) ||
+      !hasOlder || isLoadingOlder || !onLoadOlder) return;
+    const pageKey = `${firstUnreadMessageId}:${historyPageKey ?? ''}`;
+    if (attemptedUnreadPageRef.current === pageKey) return;
+    attemptedUnreadPageRef.current = pageKey;
+    recordAnchor();
+    void onLoadOlder();
+  }, [firstUnreadMessageId, items, hasOlder, historyPageKey, isLoadingOlder, onLoadOlder, recordAnchor]);
 
   // Initial position: bottom, no animation.
   useLayoutEffect(() => {
@@ -175,6 +227,22 @@ export function ChatTimeline({
     }
   }, [items, scrollToBottom]);
 
+  // Place the first unread row before visibility reporting can advance the read position.
+  useLayoutEffect(() => {
+    if (!firstUnreadMessageId || positionedUnreadRef.current === firstUnreadMessageId || userMovedRef.current) return;
+    const el = viewportRef.current;
+    const row = el?.querySelector<HTMLElement>(`[data-item-id="${cssEscape(firstUnreadMessageId)}"]`);
+    if (el && row) {
+      el.scrollTop = Math.max(0, row.offsetTop - 8);
+      lastScrollTopRef.current = el.scrollTop;
+      wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD_PX;
+      setShowLatest(!wasAtBottomRef.current);
+      positionedUnreadRef.current = firstUnreadMessageId;
+    } else if (!hasOlder && !isLoadingOlder) {
+      positionedUnreadRef.current = firstUnreadMessageId;
+    }
+  }, [firstUnreadMessageId, items, hasOlder, isLoadingOlder]);
+
   useLayoutEffect(() => {
     const ids = outgoing.map(item => item.id);
     const previous = previousOutgoingRef.current;
@@ -197,6 +265,9 @@ export function ChatTimeline({
       <div
         ref={viewportRef}
         onScroll={handleScroll}
+        onWheel={() => { userMovedRef.current = true; }}
+        onTouchStart={() => { userMovedRef.current = true; }}
+        onKeyDown={(event) => { if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)) userMovedRef.current = true; }}
         role="region"
         aria-label={ariaLabel}
         tabIndex={0}
@@ -211,7 +282,7 @@ export function ChatTimeline({
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => void onLoadOlder?.()}
+                onClick={() => { userMovedRef.current = true; void onLoadOlder?.(); }}
                 disabled={isLoadingOlder || !onLoadOlder}
                 aria-busy={isLoadingOlder}
                 data-testid="chat-load-older"
@@ -237,6 +308,9 @@ export function ChatTimeline({
               </li>
             ) : (
               <li key={entry.item.id} data-item-id={entry.item.id} data-testid="chat-timeline-item" tabIndex={-1} className="focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-chat-accent">
+                {entry.item.id === firstUnreadMessageId && <div className="mx-4 my-2 flex items-center gap-3 text-xs font-semibold text-chat-accent" data-testid="chat-first-unread">
+                  <span className="h-px flex-1 bg-chat-accent" aria-hidden="true" />여기부터 읽지 않은 메시지<span className="h-px flex-1 bg-chat-accent" aria-hidden="true" />
+                </div>}
                 <ChatMessageItem item={entry.item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} onQuoteNavigate={navigateQuote} />
               </li>
             ),
@@ -257,17 +331,17 @@ export function ChatTimeline({
         </ol>
       </div>
 
-      {unseenCount > 0 && (
+      {(unseenCount > 0 || showLatest) && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 flex justify-center">
           <Button
             type="button"
             variant="outline"
             size="sm"
             className="pointer-events-auto rounded-full shadow-sm"
-            onClick={() => scrollToBottom('smooth')}
+            onClick={() => { userMovedRef.current = true; scrollToBottom('smooth'); }}
             data-testid="chat-jump-to-new"
           >
-            새 메시지 {unseenCount}개 보기
+            {unseenCount > 0 ? `새 메시지 ${unseenCount}개 보기` : '최신 메시지로'}
           </Button>
         </div>
       )}

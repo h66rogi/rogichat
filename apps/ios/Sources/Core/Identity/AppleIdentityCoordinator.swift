@@ -27,8 +27,7 @@ actor AppleIdentityCoordinator: SOOPAuthenticating {
         guard try store.pendingAuth(now: now())?.id == pending.id else { throw SOOPAuthError.sessionChanged }
     }
     func authenticate(pending: SOOPPending, consentVersion: String?, attempt: SessionAttempt) async throws -> SOOPAuthResult {
-        guard pending.provider == "apple", pending.phase == .starting,
-              pending.intent == .login ? consentVersion == "2026-09-20" : consentVersion == nil else { throw SOOPAuthError.consentRequired }
+        guard pending.provider == "apple", pending.phase == .starting else { throw SOOPAuthError.invalidRequest }
         let intent: IdentityIntent = pending.intent == .login ? .login : .link
         var returned: NativeCredential?
         var exchanged = false

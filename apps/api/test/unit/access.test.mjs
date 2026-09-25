@@ -36,10 +36,28 @@ test('read/publish denial matrix enforces current account, room, period, scoped 
   for (const update of [{ role: 'FAN' }, { role: 'MEMBER' }, { ownerMemberId: null }, { ownerMemberId: 'other-owner' }]) {
     assert.equal(canPublishSource({ ...actor, ...update }, message), false);
   }
-  const shared = { ...message, streamKind: 'ROOM_SHARED', grant: null };
+  const shared = { ...message, streamKind: 'ROOM_SHARED', grant: null,
+    roomMode: 'GROUP', senderMemberId: 'fan-a', published: false, publicationActive: false };
   assert.equal(canReadMessage({ ...actor, role: 'FAN' }, shared), true);
   assert.equal(canReadMessage({ ...actor, role: 'MEMBER' }, shared), true);
   assert.equal(canPublishSource(actor, shared), false);
+});
+
+test('legacy FAN shared originals reach only their author and current owner; explicit copies stay shared', () => {
+  const fanA = { ...actor, memberId: 'fan-a', role: 'FAN' };
+  const fanB = { ...actor, memberId: 'fan-b', role: 'FAN' };
+  const shared = { ...message, streamKind: 'ROOM_SHARED', grant: null,
+    roomMode: 'FAN', senderMemberId: 'fan-a', published: false, publicationActive: false };
+  assert.equal(canReadMessage(fanA, shared), true);
+  assert.equal(canReadMessage(actor, shared), true);
+  assert.equal(canReadMessage(fanB, shared), false);
+  assert.equal(canReadMessage({ ...fanB, delegated: true }, shared), false);
+  assert.equal(canReadMessage(fanB, { ...shared, senderMemberId: 'owner-a' }), true);
+  assert.equal(canReadMessage(fanB, { ...shared, published: true }), false);
+  assert.equal(canReadMessage(fanB, { ...shared, published: true, publicationActive: true }), true);
+  assert.equal(canPublishSource(actor, shared), false);
+  assert.equal(canPublishSource(actor, { ...shared, legacyFanOriginal: true }), true);
+  assert.equal(canPublishSource(fanA, { ...shared, legacyFanOriginal: true }), false);
 });
 
 test('profile validation accepts month/day only including leap day and bounds normalized nicknames', () => {

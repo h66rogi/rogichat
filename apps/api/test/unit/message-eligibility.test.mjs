@@ -14,7 +14,7 @@ function fixture() {
     { id: own, user_id: viewer.user_id, role: 'STREAMER', active_period_id: viewer.active_period_id, active_period: { member_id: own, visible_from_order: 0n }, room: { mode: 'FAN', owner_member_id: own } },
     { id: peer, user_id: randomUUID(), role: 'FAN', active_period_id: randomUUID(), active_period: { member_id: peer, visible_from_order: 0n } },
   ];
-  const message = { id: randomUUID(), room_id: room, sender_member_id: own, sender: { user_id: viewer.user_id }, deletion_root_id: null,
+  const message = { id: randomUUID(), room_id: room, sender_member_id: own, sender: { user_id: viewer.user_id, role: 'STREAMER' }, deletion_root_id: null,
     content_kind: 'TEXT', text_content: '본문', stream: { id: stream, room_id: room, kind: 'RESTRICTED', pair } };
   const state = { blocks: [], messages: [message], members, pairs: [pair], grants: [own, peer].map(member_id => ({ stream_id: stream, member_id, can_read: true, can_send: true })) };
   const calls = [];
@@ -28,11 +28,14 @@ function fixture() {
 
 test('private own outgoing projects opposite participant; shared targets and FAN roles are current', async () => {
   const f = fixture();
-  assert.deepEqual(await f.hints(), { counterpart: { actorId: f.peer }, allowedActions: { reply: true, publish: true, delete: true } });
-  f.message.sender_member_id = f.peer; f.message.sender.user_id = f.members[1].user_id;
+  assert.deepEqual(await f.hints(), { counterpart: { actorId: f.peer }, allowedActions: { reply: true, publish: false, delete: true } });
+  f.message.sender_member_id = f.peer; f.message.sender.user_id = f.members[1].user_id; f.message.sender.role = 'FAN';
+  assert.equal((await f.hints()).allowedActions.publish, true);
   assert.equal((await f.hints()).allowedActions.delete, false);
   f.message.stream.kind = 'ROOM_SHARED';
-  assert.deepEqual(await f.hints(), { counterpart: null, allowedActions: { reply: true, publish: false, delete: false } });
+  assert.deepEqual(await f.hints(), { counterpart: null, allowedActions: { reply: true, publish: true, delete: false } });
+  f.members[0].room.mode = 'GROUP'; assert.equal((await f.hints()).allowedActions.publish, false);
+  f.members[0].room.mode = 'FAN';
   f.state.pairs = []; f.state.grants = []; assert.equal((await f.hints()).allowedActions.reply, true);
   f.members[0].role = 'FAN'; assert.equal((await f.hints()).allowedActions.reply, false);
   f.members[0].room.mode = 'GROUP'; assert.equal((await f.hints()).allowedActions.reply, true);
@@ -49,6 +52,16 @@ test('private cross-room, nonparticipant, nonpair and wrong stream never expose 
     const f = fixture(); change(f); const hint = await f.hints();
     assert.equal(hint.counterpart, null); assert.equal(hint.allowedActions.reply, false);
   }
+});
+
+test('a FAN viewer can address only the current room owner', async () => {
+  const f = fixture();
+  f.members[0].role = 'FAN';
+  f.members[1].role = 'STREAMER';
+  f.members[0].room.owner_member_id = randomUUID();
+  assert.equal((await f.hints()).allowedActions.reply, false);
+  f.members[0].room.owner_member_id = f.peer;
+  assert.equal((await f.hints()).allowedActions.reply, true);
 });
 
 test('revocation, missing peer, expired grants and rejoin never retain or repair eligibility', async () => {
@@ -70,12 +83,14 @@ test('anonymous publisher owns deletion, source fan does not; publish is indepen
   const f = fixture(); f.message.deletion_root_id = randomUUID(); f.message.stream.kind = 'ROOM_SHARED';
   assert.deepEqual(await f.hints(), { counterpart: null, allowedActions: { reply: false, publish: false, delete: true } });
   f.message.sender.user_id = randomUUID(); assert.equal((await f.hints()).allowedActions.delete, false);
-  f.message.deletion_root_id = null; f.message.stream.kind = 'RESTRICTED'; f.state.grants = [];
+  f.message.deletion_root_id = null; f.message.stream.kind = 'RESTRICTED'; f.message.sender.role = 'FAN'; f.state.grants = [];
   for (const kind of ['TEXT', 'PHOTO', 'VIDEO', 'STICKER']) {
     f.message.content_kind = kind; const hint = await f.hints();
     assert.equal(hint.allowedActions.reply, false); assert.equal(hint.allowedActions.publish, ['TEXT', 'PHOTO'].includes(kind));
   }
   f.message.content_kind = 'TEXT'; f.message.text_content = null; assert.equal((await f.hints()).allowedActions.publish, false);
+  f.message.text_content = '본문'; f.message.sender.role = 'STREAMER'; assert.equal((await f.hints()).allowedActions.publish, false);
+  f.message.sender.role = 'FAN';
   f.message.text_content = '본문'; f.members[0].room.owner_member_id = f.peer; assert.equal((await f.hints()).allowedActions.publish, false);
   f.message.sender.user_id = f.viewer.user_id; f.state.members = [];
   assert.equal((await f.hints()).allowedActions.delete, true, 'ownership does not depend on current membership/SOOP');

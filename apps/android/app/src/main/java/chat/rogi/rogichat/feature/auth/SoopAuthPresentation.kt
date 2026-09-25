@@ -1,44 +1,11 @@
 package chat.rogi.rogichat.feature.auth
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.selection.toggleable
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import chat.rogi.rogichat.core.auth.*
-
-/** Reuses LoginScreen's explicit confirmation dialog and callback-driven browser launch pattern.
- * Consent wording/version is shared with the reviewed web AuthPanel; no consent is persisted by UI.
- */
-@Composable
-fun SoopConsentDialog(rulesUrl: String, busy: Boolean, onDismiss: () -> Unit, onConfirm: () -> Unit, providerName: String = "SOOP") {
-    var consent by remember { mutableStateOf(false) }
-    var browserError by remember { mutableStateOf(false) }
-    val context = LocalContext.current
-    AlertDialog(onDismissRequest = { if (!busy) onDismiss() }, title = { Text("$providerName 로그인") }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick = { browserError = !ExternalBrowserHandler.openUrl(context, rulesUrl) }) { Text("이용 안내 읽기") }
-            Row(
-                modifier = Modifier.fillMaxWidth().toggleable(
-                    value = consent, enabled = !busy, role = Role.Checkbox,
-                    onValueChange = { consent = it },
-                ),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Checkbox(checked = consent, onCheckedChange = null, enabled = !busy)
-                Text(TERMS_CONSENT, Modifier.padding(top = 12.dp))
-            }
-            if (browserError) Text(AuthProblem.BROWSER.message, color = MaterialTheme.colorScheme.error)
-        }
-    }, confirmButton = { TextButton(onClick = onConfirm, enabled = consent && !busy) { Text("동의하고 계속") } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("취소") } })
-}
 
 @Composable
 fun AuthStatusBanner(state: AuthUiState, onCancel: () -> Unit, onReauthenticate: (() -> Unit)?) {

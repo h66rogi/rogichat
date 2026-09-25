@@ -38,8 +38,8 @@ export class PublicationFlow {
     this.active.signal.throwIfAborted(); this.id = receipt.publicationId; this.set(receipt.status);
     if (receipt.status === 'published') this.onPublished();
   }
-  async publish(confirmed: boolean): Promise<void> {
-    if (!confirmed || this.busy || this.disposed || this.state !== 'idle' || !canOfferPublication(this.context)) return;
+  async publish(): Promise<void> {
+    if (this.busy || this.disposed || this.state !== 'idle' || !canOfferPublication(this.context)) return;
     this.busy = true; this.set('sending');
     try {
       if (!await this.verify()) return;

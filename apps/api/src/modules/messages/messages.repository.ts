@@ -1,5 +1,6 @@
 import { chatAccountSql } from '../auth/chat-entitlement.js';
 import { delegatedMemberSql } from '../access/delegation-policy.js';
+import { publishedCopySql } from '../access/fan-message-policy.js';
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { RowDataPacket } from 'mysql2';
@@ -18,19 +19,28 @@ export class MessagesRepository {
     if (!tx.writable) {
       const row = await tx.prisma.messages.findFirst({ where: { room_id: roomId, id: messageId }, select: {
         id: true, room_id: true, stream_id: true, sender_member_id: true, content_owner_user_id: true, deletion_root_id: true, quote_id: true, text_content: true, content_kind: true, version: true, created_order: true, created_at: true, deleted_at: true, moderated: true,
-        stream: { select: { kind: true } }, content_owner: { select: { status: true } },
-        sender: { select: { user: { select: { status: true, profile: { select: { user_id: true, nickname: true, avatar: { select: { id: true, owner_user_id: true, kind: true, room_id: true, state: true, deleted_at: true } } } } } } } },
+        stream: { select: { kind: true, room: { select: { mode: true, owner_member_id: true } } } }, published_as: { where: { state: 'PUBLISHED' }, take: 1, select: { id: true } }, content_owner: { select: { status: true } },
+        sender: { select: {
+          role: true,
+          user: { select: {
+            status: true,
+            profile: { select: {
+              user_id: true, nickname: true,
+              avatar: { select: { id: true, owner_user_id: true, kind: true, room_id: true, state: true, deleted_at: true } },
+            } },
+          } },
+        } },
         deletion_root: { select: { deleted_at: true, moderated: true, content_owner: { select: { status: true } } } },
       } });
       if (!row) return undefined;
       const profile = row.sender.user.profile, avatar = profile?.avatar, root = row.deletion_root;
-      return { id: row.id, room_id: row.room_id, stream_id: row.stream_id, sender_member_id: row.sender_member_id, content_owner_user_id: row.content_owner_user_id, deletion_root_id: row.deletion_root_id, quote_id: row.quote_id, text_content: row.text_content, content_kind: row.content_kind, version: String(row.version), created_order: String(row.created_order), created_at: row.created_at, deleted_at: row.deleted_at, moderated: Number(row.moderated), stream_kind: row.stream.kind, nickname: profile?.nickname ?? '', content_owner_status: row.content_owner.status,
+      return { id: row.id, room_id: row.room_id, stream_id: row.stream_id, sender_member_id: row.sender_member_id, sender_role: row.sender.role, content_owner_user_id: row.content_owner_user_id, deletion_root_id: row.deletion_root_id, quote_id: row.quote_id, text_content: row.text_content, content_kind: row.content_kind, version: String(row.version), created_order: String(row.created_order), created_at: row.created_at, deleted_at: row.deleted_at, moderated: Number(row.moderated), stream_kind: row.stream.kind, room_mode: row.stream.room.mode, owner_member_id: row.stream.room.owner_member_id, published_active: Number(row.published_as.length > 0), nickname: profile?.nickname ?? '', content_owner_status: row.content_owner.status,
         root_blocked: Number(row.deletion_root_id !== null && (!root || root.deleted_at !== null || root.moderated || ['DELETING', 'DELETED'].includes(root.content_owner.status))),
         avatar_id: avatar && avatar.owner_user_id === profile?.user_id && avatar.kind === 'AVATAR' && avatar.room_id === null && avatar.state === 'READY' && avatar.deleted_at === null && row.sender.user.status === 'ACTIVE' ? avatar.id : null };
     }
-    const [row] = await tx.rows<MessageRow>(`SELECT m.id,m.room_id,m.stream_id,m.sender_member_id,m.content_owner_user_id,m.deletion_root_id,m.quote_id,m.text_content,m.content_kind,m.version,m.created_order,m.created_at,m.deleted_at,m.moderated,s.kind AS stream_kind,p.nickname,u.status AS content_owner_status,av.id AS avatar_id,
+    const [row] = await tx.rows<MessageRow>(`SELECT m.id,m.room_id,m.stream_id,m.sender_member_id,sender.role AS sender_role,m.content_owner_user_id,m.deletion_root_id,m.quote_id,m.text_content,m.content_kind,m.version,m.created_order,m.created_at,m.deleted_at,m.moderated,s.kind AS stream_kind,r.mode AS room_mode,r.owner_member_id,${publishedCopySql('m')} AS published_active,p.nickname,u.status AS content_owner_status,av.id AS avatar_id,
     (m.deletion_root_id IS NOT NULL AND (root.id IS NULL OR root.deleted_at IS NOT NULL OR root.moderated=1 OR ru.status IN ('DELETING','DELETED'))) AS root_blocked
-    FROM messages m JOIN message_streams s ON s.room_id=m.room_id AND s.id=m.stream_id
+    FROM messages m JOIN message_streams s ON s.room_id=m.room_id AND s.id=m.stream_id JOIN rooms r ON r.id=m.room_id
     JOIN room_members sender ON sender.room_id=m.room_id AND sender.id=m.sender_member_id
     LEFT JOIN user_profiles p ON p.user_id=sender.user_id JOIN users u ON u.id=m.content_owner_user_id
     LEFT JOIN users su ON su.id=sender.user_id LEFT JOIN media_assets av ON av.id=p.avatar_asset_id AND av.owner_user_id=p.user_id AND av.kind='AVATAR' AND av.room_id IS NULL AND av.state='READY' AND av.deleted_at IS NULL AND su.status='ACTIVE'

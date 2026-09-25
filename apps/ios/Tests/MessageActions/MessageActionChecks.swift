@@ -98,6 +98,13 @@ import Foundation
         try position.saveAnchor(fresh, anchor: ScrollAnchor(messageId: b, offset: 22), currentlyReadable: [b])
         check(try position.restoreAnchor(fresh, currentlyReadable: [b])?.offset == 22)
         check(try position.restoreAnchor(fresh, currentlyReadable: []) == nil)
+        let acknowledged = try position.displayed(fresh, messageId: c)!; try acknowledged.claim()
+        check(try position.finish(acknowledged, acknowledged: true, savedMessageId: c))
+        position.requestRefresh()
+        check(position.needsRefresh)
+        check(try position.displayed(fresh, messageId: c) == nil)
+        let updated = position.capture()!
+        check(try position.accept(updated, snapshot: ReadSnapshot(context: context, messageIds: [c], firstUnreadMessageId: d)))
         rejects { _ = try MessageReadWire.snapshot(data("{\"readContext\":\"\(context)\",\"items\":[{\"messageId\":null}]}")) }
         check(try MessageReadWire.saved(data("{\"messageId\":null}")) == nil)
         var viewport = MessageViewport(); let anchor = ScrollAnchor(messageId: b, offset: 22)

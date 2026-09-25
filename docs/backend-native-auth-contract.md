@@ -70,7 +70,7 @@ The following routes are implemented by slice 2, not a claim of deployed APIs.
 
 | Route | Request | Response |
 |---|---|---|
-| `POST /v1/auth/native/soop/transactions` | `clientId`, `intent`, `codeChallenge`, `codeChallengeMethod:"S256"`, `returnState`, login `termsVersion` | `transactionId`, `authorizeUrl`, `expiresIn:600` |
+| `POST /v1/auth/native/soop/transactions` | `clientId`, `intent`, `codeChallenge`, `codeChallengeMethod:"S256"`, `returnState`; optional legacy login `termsVersion` | `transactionId`, `authorizeUrl`, `expiresIn:600` |
 | `GET /v1/auth/native/soop/launch?request=…` | API-created one-time browser launch ticket | Bound browser cookie and 303 to the validated broker authorization URL |
 | `GET /v1/auth/soop/callback` | Existing broker callback fields | Stored channel selects web completion or native HTTPS handoff |
 | `POST /v1/auth/native/completions/exchange` | `clientId`, `transactionId`, `code`, `codeVerifier` | `tokenType:"Bearer"`, `accessToken`, `expiresAt`, `session` containing the authoritative native session projection |
@@ -84,8 +84,8 @@ JSON content type, no browser Origin/CSRF and no web session cookie. Login omits
 Authorization; link uses the same native Bearer at start and exchange. Reject
 unknown body fields and duplicate credential/client headers.
 
-`clientId` is `ios|android`. `intent` is `login|link`. Login requires current terms
-version `2026-09-20`. S256 challenge and returnState are 43-character base64url
+`clientId` is `ios|android`. `intent` is `login|link`. Login needs no consent field;
+the optional legacy `termsVersion` is ignored. S256 challenge and returnState are 43-character base64url
 values; the app generates an independent verifier and independent returnState.
 The verifier follows RFC 7636's 43–128 unreserved-character grammar. Neither the
 verifier nor identity fields appear in the start response, callback URL or logs.
@@ -116,14 +116,9 @@ verifier. Logout, account replacement, suspension or deletion invalidates the
 pending link. Exchange resolves identity, updates linkage, consumes the code
 and issues the replacement native session in one transaction. Revoke the old
 session on successful replacement. Do not auto-merge identities or accounts.
-Only an explicit login terms consent may update the recorded terms version. A
-link transaction preserves existing consent; successful identity linking is not
-agreement to new terms and must not bypass any outstanding terms requirement.
-Slice 2 rejects stale/null consent at native link start, callback and exchange with
-`403 TERMS_REQUIRED`, without updating consent or revoking the current session.
-The app may offer an explicit login with current consent, but must not silently
-convert link into login or merge accounts. This does not add an onboarding enum
-value or implement a global future terms-policy migration gate.
+Linking does not update the legacy stored terms version. A link transaction must
+not silently convert into login or merge accounts. No consent gate applies to
+login or linking; `TERMS_REQUIRED` remains a legacy error code only.
 
 Claim the provider transaction before external I/O; broker exchange happens
 outside the DB transaction. Finalization repeats current authorization. Confirmed

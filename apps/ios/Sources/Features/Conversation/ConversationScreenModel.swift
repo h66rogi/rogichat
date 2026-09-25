@@ -14,6 +14,7 @@ final class ConversationScreenModel {
     var listing: ConversationListing? { state.value }
     var loading: Bool { state.isLoading }
     private(set) var loadingHistory = false
+    private(set) var historyRevision = 0
     private(set) var sending = false
     private(set) var checking = false
     private(set) var error: String?
@@ -24,8 +25,17 @@ final class ConversationScreenModel {
     private var sendTask: Task<Void, Never>?
     init(coordinator: any ConversationCoordinating) { self.coordinator = coordinator }
     var active: Bool { (try? scope.check()) != nil }
-    var targetName: String { privateReplyName ?? "전체 채팅" }
+    private var sendsToRoomOwner: Bool { scope.room.mode == "FAN" && scope.room.role == "FAN" }
+    var targetName: String { privateReplyName ?? (sendsToRoomOwner ? "방장" : "전체 채팅") }
+    var composerPrompt: String { privateTarget != nil ? "답장 입력" : "메시지 입력" }
+    var sendAccessibilityLabel: String {
+        if privateTarget != nil { return "답장 보내기" }
+        return "메시지 보내기"
+    }
     var privateTarget: String? { privateReplyTarget }
+    var canLoadHistory: Bool {
+        active && !loading && !loadingHistory && !sending && !checking && listing?.historyCursor != nil
+    }
     var canSend: Bool {
         active && listing?.ready == true && !sending &&
         (privateTarget == nil || quote != nil && scope.room.role == "STREAMER") && (try? ConversationWire.normalizedText(draft)) != nil
@@ -49,11 +59,14 @@ final class ConversationScreenModel {
         do { let value = try await coordinator.poll(); try scope.check(); state = .loaded(value); clearStaleReply(value) }
         catch { await failed(error) }
     }
-    func history() async {
-        guard active, !loading, !loadingHistory, !sending, !checking, listing?.historyCursor != nil else { return }
+    @discardableResult func history() async -> Bool {
+        guard canLoadHistory else { return false }
         loadingHistory = true; error = nil; defer { loadingHistory = false }
-        do { let value = try await coordinator.history(); try scope.check(); state = .loaded(value); clearStaleReply(value) }
-        catch { await failed(error) }
+        do {
+            let value = try await coordinator.history(); try scope.check()
+            historyRevision &+= 1; state = .loaded(value); clearStaleReply(value)
+            return true
+        } catch { await failed(error); return false }
     }
     func checkCommands() async {
         guard active, !loading, !loadingHistory, !sending, !checking else { return }
@@ -80,7 +93,7 @@ final class ConversationScreenModel {
         guard canSend else { return }
         let input = draft; let target = privateTarget; let quoteID = quote?.id
         let command: TextCommand
-        do { command = try TextCommand(roomID: scope.room.id, membershipScope: scope.room.membershipScope, recipientActorID: target, quoteID: quoteID, text: input) }
+        do { command = try TextCommand(roomID: scope.room.id, membershipScope: scope.room.membershipScope, recipientActorID: target, quoteID: quoteID, toRoomOwner: sendsToRoomOwner, text: input) }
         catch { self.error = Self.message(error); return }
         sending = true; error = nil
         sendTask = Task {
@@ -98,7 +111,7 @@ final class ConversationScreenModel {
         guard active, listing?.ready == true, !sending,
               (privateTarget == nil || quote != nil && scope.room.role == "STREAMER") else { throw ConversationError.busy }
         let command = try TextCommand(roomID: scope.room.id, membershipScope: scope.room.membershipScope,
-            recipientActorID: privateTarget, quoteID: quote?.id, attachment: attachment)
+            recipientActorID: privateTarget, quoteID: quote?.id, toRoomOwner: sendsToRoomOwner, attachment: attachment)
         let originalDraft = draft
         sending = true; error = nil; defer { sending = false }
         do {

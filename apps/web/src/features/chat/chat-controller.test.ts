@@ -62,6 +62,42 @@ void test('server-authenticated snapshot renders immediately and resumes from it
     assert.equal(events, 1);
   } finally { controller.dispose(); }
 });
+void test('a later sync discovers a new first unread boundary after the room initially had none', async () => {
+  const next = source('00000000-0000-4000-8000-000000000012', '2026-09-01T00:00:01.000Z');
+  let newMessage = false; let readGets = 0;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.includes('/read-state')) {
+      readGets++;
+      return { readContext: 'A'.repeat(43), items: [], firstUnreadMessageId: newMessage ? next.id : null };
+    }
+    if (newMessage && path.includes('/events?')) return { ...sync, events: [{ type: 'message.upsert', message: next }], nextCursor: 'events-new', hasMore: false };
+    return undefined;
+  }));
+  try {
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().firstUnreadMessageId, null);
+    newMessage = true;
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().firstUnreadMessageId, next.id);
+    assert.ok(controller.getSnapshot().items.some(item => item.id === next.id));
+    assert.equal(readGets, 2);
+  } finally { controller.dispose(); }
+});
+void test('a transient read-state failure is retried on the next authorized sync', async () => {
+  let readGets = 0;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (!path.includes('/read-state')) return undefined;
+    if (++readGets === 1) throw Object.assign(new Error('temporary'), { status: 503 });
+    return { readContext: 'A'.repeat(43), items: [], firstUnreadMessageId: source().id };
+  }));
+  try {
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().firstUnreadMessageId, null);
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().firstUnreadMessageId, source().id);
+    assert.equal(readGets, 2);
+  } finally { controller.dispose(); }
+});
 void test('a wake received during an in-flight read schedules one trailing read', async () => {
   let release!: (value: unknown) => void;
   let reached!: () => void;
@@ -924,9 +960,30 @@ void test('ROOM_OWNER send and retry preserve an actor-free command under fresh 
     await controller.refresh(); await controller.retry(result.retryCommandId!);
     assert.equal(posts, 2); assert.deepEqual(bodies[1], bodies[0]);
     assert.equal((await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '인용 주입', quoteMessageId: source().id })).accepted, false);
-    assert.equal((await controller.send({ target: { scope: 'SHARED' }, body: '전체 채팅' })).accepted, true);
+    assert.equal((await controller.send({ target: { scope: 'SHARED' }, body: '전체 채팅' })).accepted, false);
     role = 'STREAMER'; await controller.refreshHints();
     assert.equal((await controller.send({ target: { scope: 'ROOM_OWNER' }, body: '역할 변경' })).accepted, false);
-    assert.equal(posts, 3);
+    assert.equal(posts, 2);
+  } finally { controller.dispose(); }
+});
+
+void test('an old queued FAN SHARED command cannot be replayed after fresh authorization', async () => {
+  const memory = new ChatMemory();
+  memory.membershipScope = room.membershipScope;
+  const command = memory.commands.create(membership(room), session.accountPartition, session.csrfToken, memory.membershipGeneration, {
+    intent: 'SHARED', content: { type: 'TEXT', text: '이전 전체공개 초안' },
+  });
+  let sends = 0;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (path.endsWith('/messages')) sends++;
+    return undefined;
+  }), undefined, session.csrfToken, session.accountPartition, memory);
+  try {
+    await controller.refresh();
+    const parked = memory.commands.get(command.clientMessageId);
+    assert.equal(parked?.status, 'unknown');
+    assert.equal(parked && 'payload' in parked, false);
+    await controller.retry(command.clientMessageId);
+    assert.equal(sends, 0);
   } finally { controller.dispose(); }
 });

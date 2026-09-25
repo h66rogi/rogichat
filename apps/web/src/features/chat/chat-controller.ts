@@ -17,9 +17,10 @@ export interface ChatState {
   outgoing: ChatOutgoingMessage[];
   reactions: Record<string, ReactionState>; reactionRevision: number;
   phase: 'loading' | 'ready' | 'error'; notice: string | null; epoch: number; room: RoomMembership | null;
-  profiles: ChatActorRef[]; recipients: ChatActorRef[]; items: ChatTimelineItem[]; hasOlder: boolean; loadingOlder: boolean; error: string | null;
+  profiles: ChatActorRef[]; recipients: ChatActorRef[]; items: ChatTimelineItem[]; hasOlder: boolean; historyCursor: string | null; loadingOlder: boolean; error: string | null;
+  firstUnreadMessageId: string | null;
 }
-const initial = (): ChatState => ({ storageError: null, commands: [], commandBusy: false, outgoing: [], reactions: {}, reactionRevision: 0, phase: 'loading', notice: null, epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, loadingOlder: false, error: null });
+const initial = (): ChatState => ({ storageError: null, commands: [], commandBusy: false, outgoing: [], reactions: {}, reactionRevision: 0, phase: 'loading', notice: null, epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, historyCursor: null, loadingOlder: false, error: null, firstUnreadMessageId: null });
 const inaccessible = (error: unknown) => [401, 403, 404].includes(Number(recordError(error).status));
 function recordError(error: unknown): { status?: unknown; code?: unknown } { return error !== null && typeof error === 'object' ? error : {}; }
 class ResetRequired extends Error {}
@@ -133,6 +134,11 @@ export class ChatController {
   private messages: ServerMessage[] = [];
   private eventCursor: string | null = null;
   private historyCursor: string | null = null;
+  private readContext: string | null = null;
+  private readQueue: string[] = [];
+  private readSeen = new Set<string>();
+  private readBusy = false;
+  private readWriteRevision = 0;
   private manifestGeneration: string | null = null;
   private profileGeneration: string | null = null;
   private recipientBinding: string | null = null;
@@ -176,7 +182,7 @@ export class ChatController {
       this.memory.membershipScope = seed.room.membershipScope;
       this.rememberAuthority(seed.room, seed.recipients);
       this.state = { ...this.state, phase: 'ready', room: seed.room, profiles: seed.profiles, recipients: seed.recipients,
-        items: projectMessages(seed.messages, seed.room.actorId, [...seed.profiles, ...seed.recipients]), hasOlder: seed.historyCursor !== null };
+        items: projectMessages(seed.messages, seed.room.actorId, [...seed.profiles, ...seed.recipients]), hasOlder: seed.historyCursor !== null, historyCursor: seed.historyCursor };
     }
   }
   getSnapshot = (): ChatState => this.state;
@@ -216,6 +222,7 @@ export class ChatController {
     this.abort.abort(); this.abort = new AbortController(); this.cacheId = crypto.randomUUID();
     this.reactionFlights = new Set(); this.reactionCooldown = 0;
     this.messages = []; this.tombstones.clear(); this.scope = null; this.projectionGeneration++; this.eventCursor = null; this.historyCursor = null;
+    this.readContext = null; this.readQueue = []; this.readSeen.clear(); this.readWriteRevision++;
     this.awaitingProjection.clear();
     this.manifestGeneration = null; this.profileGeneration = null; this.recipientBinding = null;
     this.refreshPending = false;
@@ -258,6 +265,63 @@ export class ChatController {
     return data;
   }
   private path(action: string) { return `/v1/rooms/${encodeURIComponent(this.roomId)}/${action}`; }
+  private async readStateSnapshot() {
+    const signal = this.abort.signal;
+    const value = exact(await this.request(this.path('read-state'), { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }),
+      ['readContext', 'items'], ['firstUnreadMessageId']);
+    const context = token(value.readContext);
+    const boundary = value.firstUnreadMessageId === undefined || value.firstUnreadMessageId === null ? null : uuid(value.firstUnreadMessageId);
+    list(value.items).forEach(item => { const row = exact(item, ['messageId']); if (row.messageId !== null) uuid(row.messageId); });
+    return { context, boundary };
+  }
+  private async loadReadState() {
+    if (!this.scope || (this.readContext && (this.readBusy || this.readQueue.length))) return;
+    const signal = this.abort.signal;
+    const revision = this.readWriteRevision;
+    try {
+      const { context, boundary } = await this.readStateSnapshot();
+      if (signal.aborted || this.dead || revision !== this.readWriteRevision) return;
+      this.readContext = context;
+      this.publish({ firstUnreadMessageId: boundary });
+    } catch { /* A later sync retries transient read-state failures. */ }
+  }
+  displayed = (messageId: string) => {
+    if (this.dead || !this.readContext || !this.messages.some(item => item.id === messageId) || this.readSeen.has(messageId)) return;
+    this.readSeen.add(messageId);
+    this.readQueue.push(messageId);
+    this.readWriteRevision++;
+    void this.flushReadQueue();
+  };
+  private async flushReadQueue() {
+    if (this.readBusy || !this.readContext) return;
+    this.readBusy = true;
+    const signal = this.abort.signal;
+    let wrote = false;
+    try {
+      while (this.readQueue.length && this.readContext && !signal.aborted && !this.dead) {
+        const messageId = this.readQueue.shift()!;
+        const result = exact(await this.request(this.path('read-state'), {
+          method: 'PUT', body: { messageId, readContext: this.readContext },
+          signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]),
+        }), ['messageId']);
+        if (result.messageId !== null) uuid(result.messageId);
+        wrote = true;
+      }
+      if (wrote && !signal.aborted && !this.dead) {
+        this.readWriteRevision++;
+        const { context, boundary } = await this.readStateSnapshot();
+        if (!signal.aborted && !this.dead) {
+          this.readContext = context;
+          this.publish({ firstUnreadMessageId: boundary });
+        }
+      }
+    } catch {
+      this.readContext = null; this.readQueue = []; this.readSeen.clear(); this.readWriteRevision++;
+    } finally {
+      this.readBusy = false;
+      if (this.readQueue.length && this.readContext && !signal.aborted && !this.dead) void this.flushReadQueue();
+    }
+  }
   private async verifySession() {
     const signal = this.abort.signal;
     const session = parseSession(await this.request('/v1/auth/session', { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }));
@@ -317,7 +381,7 @@ export class ChatController {
       if (next && (recipientCursors.has(next) || recipientCursors.size >= 200)) throw new Error('INVALID_RESPONSE');
       if (next) recipientCursors.add(next);
     } while (next);
-    this.commands.quarantine(command => command.payload.intent === 'ROOM_OWNER' ? found.role !== 'FAN' : command.payload.intent === 'SHARED' ? false : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
+    this.commands.quarantine(command => command.payload.intent === 'ROOM_OWNER' ? found.role !== 'FAN' : command.payload.intent === 'SHARED' ? found.role !== 'STREAMER' : !recipients.some(recipient => recipient.actorId === command.payload.recipientActorId));
     const binding = JSON.stringify(recipients.map(recipient => recipient.actorId));
     if (this.recipientBinding && this.recipientBinding !== binding) throw new ResetRequired();
     guard();
@@ -447,6 +511,8 @@ export class ChatController {
         }
         await this.verifySession();
         if (this.dead || signal.aborted) return;
+        await this.loadReadState();
+        if (this.dead || signal.aborted) return;
         this.refreshQuotedDrafts();
         this.rememberAuthority(auth.room, auth.recipients);
         this.commands.quarantine(command => !this.payloadAuthorized(command.payload, auth.room, auth.recipients));
@@ -455,7 +521,7 @@ export class ChatController {
           catch (error) { this.reportStorageError(error); }
           if (this.dead || signal.aborted) return;
         }
-        this.publish({ ...auth, phase: 'ready', items: projectMessages(this.messages, auth.room.actorId, [...auth.profiles, ...auth.recipients]), hasOlder: this.historyCursor !== null, error: null });
+        this.publish({ ...auth, phase: 'ready', items: projectMessages(this.messages, auth.room.actorId, [...auth.profiles, ...auth.recipients]), hasOlder: this.historyCursor !== null, historyCursor: this.historyCursor, error: null });
         if (this.environment) queueMicrotask(() => { void this.recoverReceipts(); });
         return;
       } catch (error) {
@@ -532,12 +598,19 @@ export class ChatController {
     this.eventCursor = string(page.nextCursor); this.historyCursor = cursor(page.historyCursor);
   }
   loadOlder = async (): Promise<void> => {
-    if (this.dead || this.flight || !this.historyCursor || this.state.phase !== 'ready') return;
+    if (this.dead || !this.historyCursor || this.state.phase !== 'ready') return;
+    if (this.flight) {
+      if (this.state.loadingOlder) return;
+      await this.flight;
+      if (!this.dead) await this.loadOlder();
+      return;
+    }
     const signal = this.abort.signal;
+    const requestedCursor = this.historyCursor;
     this.publish({ loadingOlder: true });
     this.flight = (async () => {
       try {
-        const page = await this.get(this.path('history'), 'history', this.historyCursor);
+        const page = await this.get(this.path('history'), 'history', requestedCursor);
         if (signal.aborted || this.dead) return;
         const incoming = list(page.messages).map(message).filter(item => { const deleted = this.tombstones.get(item.id); if (deleted?.createdAt && deleted.createdAt !== item.createdAt) throw new Error('IMMUTABLE_DISPLAY_KEY'); return !deleted; });
         const hintsChanged = incoming.some(item => { const prior = this.messages.find(value => value.id === item.id); return prior && BigInt(item.version) >= BigInt(prior.version) && differentHints(prior, item); });
@@ -545,11 +618,12 @@ export class ChatController {
         this.commands.quarantine(command => Boolean(command.payload.quoteId && this.messages.some(item => item.id === command.payload.quoteId && !item.allowedActions.reply)));
         if (hintsChanged) { this.projectionGeneration++; this.invalidateComposer(); }
         this.historyCursor = cursor(page.nextCursor);
+        if (this.historyCursor === requestedCursor) throw new Error('INVALID_RESPONSE');
         await this.verifySession();
         if (signal.aborted || this.dead) return;
         this.refreshQuotedDrafts();
         this.rememberAuthority(this.state.room!, this.state.recipients);
-        this.publish({ items: projectMessages(this.messages, this.state.room!.actorId, [...this.state.profiles, ...this.state.recipients]), hasOlder: this.historyCursor !== null, error: null });
+        this.publish({ items: projectMessages(this.messages, this.state.room!.actorId, [...this.state.profiles, ...this.state.recipients]), hasOlder: this.historyCursor !== null, historyCursor: this.historyCursor, error: null });
       } catch (error) {
         if (this.dead || signal.aborted) return;
         this.clearAfterError(error); this.publish({ phase: 'error', error: '이전 메시지를 불러오지 못했습니다. 다시 확인해 주세요.' });
@@ -646,7 +720,8 @@ export class ChatController {
   }
   private payloadAuthorized(body: { intent: 'SHARED' | 'PRIVATE' | 'ROOM_OWNER'; recipientActorId?: string; quoteId?: string }, room: RoomMembership, recipients = this.state.recipients): boolean {
     if (body.intent === 'ROOM_OWNER') return room.role === 'FAN' && body.recipientActorId === undefined && body.quoteId === undefined;
-    if (body.intent === 'SHARED' ? false : !recipients.some(p => p.actorId === body.recipientActorId && p.actorId !== room.actorId)) return false;
+    if (body.intent === 'SHARED') return room.role === 'STREAMER' && body.recipientActorId === undefined && body.quoteId === undefined;
+    if (!recipients.some(p => p.actorId === body.recipientActorId && p.actorId !== room.actorId)) return false;
     if (body.quoteId) {
       const quote = this.messages.find(m => m.id === body.quoteId);
       if (!quote?.allowedActions.reply || body.intent !== 'PRIVATE' || (quote.audience === 'PRIVATE' ? quote.counterpart?.actorId : quote.author.kind === 'member' ? quote.author.actorId : null) !== body.recipientActorId) return false;

@@ -43,7 +43,6 @@ async function fixture(t) {
   const user = async () => {
     const id = await db.transactions.write(async tx => {
       const id = await createUser(tx, '격리 푸시 테스트');
-      await tx.prisma.users.update({ where: { id }, data: { terms_version: '2026-09-20' }, select: { id: true } });
       await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: id, provider_subject: new Uint8Array(Buffer.from(randomUUID())), verified_at: await tx.now() }, select: { id: true } });
       return id;
     });
@@ -118,16 +117,13 @@ test('concurrent native rebind and token rotation have one CAS winner on actual 
   assert.equal((await f.service.resolve(f.a2, proof(value))).binding.generation, '2');
 });
 
-test('native enrollment enforces current terms, SOOP, account/session/client and provider availability', async t => {
+test('native enrollment enforces SOOP, account/session/client and provider availability', async t => {
   const f = await fixture(t), value = input();
   await assert.rejects(f.service.register({ ...f.a, clientId: 'android' }, value), { code: 'INVALID_REQUEST' });
   await assert.rejects(f.service.register({ token: f.a.token }, value), { code: 'INVALID_REQUEST' });
   const android = await f.issue(f.a.id, 'android');
   assert.deepEqual(await f.service.capabilities(android), { available: false, provider: 'FCM' });
   await assert.rejects(f.service.register(android, { ...value, provider: 'FCM', token: 'isolated_token_' + randomUUID() }), { code: 'AUTH_UNAVAILABLE' });
-  await f.db.transactions.write(tx => tx.prisma.users.update({ where: { id: f.a.id }, data: { terms_version: null } }));
-  await assert.rejects(f.service.register(f.a, value), { code: 'TERMS_REQUIRED' });
-  await f.db.transactions.write(tx => tx.prisma.users.update({ where: { id: f.a.id }, data: { terms_version: '2026-09-20' } }));
   await f.db.transactions.write(tx => tx.prisma.platform_soop.updateMany({ where: { user_id: f.a.id }, data: { status: 'REVOKED' } }));
   await assert.rejects(f.service.register(f.a, value), { code: 'SOOP_LINK_REQUIRED' });
   await assert.rejects(f.enable(f.a), { code: 'SOOP_LINK_REQUIRED' });

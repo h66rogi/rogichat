@@ -31,7 +31,6 @@ export class AuthFlow {
       const principal = intent === 'link' ? await this.sessions.require(tx, token, csrf ?? '') : undefined;
       const bound = principal ? await this.repository.webBinding(tx, principal.sessionId) : undefined;
       if (principal && !bound) throw new ApiError('RECENT_AUTH_REQUIRED', 403);
-      if (bound && bound.terms !== '2026-09-20') throw new ApiError('TERMS_REQUIRED', 403);
       await this.repository.insert(tx, { id, stateDigest: digest(state), browserDigest: digest(browser), verifier: encrypt(verifier, this.config.key), intent, audience: this.config.audience, userId: principal?.userId, sessionId: principal?.sessionId, ...(bound ? { boundGeneration: BigInt(bound.generation) } : {}) });
     });
     try {
@@ -70,7 +69,6 @@ export class AuthFlow {
               linkUser = principal.userId;
             }
             const userId = await this.identities.resolve(tx, identity, linkUser);
-            if (claim.terms_version) await this.repository.terms(tx, userId, claim.terms_version);
             const session = await this.sessions.issue(tx, userId);
             if (claim.session_id) await this.repository.revokeSession(tx, claim.session_id);
             await this.repository.finish(tx, claim.id, 'SUCCEEDED', userId);

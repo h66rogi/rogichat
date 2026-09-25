@@ -55,7 +55,7 @@ async function fixture(t) {
     await db.close();
   });
   const start = async (client = 'ios', intent = 'login', credentials) => {
-    const verifier = secret(); const input = { clientId: client, intent, codeChallenge: hash(verifier), returnState: secret(), ...(intent === 'login' ? { termsVersion: '2026-09-20' } : {}) };
+    const verifier = secret(); const input = { clientId: client, intent, codeChallenge: hash(verifier), returnState: secret() };
     return { ...await service.start(input, credentials), verifier, input };
   };
   const login = async (client = 'ios', subject, credentials, intent = 'login') => {
@@ -117,9 +117,7 @@ test('explicit Apple link never transfers an identity and rejects changed/logout
 test('SOOP-account recovery explicitly adds Apple without restricted-account merge', async t => {
   const f = await fixture(t); const soopProof = { schemaVersion: 1, provider: 'soop', subject: `test-${randomUUID()}` };
   const userId = await f.db.transactions.write(tx => f.soop.resolve(tx, soopProof));
-  const issued = await f.db.transactions.write(async tx => {
-    await tx.prisma.users.update({ where: { id: userId }, data: { terms_version: '2026-09-20' } }); return f.sessions.issueNative(tx, userId, 'ios');
-  });
+  const issued = await f.db.transactions.write(tx => f.sessions.issueNative(tx, userId, 'ios'));
   const result = await f.login('ios', undefined, { transport: 'NATIVE', clientId: 'ios', token: issued.token }, 'link');
   assert.equal(result.session.account.userId, userId); assert.equal(result.session.soopLinkStatus, 'VERIFIED');
   assert.equal((await f.login('android', result.subject)).session.account.userId, userId);
@@ -160,7 +158,7 @@ test('real Nest HTTP retains verified Apple chat entitlement while absent provid
     const response = await fetch(`${origin}${path}`, { headers }); assert.equal(response.status, 200, path);
   }
   const disabled = await fetch(`${origin}/v1/auth/apple/start`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-rogi-client': 'ios' },
-    body: JSON.stringify({ clientId: 'ios', intent: 'login', codeChallenge: hash(secret()), returnState: secret(), termsVersion: '2026-09-20' }) }); assert.equal(disabled.status, 503);
+    body: JSON.stringify({ clientId: 'ios', intent: 'login', codeChallenge: hash(secret()), returnState: secret() }) }); assert.equal(disabled.status, 503);
 });
 
 
@@ -192,7 +190,7 @@ test('HTTP Apple iOS start/complete/exchange uses the same real provider verifie
     const response = await fetch(`${origin}/v1/auth/apple/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-rogi-client': 'ios' }, body: JSON.stringify(body) });
     const result = await response.json(); assert.equal(response.status, 200, JSON.stringify(result)); return result;
   };
-  const verifier = secret(); const pending = await send('start', { clientId: 'ios', intent: 'login', codeChallenge: hash(verifier), returnState: secret(), termsVersion: '2026-09-20' });
+  const verifier = secret(); const pending = await send('start', { clientId: 'ios', intent: 'login', codeChallenge: hash(verifier), returnState: secret() });
   const proof = f.providerFixture.code('ios', pending.nonce);
   const completion = await send('native/complete', { transactionId: pending.transactionId, state: pending.state, authorizationCode: proof.code, identityToken: proof.identityToken, codeVerifier: verifier });
   const issued = await send('exchange', { clientId: 'ios', transactionId: pending.transactionId, code: completion.code, codeVerifier: verifier });
@@ -209,7 +207,7 @@ test('Android Services ID HTTP callback validates Apple form post and binds the 
   const verifier = secret(), returnState = secret();
   const headers = { 'content-type': 'application/json', 'x-rogi-client': 'android' };
   const start = await fetch(`${origin}/v1/auth/apple/start`, { method: 'POST', headers, body: JSON.stringify({
-    clientId: 'android', intent: 'login', codeChallenge: hash(verifier), returnState, termsVersion: '2026-09-20',
+    clientId: 'android', intent: 'login', codeChallenge: hash(verifier), returnState,
   }) });
   assert.equal(start.status, 200); const pending = await start.json();
   assert.equal(new URL(pending.authorizeUrl).origin, 'https://appleid.apple.com');

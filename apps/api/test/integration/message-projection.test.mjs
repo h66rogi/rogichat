@@ -41,7 +41,7 @@ test('C05 real GET/snapshot/history/event projection parity and stale private ac
   const f = await fixture(t), sent = await f.send(f.owner, f.fan);
   const before = await f.get(f.owner, sent.messageId);
   assert.deepEqual(before.counterpart, { actorId: f.fan.actor });
-  assert.deepEqual(before.allowedActions, { reply: true, publish: true, delete: true });
+  assert.deepEqual(before.allowedActions, { reply: true, publish: false, delete: true });
   await assert.rejects(f.get(f.other, sent.messageId), { code: 'NOT_FOUND' });
   await f.db.transactions.read(async tx => {
     const viewer = await f.access.requireActiveMember(tx, f.room, f.owner.id);
@@ -54,7 +54,7 @@ test('C05 real GET/snapshot/history/event projection parity and stale private ac
   await f.db.transactions.write(tx => tx.prisma.stream_grants.updateMany({ where: { room_id: f.room, member_id: f.owner.actor }, data: { can_send: false } }));
   const after = await f.get(f.owner, sent.messageId);
   assert.equal(after.version, before.version); assert.equal(after.counterpart, null);
-  assert.deepEqual(after.allowedActions, { reply: false, publish: true, delete: true });
+  assert.deepEqual(after.allowedActions, { reply: false, publish: false, delete: true });
   await assert.rejects(f.send(f.owner, f.fan), { code: 'FORBIDDEN' });
   await f.db.transactions.write(tx => leaveRoom(tx, f.room, f.fan.id));
   await f.db.transactions.write(tx => joinRoom(tx, f.room, f.fan.id));

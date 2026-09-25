@@ -21,7 +21,6 @@ for (const configured of [false, true]) test(`capability HTTP uses current proof
   const sessions = new SessionService(new SessionRepository(), config.audience, config.key);
   const fixture = await db.transactions.write(async tx => {
     const user = await createUser(tx, '알림 설정 사용자');
-    await tx.prisma.users.update({ where: { id: user }, data: { terms_version: '2026-09-20' } });
     await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: user, provider_subject: randomBytes(24), verified_at: await tx.now() } });
     return { user, web: await sessions.issue(tx, user), native: await sessions.issueNative(tx, user, 'ios') };
   });
@@ -48,11 +47,6 @@ for (const configured of [false, true]) test(`capability HTTP uses current proof
   await request({ ...native, 'x-rogi-client': 'android' }, 401, error('UNAUTHENTICATED'));
   await request(web, 200, configured ? { available: true, applicationServerKey: push.vapid.publicKey } : { available: false });
   await request(native, 200, { available: false });
-  for (const terms_version of [null, '2020-01-01']) {
-    await db.transactions.write(tx => tx.prisma.users.update({ where: { id: fixture.user }, data: { terms_version } }));
-    await request(web, 403, error('TERMS_REQUIRED')); await request(native, 403, error('TERMS_REQUIRED'));
-  }
-  await db.transactions.write(tx => tx.prisma.users.update({ where: { id: fixture.user }, data: { terms_version: '2026-09-20' } }));
   await db.transactions.write(tx => tx.prisma.platform_soop.updateMany({ where: { user_id: fixture.user }, data: { status: 'REVOKED' } }));
   await request(web, 403, error('SOOP_LINK_REQUIRED')); await request(native, 403, error('SOOP_LINK_REQUIRED'));
   await db.transactions.write(tx => tx.prisma.platform_soop.updateMany({ where: { user_id: fixture.user }, data: { status: 'VERIFIED' } }));

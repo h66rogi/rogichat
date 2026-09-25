@@ -99,9 +99,13 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
     fun stopPolling() { polling?.cancel(); polling = null }
     fun refresh() { caller.launch { repository.refresh(handle) } }
     fun history() { caller.launch { repository.history(handle) } }
+    suspend fun historyNow() { repository.history(handle) }
     fun reconcile() { caller.launch { repository.reconcile(handle) } }
     fun displayed(scope: ConversationScope, anchor: ScrollAnchor) { caller.launch { repository.displayed(handle, scope, anchor) } }
-    fun showActions(message: ConversationMessage, scope: ConversationScope) { caller.launch { repository.selectAction(handle, scope, message) } }
+    fun showActions(message: ConversationMessage, scope: ConversationScope) { caller.launch {
+        repository.selectAction(handle, scope, message)
+        state.value.action?.token?.let { repository.refreshAction(handle, it) }
+    } }
     fun react(message: ConversationMessage, scope: ConversationScope, emoji: String) { caller.launch {
         val current = state.value.data?.takeIf { it.scope == scope }?.messages?.find { it.id == message.id } ?: return@launch
         if (current != message || state.value.action?.busy == true) return@launch
@@ -161,13 +165,19 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
             mutableDraft.value = draft.copy(error = "메시지는 최대 4,000자까지 작성할 수 있어요."); return
         }
         if (draft.privateMessage && (selection.membership.role != RoomRole.STREAMER || draft.quote == null || draft.recipient == null)) { mutableDraft.value = draft.copy(error = "답장할 메시지를 다시 선택해 주세요."); return }
-        val command = TextCommand(RoomId(UUID.randomUUID().toString()), renderedScope.selection.membership.membershipScope,
-            if (draft.privateMessage) "PRIVATE" else "SHARED", draft.recipient.takeIf { draft.privateMessage }, draft.quote?.id, text, media)
-        val intent = TextSendIntent(renderedScope, command, draft.recipientRevision)
+        val membership = renderedScope.selection.membership
+        val intent = when {
+            draft.privateMessage -> "PRIVATE"
+            membership.mode == RoomMode.FAN && membership.role == RoomRole.FAN -> "ROOM_OWNER"
+            else -> "SHARED"
+        }
+        val command = TextCommand(RoomId(UUID.randomUUID().toString()), membership.membershipScope,
+            intent, draft.recipient.takeIf { draft.privateMessage }, draft.quote?.id, text, media)
+        val sendIntent = TextSendIntent(renderedScope, command, draft.recipientRevision)
         mutableDraft.value = draft.copy(submitting = true, error = null)
         caller.launch {
             try {
-                val result = repository.send(handle, intent)
+                val result = repository.send(handle, sendIntent)
                 mutableDraft.value = if (result.isSuccess) {
                     if (draft.quote != null) ConversationDraft(privateMessage = false)
                     else draft.copy(text = "", submitting = false, error = null, media = null, mediaScope = null)

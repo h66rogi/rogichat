@@ -1040,7 +1040,6 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         } }
     }
     override suspend fun password(input: PasswordInput, expected: SessionIdentity, termsVersion: String): Result<Unit> = outcome {
-        require(termsVersion == CURRENT_TERMS)
         val support = requireNotNull(auth)
         val ticket = lock.withLock {
             deletionStartupLocked(); require(activeDeletion == null && activeRoomCommand == null && loaded && !removalPending && expected.matches(mutable.value))
@@ -1122,11 +1121,9 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
             if (request.mutation) lock.withLock { if (current(ticket)) { withdrawRoomsLocked(); mutableRoomRefresh.value++ } }
         }
     }
-    override suspend fun startLogin(termsVersion: String): Result<Unit> = if (termsVersion != CURRENT_TERMS)
-        Result.failure(IllegalArgumentException("terms_consent_required")) else beginAuthentication(AuthIntent.LOGIN)
+    override suspend fun startLogin(termsVersion: String): Result<Unit> = beginAuthentication(AuthIntent.LOGIN)
 
-    override suspend fun startAppleLogin(termsVersion: String): Result<Unit> = if (termsVersion != CURRENT_TERMS)
-        Result.failure(IllegalArgumentException("terms_consent_required")) else beginAuthentication(AuthIntent.LOGIN, AuthProvider.APPLE)
+    override suspend fun startAppleLogin(termsVersion: String): Result<Unit> = beginAuthentication(AuthIntent.LOGIN, AuthProvider.APPLE)
 
     private fun authProblem(provider: AuthProvider, code: String?, status: Int? = null): AuthProblem =
         if (provider == AuthProvider.APPLE && code == "APPLE_LINK_CONFLICT") AuthProblem.APPLE_CONFLICT

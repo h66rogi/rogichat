@@ -132,9 +132,9 @@ struct ProductRootView: View {
             ChannelDetailView(onTalk: { navigation.selectTab(.talks) })
         case .welcome:
             WelcomeScreen(methods: session.capabilities.signInMethods, busy: session.busy, errorMessage: session.errorMessage,
-                          rulesURL: nativeEnvironment.rulesURL, onCancel: { Task { await session.cancelAuthentication() } }, onSignIn: { method, consent in
-                Task { await session.signIn(method, consent: consent) }
-            }, onPassword: session.capabilities.canPassword ? { input, consent in Task { await session.password(input,consent:consent) } } : nil)
+                          onCancel: { Task { await session.cancelAuthentication() } }, onSignIn: { method in
+                Task { await session.signIn(method) }
+            }, onPassword: session.capabilities.canPassword ? { input in Task { await session.password(input) } } : nil)
         case .settings:
             MoreView(accessSession: session, environment: nativeEnvironment, account: session.account, capabilities: session.capabilities, onOpen: { navigation.open($0) }, onSignIn: { navigation.selectTab(.talks) }, rulesURL: nativeEnvironment.rulesURL, onSignOut: session.capabilities.canSignOut ? { try await session.signOut() } : nil, canManageBlocks: session.roomsScope != nil, hasDeletionHistory: session.account == nil && !session.deletions.isEmpty, onDeletionHistory: { session.showDeletionHistory = true },
                 onLoadProfile: { try await session.loadProfile() }, avatar: { profile in

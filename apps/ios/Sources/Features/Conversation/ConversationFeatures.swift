@@ -94,6 +94,13 @@ struct ConversationActionTransport: MessageActionTransport {
     private let uploader: MediaUpload
     private var actionTask: Task<Void, Never>?
     private var readTask: Task<Void, Never>?
+    private var readQueue: [String] = []
+    private var queuedReadIDs: Set<String> = []
+    private var acknowledgedReadIDs: Set<String> = []
+    private var failedReadIDs: Set<String> = []
+    private var readRefreshInProgress = false
+    private var readContextEstablished = false
+    private var readReconcilePending = false
     private(set) var revision = 0
     private(set) var busy = false
     private(set) var mediaBusy = false
@@ -107,6 +114,8 @@ struct ConversationActionTransport: MessageActionTransport {
     private var reactionLoading: Set<String> = []
     private(set) var viewport = MessageViewport()
     private(set) var move: ViewportMove = .none
+    private(set) var firstUnreadMessageId: String?
+    var readStateReady: Bool { readContextEstablished }
     private var knownIDs: Set<String> = []
     private var hasPresentedProjection = false
     private var selectedProjection: ConversationMessage?
@@ -157,12 +166,23 @@ struct ConversationActionTransport: MessageActionTransport {
         }
         if let selectedProjection {
             let current = listing.messages.first { $0.id == selectedProjection.id }
-            if current != selectedProjection {
+            if current?.version != selectedProjection.version || current?.author != selectedProjection.author ||
+                current?.content != selectedProjection.content || current?.audience != selectedProjection.audience ||
+                current?.quote != selectedProjection.quote || current?.counterpart != selectedProjection.counterpart ||
+                current?.allowedActions != selectedProjection.allowedActions {
                 actions.reset(); self.selectedProjection = nil; reactions = nil; revision += 1
+            } else if let current, current.reactions != selectedProjection.reactions {
+                self.selectedProjection = current
+                reactions = MessageReactions(counts: current.reactions.counts.map { ReactionCount(emoji: $0.emoji, count: Int64($0.count)) }, mine: current.reactions.mine)
+                revision += 1
             }
         }
         do {
             for id in knownIDs.subtracting(ids) { try readPosition.deleted(id); viewport.deleted(id) }
+            readQueue.removeAll { !ids.contains($0) }
+            queuedReadIDs.formIntersection(ids)
+            acknowledgedReadIDs.formIntersection(ids)
+            failedReadIDs.formIntersection(ids)
             if !hasPresentedProjection {
                 hasPresentedProjection = true
                 move = viewport.initialize(restored: nil)
@@ -179,23 +199,52 @@ struct ConversationActionTransport: MessageActionTransport {
             do { try readPosition.saveAnchor(token, anchor: anchor, currentlyReadable: knownIDs) } catch { failure(error) }
         }
     }
-    // Called only by a visible row callback, never by restored anchor or queued command.
+    // Called only after a row was visible, never by restored anchor or queued command.
+    func noLongerVisible(_ id: String) { failedReadIDs.remove(id) }
     func displayed(_ id: String) {
-        guard active, knownIDs.contains(id), readTask == nil, let token = readPosition.capture() else { return }
-        do {
-            guard let permit = try readPosition.displayed(token, messageId: id) else { return }
-            readTask = Task {
-                defer { self.readTask = nil }
-                do {
-                    let request = try permit.request()
-                    let data = try await self.perform(request, admit: { try permit.claim() })
-                    _ = try self.readPosition.finish(permit, acknowledged: true, savedMessageId: MessageReadWire.saved(data))
-                } catch {
-                    _ = try? self.readPosition.finish(permit, acknowledged: false, savedMessageId: nil)
-                    self.failure(error) // No automatic PUT replay or reporting old rows after fresh GET.
+        guard active, readContextEstablished, knownIDs.contains(id),
+              !readPosition.savedMessageIds.contains(id), !acknowledgedReadIDs.contains(id), !failedReadIDs.contains(id),
+              queuedReadIDs.insert(id).inserted else { return }
+        readQueue.append(id)
+        if readPosition.needsRefresh { Task { await refreshRead() } }
+        drainReadQueue()
+    }
+    private func drainReadQueue() {
+        guard active, readTask == nil, !readPosition.needsRefresh, let token = readPosition.capture() else { return }
+        while !readQueue.isEmpty {
+            let id = readQueue.removeFirst()
+            queuedReadIDs.remove(id)
+            guard knownIDs.contains(id), !acknowledgedReadIDs.contains(id) else { continue }
+            do {
+                guard let permit = try readPosition.displayed(token, messageId: id) else {
+                    readQueue.insert(id, at: 0); queuedReadIDs.insert(id)
+                    readPosition.requestRefresh()
+                    if readPosition.needsRefresh { Task { await refreshRead() } }
+                    return
                 }
-            }
-        } catch { failure(error) }
+                readTask = Task {
+                    do {
+                        let request = try permit.request()
+                        let data = try await self.perform(request, admit: { try permit.claim() })
+                        if try self.readPosition.finish(permit, acknowledged: true, savedMessageId: MessageReadWire.saved(data)) {
+                            self.acknowledgedReadIDs.insert(id); self.readReconcilePending = true
+                        }
+                    } catch {
+                        _ = try? self.readPosition.finish(permit, acknowledged: false, savedMessageId: nil)
+                        self.failedReadIDs.insert(id)
+                        self.readQueue = []; self.queuedReadIDs = []
+                        self.failure(error) // No automatic PUT replay after an uncertain result.
+                    }
+                    self.readTask = nil
+                    if self.readQueue.isEmpty && (self.readReconcilePending || self.readPosition.needsRefresh) {
+                        if self.readReconcilePending { self.readPosition.requestRefresh(); self.readReconcilePending = false }
+                        await self.refreshRead()
+                    }
+                    self.drainReadQueue()
+                }
+                return
+            } catch { failure(error); return }
+        }
     }
     func reactionsFor(_ id: String) -> MessageReactions? { _ = revision; return reactionByMessage[id] }
     func loadReaction(_ message: ConversationMessage, force: Bool = false) async {
@@ -217,8 +266,18 @@ struct ConversationActionTransport: MessageActionTransport {
         } catch { /* Reactions are optional; keep the conversation available. */ }
     }
     func refreshRead() async {
-        guard readPosition.needsRefresh, let token = readPosition.capture() else { return }
-        do { _ = try readPosition.accept(token, snapshot: MessageReadWire.snapshot(try await perform(MessageReadWire.get(actionScope)))) }
+        guard !readRefreshInProgress, readPosition.needsRefresh, let token = readPosition.capture() else { return }
+        readRefreshInProgress = true
+        defer { readRefreshInProgress = false; drainReadQueue() }
+        do {
+            let snapshot = try MessageReadWire.snapshot(try await perform(MessageReadWire.get(actionScope)))
+            if try readPosition.accept(token, snapshot: snapshot) {
+                firstUnreadMessageId = snapshot.firstUnreadMessageId
+                acknowledgedReadIDs.formUnion(snapshot.messageIds)
+                readContextEstablished = true
+                error = nil
+            }
+        }
         catch { failure(error) }
     }
     func latest() { move = viewport.showLatest() }
@@ -323,7 +382,13 @@ struct ConversationActionTransport: MessageActionTransport {
         try await session.conversationData(.feature(ConversationFeatureRequest(method: request.method, path: request.path, body: request.body,
             expectedStatus: request.successStatus, query: request.query, admit: admit)), scope: conversation.scope)
     }
-    func close() { actions.reset(); readPosition.select(nil); viewport.reset(); hasPresentedProjection = false; knownIDs = []; selectedProjection = nil; readyMedia = nil; pendingMedia = []; reactions = nil; reactionByMessage = [:]; reactionVersionByMessage = [:]; reactionProjectionByMessage = [:]; reactionLoading = []; revision += 1 }
+    func close() {
+        readTask?.cancel(); readTask = nil; readQueue = []; queuedReadIDs = []; acknowledgedReadIDs = []; failedReadIDs = []
+        readContextEstablished = false; readReconcilePending = false; firstUnreadMessageId = nil
+        actions.reset(); readPosition.select(nil); viewport.reset(); hasPresentedProjection = false; knownIDs = []; selectedProjection = nil
+        readyMedia = nil; pendingMedia = []; reactions = nil; reactionByMessage = [:]; reactionVersionByMessage = [:]
+        reactionProjectionByMessage = [:]; reactionLoading = []; revision += 1
+    }
     private func failure(_ failure: any Error) {
         if !active { close() }
         error = (failure as? LocalizedError)?.errorDescription ?? "작업을 완료하지 못했어요. 다시 시도해 주세요."

@@ -1,5 +1,16 @@
 # 모바일 공통 기반 재사용 조사
 
+## 2026-09-26 받은 미디어 열람과 반응 표시
+
+| 판단 | 원본 commit·파일·심볼 | 대상과 적용 범위 |
+|---|---|---|
+| Android 수정 재사용 | `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, `meloming-android/feature/home/src/main/java/com/meloming/android/feature/home/ContentDetailScreen.kt`의 `ImageViewerDialog` | `apps/android/.../feature/media/AuthorizedMedia.kt`와 `feature/conversation/ConversationScreen.kt`: 전체 화면 `Dialog`, 손가락 확대·이동, 닫기 동작을 인증된 방 미디어 접근과 연결. 원본의 공개 URL·Coil 이미지 로더는 비공개 미디어 계약에 맞지 않아 사용하지 않음. |
+| iOS 수정 재사용 | `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `meloming-ios/Meloming/Presentation/Channel/ContentDetailView.swift`의 `ImageViewerView` | `apps/ios/Sources/Features/Media/AuthorizedMedia.swift`와 `Features/Conversation/ConversationScreen.swift`: 전체 화면 표시, 확대·이동, 닫기 동작을 인증된 `MediaClient`와 연결. 원본의 공개 URL·Kingfisher 로딩은 방/계정 권한 수명과 맞지 않아 사용하지 않음. |
+| 채팅 반응 신규 연결 | 기존 멜로밍 Talk/TalkV2 UX 제외 지시 | Android/iOS 대화 모델이 이미 서버에서 받은 반응 집계를 보존하여 말풍선에 표시하고, 기존 메시지 작업 API로 현재 상태 확인·변경·취소. 반응자 신원은 추가하지 않음. |
+
+검증: Android QA Kotlin 컴파일과 `ConversationContractTest`, iOS QA 시뮬레이터 빌드와 `RogichatRooms` 패키지 테스트를 통과했다. 인증된 대화에서 사진·영상 열기/닫기 후 정확한 스크롤 복귀, 확대 제스처, 영상 재생, 반응 변경·취소의 화면 갱신은 실기기에서 아직 확인하지 못했다. 이 항목들은 배포 전 Android 기기와 iPhone에서 확인해야 한다.
+
+
 2026-09-20. 사용자의 방향 보정에 따른 추가 조사다. **채팅 UX/구현은 재사용 대상에서 제외**한다.
 탐색·설정·알림·공통 UI·앱 기반의 실제 구현 단위를 찾았다. 계획의 단일 기준은
 [통합 구현 계획](mobile-implementation-plan.md)이며, 이 문서는 출처와 판단 근거다.

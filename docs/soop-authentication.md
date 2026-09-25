@@ -68,7 +68,7 @@ SOOP nickname·이미지 URL·표시 handle을 신뢰 가능한 고유 subject �
 보장하지 않는다. 외부 ID 재할당은 조건부 공급자 신뢰 위험으로 남는다. 실제 일반
 시청자·스트리머 로그인은 아직 실증 대상이며, 검증된 응답이 없으면 로그인에 실패한다.
 
-`login`: 이미 연결됐으면 user 상태 검증 후 로그인, 없으면 로기챗 약관 동의를 거쳐
+`login`: 이미 연결됐으면 user 상태 검증 후 로그인, 없으면
 user와 platform_soop를 하나의 transaction에서 생성한다. 동시 가입은 unique 충돌을
 재조회해 처리한다. 외부 서비스 회원 가입/계정 이관/회원 ID에 의존하지 않는다.
 `link`: 로그인·최근 재인증·CSRF 검증이 된 user만 가능. transaction에 대상 user와
@@ -87,7 +87,7 @@ sequenceDiagram
   participant R as api.qa.rogi.chat
   participant M as api.meloming.com
   participant S as SOOP
-  B->>R: POST /v1/auth/soop/start (Origin + JSON intent/termsVersion)
+  B->>R: POST /v1/auth/soop/start (Origin + JSON intent)
   R->>R: transaction + browser binding + S256 challenge 저장
   R->>M: POST /v1/platform/oauth/rogichat/requests (서버 인증)
   M-->>R: 짧은 수명의 authorize_url

@@ -17,12 +17,10 @@ async function fixture(t, mode) {
     const room = await createRoom(tx, '합성 방장 탈퇴 경합', mode);
     const ownerActor = await joinRoom(tx, room, owner), authorActor = await joinRoom(tx, room, author), peerActor = await joinRoom(tx, room, peer);
     await assignRoomOwner(tx, room, ownerActor);
-    // FAN fan-to-streamer traffic independent of the departing sole room owner.
-    await tx.prisma.room_members.update({ where: { id: peerActor }, data: { role: 'STREAMER' }, select: { id: true } });
     return { owner, author, peer, room, ownerActor, authorActor, peerActor };
   });
-  const input = () => sendInput({ clientMessageId: randomUUID(), intent: mode === 'FAN' ? 'PRIVATE' : 'SHARED',
-    ...(mode === 'FAN' ? { recipientActorId: state.peerActor } : {}), content: { type: 'TEXT', text: '독립 작성자의 합성 내용' } });
+  const input = () => sendInput({ clientMessageId: randomUUID(), intent: mode === 'FAN' ? 'ROOM_OWNER' : 'SHARED',
+    content: { type: 'TEXT', text: '독립 작성자의 합성 내용' } });
   const send = (tx, body) => sendMessage(tx, state.room, state.author, body, key);
   const status = (tx, value) => tx.prisma.users.update({ where: { id: state.owner }, data: { status: value }, select: { id: true } });
   const inspect = () => db.transactions.read(async tx => ({
@@ -98,7 +96,9 @@ for (const mode of ['GROUP', 'FAN']) {
     const ack = await f.db.transactions.write(tx => f.send(tx, body));
     for (const state of ['DELETING', 'DELETED']) {
       await f.other.transactions.write(tx => f.status(tx, state));
-      assert.equal((await f.db.transactions.read(tx => getMessage(tx, f.room, f.peer, ack.messageId))).content.text, body.content.text);
+      const reader = mode === 'FAN' ? f.author : f.peer;
+      assert.equal((await f.db.transactions.read(tx => getMessage(tx, f.room, reader, ack.messageId))).content.text, body.content.text);
+      if (mode === 'FAN') await assert.rejects(f.db.transactions.read(tx => getMessage(tx, f.room, f.peer, ack.messageId)), { code: 'NOT_FOUND' });
       assert.deepEqual(await f.db.transactions.write(tx => f.send(tx, body)), ack);
       await assert.rejects(f.db.transactions.write(tx => f.send(tx, { ...body, content: { type: 'TEXT', text: 'changed' } })), { code: 'CONFLICT' });
       await assert.rejects(f.db.transactions.write(tx => f.send(tx, f.input())), { code: 'NOT_FOUND' });
@@ -107,7 +107,7 @@ for (const mode of ['GROUP', 'FAN']) {
     const deleted = await f.db.transactions.write(tx => f.send(tx, body));
     assert.equal(deleted.status, 'deleted');
     assert.equal(deleted.messageId, ack.messageId);
-    await assert.rejects(f.db.transactions.read(tx => getMessage(tx, f.room, f.peer, ack.messageId)), { code: 'NOT_FOUND' });
+    await assert.rejects(f.db.transactions.read(tx => getMessage(tx, f.room, mode === 'FAN' ? f.author : f.peer, ack.messageId)), { code: 'NOT_FOUND' });
     const after = await f.inspect();
     assert.equal(after.messages, 1); assert.equal(after.receipts, 1);
     assert.deepEqual(after.room, { status: 'ACTIVE', owner_member_id: f.ownerActor });
@@ -116,8 +116,11 @@ for (const mode of ['GROUP', 'FAN']) {
 
   test(`${mode}: suspension is not departure; missing or invalid owner denies only new sends`, async t => {
     const f = await fixture(t, mode);
+    const body = f.input();
+    const fanAck = mode === 'FAN' ? await f.db.transactions.write(tx => f.send(tx, body)) : null;
     await f.other.transactions.write(tx => f.status(tx, 'SUSPENDED'));
-    const body = f.input(), ack = await f.db.transactions.write(tx => f.send(tx, body));
+    const ack = fanAck ?? await f.db.transactions.write(tx => f.send(tx, body));
+    if (mode === 'FAN') await assert.rejects(f.db.transactions.write(tx => f.send(tx, f.input())), { code: 'NOT_FOUND' });
     await f.db.transactions.write(tx => tx.prisma.room_members.update({ where: { id: f.ownerActor }, data: { role: 'MEMBER' }, select: { id: true } }));
     await assert.rejects(f.db.transactions.write(tx => f.send(tx, f.input())), { code: 'NOT_FOUND' });
     await f.db.transactions.write(tx => tx.prisma.rooms.update({ where: { id: f.room }, data: { owner_member_id: null }, select: { id: true } }));

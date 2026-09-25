@@ -7,7 +7,7 @@ export const readContext: Schema = {
 };
 export const readStateInput = object({ messageId: uuid, readContext });
 export const ownReadState = object({ messageId: nullable(uuid) });
-export const ownReadStates = object({ readContext, items: { type: 'array', maxItems: 100, items: object({ messageId: uuid }) } });
+export const ownReadStates = object({ readContext, items: { type: 'array', maxItems: 100, items: object({ messageId: uuid }) }, firstUnreadMessageId: nullable(uuid) });
 export const readStateDocs = {
   get: () => contract({ id: 'getOwnReadState', summary: 'Read own saved display progress', params: ['roomId'], response: ownReadStates,
     description: 'Recent bounded snapshot of at most 100 saved positions, reauthorized and filtered to currently readable message UUIDs in the current membership period. Hidden positions are omitted; omission does not mean unread. No pagination or internal order/stream identifiers are exposed. Returns the opaque readContext required for updates.', errors: [400, 401, 403, 404] }),

@@ -44,7 +44,7 @@ private class RoomMutationFixture(owner: CoroutineScope, clock: Clock = Clock.fi
             ApiRoute.SOOP_EXCHANGE -> """{"tokenType":"Bearer","accessToken":"$token","expiresAt":"$EXPIRY","session":${api.sessionJson}}"""
             else -> error("unexpected")
         } }
-        gateway.startLogin(CURRENT_TERMS).getOrThrow()
+        gateway.startLogin("").getOrThrow()
         val state = requireNotNull(pending).proof.state
         gateway.handleCallback("https://qa.rogi.chat/mobile/auth/complete?code=${"c".repeat(43)}&state=$state").getOrThrow()
         assertEquals(token, credentials.value!!.token); assertEquals(account, gateway.session.value.account!!.id)

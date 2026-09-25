@@ -1,4 +1,5 @@
 import { delegatedMemberSql } from '../access/delegation-policy.js';
+import { fanSharedVisibleSql } from '../access/fan-message-policy.js';
 import { chatAccountSql, chatUser } from '../auth/chat-entitlement.js';
 import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
@@ -21,9 +22,9 @@ export class RealtimeRepository {
       WHERE m.user_id=s.user_id AND m.status='ACTIVE' AND msg.created_order>=p.visible_from_order
       AND NOT EXISTS (SELECT 1 FROM actor_blocks b WHERE b.room_id=m.room_id AND ((b.blocker_actor_id=m.id AND b.target_actor_id=msg.sender_member_id) OR (b.target_actor_id=m.id AND b.blocker_actor_id=msg.sender_member_id)))
       AND (${refs.map(() => '(e.id=? AND e.room_id=?)').join(' OR ')})
-      AND (stream.kind='ROOM_SHARED' OR ${delegatedMemberSql('m')} OR EXISTS (SELECT 1 FROM stream_grants g
+      AND ((stream.kind='ROOM_SHARED' AND ${fanSharedVisibleSql('msg', 'r', 'm')}) OR (stream.kind='RESTRICTED' AND (${delegatedMemberSql('m')} OR EXISTS (SELECT 1 FROM stream_grants g
         WHERE g.room_id=m.room_id AND g.stream_id=stream.id AND g.member_id=m.id AND g.can_read=1
-        AND g.revoked_at IS NULL AND g.valid_from<=UTC_TIMESTAMP(3) AND (g.expires_at IS NULL OR g.expires_at>UTC_TIMESTAMP(3)))))` : '';
+        AND g.revoked_at IS NULL AND g.valid_from<=UTC_TIMESTAMP(3) AND (g.expires_at IS NULL OR g.expires_at>UTC_TIMESTAMP(3)))))))` : '';
     const profileAudience = profiles.length ? `EXISTS (
       SELECT 1 FROM profile_changes pc JOIN users subject ON subject.id=pc.user_id AND subject.status='ACTIVE'
       LEFT JOIN platform_soop subject_platform ON subject_platform.user_id=subject.id

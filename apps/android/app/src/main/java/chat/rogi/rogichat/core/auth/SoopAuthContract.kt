@@ -9,8 +9,6 @@ import java.time.Instant
 import java.util.Base64
 import kotlinx.serialization.json.*
 
-const val CURRENT_TERMS = "2026-09-20"
-const val TERMS_CONSENT = "이용 안내를 확인했으며, 개인 메시지가 방장에 의해 전체 공개될 수 있음을 이해합니다. (2026-09-20)"
 enum class AuthIntent { LOGIN, LINK }
 enum class AuthPhase { IDLE, STARTING, AWAITING_BROWSER, EXCHANGING }
 data class AuthUiState(val phase: AuthPhase = AuthPhase.IDLE, val error: AuthProblem? = null,
@@ -26,7 +24,7 @@ enum class AuthProblem(val message: String) {
     FAILED("로그인을 완료하지 못했어요. 새로 시작해 주세요."),
     SESSION_CHANGED("로그인 상태가 바뀌어 계정 연결을 중단했어요. 현재 계정을 확인해 주세요."),
     RECENT_AUTH("계정을 연결하려면 다시 로그인이 필요해요. 로그아웃 후 다시 로그인해 주세요."),
-    TERMS("새 이용 안내 확인이 필요해요. 로그아웃 후 이용 안내에 동의하고 다시 로그인해 주세요."),
+    TERMS("로그인 상태를 확인하지 못했어요. 다시 로그인해 주세요."),
     CONFLICT("이 SOOP 계정은 다른 로기챗 계정에 연결되어 있어요. 현재 계정은 변경하지 않았어요."),
     RATE_LIMITED("요청이 많아 잠시 기다려야 해요. 잠시 후 새로 시작해 주세요."),
     STORAGE("로그인 정보를 안전하게 저장하거나 지우지 못했어요. 다시 시도해 주세요."),
@@ -90,7 +88,6 @@ class SoopAuthContract(val environment: String) {
     fun startBody(intent: AuthIntent, proof: AuthProof): String = buildJsonObject {
         put("clientId", "android"); put("intent", intent.name.lowercase()); put("codeChallenge", proof.challenge)
         put("codeChallengeMethod", "S256"); put("returnState", proof.state)
-        if (intent == AuthIntent.LOGIN) put("termsVersion", CURRENT_TERMS)
     }.toString()
     fun start(text: String): AuthStart = decode {
         val root = StrictAuthJson.objectValue(text)

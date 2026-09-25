@@ -72,6 +72,111 @@ test('returning from another menu keeps the exact timeline scroll position', asy
   await expect.poll(async () => timeline.evaluate(element => element.scrollTop)).toBeLessThan(position + 4);
 });
 
+test('opening a room lands on the first unread message before advancing read state', async ({ page }) => {
+  const { state } = await chatApi(page);
+  state.messages = Array.from({ length: 60 }, (_, index) => ({ ...incoming,
+    id: `55555555-5555-4555-8555-${String(index + 1).padStart(12, '0')}`,
+    createdAt: new Date(Date.parse(incoming.createdAt) + index * 1000).toISOString(),
+    content: { type: 'TEXT', text: `읽지 않은 대화 ${index + 1}` },
+  }));
+  const firstUnread = state.messages[19]!;
+  const readWrites: string[] = [];
+  let releaseRead!: () => void;
+  const readPermit = new Promise<void>(resolve => { releaseRead = resolve; });
+  await page.route('**/read-state*', async route => {
+    if (route.request().method() === 'GET') {
+      await json(route, { readContext: 'A'.repeat(43), items: [], firstUnreadMessageId: readWrites.length ? null : firstUnread.id });
+      return;
+    }
+    const body = route.request().postDataJSON() as { messageId: string };
+    readWrites.push(body.messageId);
+    await readPermit;
+    await json(route, { messageId: body.messageId });
+  });
+  await page.goto('/chat');
+  const timeline = page.getByTestId('chat-timeline');
+  const marker = page.getByTestId('chat-first-unread');
+  await expect(marker).toBeVisible();
+  await expect(marker.locator('..')).toHaveAttribute('data-item-id', firstUnread.id);
+  await expect.poll(async () => timeline.evaluate((el, id) => {
+    const row = el.querySelector(`[data-item-id="${id}"]`) as HTMLElement | null;
+    return row ? Math.abs(row.offsetTop - el.scrollTop) : Number.POSITIVE_INFINITY;
+  }, firstUnread.id)).toBeLessThan(40);
+  await expect.poll(() => readWrites.length).toBeGreaterThan(0);
+  expect(readWrites.every(id => state.messages.findIndex(item => item.id === id) >= 19)).toBe(true);
+  releaseRead();
+  await expect(marker).toHaveCount(0);
+});
+
+test('the first unread message is found across an empty history page', async ({ page }) => {
+  const { state } = await chatApi(page);
+  const messages = Array.from({ length: 60 }, (_, index) => ({ ...incoming,
+    id: `55555555-5555-4555-8555-${String(index + 1).padStart(12, '0')}`,
+    createdAt: new Date(Date.parse(incoming.createdAt) + index * 1000).toISOString(),
+    content: { type: 'TEXT' as const, text: `지난 대화 ${index + 1}` },
+  }));
+  state.messages = messages.slice(20);
+  const boundary = messages[9]!;
+  const historyCursors: string[] = [];
+  const readWrites: string[] = [];
+  await page.route('**/snapshot?*', async route => {
+    await json(route, { schemaVersion: 2, resetRequired: false, ...TEST_SCOPES,
+      messages: state.messages, nextCursor: 'test-events', historyCursor: 'first-page' });
+  });
+  await page.route('**/history?*', async route => {
+    const requested = new URL(route.request().url()).searchParams.get('cursor') ?? '';
+    historyCursors.push(requested);
+    await json(route, { schemaVersion: 2, resetRequired: false, ...TEST_SCOPES,
+      messages: requested === 'first-page' ? [] : messages.slice(0, 20),
+      nextCursor: requested === 'first-page' ? 'second-page' : null });
+  });
+  await page.route('**/read-state*', async route => {
+    if (route.request().method() === 'GET') {
+      await json(route, { readContext: 'A'.repeat(43), items: [], firstUnreadMessageId: boundary.id });
+    } else {
+      const body = route.request().postDataJSON() as { messageId: string };
+      readWrites.push(body.messageId);
+      await json(route, { messageId: body.messageId });
+    }
+  });
+  await page.goto('/chat');
+  await expect(page.getByTestId('chat-first-unread').locator('..')).toHaveAttribute('data-item-id', boundary.id);
+  await expect.poll(() => historyCursors.length).toBe(2);
+  expect(historyCursors).toEqual(['first-page', 'second-page']);
+  await expect.poll(() => readWrites.length).toBeGreaterThan(0);
+  expect(readWrites.every(id => messages.findIndex(item => item.id === id) >= 9)).toBe(true);
+});
+
+test('a quoted source can be opened across an empty history page', async ({ page }) => {
+  const { state } = await chatApi(page);
+  const messages = Array.from({ length: 60 }, (_, index) => ({ ...incoming,
+    id: `55555555-5555-4555-8555-${String(index + 1).padStart(12, '0')}`,
+    createdAt: new Date(Date.parse(incoming.createdAt) + index * 1000).toISOString(),
+    content: { type: 'TEXT' as const, text: `인용 기록 ${index + 1}` },
+  }));
+  const source = messages[9]!;
+  state.messages = messages.slice(20);
+  state.messages[39] = { ...state.messages[39]!, quote: {
+    id: source.id, authorName: '테스트 스트리머', content: { type: 'TEXT', text: source.content.text },
+  } };
+  const historyCursors: string[] = [];
+  await page.route('**/snapshot?*', async route => {
+    await json(route, { schemaVersion: 2, resetRequired: false, ...TEST_SCOPES,
+      messages: state.messages, nextCursor: 'test-events', historyCursor: 'first-page' });
+  });
+  await page.route('**/history?*', async route => {
+    const requested = new URL(route.request().url()).searchParams.get('cursor') ?? '';
+    historyCursors.push(requested);
+    await json(route, { schemaVersion: 2, resetRequired: false, ...TEST_SCOPES,
+      messages: requested === 'first-page' ? [] : messages.slice(0, 20),
+      nextCursor: requested === 'first-page' ? 'second-page' : null });
+  });
+  await page.goto('/chat');
+  await page.getByRole('button', { name: '테스트 스트리머님의 원본 메시지로 이동' }).click();
+  await expect(page.locator(`[data-item-id="${source.id}"]`)).toBeFocused();
+  expect(historyCursors).toEqual(['first-page', 'second-page']);
+});
+
 test('route return removes a parked conversation when fresh validation reports revocation', async ({ page, isMobile }) => {
   const { account } = await chatApi(page);
   await page.goto('/chat');
@@ -208,7 +313,7 @@ test('explicit reviewer entitlement permits real chat commands without inventing
   await input.fill('심사 계정의 격리된 메시지'); await input.press('Enter');
   await expect(input).toHaveValue('');
   await expect(page.getByText('심사 계정의 격리된 메시지', { exact: true })).toBeVisible();
-  expect(state.posts).toHaveLength(1); expect(state.posts[0]?.intent).toBe('SHARED');
+  expect(state.posts).toHaveLength(1); expect(state.posts[0]?.intent).toBe('ROOM_OWNER');
   await page.reload(); await expect(page.getByTestId('chat-room')).toBeVisible();
   admitted = false;
   await page.evaluate(() => { window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })); window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })); });
@@ -260,7 +365,7 @@ test('READY photo recovers from its outgoing bubble, preserves text draft and cl
   await expect(image).toBeVisible();
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도로 보낼 글');
   await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[0]).toEqual(state.posts[1]);
-  expect(state.posts[0]).toMatchObject({ intent: 'SHARED', content: { type: 'PHOTO', assetIds: [MEDIA_ASSET] } });
+  expect(state.posts[0]).toMatchObject({ intent: 'ROOM_OWNER', content: { type: 'PHOTO', assetIds: [MEDIA_ASSET] } });
   expect(media.accesses).toContainEqual({ variant: 'image', roomId: TEST_ROOM_ID, messageId: savedId });
   const blob = await image.getAttribute('src'); expect(blob).toMatch(/^blob:/);
   state.messages = [incoming]; state.deletedIds = [savedId]; hint();
@@ -333,10 +438,14 @@ test('empty state is truthful, snapshot failure offers retry, and keyboard view 
   const results = await new AxeBuilder({ page }).analyze(); expect(results.violations).toEqual([]);
 });
 
-test('shared composer remains available without private recipient grants and revoked access clears content', async ({ page }) => {
+test('room-owner composer remains available without private recipient grants and revoked access clears content', async ({ page }) => {
   const { state, hint } = await chatApi(page); state.canSend = false;
   await page.goto('/chat'); await expect(page.getByText(incoming.content.text, { exact: true })).toBeVisible();
-  await expect(page.getByTestId('chat-composer-input')).toBeVisible();
+  const input = page.getByTestId('chat-composer-input');
+  await expect(input).toBeVisible();
+  await input.fill('방장 수신함 메시지'); await input.press('Enter');
+  await expect(input).toHaveValue('');
+  expect(state.posts[0]?.intent).toBe('ROOM_OWNER');
   state.revoked = true; hint();
   await expect(page.getByText(incoming.content.text, { exact: true })).toHaveCount(0);
 });
@@ -392,7 +501,7 @@ test('unsupported messages keep moderation and deletion inside the options menu'
 });
 
 
-test('the composer has no recipient selector and fan messages go to shared chat', async ({ page }) => {
+test('the composer has no recipient selector and fan messages go only to the room owner', async ({ page }) => {
   const { state } = await chatApi(page);
   const second = { actorId: '88888888-8888-4888-8888-888888888888', nickname: '두 번째 스트리머', avatar: null };
   state.recipients.push(second);
@@ -400,9 +509,11 @@ test('the composer has no recipient selector and fan messages go to shared chat'
   await expect(page.getByTestId('chat-composer-target')).toHaveCount(0);
   await expect(page.getByRole('radio')).toHaveCount(0);
   await expect(page.getByTestId('chat-reply')).toHaveCount(0);
-  const input = page.getByTestId('chat-composer-input'); await input.fill('전체 채팅 메시지');
+  const input = page.getByTestId('chat-composer-input');
+  await expect(input).toHaveAttribute('placeholder', '메시지 입력');
+  await input.fill('방장에게만 보내는 메시지');
   await input.press('Enter'); await expect(input).toHaveValue('');
-  expect(state.posts).toHaveLength(1); expect(state.posts[0]?.intent).toBe('SHARED');
+  expect(state.posts).toHaveLength(1); expect(state.posts[0]?.intent).toBe('ROOM_OWNER');
   expect(state.posts[0]).not.toHaveProperty('recipientActorId');
 });
 
@@ -527,7 +638,7 @@ test('anonymous publication reactions expose only aggregate selection without id
   reactions.mine = '👍';
   await page.goto('/chat'); await openReactionControl(page);
   await expect(page.getByRole('button', { name: '좋아요 반응' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-scope="PUBLICATION"]')).toContainText('보낸 사람 비공개');
+  await expect(page.locator('[data-scope="PUBLICATION"]')).toContainText('공유된 메시지');
   await expect(page.locator('[data-scope="PUBLICATION"]')).not.toContainText('테스트 스트리머');
   await expect(page.getByTestId('chat-reply')).toHaveCount(0);
 });
@@ -782,7 +893,7 @@ test('fan enters the real ready catalog before any owner exists and persists a s
   await input.fill('방장이 가입하기 전 보관할 메시지'); await input.press('Enter');
   await expect(input).toHaveValue('');
   expect(state.posts).toHaveLength(1);
-  expect(state.posts[0]).toMatchObject({ intent: 'SHARED', content: { type: 'TEXT', text: '방장이 가입하기 전 보관할 메시지' } });
+  expect(state.posts[0]).toMatchObject({ intent: 'ROOM_OWNER', content: { type: 'TEXT', text: '방장이 가입하기 전 보관할 메시지' } });
   expect(state.posts[0]).not.toHaveProperty('recipientActorId');
   expect(state.posts[0]).not.toHaveProperty('quoteId');
   await expect(page.getByText('방장이 가입하기 전 보관할 메시지', { exact: true })).toBeVisible();

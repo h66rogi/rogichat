@@ -2,6 +2,7 @@
 
 import { useRef, useState, useSyncExternalStore } from 'react';
 import { Button } from '@/shared/ui/button';
+import { Dialog } from 'radix-ui';
 import { MediaUploadPanel } from '@/features/media/components';
 import { ScopedMediaImage, ScopedMediaVideo, useMediaRoomId, useMediaUpload } from '@/features/media/session-ui';
 import type { MediaUpload } from '@/features/media/upload';
@@ -10,10 +11,27 @@ import type { ChatComposerSubmission, ChatComposerTarget, ChatImageContent, Chat
 export function ChatMediaImages({ messageId, media }: { messageId: string; media: ChatImageContent }) {
   const roomId = useMediaRoomId();
   if (!roomId) return <p>지금은 이미지를 표시할 수 없습니다.</p>;
-  if (media.type === 'VIDEO') return <ScopedMediaVideo assetId={media.assets[0]!.assetId} context={{ roomId, messageId }} revision={media.revision} />;
-  return <div className="space-y-2">{media.assets.map((asset, index) => <ScopedMediaImage key={asset.assetId} assetId={asset.assetId} revision={media.revision}
-    context={{ variant: 'image', roomId, messageId, ...(media.stickerId ? { stickerId: media.stickerId } : {}) }}
-    alt={media.type === 'STICKER' ? '대화 스티커' : `대화 사진 ${index + 1}`} />)}</div>;
+  if (media.type === 'VIDEO') return <MessageMediaViewer label="동영상" assetId={media.assets[0]!.assetId} media={media} roomId={roomId} messageId={messageId} />;
+  if (media.type === 'STICKER') return <div className="space-y-2">{media.assets.map(asset => <ScopedMediaImage key={asset.assetId} assetId={asset.assetId} revision={media.revision}
+    context={{ variant: 'image', roomId, messageId, stickerId: media.stickerId }} alt="대화 스티커" />)}</div>;
+  return <div className="space-y-2">{media.assets.map((asset, index) => <MessageMediaViewer key={asset.assetId} label={`사진 ${index + 1}`} assetId={asset.assetId} media={media} roomId={roomId} messageId={messageId} />)}</div>;
+}
+
+function MessageMediaViewer({ label, assetId, media, roomId, messageId }: { label: string; assetId: string; media: ChatImageContent; roomId: string; messageId: string }) {
+  const video = media.type === 'VIDEO';
+  const content = () => video
+    ? <ScopedMediaVideo assetId={assetId} context={{ roomId, messageId }} revision={media.revision} />
+    : <ScopedMediaImage assetId={assetId} revision={media.revision} context={{ variant: 'image', roomId, messageId }} alt={`대화 ${label}`} />;
+  return <Dialog.Root>
+    <div>{content()}<Dialog.Trigger asChild><button type="button" className="mt-1 min-h-11 rounded-lg px-3 text-sm text-chat-accent hover:bg-surface-soft">{label} 크게 보기</button></Dialog.Trigger></div>
+    <Dialog.Portal>
+      <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/90" />
+      <Dialog.Content aria-describedby={undefined} className="fixed inset-0 z-[101] flex flex-col bg-black text-white focus:outline-none">
+        <div className="flex shrink-0 items-center justify-between px-4 py-2"><Dialog.Title className="font-medium">{label}</Dialog.Title><Dialog.Close asChild><button type="button" className="min-h-11 rounded-lg px-4 text-white focus-visible:outline-2">닫기</button></Dialog.Close></div>
+        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4 [&_img]:max-h-[calc(100dvh-7rem)] [&_img]:max-w-full [&_video]:max-h-[calc(100dvh-7rem)]">{content()}</div>
+      </Dialog.Content>
+    </Dialog.Portal>
+  </Dialog.Root>;
 }
 
 /** Each visited target keeps its own upload. The room/session epoch owns all of them. */

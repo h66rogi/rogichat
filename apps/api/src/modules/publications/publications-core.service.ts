@@ -28,8 +28,9 @@ export class PublicationsCoreService {
     if (!source || !canPublishSource({ accountActive: true, chatEnabled: true, roomId, memberRoomId: roomId, roomActive: true,
       memberId: viewer.id, memberActive: true, periodActive: true, visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: String(room.owner_member_id), delegated: Boolean(viewer.temporaryGrantId) }, {
       roomId: source.room_id, streamId: source.stream_id, streamRoomId: source.room_id, streamKind: source.stream_kind, order: BigInt(source.created_order),
-      deleted: source.deleted_at !== null, moderated: Number(source.moderated) === 1, deletionRootBlocked: Number(source.root_blocked) === 1 || ['DELETING', 'DELETED'].includes(source.content_owner_status), grant: null })) throw new ApiError('NOT_FOUND', 404);
-    if (!['TEXT', 'PHOTO'].includes(source.content_kind) || (source.content_kind === 'TEXT' && source.text_content === null) || source.deletion_root_id) throw new ApiError('INVALID_REQUEST', 400);
+      deleted: source.deleted_at !== null, moderated: Number(source.moderated) === 1, deletionRootBlocked: Number(source.root_blocked) === 1 || ['DELETING', 'DELETED'].includes(source.content_owner_status), grant: null,
+      legacyFanOriginal: source.room_mode === 'FAN' && source.stream_kind === 'ROOM_SHARED' && source.sender_role === 'FAN' && source.deletion_root_id === null })) throw new ApiError('NOT_FOUND', 404);
+    if (source.sender_role !== 'FAN' || !['TEXT', 'PHOTO'].includes(source.content_kind) || (source.content_kind === 'TEXT' && source.text_content === null) || source.deletion_root_id) throw new ApiError('INVALID_REQUEST', 400);
     if (source.content_kind === 'PHOTO') await this.photoSources(tx, roomId, source.id);
     const [revision] = await this.repository.revision(tx, roomId, source.id);
     return { viewer, source, revision: String(revision!.content_revision) };

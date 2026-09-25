@@ -95,7 +95,7 @@ private class AuthFixture(val store: AuthStore = AuthStore(), val pending: AuthP
         AuthProof(fingerprint("verifier-$ordinal"), fingerprint("state-$ordinal"))
     }, rooms)
     suspend fun login(): String {
-        model.restore(); assertTrue(model.startLogin(CURRENT_TERMS).isSuccess)
+        model.restore(); assertTrue(model.startLogin("").isSuccess)
         return requireNotNull(pending.value).proof.state
     }
     suspend fun link(): String {
@@ -153,8 +153,7 @@ class NativeSoopAuthTest {
 
     @Test fun appleUsesExistingDurableProofAndPublicHeadersThenColdCallbackConsumesOnce() = runTest {
         val f = AuthFixture(); f.model.restore()
-        assertTrue(f.model.startAppleLogin("old").isFailure); assertTrue(f.api.appleRequests.isEmpty())
-        assertTrue(f.model.startAppleLogin(CURRENT_TERMS).isSuccess)
+        assertTrue(f.model.startAppleLogin("").isSuccess)
         val pending = requireNotNull(f.pending.value)
         assertEquals(AuthProvider.APPLE, pending.provider)
         assertEquals(AuthProvider.APPLE, f.model.authState.value.provider)
@@ -162,7 +161,7 @@ class NativeSoopAuthTest {
         assertNull(request.second)
         val start = Json.parseToJsonElement(request.third).jsonObject
         assertFalse("codeChallengeMethod" in start)
-        assertEquals(CURRENT_TERMS, start.getValue("termsVersion").jsonPrimitive.content)
+        assertFalse("termsVersion" in start)
         val cold = f.coordinator(); cold.restore(); cold.restorePending()
         assertTrue(cold.handleCallback(callback(pending.proof.state, fingerprint("completion"))).isSuccess)
         assertEquals(NEW_TOKEN, f.store.value?.token); assertTrue(f.pending.marked)
@@ -172,10 +171,10 @@ class NativeSoopAuthTest {
         assertEquals(2, f.api.appleRequests.size)
     }
     @Test fun cancelledAppleCallbackCannotConsumeNewSoopProofOrInstallLateAppleSession() = runTest {
-        val f = AuthFixture(); f.model.restore(); f.model.startAppleLogin(CURRENT_TERMS).getOrThrow()
+        val f = AuthFixture(); f.model.restore(); f.model.startAppleLogin("").getOrThrow()
         val oldState = requireNotNull(f.pending.value).proof.state
         f.model.cancelAuthentication().getOrThrow()
-        f.model.startLogin(CURRENT_TERMS).getOrThrow()
+        f.model.startLogin("").getOrThrow()
         val current = requireNotNull(f.pending.value)
         f.model.handleCallback(callback(oldState, fingerprint("completion")))
         assertSame(current, f.pending.value); assertNull(f.store.value)
@@ -227,15 +226,14 @@ class NativeSoopAuthTest {
         assertEquals(NEW_TOKEN, contract.exchange(exchangeResponse()).credential.token)
         assertThrows(InvalidResponse::class.java) { contract.exchange(exchangeResponse().replace("\"chat\":true", "\"chat\":true,\"deep\":" + "[".repeat(40) + "0" + "]".repeat(40))) }
     }
-    @Test fun loginRequiresExplicitTermsAndOmitsBearerAtBothStages() = runTest {
+    @Test fun loginNeedsNoTermsAndOmitsBearerAtBothStages() = runTest {
         val f = AuthFixture(); f.model.restore()
-        assertTrue(f.model.startLogin("old").isFailure); assertTrue(f.api.requests.isEmpty())
         val state = f.login()
         val start = Json.parseToJsonElement(f.api.requests.single().third).jsonObject
-        assertEquals(setOf("clientId", "intent", "codeChallenge", "codeChallengeMethod", "returnState", "termsVersion"), start.keys)
+        assertEquals(setOf("clientId", "intent", "codeChallenge", "codeChallengeMethod", "returnState"), start.keys)
         assertEquals("android", start.getValue("clientId").jsonPrimitive.content)
         assertEquals("login", start.getValue("intent").jsonPrimitive.content)
-        assertEquals(CURRENT_TERMS, start.getValue("termsVersion").jsonPrimitive.content)
+        assertFalse("termsVersion" in start)
         assertEquals(ShellAccess.SIGNED_OUT, f.model.session.value.access) // Browser handoff is not successful login.
         assertTrue(f.model.handleCallback(callback(state)).isSuccess)
         assertTrue(f.api.requests.all { it.second == null })
@@ -250,7 +248,7 @@ class NativeSoopAuthTest {
     }
     @Test fun slowStartExpiresBeforePublishingBrowserAndOverallTimeoutErasesProof() = runTest {
         val f = AuthFixture(); f.api.startBlock = { f.clock.now = NOW.plusSeconds(61); startResponse() }
-        f.model.restore(); f.model.startLogin(CURRENT_TERMS)
+        f.model.restore(); f.model.startLogin("")
         assertNull(f.pending.value); assertNull(f.model.browserLaunch.value)
         val g = AuthFixture(); val state = g.login(); g.clock.now = NOW.plusSeconds(600)
         g.model.handleCallback(callback(state)); assertEquals(1, g.api.requests.size)
@@ -318,8 +316,8 @@ class NativeSoopAuthTest {
     }
     @Test fun cancelWhileStartAndReversedStartResponsesCannotOverwriteNewerProof() = runTest {
         val f = AuthFixture(); f.model.restore(); val first = CompletableDeferred<String>(); f.api.startBlock = { first.await() }
-        val old = launch { f.model.startLogin(CURRENT_TERMS) }; yield()
-        f.model.cancelAuthentication(); f.api.startBlock = { startResponse() }; f.model.startLogin(CURRENT_TERMS)
+        val old = launch { f.model.startLogin("") }; yield()
+        f.model.cancelAuthentication(); f.api.startBlock = { startResponse() }; f.model.startLogin("")
         val newer = requireNotNull(f.pending.value).proof.state
         first.complete(startResponse()); old.join()
         assertEquals(newer, f.pending.value?.proof?.state); assertEquals(1, f.pending.writes)
@@ -425,7 +423,7 @@ class NativeSoopAuthTest {
     @Test fun publicStart401Unavailable404503AndOfflineNeverInventSuccessOrCredential() = runTest {
         listOf(ApiException(401, "UNAUTHENTICATED"), ApiException(404, null), ApiException(503, "AUTH_UNAVAILABLE"), IOException()).forEach { failure ->
             val f = AuthFixture(); f.model.restore(); f.api.startBlock = { throw failure }
-            assertTrue(f.model.startLogin(CURRENT_TERMS).isFailure)
+            assertTrue(f.model.startLogin("").isFailure)
             assertNull(f.store.value); assertEquals(0, f.store.clears); assertNull(f.pending.value)
             assertEquals(ShellAccess.SIGNED_OUT, f.model.session.value.access)
         }

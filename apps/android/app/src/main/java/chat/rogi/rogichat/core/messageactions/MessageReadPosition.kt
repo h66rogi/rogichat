@@ -7,7 +7,7 @@ import chat.rogi.rogichat.core.network.ReadContext
 import chat.rogi.rogichat.core.network.ReadStateId
 
 /** Own display progress is not unread count, delivery ACK, a stream order or a sync cursor. */
-data class ReadSnapshot(val context: String, val messageIds: List<String>)
+data class ReadSnapshot(val context: String, val messageIds: List<String>, val firstUnreadMessageId: String? = null)
 data class ScrollAnchor(val messageId: String, val offset: Int) {
     init { actionId(messageId); require(offset >= 0) }
 }
@@ -48,7 +48,7 @@ class MessageReadPosition(private val anchors: ScrollAnchorStore) {
     /** Call ONLY for a newly visible authorized row after context GET; never replay restored positions. */
     @Synchronized fun displayed(token: ReadViewToken, messageId: String): ReadDisplayPermit? {
         actionId(messageId)
-        if (!admits(token) || pending != null || needsRefresh) return null
+        if (!admits(token) || pending != null || needsRefresh || messageId in savedMessageIds) return null
         return ReadDisplayPermit(token, messageId, context ?: return null, this).also { pending = it }
     }
     /** Unknown/409 invalidates the context and drops queued display events; no automatic PUT retry. */
@@ -80,12 +80,13 @@ object MessageReadWire {
     fun get(scope: ActionScope) = ActionRequest("GET", "rooms/${scope.roomId}/read-state", null, 200)
     fun snapshot(body: String): ReadSnapshot {
         val root = StrictAuthJson.objectValue(body)
-        require(root.keys == setOf("readContext", "items"))
+        require(root.keys == setOf("readContext", "items") ||
+            root.keys == setOf("readContext", "items", "firstUnreadMessageId"))
         require(root.getValue("items").jsonArray.all { it.jsonObject.keys == setOf("messageId") })
         val value = M11Dtos.readStates(body)
         // Public GET projection only contains authorized IDs, unlike nullable PUT receipt.
         require(value.items.all { it.messageId != null })
-        return ReadSnapshot(value.readContext.value, value.items.map { it.messageId!!.value })
+        return ReadSnapshot(value.readContext.value, value.items.map { it.messageId!!.value }, value.firstUnreadMessageId?.value)
     }
     fun saved(body: String): String? {
         require(StrictAuthJson.objectValue(body).keys == setOf("messageId"))

@@ -70,8 +70,6 @@ fun AppEntry(services: ProductServices? = null,
                         catch (_: Exception) { auth.browserFailed(requested.state) }
                     }
                 }
-                if (operation.consentNeeded) SoopConsentDialog(auth.rulesUrl, operation.busy,
-                    accountModel::dismissConsent, accountModel::confirmConsent, if (operation.consentProvider == SignInProvider.APPLE) "Apple" else "SOOP")
             }
             val foregroundEpoch = LocalForegroundEpoch.current
             LaunchedEffect(accountModel, foregroundEpoch) { if (foregroundEpoch > 0) accountModel.foreground() }

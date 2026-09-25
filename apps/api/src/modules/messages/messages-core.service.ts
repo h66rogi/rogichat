@@ -38,8 +38,10 @@ export class MessagesCoreService {
     const grant = row.stream_kind === 'RESTRICTED' ? await this.repository.grant(tx, row.room_id, row.stream_id, viewer.id) : undefined;
     const allowed = canReadMessage({ accountActive: true, chatEnabled: true, roomId: viewer.room_id, memberRoomId: viewer.room_id,
       roomActive: true, memberId: viewer.id, memberActive: true, periodActive: true,
-      visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: null, delegated: Boolean(viewer.temporaryGrantId) }, {
+      visibleFrom: BigInt(viewer.visible_from_order), role: viewer.role, ownerMemberId: row.owner_member_id, delegated: Boolean(viewer.temporaryGrantId) }, {
       roomId: row.room_id, streamId: row.stream_id, streamRoomId: row.room_id, streamKind: row.stream_kind,
+      roomMode: row.room_mode, senderMemberId: row.sender_member_id, published: row.deletion_root_id !== null,
+      publicationActive: Number(row.published_active) === 1,
       order: BigInt(row.created_order), deleted: row.deleted_at !== null, moderated: Number(row.moderated) === 1,
       deletionRootBlocked: Number(row.root_blocked) === 1 || ['DELETING', 'DELETED'].includes(row.content_owner_status),
       grant: grant ? { roomId: String(grant.room_id), streamId: String(grant.stream_id), memberId: String(grant.member_id), canRead: Number(grant.can_read) === 1, active: true } : null,
@@ -72,7 +74,7 @@ export class MessagesCoreService {
     const hints = (await this.eligibility.project(tx, viewer, [row.id])).get(row.id)!;
     const reactions = (await this.queries.reactions(tx, viewer, [row.id])).get(row.id)!;
     return projectMessageDto({ ...hints, reactions, id: row.id, version: String(row.version), createdAt: row.created_at,
-      audience: row.stream_kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
+      audience: row.stream_kind === 'ROOM_SHARED' && (row.room_mode !== 'FAN' || row.deletion_root_id !== null && Number(row.published_active) === 1 || row.deletion_root_id === null && row.sender_member_id === row.owner_member_id) ? 'SHARED' : 'PRIVATE',
       author: row.deletion_root_id ? { kind: 'anonymous' } : { kind: 'member', actorId: row.sender_member_id, nickname: row.nickname ?? '사용자', avatar: row.avatar_id ? { assetId: row.avatar_id } : null }, content, quote });
   }
 
@@ -138,24 +140,33 @@ export class MessagesCoreService {
       if (!previous || !await this.readable(tx, viewer, previous)) throw new ApiError('NOT_FOUND', 404);
       return { clientMessageId: input.clientMessageId, messageId: previous.id, status: 'committed' as const, version: String(previous.version) };
     }
+    // Older clients still send SHARED for an ordinary fan message. Preserve the
+    // original command digest above, then apply the current FAN-room policy to
+    // this new write. Existing SHARED messages and their receipts are untouched.
+    const effectiveInput: SendInput = viewer.mode === 'FAN' && viewer.role === 'FAN' && input.intent === 'SHARED'
+      ? { ...input, intent: 'ROOM_OWNER' } : input;
     // ROOM_OWNER addresses a real room inbox, not an invented recipient actor.
     // Only the never-bound default catalog admits it before owner onboarding.
     let streamId: string;
-    if (input.intent === 'ROOM_OWNER' && viewer.mode === 'FAN' && viewer.role === 'FAN' && !room.owner_member_id) {
+    if (effectiveInput.intent === 'ROOM_OWNER' && viewer.mode === 'FAN' && viewer.role === 'FAN' && !room.owner_member_id) {
       if (!awaitingOwner) throw new ApiError('NOT_FOUND', 404);
       streamId = await this.repository.pendingInbox(tx, roomId, viewer.id);
       const grant = await this.repository.sendGrants(tx, roomId, streamId, [viewer.id, viewer.id]);
       if (grant.length !== 1 || Number(grant[0]!.can_read) !== 1 || Number(grant[0]!.can_send) !== 1) throw new ApiError('FORBIDDEN', 403);
     } else {
-      const delegatedTarget = input.intent === 'PRIVATE' && (await this.repository.target(tx, roomId, input.recipientActorId!))?.delegated;
-      if (!viewer.temporaryGrantId && !delegatedTarget && !(input.intent === 'SHARED' && !room.owner_member_id && awaitingOwner)) await this.access.requireRoomSendOwner(tx, roomId, room.owner_member_id, owner);
-      if (input.intent === 'ROOM_OWNER' && (viewer.mode !== 'FAN' || viewer.role !== 'FAN')) throw new ApiError('FORBIDDEN', 403);
-      streamId = await this.sendStream(tx, viewer, input.intent === 'ROOM_OWNER'
-        ? { ...input, intent: 'PRIVATE', recipientActorId: room.owner_member_id } : input);
+      const delegatedTarget = effectiveInput.intent === 'PRIVATE' && (await this.repository.target(tx, roomId, effectiveInput.recipientActorId!))?.delegated;
+      if (!viewer.temporaryGrantId && !delegatedTarget && !(effectiveInput.intent === 'SHARED' && !room.owner_member_id && awaitingOwner)) await this.access.requireRoomSendOwner(tx, roomId, room.owner_member_id, owner);
+      if (effectiveInput.intent === 'ROOM_OWNER' && (viewer.mode !== 'FAN' || viewer.role !== 'FAN')) throw new ApiError('FORBIDDEN', 403);
+      if (viewer.mode === 'FAN' && viewer.role === 'FAN' && effectiveInput.intent === 'PRIVATE' &&
+        effectiveInput.recipientActorId !== room.owner_member_id) throw new ApiError('FORBIDDEN', 403);
+      streamId = await this.sendStream(tx, viewer, effectiveInput.intent === 'ROOM_OWNER'
+        ? { ...effectiveInput, intent: 'PRIVATE', recipientActorId: room.owner_member_id } : effectiveInput);
     }
     if (input.quoteId) {
       const quote = await this.load(tx, roomId, input.quoteId);
       if (!quote || !await this.readable(tx, viewer, quote)) throw new ApiError('NOT_FOUND', 404);
+      if (viewer.mode === 'FAN' && viewer.role === 'STREAMER' && effectiveInput.intent === 'PRIVATE' &&
+        quote.sender_member_id !== room.owner_member_id && quote.sender_member_id !== effectiveInput.recipientActorId) throw new ApiError('NOT_FOUND', 404);
       if (quote.stream_kind !== 'ROOM_SHARED' && quote.stream_id !== streamId) {
         // A temporary operator may answer an owner's inbox back to its actual
         // original fan only. This is not forwarding to a different audience.

@@ -14,7 +14,7 @@ class AppleIdentityContractTest {
         val proof = AuthProof(verifier, state)
         val login = Json.parseToJsonElement(contract.startBody(IdentityIntent.LOGIN, proof)).jsonObject
         val link = Json.parseToJsonElement(contract.startBody(IdentityIntent.LINK, proof)).jsonObject
-        assertEquals(JsonPrimitive("2026-09-20"), login["termsVersion"])
+        assertFalse(login.containsKey("termsVersion"))
         assertFalse(login.containsKey("codeChallengeMethod"))
         assertFalse(link.containsKey("termsVersion"))
     }
