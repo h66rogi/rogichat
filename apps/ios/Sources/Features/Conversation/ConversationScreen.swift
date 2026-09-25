@@ -74,7 +74,12 @@ struct ConversationScreen: View {
                             Color.clear.frame(height: 1).id("conversation-bottom")
                         }.scrollTargetLayout().padding(.horizontal, 16).padding(.vertical, 16)
                     }
+                    .defaultScrollAnchor(.bottom, for: .initialOffset)
                     .scrollDismissesKeyboard(.interactively)
+                    .onAppear {
+                        features?.latest()
+                        scrollToLatest(proxy)
+                    }
                     .onScrollTargetVisibilityChange(idType: String.self, threshold: 0.6) { ids in
                         visibleIDs = listing.messages.map(\.id).filter { ids.contains($0) }
                         features?.observeVisible(visibleIDs.first, atLatest: atLatest)
@@ -95,6 +100,15 @@ struct ConversationScreen: View {
                     }
                     .onChange(of: showStickers) { _, open in
                         if open { scrollToLatest(proxy) }
+                    }
+                    .onChange(of: model.sending) { _, sending in
+                        if sending {
+                            features?.latest()
+                            scrollToLatest(proxy, animated: true)
+                        }
+                    }
+                    .onChange(of: model.listing?.commands) { _, _ in
+                        if model.sending { scrollToLatest(proxy, animated: true) }
                     }
                     .onChange(of: features?.move) { _, move in
                         switch move {
@@ -178,10 +192,16 @@ struct ConversationScreen: View {
             }
         }
     }
-    private func scrollToLatest(_ proxy: ScrollViewProxy) {
+    private func scrollToLatest(_ proxy: ScrollViewProxy, animated: Bool = false) {
         Task { @MainActor in
             await Task.yield()
-            proxy.scrollTo("conversation-bottom", anchor: .bottom)
+            if animated {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    proxy.scrollTo("conversation-bottom", anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo("conversation-bottom", anchor: .bottom)
+            }
         }
     }
     private var composer: some View {
@@ -222,6 +242,7 @@ struct ConversationScreen: View {
             }
             if showStickers, let features {
                 StickerPicker(client: features.media, sending: model.sending) { sticker in
+                    features.latest()
                     _ = try await model.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: sticker.id))
                 }
                 .frame(height: 280)
@@ -283,6 +304,7 @@ struct ConversationScreen: View {
     }
     private func sendComposer() {
         guard canSendComposer else { return }
+        features?.latest()
         if let features, features.readyMedia != nil { Task { await features.sendReadyMedia() } }
         else { model.send() }
     }
