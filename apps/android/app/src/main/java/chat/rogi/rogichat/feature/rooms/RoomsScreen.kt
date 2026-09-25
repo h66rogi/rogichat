@@ -113,7 +113,9 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
         if (commandBlocks()) return
         job?.cancel()
         val ticket = ++revision
-        val previous = mutable.value.directory
+        // An unresolved join/leave may have invalidated the old membership. Do not
+        // keep its rows visible while authoritative reconciliation is retried.
+        val previous = mutable.value.directory.takeIf { unresolvedNotice() == null }
         mutable.value = RoomsState(loading = true, directory = previous, notice = unresolvedNotice())
         job = (injectedScope ?: viewModelScope).launch {
             try {
