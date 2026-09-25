@@ -1,0 +1,12 @@
+{
+  "name": "@rogichat/decoder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.21.0 <25"
+  },
+  "dependencies": {
+    "sharp": "0.35.4"
+  }
+}

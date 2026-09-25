@@ -11,6 +11,7 @@ IOS_TOOLS = (
     b"build_ios.py", b"check_ios", b"install_xcodegen.py", b"ios_", b"keychain_unlock.py",
     b"release_ios.py", b"test_ios_", b"test_keychain_unlock.py",
 )
+SHA = re.compile(r"[a-f0-9]{40}\Z")
 
 
 def affected_platforms(paths):
@@ -39,6 +40,23 @@ def mobile_changed(paths):
     return any(affected_platforms(paths))
 
 
+def pull_request_base(event_base, head):
+    """Diff the checked merge result from its base parent, even if the event is stale."""
+    if not SHA.fullmatch(event_base) or not SHA.fullmatch(head):
+        return None
+    checkout = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True)
+    parents = subprocess.run(["git", "rev-list", "--parents", "-n", "1", head],
+                             capture_output=True)
+    if checkout.returncode or checkout.stdout.strip() != head.encode() or parents.returncode:
+        return None
+    parts = parents.stdout.decode("ascii", errors="replace").split()
+    if len(parts) != 3 or parts[0] != head or not all(SHA.fullmatch(p) for p in parts):
+        return None
+    ancestor = subprocess.run(["git", "merge-base", "--is-ancestor", event_base, parts[1]],
+                              capture_output=True)
+    return parts[1] if ancestor.returncode == 0 else None
+
+
 def main():
     base = os.environ.get("BASE_SHA", "")
     event = os.environ.get("EVENT_NAME", "")
@@ -48,15 +66,19 @@ def main():
         base_ref = os.environ.get("MERGE_GROUP_BASE_REF", "")
         checkout = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True)
         if (base_ref not in {"refs/heads/qa", "refs/heads/main"}
-                or not re.fullmatch(r"[a-f0-9]{40}", head)
+                or not SHA.fullmatch(head)
                 or head != github_sha
                 or checkout.returncode or checkout.stdout.strip() != head.encode()
                 or base == "0" * 40):
             raise SystemExit("Cannot establish the mobile change boundary")
+    if event == "pull_request":
+        base = pull_request_base(base, os.environ.get("GITHUB_SHA", ""))
+        if base is None:
+            raise SystemExit("Cannot establish the mobile pull-request boundary")
     if event == "workflow_dispatch" or base == "0" * 40:
         android = ios = True
     else:
-        if event not in {"push", "pull_request", "merge_group"} or not re.fullmatch(r"[a-f0-9]{40}", base):
+        if event not in {"push", "pull_request", "merge_group"} or not SHA.fullmatch(base):
             raise SystemExit("Cannot establish the mobile change boundary")
         result = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z", base, "HEAD", "--"],
                                 capture_output=True)

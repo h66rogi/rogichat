@@ -1,5 +1,6 @@
 packages:
   - apps/api
+  - apps/decoder
   - apps/migration
   - apps/web
   - apps/overlay

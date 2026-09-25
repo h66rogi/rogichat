@@ -20,6 +20,7 @@ on:
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
       - 'tools/check_overlay_copy.py'
+      - 'tools/infrastructure/auxiliary_image_changes.py'
       - 'tools/security/**'
   push:
     branches: [qa]
@@ -28,12 +29,33 @@ permissions:
   contents: read
 
 concurrency:
-  group: overlay-${{ github.ref }}
-  cancel-in-progress: true
+  group: overlay-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  changes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.paths.outputs.changed }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: paths
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: python3 tools/infrastructure/auxiliary_image_changes.py --component overlay --base "$BASE_SHA" --head "$GITHUB_SHA"
   source-and-build:
     name: Exact source, theme catalog and production build
+    needs: changes
+    if: >-
+      always() && (github.event_name == 'pull_request' ||
+      (needs.changes.result == 'success' && needs.changes.outputs.changed == 'true'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

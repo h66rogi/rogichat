@@ -14,7 +14,7 @@ WEB_PREFIXES = (
     'apps/web/', 'tools/web/', 'infrastructure/runtime/web/',
 )
 BACKEND_PREFIXES = (
-    'apps/api/', 'apps/migration/',
+    'apps/api/', 'apps/decoder/', 'apps/migration/',
 )
 SHARED_PREFIXES = (
     '.github/workflows/', '.githooks/', 'patches/', 'packages/',
@@ -41,6 +41,21 @@ BACKEND_ONLY_FILES = {
     '.github/workflows/backend-soak.yml',
     '.github/workflows/backend-expansion.yml',
     '.github/workflows/backend-restore.yml',
+    'tools/operations/backend_release.py',
+    'tools/operations/test_backend_release.py',
+    'tools/operations/backend-release.md',
+}
+# Exact backend-only helpers and tests that no image build or verification reads.
+# Other tests can be bind-mounted into image checks; unknown paths rebuild.
+BACKEND_NON_IMAGE_FILES = {
+    'apps/api/test/run-mysql.mjs',
+    'apps/api/test/support/migration-mode.mjs',
+    'apps/api/test/unit/migration-mode.test.mjs',
+    'apps/api/test/support/shard.mjs',
+    'apps/api/test/unit/shard.test.mjs',
+    'tools/operations/backend_release.py',
+    'tools/operations/test_backend_release.py',
+    'tools/operations/backend-release.md',
 }
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
@@ -82,6 +97,12 @@ def classify(paths: list[str]) -> tuple[bool, bool]:
     return web, backend
 
 
+def backend_image_changed(paths: list[str]) -> bool:
+    """Skip image work only for exact reviewed backend-only inputs."""
+    return any(classify_path(path)[1] and path not in BACKEND_NON_IMAGE_FILES
+               for path in paths)
+
+
 def changed_paths(base: str, head: str) -> list[str] | None:
     """Return None when the comparison cannot be proven; callers rebuild both."""
     if not SHA.fullmatch(base) or not SHA.fullmatch(head) or base == '0' * 40:
@@ -96,6 +117,23 @@ def changed_paths(base: str, head: str) -> list[str] | None:
         return [part.decode('utf-8') for part in result.stdout.split(b'\0') if part]
     except UnicodeDecodeError:
         return None
+
+
+def pull_request_base(event_base: str, head: str) -> str | None:
+    """Use the checked merge commit's base parent, proving stale event ancestry."""
+    if not SHA.fullmatch(event_base) or not SHA.fullmatch(head):
+        return None
+    checkout = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, check=False)
+    parents = subprocess.run(['git', 'rev-list', '--parents', '-n', '1', head],
+                             capture_output=True, check=False)
+    if checkout.returncode or checkout.stdout.decode().strip() != head or parents.returncode:
+        return None
+    parts = parents.stdout.decode().split()
+    if len(parts) != 3 or parts[0] != head or not all(SHA.fullmatch(p) for p in parts):
+        return None
+    ancestor = subprocess.run(['git', 'merge-base', '--is-ancestor', event_base, parts[1]],
+                              capture_output=True, check=False)
+    return parts[1] if ancestor.returncode == 0 else None
 
 
 def valid_merge_group_boundary(base: str, head: str, group_head: str,
@@ -117,13 +155,18 @@ def main() -> None:
                 args.base, args.head, os.getenv('MERGE_GROUP_HEAD_SHA', ''),
                 os.getenv('MERGE_GROUP_BASE_REF', ''), checkout.stdout.decode().strip())):
             raise SystemExit('Cannot establish the release change boundary')
-    paths = changed_paths(args.base, args.head)
+    base = args.base
+    if os.getenv('GITHUB_EVENT_NAME') == 'pull_request':
+        base = pull_request_base(args.base, args.head)
+    paths = changed_paths(base, args.head) if base is not None else None
     web, backend = (True, True) if paths is None else classify(paths)
-    result = {'web': web, 'backend': backend, 'paths': paths}
+    image = True if paths is None else backend_image_changed(paths)
+    result = {'web': web, 'backend': backend, 'backend_image': image, 'paths': paths}
     print(json.dumps(result, sort_keys=True))
     if output := os.getenv('GITHUB_OUTPUT'):
         with open(output, 'a', encoding='utf-8') as stream:
-            stream.write(f'web={str(web).lower()}\nbackend={str(backend).lower()}\n')
+            stream.write(f'web={str(web).lower()}\nbackend={str(backend).lower()}\n'
+                         f'backend_image={str(image).lower()}\n')
 
 
 if __name__ == '__main__':

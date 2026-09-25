@@ -31,7 +31,7 @@ jobs:
           MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
         run: python3 tools/infrastructure/changed.py
       - name: Test infrastructure scope guard
-        run: python3 -m unittest discover -s tools/infrastructure -p 'test_changed.py'
+        run: python3 -m unittest discover -s tools/infrastructure -p 'test_*.py'
       - run: python3 tools/infrastructure/install.py
         if: steps.scope.outputs.full != 'false'
       - name: Test automation security boundaries
