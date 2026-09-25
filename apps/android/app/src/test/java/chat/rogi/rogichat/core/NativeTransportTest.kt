@@ -278,6 +278,21 @@ class NativeTransportTest {
         try { second.get(ApiRoute.SESSION, TOKEN); fail("401 must fail") } catch (error: ApiException) { assertEquals("UNAUTHENTICATED", error.code) }
         assertEquals(2, calls); second.close()
     }
+    @Test fun publicChannelRequestUsesOnlyAllowlistedRouteWithoutNativeAuthHeaders() = runTest {
+        var calls = 0
+        val engine = MockEngine { request ->
+            calls++
+            assertEquals("https://api.qa.rogi.chat/v1/songs/channel/h66rogi?page=2&limit=40", request.url.toString())
+            listOf("Authorization", "X-Rogi-Client", "Cookie", "Origin", "X-CSRF-Token")
+                .forEach { assertNull(request.headers[it]) }
+            respond("""{"songs":[],"total":0,"page":2,"limit":40}""", HttpStatusCode.OK)
+        }
+        val client = ApiClient("https://api.qa.rogi.chat/v1/", engine)
+        assertTrue(client.getPublicChannel("songs/channel/h66rogi", mapOf("page" to "2", "limit" to "40")).contains("\"songs\""))
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { client.getPublicChannel("auth/session") } }
+        assertEquals(1, calls)
+        client.close()
+    }
     @Test fun credentialEnvelopeIsAuthenticatedEnvironmentBoundAndNeverPlaintext() = runTest {
         val key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
         val cipher = CredentialCipher("qa") { key }; val original = NativeCredential(TOKEN, EXPIRY)

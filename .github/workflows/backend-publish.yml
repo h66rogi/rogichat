@@ -9,7 +9,10 @@ permissions: {}
 
 concurrency:
   group: backend-publish-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A later QA push must not interrupt an image whose source was already checked.
+  # Only superseded PR checks may be cancelled; the pending QA run catches up
+  # from the last successfully published backend source.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   decoder-image:
@@ -42,6 +45,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: read
+      actions: read
     outputs:
       backend: ${{ steps.classify.outputs.backend }}
     steps:
@@ -50,9 +54,15 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - id: published_base
+        if: github.event_name == 'push' && github.ref == 'refs/heads/qa' && github.repository == 'h66rogi/rogichat'
+        name: Find last verified backend publication
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/release/backend_publication_base.py --head "$GITHUB_SHA"
       - id: classify
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ steps.published_base.outputs.base || github.event.pull_request.base.sha || github.event.before }}
         run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
 
   publish:
@@ -231,3 +241,15 @@ jobs:
             printf '%s\n' "$immutable" >> "$GITHUB_STEP_SUMMARY"
           done
           printf '\nSource: `%s`\nPublication only; no cloud connection, migration or deployment was performed.\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - name: Retain successfully published backend source
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/backend-published.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        name: Upload successful backend publication marker
+        with:
+          name: backend-published
+          path: ${{ runner.temp }}/backend-published.txt
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 90
