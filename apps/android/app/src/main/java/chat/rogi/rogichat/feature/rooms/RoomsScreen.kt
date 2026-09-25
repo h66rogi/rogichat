@@ -1,6 +1,8 @@
 package chat.rogi.rogichat.feature.rooms
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -8,6 +10,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -109,14 +113,15 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
         if (commandBlocks()) return
         job?.cancel()
         val ticket = ++revision
-        mutable.value = RoomsState(notice = unresolvedNotice())
+        val previous = mutable.value.directory
+        mutable.value = RoomsState(loading = true, directory = previous, notice = unresolvedNotice())
         job = (injectedScope ?: viewModelScope).launch {
             try {
                 val result = request { repository.refreshRooms(accountScope) }
                 if (ticket == revision) mutable.value = result.fold({ RoomsState(loading = false, directory = it, notice = unresolvedNotice()) },
-                    { RoomsState(loading = false, error = errorMessage(it), notice = unresolvedNotice()) })
+                    { RoomsState(loading = false, directory = previous, error = errorMessage(it), notice = unresolvedNotice()) })
             } finally { if (ticket == revision && mutable.value.loading) mutable.value = RoomsState(loading = false,
-                error = "대화 목록을 확인하지 못했어요. 다시 시도해 주세요.", notice = unresolvedNotice()) }
+                directory = previous, error = "대화 목록을 확인하지 못했어요. 다시 시도해 주세요.", notice = unresolvedNotice()) }
         }
     }
     fun more() {
@@ -142,12 +147,16 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
     override fun onCleared() { revision++; job?.cancel(); observer.cancel(); externalRefresh?.cancel(); mutable.value = RoomsState(loading = false) }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoomsScreen(model: RoomsViewModel, onOpen: ((Membership, RoomId) -> Unit)? = null) {
     val state by model.state.collectAsStateWithLifecycle()
     val directory = state.directory
     val command = state.command
     var leaveTarget by remember { mutableStateOf<Pair<Membership, RoomCommandIntent>?>(null) }
+    var query by remember { mutableStateOf("") }
+    var discoveryQuery by remember { mutableStateOf("") }
+    var showingDiscovery by remember { mutableStateOf(false) }
     LaunchedEffect(directory?.cycle, command?.phase, leaveTarget?.second?.cycle) {
         if (leaveTarget?.second?.cycle != directory?.cycle) leaveTarget = null
     }
@@ -167,6 +176,51 @@ fun RoomsScreen(model: RoomsViewModel, onOpen: ((Membership, RoomId) -> Unit)? =
             dismissButton = { TextButton(onClick = { leaveTarget = null }) { Text("취소") } },
         )
     }
+    if (showingDiscovery && directory != null) {
+        val joinedIds = directory.memberships.map { it.roomId }.toSet()
+        val discoverable = directory.discovered.filter {
+            it.roomId !in joinedIds && it.name.contains(discoveryQuery, ignoreCase = true)
+        }
+        ModalBottomSheet(onDismissRequest = { showingDiscovery = false }) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+                Text("대화 찾기", style = MaterialTheme.typography.titleLarge)
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(discoveryQuery, { discoveryQuery = it }, Modifier.fillMaxWidth(),
+                    singleLine = true, placeholder = { Text("대화방 검색") })
+                Spacer(Modifier.height(12.dp))
+                LazyColumn(contentPadding = PaddingValues(bottom = 32.dp)) {
+                    if (discoverable.isEmpty()) item {
+                        Text(if (discoveryQuery.isEmpty()) "지금 표시할 다른 대화가 없어요." else "검색 결과가 없어요.",
+                            Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    items(discoverable, key = { it.roomId.value }) { room ->
+                        ListItem(
+                            headlineContent = { Text(room.name) },
+                            supportingContent = { Text(if (room.mode == RoomMode.FAN) "팬 대화" else "그룹 대화") },
+                            leadingContent = { RoomAvatar() },
+                            trailingContent = {
+                                if (room.availability == RoomAvailability.OWNER_PENDING)
+                                    Text("방장 확인 대기 중", style = MaterialTheme.typography.labelSmall)
+                                else Button(onClick = {
+                                    showingDiscovery = false
+                                    model.join(room.roomId, directory.cycle)
+                                },
+                                    enabled = !state.loading && !state.loadingMore) { Text("참여") }
+                            },
+                        )
+                    }
+                    if (directory.continuation != null) item {
+                        TextButton(onClick = model::more, enabled = !state.loading && !state.loadingMore,
+                            modifier = Modifier.fillMaxWidth()) {
+                            if (state.loadingMore) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            else Text("더 보기")
+                        }
+                    }
+                }
+            }
+        }
+    }
     Column(Modifier.fillMaxSize()) {
         state.notice?.let { notice ->
             Text(notice, Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
@@ -178,53 +232,67 @@ fun RoomsScreen(model: RoomsViewModel, onOpen: ((Membership, RoomId) -> Unit)? =
                 "잠시만 기다려 주세요.", loading = true)
             command?.needsVerification == true -> ScreenStatus("참여 상태를 확인하지 못했어요",
                 state.error ?: "연결을 확인하고 참여 상태를 다시 확인해 주세요.", onRetry = model::recheck, retryLabel = "참여 상태 다시 확인")
-            state.loading -> ScreenStatus("대화 목록을 불러오는 중", "잠시만 기다려 주세요.", loading = true)
+            state.loading && directory == null -> ScreenStatus("대화 목록을 불러오는 중", "", loading = true)
             directory == null -> ScreenStatus("대화 목록을 확인하지 못했어요", state.error.orEmpty(), onRetry = model::reload)
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
                 item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.End) {
-                        TextButton(onClick = model::reload, enabled = !state.loadingMore) { Text("새로고침") }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(query, { query = it }, Modifier.weight(1f), singleLine = true,
+                            placeholder = { Text("대화 검색") })
+                        TextButton(onClick = { showingDiscovery = true }, enabled = !state.loading,
+                            modifier = Modifier.semantics { contentDescription = "대화 찾기" }) { Text("대화 찾기") }
                     }
-                    Text("참여 중인 대화", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = MaterialTheme.typography.titleMedium)
-                    if (directory.memberships.isEmpty()) Text("아직 참여 중인 대화가 없어요.", Modifier.padding(20.dp),
+                    val visible = directory.memberships.filter { it.name.contains(query, ignoreCase = true) }
+                    if (visible.isEmpty()) Text(if (query.isEmpty()) "아직 대화가 없어요. 대화를 찾아 참여해 보세요." else "검색 결과가 없어요.",
+                        Modifier.padding(20.dp),
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                items(directory.memberships, key = { "member-${it.roomId.value}" }) { room ->
-                    RoomRow(room.name, room.mode, "나가기", enabled = !state.loadingMore,
-                        onOpen = onOpen?.let { open -> { open(room, directory.cycle) } }) {
-                        leaveTarget = room to model.leaveIntent(room, directory.cycle)
+                items(directory.memberships.filter { it.name.contains(query, ignoreCase = true) },
+                    key = { "member-${it.roomId.value}" }) { room ->
+                    var menuOpen by remember(room.roomId) { mutableStateOf(false) }
+                    ListItem(
+                        headlineContent = { Text(room.name, maxLines = 1) },
+                        supportingContent = { Text(if (room.mode == RoomMode.FAN) "팬 대화" else "그룹 대화") },
+                        leadingContent = { RoomAvatar() },
+                        trailingContent = {
+                            Box {
+                                IconButton(onClick = { menuOpen = true }, enabled = !state.loading && !state.loadingMore,
+                                    modifier = Modifier.semantics { contentDescription = "${room.name} 더 보기" }) {
+                                    Text("⋯", style = MaterialTheme.typography.titleLarge)
+                                }
+                                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                    DropdownMenuItem(text = { Text("대화에서 나가기", color = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            menuOpen = false
+                                            leaveTarget = room to model.leaveIntent(room, directory.cycle)
+                                        })
+                                }
+                            }
+                        },
+                        modifier = Modifier.clickable(enabled = onOpen != null && !state.loading && !state.loadingMore) {
+                            onOpen?.invoke(room, directory.cycle)
+                        }.semantics { contentDescription = "${room.name} 대화 열기" },
+                    )
+                }
+                state.error?.let { error -> item {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text(error, Modifier.weight(1f), color = MaterialTheme.colorScheme.error)
+                        TextButton(onClick = model::reload, enabled = !state.loading) { Text("다시 시도") }
                     }
-                }
-                item {
-                    HorizontalDivider(Modifier.padding(vertical = 16.dp))
-                    Text("대화 둘러보기", Modifier.padding(horizontal = 20.dp, vertical = 12.dp), style = MaterialTheme.typography.titleMedium)
-                    if (directory.discovered.isEmpty()) Text("지금 표시할 다른 대화가 없어요.", Modifier.padding(20.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                items(directory.discovered, key = { "discover-${it.roomId.value}" }) { room ->
-                    RoomRow(room.name, room.mode, if (room.availability == RoomAvailability.OWNER_PENDING) "방장 확인 대기 중" else "참여", enabled = !state.loadingMore && room.availability == RoomAvailability.READY) { model.join(room.roomId, directory.cycle) }
-                }
-                state.error?.let { error -> item { Text(error, Modifier.padding(20.dp), color = MaterialTheme.colorScheme.error) } }
-                if (directory.continuation != null) item {
-                    TextButton(onClick = model::more, enabled = !state.loadingMore, modifier = Modifier.fillMaxWidth()) {
-                        if (state.loadingMore) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        else Text(if (state.error == null) "더 보기" else "다시 시도")
-                    }
-                }
+                } }
             }
         }
     }
 }
 
 @Composable
-private fun RoomRow(name: String, mode: RoomMode, action: String, enabled: Boolean, onOpen: (() -> Unit)? = null, onAction: () -> Unit) {
-    // Keep long names and large-font actions on separate rows.
-    Column {
-        ListItem(headlineContent = { Text(name) }, supportingContent = { Text(if (mode == RoomMode.FAN) "팬 대화" else "그룹 대화") },
-            leadingContent = { Icon(PhosphorIcons.Regular.ChatCircle, null, Modifier.size(28.dp), MaterialTheme.colorScheme.primary) })
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.End) {
-            if (onOpen != null) TextButton(onClick = onOpen, enabled = enabled, modifier = Modifier.semantics { contentDescription = "$name 열기" }) { Text("열기") }
-            TextButton(onClick = onAction, enabled = enabled, modifier = Modifier.semantics { contentDescription = "$name $action" }) { Text(action) }
+private fun RoomAvatar() {
+    Surface(Modifier.size(52.dp).clip(CircleShape), color = MaterialTheme.colorScheme.primaryContainer) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(PhosphorIcons.Regular.ChatCircle, null, Modifier.size(26.dp),
+                tint = MaterialTheme.colorScheme.onPrimaryContainer)
         }
     }
 }

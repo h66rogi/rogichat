@@ -406,3 +406,9 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | ID | 원본·대상 | 재사용과 변경 경계 |
 |---|---|---|
 | R73 | QA20 `d95a34adf71c38f888ddddc759bd6fce7d921046`의 Android/iOS `AuthorizedMedia` provider-avatar decoder | **기존 구현 직접 재사용**: BitmapFactory bounds/downsample와 ImageIO index-0 thumbnail을 테스트 가능한 ProviderAvatarDecoder로 옮긴다. 기존 20 MP/256 기준을 보존하고 provider MIME에만 GIF를 추가한다. 멜로밍 채팅 UX·다른 이미지 라이브러리·원본 설정을 가져오지 않는다. 합성 GIF는 테스트 소스에만 둔다. |
+
+## 모바일 대화 목록 정리
+
+| ID | 원본 commit/path | 대상 | 필요한 변경 |
+|---|---|---|---|
+| R74 | R40·R42의 Android `RoomsViewModel` StateFlow와 iOS `RoomsScreenModel` Loadable, R44·R45의 선택 대상 확인창. 원본 SHA는 R39–R43과 같다. | `apps/android/.../feature/rooms/RoomsScreen.kt`, `apps/ios/Sources/Features/Rooms/RoomsScreen.swift` | **기존 구현 수정 재사용**: 확인된 참여 목록과 명령 대상·cycle 검증은 유지한다. 재조회 중 목록을 보존하고 갱신 문구를 행에서 제거한다. 참여 목록은 대화 열기에 집중하고 탐색은 별도 화면, 나가기는 보조 메뉴/스와이프로 이동한다. 멜로밍 Talk/TalkV2 화면은 사용자 제외 조건이므로 재사용하지 않는다. |
