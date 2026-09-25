@@ -409,3 +409,9 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | ID | 원본·대상 | 재사용과 변경 경계 |
 |---|---|---|
 | R73 | QA20 `d95a34adf71c38f888ddddc759bd6fce7d921046`의 Android/iOS `AuthorizedMedia` provider-avatar decoder | **기존 구현 직접 재사용**: BitmapFactory bounds/downsample와 ImageIO index-0 thumbnail을 테스트 가능한 ProviderAvatarDecoder로 옮긴다. 기존 20 MP/256 기준을 보존하고 provider MIME에만 GIF를 추가한다. 멜로밍 채팅 UX·다른 이미지 라이브러리·원본 설정을 가져오지 않는다. 합성 GIF는 테스트 소스에만 둔다. |
+
+## iOS 1.2.3 더보기 화면
+
+| ID | 원본·대상 | 재사용과 변경 경계 |
+|---|---|---|
+| R74 | meloming-ios build 26 시점 `d133fb4`의 `Meloming/Presentation/More/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `Presentation/Common/Components/NotificationButton.swift`, `Presentation/Navigation/MainTabView.swift` → `Sources/Features/Settings/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `NotificationButton.swift`, `Sources/Core/Design/AppShell.swift` | **원본 코드 복사 후 계약 수정**: `MoreView`의 `moreListView`/`listSections`/로그인 행/고정 헤더/앱 정보와 `ServiceGridSection`의 행·타일 코드, `ServiceItem` 모델, 알림 버튼의 색상·크기 코드를 파일·구조 그대로 가져왔다. 상위 `NavigationStack`은 기존 `AppShell`이 소유하므로 중복하지 않고, Kingfisher/인증·채널·배지·웹뷰·개발자 도구의 멜로밍 전용 코드와 8번째 전체보기 슬롯은 로기챗 실기능이 없어 제거했다. 프로필/로그아웃/탭/알림/서비스 목적지만 로기챗 세션과 QA·Prod 실제 경로로 바꿨다. 활성 최신 소스의 `MyPageView`를 1.2.3 화면으로 간주하지 않는다. |

@@ -1,0 +1,281 @@
+import SwiftUI
+
+// Copied and adapted from meloming-ios d133fb4,
+// Meloming/Presentation/More/MoreView.swift (build 26 / iOS 1.2.3).
+// AppShell owns NavigationStack; authentication and destinations use Rogichat's live session.
+struct MoreView: View {
+    var accessSession: AppSession? = nil
+    let account: AccountSummary?
+    let capabilities: SessionCapabilities
+    let onOpen: (AppPage) -> Void
+    let onSignIn: () -> Void
+    let rulesURL: URL
+    var onSignOut: (() async throws -> Void)?
+    var canManageBlocks = false
+    var hasDeletionHistory = false
+    var onDeletionHistory: () -> Void = {}
+    var onLoadProfile: (() async throws -> AccountProfile)?
+    var avatar: (AccountProfile) -> AnyView? = { _ in nil }
+    @State private var showLogoutAlert = false
+    @State private var profile: AccountProfile?
+    @State private var loadingProfile = false
+    @State private var profileError: String?
+    @State private var profileRetry = 0
+    @State private var signingOut = false
+    @State private var signOutError: String?
+    @Environment(\.openURL) private var openURL
+
+    private var appVersion: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "\(version) (\(build))"
+    }
+
+    private var canOpenAccount: Bool {
+        accessSession?.access == .ready || accessSession?.access == .linkRequired
+    }
+
+    var body: some View {
+        moreListView
+    }
+
+    @ViewBuilder
+    private var moreListView: some View {
+        List { listSections }
+            .toolbar(.hidden, for: .navigationBar)
+            .safeAreaInset(edge: .top) {
+                HStack {
+                    Text("더보기")
+                        .font(.title2.weight(.bold))
+                    Spacer()
+                    NotificationButton { onOpen(.notifications) }
+                        .accessibilityLabel("알림 설정")
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 12)
+                .background(
+                    LinearGradient(
+                        colors: [
+                            Color(.systemBackground),
+                            Color(.systemBackground),
+                            Color(.systemBackground).opacity(0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+            }
+            .alert("로그아웃", isPresented: $showLogoutAlert) {
+                Button("취소", role: .cancel) {}
+                Button("로그아웃", role: .destructive) {
+                    guard let onSignOut else { return }
+                    signingOut = true
+                    signOutError = nil
+                    Task { @MainActor in
+                        defer { signingOut = false }
+                        do { try await onSignOut() }
+                        catch { signOutError = "로그아웃을 완료하지 못했어요. 다시 시도해 주세요." }
+                    }
+                }
+            } message: {
+                Text("이 기기에서 로기챗 계정이 로그아웃됩니다.")
+            }
+            .task(id: [account?.id ?? "", account?.displayName ?? "", account?.avatarAssetID ?? "", String(profileRetry)]) {
+                profile = nil
+                profileError = nil
+                guard let account, let onLoadProfile else { loadingProfile = false; return }
+                loadingProfile = true
+                do {
+                    let value = try await onLoadProfile()
+                    try Task.checkCancellation()
+                    guard value.id == account.id else { throw ProductError.sessionChanged }
+                    profile = value
+                    loadingProfile = false
+                } catch {
+                    if !Task.isCancelled {
+                        loadingProfile = false
+                        profileError = (error as? ProductError)?.errorDescription ?? "프로필을 불러오지 못했어요. 다시 시도해 주세요."
+                    }
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var listSections: some View {
+        // Profile Section or Login Prompt
+        if let account {
+            Section {
+                if canOpenAccount {
+                    Button { onOpen(capabilities.canEditProfile ? .profile : .account) } label: {
+                        signedInProfileRow(account: account)
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    signedInProfileRow(account: account)
+                }
+                if loadingProfile { ProgressView("프로필을 불러오는 중") }
+                if let profileError {
+                    Button("프로필 다시 불러오기") { profileRetry += 1 }
+                    Text(profileError).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        } else {
+            Section {
+                Button(action: onSignIn) {
+                    HStack(spacing: 16) {
+                        Circle()
+                            .fill(Color.accentColor.opacity(0.2))
+                            .frame(width: 60, height: 60)
+                            .overlay(
+                                Image(systemName: "person.fill")
+                                    .font(.title2)
+                                    .foregroundColor(.accentColor)
+                            )
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("로그인")
+                                .font(.headline)
+                                .foregroundColor(.primary)
+
+                            Text("로그인하여 더 많은 기능을 이용하세요")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+
+        Section("로기챗 서비스") {
+            ServiceGridSection(
+                gridServices: gridServices(homeURL: rulesURL.deletingLastPathComponent()),
+                onServiceTap: handleServiceTap
+            )
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            .listRowBackground(Color(.systemBackground))
+        }
+
+        // Account Section (only for logged-in users)
+        if account != nil, canOpenAccount {
+            Section("설정") {
+                if capabilities.canEditProfile {
+                    Button { onOpen(.profile) } label: {
+                        Label("프로필 설정", systemImage: "person.circle")
+                    }
+                }
+                Button { onOpen(.account) } label: {
+                    Label("계정 관리", systemImage: "lock.shield")
+                }
+                if canManageBlocks {
+                    Button { onOpen(.report) } label: {
+                        Label("차단 관리", systemImage: "person.crop.circle.badge.minus")
+                    }
+                }
+            }
+            if let accessSession {
+                Section { AccountAccessSettings(session: accessSession) }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+        }
+
+        // App Section
+        Section("앱 정보") {
+            Button {
+                openURL(rulesURL)
+            } label: {
+                Label("이용 안내", systemImage: "doc.text")
+            }
+
+            HStack {
+                Label("버전", systemImage: "info.circle")
+                Spacer()
+                Text(appVersion)
+                    .foregroundColor(.secondary)
+            }
+
+            Button { onOpen(.licenses) } label: {
+                HStack {
+                    Label("오픈소스 라이선스", systemImage: "doc.plaintext")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+
+        if hasDeletionHistory {
+            Section("기기 기록") {
+                Button("탈퇴 요청 기록", systemImage: "doc.text", action: onDeletionHistory)
+            }
+        }
+
+        // Logout Section (only for logged-in users)
+        if account != nil, onSignOut != nil {
+            Section {
+                Button(role: .destructive) {
+                    showLogoutAlert = true
+                } label: {
+                    Label("로그아웃", systemImage: "rectangle.portrait.and.arrow.right")
+                        .foregroundColor(.red)
+                }
+                .disabled(signingOut)
+                if signingOut { ProgressView("로그아웃하는 중") }
+                if let signOutError { Text(signOutError).font(.footnote).foregroundStyle(.red) }
+            }
+        }
+    }
+
+    private func signedInProfileRow(account: AccountSummary) -> some View {
+        HStack(spacing: 16) {
+            Group {
+                if let profile, (profile.avatarAssetID != nil || profile.providerAvatarURL != nil), let photo = avatar(profile) { photo }
+                else {
+                    Circle()
+                        .fill(Color.accentColor.opacity(0.2))
+                        .overlay(
+                            Text(String((profile?.displayName ?? account.displayName).prefix(1)))
+                                .font(.title2.bold())
+                                .foregroundColor(.accentColor)
+                        )
+                }
+            }
+            .frame(width: 60, height: 60)
+            .clipShape(Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(profile?.displayName ?? account.displayName)
+                    .font(.headline)
+                Text(account.soopConnected ? "SOOP 계정 연결됨" : "SOOP 계정 연결 필요")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            if canOpenAccount {
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .contentShape(Rectangle())
+    }
+
+    private func handleServiceTap(_ service: ServiceItem) {
+        switch service.action {
+        case .native(let destination): onOpen(destination)
+        case .talks: onSignIn()
+        case .external(let url): openURL(url)
+        }
+    }
+}
