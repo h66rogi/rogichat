@@ -3,6 +3,9 @@ on:
   push:
     branches: [qa, main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
+    branches: [qa, main]
   workflow_dispatch:
 
 permissions:
@@ -24,7 +27,9 @@ jobs:
           persist-credentials: false
       - id: classify
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
         run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
       - run: python3 -m unittest discover -s tools/release -p 'test_*.py'
 
@@ -115,7 +120,7 @@ jobs:
       - run: git diff --exit-code
   image-safety:
     needs: changes
-    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -176,7 +181,7 @@ jobs:
           test "$CHANGED" = true
           test "$STATIC_RESULT" = success
           test "$INTEGRATION_RESULT" = success
-          if test "$EVENT_NAME" = pull_request || test "$EVENT_NAME" = workflow_dispatch; then
+          if test "$EVENT_NAME" = pull_request || test "$EVENT_NAME" = merge_group || test "$EVENT_NAME" = workflow_dispatch; then
             test "$IMAGE_RESULT" = success
           else
             test "$EVENT_NAME" = push
