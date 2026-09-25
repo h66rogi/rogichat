@@ -108,6 +108,7 @@ struct ConversationActionTransport: MessageActionTransport {
     private(set) var viewport = MessageViewport()
     private(set) var move: ViewportMove = .none
     private var knownIDs: Set<String> = []
+    private var hasPresentedProjection = false
     private var selectedProjection: ConversationMessage?
     var token: ActionViewToken? { _ = revision; return actions.capture() }
     var record: ActionRecord? { _ = revision; return actions.presentation }
@@ -162,8 +163,9 @@ struct ConversationActionTransport: MessageActionTransport {
         }
         do {
             for id in knownIDs.subtracting(ids) { try readPosition.deleted(id); viewport.deleted(id) }
-            if knownIDs.isEmpty, let token = readPosition.capture() {
-                move = viewport.initialize(restored: try readPosition.restoreAnchor(token, currentlyReadable: ids))
+            if !hasPresentedProjection {
+                hasPresentedProjection = true
+                move = viewport.initialize(restored: nil)
             } else if history { move = viewport.olderPageCommitted() }
             else { move = try viewport.incomingCommitted(ids.subtracting(knownIDs)) }
             knownIDs = ids
@@ -321,7 +323,7 @@ struct ConversationActionTransport: MessageActionTransport {
         try await session.conversationData(.feature(ConversationFeatureRequest(method: request.method, path: request.path, body: request.body,
             expectedStatus: request.successStatus, query: request.query, admit: admit)), scope: conversation.scope)
     }
-    func close() { actions.reset(); readPosition.select(nil); viewport.reset(); selectedProjection = nil; readyMedia = nil; pendingMedia = []; reactions = nil; reactionByMessage = [:]; reactionVersionByMessage = [:]; reactionProjectionByMessage = [:]; reactionLoading = []; revision += 1 }
+    func close() { actions.reset(); readPosition.select(nil); viewport.reset(); hasPresentedProjection = false; knownIDs = []; selectedProjection = nil; readyMedia = nil; pendingMedia = []; reactions = nil; reactionByMessage = [:]; reactionVersionByMessage = [:]; reactionProjectionByMessage = [:]; reactionLoading = []; revision += 1 }
     private func failure(_ failure: any Error) {
         if !active { close() }
         error = (failure as? LocalizedError)?.errorDescription ?? "작업을 완료하지 못했어요. 다시 시도해 주세요."

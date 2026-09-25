@@ -316,6 +316,35 @@ class AutomaticExportTests(unittest.TestCase):
                 **publisher, 'id': item['id'], 'path': '.github/workflows/' + item['workflow']}
         return descriptor, proof, data, payload, env, metadata, approval
 
+    def test_docs_only_head_exports_original_successful_qa_push(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d, _, data, _, env, metadata, _ = self.setup_case(Path(temp))
+            source, later_head = d['source_sha'], env['GITHUB_SHA']
+            self.assertNotEqual(source, later_head)
+            # A later docs-only QA push has no publication proof. The completed
+            # A publisher and its exact A checks must still produce an export at B.
+            calls = []
+            def api(path, token):
+                calls.append(path)
+                return metadata[path]
+            with patch.dict(archive.os.environ, env), \
+                    patch.object(archive.core, 'api', side_effect=api), \
+                    patch.object(archive, 'download_proof', return_value=data):
+                expected, original = archive.resolve_publication('test-only')
+            self.assertEqual(original, data)
+            self.assertEqual(expected['source_sha'], source)
+            self.assertEqual(expected['producer']['sha'], later_head)
+            self.assertEqual(expected['verification_runs'], d['verification_runs'])
+            self.assertIn(f'compare/{source}...{later_head}', calls)
+            self.assertFalse(any(f'head_sha={later_head}' in path for path in calls))
+            metadata[f'compare/{source}...{later_head}'] = {
+                'status': 'diverged', 'merge_base_commit': {'sha': 'f' * 40}}
+            with patch.dict(archive.os.environ, env), \
+                    patch.object(archive.core, 'api', side_effect=api), \
+                    patch.object(archive, 'download_proof', return_value=data), \
+                    self.assertRaises(ValueError):
+                archive.resolve_publication('test-only')
+
     def test_automatic_and_manual_resolve_original_proof_before_pull(self):
         for event in ('workflow_run', 'workflow_dispatch'):
             with self.subTest(event=event), tempfile.TemporaryDirectory() as temp:
