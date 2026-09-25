@@ -2,14 +2,17 @@ name: Backend image publication
 
 on:
   pull_request:
-  push:
-    branches: [qa]
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
 
 permissions: {}
 
 concurrency:
-  group: backend-publish-${{ github.event_name }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: backend-publish-${{ github.event_name == 'pull_request' && github.ref || inputs.source_sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   decoder-image:
@@ -39,6 +42,7 @@ jobs:
           docker image save "$image_id" | python3 tools/security/image_scan.py -
 
   changes:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -56,8 +60,7 @@ jobs:
         run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
 
   publish:
-    needs: changes
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push' && needs.changes.outputs.backend == 'true'
+    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && inputs.source_sha == github.sha
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -67,16 +70,23 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.source_sha }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Reconfirm five exact QA checks without polling
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          GATE_REQUIRE_READY=true node tools/operations/qa_publication_gate.mjs
       - name: Public source guard before build and package authentication
         run: |
           python3 tools/security/install.py
           python3 tools/security/check.py all
       - name: Build runtime, migration and isolated decoder without registry credentials
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
           DOCKER_BUILDKIT: '1'
         run: |
           set -euo pipefail
@@ -104,11 +114,11 @@ jobs:
             "$((SECONDS - start))" "$(docker image inspect --format '{{.Size}}' "ghcr.io/h66rogi/rogichat-media-decoder:qa-$SOURCE_SHA")" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify actual isolated decoder before registry authentication
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: python3 tools/operations/test_decoder_image.py "ghcr.io/h66rogi/rogichat-media-decoder:qa-$SOURCE_SHA"
       - name: Verify image isolation, entrypoints and graceful shutdown
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           image="ghcr.io/h66rogi/rogichat-api:qa-$SOURCE_SHA"
@@ -184,7 +194,7 @@ jobs:
             adapt --config /etc/caddy/Caddyfile --adapter caddyfile --validate >/dev/null
       - name: Scan every image layer and metadata before registry authentication
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           python3 tools/security/install.py
@@ -198,17 +208,11 @@ jobs:
             printf '%s\n' "$image_id" > "$RUNNER_TEMP/$repository.checked-id"
           done
           python3 tools/security/image_scan.py "${scan_args[@]}"
-      - name: Require successful verification of this exact QA push before publishing
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ github.sha }}
-          SOURCE_REPOSITORY: ${{ github.repository }}
-        run: node tools/operations/verify_backend_publication_source.mjs
       - name: Publish only the checked images
         env:
           GHCR_TOKEN: ${{ github.token }}
           GHCR_USER: ${{ github.actor }}
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           set -euo pipefail
           export DOCKER_CONFIG
@@ -216,18 +220,29 @@ jobs:
           cleanup() { docker logout ghcr.io >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
-          unset GHCR_TOKEN
           for repository in rogichat-api rogichat-api-migration rogichat-media-decoder; do
             image="ghcr.io/h66rogi/$repository:qa-$SOURCE_SHA"
             checked_id=$(cat "$RUNNER_TEMP/$repository.checked-id")
             [[ "$checked_id" =~ ^sha256:[a-f0-9]{64}$ ]]
             test "$(docker image inspect --format '{{.Id}}' "$image")" = "$checked_id"
-            docker push "$image"
-            immutable=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
+            decision=$(node tools/operations/qa_registry_decide.mjs "$repository" "$SOURCE_SHA" "$checked_id")
+            read -r action existing_digest <<< "$decision"
+            if test "$action" = push; then
+              docker push "$image"
+              immutable=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
+            elif test "$action" = already-published; then
+              immutable="ghcr.io/h66rogi/$repository@$existing_digest"
+            else
+              echo 'Invalid publication decision' >&2
+              exit 1
+            fi
             if ! [[ "$immutable" =~ ^ghcr\.io/h66rogi/$repository@sha256:[a-f0-9]{64}$ ]]; then
               echo 'Published image did not resolve to the expected immutable repository digest' >&2
               exit 1
             fi
+            docker pull "$immutable"
+            test "$(docker image inspect --format '{{.Id}}' "$immutable")" = "$checked_id"
             printf '%s\n' "$immutable" >> "$GITHUB_STEP_SUMMARY"
           done
+          unset GHCR_TOKEN
           printf '\nSource: `%s`\nPublication only; no cloud connection, migration or deployment was performed.\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
