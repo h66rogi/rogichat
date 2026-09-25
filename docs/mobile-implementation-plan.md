@@ -125,7 +125,8 @@ KMP/TCA 등 추가 아키텍처 프레임워크 도입은 이번 기반 작업 �
 
 ### 2.2 Shell·라우팅·설정의 책임
 
-초기 shell은 **대화 / 설정 2개 top-level 목적지**로 정한다. 알림 설정은 설정 내부에 둔다.
+초기 shell은 **대화 / 설정 2개 top-level 목적지**로 정한다. iOS는 사진 기준으로
+두 번째 목적지를 `더보기`로 표시하고, 알림 설정은 그 안에 둔다.
 알림함·badge·별도 알림 탭은 현재 제품/API 계약이 없으므로 추가 확정 전 구현 완료 범위에서
 제외한다. 멜로밍의 홈·채널·마켓 등 탭은 가져오지 않는다. 양 OS에서 같은 목적지 의미를
 유지하되 Android back/탭 복원, iOS NavigationStack/dismiss 동작은 각각 구현한다.
@@ -141,9 +142,9 @@ ID를 승계하지 않는다. 인증 completion은 content route hint와 별도 
 | 이용 상태 | 열 수 있는 화면 | shell/복귀 처리 |
 |---|---|---|
 | Restoring / RetryableFailure | 복원 상태·재시도·비민감 지원/정책 | 캐시된 private 화면/이름/알림 badge 표시 금지 |
-| SignedOut | 로그인·정책/지원·일반 앱 정보 | 개인 설정과 대화 진입 금지; content link 자체로 인증하지 않음 |
+| SignedOut | 로그인·정책/지원·오픈소스 라이선스·기기 설정 | 개인 설정과 대화 진입 금지; content link 자체로 인증하지 않음 |
 | LinkRequired / SOOP 재연결 필요 | 연결 안내, 내 계정·logout·탈퇴·지원/약관 | 대화 조회/등록/sync/push 금지, 설정 접근은 유지 |
-| Ready | 대화/설정, 현재 허용된 방/프로필 | 처음 진입 시 방 하나면 재인가 후 바로 열 수 있음; 설정 접근은 항상 유지 |
+| Ready | 대화/설정(iOS 표기는 더보기), 현재 허용된 방/프로필 | 처음 진입 시 방 하나면 재인가 후 바로 열 수 있음; 설정 접근은 항상 유지 |
 | Blocked / AccountClosing | 서버 정책에 맞는 계정 종료/지원 | 일반 대화·알림/전송 작업 정지; 차단 사유 이상 데이터 추론 금지 |
 
 테스트용 reducer와 역할 선택기는 실서비스 권한 정책이 아니다. MB02b에서 실제 이용 상태에
@@ -522,7 +523,7 @@ A만 바뀌면 현재 projection/cache를 새로 확인하되 원래 M의 불명
 | 순서 | 구체적인 산출물 | 선행/통과 gate | 막힐 때 계속할 일 |
 |---|---|---|---|
 | MB02a — 재사용 단위·공통 UI | 원본 theme·navigation·settings·공통 상태의 구조와 유용한 구현을 수정 재사용. R01–R08도 원본 화면 맥락과 다시 비교하고 지나친 축소를 보정 | MB00 기준 SHA, 파일별 권리/의존 확인. 재작성 사유와 실제 추출 구분. 양 OS light/dark/긴 한글/큰 글자/스크린리더 확인 | 불명확 코드 단위만 보류; 독립된 화면/기능 재사용 계속 |
-| MB02b — shell·설정 조립 | 원본 NavHost/MainTab/AppRouter, More/MyPage·프로필 흐름을 적용 가능한 범위에서 재사용. 대화/설정 루트, 계정 gate, back/tab 복원. QA/prod 동일 제품 조립부 | MB02a. 합성 선택기/preview 진입을 배포 target에서 제거. SignedOut/LinkRequired/Ready/Blocked, 방 하나 자동 진입·설정 복귀, Activity 재생성/stack dismiss 시험 | 정책 URL/API 미확정 부분은 블로커 기록; 화면 상태·입력·복원은 격리된 자동 테스트로 검증 |
+| MB02b — shell·설정 조립 | 원본 NavHost/MainTab/AppRouter, More/MyPage·프로필 흐름을 적용 가능한 범위에서 재사용. 대화/설정 루트(iOS 설정 표기는 더보기), 계정 gate, back/tab 복원. QA/prod 동일 제품 조립부 | MB02a. 합성 선택기/preview 진입을 배포 target에서 제거. SignedOut/LinkRequired/Ready/Blocked, 방 하나 자동 진입·설정 복귀, Activity 재생성/stack dismiss 시험 | 정책 URL/API 미확정 부분은 블로커 기록; 화면 상태·입력·복원은 격리된 자동 테스트로 검증 |
 | MB02c — OS 알림·링크·lifecycle | 원본 알림 설정·권한·앱 복귀 흐름과 테스트를 재사용하고 기존 결함을 보정. 안전한 parser/pending intent, 실제 OS 상태와 서버 선호/등록 분리 | MB02b; OS 설정 복귀, cold/warm/중복/TTL/환경/계정 변경 시험. 합성 provider는 테스트 전용. 실제 등록/푸시 성공은 MB07까지 보류 | 서버 계약 없이 가능한 실제 OS 동작 완성; 제품 UI에 서버 미연동/provider 진단 행을 추가하지 않음 |
 | MB02d — 서비스 adapter·영속 기반 | 원본 APIClient/오류·보호 저장의 적용 가능한 코드를 수정 재사용. C01/07/08에 맞춘 SessionManager와 계정별 저장소, Room/GRDB migration | 확정된 MB01 계약만 연결. 재작성 부분은 원본과 계약 불일치 근거 기록. 원본 refresh/WebView token/민감 logging 금지. 실제 SQLite·secure store 오류·취소·generation 시험 | 미확정 adapter는 port/fixture만, 다른 제품 코드 진행 |
 
@@ -625,7 +626,7 @@ push하고 QA 대상 PR의 필수 검증을 통과시켜 병합한 뒤
 | D02 계정/방 bootstrap | 현재 session·profile·manifest를 합성한 명시적 DTO, 방별 capability와 참여 scope 추가 | MB01 current transaction/인가 경계 검토 |
 | D03 타임라인 정렬 | 공개 가능한 표시 순서와 opaque sync 위치를 분리 | MB01 fixture/ADR로 선택 확정; MB04 차단 항목 |
 | D04 영속 DB/라이브러리 | Room/GRDB와 기존 플랫폼 기본 도구 우선 | MB02 최신 stable·compiler 조합·migration·실제 DB 시험 |
-| D06 공통 shell/알림 범위 | 대화·설정 2개 root, 제한 계정 설정 접근 유지. 알림 설정은 포함, inbox/badge는 별도 정책/계약 전 보류 | 이 통합 계획에서 초기안 채택, 사용성 시험으로 세부 조정 |
+| D06 공통 shell/알림 범위 | 대화·설정 2개 root(iOS 설정 표기는 더보기), 제한 계정 설정 접근 유지. 알림 설정은 포함, inbox/badge는 별도 정책/계약 전 보류 | 이 통합 계획에서 초기안 채택, 사용성 시험으로 세부 조정 |
 | D07 native push transport/binding | 원본 runtime Firebase 설정은 미승계, APNs/FCM 선택과 SDK·식별자·binding revision을 C09로 확정 | MB07 착수 전 계약/서버 준비, 구현 후 OS 수신 시험으로 완료 |
 | D05 실제 인증 외부 조건 | Apple capability/Services ID/환경별 callbacks, SOOP canonical subject/broker 검증 | MB03 시작 전 운영 담당 결과. provider 장애에 mock 성공으로 우회하지 않음 |
 
