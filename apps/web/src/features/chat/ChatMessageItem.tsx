@@ -100,7 +100,6 @@ function MessageRow({
             <time dateTime={item.createdAt}>{timeLabel}</time>
           </div>
           {(canReply || item.status === 'saved' || (item.allowedActions?.delete && onDelete)) && <div className={cn('flex shrink-0 items-center gap-0.5', isOwn && 'flex-row-reverse')}>
-            {item.status === 'saved' && <ReactionControl messageId={item.id} initialSummary={item.reactions} />}
             {canReply && <button type="button" onClick={() => onReplyPrivate(item)} className="flex size-11 items-center justify-center rounded-full text-chat-accent hover:bg-surface-soft focus-visible:outline-2 focus-visible:outline-focus-ring" aria-label={replyLabelFor(item, viewerRole)} title="비공개 답장" data-testid="chat-reply"><Reply className="size-5" aria-hidden="true" /></button>}
             <MessageActionMenu>
               {item.status === 'saved' && <ChatPrivacyActions messageId={item.id} />}
@@ -108,6 +107,8 @@ function MessageRow({
             </MessageActionMenu>
           </div>}
         </div>
+
+        {item.status === 'saved' && <ReactionControl messageId={item.id} initialSummary={item.reactions} align={isOwn ? 'end' : 'start'} />}
 
         {item.statusNote && (item.status === 'rejected' || item.status === 'unknown') && (
           <p className={cn('px-1 text-[12px]', item.status === 'rejected' ? 'text-danger' : 'text-muted')}>{item.statusNote}</p>
