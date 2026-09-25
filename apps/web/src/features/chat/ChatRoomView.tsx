@@ -2,7 +2,7 @@
 
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ImagePlus, Plus, Smile, Video, WifiOff } from 'lucide-react';
+import { ImagePlus, Plus, Smile, Video } from 'lucide-react';
 import { Popover } from 'radix-ui';
 
 import { Button } from '@/shared/ui/button';
@@ -72,13 +72,13 @@ export interface ChatRoomViewProps {
   /** Absent means sending is not wired yet; the composer says so instead of pretending. */
   onSubmit?: ((submission: ChatComposerSubmission) => ChatSubmitResult | Promise<ChatSubmitResult>) | undefined;
   submitBlockedReason?: string | undefined;
+  submitBusy?: boolean | undefined;
+  onRetryBlocked?: (() => void) | undefined;
   onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   actionNotice?: string | undefined;
   onLoadOlder?: (() => void | Promise<void>) | undefined;
   hasOlder?: boolean | undefined;
   isLoadingOlder?: boolean | undefined;
-  /** Short connection/recovery text, e.g. "연결을 다시 시도하는 중". */
-  connectionNotice?: string | undefined;
   className?: string | undefined;
 }
 
@@ -100,12 +100,13 @@ function ScopedChatRoom({
   streamerRecipients = EMPTY_RECIPIENTS,
   onSubmit,
   submitBlockedReason,
+  submitBusy = false,
+  onRetryBlocked,
   onLoadOlder,
   onDelete,
   actionNotice,
   hasOlder,
   isLoadingOlder,
-  connectionNotice,
   className,
 }: ChatRoomViewProps) {
   const media = useMediaScope();
@@ -250,7 +251,7 @@ function ScopedChatRoom({
   );
 
   const handleSubmit = useCallback(() => {
-    if (!onSubmit || submitBlockedReason || target === null || currentKey === null) return;
+    if (!onSubmit || submitBlockedReason || submitBusy || target === null || currentKey === null) return;
     if (submittingKey !== null) {
       if (submittingKey !== currentKey) setNoticeFor(currentKey, { tone: 'info', text: '다른 메시지를 보내는 중입니다. 끝나면 다시 시도해 주세요.' });
       return;
@@ -271,7 +272,7 @@ function ScopedChatRoom({
       try {
         result = await onSubmit(submission);
       } catch {
-        result = { accepted: false, reason: '전송 결과를 확인할 수 없습니다. 작성한 내용은 그대로 남아 있습니다.' };
+        result = { accepted: false, reason: '메시지를 보냈는지 확인할 수 없어요. 작성 중인 내용은 남아 있어요.' };
       }
       if (!mountedRef.current) return;
       setSubmittingKey(null);
@@ -304,7 +305,7 @@ function ScopedChatRoom({
         );
       }
     })();
-  }, [onSubmit, submitBlockedReason, target, currentKey, submittingKey, drafts, setNoticeFor]);
+  }, [onSubmit, submitBlockedReason, submitBusy, target, currentKey, submittingKey, drafts, setNoticeFor]);
 
   const canReply = viewerRole === 'STREAMER' && streamerRecipients.length > 0;
   // Media commands do not carry a source message, so attachments stay in shared chat.
@@ -345,7 +346,6 @@ function ScopedChatRoom({
         </div>
       </header>
       {actionNotice && <p role="status" className="shrink-0 border-b border-line-subtle px-4 py-1.5 text-[13px] text-muted">{actionNotice}</p>}
-      {connectionNotice && <p className="flex shrink-0 items-center gap-2 border-b border-line-subtle bg-surface-soft px-4 py-1.5 text-[12px] text-body" role="status" data-testid="chat-connection-notice"><WifiOff className="size-4 shrink-0 text-muted" aria-hidden="true" />{connectionNotice}</p>}
 
       <ChatTimeline
         items={items}
@@ -362,13 +362,13 @@ function ScopedChatRoom({
       />
 
       {onSubmit && videoTarget && isAuthorizedTarget(videoTarget, authorization) && <div className="max-h-[40dvh] overflow-y-auto" hidden={draftKeyFor(videoTarget) !== currentKey}>
-        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setVideoTarget(null)} />
+        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} submitBlocked={Boolean(submitBlockedReason || submitBusy)} onClose={() => setVideoTarget(null)} />
       </div>}
       {onSubmit && stickerTarget && isAuthorizedTarget(stickerTarget, authorization) && <div className="max-h-[40dvh] overflow-y-auto" hidden={draftKeyFor(stickerTarget) !== currentKey}>
-        <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setStickerTarget(null)} />
+        <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} submitBlocked={Boolean(submitBlockedReason || submitBusy)} onClose={() => setStickerTarget(null)} />
       </div>}
       {onSubmit && Object.entries(photoTargets).filter(([, value]) => isAuthorizedTarget(value, authorization)).map(([key, value]) => <div key={key} hidden={key !== currentKey} className="max-h-[40dvh] overflow-y-auto">
-        <PhotoDraftComposer target={value} onSubmit={onSubmit} submitBlockedReason={submitBlockedReason} onClose={() => setPhotoTargets(previous => {
+        <PhotoDraftComposer target={value} onSubmit={onSubmit} submitBlocked={Boolean(submitBlockedReason || submitBusy)} onClose={() => setPhotoTargets(previous => {
           const next = { ...previous }; delete next[key]; return next;
         })} />
       </div>)}
@@ -386,6 +386,8 @@ function ScopedChatRoom({
         announcement={announcement}
         disabled={onSubmit === undefined}
         submitBlockedReason={submitBlockedReason}
+        submitBlocked={submitBusy}
+        onRetryBlocked={onRetryBlocked}
         attachmentAction={attachmentAction}
       />
     </section>

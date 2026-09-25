@@ -36,7 +36,7 @@ test('account deletion requires disclosure and only blocked receipt hides privat
   const { state } = await deletionApi(page); await page.goto('/settings');
   await expect(page.getByRole('button', { name: '계정 탈퇴 요청', exact: true })).toBeDisabled(); expect(state.deletes).toBe(0);
   await confirmDeletion(page);
-  await expect(page.getByText('탈퇴 요청이 접수되어 계정 접근이 차단되었습니다. 데이터의 물리 삭제가 완료되었다는 뜻은 아닙니다.')).toBeVisible();
+  await expect(page.getByText('탈퇴 요청이 접수됐어요. 계정 이용이 중지됐으며 데이터 삭제가 진행될 예정이에요.')).toBeVisible();
   await expect(page.getByTestId('settings-view')).toHaveCount(0); expect(state.deletes).toBe(1);
   await page.reload(); await expect(page.getByRole('heading', { name: '계정 탈퇴 요청 확인' })).toBeVisible(); expect(state.deletes).toBe(1);
   const persisted = await page.evaluate(() => localStorage.getItem('rogichat.account-deletion.v1'));
@@ -48,16 +48,16 @@ test('account deletion requires disclosure and only blocked receipt hides privat
 test('lost deletion ACK survives reload as uncertain without automatic retry', async ({ page }) => {
   const { state } = await deletionApi(page); state.lost = true; await page.goto('/settings'); await confirmDeletion(page);
   await expect(page.getByRole('heading', { name: '계정 탈퇴 요청 확인' })).toBeVisible();
-  await expect(page.getByText(/이전 탈퇴 요청의 취소나 실패를 뜻하지 않습니다/)).toBeVisible();
+  await expect(page.getByText(/이전 탈퇴 요청의 결과가 확인되지 않았어요/)).toBeVisible();
   await page.reload(); await expect(page.getByRole('heading', { name: '계정 탈퇴 요청 확인' })).toBeVisible();
-  expect(state.deletes).toBe(1); await expect(page.getByText(/계정 접근이 차단되었습니다/)).toHaveCount(0);
+  expect(state.deletes).toBe(1); await expect(page.getByText(/계정 이용이 중지됐으며/)).toHaveCount(0);
   await expect(page.getByRole('button', { name: '탈퇴 다시 요청', exact: true })).toBeDisabled();
 });
 
 test('recent auth keeps same account binding and requires explicit retry after login', async ({ page }) => {
   const { state, account } = await deletionApi(page); state.status = 403;
   await page.goto('/settings'); await confirmDeletion(page);
-  await expect(page.getByText(/최근 15분 이내 인증이 필요합니다/)).toBeVisible();
+  await expect(page.getByText(/계정을 보호하기 위해 다시 로그인이 필요해요/)).toBeVisible();
   await expect(page.getByRole('button', { name: '같은 SOOP 계정으로 다시 로그인' })).toBeDisabled();
   // Intercept the external provider only inside this test, then visit the real settings route.
   const returnTo = new URL('/settings', page.url()).href;
@@ -67,18 +67,18 @@ test('recent auth keeps same account binding and requires explicit retry after l
   });
   await page.getByLabel(/같은 SOOP 계정으로 로그인합니다/).check();
   await page.getByRole('button', { name: '같은 SOOP 계정으로 다시 로그인' }).click();
-  await expect(page.getByText(/같은 계정의 로그인 상태를 확인했습니다/)).toBeVisible(); expect(state.starts).toBe(1);
+  await expect(page.getByText(/이전 탈퇴 요청의 결과가 확인되지 않았어요/)).toBeVisible(); expect(state.starts).toBe(1);
   expect(state.deletes).toBe(1);
   await page.getByLabel('이전 요청이 접수되었을 수 있음을 이해하며 같은 계정의 탈퇴를 다시 요청합니다.').check();
   await page.getByRole('button', { name: '탈퇴 다시 요청', exact: true }).click();
-  await expect(page.getByText(/계정 접근이 차단되었습니다/)).toBeVisible(); expect(state.deletes).toBe(2);
+  await expect(page.getByText(/계정 이용이 중지됐으며/)).toBeVisible(); expect(state.deletes).toBe(2);
 });
 
 test('different-account reauthentication never deletes the replacement account', async ({ page }) => {
   const { state, account } = await deletionApi(page); state.status = 403;
-  await page.goto('/settings'); await confirmDeletion(page); await expect(page.getByText(/최근 15분 이내 인증이 필요합니다/)).toBeVisible();
+  await page.goto('/settings'); await confirmDeletion(page); await expect(page.getByText(/계정을 보호하기 위해 다시 로그인이 필요해요/)).toBeVisible();
   state.partition = 'D'.repeat(42) + 'A'; account.sessionToken = 'B'.repeat(42) + 'A'; await page.reload();
-  await expect(page.getByText(/탈퇴를 요청한 계정과 현재 로그인 계정이 다르거나/)).toBeVisible();
+  await expect(page.getByText(/탈퇴를 요청한 계정과 다른 계정으로 로그인되어 있어요/)).toBeVisible();
   await expect(page.getByRole('button', { name: '탈퇴 다시 요청', exact: true })).toHaveCount(0); expect(state.deletes).toBe(1);
 });
 
@@ -131,9 +131,9 @@ test('PRIVATE TEXT publication requires disclosure, 202 is preparing and publish
   const publicationDialog = page.getByRole('alertdialog', { name: '이 메시지를 공개할까요?' });
   const publish = publicationDialog.getByRole('button', { name: '익명으로 전체 공개' }); await expect(publish).toBeDisabled();
   await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await publish.click();
-  await expect(page.getByText('공개 준비 중입니다. 아직 공개 완료가 아닙니다.')).toBeVisible(); expect(state.writes).toBe(1);
+  await expect(page.getByText('공개를 마무리하고 있어요.')).toBeVisible(); expect(state.writes).toBe(1);
   const before = state.syncReads; state.publication = 'published';
-  await page.getByRole('button', { name: '공개 상태 다시 확인' }).click();
+  await page.getByRole('button', { name: '다시 확인' }).click();
   await expect.poll(() => state.syncReads).toBeGreaterThan(before); expect(state.writes).toBe(1);
   await expect(page.getByText('공개 전 개인 메시지', { exact: true })).toHaveCount(1);
 });
@@ -143,10 +143,10 @@ test('publication ambiguous 404 does not repost and revoked receipt is explicit'
   await openPrivacyActions(page);
   await page.getByRole('button', { name: '익명으로 전체 공개' }).click();
   await page.getByLabel('이 메시지의 방 전체 공개 범위를 확인했습니다.').check(); await page.getByRole('alertdialog', { name: '이 메시지를 공개할까요?' }).getByRole('button', { name: '익명으로 전체 공개' }).click();
-  state.unknown = true; await page.getByRole('button', { name: '공개 상태 다시 확인' }).click();
-  await expect(page.getByText('공개 결과를 확인하지 못했습니다. 요청을 자동으로 다시 보내지 않습니다.')).toBeVisible(); expect(state.writes).toBe(1);
-  state.unknown = false; state.publication = 'revoked'; await page.getByRole('button', { name: '공개 상태 다시 확인' }).click();
-  await expect(page.getByText('공개가 철회되었습니다.')).toBeVisible(); expect(state.writes).toBe(1);
+  state.unknown = true; await page.getByRole('button', { name: '다시 확인' }).click();
+  await expect(page.getByText('공개 여부를 확인할 수 없어요. 다시 확인해 주세요.')).toBeVisible(); expect(state.writes).toBe(1);
+  state.unknown = false; state.publication = 'revoked'; await page.getByRole('button', { name: '다시 확인' }).click();
+  await expect(page.getByText('메시지 공개가 취소됐어요.')).toBeVisible(); expect(state.writes).toBe(1);
 });
 
 test('report lost ACK recovers stored receipt without re-sending after settings reload', async ({ page }) => {
@@ -156,8 +156,8 @@ test('report lost ACK recovers stored receipt without re-sending after settings 
   await expect(page.getByRole('dialog', { name: '메시지 신고' })).toBeVisible();
   await page.getByLabel('상세 내용 (선택, 최대 1,000자)').fill('격리 테스트 상세 내용');
   await page.getByRole('button', { name: '신고 제출', exact: true }).click();
-  await expect(page.getByText('신고 접수 여부를 확인하지 못했습니다. 접수 상태를 다시 확인해 주세요.')).toBeVisible();
-  await page.goto('/settings'); await expect(page.getByText('신고가 저장되었습니다. 담당자의 확인이나 연락이 시작되었다는 뜻은 아닙니다.')).toBeVisible(); expect(state.reports).toBe(1);
+  await expect(page.getByText('신고 여부를 확인할 수 없어요. 다시 확인해 주세요.')).toBeVisible();
+  await page.goto('/settings'); await expect(page.getByText('신고가 접수됐어요.')).toBeVisible(); expect(state.reports).toBe(1);
   expect(await page.evaluate(() => JSON.stringify({ ...localStorage }))).not.toContain('격리 테스트 상세 내용');
 });
 
@@ -168,8 +168,8 @@ test('visible actor block requires confirmation and settings can explicitly unbl
   await expect(page.getByRole('alertdialog', { name: '이 사용자를 차단할까요?' })).toBeVisible();
   await page.getByRole('button', { name: '사용자 차단', exact: true }).click(); await expect.poll(() => state.blocked).toBe(true);
   await page.goto('/settings'); await openOwnedBlocks(page);
-  await expect(page.getByText(/현재 차단 표시 이름 · 차단 항목/)).toBeVisible();
-  await page.getByRole('button', { name: '차단 항목 1 해제', exact: true }).click();
+  await expect(page.getByText(/현재 차단 표시 이름 ·/)).toBeVisible();
+  await page.getByRole('button', { name: '현재 차단 표시 이름 차단 해제', exact: true }).click();
   expect(state.blocked).toBe(true); await page.getByRole('button', { name: '차단 해제 확인', exact: true }).click();
   await expect.poll(() => state.blocked).toBe(false);
 });
@@ -180,8 +180,8 @@ test('report predispatch failure has an actionable read-only recovery button', a
   await page.getByText('메시지 신고', { exact: true }).click();
   state.sessionStatus = 503;
   await page.getByRole('button', { name: '신고 제출', exact: true }).click();
-  await expect(page.getByText('신고 복구 상태를 저장하거나 로그인 상태를 확인할 수 없습니다. 다시 확인해 주세요.')).toBeVisible();
-  state.sessionStatus = 200; await page.getByRole('button', { name: '신고 접수 확인', exact: true }).click();
+  await expect(page.getByText('지금은 신고할 수 없어요. 잠시 후 다시 시도해 주세요.')).toBeVisible();
+  state.sessionStatus = 200; await page.getByRole('button', { name: '다시 확인', exact: true }).click();
   await expect(page.getByRole('button', { name: '신고 제출', exact: true })).toBeVisible(); expect(state.reports).toBe(0);
 });
 
@@ -219,7 +219,7 @@ test('unlinked authenticated settings permits deletion without a fabricated prof
   await page.goto('/settings');
   await expect(page.getByRole('heading', { name: 'SOOP 계정 연결이 필요해요' })).toBeVisible();
   await confirmDeletion(page);
-  await expect(page.getByText('탈퇴 요청이 접수되어 계정 접근이 차단되었습니다. 데이터의 물리 삭제가 완료되었다는 뜻은 아닙니다.')).toBeVisible();
+  await expect(page.getByText('탈퇴 요청이 접수됐어요. 계정 이용이 중지됐으며 데이터 삭제가 진행될 예정이에요.')).toBeVisible();
   expect(state.deletes).toBe(1); expect(profileReads).toBe(0);
 });
 
@@ -228,10 +228,10 @@ test('left room keeps own block recovery and null label never falls back to prof
   const state = await privacyChat(page); state.blocked = true; state.blockDisplayName = null;
   await page.route('**/v1/rooms', route => json(route, { rooms: [], next: null }));
   await page.goto('/settings'); await openOwnedBlocks(page);
-  await expect(page.getByText(/표시 이름을 확인할 수 없음 · 차단 항목 1/)).toBeVisible();
+  await expect(page.getByText(/이름을 확인할 수 없음 ·/)).toBeVisible();
   await expect(page.getByText('격리 테스트 팬', { exact: true })).toHaveCount(0);
   await expect(page.getByText(fanId, { exact: false })).toHaveCount(0);
-  await page.getByRole('button', { name: '차단 항목 1 해제', exact: true }).click();
+  await page.getByRole('button', { name: '차단한 사용자 1 차단 해제', exact: true }).click();
   await page.getByRole('button', { name: '차단 해제 확인', exact: true }).click();
   await expect.poll(() => state.blocked).toBe(false);
   await expect(page.getByRole('region', { name: '채팅방 참여', exact: true }).getByText('이용 불가', { exact: true })).toBeVisible();
@@ -242,11 +242,11 @@ test('left room keeps own block recovery and null label never falls back to prof
 for (const failure of ['authorization', 'list'] as const) test(`block reload clears current labels when ${failure} fails`, async ({ page }) => {
   const state = await privacyChat(page); state.blocked = true;
   await page.goto('/settings'); await openOwnedBlocks(page);
-  await expect(page.getByText(/현재 차단 표시 이름 · 차단 항목/)).toBeVisible();
+  await expect(page.getByText(/현재 차단 표시 이름 ·/)).toBeVisible();
   if (failure === 'authorization') state.sessionStatus = 403;
   else state.blockReadStatus = 503;
   await page.getByRole('button', { name: '차단 목록 확인' }).click();
   await expect(page.getByText('차단 목록을 확인하지 못했습니다. 다시 시도해 주세요.')).toBeVisible();
-  await expect(page.getByText(/현재 차단 표시 이름 · 차단 항목/)).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '차단 항목 1 해제', exact: true })).toHaveCount(0);
+  await expect(page.getByText(/현재 차단 표시 이름 ·/)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '현재 차단 표시 이름 차단 해제', exact: true })).toHaveCount(0);
 });

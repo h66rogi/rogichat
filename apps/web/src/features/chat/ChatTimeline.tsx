@@ -221,7 +221,7 @@ export function ChatTimeline({
                   {item.kind === 'TEXT' ? item.body : item.kind === 'PHOTO' ? '사진' : item.kind === 'VIDEO' ? '영상' : '스티커'}
                 </div>
                 <div className="flex items-center gap-2 px-1 text-[12px] text-muted" role="status">
-                  {item.saved ? <><Check className="size-3.5" aria-hidden="true" />보냄</> : item.sending || item.checking ? <><LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />{item.sending ? '보내는 중' : '확인 중'}</> : <><CircleAlert className="size-3.5" aria-hidden="true" />전송 상태 확인 중</>}
+                  {item.saved ? <><Check className="size-3.5" aria-hidden="true" />보냄</> : item.sending || item.checking ? <><LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />보내는 중</> : <><CircleAlert className="size-3.5" aria-hidden="true" />전송이 지연되고 있어요</>}
                   {!item.sending && !item.checking && item.canRetry && onRetryOutgoing && <button type="button" className="rounded-full px-2 py-1 font-semibold text-chat-accent hover:bg-surface-soft focus-visible:outline-2 focus-visible:outline-focus-ring" disabled={outgoingBusy} onClick={() => void onRetryOutgoing(item.id)}>다시 보내기</button>}
                 </div>
               </div>

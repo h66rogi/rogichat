@@ -132,16 +132,16 @@ function StatusMark({ status }: { status: ChatMessageStatus }) {
       );
     case 'unknown':
       return (
-        <span className="inline-flex items-center gap-1" aria-label="결과 확인 중">
+        <span className="inline-flex items-center gap-1" aria-label="전송이 지연되고 있어요">
           <CircleAlert className="size-3.5" aria-hidden="true" />
-          결과 확인 중
+          전송이 지연되고 있어요
         </span>
       );
     case 'rejected':
       return (
-        <span className="inline-flex items-center gap-1 text-danger" aria-label="전송 거부됨">
+        <span className="inline-flex items-center gap-1 text-danger" aria-label="보내지 못함">
           <Ban className="size-3.5" aria-hidden="true" />
-          전송 거부
+          보내지 못함
         </span>
       );
     case 'deleted':

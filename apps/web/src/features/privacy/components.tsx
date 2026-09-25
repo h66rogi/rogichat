@@ -16,16 +16,16 @@ function privacyChanged() { window.dispatchEvent(new Event(PRIVACY_CHANGED)); }
 function blocked(session: Session, callback: (session: Session) => void) { forgetChatMemory(); callback(session); privacyChanged(); invalidateSession(); }
 const deletionText: Record<DeletionState, string> = {
   idle: '계정 탈퇴를 요청하면 계정 접근이 차단되며 본인 메시지, 연결 공개본과 첨부가 삭제 대상에 포함됩니다. 방 퇴장과 다른 작업입니다.',
-  checking: '현재 로그인 계정을 확인하고 있습니다.', sending: '탈퇴 요청 결과를 확인하고 있습니다.',
-  preparing: '이 기기에 저장된 개인 데이터를 안전하게 정리하고 있습니다.',
-  prepareError: '안전한 준비와 로그인 상태 확인을 완료하지 못해 탈퇴 요청을 보내지 않았습니다. 다시 확인해 주세요.',
-  reauth: '최근 15분 이내 인증이 필요합니다. 같은 SOOP 계정으로 다시 로그인한 뒤 설정에서 확인해 주세요. 자동으로 탈퇴를 다시 요청하지 않습니다.',
-  unknown: '탈퇴 요청 결과를 확인하지 못했습니다. 응답을 받지 못했어도 요청이 접수되었을 수 있습니다. 로그인 실패만으로 탈퇴 완료를 확인할 수 없습니다.',
-  unavailable: '지금은 탈퇴 처리 결과를 확인할 수 없습니다. 요청이 기록되었을 수 있으므로 완료나 취소로 판단하지 않습니다.',
-  blocked: '탈퇴 요청이 접수되어 계정 접근이 차단되었습니다. 데이터의 물리 삭제가 완료되었다는 뜻은 아닙니다.',
-  differentAccount: '탈퇴를 요청한 계정과 현재 로그인 계정이 다르거나 로그인 세션이 바뀌었습니다. 현재 계정의 탈퇴 요청은 보내지 않았습니다.',
-  ready: '같은 계정의 로그인 상태를 확인했습니다. 이전 탈퇴 요청의 취소나 실패를 뜻하지 않습니다. 다시 요청하려면 아래 내용을 확인해 주세요.',
-  storageError: '복구 상태를 안전하게 저장하거나 계정을 확인할 수 없습니다. 브라우저 저장소와 연결을 확인해 주세요.',
+  checking: '계정 상태를 확인하고 있어요.', sending: '탈퇴를 요청하고 있어요.',
+  preparing: '탈퇴를 준비하고 있어요.',
+  prepareError: '탈퇴 요청을 시작하지 못했어요. 다시 시도해 주세요.',
+  reauth: '계정을 보호하기 위해 다시 로그인이 필요해요. 같은 SOOP 계정으로 로그인해 주세요.',
+  unknown: '탈퇴 요청이 접수됐는지 확인할 수 없어요. 다시 요청하기 전에 상태를 확인해 주세요.',
+  unavailable: '지금은 탈퇴 여부를 확인할 수 없어요. 잠시 후 다시 확인해 주세요.',
+  blocked: '탈퇴 요청이 접수됐어요. 계정 이용이 중지됐으며 데이터 삭제가 진행될 예정이에요.',
+  differentAccount: '탈퇴를 요청한 계정과 다른 계정으로 로그인되어 있어요.',
+  ready: '이전 탈퇴 요청의 결과가 확인되지 않았어요. 다시 요청하려면 아래 내용을 확인해 주세요.',
+  storageError: '지금은 계정 상태를 확인할 수 없어요. 잠시 후 다시 시도해 주세요.',
 };
 export interface AccountDeletionControlProps extends DeletionPreparation { origin: string; session: Session; generation: number; onBlocked: (session: Session) => void }
 export function AccountDeletionControl(props: AccountDeletionControlProps) {
@@ -104,9 +104,9 @@ export function AccountDeletionRecovery({ origin, onResume, onBlocked, onPrepare
 
 const publicationText: Record<PublicationState, string> = {
   idle: '개인 메시지를 이 방의 열람 권한이 있는 참여자에게 익명으로 공개합니다. 본문 내용으로 작성자가 추측될 수 있습니다.',
-  sending: '공개 요청 결과를 확인하고 있습니다.', preparing: '공개 준비 중입니다. 아직 공개 완료가 아닙니다.',
-  published: '공개가 확인되었습니다. 최신 대화를 다시 불러옵니다.', revoked: '공개가 철회되었습니다.',
-  unknown: '공개 결과를 확인하지 못했습니다. 요청을 자동으로 다시 보내지 않습니다.', unavailable: '로그인이나 공개 권한을 다시 확인해 주세요.',
+  sending: '메시지를 공개하고 있어요.', preparing: '공개를 마무리하고 있어요.',
+  published: '메시지를 공개했어요.', revoked: '메시지 공개가 취소됐어요.',
+  unknown: '공개 여부를 확인할 수 없어요. 다시 확인해 주세요.', unavailable: '지금은 이 메시지를 공개할 수 없어요.',
 };
 export interface PublicationControlProps extends PublicationContext { origin: string; onPublished: () => void }
 export function PublicationControl(props: PublicationControlProps) {
@@ -136,7 +136,7 @@ function PublicationForm(props: PublicationControlProps) {
       <AlertDialog.Description className="mt-3 text-sm leading-6 text-muted">{publicationText.idle}</AlertDialog.Description>
       {state !== 'idle' && <p role="status" className="mt-4 text-sm text-body">{publicationText[state]}</p>}
       {state === 'idle' && <label className="mt-5 flex items-start gap-3 text-sm leading-6 text-body"><input type="checkbox" className="mt-1 size-4" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>이 메시지의 방 전체 공개 범위를 확인했습니다.</span></label>}
-      {(state === 'preparing' || state === 'unknown') && canCheck && <Button className="mt-4" variant="outline" onClick={() => void flow.current?.check()}>공개 상태 다시 확인</Button>}
+      {(state === 'preparing' || state === 'unknown') && canCheck && <Button className="mt-4" variant="outline" onClick={() => void flow.current?.check()}>다시 확인</Button>}
       <div className={actionDialogFooterClass}><AlertDialog.Cancel asChild><Button variant="outline" disabled={state === 'sending'}>{state === 'idle' ? '취소' : '닫기'}</Button></AlertDialog.Cancel>{state === 'idle' && <Button disabled={!confirmed} onClick={() => void flow.current?.publish(confirmed)}>익명으로 전체 공개</Button>}</div>
     </AlertDialog.Content></AlertDialog.Portal>
   </AlertDialog.Root>;

@@ -44,7 +44,6 @@ function ScopedRealChatRoom({ active, suspended = false, visit, session, account
   const [controller, setController] = useState<ChatController | null>(() => seed ? new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition,
     typeof window === 'undefined' ? undefined : sessionChatMemory(accountPartition, csrfToken, roomId),
     typeof window === 'undefined' ? undefined : apiOrigin === 'https://api.qa.rogi.chat' ? 'qa' : 'production', seed) : null);
-  const [connected, setConnected] = useState(false);
   const wasSuspended = useRef(false);
   useEffect(() => {
     if (seed) return;
@@ -96,31 +95,29 @@ function ScopedRealChatRoom({ active, suspended = false, visit, session, account
       withCredentials: true, auth: { schemaVersion: 1, csrfToken },
       reconnection: true, reconnectionDelay: 1000, reconnectionDelayMax: 10000,
     });
-    socket.on('connect', () => { setConnected(true); void controller.refresh(); });
+    socket.on('connect', () => { void controller.refresh(); });
     socket.on('sync.required', () => { void controller.refresh(); });
     socket.on('disconnect', (reason) => {
-      setConnected(false);
       // A server disconnect may mean session revocation; drop the whole scope.
       if (reason === 'io server disconnect') { controller.dispose(); onInvalidate?.(); }
     });
-    socket.on('connect_error', () => { setConnected(false); });
     const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void controller.refresh(); }, 15000);
     const online = () => { if (document.visibilityState === 'visible') void controller.refresh(); };
     window.addEventListener('online', online);
     return () => {
-      current = false; stopWake?.(); socket.removeAllListeners(); socket.disconnect(); setConnected(false);
+      current = false; stopWake?.(); socket.removeAllListeners(); socket.disconnect();
       window.clearInterval(timer); window.removeEventListener('online', online);
     };
   }, [active, controller, accountId, apiOrigin, csrfToken, onInvalidate]);
   if (!controller) return <ChatRoomSkeleton />;
   return <>
     <div hidden={!active} className={!active ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
-      <LiveRoom controller={controller} connected={connected} csrf={csrfToken} roomId={roomId} session={session} origin={apiOrigin} />
+      <LiveRoom controller={controller} csrf={csrfToken} roomId={roomId} session={session} origin={apiOrigin} />
     </div>
   </>;
 }
 
-function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { session: Session; origin: string; controller: ChatController; connected: boolean; csrf: string; roomId: string }) {
+function LiveRoom({ controller, csrf, roomId, session, origin }: { session: Session; origin: string; controller: ChatController; csrf: string; roomId: string }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const [reconnecting, setReconnecting] = useState(false);
   const reconnect = async () => { if (reconnecting) return; setReconnecting(true); try { await controller.reconnectStorage(); } finally { setReconnecting(false); } };
@@ -137,12 +134,6 @@ function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { se
   if (!viewer) return <p className="p-6" role="alert">내 참여 정보를 확인하지 못했습니다. 다시 접속해 주세요.</p>;
   const recipients = state.recipients;
   return <ChatPrivacyContext.Provider value={{ origin, session, controller }}><SessionMediaProvider key={state.epoch} csrf={csrf} lifetime={lifetime} roomId={roomId}><div className="flex h-full min-h-0 flex-col">
-    <section aria-label="메시지 전송 상태" className="shrink-0">
-      {state.storageError && <div className="mx-3 mt-3 flex flex-wrap items-center gap-3 rounded-xl border border-line-subtle bg-surface-soft px-3 py-2.5 text-sm">
-        <p role="status" className="min-w-0 flex-1 text-body">{state.storageError}</p>
-        <Button variant="outline" size="sm" disabled={reconnecting} onClick={() => { void reconnect(); }}>{reconnecting ? '다시 시도하는 중' : '지금 다시 시도'}</Button>
-      </div>}
-    </section>
     <div className="min-h-0 flex-1"><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
     composerMemory={controller} composerEpoch={state.epoch}
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
@@ -150,8 +141,9 @@ function LiveRoom({ controller, connected, csrf, roomId, session, origin }: { se
     outgoing={state.outgoing} outgoingBusy={state.commandBusy} onRetryOutgoing={controller.retry}
     streamerRecipients={recipients}
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}
-    submitBlockedReason={state.storageError ? '잠시 후 전송할 수 있어요.' : (state.commandBusy || reconnecting ? '잠시만 기다려 주세요. 입력은 계속할 수 있어요.' : undefined)}
+    submitBlockedReason={state.storageError ?? undefined}
+    submitBusy={state.commandBusy || reconnecting}
+    onRetryBlocked={state.storageError ? () => { void reconnect(); } : undefined}
     onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} isLoadingOlder={state.loadingOlder}
-    connectionNotice={connected ? undefined : '실시간 연결을 다시 시도하고 있습니다. 메시지는 주기적으로 확인합니다.'}
   /></ReactionContext.Provider></div></div></SessionMediaProvider></ChatPrivacyContext.Provider>;
 }

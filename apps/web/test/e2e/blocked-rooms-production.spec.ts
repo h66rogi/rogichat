@@ -27,7 +27,7 @@ test('expired discovery cursor restarts and replaces previous room labels', asyn
   await page.getByRole('button', { name: '다음 차단 방', exact: true }).click();
   await expect(page.getByRole('button', { name: '차단 목록 열기: 갱신된 현재 이름', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '차단 목록 열기: 이전 조회 이름', exact: true })).toHaveCount(0);
-  await expect(page.getByText('목록 연결이 만료되어 처음부터 다시 확인했습니다.')).toBeVisible(); expect(roots).toBe(2);
+  expect(roots).toBe(2);
 });
 test('discovery failure is retryable and only a completed traversal shows empty state', async ({ page }) => {
   await signedIn(page); let status = 503;
