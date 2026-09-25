@@ -56,6 +56,11 @@
   do not bypass the rules or push directly to QA. Another person's approval is
   not mandatory for this single-owner project. Production promotion remains a
   separate reviewed change to `main`.
+- After the required checks pass, run
+  `python3 tools/automation/enqueue_qa_pr.py <PR_NUMBER>` to enter the QA merge
+  queue. The helper pins the exact PR head and leaves the queue order intact.
+  Repository-wide auto-merge stays disabled to preserve the separate `main`
+  promotion policy. Do not use an administrator merge bypass.
 - Keep reference repositories read-only. Never copy their Git history, secrets,
   environment files, signing material, operational logs, or private infrastructure identifiers.
 - Run `python3 tools/security/install.py` and `git config core.hooksPath .githooks`
