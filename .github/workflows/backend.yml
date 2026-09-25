@@ -53,11 +53,19 @@ jobs:
           pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test:unit
-      - run: pnpm test:e2e
-      - run: pnpm contracts:check
+      - run: pnpm build
+      - name: Unit tests against the checked build
+        working-directory: apps/api
+        run: node --test test/unit/*.test.mjs
+      - name: End-to-end tests against the checked build
+        working-directory: apps/api
+        run: node --test test/e2e/*.test.mjs
+      - name: Contract tests against the checked build
+        working-directory: apps/api
+        run: node --test test/contracts/*.test.mjs
       - name: Export OpenAPI without credentials or application I/O
-        run: pnpm --filter @rogichat/api openapi:export
+        working-directory: apps/api
+        run: node tools/export-openapi.mjs
       - name: Upload generated API contracts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
