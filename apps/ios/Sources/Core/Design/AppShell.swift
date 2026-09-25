@@ -24,12 +24,12 @@ struct AppShell<Content: View>: View {
             if #available(iOS 26.0, *) {
                 TabView(selection: selection) {
                     Tab("대화", systemImage: "bubble.left.and.bubble.right.fill", value: AppTab.talks) { stack(.talks) }
-                    Tab("설정", systemImage: "person.crop.circle", value: AppTab.settings) { stack(.settings) }
+                    Tab("더보기", systemImage: "ellipsis", value: AppTab.settings) { stack(.settings) }
                 }
             } else {
                 TabView(selection: selection) {
                     stack(.talks).tabItem { Label("대화", systemImage: "bubble.left.and.bubble.right.fill") }.tag(AppTab.talks)
-                    stack(.settings).tabItem { Label("설정", systemImage: "person.crop.circle") }.tag(AppTab.settings)
+                    stack(.settings).tabItem { Label("더보기", systemImage: "ellipsis") }.tag(AppTab.settings)
                 }
             }
         }
