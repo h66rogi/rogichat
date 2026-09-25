@@ -11,6 +11,15 @@ Dockerfile copies it. The fixed web release helper, its tests and operator guide
 affect only the web pipeline; changes to other operations tools remain shared.
 An unavailable Git comparison publishes both.
 
+The five required source checks also run for GitHub merge groups targeting QA or
+production. Component and mobile change detection compares the merge group's
+base SHA with the checked-out group head, so a batch is evaluated as one candidate.
+Backend and web groups run their pre-merge container safety checks when those
+components change. Their required aggregate jobs still report a stable result
+when a component is unchanged. Merge group checks do not publish images; only a
+trusted QA push starts publication. Keep the current QA branch rule until these
+workflows have landed and their merge-group checks are verified.
+
 The Security workflow runs the scanner test suite for every PR and QA push.
 Web container verification and publication each scan their actual image layers;
 they do not rerun the scanner's fixture suite. The publisher still requires the
