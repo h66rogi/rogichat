@@ -1,0 +1,91 @@
+name: QA verified image publication
+
+on:
+  workflow_run:
+    workflows: [Web production, Backend foundation, Security, Infrastructure validation, Mobile foundation]
+    types: [completed]
+    branches: [qa]
+  schedule:
+    - cron: '7,17,27,37,47,57 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+# A delayed completion event or scheduled recovery cannot race another publisher
+# for the same source. Each component also checks the immutable tag after scanning.
+concurrency:
+  group: qa-publication-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    outputs:
+      ready: ${{ steps.verify.outputs.ready }}
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+      web: ${{ steps.preflight.outputs.web }}
+      backend: ${{ steps.preflight.outputs.backend }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate event and exact five QA required jobs
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node tools/operations/qa_publication_gate.mjs
+      - name: Classify trusted QA source change
+        id: classify
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          SOURCE_SHA: ${{ steps.verify.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          read -ra parents <<< "$(git show -s --format=%P HEAD)"
+          if test "${#parents[@]}" -eq 2; then
+            python3 tools/release/changes.py --base "${parents[0]}" --head "$SOURCE_SHA"
+          else
+            printf 'web=true\nbackend=true\n' >> "$GITHUB_OUTPUT"
+            echo 'Ambiguous QA change boundary; publish both components'
+          fi
+      - name: Recover only missing images on scheduled sweep
+        id: preflight
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.verify.outputs.source_sha }}
+          WEB_CHANGED: ${{ steps.classify.outputs.web }}
+          BACKEND_CHANGED: ${{ steps.classify.outputs.backend }}
+        run: node tools/operations/qa_publication_preflight.mjs
+
+  publish-web:
+    needs: gate
+    if: needs.gate.outputs.ready == 'true' && needs.gate.outputs.web == 'true'
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    uses: ./.github/workflows/web-publish.yml
+    with:
+      source_sha: ${{ needs.gate.outputs.source_sha }}
+
+  publish-backend:
+    needs: gate
+    if: needs.gate.outputs.ready == 'true' && needs.gate.outputs.backend == 'true'
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    uses: ./.github/workflows/backend-publish.yml
+    with:
+      source_sha: ${{ needs.gate.outputs.source_sha }}
