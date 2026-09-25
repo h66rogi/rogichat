@@ -90,9 +90,12 @@ The root-installed `/etc/rogichat/backend-automatic-request.json` contains exact
   separators=(',', ':'))`; no trailing newline. Policy fields are ASCII. Migration
   dictionary key order has no semantic effect.
 - `previous_state_sha256`: hash of the **raw file bytes** of the current state.
-- `verification_runs`: exact positive integer run IDs for `backend.yml`,
-  `security.yml`, `infrastructure.yml`, and `backend-publish.yml`. These must be
-  successful same-repository QA push runs at the exact candidate source SHA.
+- `verification_runs`: exact positive integer run IDs. The apply path requires
+  `web.yml`, `backend.yml`, `mobile.yml`, `security.yml`, `infrastructure.yml`
+  and `qa-backend-publication.yml` at the exact candidate source SHA. The five
+  push runs must succeed, and publication must pass its same-attempt aggregate,
+  marker and proof checks. The older four-run form is parsed for diagnostics
+  only; it cannot activate through `--apply`.
 - `archive`: exactly `export_sha`, `export_run`, `export_attempt`, `artifact_id`,
   `artifact_sha256`, `runtime_config_id`, `execution_identity`,
   `runtime_execution_id`. IDs/attempt are positive integers; source is a full SHA;
@@ -101,7 +104,10 @@ The root-installed `/etc/rogichat/backend-automatic-request.json` contains exact
   Config mode requires execution ID equal to config ID; archive-manifest mode
   requires the verified archive descriptor digest and Docker descriptor identity.
 
-Existing manual `backend-export.yml` provenance is supported. The pinned archive
+Existing manual `backend-export.yml` provenance can be inspected without
+`--apply`; the activation path requires descriptor version 2 and independently
+replays the publication proof ZIP check for all three immutable image digests and
+config IDs, including recovery dispatch. The pinned archive
 verifier verifies the whole ZIP, raw registry manifests, config, rootfs, producer
 run/attempt, exact artifact digest/ID and QA ancestry. It parses migration archive
 bytes solely to validate this existing export format. **Only `runtime.tar` is

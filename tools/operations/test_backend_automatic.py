@@ -78,6 +78,50 @@ class AutomaticTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             archive.download_publication_artifact(7)
 
+    def test_apply_requires_v2_proof_for_all_three_immutable_images(self):
+        r = request()
+        r['verification_runs'] = {name: index + 1 for index, name in enumerate(sorted(auto.NEW_WORKFLOWS))}
+        r['archive']['export_run'] = 7
+        r['archive']['export_attempt'] = 2
+        images = {role: {'image': 'ghcr.io/h66rogi/' + role + '@sha256:' + 'a' * 64,
+                         'config_id': 'sha256:' + 'b' * 64}
+                  for role in ('runtime', 'migration', 'decoder')}
+        descriptor = {'version': 2, 'producer': {'event': 'workflow_dispatch'}, 'images': images}
+        archive = MagicMock()
+        publication_id = r['verification_runs']['qa-backend-publication.yml']
+        archive.api.side_effect = lambda path: (
+            {'id': publication_id, 'run_attempt': 2, 'head_sha': r['source_sha']}
+            if path == f'actions/runs/{publication_id}' else
+            {'id': 7, 'run_attempt': 2, 'head_sha': r['archive']['export_sha'],
+             'event': 'workflow_dispatch', 'run_started_at': '2026-09-26T00:00:00Z'})
+        archive.publication_proof.return_value = {'images': {
+            role: {'image': value['image'], 'checkedImageId': value['config_id']}
+            for role, value in images.items()}}
+        auto.verify_automatic_proof(r, descriptor, archive)
+        archive.publication_proof.assert_called_once_with(r['source_sha'], publication_id, 2,
+            '2026-09-26T00:00:00Z', None)
+        for bad in ('legacy', 'version', 'event', 'image', 'missing_verifier'):
+            with self.subTest(bad=bad):
+                changed_r, changed_d, changed_archive = copy.deepcopy(r), copy.deepcopy(descriptor), archive
+                if bad == 'legacy':
+                    changed_r['verification_runs'] = {name: 1 for name in auto.WORKFLOWS}
+                elif bad == 'version':
+                    changed_d['version'] = 1
+                elif bad == 'event':
+                    changed_d['producer']['event'] = 'schedule'
+                elif bad == 'image':
+                    changed_archive.publication_proof.return_value = {'images': {
+                        **archive.publication_proof.return_value['images'],
+                        'decoder': {'image': 'wrong', 'checkedImageId': 'sha256:' + 'b' * 64}}}
+                else:
+                    changed_archive = MagicMock()
+                    changed_archive.publication_proof = None
+                with self.assertRaises(ValueError):
+                    auto.verify_automatic_proof(changed_r, changed_d, changed_archive)
+                archive.publication_proof.return_value = {'images': {
+                    role: {'image': value['image'], 'checkedImageId': value['config_id']}
+                    for role, value in images.items()}}
+
     def test_manual_media_unit_cannot_enter_automatic_activation(self):
         files = {key: key.encode() for key in auto.TEMPLATES}
         files['unit'] = b'ExecStart=-f /opt/rogichat/app/compose.features.yaml'

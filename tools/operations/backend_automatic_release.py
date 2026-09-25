@@ -341,12 +341,45 @@ def verify_candidate_schema(r, p, archive):
     require(parse_candidate_manifest(raw) == p['migrations'])
 
 
-def verify_candidate(r, p, helper, archive, output):
+def verify_automatic_proof(r, descriptor, archive):
+    """Independently require v2 publication proof on the mutation path."""
+    require(set(r['verification_runs']) == NEW_WORKFLOWS
+            and type(descriptor) is dict and descriptor.get('version') == 2
+            and type(descriptor.get('producer')) is dict
+            and descriptor['producer'].get('event') in ('workflow_run', 'workflow_dispatch')
+            and type(descriptor.get('images')) is dict
+            and set(descriptor['images']) == {'runtime', 'migration', 'decoder'}
+            and callable(getattr(archive, 'publication_proof', None)))
+    publication_id = r['verification_runs']['qa-backend-publication.yml']
+    publication = archive.api(f'actions/runs/{publication_id}')
+    require(type(publication) is dict and publication.get('id') == publication_id
+            and type(publication.get('run_attempt')) is int and publication['run_attempt'] > 0
+            and publication.get('head_sha') == r['source_sha'])
+    a = r['archive']
+    exported = archive.api(f"actions/runs/{a['export_run']}/attempts/{a['export_attempt']}")
+    require(type(exported) is dict and exported.get('id') == a['export_run']
+            and exported.get('run_attempt') == a['export_attempt']
+            and exported.get('head_sha') == a['export_sha']
+            and exported.get('event') == descriptor['producer']['event']
+            and type(exported.get('run_started_at')) is str)
+    proof = archive.publication_proof(r['source_sha'], publication_id,
+                                      publication['run_attempt'], exported['run_started_at'], None)
+    require(type(proof) is dict and type(proof.get('images')) is dict
+            and set(proof['images']) == {'runtime', 'migration', 'decoder'})
+    for role in ('runtime', 'migration', 'decoder'):
+        image = descriptor['images'][role]
+        require(type(image) is dict and proof['images'][role] ==
+                {'image': image['image'], 'checkedImageId': image['config_id']})
+
+
+def verify_candidate(r, p, helper, archive, output, *, automatic=False):
     path = helper.RELEASES / r['source_sha'] / 'export.zip'
     helper.protected(path, read=False)
     descriptor, configs = archive.validate_zip(path, r['archive']['artifact_sha256'], output)
     archive.verify_provenance(descriptor, r['archive'])
     require(descriptor['source_sha'] == r['source_sha'] and descriptor['verification_runs'] == r['verification_runs'])
+    if automatic:
+        verify_automatic_proof(r, descriptor, archive)
     # Artifact source is now independently verified; inspect its immutable Git
     # source blob, not a checkout or executable candidate/migrator module.
     verify_candidate_schema(r, p, archive)
@@ -455,6 +488,8 @@ def main(metadata_client=None):
     protected(Path(__file__).absolute())
     p = validate_policy(json.loads(protected(POLICY, 0o600)))
     r = validate_request(json.loads(protected(REQUEST, 0o600)), p)
+    if args.apply:
+        require(set(r['verification_runs']) == NEW_WORKFLOWS)
     helper = pinned_module('backend_release', p['release_helper_sha256'])
     archive = pinned_module('backend_archive', p['archive_helper_sha256'])
     bind_metadata_client(helper, archive, metadata_client)
@@ -474,7 +509,7 @@ def main(metadata_client=None):
         schema_probe(p, helper)
         with tempfile.TemporaryDirectory(prefix='rogichat-auto-', dir='/var/tmp') as temporary:
             output = Path(temporary) / 'verified'
-            candidate = verify_candidate(r, p, helper, archive, output)
+            candidate = verify_candidate(r, p, helper, archive, output, automatic=args.apply)
             if not args.apply:
                 print('QA artifact/schema verified; activation and candidate health not performed.')
                 return
