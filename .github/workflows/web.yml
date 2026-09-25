@@ -56,7 +56,7 @@ jobs:
       - run: git diff --exit-code
 
   browser:
-    name: Production build and browser ${{ matrix.shard }}/4
+    name: Production build and browser ${{ matrix.shard }}/3
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -94,7 +94,7 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           pnpm --filter @rogichat/web exec playwright install --with-deps chromium
-          pnpm --filter @rogichat/web exec playwright test --shard="$SHARD/4"
+          pnpm --filter @rogichat/web exec playwright test --shard="$SHARD/3"
       - name: Retain failed browser evidence
         if: failure() && steps.browser.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
