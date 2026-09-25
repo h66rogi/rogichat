@@ -42,7 +42,7 @@ function DeletionRecoveryGate({ retry }: { retry: () => void }) {
     return () => { active = false; };
   }, [api, attempt]);
   if (phase !== 'ready') return <StatePanel title="계정 탈퇴 요청 확인" retry={phase === 'error' ? () => { setPhase('checking'); setAttempt(value => value + 1); } : undefined}>
-    {phase === 'error' ? '이전 세션의 전송 저장소를 안전하게 정리하지 못했습니다. 복구 정보와 브라우저 저장소를 확인해 주세요. 탈퇴 완료나 취소로 판단하지 않습니다.' : '이전 세션의 전송 저장소를 확인하고 있습니다.'}</StatePanel>;
+    {phase === 'error' ? '계정 상태를 확인할 수 없어요. 잠시 후 다시 시도해 주세요.' : '계정 상태를 확인하고 있어요.'}</StatePanel>;
   return <AccountDeletionRecovery origin={api.origin} onResume={retry} cleanupBinding={session => cleanupBinding(api.origin, session)} onPrepare={session => eraseSessionOutbox(api.origin, session)}
     onBlocked={session => { revokeChatOutboxes(session.accountPartition, session.csrfToken); forgetChatMemory(); invalidateSession(); }} />;
 }
@@ -50,7 +50,7 @@ function LogoutRecovery() {
   const api = useApi();
   const [pending, setPending] = useState(false);
   const [changed, setChanged] = useState<string | null>(null);
-  const [error, setError] = useState('로그아웃이 아직 확인되지 않았습니다. 이전 계정 내용은 표시하지 않습니다.');
+  const [error, setError] = useState('로그아웃이 완료됐는지 확인할 수 없어요. 다시 시도해 주세요.');
   const retry = async () => {
     if (pending) return;
     setPending(true);
@@ -61,17 +61,17 @@ function LogoutRecovery() {
       if (cleanup) { if (cleanup.environment !== outboxEnvironment(api.origin)) throw new Error('INVALID_ENVIRONMENT'); await erasePendingOutbox(api.origin, cleanup.sessionKey); }
       const session = await api.session();
       if (!markerMatchesBinding(marker, await sessionBinding(session.csrfToken))) {
-        setChanged(marker); setError('다른 로그인 세션이 확인되었습니다. 이 세션은 로그아웃하지 않았습니다. 현재 세션을 다시 확인해 주세요.'); return;
+        setChanged(marker); setError('로그인 상태가 달라졌어요. 현재 로그인 상태를 확인해 주세요.'); return;
       }
       await eraseSessionOutbox(api.origin, session);
       await api.request('/v1/auth/logout', { method: 'POST', csrf: session.csrfToken });
       clearLogoutPending(marker);
     } catch (e) {
       if (e instanceof ApiError && e.status === 401) clearLogoutPending(marker);
-      else setError('로그아웃 결과를 확인하지 못했습니다. 연결을 확인하고 다시 시도해 주세요.');
+      else setError('로그아웃을 확인할 수 없어요. 다시 시도해 주세요.');
     } finally { setPending(false); }
   };
-  return <StatePanel title="로그아웃 확인이 필요해요"><p>{error}</p><Button className="mt-4" disabled={pending} onClick={() => void retry()}>{pending ? '확인 중' : '로그아웃 다시 시도'}</Button>{changed && <Button className="mt-3" variant="outline" onClick={() => clearLogoutPending(changed)}>현재 로그인 상태 확인</Button>}</StatePanel>;
+  return <StatePanel title="로그아웃 확인이 필요해요"><p>{error}</p><Button className="mt-4" disabled={pending} onClick={() => void retry()}>{pending ? '확인 중' : '다시 시도'}</Button>{changed && <Button className="mt-3" variant="outline" onClick={() => clearLogoutPending(changed)}>현재 계정으로 계속하기</Button>}</StatePanel>;
 }
 export function SoopButton({ intent = 'login', csrf }: { intent?: 'login' | 'link'; csrf?: string }) {
   const api = useApi();
@@ -95,7 +95,7 @@ function LinkRequiredPanel({ session, allowAccountDeletion }: { session: Session
     setBusy(true);
     let marker: string;
     try { marker = await setLogoutPending(await sessionBinding(session.csrfToken), api.origin, session); await eraseSessionOutbox(api.origin, session); }
-    catch { setBusy(false); setError('브라우저 저장소를 확인하고 다시 시도해 주세요.'); return; }
+    catch { setBusy(false); setError('지금은 로그아웃할 수 없어요. 잠시 후 다시 시도해 주세요.'); return; }
     try { await api.request('/v1/auth/logout', { method: 'POST', csrf: session.csrfToken }); clearLogoutPending(marker); }
     catch { /* Pending recovery gate remains locked. */ }
   };

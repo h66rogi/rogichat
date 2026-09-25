@@ -118,7 +118,7 @@ test('admin grant uses server state, original requestId on ambiguity, revoke and
   await page.getByLabel('발급 사유').fill('격리 자동 테스트');
   await page.getByRole('button', { name: '내 계정에 임시 권한 발급' }).click();
   await expect(page.getByRole('main').getByRole('alert')).toHaveText('요청을 완료하지 못했습니다. 다시 시도해 주세요.');
-  await page.getByRole('button', { name: '동일 요청 다시 확인' }).click();
+  await page.getByRole('button', { name: '발급 여부 확인', exact: true }).click();
   await expect(page.getByText('현재 역할: 스트리머', { exact: true })).toBeVisible();
   expect(commands).toHaveLength(2); expect(commands[0]).toEqual(commands[1]);
   await page.getByRole('button', { name: '권한 회수', exact: true }).click();

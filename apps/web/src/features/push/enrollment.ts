@@ -154,7 +154,7 @@ export class PushEnrollment {
         return;
       }
       if (this.state.serverAvailable !== true) {
-        this.set({ notice: '서버의 웹 푸시 준비 상태를 확인한 뒤 다시 시도해 주세요.' });
+        this.set({ notice: '지금은 알림을 켤 수 없어요. 잠시 후 다시 시도해 주세요.' });
         return;
       }
       if (permission === 'denied') {
@@ -175,7 +175,7 @@ export class PushEnrollment {
       const capabilities = await this.scope.run(signal => this.api.capabilities(signal));
       this.set({ serverAvailable: capabilities.available, applicationServerKey: capabilities.available ? capabilities.applicationServerKey : null });
       if (!capabilities.available) {
-        this.set({ notice: '서버에서 웹 푸시가 아직 준비되지 않아 알림을 켤 수 없습니다.' });
+        this.set({ notice: '지금은 알림을 켤 수 없어요. 잠시 후 다시 시도해 주세요.' });
         return;
       }
 
@@ -357,11 +357,11 @@ export class PushEnrollment {
         if (!(error instanceof PushError) || !['not-found', 'conflict'].includes(error.kind)) throw error;
         // The server record is already gone or now belongs to a newer binding of this browser.
         // The local record is stale either way; say so instead of reporting a clean removal.
-        detail = '서버의 알림 등록 정보가 이미 변경되어 이 브라우저의 기록만 정리했습니다.';
+        detail = '알림 설정이 변경되어 이 브라우저의 알림을 초기화했어요.';
       }
     } else if (owned !== null) {
       // Only the owning session may withdraw a subscription, so this one stops at the browser.
-      detail = '다른 로그인 세션에서 등록한 알림입니다. 이 브라우저의 구독만 해제했습니다.';
+      detail = '이 브라우저의 알림을 초기화했어요. 다른 기기의 알림은 그대로예요.';
     }
     forgetBinding(this.storage);
     await this.scope.run(() => this.browser.unsubscribe());
@@ -487,7 +487,7 @@ function toggleBlock(state: PushEnrollmentState, enabled: boolean | null): strin
   if (state.preferenceEnabled === true || state.ownsBinding) return null;
   if (state.support !== 'supported') return supportNotice(state.support);
   if (state.permission === 'denied') return '브라우저에서 알림이 차단되어 있습니다. 브라우저 설정에서 허용해 주세요.';
-  if (state.serverAvailable === false) return '서버에서 웹 푸시가 아직 준비되지 않았습니다.';
+  if (state.serverAvailable === false) return '지금은 알림을 켤 수 없어요. 잠시 후 다시 시도해 주세요.';
   // Enabling needs a confirmed capability; an unread one is a retry, not a blind prompt.
   if (state.serverAvailable === null) return state.failure === null ? '알림 설정을 확인하는 중입니다.' : '알림 설정을 확인하지 못했습니다. 다시 확인해 주세요.';
   return null;

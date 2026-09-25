@@ -26,7 +26,6 @@ function BlockedRoomsForm(props: Props) {
     <Button variant="outline" disabled={state.phase === 'loading'} onClick={() => { void flow.current?.load(); }}>{state.phase === 'loading' ? '차단한 방 확인 중' : '차단한 방 찾기'}</Button>
     {state.phase === 'loading' && <p role="status">현재 계정의 차단 목록을 확인하고 있습니다.</p>}
     {state.phase === 'error' && <p role="alert">차단한 방을 확인하지 못했습니다. 차단한 방 찾기를 눌러 다시 확인해 주세요.</p>}
-    {state.restarted && <p role="status">목록 연결이 만료되어 처음부터 다시 확인했습니다.</p>}
     {state.phase === 'ready' && <>
       {state.rooms.length === 0 && <p role="status">더 표시할 차단 목록이 없습니다.</p>}
       <ul>{state.rooms.map((room, index) => <li key={room.roomId}><Button variant="outline" onClick={() => setSelected(room)}>차단 목록 열기: {room.displayName ?? `이름을 확인할 수 없는 방 ${index + 1}`}</Button></li>)}</ul>

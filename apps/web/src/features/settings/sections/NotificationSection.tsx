@@ -45,7 +45,7 @@ export function NotificationSection({
       <div className="flex items-start justify-between gap-4 rounded-sm bg-surface-soft px-4 py-3">
         <div className="flex flex-col gap-1">
           <Label htmlFor={switchId} className="text-[14px]">
-            {release ? '이 브라우저의 알림 등록' : '새 메시지 알림'}
+              {release ? '알림 다시 설정' : '새 메시지 알림'}
           </Label>
           <p className="text-[13px] leading-[1.43] text-muted">{description(model, release)}</p>
           <ActionReason state={state} id={reasonId} />
@@ -61,7 +61,7 @@ export function NotificationSection({
             className="min-h-11 shrink-0 rounded-sm border border-control-border px-3 text-[14px] font-medium text-ink disabled:cursor-not-allowed disabled:opacity-50"
             data-testid="settings-notifications-release"
           >
-            등록 해제
+            알림 초기화
           </button>
         ) : (
           <button
@@ -91,7 +91,7 @@ export function NotificationSection({
           </p>
           {!busy && model.notice && onRetry && (
             <button type="button" onClick={onRetry} className="min-h-11 text-[13px] underline" data-testid="settings-notifications-retry">
-              상태 다시 확인
+              다시 확인
             </button>
           )}
         </div>
@@ -101,8 +101,8 @@ export function NotificationSection({
 }
 
 function description(model: SettingsNotificationsModel, release: boolean): string {
-  if (release) return '이 브라우저는 지금 알림을 받을 수 없지만 서버에는 등록이 남아 있습니다. 등록을 해제하면 이 브라우저로 알림을 보내지 않습니다.';
-  if (model.enabled === null) return '이 브라우저의 알림 상태를 확인하고 있습니다.';
+  if (release) return '이 브라우저에서 알림을 받을 수 없어요. 알림을 초기화한 뒤 다시 켜주세요.';
+  if (model.enabled === null) return '알림을 확인하고 있어요.';
   if (model.enabled) return '이 브라우저로 새 메시지 알림을 보냅니다. 알림에는 메시지 내용이 포함되지 않습니다.';
   return '꺼져 있습니다. 켜면 이 브라우저에 새 메시지가 있음을 알립니다.';
 }
@@ -110,7 +110,7 @@ function description(model: SettingsNotificationsModel, release: boolean): strin
 function stateLabel(model: SettingsNotificationsModel): string {
   if (model.enabled === null) return '확인 중';
   if (model.enabled) return '이 브라우저에서 받는 중';
-  return model.action === 'disable' ? '받지 않음 · 서버 등록 남아 있음' : '받지 않음';
+  return model.action === 'disable' ? '다시 설정 필요' : '받지 않음';
 }
 
 function supportLabel(support: SettingsNotificationsModel['support']): string {

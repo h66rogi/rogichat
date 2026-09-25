@@ -9,10 +9,10 @@ import type { MediaImageResource } from './image-resource';
 import type { MediaUpload } from './upload';
 
 const labels = {
-  empty: '이미지를 선택하면 업로드가 시작됩니다.', reserving: '업로드를 준비하고 있습니다.',
-  uploading: '이미지를 전송하고 있습니다.', checking: '서버에서 이미지를 확인하고 있습니다.',
-  pending: '아직 처리 중입니다. 잠시 후 상태를 확인해 주세요.', ready: '이미지가 준비되었습니다.',
-  failed: '이미지를 사용할 수 없습니다.', uncertain: '처리 결과를 확인하지 못했습니다. 새 업로드를 시작하면 중복 예약이 생길 수 있습니다.',
+  empty: '파일을 선택해 주세요.', reserving: '파일을 준비하고 있어요.',
+  uploading: '올리는 중이에요.', checking: '파일을 준비하고 있어요.',
+  pending: '파일을 준비하고 있어요.', ready: '파일을 사용할 수 있어요.',
+  failed: '파일을 사용할 수 없어요. 다시 선택해 주세요.', uncertain: '업로드가 지연되고 있어요.',
 };
 
 /** Caller owns one upload/lifetime per draft. onReady only hands off an ID; it never sends a message. */
@@ -25,8 +25,20 @@ export function MediaUploadPanel({ upload, lifetime, kind, roomId, onReady }: {
   const id = useId();
   useEffect(() => () => upload.clear(), [upload]);
   const authorized = upload.lifetime === lifetime && !lifetime.signal.aborted && lifetime.isCurrent();
-  if (!authorized) return null;
   const busy = ['reserving', 'uploading', 'checking'].includes(state.phase);
+  useEffect(() => {
+    if (!authorized || !state.receipt || !['pending', 'uncertain'].includes(state.phase)) return;
+    let requested = false;
+    const retry = () => {
+      if (requested || document.visibilityState !== 'visible') return;
+      requested = true;
+      void upload.refresh().catch(() => undefined);
+    };
+    const timer = window.setTimeout(retry, 15000);
+    document.addEventListener('visibilitychange', retry);
+    return () => { window.clearTimeout(timer); document.removeEventListener('visibilitychange', retry); };
+  }, [authorized, upload, state.phase, state.receipt]);
+  if (!authorized) return null;
   return <section aria-label={kind === 'AVATAR' ? '프로필 이미지 업로드' : kind === 'VIDEO' ? '영상 업로드' : '이미지 업로드'} className="space-y-3">
     <label htmlFor={id} className="block font-semibold">{kind === 'VIDEO' ? '영상 선택' : '이미지 선택'}</label>
     <input id={id} type="file" accept={kind === 'VIDEO' ? 'video/mp4,video/quicktime' : kind === 'STICKER' ? 'image/png,image/webp' : 'image/jpeg,image/png,image/webp'}
@@ -37,14 +49,12 @@ export function MediaUploadPanel({ upload, lifetime, kind, roomId, onReady }: {
         setInvalid(false);
         void upload.start(kind, file, roomId).catch(() => setInvalid(true));
       }} />
-    <p id={`${id}-status`} role="status">{invalid ? '파일 형식과 크기를 확인해 주세요.' : kind === 'VIDEO' ? labels[state.phase].replaceAll('이미지', '영상') : labels[state.phase]}</p>
-    <p className="text-sm text-ink-muted">{kind === 'VIDEO' ? 'MP4·MOV, 최대 50MB·60초. 서버 처리가 완료된 영상만 보낼 수 있습니다.' : kind === 'STICKER' ? 'PNG·WebP, 최대 1MB' : 'JPEG·PNG·WebP, 최대 10MB'}</p>
+    <p id={`${id}-status`} role="status">{invalid ? '파일 형식과 크기를 확인해 주세요.' : state.phase === 'uncertain' && !state.receipt ? '업로드하지 못했어요. 다시 선택해 주세요.' : labels[state.phase]}</p>
+    <p className="text-sm text-ink-muted">{kind === 'VIDEO' ? 'MP4·MOV, 최대 50MB·60초. 영상을 준비한 뒤 보낼 수 있어요.' : kind === 'STICKER' ? 'PNG·WebP, 최대 1MB' : 'JPEG·PNG·WebP, 최대 10MB'}</p>
     {['pending', 'uncertain'].includes(state.phase) && state.receipt &&
-      <Button type="button" variant="outline" onClick={() => { void upload.refresh().catch(() => setInvalid(true)); }}>상태 다시 확인</Button>}
+      <Button type="button" variant="outline" onClick={() => { void upload.refresh().catch(() => undefined); }}>다시 시도</Button>}
     {state.phase === 'ready' && <Button type="button" onClick={() => { onReady(upload.readyAsset()); }}>{kind === 'VIDEO' ? '이 영상 사용' : '이 이미지 사용'}</Button>}
-    {state.phase !== 'empty' && <Button type="button" variant="outline" onClick={() => {
-      if (window.confirm('이 업로드를 화면에서 버릴까요? 서버의 처리나 삭제가 취소되는 것은 아닙니다.')) { upload.clear(); setInvalid(false); }
-    }}>{busy ? '업로드 화면에서 버리기' : kind === 'VIDEO' ? '영상 선택 해제' : '이미지 선택 해제'}</Button>}
+    {state.phase !== 'empty' && <Button type="button" variant="outline" onClick={() => { upload.clear(); setInvalid(false); }}>{busy ? '취소' : '다른 파일 선택'}</Button>}
   </section>;
 }
 

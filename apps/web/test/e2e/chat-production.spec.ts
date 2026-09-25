@@ -106,6 +106,19 @@ test('routine window focus preserves the chat composer and timeline', async ({ p
   expect(state.snapshots).toBeGreaterThan(0);
 });
 
+test('a lost realtime hint connection leaves the conversation undisturbed', async ({ page }) => {
+  const { state } = await chatApi(page);
+  await page.goto('/chat');
+  const input = page.getByTestId('chat-composer-input');
+  await expect(input).toBeVisible();
+  await input.fill('연결이 바뀌어도 유지되는 초안');
+  await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+  state.sockets[0]?.close();
+  await expect(input).toHaveValue('연결이 바뀌어도 유지되는 초안');
+  await expect(page.getByTestId('chat-connection-notice')).toHaveCount(0);
+  await expect(page.getByText(incoming.content.text, { exact: true })).toBeVisible();
+});
+
 test('tab visibility return keeps the exact mounted composer after session validation', async ({ page }) => {
   await chatApi(page);
   await page.goto('/chat');
@@ -219,7 +232,7 @@ test('conversation keeps its timeline and composer inside the viewport', async (
   expect(bounds.composerBottom).toBeLessThanOrEqual(bounds.viewportHeight + 2);
 });
 
-test('READY photo retries the same command, preserves text draft and clears bytes on deletion', async ({ page }) => {
+test('READY photo recovers from its outgoing bubble, preserves text draft and clears bytes on deletion', async ({ page }) => {
   const { account, state, hint } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
   const media = await installMedia(page); let fail = true;
   const savedId = '66666666-6666-4666-8666-666666666666';
@@ -239,8 +252,10 @@ test('READY photo retries the same command, preserves text draft and clears byte
   media.ready = true;
   await page.getByRole('button', { name: '이 이미지 사용' }).click();
   await page.getByRole('button', { name: '사진 보내기', exact: true }).click();
-  await expect(page.getByRole('alert').filter({ hasText: '메시지 상태를 확인하고 있어요' })).toBeVisible();
-  fail = false; await page.getByRole('button', { name: '사진 보내기', exact: true }).click();
+  const outgoing = page.getByTestId('chat-outgoing-message');
+  await expect(outgoing).toContainText('사진');
+  await expect(page.getByRole('button', { name: '사진 보내기', exact: true })).toHaveCount(0);
+  fail = false; await outgoing.getByRole('button', { name: '다시 보내기', exact: true }).click();
   const image = page.getByRole('img', { name: '대화 사진 1' });
   await expect(image).toBeVisible();
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도로 보낼 글');
@@ -336,7 +351,7 @@ test('only own messages offer confirmed deletion, retain failure for retry, and 
   await expect(dialog.getByRole('button', { name: '삭제 요청 중', exact: true })).toBeDisabled();
   await expect(page.getByText(own.content.text, { exact: true })).toHaveCount(2);
   release(); state.holdDelete = null;
-  await expect(dialog.getByRole('alert')).toContainText('삭제 결과를 확인하지 못했습니다');
+  await expect(dialog.getByRole('alert')).toContainText('메시지 삭제 여부를 확인할 수 없어요');
   state.failDelete = false; await dialog.getByRole('button', { name: '삭제 다시 시도', exact: true }).click();
   await expect(dialog).toHaveCount(0); await expect(page.getByText(own.content.text, { exact: true })).toHaveCount(0);
   await expect(page.getByText('메시지가 더 이상 표시되지 않도록 차단되었습니다.', { exact: true })).toBeVisible();
@@ -439,7 +454,7 @@ for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides u
   else await page.getByRole('button', { name: '좋아요 반응', exact: true }).click();
   if (status === 429 || status === 503) {
     await openReactionControl(page);
-    await expect(page.getByRole('alert').filter({ hasText: status === 429 ? '30초' : '반응 결과' })).toBeVisible();
+    await expect(page.getByRole('alert').filter({ hasText: status === 429 ? '요청이 많아요' : '반응을 확인할 수 없어요' })).toBeVisible();
     await expect(page.getByRole('button', { name: '좋아요 반응', exact: true })).toBeDisabled();
     if (status === 503) {
       reactions.status = 200; await page.getByRole('button', { name: '다시 시도', exact: true }).click();
@@ -615,7 +630,7 @@ test('room loss from reaction during held SEND scrubs before late send settles a
   await expect(input).toHaveValue(''); expect(state.posts).toHaveLength(1);
 });
 
-test('catalog sticker selection sends its exact ID, retains selection on failure and preserves text', async ({ page }) => {
+test('catalog sticker selection retries from its outgoing bubble and preserves text', async ({ page }) => {
   const { account, state } = await chatApi(page); account.sessionToken = MEDIA_CSRF;
   const media = await installMedia(page); const stickerId = '88888888-8888-4888-8888-888888888888';
   let fail = true;
@@ -632,8 +647,9 @@ test('catalog sticker selection sends its exact ID, retains selection on failure
   await page.getByRole('button', { name: '카탈로그 스티커', exact: true }).click();
   await expect(page.getByRole('img', { name: '선택한 스티커: 카탈로그 스티커' })).toBeVisible();
   await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
-  await expect(page.getByText('메시지 상태를 확인하고 있어요. 필요하면 메시지에서 다시 보낼 수 있어요.')).toBeVisible();
-  fail = false; await page.getByRole('button', { name: '스티커 보내기', exact: true }).click();
+  const outgoing = page.getByTestId('chat-outgoing-message');
+  await expect(outgoing).toContainText('스티커');
+  fail = false; await outgoing.getByRole('button', { name: '다시 보내기', exact: true }).click();
   await expect(page.getByRole('button', { name: '스티커 보내기', exact: true })).toHaveCount(0);
   await expect(page.getByTestId('chat-composer-input')).toHaveValue('별도 글');
   await expect.poll(() => state.posts.length).toBe(2); expect(state.posts[0]).toEqual(state.posts[1]);

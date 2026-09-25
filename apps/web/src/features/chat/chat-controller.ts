@@ -61,10 +61,10 @@ export class ChatController {
   private completeRooms: OutboxRoom[] = [];
   private storageMessage(error: unknown): string {
     const code = error instanceof OutboxError ? error.code : 'STORAGE_FAILED';
-    return code === 'AUTHORITY_CHANGED' ? '채팅 상태를 다시 확인하고 있어요. 작성 중인 내용은 유지돼요.'
-      : code === 'UPDATE_REQUIRED' ? '채팅 정보를 다시 불러와야 해요. 이 화면을 새로고침해 주세요. 작성 중인 내용은 유지돼요.'
-      : code === 'CAPACITY' ? '전송 대기 중인 메시지가 많아요. 잠시 후 다시 시도해 주세요.'
-      : '메시지를 보낼 준비를 마치지 못했어요. 작성 중인 내용은 유지돼요. 다시 시도해 주세요.';
+    return code === 'AUTHORITY_CHANGED' ? '잠시 후 메시지를 보낼 수 있어요. 작성 중인 내용은 남아 있어요.'
+      : code === 'UPDATE_REQUIRED' ? '메시지를 보내려면 화면을 새로고침해 주세요. 작성 중인 내용은 남아 있어요.'
+      : code === 'CAPACITY' ? '지금은 새 메시지를 보낼 수 없어요. 잠시 후 다시 시도해 주세요.'
+      : '지금은 메시지를 보낼 수 없어요. 작성 중인 내용은 남아 있어요.';
   }
   private clearStorageRetry() {
     if (this.storageRetryTimer !== null) clearTimeout(this.storageRetryTimer);
@@ -603,7 +603,7 @@ export class ChatController {
       if (emoji !== undefined && (status === 400 || status === 409)) { void this.refreshHints(); return; }
       // Transport exposes only allowlisted codes; a conservative local cooldown avoids a retry storm.
       if (status === 429) this.reactionCooldown = Date.now() + 30000;
-      publish({ version, phase: 'error', error: status === 429 ? '요청이 많습니다. 30초 후 반응을 다시 확인해 주세요.' : '반응 결과를 확인하지 못했습니다. 다시 조회한 뒤 선택해 주세요.' });
+      publish({ version, phase: 'error', error: status === 429 ? '반응을 바꾸려는 요청이 많아요. 잠시 후 다시 시도해 주세요.' : '반응을 확인할 수 없어요. 다시 시도해 주세요.' });
     } finally {
       flights.delete(messageId);
       // Wake only subscribed open controls after an old-version request settles.
@@ -620,11 +620,11 @@ export class ChatController {
     const signal = this.abort.signal; const projection = this.projectionGeneration; this.deleting = true;
     try {
       const ack = exact(await this.request(this.path(`messages/${encodeURIComponent(messageId)}/delete`), { method: 'POST', body: {}, signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }), ['requestId', 'status']);
-      if (signal.aborted || this.dead || projection !== this.projectionGeneration) return { accepted: false, reason: '접근 상태가 변경되어 삭제 결과를 다시 확인해야 합니다.' };
+      if (signal.aborted || this.dead || projection !== this.projectionGeneration) return { accepted: false, reason: '메시지 삭제 여부를 확인할 수 없어요. 다시 확인해 주세요.' };
       uuid(ack.requestId);
       if (ack.status !== 'blocked' || typeof ack.requestId !== 'string' || !ack.requestId) throw new Error('INVALID_ACK');
       await this.verifySession();
-      if (signal.aborted || this.dead || projection !== this.projectionGeneration) return { accepted: false, reason: '접근 상태가 변경되어 삭제 결과를 다시 확인해야 합니다.' };
+      if (signal.aborted || this.dead || projection !== this.projectionGeneration) return { accepted: false, reason: '메시지 삭제 여부를 확인할 수 없어요. 다시 확인해 주세요.' };
       // Anonymous copies cannot be traced client-side. Drop ALL text/quotes/drafts,
       // abort pre-delete reads, then recover only from a fresh authorized snapshot.
       this.clear();
@@ -642,7 +642,7 @@ export class ChatController {
         else await this.revalidate();
       }
       if (!this.dead && !signal.aborted && projection === this.projectionGeneration && Number(recordError(error).status) >= 400 && Number(recordError(error).status) < 500 && !inaccessible(error)) void this.refreshHints();
-      return { accepted: false, reason: '삭제 결과를 확인하지 못했습니다. 다시 시도해 주세요.' };
+      return { accepted: false, reason: '메시지 삭제 여부를 확인할 수 없어요. 다시 확인해 주세요.' };
     } finally { this.deleting = false; }
   };
   private commandAuthorized(command: UnknownCommand): boolean {
@@ -711,7 +711,7 @@ export class ChatController {
   }
   send = async (submission: ChatComposerSubmission): Promise<ChatSubmitResult> => {
     await this.flight;
-    if (submission.retryCommandId && this.reconciling.has(submission.retryCommandId)) return { accepted: false, reason: '메시지 상태를 확인하고 있어요. 잠시 후 다시 시도해 주세요.' };
+    if (submission.retryCommandId && this.reconciling.has(submission.retryCommandId)) return { accepted: false, reason: '아직 보내는 중이에요. 잠시 후 다시 시도해 주세요.' };
     const room = this.state.room;
     if (this.dead || this.sending || this.deleting || this.state.phase !== 'ready' || !room || !this.accountPartition || !this.sessionBinding) return { accepted: false, reason: '채팅 연결을 확인한 뒤 다시 시도해 주세요.' };
     const text = submission.body.normalize('NFC');
@@ -729,15 +729,15 @@ export class ChatController {
         if (!text.trim() || [...text].length > 4000 || new TextEncoder().encode(text).length > 16384 || text.includes('\0')) throw new Error('INVALID_TEXT');
         content = { type: 'TEXT', text };
       }
-    } catch { return { accepted: false, reason: '메시지 내용 또는 첨부 준비 상태를 확인해 주세요.' }; }
+    } catch { return { accepted: false, reason: '메시지나 첨부 파일을 확인해 주세요.' }; }
     const body = { intent: submission.target.scope, ...(submission.target.scope === 'PRIVATE' ? { recipientActorId: submission.target.recipient.actorId } : {}), ...(submission.quoteMessageId ? { quoteId: submission.quoteMessageId } : {}), content };
     let command: PendingCommand;
     if (submission.retryCommandId) {
       const previous = this.commands.get(submission.retryCommandId);
-      if (!previous) return { accepted: false, reason: '이 전송 기록은 현재 세션에서 확인할 수 없습니다.' };
-      if (previous.status !== 'unknown') return { accepted: true, note: previous.status === 'deleted' ? '이 메시지는 이미 삭제되었습니다.' : '이전에 저장된 전송입니다.' };
+      if (!previous) return { accepted: false, reason: '메시지를 찾을 수 없어요. 채팅 화면을 새로고침해 주세요.' };
+      if (previous.status !== 'unknown') return { accepted: true, note: previous.status === 'deleted' ? '이 메시지는 이미 삭제되었습니다.' : '이미 보낸 메시지예요.' };
       if (!('payload' in previous)) return { accepted: false, retryCommandId: previous.clientMessageId, reason: '이 메시지는 다시 보낼 수 없어요. 상태를 확인하고 있어요.' };
-      if (previous.payload.intent !== body.intent || previous.payload.recipientActorId !== body.recipientActorId || previous.payload.quoteId !== body.quoteId || JSON.stringify(previous.payload.content) !== JSON.stringify(content)) return { accepted: false, reason: '다시 시도할 메시지의 내용과 대상이 변경되었습니다.' };
+      if (previous.payload.intent !== body.intent || previous.payload.recipientActorId !== body.recipientActorId || previous.payload.quoteId !== body.quoteId || JSON.stringify(previous.payload.content) !== JSON.stringify(content)) return { accepted: false, reason: '메시지가 바뀌었어요. 원래 메시지에서 다시 시도해 주세요.' };
       command = previous;
     } else {
       if (!this.payloadAuthorized(body, room)) return { accepted: false, reason: '이 대상이나 메시지에 지금 전송할 수 없습니다.' };
@@ -805,7 +805,7 @@ export class ChatController {
         return { accepted: false, ...(!neverSaved && this.commandAuthorized(command) ? { pendingDelivery: true, retryCommandId: clientMessageId } : {}), reason };
       }
       const pendingDelivery = Boolean(this.outbox && !this.unpersisted.has(clientMessageId) && this.commandAuthorized(command) && (!Number(recordError(error).status) || Number(recordError(error).status) >= 500));
-      return { accepted: false, ...(!neverSaved ? { retryCommandId: clientMessageId } : {}), pendingDelivery: !neverSaved && pendingDelivery, reason: !neverSaved && pendingDelivery ? '메시지 상태를 확인하고 있어요. 필요하면 메시지에서 다시 보낼 수 있어요.' : '메시지를 보내지 못했어요. 다시 시도해 주세요.' };
+      return { accepted: false, ...(!neverSaved ? { retryCommandId: clientMessageId } : {}), pendingDelivery: !neverSaved && pendingDelivery, reason: !neverSaved && pendingDelivery ? '보냈는지 확인하고 있어요. 잠시 후 이 메시지에서 다시 시도할 수 있어요.' : '메시지를 보내지 못했어요. 다시 시도해 주세요.' };
     } finally { this.endSend(); if (!this.dead) this.publish({}); if (this.getSnapshot().phase === 'loading') void this.refresh(); else this.drainRefresh(); }
   };
 }
