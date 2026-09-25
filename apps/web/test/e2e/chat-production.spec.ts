@@ -299,7 +299,7 @@ test('real chat keeps IME and pending focus, surfaces failure and retries the sa
 
 test('reaction counts render with the timeline and a named quote jumps to its source', async ({ page }) => {
   const { state } = await chatApi(page);
-  const source = { ...incoming, reactions: { counts: [{ emoji: '👍', count: 2 }], mine: '👍' } };
+  const source = { ...incoming, reactions: { counts: [{ emoji: '👍', count: 2 }, { emoji: '❤️', count: 3 }, { emoji: '🎉', count: 1 }, { emoji: '😮', count: 4 }], mine: '👍' } };
   const reply = { ...incoming, id: '66666666-6666-4666-8666-666666666666', createdAt: '2026-09-20T01:01:00.000Z',
     quote: { id: source.id, authorName: '테스트 스트리머', content: { type: 'TEXT' as const, text: source.content.text } },
     reactions: { counts: [], mine: null }, content: { type: 'TEXT' as const, text: '답장 본문' } };
@@ -308,7 +308,11 @@ test('reaction counts render with the timeline and a named quote jumps to its so
   page.on('request', request => { if (request.url().includes('/reactions')) reactionReads++; });
   await page.goto('/chat');
   const sourceRow = page.locator(`[data-item-id="${source.id}"]`);
-  await expect(sourceRow.getByTestId('chat-reaction-trigger')).toContainText('👍2');
+  await expect(sourceRow.getByTestId('chat-reaction-count')).toHaveCount(4);
+  await expect(sourceRow.getByTestId('chat-reactions')).toContainText('👍2❤️3🎉1😮4');
+  const bubble = await sourceRow.getByText(source.content.text, { exact: true }).boundingBox();
+  const reaction = await sourceRow.getByTestId('chat-reaction-count').first().boundingBox();
+  expect(bubble && reaction && reaction.y >= bubble.y + bubble.height).toBe(true);
   expect(reactionReads).toBe(0);
   await page.getByRole('button', { name: '테스트 스트리머님의 원본 메시지로 이동' }).click();
   await expect(sourceRow).toBeFocused();
@@ -451,15 +455,26 @@ test('reactions are a direct message action with a keyboard picker and compact r
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await picker.getByRole('button', { name: '좋아요 반응' }).click();
   await expect(picker).toHaveCount(0);
-  await expect(trigger).toContainText('👍2');
+  await expect(page.getByTestId('chat-reaction-count').first()).toContainText('👍2');
   await trigger.click();
   await picker.getByRole('button', { name: '하트 반응' }).click();
-  await expect(trigger).toContainText('❤️2');
+  await expect(page.getByTestId('chat-reaction-count').first()).toContainText('❤️2');
   await trigger.click();
   await picker.getByRole('button', { name: '하트 반응' }).click();
-  await expect(trigger).not.toContainText('❤️2');
+  await expect(page.getByTestId('chat-reaction-count')).toHaveCount(0);
   expect(reactions.calls).toEqual(['GET', 'PUT', 'PUT', 'DELETE']);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+});
+
+test('a recorded reaction can be selected directly below the message without another read', async ({ page }) => {
+  const { state, reactions } = await reactionApi(page);
+  state.messages = [{ ...incoming, reactions: { counts: [{ emoji: '👍', count: 2 }], mine: null } }];
+  await page.goto('/chat');
+  const count = page.getByTestId('chat-reaction-count');
+  await expect(count).toContainText('👍2');
+  await count.click();
+  await expect(count).toHaveAttribute('aria-pressed', 'true');
+  expect(reactions.calls).toEqual(['PUT']);
 });
 
 for (const status of [401, 403, 404, 429, 503]) test(`reaction ${status} hides unconfirmed counts and permits safe recovery`, async ({ page }) => {
@@ -526,7 +541,7 @@ test('stale reaction result is discarded after the message version advances', as
   state.messages = [{ ...incoming, version: '2', content: { type: 'TEXT', text: '새 버전 메시지' } }]; hint();
   await expect(page.getByText('새 버전 메시지')).toBeVisible();
   release(); reactions.hold = null;
-  await expect(page.getByTestId('chat-reaction-trigger').first()).not.toContainText('👍');
+  await expect(page.getByTestId('chat-reaction-count')).toHaveCount(0);
 });
 
 test('outgoing PRIVATE reply selects counterpart and equal-version false hint removes reply', async ({ page }) => {
