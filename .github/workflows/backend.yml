@@ -161,6 +161,15 @@ jobs:
           # the shared runtime and migration layers. Each image still receives
           # independent archive limits, layer checks and failure handling.
           python3 tools/security/image_scan.py "${scan_args[@]}"
+      - name: Keep decoder-only dependencies out of the API image
+        run: |
+          docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            rogichat-check:runtime --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { createRequire } from 'node:module';
+          const require = createRequire(import.meta.url);
+          assert.throws(() => require.resolve('sharp'), { code: 'MODULE_NOT_FOUND' });
+          JS
       - name: Verify lean migration image with its real CLI and driver
         run: |
           set -euo pipefail

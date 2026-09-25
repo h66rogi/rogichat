@@ -35,7 +35,7 @@ jobs:
         run: |
           docker build --platform linux/amd64 --file apps/api/Dockerfile --target decoder --tag rogichat-decoder-check .
           bytes=$(docker image inspect --format '{{.Size}}' rogichat-decoder-check)
-          printf '| Decoder PR image | %s bytes |\n' "$bytes" >> "$GITHUB_STEP_SUMMARY"
+          printf '| Decoder PR image | %s bytes |\n' "$bytes" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Verify decoder has only its native runtime dependencies
         run: |
           docker run --rm -i --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
@@ -154,6 +154,7 @@ jobs:
           for (const path of ['node_modules/prisma', 'node_modules/mysql2', '/run/secrets/database.json', '/app/.git']) assert.equal(fs.existsSync(path), false);
           for (const entry of [PrismaClient, PrismaDatabase, PrismaMariaDb]) assert.equal(typeof entry, 'function');
           const require = createRequire(import.meta.url);
+          assert.throws(() => require.resolve('sharp'), { code: 'MODULE_NOT_FOUND' });
           const adapterRequire = createRequire(require.resolve('@prisma/adapter-mariadb'));
           const driverRequire = createRequire(adapterRequire.resolve('mariadb/package.json'));
           assert.equal(driverRequire('./package.json').version, '3.4.7');
