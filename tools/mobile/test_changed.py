@@ -60,6 +60,44 @@ class ChangesTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0)
             self.assertEqual(output.read_text(), "android=false\nios=true\n")
 
+    def test_merge_group_checks_exact_head_and_cumulative_changes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", temporary, *args], stderr=subprocess.PIPE).decode().strip()
+            git("init", "-q")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            (root / "docs").mkdir()
+            (root / "docs/intro.md").write_text("baseline\n")
+            git("add", ".")
+            git("commit", "-qm", "baseline")
+            base = git("rev-parse", "HEAD")
+            for path in ("apps/android/Feature.kt", "apps/ios/Feature.swift"):
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("candidate\n")
+                git("add", ".")
+                git("commit", "-qm", path)
+            head = git("rev-parse", "HEAD")
+            output = root / "result"
+            env = dict(os.environ, EVENT_NAME="merge_group", BASE_SHA=base,
+                       MERGE_GROUP_HEAD_SHA=head, GITHUB_SHA=head,
+                       MERGE_GROUP_BASE_REF="refs/heads/qa", GITHUB_OUTPUT=str(output))
+            command = [sys.executable, str(Path(changed.__file__).resolve())]
+            result = subprocess.run(command, cwd=root, env=env, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(output.read_text(), "android=true\nios=true\n")
+            output.unlink()
+            result = subprocess.run(command, cwd=root,
+                                    env=dict(env, MERGE_GROUP_HEAD_SHA=base), capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+            result = subprocess.run(command, cwd=root,
+                                    env=dict(env, MERGE_GROUP_BASE_REF="refs/heads/other"), capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+
     def test_missing_boundary_fails_closed_without_raw_value(self):
         with tempfile.TemporaryDirectory() as temporary:
             output = Path(temporary) / "result"

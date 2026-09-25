@@ -42,10 +42,21 @@ def mobile_changed(paths):
 def main():
     base = os.environ.get("BASE_SHA", "")
     event = os.environ.get("EVENT_NAME", "")
+    if event == "merge_group":
+        head = os.environ.get("MERGE_GROUP_HEAD_SHA", "")
+        github_sha = os.environ.get("GITHUB_SHA", "")
+        base_ref = os.environ.get("MERGE_GROUP_BASE_REF", "")
+        checkout = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True)
+        if (base_ref not in {"refs/heads/qa", "refs/heads/main"}
+                or not re.fullmatch(r"[a-f0-9]{40}", head)
+                or head != github_sha
+                or checkout.returncode or checkout.stdout.strip() != head.encode()
+                or base == "0" * 40):
+            raise SystemExit("Cannot establish the mobile change boundary")
     if event == "workflow_dispatch" or base == "0" * 40:
         android = ios = True
     else:
-        if event not in {"push", "pull_request"} or not re.fullmatch(r"[a-f0-9]{40}", base):
+        if event not in {"push", "pull_request", "merge_group"} or not re.fullmatch(r"[a-f0-9]{40}", base):
             raise SystemExit("Cannot establish the mobile change boundary")
         result = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z", base, "HEAD", "--"],
                                 capture_output=True)

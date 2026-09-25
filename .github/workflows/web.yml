@@ -3,6 +3,9 @@ on:
   push:
     branches: [qa, main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
+    branches: [qa, main]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +30,9 @@ jobs:
       - name: Compare against the base
         id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
         run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
 
   verify:
@@ -117,7 +122,7 @@ jobs:
   container:
     name: Production container and all-layer security
     needs: changes
-    if: needs.changes.outputs.web == 'true' && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
+    if: needs.changes.outputs.web == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -170,7 +175,7 @@ jobs:
           if [ "$CHANGES_RESULT" != "success" ]; then echo "change detection did not succeed"; exit 1; fi
           case "$CHANGED:$VERIFY:$BROWSER:$CONTAINER:$GITHUB_EVENT_NAME" in
             false:skipped:skipped:skipped:*) echo "no web change; verification skipped"; exit 0 ;;
-            true:success:success:success:pull_request|true:success:success:success:workflow_dispatch)
+            true:success:success:success:pull_request|true:success:success:success:merge_group|true:success:success:success:workflow_dispatch)
               echo "web verified with pre-merge image safety"; exit 0 ;;
             true:success:success:skipped:push) echo "web verified; publisher checks the image"; exit 0 ;;
             *) echo "unexpected combination"; exit 1 ;;
