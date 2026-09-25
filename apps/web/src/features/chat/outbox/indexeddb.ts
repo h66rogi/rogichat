@@ -41,6 +41,7 @@ export class DurableOutbox {
   }
   /** Abort in-flight transport as soon as this tab loses its local authority. */
   get signal(): AbortSignal { return this.operationAbort.signal; }
+  get closed(): boolean { return this.stopped; }
   onChange(listener: () => void): () => void {
     this.changeListeners.add(listener);
     return () => { this.changeListeners.delete(listener); };
