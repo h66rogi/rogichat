@@ -84,10 +84,11 @@ test('versionchange closes old connection and newer schema is preserved with upd
       request.onsuccess = () => resolve(request.result); request.onerror = () => reject(Error('upgrade failed'));
     });
     const stopped = await outbox.assertCurrent().then(() => false, () => true);
+    const closed = outbox.closed;
     const required = await DurableOutbox.open('upgrade').then(() => false, error => error.code === 'UPDATE_REQUIRED');
-    const version = newer.version; newer.close(); return { stopped, required, version };
+    const version = newer.version; newer.close(); return { stopped, closed, required, version };
   });
-  expect(result).toEqual({ stopped: true, required: true, version: 2 });
+  expect(result).toEqual({ stopped: true, closed: true, required: true, version: 2 });
 });
 
 test('native aborted persistence refuses network and leaves composer input intact', async ({ page }) => {
@@ -349,6 +350,48 @@ test('actual controller recovers an uncertain native record after a cold restart
   expect(result.before.commands).toHaveLength(1);
   expect(result.after.storageError).toBeNull(); expect(result.after.phase).toBe('ready');
   expect(result.after.commands).toHaveLength(1); expect(result.lookups).toBeGreaterThan(0);
+});
+
+test('controller automatically recovers after a temporary storage opening failure', async ({ page }) => {
+  const result = await page.evaluate(async () => {
+    const controllerPath = '/__outbox_test/chat-controller.js', memoryPath = '/__outbox_test/chat-memory.js', storagePath = '/__outbox_test/outbox/indexeddb.js';
+    const { ChatController } = await import(controllerPath) as typeof ControllerModule;
+    const { ChatMemory } = await import(memoryPath) as typeof MemoryModule;
+    const { DurableOutbox } = await import(storagePath) as typeof StorageModule;
+    const token = 'A'.repeat(43), roomId = crypto.randomUUID(), actorId = crypto.randomUUID();
+    const room = { roomId, actorId, name: 'isolated', mode: 'FAN', role: 'STREAMER', membershipScope: token, authorizationRevision: token };
+    const request = async (url: string) => {
+      const path = url.split('?')[0]!;
+      if (path.endsWith('/session')) return { authenticated: true, soopLinkStatus: 'VERIFIED', csrfToken: token, accountPartition: token };
+      if (path === '/v1/sync') return { schemaVersion: 2, resetRequired: false, generation: 'manifest', rooms: [room], nextCursor: null, complete: true };
+      const envelope = { schemaVersion: 2, resetRequired: false, membershipScope: token, authorizationRevision: token };
+      if (path.endsWith('/profile-sync')) return { ...envelope, generation: 'profiles', profiles: [{ actorId, role: 'STREAMER', nickname: 'isolated', avatar: null }], nextCursor: null, complete: true };
+      if (path.endsWith('/private-recipients')) return { recipients: [], next: null };
+      if (path.endsWith('/snapshot')) return { ...envelope, messages: [], nextCursor: 'events', historyCursor: null };
+      if (path.endsWith('/events')) return { ...envelope, events: [], nextCursor: 'events', hasMore: false };
+      throw Error(path);
+    };
+    const original = DurableOutbox.open;
+    let opens = 0;
+    DurableOutbox.open = function (environment) {
+      if (++opens === 1) return Promise.reject(new Error('temporary storage failure'));
+      return original.call(this, environment);
+    };
+    const controller = new ChatController(roomId, request, undefined, token, token, new ChatMemory(), 'temporary-failure');
+    try {
+      await controller.refresh();
+      const blocked = controller.getSnapshot().storageError;
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(() => { unsubscribe(); reject(Error('automatic storage recovery timed out')); }, 5000);
+        const unsubscribe = controller.subscribe(() => {
+          if (controller.getSnapshot().storageError !== null) return;
+          clearTimeout(timeout); unsubscribe(); resolve();
+        });
+      });
+      return { blocked, recovered: controller.getSnapshot().storageError, opens };
+    } finally { controller.dispose(); DurableOutbox.open = original; }
+  });
+  expect(result).toEqual({ blocked: '메시지를 잠시 보낼 수 없어요.', recovered: null, opens: 2 });
 });
 
 test('suspending one tab never blocks another tab or its receipt-first recovery', async ({ page }) => {
