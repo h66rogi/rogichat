@@ -57,8 +57,8 @@ export async function completedPublication(kind, sourceSha, token, fetcher = fet
     if (aggregate.length !== 1 || aggregate[0].run_id !== runId
         || aggregate[0].run_attempt !== run.run_attempt
         || aggregate[0].status !== 'completed' || aggregate[0].conclusion !== 'success') continue;
-    if (kind === 'web') {
-      const proofName = `web-publication-proof-${sourceSha}-${run.run_attempt}`;
+    if (kind === 'web' || kind === 'backend') {
+      const proofName = `${kind}-publication-proof-${sourceSha}-${run.run_attempt}`;
       const proofQuery = new URLSearchParams({ name: proofName, per_page: '100' });
       const proof = await github(`actions/runs/${runId}/artifacts?${proofQuery}`, token, fetcher);
       if (!completeList(proof, 'artifacts') || proof.total_count !== 1) continue;

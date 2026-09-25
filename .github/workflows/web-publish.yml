@@ -1,6 +1,8 @@
 name: Web image publication
 
 on:
+  push:
+    branches: [qa]
   workflow_call:
     inputs:
       source_sha:
@@ -10,12 +12,34 @@ on:
 permissions: {}
 
 concurrency:
-  group: web-publish-qa-${{ inputs.source_sha }}
+  group: web-publish-qa-${{ inputs.source_sha || github.sha }}
   cancel-in-progress: false
 
 jobs:
+  changes:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/qa'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      web: ${{ steps.classify.outputs.web }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: classify
+        env:
+          BASE_SHA: ${{ github.event.before }}
+        run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
+
   publish:
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && inputs.source_sha == github.sha
+    needs: changes
+    if: >-
+      always() && github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' &&
+      ((inputs.source_sha != '' && inputs.source_sha == github.sha) ||
+       (github.event_name == 'push' && needs.changes.result == 'success' && needs.changes.outputs.web == 'true'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -25,13 +49,14 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.source_sha }}
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
       - name: Reconfirm five exact QA checks without polling
-        id: verify
+        id: new_verify
+        if: inputs.source_sha != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: |
           test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
           GATE_REQUIRE_READY=true node tools/operations/qa_publication_gate.mjs
@@ -41,7 +66,7 @@ jobs:
           package-manager-cache: false
       - name: Build exact source without registry credentials
         env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
           DOCKER_BUILDKIT: '1'
         run: |
           set -euo pipefail
@@ -56,11 +81,11 @@ jobs:
             "$((SECONDS - start))" "$(docker image inspect --format '{{.Size}}' "$image")" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify the same image with both runtime configurations
         env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: bash tools/web/check-image.sh "ghcr.io/h66rogi/rogichat-web:qa-$SOURCE_SHA"
       - name: Scan every image layer and metadata before registry authentication
         env:
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: |
           set -euo pipefail
           python3 tools/security/install.py
@@ -68,17 +93,26 @@ jobs:
           [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
           docker image save "$image_id" | python3 tools/security/image_scan.py -
           printf '%s\n' "$image_id" > "$RUNNER_TEMP/web.checked-id"
-      - name: Verify final QA ancestry before registry authentication
+      - name: Require successful verification of this exact legacy QA push
+        id: old_verify
+        if: inputs.source_sha == ''
         env:
           GH_TOKEN: ${{ github.token }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_REPOSITORY: ${{ github.repository }}
+        run: node tools/web/verify-publication-source.mjs
+      - name: Verify final QA ancestry before registry authentication
+        if: inputs.source_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: node tools/operations/qa_publication_finalize.mjs
       - name: Publish only the checked image and write promotion proof
         env:
           GHCR_TOKEN: ${{ github.token }}
           GHCR_USER: ${{ github.actor }}
-          SOURCE_SHA: ${{ inputs.source_sha }}
-          VERIFICATION_EVIDENCE: ${{ steps.verify.outputs.evidence }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+          VERIFICATION_EVIDENCE: ${{ steps.new_verify.outputs.evidence || steps.old_verify.outputs.evidence }}
         run: |
           set -euo pipefail
           export DOCKER_CONFIG
@@ -128,7 +162,7 @@ jobs:
       - name: Retain exact digest and CI provenance for promotion review
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: web-publication-proof-${{ inputs.source_sha }}-${{ github.run_attempt }}
+          name: web-publication-proof-${{ inputs.source_sha || github.sha }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/web-publication-proof.json
           if-no-files-found: error
           retention-days: 90

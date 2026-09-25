@@ -11,6 +11,17 @@ an ancestor of that head. The downstream export and receiver independently
 verify provenance. A failed backend run cannot hide or retry a successful web
 run, and vice versa.
 
+For the first canary, the existing QA push publishers remain enabled and
+serialize with the new reusable publishers by source SHA. Their existing web
+export continues to run until the receiver's exact new-source trust generation
+is installed and a new publication/export canary is verified. This temporary
+bridge retains the old polling runner cost; remove it in a separate reviewed
+change after the new path is proven. A single receiver generation cannot pin
+both an old tree without the two new publication workflows and a new tree with
+both files. The rollout therefore pauses the management poller once, rotates
+the exact B source policy after QA merge, then replays retained B artifacts.
+The prior QA site continues serving during that bounded delivery wait.
+
 Each component compares the current QA source with its last **earlier proven
 publication**, not merely the latest merge parent. A fixed-name artifact only
 discovers candidates; the source-specific marker, exact run/attempt/result job,
@@ -23,16 +34,33 @@ still detected if a docs-only B becomes the QA head before the next sweep.
 The preflight skips a component on any trigger only when its source-tagged registry
 images exist **and** a successful `qa-web-publication.yml` or
 `qa-backend-publication.yml` run has its own successful aggregate job and
-completion marker. Web additionally requires the
-original publication proof artifact in that same run and attempt. A missing or
+completion marker. Both components additionally require their original
+publication proof artifact in that same run and attempt. A missing or
 failed proof causes a new build and scan. A rebuilt image that differs from an
 existing immutable tag fails closed and needs operator investigation.
+Backend export starts from the successful backend aggregate, downloads its
+exact run/attempt proof ZIP, and binds all three registry digests and scanned
+config IDs to the exported archive. The archive verifier repeats that proof
+comparison before host use. The export run's own head SHA may be newer than
+the publication source, so its ancestry is checked separately.
 
 ## Measured latency and fixed cost
 
 Recent QA hosted runs spent about 2.8 minutes on the web build, checks, scan,
 push and proof, and about 7 minutes on the backend guard, three builds, runtime
 checks, scan and pushes, excluding their prior idle wait for required QA checks.
+At QA `079993094f7a689a6046868a1b5e795ed9976bc9`, the legacy web publisher
+held its Ubuntu `publish` job from 18:21:48 to 18:32:33 UTC while the five QA
+required checks only completed around 18:31 UTC. That 10m45s run included
+roughly nine minutes before the check gate was ready. The first dual-path
+canary intentionally retains this cost until the legacy path is removed.
+The same source's legacy backend publisher built from 18:22:26–18:24:36,
+scanned from 18:24:53–18:27:23, then waited for exact checks until 18:32:05
+before pushing by 18:33:08 UTC. The new path builds and scans only after the
+five checks, freeing that waiting runner but moving about five minutes of
+backend build and scan work after the gate. It may increase merge-to-delivery
+latency even while reducing runner occupation. The B canary must measure both
+runner minutes and source-to-delivery time against the 15-minute target.
 The five-minute sweep gives a nominal worst-case detection plus backend publish
 time of about 12 minutes, before export and receiver delivery. A 10-minute sweep
 would take about 17 minutes by the same measurement and miss the 15-minute
@@ -60,15 +88,17 @@ provenance reads. A literal **50 successful QA source publications in one hour**
 would need at least **3,720 GitHub REST requests** from exact gates, baseline
 listings and fixed sweeps alone (50 × 66 + 420), and roughly **3,970** before
 export provenance when ancestry and result reads are included. Verified prior
-markers, current-marker checks and other CI add more. It would create up to eight Ubuntu
-jobs per changed source (two gates, two publishers, two result jobs, web export
-result and archive) plus 36 fixed jobs per hour. Fifty simultaneous developers
+markers, current-marker checks and other CI add more. It would create up to ten Ubuntu
+jobs per changed source (two gates, two publishers, two publication results,
+two export results and two archive jobs) plus 36 fixed jobs per hour. Fifty simultaneous developers
 need not produce 50 QA publications per hour, but this is **a current-volume
 latency fix, not proof of 50-developer capacity**. GitHub Free's `GITHUB_TOKEN`
 limit of 1,000 requests per repository per hour cannot support that literal
 burst. An Enterprise 15,000-per-hour allowance would leave room for these
 calls, but the total repository load and hosted queue times still need a load
-rehearsal. Do not remove exact source, attempt, job, proof or image checks to
+rehearsal. The first canary also incurs the retained legacy polling and image
+builds; these figures describe the post-bridge target after legacy removal.
+Do not remove exact source, attempt, job, proof or image checks to
 reduce API use.
 
 The gate and recovery helper throw on GitHub API 403/429. They never turn a

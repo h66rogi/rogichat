@@ -1,6 +1,10 @@
 name: Backend verified image export
 
 on:
+  workflow_run:
+    workflows: [QA backend image publication]
+    types: [completed]
+    branches: [qa]
   workflow_dispatch:
     inputs:
       source_sha:
@@ -26,8 +30,59 @@ on:
 permissions: {}
 
 jobs:
+  publication-result:
+    if: github.event_name == 'workflow_run' && github.repository == 'h66rogi/rogichat'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+    outputs:
+      published: ${{ steps.check.outputs.published }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLICATION_RUN: ${{ github.event.workflow_run.id }}
+          PUBLICATION_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          PUBLICATION_PATH: ${{ github.event.workflow_run.path }}
+        run: |
+          node --input-type=module <<'JS'
+          import { appendFileSync } from 'node:fs';
+          const run = Number(process.env.PUBLICATION_RUN);
+          const attempt = Number(process.env.PUBLICATION_ATTEMPT);
+          if (!Number.isSafeInteger(run) || run <= 0 || !Number.isSafeInteger(attempt) || attempt <= 0
+              || process.env.PUBLICATION_PATH !== '.github/workflows/qa-backend-publication.yml') {
+            throw new Error('Untrusted backend publication identity');
+          }
+          const response = await fetch(`https://api.github.com/repos/h66rogi/rogichat/actions/runs/${run}/attempts/${attempt}/jobs?per_page=100`, {
+            headers: {Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'},
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!response.ok) throw new Error(`Publication jobs API failed (${response.status})`);
+          const result = await response.json();
+          if (!Array.isArray(result.jobs) || result.total_count !== result.jobs.length || result.jobs.length > 100) {
+            throw new Error('Publication jobs listing incomplete');
+          }
+          const jobs = result.jobs.filter(job => job.name === 'Backend publication result');
+          if (jobs.length > 1) throw new Error('Duplicate backend publication aggregate');
+          appendFileSync(process.env.GITHUB_OUTPUT,
+            `published=${jobs.length === 1 && jobs[0].run_id === run && jobs[0].run_attempt === attempt && jobs[0].status === 'completed' && jobs[0].conclusion === 'success'}\n`);
+          JS
+
   export:
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'workflow_dispatch'
+    needs: publication-result
+    if: >-
+      always() && github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' && needs.publication-result.result == 'success' &&
+        needs.publication-result.outputs.published == 'true' && github.event.action == 'completed' &&
+        github.event.workflow_run.status == 'completed' &&
+        github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'qa' &&
+        github.event.workflow_run.repository.full_name == 'h66rogi/rogichat' &&
+        github.event.workflow_run.head_repository.full_name == 'h66rogi/rogichat' &&
+        github.event.workflow_run.path == '.github/workflows/qa-backend-publication.yml' &&
+        (github.event.workflow_run.event == 'workflow_run' ||
+         github.event.workflow_run.event == 'schedule' ||
+         github.event.workflow_run.event == 'workflow_dispatch')))
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -45,6 +100,7 @@ jobs:
           python3 tools/security/install.py
           python3 tools/security/check.py all
       - name: Verify and export exact published images (no build or deployment)
+        id: producer
         env:
           GITHUB_TOKEN: ${{ github.token }}
           EXPORT_SOURCE_SHA: ${{ inputs.source_sha }}
@@ -65,13 +121,11 @@ jobs:
           subprocess.run(['docker', 'compose', '-f', 'infrastructure/runtime/compose.app.yaml', 'config', '--quiet'], env=env, check=True)
           PY
       - name: Scan all exported image layers before public artifact upload
-        env:
-          EXPORT_DECODER_DIGEST: ${{ inputs.decoder_digest }}
         run: |
           set -euo pipefail
           python3 tools/security/install.py
           images=(runtime migration)
-          if test -n "$EXPORT_DECODER_DIGEST"; then images+=(decoder); fi
+          if test -f "$RUNNER_TEMP/rogichat-export/decoder.tar"; then images+=(decoder); fi
           archives=()
           for image in "${images[@]}"; do
             printf '| %s transport tar | %s bytes |\n' "$image" \
@@ -81,7 +135,7 @@ jobs:
           python3 tools/security/image_scan.py "${archives[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: backend-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: backend-${{ steps.producer.outputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             ${{ runner.temp }}/rogichat-export/descriptor.json
             ${{ runner.temp }}/rogichat-export/runtime.tar

@@ -141,7 +141,7 @@ function recoveryApi({ kind = 'web', failedJob = false, missingProof = false,
         conclusion: failedJob ? 'failure' : 'success' }] };
     } else if (path.endsWith('/actions/runs/12/artifacts')) {
       result = { total_count: missingProof ? 0 : 1, artifacts: missingProof ? [] :
-        [artifact(`web-publication-proof-${SHA}-2`)] };
+        [artifact(`${kind}-publication-proof-${SHA}-2`)] };
     } else throw new Error(`Unexpected recovery API: ${url}`);
     return new Response(JSON.stringify(result));
   };
@@ -161,7 +161,8 @@ test('scheduled completion requires exact successful aggregate and original web 
 
 test('backend recovery accepts only its independent successful publication run', async () => {
   assert.equal(await completedPublication('backend', SHA, 'token', recoveryApi({ kind: 'backend' })), true);
-  for (const change of [{ otherComponent: true }, { failedJob: true }, { failedRun: true }]) {
+  for (const change of [{ otherComponent: true }, { failedJob: true },
+    { failedRun: true }, { missingProof: true }]) {
     assert.equal(await completedPublication('backend', SHA, 'token', recoveryApi({ kind: 'backend', ...change })),
       false, JSON.stringify(change));
   }

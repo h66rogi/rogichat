@@ -57,6 +57,21 @@ def zip_directory(directory, path):
     return 'sha256:' + archive.file_hash(path)
 
 
+def backend_proof(source='a' * 40, run_id=41, attempt=2):
+    images = {role: {'image': f'ghcr.io/h66rogi/{repository}@sha256:' + str(index) * 64,
+                     'checkedImageId': 'sha256:' + str(index + 3) * 64}
+              for index, (role, repository) in enumerate(
+                  (archive.BACKEND_ROLES | archive.DECODER_ROLE).items(), 1)}
+    proof = {'schemaVersion': 1, 'repository': archive.REPOSITORY, 'sourceSha': source,
+             'publicationRun': f'https://github.com/{archive.REPOSITORY}/actions/runs/{run_id}',
+             'publicationAttempt': attempt, 'platform': 'linux/amd64', 'images': images}
+    memory = io.BytesIO()
+    with zipfile.ZipFile(memory, 'w') as zipped:
+        zipped.writestr(archive.PROOF_NAME, json.dumps(proof))
+    data = memory.getvalue()
+    return proof, data, 'sha256:' + archive.sha256(data)
+
+
 def oci_tar(root, descriptor, *, mutate=None, role='runtime'):
     identity = descriptor['images'][role]['config_id']
     with tarfile.open(root / (role + '.tar')) as tar:
@@ -193,13 +208,13 @@ class ArchiveTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 archive.descriptor_roles({'version': 2})
 
-    def test_backend_defaults_remain_manual_only(self):
+    def test_backend_auto_descriptor_requires_auto_verifier(self):
         with tempfile.TemporaryDirectory() as temp:
             descriptor = build(Path(temp) / 'archive')
             descriptor['producer']['event'] = 'workflow_run'
+            self.assertEqual(archive.validate_descriptor(descriptor), descriptor)
             with self.assertRaises(ValueError):
-                archive.validate_descriptor(descriptor)
-            self.assertEqual(archive.validate_descriptor(descriptor, producer_events=frozenset({'workflow_run'})), descriptor)
+                archive.validate_descriptor(descriptor, producer_events=frozenset({'workflow_dispatch'}))
             approval = {'export_sha': 'd' * 40, 'export_run': 10, 'export_attempt': 1}
             automatic = {'head_sha': 'd' * 40, 'head_branch': 'qa', 'event': 'workflow_run'}
             with patch.object(archive, 'api', return_value=automatic), self.assertRaises(ValueError):
@@ -210,6 +225,145 @@ class ArchiveTests(unittest.TestCase):
         with patch.dict(archive.os.environ, env), patch.object(archive, 'api') as api, self.assertRaises(ValueError):
             archive.produce()
         api.assert_not_called()
+
+    def test_backend_publication_proof_exact_run_attempt_digest_and_images(self):
+        proof, data, digest = backend_proof()
+        self.assertEqual(archive.proof_zip(data, digest, 'a' * 40, 41, 2), proof)
+        for source, run_id, attempt, expected_digest in [
+            ('b' * 40, 41, 2, digest), ('a' * 40, 42, 2, digest),
+            ('a' * 40, 41, 1, digest), ('a' * 40, 41, 2, 'sha256:' + 'f' * 64),
+        ]:
+            with self.subTest(source=source, run_id=run_id, attempt=attempt, digest=expected_digest):
+                with self.assertRaises(ValueError):
+                    archive.proof_zip(data, expected_digest, source, run_id, attempt)
+        for change in ('missing_decoder', 'wrong_config', 'wrong_image', 'wrong_repository'):
+            altered = copy.deepcopy(proof)
+            if change == 'missing_decoder':
+                del altered['images']['decoder']
+            elif change == 'wrong_config':
+                altered['images']['runtime']['checkedImageId'] = 'sha256:bad'
+            elif change == 'wrong_image':
+                altered['images']['migration']['image'] = altered['images']['runtime']['image']
+            else:
+                altered['repository'] = 'attacker/fork'
+            memory = io.BytesIO()
+            with zipfile.ZipFile(memory, 'w') as zipped:
+                zipped.writestr(archive.PROOF_NAME, json.dumps(altered))
+            raw = memory.getvalue()
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                archive.proof_zip(raw, 'sha256:' + archive.sha256(raw), 'a' * 40, 41, 2)
+
+    def test_backend_publication_proof_rejects_failed_or_late_artifact(self):
+        source = 'a' * 40
+        _, data, digest = backend_proof(source)
+        run = {'id': 41, 'run_attempt': 2, 'head_sha': source, 'head_branch': 'qa',
+               'event': 'workflow_run', 'status': 'completed', 'conclusion': 'success',
+               'repository': {'full_name': archive.REPOSITORY},
+               'head_repository': {'full_name': archive.REPOSITORY},
+               'path': '.github/workflows/qa-backend-publication.yml',
+               'name': archive.NEW_PUBLICATION_NAME, 'run_started_at': '2026-09-26T00:00:00Z'}
+        jobs = {'total_count': 1, 'jobs': [{'name': archive.PUBLICATION_JOB,
+                'run_id': 41, 'run_attempt': 2, 'status': 'completed', 'conclusion': 'success'}]}
+        artifact = {'id': 88, 'name': f'backend-publication-proof-{source}-2',
+                    'expired': False, 'digest': digest,
+                    'workflow_run': {'id': 41, 'head_sha': source},
+                    'created_at': '2026-09-26T00:01:00Z'}
+        listing = {'total_count': 1, 'artifacts': [artifact]}
+        results = {'actions/runs/41/attempts/2': run,
+                   'actions/runs/41/attempts/2/jobs?per_page=100': jobs,
+                   'actions/runs/41/artifacts?per_page=100': listing}
+        with patch.object(archive, 'api', side_effect=lambda path, token: results[path]), \
+                patch.object(archive, 'download_publication_artifact', return_value=data) as download:
+            self.assertEqual(archive.publication_proof(source, 41, 2, '2026-09-26T00:02:00Z', 'token')['sourceSha'], source)
+            download.assert_called_once_with(88, 'token')
+            for change in ('failed_aggregate', 'wrong_attempt', 'late_artifact', 'duplicate_proof'):
+                altered = copy.deepcopy(results)
+                if change == 'failed_aggregate':
+                    altered['actions/runs/41/attempts/2/jobs?per_page=100']['jobs'][0]['conclusion'] = 'failure'
+                elif change == 'wrong_attempt':
+                    altered['actions/runs/41/attempts/2']['run_attempt'] = 3
+                elif change == 'late_artifact':
+                    altered['actions/runs/41/artifacts?per_page=100']['artifacts'][0]['created_at'] = '2026-09-26T00:03:00Z'
+                else:
+                    altered['actions/runs/41/artifacts?per_page=100']['artifacts'].append(dict(artifact))
+                    altered['actions/runs/41/artifacts?per_page=100']['total_count'] = 2
+                with self.subTest(change=change), patch.object(archive, 'api', side_effect=lambda path, token: altered[path]), self.assertRaises(ValueError):
+                    archive.publication_proof(source, 41, 2, '2026-09-26T00:02:00Z', 'token')
+
+    def test_automatic_export_uses_trigger_source_not_later_default_sha(self):
+        source, latest = 'a' * 40, 'b' * 40
+        proof, _, _ = backend_proof(source)
+        with tempfile.TemporaryDirectory() as temp:
+            event_path = Path(temp) / 'event.json'
+            event_path.write_text(json.dumps({'action': 'completed',
+                'repository': {'full_name': archive.REPOSITORY},
+                'workflow_run': {'head_sha': source, 'id': 41, 'run_attempt': 2,
+                    'head_branch': 'qa', 'event': 'workflow_run', 'status': 'completed',
+                    'conclusion': 'success', 'path': '.github/workflows/qa-backend-publication.yml',
+                    'name': archive.NEW_PUBLICATION_NAME,
+                    'repository': {'full_name': archive.REPOSITORY},
+                    'head_repository': {'full_name': archive.REPOSITORY}}}))
+            env = {'GITHUB_EVENT_NAME': 'workflow_run', 'GITHUB_REPOSITORY': archive.REPOSITORY,
+                   'GITHUB_REF': 'refs/heads/qa', 'GITHUB_SHA': latest,
+                   'GITHUB_RUN_ID': '90', 'GITHUB_RUN_ATTEMPT': '1',
+                   'GITHUB_EVENT_PATH': str(event_path), 'GITHUB_TOKEN': 'token'}
+            export = {'id': 90, 'run_attempt': 1, 'head_sha': latest, 'head_branch': 'qa',
+                      'event': 'workflow_run', 'path': '.github/workflows/backend-export.yml',
+                      'repository': {'full_name': archive.REPOSITORY},
+                      'head_repository': {'full_name': archive.REPOSITORY},
+                      'run_started_at': '2026-09-26T00:02:00Z'}
+            with patch.dict(archive.os.environ, env), patch.object(archive, 'api', return_value=export), \
+                    patch.object(archive, 'publication_proof', return_value=proof) as publication:
+                self.assertEqual(archive.resolve_automatic_publication(), proof['images'])
+                self.assertEqual(archive.os.environ['EXPORT_SOURCE_SHA'], source)
+                self.assertEqual(archive.os.environ['EXPORT_RUNTIME_DIGEST'], '1' * 64)
+                self.assertEqual(archive.os.environ['EXPORT_DECODER_DIGEST'], '3' * 64)
+                publication.assert_called_once_with(source, 41, 2, export['run_started_at'], 'token')
+            forged = json.loads(event_path.read_text())
+            forged['workflow_run']['path'] = '.github/workflows/backend-publish.yml'
+            event_path.write_text(json.dumps(forged))
+            with patch.dict(archive.os.environ, env), patch.object(archive, 'api') as api, self.assertRaises(ValueError):
+                archive.resolve_automatic_publication()
+            api.assert_not_called()
+
+    def test_automatic_archive_provenance_binds_proof_to_all_three_images(self):
+        with tempfile.TemporaryDirectory() as temp:
+            descriptor = build(Path(temp) / 'archive', version=2)
+            descriptor['producer']['event'] = 'workflow_run'
+            descriptor['verification_runs'] = {workflow: index + 1 for index, workflow
+                                               in enumerate(sorted(archive.FIVE_QA_WORKFLOWS))}
+            descriptor['verification_runs'][archive.NEW_PUBLICATION_WORKFLOW] = 41
+            approval = {'export_sha': 'd' * 40, 'export_run': 10, 'export_attempt': 1,
+                        'artifact_id': 11, 'artifact_sha256': 'sha256:' + 'e' * 64}
+            export = {'id': 10, 'run_attempt': 1, 'head_sha': 'd' * 40,
+                      'head_branch': 'qa', 'event': 'workflow_run', 'status': 'completed',
+                      'conclusion': 'success', 'path': '.github/workflows/backend-export.yml',
+                      'repository': {'full_name': archive.REPOSITORY},
+                      'head_repository': {'full_name': archive.REPOSITORY},
+                      'run_started_at': '2026-09-26T00:02:00Z'}
+            artifact = {'id': 11, 'expired': False, 'digest': approval['artifact_sha256'],
+                        'workflow_run': {'id': 10, 'head_sha': 'd' * 40},
+                        'name': f"backend-{'a' * 40}-10-1"}
+            proof = {'images': {role: {'image': value['image'],
+                                      'checkedImageId': value['config_id']}
+                                for role, value in descriptor['images'].items()}}
+            routes = {'actions/runs/10/attempts/1': export,
+                      'actions/artifacts/11': artifact,
+                      'actions/runs/41': {'id': 41, 'run_attempt': 2},
+                      f"compare/{'a' * 40}...{'d' * 40}": {
+                          'status': 'ahead', 'merge_base_commit': {'sha': 'a' * 40}}}
+            with patch.object(archive, 'api', side_effect=lambda path, token: routes[path]), \
+                    patch.object(archive, 'verify_source') as verify, \
+                    patch.object(archive, 'publication_proof', return_value=proof) as publication:
+                archive.verify_provenance(descriptor, approval, 'token')
+                verify.assert_called_once_with('a' * 40, descriptor['verification_runs'], 'token')
+                publication.assert_called_once_with('a' * 40, 41, 2, export['run_started_at'], 'token')
+                for role in ('runtime', 'migration', 'decoder'):
+                    altered = copy.deepcopy(proof)
+                    altered['images'][role]['checkedImageId'] = 'sha256:' + 'f' * 64
+                    publication.return_value = altered
+                    with self.subTest(role=role), self.assertRaises(ValueError):
+                        archive.verify_provenance(descriptor, approval, 'token')
 
     def test_supplied_runs_are_independently_verified_before_pull(self):
         env = {'EXPORT_SOURCE_SHA': 'a' * 40, 'GITHUB_SHA': 'b' * 40,
