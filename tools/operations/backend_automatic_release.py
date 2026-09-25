@@ -231,7 +231,18 @@ def fresh(r, archive):
     require(type(ref) is dict and ref.get('ref') == 'refs/heads/qa')
     head = ref.get('object', {}).get('sha')
     require(type(head) is str and SHA.fullmatch(head))
-    archive.verify_source(r['source_sha'], r['verification_runs'])
+    if set(r['verification_runs']) == NEW_WORKFLOWS:
+        # The publication attempt is pinned inside the independently verified
+        # archive descriptor, which is checked before activation. The current
+        # run-level response can describe a later rerun, so verify only the
+        # five exact push runs here.
+        for workflow in sorted(CURRENT_CHECKS):
+            run_id = r['verification_runs'][workflow]
+            item = archive.api(f'actions/runs/{run_id}')
+            require(type(item) is dict and item.get('id') == run_id)
+            archive.verify_run(item, r['source_sha'], workflow)
+    else:
+        archive.verify_source(r['source_sha'], r['verification_runs'])
     equivalent_backend_source(archive.api, r['source_sha'], head)
     current_qa_checks(archive.api, head, archive)
     # A later merge never silently changes the request's source or image. The
@@ -347,13 +358,20 @@ def verify_automatic_proof(r, descriptor, archive):
             and type(descriptor) is dict and descriptor.get('version') == 2
             and type(descriptor.get('producer')) is dict
             and descriptor['producer'].get('event') in ('workflow_run', 'workflow_dispatch')
+            and type(descriptor.get('publication')) is dict
+            and set(descriptor['publication']) == {'attempt', 'proof_digest'}
+            and type(descriptor['publication']['attempt']) is int
+            and descriptor['publication']['attempt'] > 0
+            and type(descriptor['publication']['proof_digest']) is str
+            and IMAGE.fullmatch(descriptor['publication']['proof_digest'])
             and type(descriptor.get('images')) is dict
             and set(descriptor['images']) == {'runtime', 'migration', 'decoder'}
             and callable(getattr(archive, 'publication_proof', None)))
     publication_id = r['verification_runs']['qa-backend-publication.yml']
-    publication = archive.api(f'actions/runs/{publication_id}')
+    publication_attempt = descriptor['publication']['attempt']
+    publication = archive.api(f'actions/runs/{publication_id}/attempts/{publication_attempt}')
     require(type(publication) is dict and publication.get('id') == publication_id
-            and type(publication.get('run_attempt')) is int and publication['run_attempt'] > 0
+            and publication.get('run_attempt') == publication_attempt
             and publication.get('head_sha') == r['source_sha'])
     a = r['archive']
     exported = archive.api(f"actions/runs/{a['export_run']}/attempts/{a['export_attempt']}")
@@ -363,7 +381,8 @@ def verify_automatic_proof(r, descriptor, archive):
             and exported.get('event') == descriptor['producer']['event']
             and type(exported.get('run_started_at')) is str)
     proof = archive.publication_proof(r['source_sha'], publication_id,
-                                      publication['run_attempt'], exported['run_started_at'], None)
+                                      publication_attempt, exported['run_started_at'], None,
+                                      expected_digest=descriptor['publication']['proof_digest'])
     require(type(proof) is dict and type(proof.get('images')) is dict
             and set(proof['images']) == {'runtime', 'migration', 'decoder'})
     for role in ('runtime', 'migration', 'decoder'):

@@ -93,8 +93,10 @@ The root-installed `/etc/rogichat/backend-automatic-request.json` contains exact
 - `verification_runs`: exact positive integer run IDs. The apply path requires
   `web.yml`, `backend.yml`, `mobile.yml`, `security.yml`, `infrastructure.yml`
   and `qa-backend-publication.yml` at the exact candidate source SHA. The five
-  push runs must succeed, and publication must pass its same-attempt aggregate,
-  marker and proof checks. The older four-run form is parsed for diagnostics
+  push runs must succeed, and publication must pass the descriptor-pinned
+  attempt's aggregate job and proof ZIP digest checks. A later rerun of the
+  publication run cannot silently change the accepted attempt. The older
+  four-run form is parsed for diagnostics
   only; it cannot activate through `--apply`.
 - `archive`: exactly `export_sha`, `export_run`, `export_attempt`, `artifact_id`,
   `artifact_sha256`, `runtime_config_id`, `execution_identity`,
@@ -107,7 +109,9 @@ The root-installed `/etc/rogichat/backend-automatic-request.json` contains exact
 Existing manual `backend-export.yml` provenance can be inspected without
 `--apply`; the activation path requires descriptor version 2 and independently
 replays the publication proof ZIP check for all three immutable image digests and
-config IDs, including recovery dispatch. The pinned archive
+config IDs, including recovery dispatch. The descriptor must contain exactly
+`publication: {attempt, proof_digest}`; the proof digest is measured over the
+original Actions artifact ZIP. The pinned archive
 verifier verifies the whole ZIP, raw registry manifests, config, rootfs, producer
 run/attempt, exact artifact digest/ID and QA ancestry. It parses migration archive
 bytes solely to validate this existing export format. **Only `runtime.tar` is
@@ -124,6 +128,10 @@ semantic. Existing exact-source contract CI also checks source SQL checksums.
 
 Automatic-export event support requires separately reviewing and pinning the
 proof-verifying archive verifier. This PR does not loosen producer checks.
+Before the archive descriptor is verified, the helper checks the five exact
+source push runs and current QA head checks. It verifies the publication's
+exact attempt and pinned proof during archive verification, then repeats the
+current-head checks immediately before activation.
 
 An unrelated QA merge after image publication may advance HEAD. The automatic
 helper reads complete immutable Git trees for the candidate and current QA

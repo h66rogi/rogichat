@@ -86,12 +86,14 @@ class AutomaticTests(unittest.TestCase):
         images = {role: {'image': 'ghcr.io/h66rogi/' + role + '@sha256:' + 'a' * 64,
                          'config_id': 'sha256:' + 'b' * 64}
                   for role in ('runtime', 'migration', 'decoder')}
-        descriptor = {'version': 2, 'producer': {'event': 'workflow_dispatch'}, 'images': images}
+        descriptor = {'version': 2, 'producer': {'event': 'workflow_dispatch'},
+            'publication': {'attempt': 2, 'proof_digest': 'sha256:' + 'c' * 64},
+            'images': images}
         archive = MagicMock()
         publication_id = r['verification_runs']['qa-backend-publication.yml']
         archive.api.side_effect = lambda path: (
             {'id': publication_id, 'run_attempt': 2, 'head_sha': r['source_sha']}
-            if path == f'actions/runs/{publication_id}' else
+            if path == f'actions/runs/{publication_id}/attempts/2' else
             {'id': 7, 'run_attempt': 2, 'head_sha': r['archive']['export_sha'],
              'event': 'workflow_dispatch', 'run_started_at': '2026-09-26T00:00:00Z'})
         archive.publication_proof.return_value = {'images': {
@@ -99,8 +101,11 @@ class AutomaticTests(unittest.TestCase):
             for role, value in images.items()}}
         auto.verify_automatic_proof(r, descriptor, archive)
         archive.publication_proof.assert_called_once_with(r['source_sha'], publication_id, 2,
-            '2026-09-26T00:00:00Z', None)
-        for bad in ('legacy', 'version', 'event', 'image', 'missing_verifier'):
+            '2026-09-26T00:00:00Z', None, expected_digest='sha256:' + 'c' * 64)
+        self.assertNotIn(f'actions/runs/{publication_id}',
+            [call.args[0] for call in archive.api.call_args_list])
+        for bad in ('legacy', 'version', 'event', 'image', 'missing_verifier',
+                    'missing_publication', 'bad_attempt', 'bad_digest'):
             with self.subTest(bad=bad):
                 changed_r, changed_d, changed_archive = copy.deepcopy(r), copy.deepcopy(descriptor), archive
                 if bad == 'legacy':
@@ -113,6 +118,12 @@ class AutomaticTests(unittest.TestCase):
                     changed_archive.publication_proof.return_value = {'images': {
                         **archive.publication_proof.return_value['images'],
                         'decoder': {'image': 'wrong', 'checkedImageId': 'sha256:' + 'b' * 64}}}
+                elif bad == 'missing_publication':
+                    del changed_d['publication']
+                elif bad == 'bad_attempt':
+                    changed_d['publication']['attempt'] = True
+                elif bad == 'bad_digest':
+                    changed_d['publication']['proof_digest'] = 'latest'
                 else:
                     changed_archive = MagicMock()
                     changed_archive.publication_proof = None
@@ -170,6 +181,27 @@ class AutomaticTests(unittest.TestCase):
         auto.fresh(request(),archive)
         archive.verify_source.assert_called_once_with(head,request()['verification_runs'])
         self.assertEqual(archive.verify_run.call_count,5)
+
+    def test_fresh_new_workflows_ignores_later_publication_rerun(self):
+        r=request()
+        r['verification_runs']={name:index+1 for index,name in enumerate(sorted(auto.NEW_WORKFLOWS))}
+        archive=MagicMock()
+        paths=[]
+        def api(path):
+            paths.append(path)
+            if path=='git/ref/heads/qa':
+                return {'ref':'refs/heads/qa','object':{'sha':r['source_sha']}}
+            if path.startswith('actions/workflows/'):
+                return {'total_count':1,'workflow_runs':[{'id':1}]}
+            for workflow in auto.CURRENT_CHECKS:
+                if path==f"actions/runs/{r['verification_runs'][workflow]}":
+                    return {'id':r['verification_runs'][workflow]}
+            self.fail(path)
+        archive.api.side_effect=api
+        auto.fresh(r,archive)
+        archive.verify_source.assert_not_called()
+        self.assertEqual(archive.verify_run.call_count,10)
+        self.assertNotIn(f"actions/runs/{r['verification_runs']['qa-backend-publication.yml']}",paths)
 
     def backend_tree(self, *, changed=None, added=None, truncated=False, mode='100644'):
         paths=auto.BACKEND_REQUIRED_INPUTS | {'apps/api/src/main.ts', 'patches/driver.patch',
