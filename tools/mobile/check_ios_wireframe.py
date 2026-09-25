@@ -12,6 +12,8 @@ from product_guards import inspect_product_sources
 from ios_dependencies import inspect_ios_dependencies
 
 ROOT = Path(__file__).resolve().parents[2]
+SELECTED = None
+SEEN = set()
 CONVERSATION_CONTRACTS = [
     "Packages/RogichatRooms/Sources/RogichatRooms/ConversationContract.swift",
     "Packages/RogichatRooms/Sources/RogichatRooms/ConversationSync.swift",
@@ -53,6 +55,8 @@ NATIVE_FEATURE_SOURCES = [
 
 
 def run_checks(sdk, directory, name, sources):
+    if not wanted(name):
+        return
     executable = directory / name
     subprocess.run([
         "xcrun", "--sdk", "macosx", "swiftc", "-sdk", sdk, "-swift-version", "6",
@@ -63,11 +67,21 @@ def run_checks(sdk, directory, name, sources):
     subprocess.run([str(executable)], check=True)
 
 
+def wanted(name):
+    SEEN.add(name)
+    return SELECTED is None or name in SELECTED
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--package-scratch", type=Path, default=ROOT / ".build/rooms-tests")
     parser.add_argument("--package-cache", type=Path, default=ROOT / ".build/swiftpm-cache")
+    parser.add_argument("--only", action="append", metavar="CHECK",
+                        help="Run one named check for fast local feedback; repeat for more checks")
     args = parser.parse_args()
+    global SELECTED
+    SELECTED = set(args.only) if args.only else None
+    SEEN.clear()
     inspect_ios_dependencies(ROOT)
     inspect_product_sources(platforms=("ios",))
     sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
@@ -187,19 +201,24 @@ def main():
             "Sources/Core/Realtime/RealtimeContract.swift", "Sources/Core/Realtime/NativeEngineIOState.swift",
             "Sources/Core/Realtime/RealtimeWebSocketRequest.swift", "Tests/Realtime/EngineIOChecks.swift",
         ])
-    subprocess.run([sys.executable, str(ROOT / "apps/ios/Tests/Realtime/run_transport_checks.py")], check=True)
+    if wanted("realtime-transport-checks"):
+        subprocess.run([sys.executable, str(ROOT / "apps/ios/Tests/Realtime/run_transport_checks.py")], check=True)
     # Run real on-disk SQLite/GRDB regressions on the macOS host. The device SDK
     # build separately validates iOS packaging; no simulator or app test mode.
-    subprocess.run([
-        "xcrun", "swift", "test", "--package-path", str(ROOT / "apps/ios/Packages/RogichatRooms"),
-        "--scratch-path", str(args.package_scratch.resolve()), "--force-resolved-versions",
-        "--cache-path", str(args.package_cache.resolve()), "--manifest-cache", "local",
-        "--jobs", "2", "-Xswiftc", "-strict-concurrency=complete",
-    ], check=True)
-    subprocess.run([
-        sys.executable, str(ROOT / "tools/mobile/check_ios_conversation_recovery.py"),
-        "--package-scratch", str(args.package_scratch.resolve()),
-    ], check=True)
+    if wanted("rooms-package-tests"):
+        subprocess.run([
+            "xcrun", "swift", "test", "--package-path", str(ROOT / "apps/ios/Packages/RogichatRooms"),
+            "--scratch-path", str(args.package_scratch.resolve()), "--force-resolved-versions",
+            "--cache-path", str(args.package_cache.resolve()), "--manifest-cache", "local",
+            "--jobs", "2", "-Xswiftc", "-strict-concurrency=complete",
+        ], check=True)
+    if wanted("conversation-recovery-checks"):
+        subprocess.run([
+            sys.executable, str(ROOT / "tools/mobile/check_ios_conversation_recovery.py"),
+            "--package-scratch", str(args.package_scratch.resolve()),
+        ], check=True)
+    if SELECTED is not None and (unknown := SELECTED - SEEN):
+        parser.error("Unknown check: " + ", ".join(sorted(unknown)))
 
 
 if __name__ == "__main__":
