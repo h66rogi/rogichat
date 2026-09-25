@@ -316,6 +316,7 @@ class ReleaseGuards(unittest.TestCase):
             release_ios._temporary_root(self.root)
         temporary.unlink()
         temporary.mkdir(mode=0o755)
+        temporary.chmod(0o755)  # A restrictive CI umask can otherwise create mode 700.
         with self.assertRaisesRegex(ValueError, "mode 700"):
             release_ios._temporary_root(self.root)
 
