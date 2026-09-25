@@ -33,6 +33,7 @@ struct AppShell<Content: View>: View {
     private var footer: some View {
         HStack(spacing: 0) {
             tabButton(.talks, symbol: "bubble.left.and.bubble.right.fill", label: "채팅")
+            tabButton(.channel, symbol: "music.note.house", label: "채널")
             tabButton(.settings, symbol: "ellipsis", label: "더보기")
         }
         .padding(.top, 11).padding(.bottom, 7)
@@ -60,6 +61,6 @@ struct AppShell<Content: View>: View {
     private func page(_ value: AppPage) -> some View {
         content(value)
             .navigationTitle(value.rawValue)
-            .navigationBarTitleDisplayMode([.settings, .rooms].contains(value) ? .large : .inline)
+            .navigationBarTitleDisplayMode([.settings, .rooms, .channel].contains(value) ? .large : .inline)
     }
 }

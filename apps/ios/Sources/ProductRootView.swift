@@ -128,6 +128,8 @@ struct ProductRootView: View {
     }
     @ViewBuilder private func destination(_ page: AppPage) -> some View {
         switch page {
+        case .channel:
+            ChannelDetailView(onTalk: { navigation.selectTab(.talks) })
         case .welcome:
             WelcomeScreen(methods: session.capabilities.signInMethods, busy: session.busy, errorMessage: session.errorMessage,
                           rulesURL: nativeEnvironment.rulesURL, onCancel: { Task { await session.cancelAuthentication() } }, onSignIn: { method, consent in

@@ -18,8 +18,10 @@ import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.fill.ChatCircle
 import com.adamglin.phosphoricons.fill.GearSix
+import com.adamglin.phosphoricons.fill.MusicNote
 import com.adamglin.phosphoricons.regular.ChatCircle
 import com.adamglin.phosphoricons.regular.GearSix
+import com.adamglin.phosphoricons.regular.MusicNote
 import com.adamglin.phosphoricons.regular.ArrowLeft
 
 // Adapted from the complete navigation bar/item and top-bar implementations.
@@ -44,6 +46,7 @@ fun AppNavigationBar(selected: AppTab, onSelect: (AppTab) -> Unit) {
                         verticalArrangement = Arrangement.Center) {
                         Icon(when (tab) {
                             AppTab.TALKS -> if (chosen) PhosphorIcons.Fill.ChatCircle else PhosphorIcons.Regular.ChatCircle
+                            AppTab.CHANNEL -> if (chosen) PhosphorIcons.Fill.MusicNote else PhosphorIcons.Regular.MusicNote
                             AppTab.SETTINGS -> if (chosen) PhosphorIcons.Fill.GearSix else PhosphorIcons.Regular.GearSix
                         }, contentDescription = tab.label, modifier = Modifier.size(28.dp), tint = color)
                     }

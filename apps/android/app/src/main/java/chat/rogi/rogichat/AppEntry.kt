@@ -32,6 +32,8 @@ import chat.rogi.rogichat.core.session.*
 import chat.rogi.rogichat.core.rooms.RoomsAccountScope
 import chat.rogi.rogichat.feature.auth.*
 import chat.rogi.rogichat.feature.rooms.*
+import chat.rogi.rogichat.feature.channel.ChannelDetailScreen
+import chat.rogi.rogichat.feature.channel.ChannelDetailViewModel
 import chat.rogi.rogichat.feature.settings.*
 
 /** The sole product composition for both QA and prod. Only build configuration differs. */
@@ -127,7 +129,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     val route = entry?.destination?.route
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(operation.error) { operation.error?.let { snackbar.showSnackbar(it); sessionModel.dismissError() } }
-    val topLevel = route in setOf(null, "talks", "settings")
+    val topLevel = route in setOf(null, "talks", "channel", "settings")
     val privateAccount = session.account.takeIf { session.access in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) }
     val showsSessionStatus = presentedDeletion.visible || authState.active || authState.error != null ||
         (session.validationNeedsRetry && privateAccount != null)
@@ -150,8 +152,8 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
         }
         }
     }, bottomBar = {
-        if (topLevel) AppNavigationBar(if (route == "settings") AppTab.SETTINGS else AppTab.TALKS) { tab ->
-            nav.navigate(if (tab == AppTab.TALKS) "talks" else "settings") {
+        if (topLevel) AppNavigationBar(when (route) { "channel" -> AppTab.CHANNEL; "settings" -> AppTab.SETTINGS; else -> AppTab.TALKS }) { tab ->
+            nav.navigate(when (tab) { AppTab.TALKS -> "talks"; AppTab.CHANNEL -> "channel"; AppTab.SETTINGS -> "settings" }) {
                 popUpTo(nav.graph.findStartDestination().id) { saveState = true }
                 launchSingleTop = true
                 restoreState = true
@@ -188,6 +190,13 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                         ShellAccess.ACCOUNT_CLOSING -> ScreenStatus("탈퇴 처리 중이에요", "탈퇴 처리 중에는 대화를 이용할 수 없어요.")
                     }
                 }
+            }
+            composable("channel") {
+                val repository = services.channel
+                if (repository != null) {
+                    val model: ChannelDetailViewModel = viewModel { ChannelDetailViewModel(repository) }
+                    ProductPage("채널", scroll = false) { ChannelDetailScreen(model) { open("talks") } }
+                } else ScreenStatus("채널을 불러올 수 없어요", "잠시 후 다시 시도해 주세요.")
             }
             composable("settings") {
                 val profileModel: ProfileViewModel? = if (privateAccount != null && services.profiles != null)

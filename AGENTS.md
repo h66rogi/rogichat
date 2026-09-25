@@ -74,12 +74,18 @@
 
 - For a review request, deliver the findings once the requested evidence is checked.
   Start implementation only when the user asks for a change or identifies a defect to fix.
+- Before a UI change, identify the reference behavior and the user-visible entry,
+  success, failure and recovery states. Verify the changed interaction with a
+  focused reproduction before expanding the test scope.
 - Use the changed paths to select focused local checks. Run independent checks in
   parallel when resources allow; rerun a full suite only when changed code or a
   concrete failure makes the prior result stale.
+- If a broad suite fails, reproduce and fix the failing test in isolation, then
+  run the broad suite once against the final source snapshot.
 - After publishing, follow the exact commit's CI and QA delivery receipt. Wait
   on the relevant dependency with a bounded check, then investigate a stalled
-  step. Do not repeatedly wait for unrelated tasks after the requested result
-  can be verified.
-- Report the elapsed time for validation, CI publication and QA delivery
+  step. Prepare independent release work while CI runs instead of serially
+  watching unrelated workflows. Do not repeatedly wait for unrelated tasks
+  after the requested result can be verified.
+- Report elapsed local validation, CI queue, CI execution and QA delivery time
   separately when evaluating speed. A faster CI run alone is not faster work.
