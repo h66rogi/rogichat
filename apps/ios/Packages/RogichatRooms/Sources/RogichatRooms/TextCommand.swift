@@ -56,11 +56,11 @@ public struct StoredTextCommand: Equatable, Identifiable, Sendable {
     public var notice: String {
         switch phase {
         case .queued, .sending: "보내는 중"
-        case .unknown: "저장 여부를 확인하지 못했어요. 다시 보내지 않고 확인할 수 있어요."
-        case .committed: "서버에 저장됨"
-        case .deleted: "삭제된 메시지"
+        case .unknown: "보내는 중"
+        case .committed: ""
+        case .deleted: ""
         case .rejected: "메시지를 보내지 못했어요."
-        case .blocked: "참여 상태가 변경되어 이 요청을 다시 보낼 수 없어요."
+        case .blocked: "메시지를 보내지 못했어요."
         }
     }
 }
@@ -111,14 +111,16 @@ public struct OutgoingAttachment: Codable, Equatable, Sendable {
     public let type: String
     public let assetIds: [String]?
     public let stickerId: String?
-    public init(type: String, assetIds: [String]? = nil, stickerId: String? = nil) throws {
-        self.type = type; self.assetIds = assetIds; self.stickerId = stickerId; try validate()
+    public let caption: String?
+    public init(type: String, assetIds: [String]? = nil, stickerId: String? = nil, caption: String? = nil) throws {
+        self.type = type; self.assetIds = assetIds; self.stickerId = stickerId; self.caption = caption; try validate()
     }
     public func validate() throws {
         switch type {
         case "PHOTO", "VIDEO":
             guard stickerId == nil, let assetIds, !assetIds.isEmpty, assetIds.count <= (type == "PHOTO" ? 4 : 1), Set(assetIds).count == assetIds.count, assetIds.allSatisfy(RoomsWire.uuid) else { throw ConversationError.invalidText }
-        case "STICKER": guard assetIds == nil, stickerId.map(RoomsWire.uuid) == true else { throw ConversationError.invalidText }
+            if let caption { guard (try? ConversationWire.normalizedText(caption)) == caption else { throw ConversationError.invalidText } }
+        case "STICKER": guard assetIds == nil, stickerId.map(RoomsWire.uuid) == true, caption == nil else { throw ConversationError.invalidText }
         default: throw ConversationError.invalidText
         }
     }

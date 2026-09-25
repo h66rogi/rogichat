@@ -12,9 +12,9 @@ internal fun storedMedia(value: String): MediaContent {
     fun text(key: String) = body.getValue(key).jsonPrimitive.let { require(it.isString); it.content }
     return when (val type = text("type")) {
         "PHOTO", "VIDEO" -> {
-            require(body.keys == setOf("type", "assetIds"))
+            require(body.keys == setOf("type", "assetIds") || body.keys == setOf("type", "assetIds", "caption"))
             val ids = body.getValue("assetIds").jsonArray.map { it.jsonPrimitive.let { item -> require(item.isString); RoomId(item.content).value } }
-            MediaContent.Attachment(MediaKind.valueOf(type), ids.map { MediaReceipt(it, MediaStatus.ready) })
+            MediaContent.Attachment(MediaKind.valueOf(type), ids.map { MediaReceipt(it, MediaStatus.ready) }, body["caption"]?.jsonPrimitive?.let { require(it.isString); it.content })
         }
         "STICKER" -> { require(body.keys == setOf("type", "stickerId")); MediaContent.Sticker(RoomId(text("stickerId")).value) }
         else -> error("invalid_media_command")

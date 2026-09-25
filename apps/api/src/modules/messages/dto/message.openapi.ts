@@ -9,15 +9,15 @@ export const message: Schema = object({
   counterpart: nullable(object({ actorId: uuid })),
   allowedActions: { ...object({ reply: boolean, publish: boolean, delete: boolean }), description: '현재 읽기 트랜잭션의 UI 힌트이며 실행 권한이나 성공을 보장하지 않습니다. reply는 PRIVATE 인용 초안입니다. 같은 메시지 version에서도 변할 수 있으며 모든 변경 요청은 재인가합니다.' },
   author: { oneOf: [object({ kind: enumeration('anonymous') }), object({ kind: enumeration('member'), actorId: uuid, nickname: text, avatar })] },
-  content: { oneOf: [textContent, object({ type: enumeration('PHOTO', 'VIDEO'), attachments: array(attachment) }),
+  content: { oneOf: [textContent, object({ type: enumeration('PHOTO', 'VIDEO'), attachments: array(attachment), caption: text }, ['type', 'attachments']),
     object({ type: enumeration('STICKER'), stickerId: uuid, assetId: uuid, width: integer, height: integer })] },
   reactions: object({ counts: array(object({ emoji: text, count: { ...integer, minimum: 1 } })), mine: nullable(text) }),
   quote: nullable(object({ id: uuid, authorName: text, content: object({ type: enumeration('TEXT'), text }) })),
 });
 const inputContent: Schema = { oneOf: [
   object({ type: enumeration('TEXT'), text: { type: 'string', minLength: 1, maxLength: 4000, description: 'NFC 정규화 후 비공백, 최대 4,000 코드포인트 및 UTF-8 16,384 bytes. NUL 금지.' } }),
-  object({ type: enumeration('PHOTO'), assetIds: { ...array(uuid), minItems: 1, maxItems: 4, uniqueItems: true } }),
-  object({ type: enumeration('VIDEO'), assetIds: { ...array(uuid), minItems: 1, maxItems: 1, uniqueItems: true } }),
+  object({ type: enumeration('PHOTO'), assetIds: { ...array(uuid), minItems: 1, maxItems: 4, uniqueItems: true }, caption: text }, ['type', 'assetIds']),
+  object({ type: enumeration('VIDEO'), assetIds: { ...array(uuid), minItems: 1, maxItems: 1, uniqueItems: true }, caption: text }, ['type', 'assetIds']),
   object({ type: enumeration('STICKER'), stickerId: uuid }),
 ] };
 const commonInput = { membershipScope: scopeToken, clientMessageId: uuid, quoteId: nullable(uuid), content: inputContent };

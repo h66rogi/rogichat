@@ -125,6 +125,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     @Volatile private var roomDirectory: RoomDirectory? = null
     private class RoomCommandTicket(val ticket: Ticket, val intent: RoomCommandIntent) { var reconciling = false }
     @Volatile private var activeRoomCommand: RoomCommandTicket? = null
+    private var roomCommandRetry: Pair<RoomCommandTicket, Job>? = null
     private val mutableRoomRefresh = MutableStateFlow(0L)
     override val roomRefreshRequests = mutableRoomRefresh.asStateFlow()
     private val mutableRoomCommands = MutableStateFlow(RoomCommandState())
@@ -304,7 +305,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 // An already invalid token is authoritative logout, not a retry or token refresh.
                 if (failure !is ApiException || failure.statusCode != 401) lock.withLock {
                     if (epoch == signedOutEpoch && !removalPending && credential == null) publish(ShellAccess.SIGNED_OUT,
-                        notice = "이 기기에서 로그아웃했어요. 서버의 로그인 종료는 확인하지 못했어요.")
+                        notice = "이 기기에서 로그아웃했어요.")
                 }
             }
         }
@@ -714,9 +715,12 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                         val own = mutable.value.account
                         epoch++; publish(ShellAccess.RESTORING); purgeRoomsLocked()
                         own?.let { publish(ShellAccess.LINK_REQUIRED, it.copy(soopConnected = false)) }
-                    } else mutableRoomCommands.value = mutableRoomCommands.value.copy(
-                        phase = if (failure is CancellationException) RoomCommandPhase.UNVERIFIED else RoomCommandPhase.RECONCILING,
-                        issue = roomCommandIssue(failure))
+                    } else {
+                        mutableRoomCommands.value = mutableRoomCommands.value.copy(
+                            phase = if (failure is CancellationException) RoomCommandPhase.UNVERIFIED else RoomCommandPhase.RECONCILING,
+                            issue = roomCommandIssue(failure))
+                        if (failure is CancellationException) scheduleRoomCommandVerification(command)
+                    }
                 }
             } } } catch (_: Exception) { return } // Durable teardown already publishes its storage error.
             if (failure !is CancellationException) resolveRoomCommand(command)
@@ -729,6 +733,23 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
         failure is ApiException && failure.statusCode == 404 -> RoomCommandIssue.NOT_FOUND
         failure is ApiException && failure.statusCode in setOf(400, 413) -> RoomCommandIssue.REJECTED
         else -> RoomCommandIssue.UNKNOWN
+    }
+    /** The original command is never replayed; only the membership manifest is read again. */
+    private fun scheduleRoomCommandVerification(command: RoomCommandTicket) {
+        if (roomCommandRetry?.first === command && roomCommandRetry?.second?.isActive == true) return
+        roomCommandRetry?.second?.cancel()
+        roomCommandRetry = command to roomCommandScope.launch {
+            var waitMs = 2_000L
+            while (isActive) {
+                delay(waitMs)
+                val state = lock.withLock {
+                    if (activeRoomCommand !== command) null else mutableRoomCommands.value.phase
+                } ?: return@launch
+                if (state == RoomCommandPhase.UNVERIFIED) recheckRoomCommand(command.intent.scope)
+                else if (state != RoomCommandPhase.RECONCILING) return@launch
+                waitMs = (waitMs * 2).coerceAtMost(30_000L)
+            }
+        }
     }
     override suspend fun recheckRoomCommand(scope: RoomsAccountScope): Result<Unit> = outcome {
         currentCoroutineContext().ensureActive()
@@ -760,6 +781,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 }, { failure ->
                     mutableRoomCommands.value = mutableRoomCommands.value.copy(phase = RoomCommandPhase.UNVERIFIED,
                         verificationIssue = if (failure is RoomsStorageException) RoomVerificationIssue.STORAGE else RoomVerificationIssue.UNAVAILABLE)
+                    scheduleRoomCommandVerification(command)
                 })
             }
         } catch (_: Exception) {
@@ -767,6 +789,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                 if (activeRoomCommand === command && current(command.ticket)) {
                     command.reconciling = false
                     mutableRoomCommands.value = mutableRoomCommands.value.copy(phase = RoomCommandPhase.UNVERIFIED, verificationIssue = RoomVerificationIssue.UNAVAILABLE)
+                    scheduleRoomCommandVerification(command)
                 }
             } }
         }

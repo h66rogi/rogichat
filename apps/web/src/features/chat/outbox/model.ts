@@ -3,7 +3,7 @@ import type { SendPayload } from '../commands';
 
 /** Frozen with the media/controller owner; only wire asset/catalog references are durable. */
 export type OutboxPayload = Omit<SendPayload, 'content'> & { readonly content:
-  Readonly<{ type: 'TEXT'; text: string }> | Readonly<{ type: 'PHOTO' | 'VIDEO'; assetIds: readonly string[] }> | Readonly<{ type: 'STICKER'; stickerId: string }> };
+  Readonly<{ type: 'TEXT'; text: string }> | Readonly<{ type: 'PHOTO' | 'VIDEO'; assetIds: readonly string[]; caption?: string }> | Readonly<{ type: 'STICKER'; stickerId: string }> };
 
 export const OUTBOX_LIMITS = Object.freeze({ records: 256, bytes: 2 * 1024 * 1024, payloadMs: 15 * 60_000, identityMs: 24 * 60 * 60_000 });
 export type OutboxErrorCode = 'LOCKED' | 'AUTHORITY_CHANGED' | 'STORAGE_FAILED' | 'UPDATE_REQUIRED' | 'CAPACITY' | 'INVALID_COMMAND' | 'RECEIPT_FIRST' | 'READ_ONLY';
@@ -43,7 +43,9 @@ export function normalizePayload(value: OutboxPayload): OutboxPayload {
   } else if (value.content.type === 'PHOTO' || value.content.type === 'VIDEO') {
     const assetIds = value.content.assetIds.map(uuid);
     if (assetIds.length < 1 || assetIds.length > (value.content.type === 'PHOTO' ? 4 : 1) || new Set(assetIds).size !== assetIds.length) throw new OutboxError('INVALID_COMMAND');
-    content = Object.freeze({ type: value.content.type, assetIds: Object.freeze(assetIds) });
+    const caption = value.content.caption?.normalize('NFC');
+    if (caption !== undefined && (!caption.trim() || caption.includes('\0') || [...caption].length > 4000 || new TextEncoder().encode(caption).length > 16384)) throw new OutboxError('INVALID_COMMAND');
+    content = Object.freeze({ type: value.content.type, assetIds: Object.freeze(assetIds), ...(caption === undefined ? {} : { caption }) });
   } else if (value.content.type === 'STICKER') content = Object.freeze({ type: 'STICKER', stickerId: uuid(value.content.stickerId) });
   else throw new OutboxError('INVALID_COMMAND');
   if (!['PRIVATE', 'SHARED', 'ROOM_OWNER'].includes(value.intent)) throw new OutboxError('INVALID_COMMAND');

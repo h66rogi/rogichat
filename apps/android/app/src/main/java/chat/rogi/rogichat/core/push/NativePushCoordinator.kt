@@ -56,7 +56,7 @@ class NativePushCoordinator(private val gateway: PushGateway, private val instal
                 mutable.value = DevicePushState(account, error = "기기에서 알림을 허용한 뒤 연결해 주세요."); return
             }
             if (!provider.available) {
-                mutable.value = DevicePushState(account, PushRegistrationState.UNAVAILABLE, error = "이 기기의 푸시 연결 설정을 사용할 수 없어요."); return
+                mutable.value = DevicePushState(account, PushRegistrationState.UNAVAILABLE, error = "이 기기에서는 알림을 켤 수 없어요."); return
             }
             val custody = installations.readOrCreate()
             val admitted = gateway.admitPush(account, custody); admitted.check()
@@ -65,7 +65,7 @@ class NativePushCoordinator(private val gateway: PushGateway, private val instal
                 NativePushContract.available(api.nativePushAdmitted(NativePushRoute.CAPABILITIES, token, null, gate))
             }
             lifecycle.bind(admitted.scope, permission(), available)
-            if (!available) { status(account, "지금은 푸시 연결을 사용할 수 없어요."); return }
+            if (!available) { status(account, "지금은 알림을 켤 수 없어요."); return }
             val fetch = lifecycle.beginTokenFetch() ?: return; request = fetch
             val device = provider.token(); admitted.check()
             if (permission() != PushPermission.AUTHORIZED || !lifecycle.tokenReceived(fetch, device)) return
@@ -89,7 +89,7 @@ class NativePushCoordinator(private val gateway: PushGateway, private val instal
         } catch (_: Exception) {
             request?.let(lifecycle::failed)
             // No replay. Any next explicit attempt first resolves the protected installation again.
-            if (mutable.value.account == account) status(account, "푸시 연결 결과를 확인하지 못했어요. 다시 확인해 주세요.")
+            if (mutable.value.account == account) status(account, "알림을 켜지 못했어요. 다시 시도해 주세요.")
         } finally { if (mutable.value.account == account && mutable.value.busy) mutable.value = mutable.value.copy(busy = false); lock.unlock() }
     }
     private fun authorizedAdmission(original: () -> Unit): () -> Unit = {
@@ -137,7 +137,7 @@ class NativePushCoordinator(private val gateway: PushGateway, private val instal
             try {
                 gateway.pushRequest(admitted) { api, token, gate -> api.removePushAdmitted(registered.id, token, NativePushContract.remove(custody, registered.generation), gate) }
                 lifecycle.bind(null, permission(), false); permit = null; binding = null
-                mutable.value = DevicePushState(account, error = "이 기기의 푸시 연결을 해제했어요. 계정 전체 알림 설정은 유지돼요.")
+                mutable.value = DevicePushState(account, error = "이 기기의 알림을 껐어요. 다른 기기의 알림은 유지돼요.")
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { status(account, "연결 해제 결과를 확인하지 못했어요. 다시 확인해 주세요.") }
             finally { if (mutable.value.account == account) mutable.value = mutable.value.copy(busy = false) }

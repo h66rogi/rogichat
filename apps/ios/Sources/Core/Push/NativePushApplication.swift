@@ -65,11 +65,11 @@ struct NativePushSection: View {
     var body: some View {
         Section {
             if busy { ProgressView("알림 설정 확인 중") }
-            if available == false { Text("현재 서버에서 기기 알림 등록을 지원하지 않아요.").foregroundStyle(.secondary) }
+            if available == false { Text("이 기기에서는 알림을 켤 수 없어요.").foregroundStyle(.secondary) }
             Button("이 기기에서 알림 받기") { Task { await enable() } }.disabled(busy || available == false)
             if let message { Text(message).font(.footnote).foregroundStyle(.secondary) }
-        } header: { Text("기기 등록 및 알림 켜기") }
-          footer: { Text("기기 알림 허용과 서버 등록을 확인한 뒤 계정 알림을 켭니다. 다른 기기와 웹에도 계정 설정이 적용돼요.") }
+        } header: { Text("알림") }
+          footer: { Text("알림을 허용하면 이 기기에서 새 메시지를 받을 수 있어요.") }
           .task {
               permission = await system.current()
               do { available = try await session.pushCapabilities(scope: scope).available }

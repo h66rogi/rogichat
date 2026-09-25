@@ -66,7 +66,8 @@ export class MessagesCoreService {
     else if (row.content_kind === 'STICKER') content = { type: 'STICKER', ...await this.stickers.messageContent(tx, row.room_id, row.id) };
     else if (row.content_kind === 'PHOTO' || row.content_kind === 'VIDEO') {
       const attachments = await this.repository.attachments(tx, row.room_id, row.id);
-      content = { type: row.content_kind, attachments: attachments.map(a => ({ assetId: String(a.id), width: Number(a.width), height: Number(a.height), variant: String(a.variant) })) };
+      content = { type: row.content_kind, attachments: attachments.map(a => ({ assetId: String(a.id), width: Number(a.width), height: Number(a.height), variant: String(a.variant) })),
+        ...(row.text_content === null ? {} : { caption: row.text_content }) };
     } else throw new ApiError('NOT_FOUND', 404);
     const hints = (await this.eligibility.project(tx, viewer, [row.id])).get(row.id)!;
     const reactions = (await this.queries.reactions(tx, viewer, [row.id])).get(row.id)!;

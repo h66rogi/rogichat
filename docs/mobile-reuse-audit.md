@@ -415,3 +415,11 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | ID | 원본·대상 | 재사용과 변경 경계 |
 |---|---|---|
 | R74 | meloming-ios build 26 시점 `d133fb4`의 `Meloming/Presentation/More/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `Presentation/Common/Components/NotificationButton.swift`, `Presentation/Navigation/MainTabView.swift` → `Sources/Features/Settings/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `NotificationButton.swift`, `Sources/Core/Design/AppShell.swift` | **원본 코드 복사 후 계약 수정**: `MoreView`의 `moreListView`/`listSections`/로그인 행/고정 헤더/앱 정보와 `ServiceGridSection`의 행·타일 코드, `ServiceItem` 모델, 알림 버튼의 색상·크기 코드를 파일·구조 그대로 가져왔다. 상위 `NavigationStack`은 기존 `AppShell`이 소유하므로 중복하지 않고, Kingfisher/인증·채널·배지·웹뷰·개발자 도구의 멜로밍 전용 코드와 8번째 전체보기 슬롯은 로기챗 실기능이 없어 제거했다. 프로필/로그아웃/탭/알림/서비스 목적지만 로기챗 세션과 QA·Prod 실제 경로로 바꿨다. 활성 최신 소스의 `MyPageView`를 1.2.3 화면으로 간주하지 않는다. |
+
+## 채팅 재진입·반응·첨부 UX 개선 — 2026-09-26
+
+| ID | 기존 기반 | 대상과 재사용·변경 경계 |
+|---|---|---|
+| R75 | R51·R52의 Rogichat `ConversationScreenModel`/`ConversationViewModel`, Room/GRDB 저장소와 보호 scope | **기존 구현 직접 확장**: 같은 권한의 대화 투영·초안·스크롤 위치를 유지하며 이벤트만 갱신한다. 새 인증 경로나 별도 화면용 저장소를 만들지 않았다. Messenger 수준의 재진입 요구는 기존 Meloming Talk/TalkV2 구조로 해결할 수 없고 사용자 제외 조건도 유지한다. |
+| R76 | R55·R64·R67의 기존 `AuthorizedMedia`/`MediaClient`/provider 이미지 경로와 최신 QA의 `MoreView` | **기존 전송 재사용 + 표시 캐시 추가**: 프로필 기본 이미지와 접근 범위가 묶인 제한된 이미지 캐시를 추가했다. 새 더보기 화면도 계정별 기본 이미지와 같은 계정 갱신 시 기존 프로필 표시를 유지한다. 기존 lease 검사와 종료 시 미디어 파일 삭제는 유지한다. 전역 URL 캐시나 새 이미지 SDK는 권한 철회 경계를 만족하지 않아 사용하지 않았다. |
+| R77 | R53·R54의 실제 사진/동영상 선택, R56·R57의 메시지 작업·반응, 기존 Rogichat 작성창 | **기존 구현 직접 확장**: 첨부 설명을 같은 메시지로 보내고 반응을 말풍선에서 표시·선택·취소한다. 신고·삭제 확인창의 대상 포착 방식은 유지한다. 새 서버 설명 필드는 웹의 엄격한 메시지 파서와 표시 흐름에도 연결했다. |
