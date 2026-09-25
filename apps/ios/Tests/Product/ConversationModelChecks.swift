@@ -4,7 +4,6 @@ private actor ModelConversation: ConversationCoordinating {
     nonisolated let scope: ConversationScope
     var value: ConversationListing
     private var pending: CheckedContinuation<ConversationListing, any Error>?
-    private var waiting: CheckedContinuation<Void, Never>?
     private var command: TextCommand?
     private var prewriteFailure = false
     private var readFailure = false
@@ -17,12 +16,18 @@ private actor ModelConversation: ConversationCoordinating {
     func send(_ command: TextCommand) async throws -> ConversationListing {
         guard !prewriteFailure else { throw ConversationError.persistence }
         sends += 1; self.command = command
-        return try await withCheckedThrowingContinuation { pending = $0; waiting?.resume(); waiting = nil }
+        return try await withCheckedThrowingContinuation { pending = $0 }
     }
     func reconcile() async throws -> ConversationListing { value }
     func containsCommand(_ id: String) async throws -> Bool { command?.id == id }
     func listing() async throws -> ConversationListing { try scope.check(); return value }
-    func wait() async { if pending != nil { return }; await withCheckedContinuation { waiting = $0 } }
+    func wait(_ stage: String) async {
+        let deadline = Date().addingTimeInterval(3)
+        while pending == nil {
+            precondition(Date() < deadline, "\(stage): send did not reach the conversation coordinator")
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+    }
     func failPrewrite(_ value: Bool) { prewriteFailure = value }
     func failRead() { readFailure = true }
     func lastCommand() -> TextCommand? { command }
@@ -65,7 +70,7 @@ private actor ModelConversation: ConversationCoordinating {
         await remote.failPrewrite(false)
         model.reply(to: original); check(model.privateTarget == peerID && model.quote?.id == messageID)
         model.send(); check(model.sending && !model.canSend)
-        await remote.wait()
+        await remote.wait("owner private text")
         check(await remote.lastCommand()?.intent == "PRIVATE")
         check(await remote.lastCommand()?.quoteID == messageID)
         model.send(); check(await remote.sends == 1)
@@ -75,7 +80,7 @@ private actor ModelConversation: ConversationCoordinating {
         check(model.listing?.commands.first?.phase == .unknown && model.error != nil)
         // A new draft typed while the owned command awaits must never be erased.
         let second = ModelConversation(scope: scope, value: listing([original])); let other = ConversationScreenModel(coordinator: second)
-        await other.load(); other.draft = "첫 메시지"; other.send(); await second.wait()
+        await other.load(); other.draft = "첫 메시지"; other.send(); await second.wait("owner shared text")
         check(await second.lastCommand()?.intent == "SHARED")
         other.draft = "다음 메시지"; await second.complete(.unknown); try await finish(other)
         check(other.draft == "다음 메시지")
@@ -86,7 +91,7 @@ private actor ModelConversation: ConversationCoordinating {
         let changed = try message(reply: false)
         await second.replace(listing([changed])); await other.refresh(); other.reply(to: original)
         check(other.quote == nil) // Old row closure cannot grant an action on a changed equal-version projection.
-        other.draft = "늦은 응답"; other.send(); await second.wait()
+        other.draft = "늦은 응답"; other.send(); await second.wait("owner late text")
         scope.invalidate(); await second.complete(.committed); try await finish(other)
         check(!other.active && other.listing == nil && other.draft.isEmpty && !other.canSend)
         check(await second.sends == 2)
@@ -95,30 +100,31 @@ private actor ModelConversation: ConversationCoordinating {
         let fan = ConversationScreenModel(coordinator: fanRemote)
         await fan.load(); fan.draft = "방장에게"
         check(fan.canSend && fan.targetName == "방장" && fan.sendAccessibilityLabel == "메시지 보내기")
-        fan.send(); await fanRemote.wait()
+        fan.send(); await fanRemote.wait("fan first text")
         check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
         check(await fanRemote.lastCommand()?.recipientActorID == nil)
         await fanRemote.complete(.unknown); try await finish(fan)
         fan.reply(to: original); check(fan.quote == nil)
-        fan.draft = "계속 방장에게"; fan.send(); await fanRemote.wait()
+        fan.draft = "계속 방장에게"; fan.send(); await fanRemote.wait("fan second text")
         check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
         check(await fanRemote.lastCommand()?.recipientActorID == nil)
         await fanRemote.complete(.committed); try await finish(fan)
         let attachment = Task { try await fan.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: messageID)) }
-        await fanRemote.wait(); check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
+        await fanRemote.wait("fan sticker"); check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
         await fanRemote.complete(.unknown); _ = try await attachment.value
-        let ownerMedia = ModelConversation(scope: scope, value: listing([original]))
+        let ownerScope = try Self.scope(mode: "FAN", role: "STREAMER")
+        let ownerMedia = ModelConversation(scope: ownerScope, value: listing([original]))
         let owner = ConversationScreenModel(coordinator: ownerMedia)
         await owner.load(); owner.reply(to: original)
         let privateAttachment = Task { try await owner.sendAttachment(OutgoingAttachment(type: "PHOTO", assetIds: [messageID])) }
-        await ownerMedia.wait()
+        await ownerMedia.wait("owner private photo")
         check(await ownerMedia.lastCommand()?.intent == "PRIVATE")
         check(await ownerMedia.lastCommand()?.recipientActorID == peerID)
         check(await ownerMedia.lastCommand()?.quoteID == messageID)
         await ownerMedia.complete(.committed); _ = try await privateAttachment.value
         check(owner.quote == nil)
         let sharedAttachment = Task { try await owner.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: messageID)) }
-        await ownerMedia.wait(); check(await ownerMedia.lastCommand()?.intent == "SHARED")
+        await ownerMedia.wait("owner shared sticker"); check(await ownerMedia.lastCommand()?.intent == "SHARED")
         await ownerMedia.complete(.committed); _ = try await sharedAttachment.value
         let withHistory = ConversationListing(messages: [original], commands: [], profiles: [], eventCursor: "events",
             historyCursor: "older", ready: true, profilesComplete: true, profileCursor: nil)
