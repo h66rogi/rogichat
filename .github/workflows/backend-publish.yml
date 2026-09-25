@@ -4,14 +4,18 @@ on:
   pull_request:
   push:
     branches: [qa]
+  workflow_call:
+    inputs:
+      source_sha:
+        type: string
+        required: true
 
 permissions: {}
 
 concurrency:
-  group: backend-publish-${{ github.event_name }}-${{ github.ref }}
-  # A later QA push must not interrupt an image whose source was already checked.
-  # Only superseded PR checks may be cancelled; the pending QA run catches up
-  # from the last successfully published backend source.
+  group: backend-publish-${{ github.event_name == 'pull_request' && github.ref || inputs.source_sha || github.sha }}
+  # A later QA source must not interrupt an image whose source was already checked.
+  # Only superseded PR checks may be cancelled. QA callers serialize by source SHA.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -42,6 +46,7 @@ jobs:
           docker image save "$image_id" | python3 tools/security/image_scan.py -
 
   changes:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/qa')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -67,7 +72,10 @@ jobs:
 
   publish:
     needs: changes
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push' && needs.changes.outputs.backend == 'true'
+    if: >-
+      always() && github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' &&
+      ((inputs.source_sha != '' && inputs.source_sha == github.sha) ||
+       (github.event_name == 'push' && needs.changes.result == 'success' && needs.changes.outputs.backend == 'true'))
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -77,16 +85,24 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ inputs.source_sha || github.sha }}
           persist-credentials: false
           fetch-depth: 0
+      - name: Reconfirm five exact QA checks without polling
+        if: inputs.source_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          GATE_REQUIRE_READY=true node tools/operations/qa_publication_gate.mjs
       - name: Public source guard before build and package authentication
         run: |
           python3 tools/security/install.py
           python3 tools/security/check.py all
       - name: Build runtime, migration and isolated decoder without registry credentials
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
           DOCKER_BUILDKIT: '1'
         run: |
           set -euo pipefail
@@ -114,11 +130,11 @@ jobs:
             "$((SECONDS - start))" "$(docker image inspect --format '{{.Size}}' "ghcr.io/h66rogi/rogichat-media-decoder:qa-$SOURCE_SHA")" >> "$GITHUB_STEP_SUMMARY"
       - name: Verify actual isolated decoder before registry authentication
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: python3 tools/operations/test_decoder_image.py "ghcr.io/h66rogi/rogichat-media-decoder:qa-$SOURCE_SHA"
       - name: Verify image isolation, entrypoints and graceful shutdown
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: |
           set -euo pipefail
           image="ghcr.io/h66rogi/rogichat-api:qa-$SOURCE_SHA"
@@ -194,7 +210,7 @@ jobs:
             adapt --config /etc/caddy/Caddyfile --adapter caddyfile --validate >/dev/null
       - name: Scan every image layer and metadata before registry authentication
         env:
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: |
           set -euo pipefail
           python3 tools/security/install.py
@@ -208,17 +224,24 @@ jobs:
             printf '%s\n' "$image_id" > "$RUNNER_TEMP/$repository.checked-id"
           done
           python3 tools/security/image_scan.py "${scan_args[@]}"
-      - name: Require successful verification of this exact QA push before publishing
+      - name: Require successful verification of this exact legacy QA push
+        if: inputs.source_sha == ''
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REPOSITORY: ${{ github.repository }}
         run: node tools/operations/verify_backend_publication_source.mjs
+      - name: Verify final QA ancestry before registry authentication
+        if: inputs.source_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+        run: node tools/operations/qa_publication_finalize.mjs
       - name: Publish only the checked images
         env:
           GHCR_TOKEN: ${{ github.token }}
           GHCR_USER: ${{ github.actor }}
-          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: |
           set -euo pipefail
           export DOCKER_CONFIG
@@ -226,21 +249,71 @@ jobs:
           cleanup() { docker logout ghcr.io >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
-          unset GHCR_TOKEN
+          : > "$RUNNER_TEMP/backend-published-images.tsv"
           for repository in rogichat-api rogichat-api-migration rogichat-media-decoder; do
             image="ghcr.io/h66rogi/$repository:qa-$SOURCE_SHA"
             checked_id=$(cat "$RUNNER_TEMP/$repository.checked-id")
             [[ "$checked_id" =~ ^sha256:[a-f0-9]{64}$ ]]
             test "$(docker image inspect --format '{{.Id}}' "$image")" = "$checked_id"
-            docker push "$image"
-            immutable=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
+            decision=$(node tools/operations/qa_registry_decide.mjs "$repository" "$SOURCE_SHA" "$checked_id")
+            read -r action existing_digest <<< "$decision"
+            if test "$action" = push; then
+              docker push "$image"
+              immutable=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
+            elif test "$action" = already-published; then
+              immutable="ghcr.io/h66rogi/$repository@$existing_digest"
+            else
+              echo 'Invalid publication decision' >&2
+              exit 1
+            fi
             if ! [[ "$immutable" =~ ^ghcr\.io/h66rogi/$repository@sha256:[a-f0-9]{64}$ ]]; then
               echo 'Published image did not resolve to the expected immutable repository digest' >&2
               exit 1
             fi
+            docker pull "$immutable"
+            test "$(docker image inspect --format '{{.Id}}' "$immutable")" = "$checked_id"
+            printf '%s\t%s\t%s\n' "$repository" "$immutable" "$checked_id" >> "$RUNNER_TEMP/backend-published-images.tsv"
             printf '%s\n' "$immutable" >> "$GITHUB_STEP_SUMMARY"
           done
+          unset GHCR_TOKEN
+          node --input-type=module <<'JS'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const repositories = new Map([
+            ['rogichat-api', 'runtime'],
+            ['rogichat-api-migration', 'migration'],
+            ['rogichat-media-decoder', 'decoder'],
+          ]);
+          const images = {};
+          for (const line of readFileSync(`${process.env.RUNNER_TEMP}/backend-published-images.tsv`, 'utf8').trim().split('\n')) {
+            const [repository, image, checkedImageId] = line.split('\t');
+            const role = repositories.get(repository);
+            if (!role || images[role]
+                || !new RegExp(`^ghcr\\.io/h66rogi/${repository}@sha256:[a-f0-9]{64}$`).test(image)
+                || !/^sha256:[a-f0-9]{64}$/.test(checkedImageId)) throw new Error('Invalid published backend image proof');
+            images[role] = { image, checkedImageId };
+          }
+          if (Object.keys(images).length !== 3 || !/^[a-f0-9]{40}$/.test(process.env.SOURCE_SHA)) {
+            throw new Error('Incomplete backend publication proof');
+          }
+          const proof = {
+            schemaVersion: 1,
+            repository: process.env.GITHUB_REPOSITORY,
+            sourceSha: process.env.SOURCE_SHA,
+            publicationRun: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            publicationAttempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+            platform: 'linux/amd64',
+            images,
+          };
+          writeFileSync(`${process.env.RUNNER_TEMP}/backend-publication-proof.json`, `${JSON.stringify(proof)}\n`);
+          JS
           printf '\nSource: `%s`\nPublication only; no cloud connection, migration or deployment was performed.\n' "$SOURCE_SHA" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        name: Upload exact backend image proof
+        with:
+          name: backend-publication-proof-${{ inputs.source_sha || github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/backend-publication-proof.json
+          if-no-files-found: error
+          retention-days: 90
       - name: Retain successfully published backend source
         env:
           SOURCE_SHA: ${{ github.sha }}
