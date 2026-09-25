@@ -5,6 +5,7 @@ import SwiftUI
 // AppShell owns NavigationStack; authentication and destinations use Rogichat's live session.
 struct MoreView: View {
     var accessSession: AppSession? = nil
+    let environment: NativeEnvironment
     let account: AccountSummary?
     let capabilities: SessionCapabilities
     let onOpen: (AppPage) -> Void
@@ -23,6 +24,9 @@ struct MoreView: View {
     @State private var profileRetry = 0
     @State private var signingOut = false
     @State private var signOutError: String?
+    @State private var versionTapCount = 0
+    @State private var lastVersionTapTime: Date?
+    @State private var showDeveloperTools = false
     @Environment(\.openURL) private var openURL
 
     private var appVersion: String {
@@ -79,6 +83,16 @@ struct MoreView: View {
                 }
             } message: {
                 Text("이 기기에서 로기챗 계정이 로그아웃됩니다.")
+            }
+            .sheet(isPresented: $showDeveloperTools) {
+                NavigationStack {
+                    DeveloperToolsView(environment: environment, session: accessSession)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button("닫기") { showDeveloperTools = false }
+                            }
+                        }
+                }
             }
             .task(id: [account?.id ?? "", account?.displayName ?? "", account?.avatarAssetID ?? "", String(profileRetry)]) {
                 if profile?.id != account?.id { profile = nil }
@@ -180,11 +194,6 @@ struct MoreView: View {
                     }
                 }
             }
-            if let accessSession {
-                Section { AccountAccessSettings(session: accessSession) }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            }
         }
 
         // App Section
@@ -201,6 +210,8 @@ struct MoreView: View {
                 Text(appVersion)
                     .foregroundColor(.secondary)
             }
+            .contentShape(Rectangle())
+            .onTapGesture { handleVersionTap() }
 
             Button { onOpen(.licenses) } label: {
                 HStack {
@@ -276,6 +287,21 @@ struct MoreView: View {
         case .native(let destination): onOpen(destination)
         case .talks: onSignIn()
         case .external(let url): openURL(url)
+        }
+    }
+
+    // Copied from meloming-ios d133fb4 MoreView.handleVersionTap().
+    private func handleVersionTap() {
+        let now = Date()
+        if let lastTap = lastVersionTapTime, now.timeIntervalSince(lastTap) > 2.0 {
+            versionTapCount = 0
+        }
+        lastVersionTapTime = now
+        versionTapCount += 1
+
+        if versionTapCount >= 7 {
+            versionTapCount = 0
+            showDeveloperTools = true
         }
     }
 }

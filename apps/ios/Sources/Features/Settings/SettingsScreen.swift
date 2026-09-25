@@ -46,7 +46,7 @@ struct OpenSourceLicensesScreen: View {
     }
 }
 
-private struct AccessCapabilities: Decodable {
+struct AccessCapabilities: Decodable {
     struct Admin: Decodable { let enabled: Bool; let manageTestAccess: Bool; let manageReviewers: Bool }
     struct Password: Decodable { let enabled: Bool }
     let chat: Bool; let admin: Admin; let password: Password
@@ -73,32 +73,29 @@ private func accessDate(_ value: String) -> Date? {
     format.formatOptions = [.withInternetDateTime]; return format.date(from:value)
 }
 
-// Same settings section/action/async retry pattern as the adapted Meloming hub.
+// Account security remains available to password users; admin actions live in DeveloperToolsView.
 struct AccountAccessSettings: View {
     let session: AppSession
     @State private var capabilities: AccessCapabilities?
     @State private var error: String?
     @State private var retry = 0
     @State private var showPassword = false
-    @State private var showAdmin = false
     var body: some View {
-        SettingsSection(title:"계정 보안") {
-            if let error { Text(error).font(.footnote).foregroundStyle(.secondary); Button("다시 확인") { retry += 1 } }
-            if let capabilities {
-                if capabilities.password.enabled {
+        Group {
+            if let error {
+                Section("계정 보안") {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                    Button("다시 확인") { retry += 1 }
+                }
+            } else if capabilities?.password.enabled == true {
+                Section("계정 보안") {
                     DisclosureGroup("비밀번호 변경",isExpanded:$showPassword) {
                         PasswordForm(changing:true,busy:session.busy) { input, _ in Task { await session.password(input) } }.padding(.top,12)
-                    }.padding()
+                    }
                 }
-                if capabilities.admin.enabled {
-                    DisclosureGroup("관리자",isExpanded:$showAdmin) {
-                        if capabilities.admin.manageTestAccess { RoomTestAccess(session:session) }
-                        else { Text("현재 사용할 수 있는 관리 권한이 없어요.").font(.footnote) }
-                    }.padding()
-                }
-                if !capabilities.password.enabled && !capabilities.admin.enabled { Text("연결된 로그인 계정은 계정 관리에서 확인할 수 있어요.").font(.footnote).foregroundStyle(.secondary).padding() }
-            } else if error == nil { ProgressView("계정 권한을 확인하는 중").padding() }
-        }.task(id:retry) {
+            }
+        }
+        .task(id:retry) {
             capabilities = nil; error = nil
             let generation = session.generation
             do { let data = try await session.accessRequest(.me,expected:generation); try Task.checkCancellation(); capabilities = try JSONDecoder().decode(AccessCapabilities.self,from:data) }
@@ -106,7 +103,7 @@ struct AccountAccessSettings: View {
         }
     }
 }
-private struct RoomTestAccess: View {
+struct RoomTestAccess: View {
     let session: AppSession
     @State private var room: AdminRooms.Room?
     @State private var role: RoomAccess?
