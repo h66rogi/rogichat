@@ -101,6 +101,10 @@ struct ConversationActionTransport: MessageActionTransport {
     private(set) var pendingMedia: [PendingMedia] = []
     private(set) var readyMedia: (PendingMedia, MediaReceipt)?
     private(set) var reactions: MessageReactions?
+    private var reactionByMessage: [String: MessageReactions] = [:]
+    private var reactionVersionByMessage: [String: String] = [:]
+    private var reactionProjectionByMessage: [String: ConversationReactions] = [:]
+    private var reactionLoading: Set<String> = []
     private(set) var viewport = MessageViewport()
     private(set) var move: ViewportMove = .none
     private var knownIDs: Set<String> = []
@@ -140,6 +144,16 @@ struct ConversationActionTransport: MessageActionTransport {
     func projectionChanged(_ listing: ConversationListing, history: Bool) {
         guard active else { close(); return }
         let ids = Set(listing.messages.map(\.id))
+        reactionByMessage = reactionByMessage.filter { ids.contains($0.key) }
+        reactionVersionByMessage = reactionVersionByMessage.filter { ids.contains($0.key) }
+        reactionProjectionByMessage = reactionProjectionByMessage.filter { ids.contains($0.key) }
+        for message in listing.messages {
+            if reactionVersionByMessage[message.id] != message.version.rawValue || reactionProjectionByMessage[message.id] != message.reactions {
+                reactionByMessage[message.id] = MessageReactions(counts: message.reactions.counts.map { ReactionCount(emoji: $0.emoji, count: $0.count) }, mine: message.reactions.mine)
+            }
+            reactionVersionByMessage[message.id] = message.version.rawValue
+            reactionProjectionByMessage[message.id] = message.reactions
+        }
         if let selectedProjection {
             let current = listing.messages.first { $0.id == selectedProjection.id }
             if current != selectedProjection {
@@ -181,6 +195,25 @@ struct ConversationActionTransport: MessageActionTransport {
             }
         } catch { failure(error) }
     }
+    func reactionsFor(_ id: String) -> MessageReactions? { _ = revision; return reactionByMessage[id] }
+    func loadReaction(_ message: ConversationMessage, force: Bool = false) async {
+        guard active, conversation.listing?.messages.contains(where: { $0.id == message.id }) == true,
+              !reactionLoading.contains(message.id), force || reactionByMessage[message.id] == nil else { return }
+        reactionLoading.insert(message.id)
+        defer { reactionLoading.remove(message.id) }
+        do {
+            let kind: String
+            switch message.content { case .text: kind = "TEXT"; case .photo: kind = "PHOTO"; case .video: kind = "VIDEO"; case .sticker: kind = "STICKER" }
+            let selection = ActionSelection(scope: actionScope, messageId: message.id, version: message.version.rawValue,
+                hints: ActionHints(delete: message.allowedActions.delete, publish: message.allowedActions.publish), contentKind: kind,
+                anonymous: message.author.actorID == nil, visibleActorId: message.author.actorID)
+            let result = try MessageActionWire.reactionResult(await perform(MessageActionWire.reactions(selection)))
+            guard active, conversation.listing?.messages.contains(where: { $0.id == message.id }) == true else { return }
+            reactionByMessage[message.id] = result
+            if actions.capture()?.selection.messageId == message.id { reactions = result }
+            revision += 1
+        } catch { /* Reactions are optional; keep the conversation available. */ }
+    }
     func refreshRead() async {
         guard readPosition.needsRefresh, let token = readPosition.capture() else { return }
         do { _ = try readPosition.accept(token, snapshot: MessageReadWire.snapshot(try await perform(MessageReadWire.get(actionScope)))) }
@@ -197,7 +230,7 @@ struct ConversationActionTransport: MessageActionTransport {
                 hints: ActionHints(delete: message.allowedActions.delete, publish: message.allowedActions.publish), contentKind: kind,
                 anonymous: message.author.actorID == nil, visibleActorId: message.author.actorID)
             try actions.select(value); selectedProjection = message
-            reactions = MessageReactions(counts: message.reactions.counts.map { ReactionCount(emoji: $0.emoji, count: $0.count) }, mine: message.reactions.mine)
+            reactions = reactionByMessage[message.id] ?? MessageReactions(counts: message.reactions.counts.map { ReactionCount(emoji: $0.emoji, count: $0.count) }, mine: message.reactions.mine)
             revision += 1
         } catch { failure(error) }
     }
@@ -205,7 +238,7 @@ struct ConversationActionTransport: MessageActionTransport {
         guard !busy else { return }
         select(message)
         guard let token else { return }
-        let remove = message.reactions.mine == emoji
+        let remove = (reactionByMessage[message.id]?.mine ?? message.reactions.mine) == emoji
         action(token, remove ? .removeReaction : .setReaction, emoji: remove ? nil : emoji)
     }
     func dismissActions() { actions.reset(); selectedProjection = nil; reactions = nil; revision += 1 }
@@ -219,7 +252,12 @@ struct ConversationActionTransport: MessageActionTransport {
             busy = true; revision += 1; error = nil
             actionTask = Task {
                 defer { self.busy = false; self.revision += 1; self.actionTask = nil }
-                do { try await self.apply(self.runner.execute(permit)) }
+                do {
+                    try await self.apply(self.runner.execute(permit))
+                    if action == .setReaction || action == .removeReaction, let message = self.selectedProjection {
+                        await self.loadReaction(message, force: true)
+                    }
+                }
                 catch { self.failure(error) }
             }
         } catch { failure(error) }
@@ -271,7 +309,8 @@ struct ConversationActionTransport: MessageActionTransport {
         guard let (pending, receipt) = readyMedia else { return }
         do {
             guard receipt.status == .ready else { throw MediaError.processing }
-            let command = try await conversation.sendAttachment(OutgoingAttachment(type: pending.kind.rawValue, assetIds: [receipt.assetId]))
+            let caption = conversation.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : conversation.draft
+            let command = try await conversation.sendAttachment(OutgoingAttachment(type: pending.kind.rawValue, assetIds: [receipt.assetId], caption: caption))
             if try await conversation.coordinator.containsCommand(command.id) {
                 try await uploader.acknowledged(pending.assetId); readyMedia = nil; pendingMedia.removeAll { $0.assetId == pending.assetId }
             }
@@ -282,9 +321,9 @@ struct ConversationActionTransport: MessageActionTransport {
         try await session.conversationData(.feature(ConversationFeatureRequest(method: request.method, path: request.path, body: request.body,
             expectedStatus: request.successStatus, query: request.query, admit: admit)), scope: conversation.scope)
     }
-    func close() { actions.reset(); readPosition.select(nil); viewport.reset(); selectedProjection = nil; readyMedia = nil; pendingMedia = []; reactions = nil; revision += 1 }
+    func close() { actions.reset(); readPosition.select(nil); viewport.reset(); selectedProjection = nil; readyMedia = nil; pendingMedia = []; reactions = nil; reactionByMessage = [:]; reactionVersionByMessage = [:]; reactionProjectionByMessage = [:]; reactionLoading = []; revision += 1 }
     private func failure(_ failure: any Error) {
         if !active { close() }
-        error = (failure as? LocalizedError)?.errorDescription ?? "작업을 완료하지 못했어요. 현재 상태를 다시 확인해 주세요."
+        error = (failure as? LocalizedError)?.errorDescription ?? "작업을 완료하지 못했어요. 다시 시도해 주세요."
     }
 }

@@ -18,7 +18,9 @@ data class ConversationActionState(val token: ActionViewToken, val record: Actio
                                    val busy: Boolean = false, val reactions: MessageReactions? = null, val error: String? = null)
 data class ConversationState(val loading: Boolean = true, val data: ConversationData? = null, val error: String? = null,
                              val sending: Boolean = false, val recipients: List<PrivateRecipient> = emptyList(),
-                             val recipientRevision: RoomId? = null, val recipientNext: RoomId? = null, val action: ConversationActionState? = null, val anchor: ScrollAnchor? = null)
+                             val recipientRevision: RoomId? = null, val recipientNext: RoomId? = null, val action: ConversationActionState? = null,
+                             val anchor: ScrollAnchor? = null, val reactions: Map<RoomId, MessageReactions> = emptyMap(),
+                             val authorityClosed: Boolean = false)
 class ConversationHandle internal constructor(val selection: ConversationSelection, internal val identity: String,
                                               val state: StateFlow<ConversationState>)
 data class TextSendIntent(val scope: ConversationScope, val command: TextCommand, val recipientRevision: RoomId?)
@@ -64,15 +66,12 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
     override fun open(selection: ConversationSelection): ConversationHandle {
         val entry = publication.serial { entries.computeIfAbsent(selection) { Entry(it) } }
         val handle = ConversationHandle(selection, entry.identity, entry.state.asStateFlow())
-        // A newly opened screen must not expose a cached C05 body/hint while its refresh waits.
-        // The session-owned command remains alive; refresh serializes behind its completion.
-        update(entry) { ConversationState(sending = entry.activeCommand != null) }
         owner.launch { refresh(handle) }
         return handle
     }
     /** Synchronous before any lifecycle await: no previous account frame survives a private-scope close. */
     fun invalidateAll() = publication.serial {
-        entries.values.forEach { it.retired = true; it.actions.reset(); it.reads.select(null); it.state.value = ConversationState(loading = false) }
+        entries.values.forEach { it.retired = true; it.actions.reset(); it.reads.select(null); it.state.value = ConversationState(loading = false, authorityClosed = true) }
         entries.clear()
     }
     private fun update(entry: Entry, change: (ConversationState) -> ConversationState) = publication.publish(
@@ -104,7 +103,13 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
         if (selected != null && data.messages.find { it.id.value == selected.messageId }?.let { actionSelection(entry, it) } != selected) {
             entry.actions.reset(); update(entry) { it.copy(action = null) }
         }
-        update(entry) { it.copy(data = data, loading = false, error = null) }
+        update(entry) { current ->
+            val previousMessages = current.data?.messages?.associateBy { it.id }.orEmpty()
+            current.copy(data = data, loading = false, error = null, authorityClosed = false,
+                reactions = data.messages.associate { message -> message.id to
+                    if (previousMessages[message.id]?.version == message.version && previousMessages[message.id]?.reactions == message.reactions)
+                        current.reactions[message.id] ?: message.reactions else message.reactions })
+        }
     }
     private fun message(failure: Exception) = when (failure) {
         is RoomsStorageException -> "기기에 대화를 저장하지 못했어요. 저장 공간을 확인하고 다시 시도해 주세요."
@@ -128,19 +133,40 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
     }
     override suspend fun refresh(handle: ConversationHandle) = guarded(handle) { entry ->
         if (entry.activeCommand != null) return@guarded
-        update(entry) { ConversationState() }
         entry.permit = gateway.admitConversation(entry.selection)
         replaceSnapshot(entry)
         recover(entry)
     }
-    private suspend fun replaceSnapshot(entry: Entry) {
-        update(entry) { ConversationState(sending = entry.activeCommand != null) }
-        entry.scope = commit(entry) { storage.beginConversation(entry.selection, it) }
-        val snapshot = request(entry) { api, token -> ConversationDtos.snapshot(api.getConversation(token, entry.selection.membership.roomId, ConversationRoute.SNAPSHOT, query(entry))) }
-        publish(entry, commit(entry) { storage.snapshot(requireNotNull(entry.scope), snapshot, it) })
+    private suspend fun replaceSnapshot(entry: Entry, force: Boolean = false) {
+        if (entry.scope == null || force) {
+            entry.scope = commit(entry) { if (force) storage.restartConversation(entry.selection, it) else storage.beginConversation(entry.selection, it) }
+            if (force) update(entry) { it.copy(reactions = emptyMap()) }
+        }
+        val scope = requireNotNull(entry.scope)
+        val restored = if (force) null else commit(entry) { storage.restore(scope, it) }
+        if (restored != null) {
+            publish(entry, restored)
+            syncEvents(entry)
+        } else {
+            if (entry.state.value.data == null) update(entry) { it.copy(loading = true) }
+            val snapshot = request(entry) { api, token -> ConversationDtos.snapshot(api.getConversation(token, entry.selection.membership.roomId, ConversationRoute.SNAPSHOT, query(entry))) }
+            publish(entry, commit(entry) { storage.snapshot(scope, snapshot, it) })
+        }
+        commit(entry) { storage.beginProfiles(scope, it) }
         loadProfiles(entry)
         loadReadContext(entry)
         if (entry.selection.membership.mode == RoomMode.FAN) recipients(entry, null)
+    }
+    private suspend fun syncEvents(entry: Entry) {
+        repeat(101) {
+            val cursor = entry.state.value.data?.eventsCursor ?: return
+            val page = request(entry) { api, token -> ConversationDtos.events(api.getConversation(token, entry.selection.membership.roomId, ConversationRoute.EVENTS, query(entry, cursor))) }
+            if (page is EventPage.Reset) { replaceSnapshot(entry, force = true); return }
+            page as EventPage.Success
+            publish(entry, commit(entry) { storage.events(requireNotNull(entry.scope), cursor, page, it) })
+            if (!page.hasMore) return
+        }
+        throw InvalidResponse()
     }
     private suspend fun loadProfiles(entry: Entry) {
         var cursor: SyncCursor? = null
@@ -156,19 +182,12 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
     }
     override suspend fun poll(handle: ConversationHandle) = guarded(handle) { entry ->
         if (entry.state.value.loading || entry.scope == null) return@guarded
-        repeat(101) {
-            val cursor = entry.state.value.data?.eventsCursor ?: return@guarded
-            val page = request(entry) { api, token -> ConversationDtos.events(api.getConversation(token, entry.selection.membership.roomId, ConversationRoute.EVENTS, query(entry, cursor))) }
-            if (page is EventPage.Reset) { reset(entry); return@guarded }
-            page as EventPage.Success
-            publish(entry, commit(entry) { storage.events(requireNotNull(entry.scope), cursor, page, it) })
-            if (!page.hasMore) return@guarded
-        }
-        throw InvalidResponse()
+        syncEvents(entry)
+        recover(entry)
     }
     private fun reset(entry: Entry) {
         entry.scope = null
-        update(entry) { ConversationState(loading = false, error = "대화의 권한 정보가 바뀌었어요. 대화 목록에서 다시 확인해 주세요.") }
+        update(entry) { ConversationState(loading = false, error = "대화의 참여 상태가 바뀌었어요. 대화 목록에서 다시 확인해 주세요.", authorityClosed = true) }
     }
     override suspend fun history(handle: ConversationHandle) = guarded(handle) { entry ->
         val cursor = entry.state.value.data?.historyCursor ?: return@guarded
@@ -209,7 +228,7 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
         if (receipt is CommandReceipt.Deleted && knownDeletedId == null) {
             // Deleted lookup with no mapping cannot identify an old visible row by text/time.
             // Withdraw that cache and obtain a fresh authoritative snapshot instead.
-            replaceSnapshot(entry)
+            replaceSnapshot(entry, force = true)
         } else if (receipt is CommandReceipt.Committed) {
             val message = try {
                 request(entry) { api, token -> ConversationDtos.message(api.getMessage(token, scope.selection.membership.roomId, receipt.messageId)) }
@@ -217,7 +236,6 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
                 if (failure.statusCode !in setOf(403, 404)) throw failure
                 // This endpoint can deny one message without withdrawing room authority.
                 publish(entry, commit(entry) { storage.unavailableProjection(scope, command, receipt.messageId, it) })
-                update(entry) { it.copy(error = "메시지 저장은 확인했지만 지금 내용을 볼 수 없어요.") }
                 return
             }
             if (message.id != receipt.messageId) throw InvalidResponse()
@@ -266,7 +284,7 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { update(entry) { it.copy(error = "기기에 대화 위치를 저장하지 못했어요.") } }
+            catch (_: Exception) { /* Scroll position is best effort; the conversation remains usable. */ }
         }
     }
     private fun actionSelection(entry: Entry, message: ConversationMessage): ActionSelection {
@@ -287,7 +305,7 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
     override suspend fun selectAction(handle: ConversationHandle, scope: ConversationScope, message: ConversationMessage) = guarded(handle) { entry ->
         if (entry.scope != scope || entry.state.value.data?.messages?.find { it.id == message.id } != message) return@guarded
         actions(entry) { entry.actions.select(actionSelection(entry, message)) }
-        showAction(entry, message.reactions)
+        showAction(entry, entry.state.value.reactions[message.id] ?: message.reactions)
     }
     override suspend fun closeAction(handle: ConversationHandle) {
         val entry = entry(handle)
@@ -316,7 +334,6 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
             result = MessageActionWire.result(permit.record.action, response.status, response.body)
         } catch (_: Exception) { /* Durable UNKNOWN remains; mutations never replay. */ }
         try {
-            if (result is ActionResult.Deleted || result is ActionResult.ActorBlocked) update(entry) { it.copy(data = null, recipients = emptyList()) }
             val effect = withContext(NonCancellable) { actions(entry) { entry.actions.finish(permit, result) } }
             if (effect is ActionEffect.ResetRoom) { reset(entry); return@withLock }
             if (effect is ActionEffect.AccessBlocked || effect is ActionEffect.Refresh) {
@@ -324,9 +341,13 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
                 // Reload the precise projection for mutable hints/reactions; receipt is independent evidence.
                 refreshActionProjection(entry, permit.record.selection)
             }
+            (result as? ActionResult.Reacted)?.reactions?.let { reactions ->
+                val id = RoomId(permit.record.selection.messageId)
+                update(entry) { it.copy(reactions = it.reactions + (id to reactions)) }
+            }
             showAction(entry, (result as? ActionResult.Reacted)?.reactions ?: entry.state.value.action?.reactions)
         } catch (failure: Exception) {
-            if (!entry.retired) update(entry) { it.copy(error = "요청 결과를 기기에 반영하지 못했어요. 현재 상태를 다시 확인해 주세요.") }
+            if (!entry.retired) update(entry) { it.copy(error = "메시지를 업데이트하지 못했어요. 다시 시도해 주세요.") }
         }
     }
     private suspend fun refreshActionProjection(entry: Entry, selected: ActionSelection) {
@@ -335,8 +356,7 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
         catch (failure: ApiException) {
             if (failure.statusCode !in setOf(403, 404)) throw failure
             // Per-message denial is neither a whole-room loss nor proof of physical deletion.
-            update(entry) { it.copy(data = null) }
-            replaceSnapshot(entry); return
+            replaceSnapshot(entry, force = true); return
         }
         val message = ConversationDtos.message(response); require(message.id == id)
         publish(entry, commit(entry) { storage.projection(requireNotNull(entry.scope), message, it) })
@@ -439,7 +459,11 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
                         publish(entry, commit(entry) { storage.current(intent.scope, it) })
                     } } catch (_: Exception) { /* A retired authority remains recoverable only after a fresh manifest. */ }
                     if (failure is ApiException && failure.statusCode in setOf(403, 404, 409)) reset(entry)
-                    else update(entry) { it.copy(error = "전송 결과를 확인하지 못했어요. 결과 확인은 메시지를 다시 보내지 않아요.") }
+                    else owner.launch {
+                        delay(2_000)
+                        try { reconcile(ConversationHandle(entry.selection, entry.identity, entry.state.asStateFlow())) }
+                        catch (_: Exception) { /* Foreground polling will continue reconciliation. */ }
+                    }
                 }
             } finally {
                 entry.activeCommand = null

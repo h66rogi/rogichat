@@ -37,11 +37,13 @@ data class MediaIntent(val kind: MediaKind, val contentType: String, val byteLen
 /** Only content; existing room outbox owns the SEND envelope, intent and idempotency key. */
 sealed interface MediaContent {
     fun json(): JsonObject
-    class Attachment(val kind: MediaKind, receipts: List<MediaReceipt>) : MediaContent {
+    class Attachment(val kind: MediaKind, private val receipts: List<MediaReceipt>, val caption: String? = null) : MediaContent {
         val assetIds = receipts.map { it.assetId }
         init { require(kind != MediaKind.AVATAR && receipts.all { it.status == MediaStatus.ready })
-            require(assetIds.size in 1..(if (kind == MediaKind.PHOTO) 4 else 1) && assetIds.distinct().size == assetIds.size) }
-        override fun json() = buildJsonObject { put("type", kind.name); put("assetIds", JsonArray(assetIds.map(::JsonPrimitive))) }
+            require(assetIds.size in 1..(if (kind == MediaKind.PHOTO) 4 else 1) && assetIds.distinct().size == assetIds.size)
+            require(caption == null || caption == chat.rogi.rogichat.core.conversation.TextCommand.normalizeText(caption)) }
+        fun withCaption(value: String?) = Attachment(kind, receipts, value)
+        override fun json() = buildJsonObject { put("type", kind.name); put("assetIds", JsonArray(assetIds.map(::JsonPrimitive))); caption?.let { put("caption", it) } }
     }
     class Sticker(val stickerId: String) : MediaContent {
         init { mediaId(stickerId) }

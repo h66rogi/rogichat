@@ -28,6 +28,15 @@ void test('snapshot message carries ready reaction counts and a named navigable 
   assert.deepEqual(item.quote, { messageId: fixture.anonymousPublisher.id, authorName: '원본 작성자', excerpt: '원문' });
 });
 
+void test('photo caption remains visible in the web timeline', () => {
+  const original = fixture.privateOutgoing;
+  const photo = message({ ...original, content: { type: 'PHOTO', attachments: [{ assetId: original.id, width: 24, height: 24, variant: 'image' }], caption: '사진 설명' } });
+  const item = projectMessages([photo], original.author.actorId, [])[0];
+  assert.equal(item?.kind, 'message');
+  if (item?.kind === 'message') assert.equal(item.body, '사진 설명');
+  assert.throws(() => message({ ...original, content: { ...photo.content, caption: '' } }));
+});
+
 void test('nested message allowlists reject private identities, extra hints and malformed media', () => {
   for (const mutate of [
     (m: typeof fixture.privateOutgoing) => { m.sourceId = m.id; },

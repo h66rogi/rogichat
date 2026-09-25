@@ -1,6 +1,7 @@
 package chat.rogi.rogichat.feature.media
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -31,8 +32,7 @@ fun AccountProfileAvatar(repository: AccountMediaRepository, expected: SessionId
             if (assetID != null) AuthorizedMedia(current.client, assetID, MediaAccess.Preview(MediaVariant.image), Modifier.fillMaxSize(), avatar = true)
             else AuthorizedProviderAvatar(current.client, modifier = Modifier.fillMaxSize())
         }
-        else if (failed) TextButton(onClick = { retry++ }) { Text("재시도") }
-        else CircularProgressIndicator(Modifier.size(24.dp))
+        else AvatarPlaceholder(Modifier.fillMaxSize().clickable(enabled = failed) { retry++ })
     }
 }
 
@@ -84,7 +84,7 @@ class AvatarSettingsModel(private val repository: AccountMediaRepository, privat
         mutable.value = state.value.copy(busy = true, error = null, applied = false)
         try { session.client.scope.check(); block(session) }
         catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { if (ticket == generation) mutable.value = state.value.copy(error = "사진 처리 결과를 확인하지 못했어요. 현재 상태를 확인해 주세요.") }
+        catch (_: Exception) { if (ticket == generation) mutable.value = state.value.copy(error = "사진을 적용하지 못했어요. 다시 시도해 주세요.") }
         finally {
             if (ticket == generation) {
                 try { mutable.value = state.value.copy(pending = repository.pending(session)) }
@@ -118,7 +118,7 @@ fun AvatarSettings(model: AvatarSettingsModel, profileBusy: Boolean, onApplied: 
             }
             MediaPicker(MediaKind.AVATAR, !state.busy && !profileBusy, session.client.scope, model::selected, { model.failure() })
             state.pending.filter { it.assetId != state.ready?.assetId }.forEach { pending ->
-                TextButton(enabled = !state.busy && !profileBusy, onClick = { model.recover(pending) }) { Text("이전에 올린 사진 상태 확인") }
+                TextButton(enabled = !state.busy && !profileBusy, onClick = { model.recover(pending) }) { Text("이전 사진 계속 사용하기") }
             }
             if (state.avatar != null || state.providerAvatarAvailable) TextButton(enabled = !state.busy && !profileBusy, onClick = { clear = true }) { Text("프로필 사진 지우기") }
         }

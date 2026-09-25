@@ -110,7 +110,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     val renderedDeletionReset = DeletionResetIntent.from(session, deletionState)
     var confirmDeletionReset by remember { mutableStateOf<DeletionResetIntent?>(null) }
     confirmDeletionReset?.let { original -> ConfirmationPrompt("이 기기의 계정 정보를 초기화할까요?",
-        "로그인 정보와 기기에 보관된 탈퇴 요청 기록이 지워져요. 이미 보낸 서버 요청을 취소하거나 접수 여부를 확인하는 작업이 아니에요.", "기기 정보 초기화",
+        "이 기기의 로그인 정보와 탈퇴 요청 내역이 지워져요. 이미 신청한 탈퇴는 취소되지 않아요.", "계정 정보 지우기",
         onDismiss = { confirmDeletionReset = null }, onConfirm = { confirmDeletionReset = null; sessionModel.resetDeletionData(original) }, enabled = !deletionState.busy) }
     var confirmReset by remember { mutableStateOf<SessionIdentity?>(null) }
     var confirmReauthentication by remember { mutableStateOf<SessionIdentity?>(null) }
@@ -244,7 +244,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                     selected.account.localEpoch == session.generation && selected.account.accountId == privateAccount?.id &&
                     selected.membership.roomId.value == backStack.arguments?.getString("roomId")) {
                     val model: ConversationViewModel = viewModel(key = "conversation-${selected.directoryCycle.value}-${selected.membership.roomId.value}") {
-                        ConversationViewModel(repository, selected)
+                        ConversationViewModel(repository, selected, navigation = conversationNavigation)
                     }
                     ProductPage(selected.membership.name, { nav.popBackStack() }, scroll = false) { ConversationScreen(model) }
                 } else if (session.access == ShellAccess.READY && roomContent != null) {

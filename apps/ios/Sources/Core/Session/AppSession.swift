@@ -67,7 +67,7 @@ enum ProductError: Error, LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .notificationPermission: "이 기기의 알림 허용 상태가 변경되었어요. 설정을 확인한 뒤 다시 선택해 주세요."
-        case .accountDeletionPending: "탈퇴 요청의 기기 정리를 먼저 완료해 주세요."
+        case .accountDeletionPending: "진행 중인 탈퇴 요청을 먼저 확인해 주세요."
         case .deletionHistoryFull: "기기에 저장된 탈퇴 요청 기록이 가득 찼어요. 새 요청은 보내지 않았어요."
         case .unavailable: "이 기능을 사용할 수 없어요."
         case .sessionChanged: "계정 상태가 변경되었어요. 다시 로그인해 주세요."
@@ -76,7 +76,7 @@ enum ProductError: Error, LocalizedError, Equatable {
         case .linkRequired: "SOOP 계정을 연결해 주세요."
         case .invalidResponse: "계정 정보를 확인하지 못했어요. 다시 시도해 주세요."
         case .secureStorage: "이 기기의 로그인 정보를 읽거나 변경하지 못했어요. 기기를 잠금 해제한 뒤 다시 시도해 주세요."
-        case .remoteLogoutUnconfirmed: "이 기기에서 로그아웃했어요. 서버의 로그인 종료는 확인하지 못했어요."
+        case .remoteLogoutUnconfirmed: "이 기기에서 로그아웃했어요."
         }
     }
 }
@@ -377,7 +377,7 @@ final class AppSession {
             guard ticket == generation else { return }
             deferredAuthCallback = nil // Returns received during destructive reset do not resume old proof.
             deletions = []; deletionError = nil; showDeletionHistory = false; currentDeletionID = nil
-            reset(); errorMessage = "이 기기의 로그인 정보와 접수 기록을 지웠어요. 서버 요청의 취소나 접수 확인은 하지 않았어요."
+            reset(); errorMessage = "이 기기의 계정 정보를 지웠어요. 이미 신청한 탈퇴는 취소되지 않아요."
         } catch {
             guard ticket == generation else { return }
             deferredAuthCallback = nil

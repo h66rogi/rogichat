@@ -80,6 +80,12 @@ test('projection has no mutable object or array aliases back to its read model',
   assert.equal(input.content.attachments.length, 1); assert.equal(input.quote.content.text, '원래 인용');
   assert.equal(input.createdAt.toISOString(), '2026-01-01T01:02:03.004Z');
 });
+test('media captions are projected only when present and private fields stay hidden', () => {
+  const content = { type: 'PHOTO', attachments: [{ assetId: 'asset', width: 100, height: 100, variant: 'image' }], caption: '사진 설명', objectKey: 'secret' };
+  assert.deepEqual(projectMessageDto(model({ content })).content,
+    { type: 'PHOTO', attachments: [{ assetId: 'asset', width: 100, height: 100, variant: 'image' }], caption: '사진 설명' });
+  assert.equal(JSON.stringify(projectMessageDto(model({ content }))).includes('secret'), false);
+});
 
 test('unsupported internal discriminants cannot silently create new response shapes', () => {
   assert.throws(() => projectMessageDto(model({ author: { kind: 'admin', userId: 'private-user' } })), /invalid_message_read_model/);

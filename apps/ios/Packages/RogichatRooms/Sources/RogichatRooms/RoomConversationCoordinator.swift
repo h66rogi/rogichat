@@ -68,15 +68,20 @@ public actor RoomConversationCoordinator: ConversationCoordinating {
     }
     private func refreshVisibleProjections() async throws {
         let messages = try listing().messages
-        for previous in messages {
-            do {
-                let current = try await read(ConversationMessage.self, .message(messageID: previous.id))
-                guard current.id == previous.id else { throw ConversationError.invalidResponse }
-                try database.applySingleMessage(current, scope: scope)
-            } catch ConversationError.notFound {
-                try database.hideProjection(messageID: previous.id, scope: scope)
-            } catch ConversationError.forbidden {
-                try database.hideProjection(messageID: previous.id, scope: scope)
+        for start in stride(from: 0, to: messages.count, by: 8) {
+            try await withThrowingTaskGroup(of: (String, ConversationMessage?).self) { group in
+                for previous in messages[start..<min(start + 8, messages.count)] {
+                    group.addTask {
+                        do { return (previous.id, try await self.read(ConversationMessage.self, .message(messageID: previous.id))) }
+                        catch ConversationError.notFound, ConversationError.forbidden { return (previous.id, nil) }
+                    }
+                }
+                for try await (id, current) in group {
+                    if let current {
+                        guard current.id == id else { throw ConversationError.invalidResponse }
+                        try database.applySingleMessage(current, scope: scope)
+                    } else { try database.hideProjection(messageID: id, scope: scope) }
+                }
             }
         }
     }
@@ -130,7 +135,7 @@ public actor RoomConversationCoordinator: ConversationCoordinating {
         return page
     }
     public func send(_ command: TextCommand) async throws -> ConversationListing {
-        guard sendTask == nil, !reading else { throw ConversationError.busy }
+        guard sendTask == nil else { throw ConversationError.busy }
         try scope.check()
         guard command.roomID == scope.room.id, command.membershipScope == scope.room.membershipScope else { throw ConversationError.staleScope }
         if let recipient = command.recipientActorID, command.quoteID == nil, !recipientCandidates.contains(recipient) { throw ConversationError.forbidden }

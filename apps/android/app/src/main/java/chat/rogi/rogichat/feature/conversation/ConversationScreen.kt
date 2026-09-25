@@ -5,17 +5,21 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
 import chat.rogi.rogichat.core.messageactions.ScrollAnchor
+import chat.rogi.rogichat.core.messageactions.MessageReactions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -128,25 +132,26 @@ fun ConversationScreen(model: ConversationViewModel) {
                 items(pending.asReversed(), key = { "pending-${it.command.clientMessageId.value}" }) { record ->
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
                         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                            Text(if (record.phase == OutboxPhase.COMMITTED) "메시지 저장이 확인되었어요." else record.command.media?.let { if (it is MediaContent.Sticker) "스티커" else "첨부 파일" } ?: record.command.text, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyLarge)
+                            Text(if (record.phase == OutboxPhase.COMMITTED) "메시지를 볼 수 없어요." else record.command.media?.let { if (it is MediaContent.Sticker) "스티커" else "첨부 파일" } ?: record.command.text, Modifier.padding(12.dp), style = MaterialTheme.typography.bodyLarge)
                         }
-                        Text(when (record.phase) {
-                            OutboxPhase.PREPARED, OutboxPhase.SENDING -> if (state.sending) "전송 중" else "전송 결과 확인 필요"
-                            OutboxPhase.COMMITTED -> if (record.errorCode == "PROJECTION_UNAVAILABLE") "저장됨 · 현재 내용 확인 불가" else "저장됨 · 내용 확인 필요"
-                            OutboxPhase.REJECTED -> "전송되지 않음"
-                            OutboxPhase.PARKED -> "이전 참여 상태의 요청 · 다시 보내지 않음"
-                            else -> "전송 결과 확인 필요"
-                        }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (record.phase in setOf(OutboxPhase.UNKNOWN, OutboxPhase.COMMITTED, OutboxPhase.SENDING, OutboxPhase.PREPARED))
-                            TextButton(onClick = model::reconcile, enabled = !state.sending) { Text("결과 확인") }
+                        if (record.phase != OutboxPhase.COMMITTED) Text(if (record.phase == OutboxPhase.REJECTED) "보내지 못했어요" else "보내는 중",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                items(data.messages.asReversed(), key = { it.id.value }) { message ->
+                val messages = data.messages.asReversed()
+                itemsIndexed(messages, key = { _, message -> message.id.value }) { index, message ->
+                    val older = messages.getOrNull(index + 1)
+                    val newer = messages.getOrNull(index - 1)
+                    val startsGroup = older == null || older.author != message.author || older.audience != message.audience ||
+                        java.time.Duration.between(older.createdAt, message.createdAt).toMinutes() >= 5
+                    val endsGroup = newer == null || newer.author != message.author || newer.audience != message.audience ||
+                        java.time.Duration.between(message.createdAt, newer.createdAt).toMinutes() >= 5
                     MessageBubble(message, (message.author as? MessageAuthor.Member)?.actorId == model.selection.membership.actorId, media?.client,
                         canReply = model.selection.membership.role == RoomRole.STREAMER, onReply = { model.reply(message, data.scope) },
                         onActions = { showActions = true; model.showActions(message, data.scope) },
                         onReaction = { emoji -> model.react(message, data.scope, emoji) }, onQuote = { quoteTarget = it },
-                        profile = data.profiles.find { it.actorId == (message.author as? MessageAuthor.Member)?.actorId })
+                        profile = data.profiles.find { it.actorId == (message.author as? MessageAuthor.Member)?.actorId },
+                        reactions = state.reactions[message.id] ?: message.reactions, showAuthor = startsGroup, showTime = endsGroup)
                 }
                 if (data.historyCursor != null) item { TextButton(onClick = model::history, modifier = Modifier.fillMaxWidth()) { Text("이전 메시지 보기") } }
                 if (data.messages.isEmpty() && pending.isEmpty()) item {
@@ -169,22 +174,24 @@ fun ConversationScreen(model: ConversationViewModel) {
                     }
                     if (draft.uploading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        val enabled = !draft.submitting && !draft.uploading && draft.text.isEmpty() && draft.media == null
+                        val enabled = !draft.submitting && !draft.uploading && draft.media == null
                         MediaPicker(MediaKind.PHOTO, enabled, media.client.scope, { model.upload(data.scope, it) }, { model.mediaFailure() })
                         MediaPicker(MediaKind.VIDEO, enabled, media.client.scope, { model.upload(data.scope, it) }, { model.mediaFailure() })
                         TextButton(onClick = { stickers = true }, enabled = enabled) { Text("스티커") }
                     }
                     data.pendingMedia.forEach { pending ->
-                        TextButton(onClick = { model.recoverMedia(data.scope, pending) }, enabled = !draft.uploading && !draft.submitting && draft.text.isEmpty()) {
-                            Text("${if (pending.kind == MediaKind.VIDEO) "동영상" else "사진"} 처리 상태 확인")
+                        TextButton(onClick = { model.recoverMedia(data.scope, pending) }, enabled = !draft.uploading && !draft.submitting) {
+                            Text("${if (pending.kind == MediaKind.VIDEO) "동영상" else "사진"} 계속 첨부")
                         }
                     }
                 }
                 OutlinedTextField(value = draft.text, onValueChange = model::text, modifier = Modifier.fillMaxWidth(), maxLines = 5,
-                    enabled = !draft.submitting && !draft.uploading && draft.media == null, placeholder = { Text(if (visibleQuote != null) "비공개 답장" else "전체 채팅에 메시지 보내기") },
-                    supportingText = draft.error?.let { { Text(it) } }, isError = draft.error != null)
+                    enabled = !draft.submitting && !draft.uploading && draft.media !is MediaContent.Sticker, placeholder = { Text(if (visibleQuote != null) "답장" else "메시지") },
+                    supportingText = { Text(draft.error ?: if (draft.text.codePointCount(0, draft.text.length) >= 3800) "${4000 - draft.text.codePointCount(0, draft.text.length)}자 남음" else "") }, isError = draft.error != null)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Button(onClick = { model.send(data.scope) }, enabled = !state.sending && !draft.submitting && !draft.uploading && (draft.text.isNotBlank() || draft.media != null) && (draft.quote == null || visibleQuote != null)) { Text("보내기") }
+                    Button(onClick = { model.send(data.scope) }, enabled = !state.sending && !draft.submitting && !draft.uploading &&
+                        (draft.media != null || runCatching { TextCommand.normalizeText(draft.text) }.isSuccess) &&
+                        (draft.quote == null || visibleQuote != null)) { Text("보내기") }
                 }
             }
         }
@@ -198,16 +205,20 @@ private fun ConversationMessage.textSummary() = when (val content = content) {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MessageBubble(message: ConversationMessage, own: Boolean, media: MediaClient?, canReply: Boolean, onReply: () -> Unit,
-                          onActions: () -> Unit, onReaction: (String) -> Unit, onQuote: (String) -> Unit, profile: ConversationProfile?) {
+                          onActions: () -> Unit, onReaction: (String) -> Unit, onQuote: (String) -> Unit,
+                          profile: ConversationProfile?, reactions: MessageReactions, showAuthor: Boolean, showTime: Boolean) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
         val author = when (val author = message.author) { MessageAuthor.Anonymous -> "익명"; is MessageAuthor.Member -> author.nickname }
-        if (media != null && profile != null && message.author is MessageAuthor.Member) {
+        if (showAuthor && !own) {
             val shape = Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
-            if (profile.avatar != null) chat.rogi.rogichat.feature.media.AuthorizedMedia(media, profile.avatar.value,
+            if (media != null && profile?.avatar != null && message.author is MessageAuthor.Member) chat.rogi.rogichat.feature.media.AuthorizedMedia(media, profile.avatar.value,
                 MediaAccess.Avatar(requireNotNull(media.scope.roomId), profile.actorId.value), shape, avatar = true)
-            else if (profile.providerAvatarAvailable) chat.rogi.rogichat.feature.media.AuthorizedProviderAvatar(media, modifier = shape, actorId = profile.actorId.value)
+            else if (media != null && profile?.providerAvatarAvailable == true) chat.rogi.rogichat.feature.media.AuthorizedProviderAvatar(media, modifier = shape, actorId = profile.actorId.value)
+            else AvatarPlaceholder(shape)
         }
-        Text(author + if (message.audience == "PRIVATE") " · 개인 대화" else "", style = MaterialTheme.typography.labelMedium,
+        if (showAuthor && !own) Text(author, style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (showAuthor && message.audience == "PRIVATE") Text("비공개", style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(shape = RoundedCornerShape(16.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
             Column(Modifier.padding(12.dp)) {
@@ -220,11 +231,16 @@ private fun MessageBubble(message: ConversationMessage, own: Boolean, media: Med
                 }
                 when (val content = message.content) {
                     is MessageContent.Text -> Text(message.textSummary(), style = MaterialTheme.typography.bodyLarge)
-                    is MessageContent.Media -> if (media != null) content.attachments.forEach { attachment ->
-                        AuthorizedMedia(media, attachment.assetId.value,
-                            MediaAccess.Message(requireNotNull(media.scope.roomId), message.id.value,
-                                if (content.type == "VIDEO") MediaVariant.video else MediaVariant.image), Modifier.widthIn(max = 320.dp).heightIn(max = 360.dp))
-                    } else Text(message.textSummary())
+                    is MessageContent.Media -> {
+                        if (media != null) content.attachments.forEach { attachment ->
+                            if (content.type == "VIDEO") VideoMessage(media, attachment.assetId.value,
+                                requireNotNull(media.scope.roomId), message.id.value)
+                            else AuthorizedMedia(media, attachment.assetId.value,
+                                MediaAccess.Message(requireNotNull(media.scope.roomId), message.id.value, MediaVariant.image),
+                                Modifier.widthIn(max = 320.dp).heightIn(max = 360.dp))
+                        } else Text(message.textSummary())
+                        content.caption?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                    }
                     is MessageContent.Sticker -> if (media != null) AuthorizedMedia(media, content.assetId.value,
                         MediaAccess.Sticker(requireNotNull(media.scope.roomId), content.stickerId.value, message.id.value), Modifier.size(120.dp))
                         else Text("스티커")
@@ -232,9 +248,9 @@ private fun MessageBubble(message: ConversationMessage, own: Boolean, media: Med
             }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            message.reactions.counts.forEach { reaction ->
+            reactions.counts.filter { it.count > 0 }.forEach { reaction ->
                 Surface(onClick = { onReaction(reaction.emoji) }, shape = RoundedCornerShape(14.dp),
-                    color = if (message.reactions.mine == reaction.emoji) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
+                    color = if (reactions.mine == reaction.emoji) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
                     Text("${reaction.emoji} ${reaction.count}", Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium)
                 }
             }
@@ -247,10 +263,24 @@ private fun MessageBubble(message: ConversationMessage, own: Boolean, media: Med
             }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(DateTimeFormatter.ofPattern("M월 d일 HH:mm").withZone(ZoneId.systemDefault()).format(message.createdAt), style = MaterialTheme.typography.labelSmall,
+            if (showTime) Text(DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(message.createdAt), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (canReply && !own && message.replyTarget != null) TextButton(onClick = onReply) { Text("답장") }
-            TextButton(onClick = onActions) { Text("메시지 메뉴") }
+            TextButton(onClick = onActions, modifier = Modifier.semantics { contentDescription = "메시지 작업" }) { Text("⋯") }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VideoMessage(client: MediaClient, assetId: String, roomId: String, messageId: String) {
+    var playing by remember(client.scope.presentationID, assetId, messageId) { mutableStateOf(false) }
+    Box(Modifier.width(260.dp).height(220.dp).clickable { playing = true }, contentAlignment = Alignment.Center) {
+        AuthorizedMedia(client, assetId, MediaAccess.Message(roomId, messageId, MediaVariant.poster), Modifier.fillMaxSize())
+        Text("▶", style = MaterialTheme.typography.displayMedium, color = androidx.compose.ui.graphics.Color.White,
+            modifier = Modifier.semantics { contentDescription = "동영상 재생" })
+    }
+    if (playing) ModalBottomSheet(onDismissRequest = { playing = false }) {
+        AuthorizedMedia(client, assetId, MediaAccess.Message(roomId, messageId, MediaVariant.video), Modifier.fillMaxWidth().height(320.dp))
     }
 }

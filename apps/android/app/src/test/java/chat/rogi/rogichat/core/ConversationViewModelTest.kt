@@ -68,7 +68,7 @@ class ConversationViewModelTest {
         runCurrent(); model.text("보내지 않은 내용"); model.reply(original, streamerScope)
         state.value = state.value.copy(data = data(original.copy(counterpart = CONVERSATION_ID))); runCurrent()
         assertNull(model.draft.value.quote); assertNull(model.draft.value.recipient)
-        state.value = ConversationState(loading = false); runCurrent()
+        state.value = ConversationState(loading = false, authorityClosed = true); runCurrent()
         assertEquals("", model.draft.value.text); assertNull(model.draft.value.quote)
     }
 }

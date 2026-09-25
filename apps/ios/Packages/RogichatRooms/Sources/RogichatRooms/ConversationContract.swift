@@ -90,9 +90,9 @@ public struct MessageAttachment: Codable, Equatable, Sendable {
     }
 }
 public enum MessageContent: Codable, Equatable, Sendable {
-    case text(String?), photo([MessageAttachment]), video([MessageAttachment])
+    case text(String?), photo([MessageAttachment], caption: String?), video([MessageAttachment], caption: String?)
     case sticker(stickerId: String, assetId: String, width: Int, height: Int)
-    enum CodingKeys: String, CodingKey, Hashable { case type, text, attachments, stickerId, assetId, width, height }
+    enum CodingKeys: String, CodingKey, Hashable { case type, text, attachments, caption, stickerId, assetId, width, height }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         switch try c.decode(String.self, forKey: .type) {
@@ -100,10 +100,12 @@ public enum MessageContent: Codable, Equatable, Sendable {
             guard Set(c.allKeys) == [.type, .text] else { throw ConversationError.invalidResponse }
             self = .text(try c.decodeIfPresent(String.self, forKey: .text))
         case "PHOTO", "VIDEO":
-            guard Set(c.allKeys) == [.type, .attachments] else { throw ConversationError.invalidResponse }
+            guard Set(c.allKeys).subtracting([.caption]) == [.type, .attachments] else { throw ConversationError.invalidResponse }
             let items = try c.decode([MessageAttachment].self, forKey: .attachments); let video = try c.decode(String.self, forKey: .type) == "VIDEO"
             guard !items.isEmpty, items.count <= (video ? 1 : 4), Set(items.map(\.assetId)).count == items.count else { throw ConversationError.invalidResponse }
-            self = video ? .video(items) : .photo(items)
+            let caption = try c.decodeIfPresent(String.self, forKey: .caption)
+            if let caption { guard (try? ConversationWire.normalizedText(caption)) == caption else { throw ConversationError.invalidResponse } }
+            self = video ? .video(items, caption: caption) : .photo(items, caption: caption)
         case "STICKER":
             guard Set(c.allKeys) == [.type, .stickerId, .assetId, .width, .height] else { throw ConversationError.invalidResponse }
             let sticker = try c.decode(String.self, forKey: .stickerId); let asset = try c.decode(String.self, forKey: .assetId); let width = try c.decode(Int.self, forKey: .width); let height = try c.decode(Int.self, forKey: .height)
@@ -116,8 +118,8 @@ public enum MessageContent: Codable, Equatable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch self {
         case .text(let text): try c.encode("TEXT", forKey: .type); try c.encode(text, forKey: .text)
-        case .photo(let items): try c.encode("PHOTO", forKey: .type); try c.encode(items, forKey: .attachments)
-        case .video(let items): try c.encode("VIDEO", forKey: .type); try c.encode(items, forKey: .attachments)
+        case .photo(let items, let caption): try c.encode("PHOTO", forKey: .type); try c.encode(items, forKey: .attachments); try c.encodeIfPresent(caption, forKey: .caption)
+        case .video(let items, let caption): try c.encode("VIDEO", forKey: .type); try c.encode(items, forKey: .attachments); try c.encodeIfPresent(caption, forKey: .caption)
         case .sticker(let id, let asset, let width, let height): try c.encode("STICKER", forKey: .type); try c.encode(id, forKey: .stickerId); try c.encode(asset, forKey: .assetId); try c.encode(width, forKey: .width); try c.encode(height, forKey: .height)
         }
     }

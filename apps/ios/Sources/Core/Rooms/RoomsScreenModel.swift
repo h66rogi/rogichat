@@ -111,7 +111,12 @@ final class RoomsScreenModel {
             actions.close(working: false)
             self.error = Self.message(error)
             if let failure = error as? RoomCommandReconciliationError {
-                if failure.outcome == .unknown { notice = "앞선 요청의 처리 결과는 확인하지 못했어요. 참여 상태를 다시 확인해 주세요." }
+                if failure.outcome == .unknown {
+                    Task {
+                        try? await Task.sleep(for: .seconds(2))
+                        if (try? scope.check()) != nil { await refresh() }
+                    }
+                }
                 else if let message = failure.outcome.notice { notice = message }
             }
         }

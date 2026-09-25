@@ -27,7 +27,7 @@ sealed interface MessageAuthor {
 }
 sealed interface MessageContent {
     data class Text(val text: String?) : MessageContent
-    data class Media(val type: String, val attachments: List<Attachment>) : MessageContent
+    data class Media(val type: String, val attachments: List<Attachment>, val caption: String? = null) : MessageContent
     data class Sticker(val stickerId: RoomId, val assetId: RoomId, val width: Int, val height: Int) : MessageContent
 }
 data class Attachment(val assetId: RoomId, val width: Int, val height: Int, val variant: String)
@@ -179,7 +179,7 @@ object ConversationDtos {
             is MessageContent.Text -> buildJsonObject { put("type", "TEXT"); put("text", content.text?.let(::JsonPrimitive) ?: JsonNull) }
             is MessageContent.Media -> buildJsonObject { put("type", content.type); put("attachments", buildJsonArray { content.attachments.forEach { attachment -> add(buildJsonObject {
                 put("assetId", attachment.assetId.value); put("width", attachment.width); put("height", attachment.height); put("variant", attachment.variant)
-            }) } }) }
+            }) } }); content.caption?.let { put("caption", it) } }
             is MessageContent.Sticker -> buildJsonObject { put("type", "STICKER"); put("stickerId", content.stickerId.value); put("assetId", content.assetId.value); put("width", content.width); put("height", content.height) }
         })
         put("quote", message.quote?.let { buildJsonObject { put("id", it.id.value); put("authorName", it.authorName); put("content", buildJsonObject { put("type", "TEXT"); put("text", it.text) }) } } ?: JsonNull)
@@ -203,7 +203,7 @@ object ConversationDtos {
             "PHOTO", "VIDEO" -> MessageContent.Media(type, content.list("attachments", if (type == "PHOTO") 4 else 1).map { item ->
                 val attachment = item.jsonObject
                 Attachment(attachment.id("assetId"), attachment.dimension("width"), attachment.dimension("height"), attachment.string("variant").also { require(it.isNotEmpty()) })
-            })
+            }, content["caption"]?.jsonPrimitive?.let { require(it.isString); TextCommand.normalizeText(it.content) })
             "STICKER" -> MessageContent.Sticker(content.id("stickerId"), content.id("assetId"), content.dimension("width"), content.dimension("height"))
             else -> error("unsupported_content")
         }

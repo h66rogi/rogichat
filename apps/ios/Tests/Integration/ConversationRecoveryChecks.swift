@@ -45,6 +45,9 @@ private actor RecoveryAPI: NativeRequesting, RoomsRequesting, ConversationReques
             case .snapshot:
                 calls.append("snapshot")
                 return try data(["schemaVersion": 2, "resetRequired": false, "membershipScope": Self.token(1), "authorizationRevision": Self.token(2), "messages": [], "nextCursor": "events-0", "historyCursor": NSNull()])
+            case .events(let cursor):
+                calls.append("events")
+                return try data(["schemaVersion": 2, "resetRequired": false, "membershipScope": Self.token(1), "authorizationRevision": Self.token(2), "events": [], "hasMore": false, "nextCursor": cursor])
             case .profiles:
                 calls.append("profiles")
                 return try data(["schemaVersion": 2, "resetRequired": false, "membershipScope": Self.token(1), "authorizationRevision": Self.token(2), "profiles": [], "generation": Self.token(5), "complete": true, "nextCursor": NSNull()])
