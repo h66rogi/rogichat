@@ -396,6 +396,8 @@ struct ConversationScreen: View {
     }
     private func jumpToQuote(_ id: String, proxy: ScrollViewProxy) async {
         quoteNotice = nil
+        composing = false
+        showStickers = false
         while !Task.isCancelled {
             if model.listing?.messages.contains(where: { $0.id == id }) == true {
                 withAnimation { proxy.scrollTo(id, anchor: .center) }
