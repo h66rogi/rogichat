@@ -31,7 +31,7 @@ sealed interface MessageContent {
     data class Sticker(val stickerId: RoomId, val assetId: RoomId, val width: Int, val height: Int) : MessageContent
 }
 data class Attachment(val assetId: RoomId, val width: Int, val height: Int, val variant: String)
-data class MessageQuote(val id: RoomId, val text: String)
+data class MessageQuote(val id: RoomId, val text: String, val authorName: String = "사용자")
 data class ConversationMessage(val id: RoomId, val version: MessageVersion, val createdAt: Instant,
                                val audience: String, val author: MessageAuthor, val content: MessageContent,
                                val quote: MessageQuote?, val counterpart: RoomId?, val actions: MessageActions,
@@ -182,13 +182,10 @@ object ConversationDtos {
             }) } }); content.caption?.let { put("caption", it) } }
             is MessageContent.Sticker -> buildJsonObject { put("type", "STICKER"); put("stickerId", content.stickerId.value); put("assetId", content.assetId.value); put("width", content.width); put("height", content.height) }
         })
-        put("reactions", buildJsonObject {
-            put("counts", buildJsonArray { message.reactions.counts.forEach { reaction -> add(buildJsonObject {
-                put("emoji", reaction.emoji); put("count", reaction.count)
-            }) } })
-            put("mine", message.reactions.mine?.let(::JsonPrimitive) ?: JsonNull)
-        })
-        put("quote", message.quote?.let { buildJsonObject { put("id", it.id.value); put("content", buildJsonObject { put("type", "TEXT"); put("text", it.text) }) } } ?: JsonNull)
+        put("quote", message.quote?.let { buildJsonObject { put("id", it.id.value); put("authorName", it.authorName); put("content", buildJsonObject { put("type", "TEXT"); put("text", it.text) }) } } ?: JsonNull)
+        put("reactions", buildJsonObject { put("mine", message.reactions.mine?.let(::JsonPrimitive) ?: JsonNull); put("counts", buildJsonArray {
+            message.reactions.counts.forEach { count -> add(buildJsonObject { put("emoji", count.emoji); put("count", count.count) }) }
+        }) })
     }.toString()
     private fun avatarJson(id: RoomId?): JsonElement = id?.let { buildJsonObject { put("assetId", it.value) } } ?: JsonNull
     private fun message(root: JsonObject): ConversationMessage {
@@ -211,7 +208,7 @@ object ConversationDtos {
             else -> error("unsupported_content")
         }
         val quote = root.getValue("quote").takeUnless { it == JsonNull }?.jsonObject?.let {
-            val quoted = it.getValue("content").jsonObject; require(quoted.string("type") == "TEXT"); MessageQuote(it.id("id"), quoted.string("text"))
+            val quoted = it.getValue("content").jsonObject; require(quoted.string("type") == "TEXT"); MessageQuote(it.id("id"), quoted.string("text"), if ("authorName" in it) it.string("authorName") else "사용자")
         }
         val counterpart = root.getValue("counterpart").takeUnless { it == JsonNull }?.jsonObject?.id("actorId")
         val actions = root.getValue("allowedActions").jsonObject

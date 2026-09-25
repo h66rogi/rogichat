@@ -395,6 +395,12 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 |---|---|---|
 | R69 | 기존 NativeDtos/NativeSessionDTO, SessionSnapshot/AppSession 세션 투영과 복원·재검증 | **기존 세션 구현 직접 확장**: 실제 서버 심사 권한을 SOOP 연결 사실과 분리한다. 멜로밍 로그인 화면의 자격증명 폼은 후속 폼 이식 대상이며, 로기챗의 REQUIRED+READY+chat 계약을 제공하지 않는 원본 세션 정책으로 대체하지 않는다. 백엔드가 권한을 결정하고 UI는 사실만 표시한다. |
 
+## 메시지 반응의 최초 표시와 인용 원문
+
+| ID | 원본 commit/path | 대상과 재사용 | 필요한 변경 |
+|---|---|---|---|
+| R69c | meloming-ios `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `Meloming/Presentation/TalkV2/CoreV2TalkRoomView.swift`의 반응 표시 및 `meloming-android` `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, `feature/talk/.../components/MessageBubble.kt` 확인 | Android/iOS 기존 Rogichat `ConversationMessage`, 캐시, `ConversationScreen`, 액션 전송을 직접 확장 | Meloming Talk/TalkV2 채팅 UX는 사용자 제외 범위라 이식하지 않는다. 기존 로기챗 API의 메시지별 `reactions`와 `quote.authorName`을 최초 응답과 캐시에 보존해 말풍선 아래 반응과 원문 이동을 구현한다. |
+
 ## 비밀번호 인증·계정 보안 확장
 
 | ID | 원본 commit/path | 대상과 재사용 | 필요한 변경 |

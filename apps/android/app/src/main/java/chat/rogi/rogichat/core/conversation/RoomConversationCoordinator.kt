@@ -12,9 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.sync.withPermit
 
 data class ConversationActionState(val token: ActionViewToken, val record: ActionRecord?, val unavailable: Set<MessageAction>,
                                    val busy: Boolean = false, val reactions: MessageReactions? = null, val error: String? = null)
@@ -39,7 +37,6 @@ interface ConversationRepository {
     suspend fun closeAction(handle: ConversationHandle): Unit = Unit
     suspend fun runAction(handle: ConversationHandle, token: ActionViewToken, action: MessageAction, emoji: String?, reason: ReportReason?): Unit = Unit
     suspend fun refreshAction(handle: ConversationHandle, token: ActionViewToken): Unit = Unit
-    suspend fun loadReaction(handle: ConversationHandle, scope: ConversationScope, message: ConversationMessage, force: Boolean = false): Unit = Unit
     fun media(handle: ConversationHandle, scope: ConversationScope): ConversationMedia? = null
     suspend fun send(handle: ConversationHandle, intent: TextSendIntent): Result<Unit>
 }
@@ -54,11 +51,9 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
         val journal = ActionJournalSlot(); val actions = MessageActionState(journal)
         val anchorStore = ScrollAnchorSlot(); val reads = MessageReadPosition(anchorStore)
         var wakeJob: Job? = null
-        val reactionLoading = mutableSetOf<RoomId>()
         var retired = false
     }
     private val publication = ConversationPublicationFence()
-    private val reactionRequests = Semaphore(4)
     private val entries = ConcurrentHashMap<ConversationSelection, Entry>()
     override fun wake() {
         entries.values.forEach { entry ->
@@ -109,10 +104,11 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
             entry.actions.reset(); update(entry) { it.copy(action = null) }
         }
         update(entry) { current ->
-            val previousVersions = current.data?.messages?.associate { it.id to it.version }.orEmpty()
+            val previousMessages = current.data?.messages?.associateBy { it.id }.orEmpty()
             current.copy(data = data, loading = false, error = null, authorityClosed = false,
                 reactions = data.messages.associate { message -> message.id to
-                    if (previousVersions[message.id] == message.version) current.reactions[message.id] ?: message.reactions else message.reactions })
+                    if (previousMessages[message.id]?.version == message.version && previousMessages[message.id]?.reactions == message.reactions)
+                        current.reactions[message.id] ?: message.reactions else message.reactions })
         }
     }
     private fun message(failure: Exception) = when (failure) {
@@ -309,29 +305,7 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
     override suspend fun selectAction(handle: ConversationHandle, scope: ConversationScope, message: ConversationMessage) = guarded(handle) { entry ->
         if (entry.scope != scope || entry.state.value.data?.messages?.find { it.id == message.id } != message) return@guarded
         actions(entry) { entry.actions.select(actionSelection(entry, message)) }
-        showAction(entry)
-        loadReaction(handle, scope, message, force = true)
-        showAction(entry, entry.state.value.reactions[message.id])
-    }
-    override suspend fun loadReaction(handle: ConversationHandle, scope: ConversationScope, message: ConversationMessage, force: Boolean) {
-        val entry = entry(handle)
-        if (entry.scope != scope || entry.state.value.data?.messages?.none { it.id == message.id } != false) return
-        if (!force && entry.state.value.reactions.containsKey(message.id)) return
-        if (!synchronized(entry.reactionLoading) { entry.reactionLoading.add(message.id) }) return
-        try {
-            reactionRequests.withPermit {
-                val selected = actionSelection(entry, message)
-                val response = request(entry) { api, bearer -> api.messageAction(bearer, MessageActionWire.reactions(selected)) }
-                if (response.status == 200) {
-                    val reactions = MessageActionWire.reactionResult(response.body)
-                    if (entry.scope == scope && entry.state.value.data?.messages?.any { it.id == message.id } == true) {
-                        update(entry) { it.copy(reactions = it.reactions + (message.id to reactions)) }
-                    }
-                }
-            }
-        } catch (cancelled: CancellationException) { throw cancelled }
-        catch (_: Exception) { /* The conversation stays usable if reactions cannot load. */ }
-        finally { synchronized(entry.reactionLoading) { entry.reactionLoading.remove(message.id) } }
+        showAction(entry, entry.state.value.reactions[message.id] ?: message.reactions)
     }
     override suspend fun closeAction(handle: ConversationHandle) {
         val entry = entry(handle)

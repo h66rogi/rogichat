@@ -19,6 +19,15 @@ internal val SCOPE_A = RoomScopeToken("B".repeat(42) + "A")
 internal fun messageProjection(id: RoomId = MESSAGE_ID, version: String = "7") = """{"id":"${id.value}","version":"$version","createdAt":"2026-09-20T00:00:00.000Z","audience":"SHARED","author":{"kind":"member","actorId":"${ACTOR_ID.value}","nickname":"이름","avatar":null},"content":{"type":"TEXT","text":"실제 본문"},"quote":null,"counterpart":null,"allowedActions":{"reply":true,"publish":false,"delete":false}}"""
 internal fun snapshotProjection() = """{"schemaVersion":2,"resetRequired":false,"membershipScope":"${SCOPE_M.value}","authorizationRevision":"${SCOPE_A.value}","messages":[${messageProjection()}],"nextCursor":"events-one","historyCursor":null}"""
 class ConversationContractTest {
+    @Test fun initialProjectionKeepsReactionsAndQuotedAuthorThroughCache() {
+        val source = messageProjection().replace("\"quote\":null", "\"quote\":{\"id\":\"${CONVERSATION_ID.value}\",\"authorName\":\"원문 작성자\",\"content\":{\"type\":\"TEXT\",\"text\":\"원문\"}}")
+            .replace("\"counterpart\":null", "\"reactions\":{\"counts\":[{\"emoji\":\"👍\",\"count\":3}],\"mine\":\"👍\"},\"counterpart\":null")
+        val message = ConversationDtos.message(source)
+        assertEquals("원문 작성자", message.quote?.authorName)
+        assertEquals(3L, message.reactions.counts.single().count)
+        assertEquals("👍", message.reactions.mine)
+        assertEquals(message, ConversationDtos.message(ConversationDtos.encode(message)))
+    }
     @Test fun roomOwnerCommandIsActorFreeAndRoundTripsThroughDurableOutbox() {
         val pending = ConversationDtos.message(messageProjection().replace("\"SHARED\"", "\"PRIVATE\"").replace("\"reply\":true", "\"reply\":false"))
         assertNull(pending.counterpart); assertNull(pending.replyTarget)
