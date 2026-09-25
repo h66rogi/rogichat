@@ -188,13 +188,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/security/install.py
-          python3 tools/security/test_image_scan.py
+          # The exact-source Security workflow runs the scanner tests. Its
+          # successful result is required below before registry authentication.
+          scan_args=()
           for repository in rogichat-api rogichat-api-migration rogichat-media-decoder; do
             image_id=$(docker image inspect --format '{{.Id}}' "ghcr.io/h66rogi/$repository:qa-$SOURCE_SHA")
             [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
-            docker image save "$image_id" | python3 tools/security/image_scan.py -
+            scan_args+=(--docker-image "$image_id")
             printf '%s\n' "$image_id" > "$RUNNER_TEMP/$repository.checked-id"
           done
+          python3 tools/security/image_scan.py "${scan_args[@]}"
       - name: Require successful verification of this exact QA push before publishing
         env:
           GH_TOKEN: ${{ github.token }}

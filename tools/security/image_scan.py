@@ -20,6 +20,7 @@ import struct
 import sys
 import tarfile
 import tempfile
+import time
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -154,6 +155,8 @@ class Scanner:
         self.allowed = {(x['sha256'], rule) for x in self.fixtures for rule in x['rules']}
         self.total = self.members = self.layers = self.suppressed = self.candidates = 0
         self.seen = set()
+        self.scanned_content = set()
+        self.pending_content = set()
         self.failures = []
         self.matched_fixtures = set()
         if any(not re.fullmatch('[a-f0-9]{64}', x['sha256']) or not isinstance(x['rules'], list) or not x['rules'] for x in self.fixtures):
@@ -182,17 +185,19 @@ class Scanner:
         if sha in self.seen:
             return
         self.seen.add(sha)
-        # Scan both raw printable strings and Unicode text (including UTF-16).
-        variants = [data.translate(ASCII)]
-        if data.startswith((b'\xff\xfe', b'\xfe\xff')):
-            variants.append(data.decode('utf-16', errors='replace').encode())
-        for pattern, encoding in ((rb'(?:[ -~]\x00){16,}', 'utf-16-le'), (rb'(?:\x00[ -~]){16,}', 'utf-16-be')):
-            runs = re.findall(pattern, data)
-            if runs:
-                variants.append(b'\n'.join(run.decode(encoding).encode() for run in runs))
-        for variant, text in enumerate(variants):
-            for offset in range(0, max(1, len(text)), CHUNK - OVERLAP):
-                (self.corpus / f'{sha}.{variant}.{offset}.txt').write_bytes(text[offset:offset + CHUNK])
+        if sha not in self.scanned_content:
+            # Scan both raw printable strings and Unicode text (including UTF-16).
+            variants = [data.translate(ASCII)]
+            if data.startswith((b'\xff\xfe', b'\xfe\xff')):
+                variants.append(data.decode('utf-16', errors='replace').encode())
+            for pattern, encoding in ((rb'(?:[ -~]\x00){16,}', 'utf-16-le'), (rb'(?:\x00[ -~]){16,}', 'utf-16-be')):
+                runs = re.findall(pattern, data)
+                if runs:
+                    variants.append(b'\n'.join(run.decode(encoding).encode() for run in runs))
+            for variant, text in enumerate(variants):
+                for offset in range(0, max(1, len(text)), CHUNK - OVERLAP):
+                    (self.corpus / f'{sha}.{variant}.{offset}.txt').write_bytes(text[offset:offset + CHUNK])
+            self.pending_content.add(sha)
         if not inspect:
             return
         structured = data.decode('utf-16', errors='replace').encode() if data.startswith((b'\xff\xfe', b'\xfe\xff')) else data
@@ -306,8 +311,14 @@ class Scanner:
         report.unlink()
         for file in self.corpus.iterdir():
             file.unlink()
+        self.scanned_content.update(self.pending_content)
+        self.pending_content.clear()
 
     def image(self, stream):
+        # Validate and enforce archive limits for every image independently.
+        # Only exact content already checked by Gitleaks is reused across images.
+        self.outer_members = self.total = self.members = self.layers = 0
+        self.seen.clear()
         members, layers, configs = {}, {}, {}
         manifest = None
         with tarfile.open(fileobj=LimitedReader(stream, MAX_TOTAL), mode='r|', tarinfo=BoundedTarInfo) as archive:
@@ -371,7 +382,8 @@ class Scanner:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('archive', help='docker image save archive, or - for stdin')
+    parser.add_argument('archive', nargs='*', help='docker image save archives, or - for stdin')
+    parser.add_argument('--docker-image', action='append', default=[], help='local immutable image ID to save and scan')
     parser.add_argument('--report', type=Path, help='optional private hash/rule diagnostics outside checkout; never upload')
     args = parser.parse_args()
     scanner = None
@@ -381,12 +393,36 @@ def main():
         with tempfile.TemporaryDirectory(prefix='rogichat-image-scan-') as directory:
             os.chmod(directory, 0o700)
             scanner = Scanner(directory)
-            if args.archive == '-':
-                scanner.image(sys.stdin.buffer)
-            else:
-                with open(args.archive, 'rb') as source:
-                    scanner.image(source)
-            print(f'Image scan passed: {scanner.layers} layers, {scanner.members} entries; {scanner.suppressed} exact reviewed fixture matches.')
+            if bool(args.archive) == bool(args.docker_image) or ('-' in args.archive and len(args.archive) != 1):
+                raise Blocked('select archive paths or local image IDs')
+            counts = []
+            for archive in args.archive:
+                started = time.monotonic()
+                if archive == '-':
+                    scanner.image(sys.stdin.buffer)
+                else:
+                    with open(archive, 'rb') as source:
+                        scanner.image(source)
+                counts.append((scanner.layers, scanner.members, round(time.monotonic() - started, 1)))
+            for image_id in args.docker_image:
+                if not re.fullmatch(r'sha256:[a-f0-9]{64}', image_id):
+                    raise Blocked('invalid local image ID')
+                started = time.monotonic()
+                process = subprocess.Popen(['docker', 'image', 'save', image_id], stdout=subprocess.PIPE,
+                                           stderr=subprocess.DEVNULL)
+                try:
+                    with process.stdout:
+                        scanner.image(process.stdout)
+                    if process.wait(timeout=30):
+                        raise Blocked('docker image save failed')
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.wait()
+                counts.append((scanner.layers, scanner.members, round(time.monotonic() - started, 1)))
+            print(f'Image scan passed: {len(counts)} images, {sum(x[0] for x in counts)} layers, '
+                  f'{sum(x[1] for x in counts)} entries; {scanner.suppressed} exact reviewed fixture matches; '
+                  f'per-image seconds: {[x[2] for x in counts]}.')
     except Exception as error:  # All failures stay sanitized, including unknown parser errors.
         # Neither archive-controlled filenames nor scanner output may reach CI logs.
         if args.report and not args.report.resolve().is_relative_to(ROOT) and scanner is not None:

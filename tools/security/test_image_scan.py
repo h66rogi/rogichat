@@ -4,6 +4,7 @@ import gzip
 from contextlib import redirect_stderr
 import io
 import json
+import os
 from pathlib import Path
 import secrets
 import subprocess
@@ -90,6 +91,54 @@ class ImageScanTests(unittest.TestCase):
     def test_normal_image_with_links_and_compressed_documentation(self):
         data = image([tar([('app/main.js', b'console.log("ready")'), ('usr/share/doc/readme.gz', gzip.compress(b'public documentation'))])])
         self.assertEqual(self.run_scan(data).layers, 1)
+
+    def test_batch_reuses_exact_content_but_checks_each_image(self):
+        shared = tar([('app/shared', b'public dependency')])
+        with tempfile.TemporaryDirectory() as work:
+            worker = scan.Scanner(work, fixtures=[])
+            worker.image(io.BytesIO(image([shared, tar([('app/first', b'first')])])))
+            worker.image(io.BytesIO(image([shared, tar([('app/second', b'second')])])))
+            self.assertEqual(worker.layers, 2)
+            self.assertEqual(worker.members, 2)
+            with self.assertRaisesRegex(scan.Blocked, '^secret findings require review$'):
+                worker.image(io.BytesIO(image([shared, tar([('app/secret', self.token())])])))
+
+    def test_batch_cli_checks_later_archive_without_exposing_findings(self):
+        shared = tar([('app/shared', b'public dependency')])
+        token = self.token()
+        with tempfile.TemporaryDirectory() as work:
+            first, second = Path(work) / 'first.tar', Path(work) / 'second.tar'
+            first.write_bytes(image([shared]))
+            second.write_bytes(image([shared, tar([('app/new', token)])]))
+            result = subprocess.run([sys.executable, str(Path(scan.__file__)), str(first), str(second)],
+                                    capture_output=True, timeout=30)
+            second.write_bytes(image([shared, tar([('app/new', b'public')])]))
+            passed = subprocess.run([sys.executable, str(Path(scan.__file__)), str(first), str(second)],
+                                    capture_output=True, timeout=30)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(b'content_findings', result.stderr)
+        self.assertNotIn(token, result.stdout + result.stderr)
+        self.assertEqual(passed.returncode, 0, passed.stderr)
+        self.assertIn(b'2 images', passed.stdout)
+
+    def test_local_image_id_scans_docker_save_stream(self):
+        with tempfile.TemporaryDirectory() as work:
+            directory = Path(work)
+            archive = directory / 'image.tar'
+            archive.write_bytes(image([tar([('app/main', b'public')])]))
+            docker = directory / 'docker'
+            docker.write_text('#!/usr/bin/env python3\n'
+                              'import os, sys\n'
+                              'if sys.argv[1:3] != ["image", "save"]: sys.exit(2)\n'
+                              'with open(os.environ["FAKE_IMAGE_ARCHIVE"], "rb") as source:\n'
+                              '    sys.stdout.buffer.write(source.read())\n')
+            docker.chmod(0o700)
+            env = {**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'],
+                   'FAKE_IMAGE_ARCHIVE': str(archive)}
+            result = subprocess.run([sys.executable, str(Path(scan.__file__)), '--docker-image',
+                                     'sha256:' + '0' * 64], capture_output=True, env=env, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b'1 images', result.stdout)
 
     def test_secret_in_removed_lower_layer(self):
         with self.assertRaises(scan.Blocked):
