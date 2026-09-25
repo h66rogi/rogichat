@@ -1,5 +1,6 @@
 """Release safety checks without account credentials or network requests."""
 import json
+import os
 from pathlib import Path
 import plistlib
 import shutil
@@ -109,7 +110,8 @@ class ReleaseGuards(unittest.TestCase):
         self.write()
         manifest_hash = sha256(self.path)
 
-        def xcode_upload(command, log):
+        def xcode_upload(command, log, *, env):
+            self.assertEqual(Path(env["TMPDIR"]), self.root / ".qa-temp")
             working = Path(command[command.index("-archivePath") + 1])
             self.assertNotEqual(working, archive)
             self.assertEqual(tree_sha256(working), self.value["archive_sha256"])
@@ -156,7 +158,8 @@ class ReleaseGuards(unittest.TestCase):
         self.write(); original_hash = tree_sha256(archive)
         cfg = {"ios": {**self.cfg["ios"], "key_id": "unit", "issuer_id": "unit", "key_file": str(self.root / "unit-key.p8")}}
         calls = []
-        def xcode_export(command, log):
+        def xcode_export(command, log, *, env):
+            self.assertEqual(Path(env["TMPDIR"]), self.root / ".qa-temp")
             calls.append(command)
             if command[0] != "xcodebuild": return
             working = Path(command[command.index("-archivePath") + 1])
@@ -187,7 +190,9 @@ class ReleaseGuards(unittest.TestCase):
         self.value.update(platform="ios", archive_path=str(archive), archive_sha256=tree_sha256(archive),
                           artifacts={"archive_info": {"path": str(info), "sha256": sha256(info)}})
         self.write(); before = self.path.read_bytes()
-        def corrupt_canonical(command, log): info.write_bytes(b"must not be trusted")
+        def corrupt_canonical(command, log, *, env):
+            self.assertEqual(Path(env["TMPDIR"]), self.root / ".qa-temp")
+            info.write_bytes(b"must not be trusted")
         with patch.object(release_ios, "AppStoreConnect") as apple, patch.object(release_ios, "unlock_signing"), \
                 patch.object(release_ios, "inspect_archive"), patch.object(release_ios, "inspect_ipa") as ipa, \
                 patch.object(release_ios, "run", side_effect=corrupt_canonical) as run:
@@ -280,6 +285,12 @@ class ReleaseGuards(unittest.TestCase):
             callback.assert_called_once()
             self.assertEqual(callback.call_args.args[1], b"test-only profile")
             self.assertEqual(callback.call_args.args[2], self.cfg)
+            temporary = self.root / ".qa-temp"
+            self.assertEqual(callback.call_args.kwargs["temporary_root"], temporary)
+            self.assertEqual(Path(signature.call_args.kwargs["env"]["TMPDIR"]), temporary)
+            self.assertEqual(temporary.stat().st_mode & 0o777, 0o700)
+            self.assertEqual(temporary.stat().st_uid, os.getuid())
+            self.assertEqual(list(temporary.iterdir()), [])
             self.assertEqual(signature.call_args.args[0][:4], ["codesign", "--verify", "--deep", "--strict"])
         with self.assertRaisesRegex(ValueError, "CFBundleVersion"):
             inspect_ipa(ipa, 8, "0.1.0", self.cfg)
@@ -295,6 +306,18 @@ class ReleaseGuards(unittest.TestCase):
             archive.writestr("Payload/App.app/PrivacyInfo.xcprivacy", plistlib.dumps(EXPECTED_IOS_PRIVACY))
         with self.assertRaisesRegex(ValueError, "retired demo content"):
             inspect_ipa(ipa, 7, "0.1.0", self.cfg)
+
+    def test_qa_temp_rejects_symlink_and_permissive_directory(self):
+        target = self.root / "outside"
+        target.mkdir()
+        temporary = self.root / ".qa-temp"
+        temporary.symlink_to(target, target_is_directory=True)
+        with self.assertRaisesRegex(ValueError, "private directory"):
+            release_ios._temporary_root(self.root)
+        temporary.unlink()
+        temporary.mkdir(mode=0o755)
+        with self.assertRaisesRegex(ValueError, "mode 700"):
+            release_ios._temporary_root(self.root)
 
     def test_reintroduced_demo_apk_is_rejected_before_signing_checks(self):
         with zipfile.ZipFile(self.artifact, "w") as archive:
