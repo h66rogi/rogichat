@@ -59,21 +59,16 @@ export class ChatController {
   private readonly recoverySeen = new Map<string, number>();
   private readonly unpersisted = new Set<string>();
   private completeRooms: OutboxRoom[] = [];
-  private storageMessage(error: unknown): string {
-    const code = error instanceof OutboxError ? error.code : 'STORAGE_FAILED';
-    return code === 'AUTHORITY_CHANGED' ? '잠시 후 메시지를 보낼 수 있어요. 작성 중인 내용은 남아 있어요.'
-      : code === 'UPDATE_REQUIRED' ? '메시지를 보내려면 화면을 새로고침해 주세요. 작성 중인 내용은 남아 있어요.'
-      : code === 'CAPACITY' ? '지금은 새 메시지를 보낼 수 없어요. 잠시 후 다시 시도해 주세요.'
-      : '지금은 메시지를 보낼 수 없어요. 작성 중인 내용은 남아 있어요.';
-  }
+  private readonly draftSizeNotice = '작성 중인 메시지가 너무 길어요. 내용을 줄여 주세요.';
+  private storageMessage(): string { return '메시지를 잠시 보낼 수 없어요.'; }
   private clearStorageRetry() {
     if (this.storageRetryTimer !== null) clearTimeout(this.storageRetryTimer);
     this.storageRetryTimer = null;
   }
-  private reportStorageError(error: unknown) {
-    this.publish({ storageError: this.storageMessage(error) });
-    if (!(error instanceof OutboxError) || error.code !== 'AUTHORITY_CHANGED' || !this.storageActive || this.dead || this.storageRetryTimer !== null) return;
-    const delay = Math.min(2000, 250 * 2 ** Math.min(this.storageRetryCount++, 3));
+  private reportStorageError(_error: unknown) {
+    this.publish({ storageError: this.storageMessage() });
+    if (!this.storageActive || this.dead || this.storageRetryTimer !== null) return;
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(this.storageRetryCount++, 5));
     this.storageRetryTimer = setTimeout(() => {
       this.storageRetryTimer = null;
       if (this.storageActive && !this.dead && (typeof document === 'undefined' || document.visibilityState === 'visible')) void this.refresh();
@@ -87,6 +82,7 @@ export class ChatController {
       if (this.dead || signal.aborted || !this.storageActive) throw new Error('STALE_STORAGE');
     };
     try {
+      if (this.outbox?.closed) { this.unsubscribeOutbox?.(); this.unsubscribeOutbox = undefined; this.outbox = undefined; }
       if (!this.outbox) {
         const store = await DurableOutbox.open(this.environment);
         if (this.dead || signal.aborted || !this.storageActive) { store.close(); return; }
@@ -113,7 +109,6 @@ export class ChatController {
       this.publish({ storageError: null });
     } catch (error) { if (!this.dead && !signal.aborted && this.storageActive) this.reportStorageError(error); }
   }
-  reconnectStorage = async () => { this.clearStorageRetry(); await this.refresh(); };
   private async recoverReceipts() {
     const pending = this.commands.pending();
     const ids = new Set(pending.map(command => command.clientMessageId));
@@ -171,7 +166,7 @@ export class ChatController {
   constructor(roomId: string, request: ChatRequest, onInvalidate?: () => void, csrfToken?: string, accountPartition?: string, memory?: ChatMemory, environment?: string, seed?: ChatSeed | null) {
     this.environment = environment; if (environment) activeControllers.add(this);
     this.memory = memory ?? new ChatMemory(); this.retainMemory = memory !== undefined; this.lease = this.memory.activate();
-    this.state = { ...initial(), epoch: this.memory.epoch, notice: this.memory.expired ? '오래 보관된 입력 내용이 정리되었습니다.' : null };
+    this.state = { ...initial(), epoch: this.memory.epoch };
     this.roomId = roomId; this.request = request; this.onInvalidate = onInvalidate; this.accountPartition = accountPartition; this.sessionBinding = csrfToken;
     if (seed && seed.room.roomId === roomId && seed.sessionBinding === csrfToken && seed.accountPartition === accountPartition) {
       this.deviceId = seed.deviceId; this.cacheId = seed.cacheId;
@@ -237,8 +232,7 @@ export class ChatController {
   saveComposer = (drafts: ChatDrafts, target: ChatComposerTarget | null, epoch: number) => {
     if (!this.dead && this.state.phase === 'ready' && epoch === this.memory.epoch) {
       if (Object.keys(drafts).length > MAX_PARKED_DRAFTS || new TextEncoder().encode(JSON.stringify(drafts)).length > MAX_PARKED_BYTES) {
-        this.memory.drafts = {}; this.memory.target = null;
-        this.publish({ notice: '초안 임시 보관 한도를 넘었습니다. 화면을 떠나기 전에 내용을 정리해 주세요.' }); return;
+        this.publish({ notice: this.draftSizeNotice }); return;
       }
       const parked = structuredClone(drafts);
       if (this.sending) for (const [key, draft] of Object.entries(parked)) {
@@ -246,6 +240,7 @@ export class ChatController {
         if (!draft.retryCommandId && prior?.retryCommandId && prior.body === draft.body && prior.quote?.messageId === draft.quote?.messageId) draft.retryCommandId = prior.retryCommandId;
       }
       this.memory.drafts = parked; this.memory.target = structuredClone(target);
+      if (this.state.notice === this.draftSizeNotice) this.publish({ notice: null });
       for (const draft of Object.values(drafts)) { const item = this.messages.find(item => item.id === draft.quote?.messageId); if (item) this.memory.hints.set(item.id, { createdAt: item.createdAt, version: item.version, counterpart: item.counterpart, allowedActions: item.allowedActions }); }
       const quoted = new Set(Object.values(drafts).flatMap(draft => draft.quote ? [draft.quote.messageId] : []));
       for (const id of this.memory.hints.keys()) { if (this.memory.hints.size <= 544) break; if (!quoted.has(id)) this.memory.hints.delete(id); }
@@ -475,7 +470,6 @@ export class ChatController {
     }
   }
   private rememberAuthority(room: RoomMembership, recipients: ChatActorRef[]) {
-    this.memory.expired = false;
     this.memory.authority = authorityKey(room); this.memory.recipients = JSON.stringify(recipients.map(item => item.actorId));
     const quoteIds = new Set(Object.values(this.memory.drafts).flatMap(draft => draft.quote ? [draft.quote.messageId] : []));
     const retained = [...this.messages.slice(-512), ...this.messages.filter(item => quoteIds.has(item.id))];
@@ -800,7 +794,7 @@ export class ChatController {
         }
       }
       if (error instanceof OutboxError && current()) {
-        const reason = this.state.storageError ?? this.storageMessage(error);
+        const reason = this.state.storageError ?? this.storageMessage();
         this.reportStorageError(error);
         return { accepted: false, ...(!neverSaved && this.commandAuthorized(command) ? { pendingDelivery: true, retryCommandId: clientMessageId } : {}), reason };
       }

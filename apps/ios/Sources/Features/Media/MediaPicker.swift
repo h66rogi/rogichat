@@ -40,6 +40,7 @@ struct MediaPicker: View {
     let kind: MediaKind
     let enabled: Bool
     let scope: any MediaScope
+    var compact = false
     let onSelected: @MainActor (MediaFile) async throws -> Void
     @State private var selection: PhotosPickerItem?
     @State private var importing = false
@@ -48,11 +49,23 @@ struct MediaPicker: View {
         let isImporting = importing
         return VStack {
             PhotosPicker(selection: $selection, matching: kind == .video ? .videos : .images, preferredItemEncoding: .compatible) {
-                if isImporting { ProgressView() }
+                if compact {
+                    VStack(spacing: 7) {
+                        Group {
+                            if isImporting { ProgressView() }
+                            else { Image(systemName: kind == .video ? "video.fill" : "photo.fill").font(.system(size: 23, weight: .medium)) }
+                        }
+                        .frame(width: 56, height: 56)
+                        .background(AppTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 18))
+                        Text(kind == .video ? "동영상" : "사진").font(.caption.weight(.medium))
+                    }.frame(maxWidth: .infinity)
+                } else if isImporting { ProgressView() }
                 else { Label(kind == .avatar ? "프로필 사진 변경" : kind == .video ? "동영상 선택" : "사진 선택", systemImage: kind == .video ? "video" : "photo") }
             }.disabled(!enabled || importing)
-            Text(kind == .video ? "MP4·MOV · 최대 50MB · 60초" : "JPEG·PNG·WebP · 최대 10MB")
-                .font(.caption).foregroundStyle(.secondary)
+            if !compact {
+                Text(kind == .video ? "MP4·MOV · 최대 50MB · 60초" : "JPEG·PNG·WebP · 최대 10MB")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             if failed { Text("미디어 작업을 완료하지 못했어요. 다시 시도해 주세요.") }
         }
         .task(id: selection) {

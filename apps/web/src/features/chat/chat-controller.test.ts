@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { ChatMemory, sessionChatMemory, forgetChatMemory, MAX_PARKED_ROOMS, PARKED_LIFETIME_MS } from './chat-memory';
+import { ChatMemory, sessionChatMemory, forgetChatMemory, MAX_PARKED_ROOMS } from './chat-memory';
 import { ChatController } from './chat-controller';
 import { actor, membership, mergeMessages, message, projectMessages } from './contract';
 import type { ChatRequest, ServerMessage } from './contract';
@@ -717,14 +717,17 @@ void test('parked quote is freshly read when outside snapshot and confirmed miss
   controller.dispose(); memory.clearAll();
 });
 
-void test('parked lifetime, session replacement, ownership and room capacity scrub private memory', async () => {
+void test('parked draft survives remount; access scrub, session replacement and room capacity clear private memory', async () => {
   forgetChatMemory();
-  assert.equal(PARKED_LIFETIME_MS, 15 * 60 * 1000);
   const memory = sessionChatMemory(session.accountPartition, session.csrfToken, room.roomId);
   const controller = new ChatController(room.roomId, backend(async path => { if (path.endsWith('/messages')) throw new TypeError('lost'); return undefined; }), undefined, session.csrfToken, session.accountPartition, memory);
   await controller.refresh(); await controller.send(submission);
   controller.saveComposer({ shared: { body: 'private-parked-text', quote: null } }, null, controller.getSnapshot().epoch);
-  controller.dispose(); memory.expire();
+  controller.dispose();
+  assert.equal(memory.drafts.shared?.body, 'private-parked-text');
+  assert.equal(memory.activate(), memory.lease);
+  assert.equal(memory.drafts.shared?.body, 'private-parked-text');
+  memory.scrubAccess();
   assert.deepEqual(memory.drafts, {}); assert.equal('payload' in memory.commands.pending()[0]!, false);
   assert.equal(memory.recipients, null); assert.equal(memory.authority, null); assert.equal(memory.membershipScope, null); assert.equal(memory.hints.size, 0);
   const successor = sessionChatMemory(session.accountPartition, 'new-session', room.roomId);
@@ -732,6 +735,22 @@ void test('parked lifetime, session replacement, ownership and room capacity scr
   for (let i = 0; i < MAX_PARKED_ROOMS; i++) sessionChatMemory(session.accountPartition, 'new-session', `room-${i}`);
   assert.notEqual(sessionChatMemory(session.accountPartition, 'new-session', room.roomId), successor);
   forgetChatMemory();
+});
+
+void test('oversized composer state keeps the last saved draft and clears its warning after correction', async () => {
+  const memory = new ChatMemory();
+  const controller = new ChatController(room.roomId, backend(), undefined, session.csrfToken, session.accountPartition, memory);
+  try {
+    await controller.refresh();
+    const saved = { shared: { body: '아직 작성 중', quote: null } };
+    controller.saveComposer(saved, { scope: 'SHARED' }, controller.getSnapshot().epoch);
+    const tooMany = Object.fromEntries(Array.from({ length: 33 }, (_, index) => [`private:${index}`, { body: '안녕하세요', quote: null }]));
+    controller.saveComposer(tooMany, { scope: 'SHARED' }, controller.getSnapshot().epoch);
+    assert.deepEqual(controller.getComposer().drafts, saved);
+    assert.equal(controller.getSnapshot().notice, '작성 중인 메시지가 너무 길어요. 내용을 줄여 주세요.');
+    controller.saveComposer(saved, { scope: 'SHARED' }, controller.getSnapshot().epoch);
+    assert.equal(controller.getSnapshot().notice, null);
+  } finally { controller.dispose(); memory.clearAll(); }
 });
 
 void test('only the allowlisted membership mismatch code quarantines replayable commands on 409', async () => {
