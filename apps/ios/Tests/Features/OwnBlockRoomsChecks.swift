@@ -1,5 +1,9 @@
 import Foundation
 
+#if ROGICHAT_SHARED_STATE_MODULE
+@testable import RogichatNativeStateChecks
+#endif
+
 private actor BlockRoomsPages {
     var values: [Data]
     private(set) var cursors: [String?] = []

@@ -1,5 +1,9 @@
 import Foundation
 
+#if ROGICHAT_SHARED_STATE_MODULE
+@testable import RogichatNativeStateChecks
+#endif
+
 final class RoomsTestBytes: CredentialBytesStoring, @unchecked Sendable {
     private let lock = NSLock(); private var data: Data?
     func read() throws -> Data? { lock.withLock { data } }

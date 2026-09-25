@@ -1,5 +1,9 @@
 import Foundation
 
+#if ROGICHAT_SHARED_STATE_MODULE
+@testable import RogichatNativeStateChecks
+#endif
+
 // Deterministic adapters compile only in this standalone test executable.
 final class MemoryCredentialBytes: CredentialBytesStoring, @unchecked Sendable {
     private let lock = NSLock()

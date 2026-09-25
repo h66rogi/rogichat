@@ -1,5 +1,9 @@
 import Foundation
 
+#if ROGICHAT_SHARED_STATE_MODULE
+@testable import RogichatNativeStateChecks
+#endif
+
 // Always inject bytes. A temporary directory with production Keychain bytes
 // could delete the real QA credential via missing-installation recovery.
 final class DeletionBytes: CredentialBytesStoring, @unchecked Sendable {

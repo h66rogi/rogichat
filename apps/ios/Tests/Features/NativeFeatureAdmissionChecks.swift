@@ -1,5 +1,9 @@
 import Foundation
 
+#if ROGICHAT_SHARED_STATE_MODULE
+@testable import RogichatNativeStateChecks
+#endif
+
 private final class RequestCount: @unchecked Sendable {
     let lock = NSLock(); private var value = 0
     func reset() { lock.withLock { value = 0 } }

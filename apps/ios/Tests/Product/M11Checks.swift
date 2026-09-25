@@ -1,5 +1,9 @@
 import Foundation
 
+#if ROGICHAT_SHARED_STATE_MODULE
+@testable import RogichatNativeStateChecks
+#endif
+
 final class M11Store: NativeCredentialStoring, @unchecked Sendable {
     private let lock = NSLock()
     private var credential: NativeCredential?

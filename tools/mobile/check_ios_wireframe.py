@@ -52,18 +52,51 @@ NATIVE_FEATURE_SOURCES = [
     "Sources/Core/Session/AccountFeatureGateway.swift",
     "Sources/Core/MessageActions/OwnBlockRooms.swift",
 ]
+SHARED_NATIVE_NAMES = {
+    'native-transport-checks', 'native-auth-checks', 'notification-contract-checks',
+    'rooms-transport-checks',
+    'conversation-transport-checks', 'account-deletion-checks',
+    'apple-composition-checks', 'native-feature-admission-checks',
+    'push-composition-checks', 'own-block-room-checks', 'push-checks',
+}
+SHARED_NATIVE_MODULE = 'RogichatNativeStateChecks'
+SHARED_NATIVE_SOURCES = ()
+SHARED_NATIVE_BUILT = False
 
 
 def run_checks(sdk, directory, name, sources):
     if not wanted(name):
         return
+    global SHARED_NATIVE_BUILT
     executable = directory / name
-    subprocess.run([
+    compiler = [
         "xcrun", "--sdk", "macosx", "swiftc", "-sdk", sdk, "-swift-version", "6",
         "-strict-concurrency=complete",
         "-j", "2", "-module-cache-path", str(directory / "ModuleCache"),
-        *(str(ROOT / "apps/ios" / source) for source in sources), "-o", str(executable),
-    ], check=True)
+    ]
+    if name in SHARED_NATIVE_NAMES:
+        if tuple(sources[:-1]) != SHARED_NATIVE_SOURCES or len(sources) != len(SHARED_NATIVE_SOURCES) + 1:
+            raise RuntimeError(f'{name} changed its shared Swift source boundary')
+        if not SHARED_NATIVE_BUILT:
+            subprocess.run([
+                *compiler, '-module-name', SHARED_NATIVE_MODULE,
+                '-enable-testing', '-parse-as-library', '-emit-library', '-emit-module',
+                '-emit-module-path', str(directory / f'{SHARED_NATIVE_MODULE}.swiftmodule'),
+                *(str(ROOT / 'apps/ios' / source) for source in SHARED_NATIVE_SOURCES),
+                '-o', str(directory / f'lib{SHARED_NATIVE_MODULE}.dylib'),
+            ], check=True)
+            SHARED_NATIVE_BUILT = True
+        subprocess.run([
+            *compiler, '-parse-as-library', '-D', 'ROGICHAT_SHARED_STATE_MODULE',
+            '-I', str(directory), '-L', str(directory), f'-l{SHARED_NATIVE_MODULE}',
+            '-Xlinker', '-rpath', '-Xlinker', str(directory),
+            str(ROOT / 'apps/ios' / sources[-1]), '-o', str(executable),
+        ], check=True)
+    else:
+        subprocess.run([
+            *compiler, *(str(ROOT / 'apps/ios' / source) for source in sources),
+            '-o', str(executable),
+        ], check=True)
     subprocess.run([str(executable)], check=True)
 
 
@@ -79,9 +112,10 @@ def main():
     parser.add_argument("--only", action="append", metavar="CHECK",
                         help="Run one named check for fast local feedback; repeat for more checks")
     args = parser.parse_args()
-    global SELECTED
+    global SELECTED, SHARED_NATIVE_SOURCES, SHARED_NATIVE_BUILT
     SELECTED = set(args.only) if args.only else None
     SEEN.clear()
+    SHARED_NATIVE_BUILT = False
     inspect_ios_dependencies(ROOT)
     inspect_product_sources(platforms=("ios",))
     sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
@@ -127,8 +161,10 @@ def main():
             "Sources/Core/Auth/SOOPAuthContract.swift",
             "Sources/Core/Auth/SOOPPending.swift",
             "Sources/Core/Auth/SOOPAuthCoordinator.swift",
+            "Sources/Features/Settings/AccountNotificationModel.swift",
         ]
         native_sources += NATIVE_FEATURE_SOURCES
+        SHARED_NATIVE_SOURCES = tuple(native_sources)
         run_checks(sdk, Path(temporary), "native-transport-checks", [
             *native_sources, "Tests/Product/NativeTransportChecks.swift",
         ])
@@ -136,9 +172,7 @@ def main():
             *native_sources, "Tests/Product/SOOPAuthChecks.swift",
         ])
         run_checks(sdk, Path(temporary), "notification-contract-checks", [
-            *native_sources,
-            "Sources/Features/Settings/AccountNotificationModel.swift",
-            "Tests/Product/M11Checks.swift",
+            *native_sources, "Tests/Product/M11Checks.swift",
         ])
         run_checks(sdk, Path(temporary), "rooms-transport-checks", [
             *native_sources, "Tests/Product/RoomsTransportChecks.swift",
