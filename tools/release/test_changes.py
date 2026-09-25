@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 import changes
-from changes import backend_image_changed, changed_paths, classify, classify_path
+from changes import backend_image_changed, changed_paths, classify, classify_path, pull_request_base
 
 
 class ComponentChangesTest(unittest.TestCase):
@@ -75,6 +75,58 @@ class ComponentChangesTest(unittest.TestCase):
             self.assertEqual(json.loads(result.stdout)['backend_image'], False)
             self.assertEqual(output.read_text(),
                              'web=false\nbackend=true\nbackend_image=false\n')
+
+    def test_pull_request_uses_merge_commit_parent_when_event_base_is_stale(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', temporary, *args],
+                                               stderr=subprocess.PIPE).decode().strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            (root / 'docs').mkdir()
+            (root / 'docs/intro.md').write_text('base\n')
+            git('add', '.')
+            git('commit', '-qm', 'base')
+            stale = git('rev-parse', 'HEAD')
+            base_branch = git('branch', '--show-current')
+            git('branch', 'feature')
+            web = root / 'apps/web/src/page.tsx'
+            web.parent.mkdir(parents=True)
+            web.write_text('base advanced\n')
+            git('add', '.')
+            git('commit', '-qm', 'advance base')
+            actual_base = git('rev-parse', 'HEAD')
+            git('checkout', '-q', 'feature')
+            api = root / 'apps/api/src/main.ts'
+            api.parent.mkdir(parents=True)
+            api.write_text('candidate\n')
+            git('add', '.')
+            git('commit', '-qm', 'candidate')
+            candidate = git('rev-parse', 'HEAD')
+            git('checkout', '-q', base_branch)
+            git('merge', '-q', '--no-ff', 'feature', '-m', 'checked merge')
+            merged = git('rev-parse', 'HEAD')
+            previous = Path.cwd()
+            try:
+                os.chdir(root)
+                self.assertEqual(pull_request_base(stale, merged), actual_base)
+                self.assertEqual(classify(changed_paths(stale, merged)), (True, True))
+                self.assertEqual(classify(changed_paths(actual_base, merged)), (False, True))
+                self.assertIsNone(pull_request_base(stale, candidate))
+                self.assertIsNone(pull_request_base('f' * 40, merged))
+                output = root / 'outputs.txt'
+                result = subprocess.run(
+                    [sys.executable, str(Path(changes.__file__).resolve()),
+                     '--base', stale, '--head', merged], cwd=root,
+                    env=dict(os.environ, GITHUB_EVENT_NAME='pull_request',
+                             GITHUB_OUTPUT=str(output)), capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr.decode())
+                self.assertEqual(output.read_text(),
+                                 'web=false\nbackend=true\nbackend_image=true\n')
+            finally:
+                os.chdir(previous)
 
     def test_unrelated_and_unknown(self):
         self.assertEqual(classify(['apps/ios/project.yml', 'docs/notes.md']), (False, False))

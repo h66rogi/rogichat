@@ -10,6 +10,56 @@ from changed import affected_platforms, mobile_changed
 
 
 class ChangesTest(unittest.TestCase):
+    def test_pull_request_uses_checked_merge_parent_after_base_advances(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", temporary, *args],
+                                               stderr=subprocess.PIPE).decode().strip()
+            git("init", "-q")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            (root / "docs").mkdir()
+            (root / "docs/intro.md").write_text("base\n")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            stale = git("rev-parse", "HEAD")
+            base_branch = git("branch", "--show-current")
+            git("branch", "feature")
+            ios = root / "apps/ios/Sources/Screen.swift"
+            ios.parent.mkdir(parents=True)
+            ios.write_text("base advanced\n")
+            git("add", ".")
+            git("commit", "-qm", "advance base")
+            actual_base = git("rev-parse", "HEAD")
+            git("checkout", "-q", "feature")
+            api = root / "apps/api/src/main.ts"
+            api.parent.mkdir(parents=True)
+            api.write_text("candidate\n")
+            git("add", ".")
+            git("commit", "-qm", "candidate")
+            git("checkout", "-q", base_branch)
+            git("merge", "-q", "--no-ff", "feature", "-m", "checked merge")
+            merged = git("rev-parse", "HEAD")
+            output = root / "result"
+            script = str(Path(changed.__file__).resolve())
+            env = dict(os.environ, EVENT_NAME="pull_request", BASE_SHA=stale,
+                       GITHUB_SHA=merged, GITHUB_OUTPUT=str(output))
+            previous = Path.cwd()
+            try:
+                os.chdir(root)
+                self.assertEqual(changed.pull_request_base(stale, merged), actual_base)
+                self.assertIsNone(changed.pull_request_base("f" * 40, merged))
+                self.assertEqual(changed.affected_platforms(
+                    subprocess.check_output(["git", "diff", "--name-only", "-z",
+                                             stale, merged]).split(b"\0")), (False, True))
+                result = subprocess.run([sys.executable, script], cwd=root, env=env,
+                                        capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr.decode())
+                self.assertEqual(output.read_text(), "android=false\nios=false\n")
+            finally:
+                os.chdir(previous)
+
     def test_native_and_signing_inputs_require_builds(self):
         for path in [b"apps/android/app/build.gradle.kts", b"apps/ios/project.yml",
                      b"tools/mobile/keychain_unlock.py", b".github/workflows/mobile.yml"]:

@@ -111,6 +111,23 @@ def changed_paths(base: str, head: str) -> list[str] | None:
         return None
 
 
+def pull_request_base(event_base: str, head: str) -> str | None:
+    """Use the checked merge commit's base parent, proving stale event ancestry."""
+    if not SHA.fullmatch(event_base) or not SHA.fullmatch(head):
+        return None
+    checkout = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, check=False)
+    parents = subprocess.run(['git', 'rev-list', '--parents', '-n', '1', head],
+                             capture_output=True, check=False)
+    if checkout.returncode or checkout.stdout.decode().strip() != head or parents.returncode:
+        return None
+    parts = parents.stdout.decode().split()
+    if len(parts) != 3 or parts[0] != head or not all(SHA.fullmatch(p) for p in parts):
+        return None
+    ancestor = subprocess.run(['git', 'merge-base', '--is-ancestor', event_base, parts[1]],
+                              capture_output=True, check=False)
+    return parts[1] if ancestor.returncode == 0 else None
+
+
 def valid_merge_group_boundary(base: str, head: str, group_head: str,
                                base_ref: str, checkout_head: str) -> bool:
     return (bool(SHA.fullmatch(base)) and base != '0' * 40
@@ -130,7 +147,10 @@ def main() -> None:
                 args.base, args.head, os.getenv('MERGE_GROUP_HEAD_SHA', ''),
                 os.getenv('MERGE_GROUP_BASE_REF', ''), checkout.stdout.decode().strip())):
             raise SystemExit('Cannot establish the release change boundary')
-    paths = changed_paths(args.base, args.head)
+    base = args.base
+    if os.getenv('GITHUB_EVENT_NAME') == 'pull_request':
+        base = pull_request_base(args.base, args.head)
+    paths = changed_paths(base, args.head) if base is not None else None
     web, backend = (True, True) if paths is None else classify(paths)
     image = True if paths is None else backend_image_changed(paths)
     result = {'web': web, 'backend': backend, 'backend_image': image, 'paths': paths}
