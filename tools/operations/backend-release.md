@@ -2,7 +2,65 @@
 
 `backend_release.py`는 서버에 별도 검토·설치하는 root-owned 실행기다. 자동 CI deployer가 아니다.
 명시적 승인 이전에는 `--apply`를 실행하지 않는다. public source push만으로 설치/실행하지 않는다.
-현재 CLI는 API 1개·worker 1개를 함께 갱신하며 웹/관리 서버/production은 대상이 아니다.
+현재 CLI는 API·worker를 함께 갱신하며 media 요청에서는 decoder도 함께 갱신한다. 웹/관리 서버/production은 대상이 아니다.
+
+## 운영자 전용 QA no-DDL 경로
+
+`--apply-no-ddl`은 기존 QA release helper에 별도로 추가한 일회성 운영자 경로다.
+자동 배포기의 `--apply`와 별개이며 자동 배포기의 NEW_WORKFLOWS + publication proof v2
+조건을 완화하지 않는다. 기존 `--apply`는 이 요청을 거부한다. 요청이 `migration_policy:
+"verify-only"`가 아니면 `--apply-no-ddl`도 거부한다. 일반 migration 경로에는 변경이 없다.
+
+이 경로는 **media가 활성화된 QA의 이미지 교체**로 범위를 제한한다. `features: ["media"]`,
+runtime/migration/decoder의 세 digest와 검증한 version 2 archive, 기존 네 push check
+(`backend.yml`, `security.yml`, `infrastructure.yml`, `backend-publish.yml`)를 요청에 고정한다.
+`backend-export.yml`의 exact source/run/attempt/artifact ZIP과 세 image config/execution ID는
+`backend_archive.py`가 다시 검증한다. 기존 `backend-published` marker는 source SHA만 담으므로
+운영자는 publisher의 세 GHCR digest와 export descriptor의 세 digest/config ID를 별도로
+대조해 승인해야 한다. 자동화된 3-image publication proof가 없는 legacy 계약을 무인 작업에
+사용하지 않는다.
+
+새 요청에는 다음 필드를 모두 추가한다. `artifacts.schema_manifest`는 source SHA의
+`apps/api/src/infrastructure/database/schema-manifest.ts` 파일 SHA-256이다. 이 파일은
+정적 문법만 읽고 실행하지 않으며, 요청의 migration 48개 목록과 정확히 같아야 한다.
+
+| 필드 | 의미 |
+|---|---|
+| `migration_policy` | literal `verify-only` |
+| `schema_sha256` | 기존 QA 물리 schema fingerprint |
+| `probe_sha256` | root-owned `backend_schema_readonly.mjs`의 검토된 SHA-256 |
+| `ca_sha256` | 기존 QA RDS CA 파일 SHA-256 |
+| `previous.source_sha` | 현재 healthy API·worker·decoder의 동일 source label |
+| `previous.runtime_id`, `previous.decoder_id` | 현재 Docker의 immutable image ID |
+
+운영자는 이 변경이 QA에 병합되고 required checks가 성공한 **새 QA source SHA**에 대해
+세 이미지를 다시 게시하고 exact export를 만들어야 한다. 오래된 source의 ZIP을 새 QA
+source인 것처럼 승인하지 않는다. root-owned helper·probe 설치본의 SHA-256을 병합된
+검토본과 대조하고, 승인된 release directory에 기존 다섯 파일, media Compose, 정적
+schema manifest 및 원본 ZIP을 함께 둔다. 요청은 root:root 0600이며 최대 한 시간만 유효하다.
+
+기본 실행은 검증만 한다. helper는 최신 QA HEAD/source, 현재 Compose/media/unit/Caddy
+파일과 후보 파일의 동일성, 현재 세 컨테이너의 source·image ID·health·격리, 후보 세
+이미지의 원본 ZIP/registry digest/config/layer, auth/VAPID/media secret shape를 확인한다.
+그리고 기존 healthy runtime image만 사용해 root-owned probe를 실행한다. probe는 기존
+DML 계정으로 TLS, grants, migration ledger, 물리 schema fingerprint를 read-only transaction에서
+확인하고 rollback한다. 후보 image의 DB 코드나 migration image는 probe에 쓰지 않는다.
+배포 후에도 동일한 이전 runtime ID를 사용해 probe를 다시 실행한다. 따라서 후보 image가
+스키마 검사 코드를 바꾸거나 probe 결과를 가장할 수 없고, 이전 image도 완료 전에는 제거하지 않는다.
+
+운영자가 별도로 `--apply-no-ddl`을 실행하면 동일 preflight를 lock 안에서 재검사한 뒤
+schema probe를 drain 직전에 다시 실행한다. 요청 소비 파일과 그 디렉터리, 상위 release
+디렉터리를 fsync한 다음 Caddy bootstrap으로 진입한다. 이후 decoder·worker·API를
+중단하고 검증한 runtime·decoder image를 설치해 세 unit을 재시작한다. 세 이미지 ID,
+health, media secret/socket 격리, VAPID, 두 번째 schema probe, 공개 API 세 경로가 모두
+통과해야 완료 기록을 남긴다. 이 경로는 stdin을 읽지 않고 migrator credential을 만들거나
+마이그레이션 image를 실행하지 않으며 DDL을 수행하지 않는다. 실패 시 기존 Caddy
+bootstrap과 세 unit 중단을 시도하고 요청을 소비한 채 자동 rollback하지 않는다.
+QA HEAD가 승인 source에서 움직이면 drain 직전 또는 최종 공개 전 확인에서 거부한다.
+따라서 일회성 적용을 시작하기 전에 운영자는 QA merge queue의 진행 중·예약된 병합을
+확인하고, preflight부터 공개 경로 확인/완료 receipt까지 짧은 병합 보류 창을 확보해야 한다.
+이 창을 보장할 수 없으면 적용하지 않는다. 진행 중 QA merge가 최종 확인과 경합하면
+helper는 fail-closed하여 QA API가 차단될 수 있다. 완료 후 병합을 다시 허용한다.
 
 ## 설치 전 계약
 
