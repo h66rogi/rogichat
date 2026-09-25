@@ -126,28 +126,11 @@ jobs:
           sudo chmod a+rw /dev/kvm
       - name: Verify actual Keystore and on-disk SQLite with an isolated emulator
         run: python3 tools/mobile/check_android_storage.py
-  ios-state:
-    needs: changes
-    if: needs.changes.outputs.ios == 'true'
-    runs-on: macos-26
-    timeout-minutes: 20
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
-      - name: Check product state and test-only scenario isolation without a simulator
-        run: python3 tools/mobile/check_ios_wireframe.py
-      - name: Verify signing security with a disposable keychain
-        env:
-          ROGICHAT_TEST_DISPOSABLE_KEYCHAIN: '1'
-        run: python3 -m unittest discover -s tools/mobile -p 'test_*.py'
   ios-build:
     needs: changes
     if: needs.changes.outputs.ios == 'true'
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
@@ -159,12 +142,30 @@ jobs:
           python3 tools/mobile/install_xcodegen.py
           .tools/xcodegen-2.44.1/xcodegen/bin/xcodegen generate --spec apps/ios/project.yml
           git diff --exit-code -- apps/ios/Rogichat.xcodeproj
-      - name: Build and inspect QA and production bundles
-        run: python3 tools/mobile/build_ios.py
+      - name: Verify signing security with a disposable keychain
+        env:
+          ROGICHAT_TEST_DISPOSABLE_KEYCHAIN: '1'
+        run: python3 -m unittest discover -s tools/mobile -p 'test_*.py'
+      - name: Verify product state and build both iOS environments on one runner
+        run: |
+          # The state tests and Xcode builds use separate scratch directories.
+          # Keep both exit statuses: either failure must fail the required check.
+          python3 tools/mobile/check_ios_wireframe.py &
+          state_pid=$!
+          python3 tools/mobile/build_ios.py &
+          build_pid=$!
+          set +e
+          wait "$state_pid"
+          state_result=$?
+          wait "$build_pid"
+          build_result=$?
+          set -e
+          test "$state_result" -eq 0
+          test "$build_result" -eq 0
   required:
     name: Mobile required checks
     if: always()
-    needs: [changes, android, android-signing, android-storage, ios-state, ios-build]
+    needs: [changes, android, android-signing, android-storage, ios-build]
     runs-on: ubuntu-24.04
     steps:
       - name: Require successful builds for each affected platform
@@ -175,7 +176,6 @@ jobs:
           ANDROID_RESULT: ${{ needs.android.result }}
           ANDROID_SIGNING_RESULT: ${{ needs.android-signing.result }}
           ANDROID_STORAGE_RESULT: ${{ needs.android-storage.result }}
-          IOS_STATE_RESULT: ${{ needs.ios-state.result }}
           IOS_BUILD_RESULT: ${{ needs.ios-build.result }}
         run: |
           test "$CHANGE_RESULT" = success
@@ -183,7 +183,7 @@ jobs:
             true:success:success:success|false:skipped:skipped:skipped) ;;
             *) echo "unexpected Android result"; exit 1 ;;
           esac
-          case "$IOS_CHANGED:$IOS_STATE_RESULT:$IOS_BUILD_RESULT" in
-            true:success:success|false:skipped:skipped) ;;
+          case "$IOS_CHANGED:$IOS_BUILD_RESULT" in
+            true:success|false:skipped) ;;
             *) echo "unexpected iOS result"; exit 1 ;;
           esac
