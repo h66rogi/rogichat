@@ -48,7 +48,7 @@ export class AppleRepository {
   }
   async register(tx: Transaction) {
     const id = randomUUID();
-    await tx.prisma.users.create({ data: { id, terms_version: '2026-09-20', profile: { create: { nickname: '새 사용자' } } }, select: { id: true } }); return id;
+    await tx.prisma.users.create({ data: { id, profile: { create: { nickname: '새 사용자' } } }, select: { id: true } }); return id;
   }
   async connect(tx: Transaction, existing: AppleIdentity | undefined, userId: string, scope: string, subject: string, issuedAt: Date) {
     if (!existing && await tx.prisma.auth_identities.count({ where: { user_id: userId, provider: 'apple' } }) >= 7) throw new ApiError('APPLE_LINK_CONFLICT', 409);

@@ -204,6 +204,8 @@ test('private root deletion produces only id-less reset for eligible publication
     const [stream] = await tx.rows("SELECT id FROM message_streams WHERE room_id=? AND kind='ROOM_SHARED'", [f.room]);
     const id = randomUUID(); const order = await nextOrder(tx, f.room);
     await tx.execute('INSERT INTO messages (id,room_id,stream_id,sender_member_id,content_owner_user_id,deletion_root_id,text_content,created_order) VALUES (?,?,?,?,?,?,?,?)', [id, f.room, stream.id, f.owner.actor, f.fan1.id, second, '익명 공개 원본', String(order)]);
+    await tx.execute("INSERT INTO message_publications (id,room_id,source_message_id,source_version,publisher_member_id,published_message_id,state) VALUES (?,?,?,?,?,?,'PUBLISHED')",
+      [randomUUID(), f.room, second, '1', f.owner.actor, id]);
     return id;
   });
   const quotedPublication = await f.send(f.owner, '공개본을 인용한 독립 답장', undefined, publication);
@@ -264,7 +266,7 @@ test('C06 sorts authorized selected messages by millisecond time and UUID withou
   assert.deepEqual(ids(ties.messages), [old, middle, newest].sort());
 });
 
-test('C06 MySQL authorization revision preserves original ACL serialization byte-for-byte within audience domain', { timeout: 20000 }, async t => {
+test('C06 MySQL authorization revision v2 preserves ACL serialization within audience domain', { timeout: 20000 }, async t => {
   const f = await fixture(t); await f.send(f.fan1, 'grant for parity', f.owner);
   const { createHmac } = await import('node:crypto');
   const { SyncRepository } = await import('../../dist/modules/sync/sync.repository.js');
@@ -276,7 +278,7 @@ test('C06 MySQL authorization revision preserves original ACL serialization byte
     const grants = await repo.grants(tx, f.room, viewer.id);
     const revoked = (await new MessagesQueryRepository().stickerRevocations(tx, f.room, viewer.id, viewer.visible_from_order)).map(row => row.id);
     const vector = [viewer.id, viewer.role, viewer.mode, viewer.active_period_id, viewer.visible_from_order, String(state.acl_epoch), state.policy_version, String(state.content_epoch), String(state.membership_generation), grants, revoked];
-    return createHmac('sha256', f.config.key).update('authorization-revision:v1:').update(JSON.stringify([f.config.audience, vector])).digest('base64url');
+    return createHmac('sha256', f.config.key).update('authorization-revision:v2:').update(JSON.stringify([f.config.audience, vector])).digest('base64url');
   });
   const snapshot = (await f.roomSync(f.fan1, 'snapshot')).body;
   assert.equal(snapshot.authorizationRevision, expected);

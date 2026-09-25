@@ -21,8 +21,8 @@ function bounded(value: unknown, max: number): string {
 export function appleStart(value: unknown): AppleStartDto {
   const body = object(value, ['clientId', 'intent', 'codeChallenge', 'returnState', 'termsVersion']);
   if (body.intent !== 'login' && body.intent !== 'link') throw new ApiError('INVALID_REQUEST', 400);
-  if (body.intent === 'login' ? body.termsVersion !== '2026-09-20' : body.termsVersion !== undefined) throw new ApiError('TERMS_REQUIRED', 403);
-  return { clientId: appleClient(body.clientId), intent: body.intent, codeChallenge: opaque(body.codeChallenge), returnState: opaque(body.returnState), ...(body.intent === 'login' ? { termsVersion: '2026-09-20' as const } : {}) };
+  if (body.intent === 'link' && body.termsVersion !== undefined) throw new ApiError('INVALID_REQUEST', 400);
+  return { clientId: appleClient(body.clientId), intent: body.intent, codeChallenge: opaque(body.codeChallenge), returnState: opaque(body.returnState) };
 }
 export function appleExchange(value: unknown): AppleExchangeDto {
   const body = object(value, ['clientId', 'transactionId', 'code', 'codeVerifier']);

@@ -1,4 +1,4 @@
-import { createUser, createRoom, joinRoom, leaveRoom, sendMessage, sendInput, deleteMessage, enqueueJob, Jobs } from '../support/domain-fixture.mjs';
+import { createUser, createRoom, joinRoom, leaveRoom, nextOrder, sendMessage, sendInput, deleteMessage, enqueueJob, Jobs } from '../support/domain-fixture.mjs';
 import { NestFactory } from '@nestjs/core';
 import { RealtimeModule } from '../../dist/modules/realtime/realtime.module.js';
 import { RealtimeService } from '../../dist/modules/realtime/realtime.service.js';
@@ -76,6 +76,19 @@ test('real DB private/shared hint audience, deleted-message invalidation and cur
   f.clear();
   await deleteMessage(f.db.transactions, f.room, f.a.id, privateMessage.messageId);
   await f.drain(); assert.deepEqual(f.counts(), [1, 1, 0, 0]);
+  f.clear();
+  await f.db.transactions.write(async tx => {
+    const stream = await tx.prisma.message_streams.findFirstOrThrow({ where: { room_id: f.room, kind: 'ROOM_SHARED' }, select: { id: true } });
+    const messageId = randomUUID();
+    await tx.prisma.messages.create({ data: { id: messageId, room_id: f.room, stream_id: stream.id,
+      sender_member_id: f.a.actor, content_owner_user_id: f.a.id, content_kind: 'TEXT',
+      text_content: '과거 팬의 공유 스트림 원본', created_order: await nextOrder(tx, f.room) }, select: { id: true } });
+    const eventId = randomUUID();
+    await tx.prisma.room_events.create({ data: { id: eventId, room_id: f.room, stream_id: stream.id,
+      message_id: messageId, message_version: 1n, event_order: await nextOrder(tx, f.room), kind: 'MESSAGE_CREATED' }, select: { id: true } });
+    await enqueueJob(tx, { purpose: 'REALTIME_HINT', roomId: f.room, resourceId: eventId });
+  });
+  await f.drain(); assert.deepEqual(f.counts(), [1, 1, 0, 0], 'legacy fan original wakes only its author and owner');
   f.clear();
   await f.send(f.owner, 'SHARED');
   // New member must not be awakened by a queued pre-join message under SINCE_JOIN.

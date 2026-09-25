@@ -32,7 +32,9 @@ export class MembershipScopeService {
     for (const row of revoked) { const ids = byRoom.get(row.room_id) ?? []; ids.push(row.id); byRoom.set(row.room_id, ids); }
     return new Map(members.map(m => [m.room_id, {
       membershipScope: membershipScope(authorizationKey(this.config), this.config.audience, userId, m.room_id, m.active_period_id!),
-      authorizationRevision: createHmac('sha256', authorizationKey(this.config)).update('authorization-revision:v1:').update(JSON.stringify([this.config.audience,
+      // Policy v2 invalidates cached timelines and cursors that may contain
+      // legacy fan originals from the shared stream under the old ACL.
+      authorizationRevision: createHmac('sha256', authorizationKey(this.config)).update('authorization-revision:v2:').update(JSON.stringify([this.config.audience,
         [m.id, m.role, m.room.mode, m.active_period_id, String(m.active_period!.visible_from_order), String(m.acl_epoch), m.room.policy_version, String(m.room.content_epoch), String(m.user.membership_generation), byMember.get(m.id) ?? [], byRoom.get(m.room_id) ?? [],
           ...(delegations?.some(g => g.room_id === m.room_id) ? [delegations.filter(g => g.room_id === m.room_id).map(g => [g.id, g.member_id, g.period_id, g.expires_at, g.revoked_at, !g.revoked_at && g.expires_at > now && g.period_id === g.member.active_period_id])] : [])]])).digest('base64url'),
     }]));

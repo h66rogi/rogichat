@@ -59,7 +59,7 @@ function project(row: RowDataPacket, hints: MessageEligibility, reactions: { cou
   const kind = row.content_kind as string;
   if (!['TEXT', 'PHOTO', 'VIDEO', 'STICKER'].includes(kind)) throw new ServiceUnavailableException();
   if (kind === 'STICKER' && !row.sticker) throw new ServiceUnavailableException();
-  return projectMessageDto({ ...hints, reactions, id: row.id, version: String(row.version), createdAt: row.created_at as Date, audience: row.kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
+  return projectMessageDto({ ...hints, reactions, id: row.id, version: String(row.version), createdAt: row.created_at as Date, audience: row.kind === 'ROOM_SHARED' && (row.room_mode !== 'FAN' || row.deletion_root_id !== null && Number(row.published_active) === 1 || row.deletion_root_id === null && row.sender_member_id === row.owner_member_id) ? 'SHARED' : 'PRIVATE',
     author: row.deletion_root_id ? { kind: 'anonymous' } : { kind: 'member', actorId: row.sender_member_id, nickname: row.nickname ?? '사용자', avatar: row.avatar_id ? { assetId: row.avatar_id } : null },
     content: kind === 'TEXT' ? { type: 'TEXT', text: row.text_content } : kind === 'STICKER' ? { type: 'STICKER', stickerId: row.sticker.stickerId, assetId: row.sticker.assetId, width: row.sticker.width, height: row.sticker.height } : { type: kind as 'PHOTO' | 'VIDEO', attachments: row.attachments,
       ...(row.text_content === null ? {} : { caption: row.text_content }) }, quote: !row.deletion_root_id && row.quote_id ? { id: row.quote_id, authorName: row.quote_author_name ?? '사용자', content: { type: 'TEXT', text: row.quote_text } } : null });

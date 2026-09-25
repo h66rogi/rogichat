@@ -385,7 +385,7 @@ struct AuthNativeAPI: NativeRequesting {
             let service = NativeSessionService(environment:.qa,api:AuthNativeAPI(),store:store,now:{now},auth:coordinator)
             let session = AppSession(service:service); await session.restore()
             let late = Task { await session.acceptAuthCallback(callback(proof.state)) }; await api.wait()
-            let fresh = Task { await session.signIn(.soop,consent:true) }; await browser.wait()
+            let fresh = Task { await session.signIn(.soop) }; await browser.wait()
             let next = try store.pendingAuth(now:now)!
             await api.finish(.success(try returned())); await late.value
             check(session.busy && session.access == .signedOut && session.errorMessage == nil)

@@ -32,7 +32,7 @@ export class AppleService {
   }
   private async binding(tx: Transaction, row: AppleTransaction, credentials?: SessionCredentials, requirePossession = false) {
     if (row.intent === 'login') {
-      if (row.user_id || row.session_id || row.bound_generation !== null || row.terms_version !== '2026-09-20' || credentials?.token) throw new ApiError('AUTH_FAILED', 400);
+      if (row.user_id || row.session_id || row.bound_generation !== null || credentials?.token) throw new ApiError('AUTH_FAILED', 400);
       return;
     }
     if (!row.user_id || !row.session_id || row.bound_generation === null) throw new ApiError('LINK_SESSION_CHANGED', 401);
@@ -44,7 +44,6 @@ export class AppleService {
     const bound = await this.repository.session(tx, row.session_id, this.config.audience, row.client_id);
     if (!bound || bound.user_id !== row.user_id || BigInt(bound.membership_generation) !== row.bound_generation) throw new ApiError('LINK_SESSION_CHANGED', 401);
     if ((await tx.now()).getTime() - bound.created_at.getTime() > 900000) throw new ApiError('RECENT_AUTH_REQUIRED', 403);
-    if (bound.terms_version !== '2026-09-20') throw new ApiError('TERMS_REQUIRED', 403);
   }
   async start(input: AppleStartDto, credentials?: SessionCredentials): Promise<AppleStartResponse> {
     this.provider.configured();
@@ -57,13 +56,12 @@ export class AppleService {
         const bound = await this.repository.session(tx, actor.sessionId, this.config.audience, input.clientId);
         if (!bound) throw new ApiError('LINK_SESSION_CHANGED', 401);
         if ((await tx.now()).getTime() - bound.created_at.getTime() > 900000) throw new ApiError('RECENT_AUTH_REQUIRED', 403);
-        if (bound.terms_version !== '2026-09-20') throw new ApiError('TERMS_REQUIRED', 403);
         userId = actor.userId; sessionId = actor.sessionId; generation = BigInt(bound.membership_generation);
       } else if (credentials?.token) throw new ApiError('INVALID_REQUEST', 400);
       const now = await tx.now();
       await this.repository.create(tx, { id, audience: this.config.audience, client_id: input.clientId, intent: input.intent,
         state_digest: new Uint8Array(digest(state)), nonce, code_challenge: input.codeChallenge, return_state: input.returnState,
-        user_id: userId, session_id: sessionId, bound_generation: generation, terms_version: input.intent === 'login' ? '2026-09-20' : null,
+        user_id: userId, session_id: sessionId, bound_generation: generation, terms_version: null,
         created_at: now, expires_at: new Date(now.getTime() + 600000) });
     });
     return { transactionId: id, state, nonce, authorizeUrl: input.clientId === 'ios' ? null : this.provider.authorize(input.clientId, state, nonce), expiresIn: 600 };
@@ -140,7 +138,6 @@ export class AppleService {
           if (!userId) { await this.guards.requireRegistration(tx); userId = await this.repository.register(tx); }
           const identityId = await this.repository.connect(tx, existing, userId, proof.scope, proof.subject, new Date(proof.issuedAt * 1000));
           await this.repository.activateCredential(tx, row.id, identityId, userId);
-          if (row.intent === 'login') await this.logins.terms(tx, userId, '2026-09-20');
           if (row.session_id) await this.logins.revokeSession(tx, row.session_id);
           await this.repository.update(tx, row.id, { status: 'SUCCEEDED', user_id: userId, proof: null, completion_digest: null });
           if (input.clientId === 'web') return { transport: 'WEB' as const, ...await this.sessions.issue(tx, userId) };

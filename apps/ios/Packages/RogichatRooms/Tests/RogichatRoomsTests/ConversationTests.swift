@@ -72,6 +72,8 @@ private final class ConversationDisk {
     #expect(message.reactions.mine == "👍")
     #expect(message.quote?.authorName == "원문 작성자")
     #expect(try JSONDecoder().decode(ConversationMessage.self, from: JSONEncoder().encode(message)) == message)
+    wire["reactions"] = ["counts": [["emoji": "👍", "count": 3]], "mine": "❤️"]
+    #expect(throws: (any Error).self) { try decodeC(wire, ConversationMessage.self) }
 }
 @Test func conversationAtomicCursorTerminalTombstoneAndEqualProjection() throws {
     let disk = try ConversationDisk(); defer { disk.remove() }; try disk.snapshot([cm("9007199254740993")])
@@ -108,6 +110,14 @@ private final class ConversationDisk {
     let history = try decodeC(["schemaVersion": 2, "resetRequired": false, "membershipScope": ct(), "authorizationRevision": ct(2), "messages": [cm()], "nextCursor": "history-0"], ConversationHistory.self)
     #expect(throws: ConversationError.invalidResponse) { try disk.db.applyHistory(history, requestedCursor: "history-0", scope: disk.scope) }
     #expect(try disk.db.conversationListing(scope: disk.scope).messages.isEmpty)
+}
+@Test func conversationEmptyHistoryPageAdvancesCursor() throws {
+    let disk = try ConversationDisk(); defer { disk.remove() }; try disk.snapshot()
+    let empty = try decodeC(["schemaVersion": 2, "resetRequired": false, "membershipScope": ct(), "authorizationRevision": ct(2), "messages": [], "nextCursor": "history-1"], ConversationHistory.self)
+    try disk.db.applyHistory(empty, requestedCursor: "history-0", scope: disk.scope)
+    #expect(try disk.db.conversationListing(scope: disk.scope).historyCursor == "history-1")
+    #expect(try disk.db.conversationListing(scope: disk.scope).messages.isEmpty)
+    #expect(throws: ConversationError.invalidResponse) { try disk.db.applyHistory(empty, requestedCursor: "history-1", scope: disk.scope) }
 }
 @Test func conversationPrivateQuoteUsesCurrentActionsAndGroupTarget() throws {
     let disk = try ConversationDisk(); defer { disk.remove() }; try disk.snapshot([cm()])
@@ -382,6 +392,10 @@ private actor ConversationRemote: ConversationFetching {
     }
     let disk = try ConversationDisk(mode: "FAN", role: "FAN"); let path = disk.directory
     defer { try? FileManager.default.removeItem(at: path) }; try disk.snapshot()
+    let fanShared = try TextCommand(roomID: cRoom, membershipScope: ct(), text: "다른 팬에게 보이면 안 돼요")
+    let fanDirect = try TextCommand(roomID: cRoom, membershipScope: ct(), recipientActorID: cPeer, text: "대상 직접 지정")
+    #expect(throws: ConversationError.forbidden) { try disk.db.admitText(fanShared, scope: disk.scope) }
+    #expect(throws: ConversationError.forbidden) { try disk.db.admitText(fanDirect, scope: disk.scope) }
     try disk.db.admitText(command, scope: disk.scope); try disk.db.claimText(command, scope: disk.scope)
     try disk.close()
     let cold = try ConversationDisk(path: path, mode: "FAN", role: "FAN"); defer { try? cold.close() }; try cold.snapshot()
@@ -394,4 +408,11 @@ private actor ConversationRemote: ConversationFetching {
     #expect(try JSONDecoder().decode(TextCommand.self, from: JSONEncoder().encode(media)) == media)
     let mediaBody = try #require(JSONSerialization.jsonObject(with: media.requestBody()) as? [String: Any])
     #expect(mediaBody["recipientActorId"] == nil && mediaBody["intent"] as? String == "ROOM_OWNER")
+    let owner = try ConversationDisk(mode: "FAN", role: "STREAMER"); defer { owner.remove() }; try owner.snapshot([cm()])
+    let broadcast = try TextCommand(roomID: cRoom, membershipScope: ct(), text: "참여 팬 모두에게")
+    try owner.db.admitText(broadcast, scope: owner.scope)
+    let unselectedReply = try TextCommand(roomID: cRoom, membershipScope: ct(), recipientActorID: cPeer, text: "선택하지 않은 개인 답장")
+    #expect(throws: ConversationError.forbidden) { try owner.db.admitText(unselectedReply, scope: owner.scope) }
+    let selectedReply = try TextCommand(roomID: cRoom, membershipScope: ct(), recipientActorID: cPeer, quoteID: cMessage, text: "선택한 팬에게만")
+    try owner.db.admitText(selectedReply, scope: owner.scope)
 }

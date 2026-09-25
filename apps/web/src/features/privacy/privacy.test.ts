@@ -86,7 +86,7 @@ void test('recent auth uses login only; different-account reauth never mutates',
   const storage = store(); let deletes = 0; let switched = false;
   const client = api((path, init) => {
     if (path.endsWith('/session')) return response(switched ? { ...session, accountPartition: 'C'.repeat(42) + 'A' } : session);
-    if (path.endsWith('/start')) { assert.deepEqual(JSON.parse(String(init.body)), { intent: 'login', termsVersion: '2026-09-20' }); return response({ authorizeUrl: 'https://example.invalid/auth' }); }
+    if (path.endsWith('/start')) { assert.deepEqual(JSON.parse(String(init.body)), { intent: 'login' }); return response({ authorizeUrl: 'https://example.invalid/auth' }); }
     deletes++; return response({ error: { code: 'RECENT_AUTH_REQUIRED' } }, 403);
   });
   const flow = deletionFlow(client, storage, () => {}, () => {});
@@ -112,11 +112,11 @@ void test('storage failure blocks deletion, stale operation and disposed respons
   assert.equal(cleanups, 0); assert.equal(readDeletion(healthy)?.phase, 'unknown');
 });
 
-void test('publication disclosure, TEXT affordance and permission/session/generation/DTO keys fence work', async () => {
+void test('publication TEXT affordance and permission/session/generation/DTO keys fence work', async () => {
   let writes = 0;
   const client = api(path => { if (path.endsWith('/session')) return response(session); writes++; return response({ publicationId: pub, status: 'preparing' }, 202); });
   const flow = new PublicationFlow(client, context, () => {}, () => {});
-  await flow.publish(false); assert.equal(writes, 0); await flow.publish(true); await flow.publish(true); assert.equal(writes, 1); assert.equal(flow.state, 'preparing');
+  await flow.publish(); await flow.publish(); assert.equal(writes, 1); assert.equal(flow.state, 'preparing');
   assert.equal(canOfferPublication({ ...context, scope: { ...context.scope, role: 'FAN' } }), false);
   assert.equal(canOfferPublication({ ...context, message: { ...context.message, allowedActions: { ...context.message.allowedActions, publish: false } } }), false);
   assert.equal(canOfferPublication({ ...context, message: { ...context.message, content: { type: 'VIDEO', attachments: [] } } }), false);
@@ -130,8 +130,8 @@ void test('publication poll only refreshes sync after published; ambiguous 404 n
     if (init.method === 'POST') { writes++; return response({ publicationId: pub, status: 'preparing' }, 202); }
     return status === '404' ? response({}, 404) : response({ publicationId: pub, status, ...(status === 'published' ? { messageId: id } : {}) });
   }), context, () => {}, () => { synced++; });
-  await flow.publish(true); await flow.check(); assert.equal(synced, 0);
-  status = '404'; await flow.check(); assert.equal(flow.state, 'unknown'); await flow.publish(true); assert.equal(writes, 1);
+  await flow.publish(); await flow.check(); assert.equal(synced, 0);
+  status = '404'; await flow.check(); assert.equal(flow.state, 'unknown'); await flow.publish(); assert.equal(writes, 1);
   status = 'published'; await flow.check(); assert.equal(synced, 1); await flow.check(); assert.equal(synced, 1);
 });
 
@@ -142,9 +142,9 @@ void test('publication ACK lost and session replacement do not resend or project
     if (init.method === 'POST') { writes++; return response({ publicationId: pub, status: 'preparing' }, 202); }
     return response({ publicationId: pub, status: 'published', messageId: id });
   }), context, () => {}, () => { synced++; });
-  await flow.publish(true); switched = true; await flow.check(); assert.equal(flow.state, 'unavailable'); assert.equal(synced, 0); assert.equal(writes, 1);
+  await flow.publish(); switched = true; await flow.check(); assert.equal(flow.state, 'unavailable'); assert.equal(synced, 0); assert.equal(writes, 1);
   const lost = new PublicationFlow(api(path => { if (path.endsWith('/session')) return response(session); throw new Error('lost'); }), context, () => {}, () => { synced++; });
-  await lost.publish(true); assert.equal(lost.state, 'unknown'); assert.equal(lost.canCheck, false); await lost.publish(true); assert.equal(synced, 0);
+  await lost.publish(); assert.equal(lost.state, 'unknown'); assert.equal(lost.canCheck, false); await lost.publish(); assert.equal(synced, 0);
 });
 
 void test('account binding is environment-specific and carries no raw identifier', async () => {
@@ -190,7 +190,7 @@ void test('late session change during publication POST or status GET cannot refr
       }
       changed = true; return response({ publicationId: pub, status: 'published', messageId: id });
     }), context, () => {}, () => { synchronized++; });
-    await flow.publish(true);
+    await flow.publish();
     if (during === 'GET') await flow.check();
     assert.equal(synchronized, 0); assert.equal(flow.state, 'unavailable'); assert.equal(flow.canCheck, false);
   }
@@ -199,7 +199,7 @@ void test('late session change during publication POST or status GET cannot refr
 void test('noncooperative late publication response after disposal never updates UI', async () => {
   let release!: (value: Response) => void; let synchronized = 0;
   const flow = new PublicationFlow(api(path => path.endsWith('/session') ? response(session) : new Promise(resolve => { release = resolve; })), context, () => {}, () => { synchronized++; });
-  const work = flow.publish(true);
+  const work = flow.publish();
   while (!release) await new Promise(resolve => setTimeout(resolve, 0));
   flow.dispose(); release(response({ publicationId: pub, status: 'published', messageId: id }, 202)); await work;
   assert.equal(synchronized, 0); assert.equal(flow.canCheck, false);

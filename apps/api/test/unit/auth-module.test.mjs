@@ -208,15 +208,15 @@ test('module-owned HTTP controller preserves session/logout, login/link and call
   response = await call('POST', '/logout', {}); assert.equal(response.status, 204);
   assert.match(response.headers.get('set-cookie'), /^rogi_session=;/); assert.match(response.headers.get('set-cookie'), /HttpOnly; SameSite=Lax/);
   response = await call('POST', '/logout', {}, { 'X-CSRF-Token': '' }); assert.equal(response.status, 400);
-  response = await call('POST', '/soop/start', { intent: 'login', termsVersion: '2026-09-20' });
+  response = await call('POST', '/soop/start', { intent: 'login' });
   assert.equal(response.status, 200); assert.deepEqual(await response.json(), { authorizeUrl: 'https://example.invalid/authorize' });
   assert.match(response.headers.get('set-cookie'), new RegExp(`^${oauthCookieName(f.settings, state)}=`));
   assert.match(response.headers.get('set-cookie'), /Max-Age=600/); assert.match(response.headers.get('set-cookie'), /HttpOnly; SameSite=Lax/);
   assert.equal(f.calls.filter(call => call[0] === 'start').at(-1)[4], undefined);
   response = await call('POST', '/soop/start', { intent: 'link' }); assert.equal(response.status, 200);
   assert.equal(f.calls.filter(call => call[0] === 'start').at(-1)[4], proof);
-  response = await call('POST', '/soop/start', { intent: 'login', termsVersion: '2026-09-20', extra: true }); assert.equal(response.status, 400);
-  response = await call('POST', '/soop/start', { intent: 'login', termsVersion: '2026-09-20' }, { Origin: 'https://evil.invalid' }); assert.equal(response.status, 403);
+  response = await call('POST', '/soop/start', { intent: 'login', extra: true }); assert.equal(response.status, 400);
+  response = await call('POST', '/soop/start', { intent: 'login' }, { Origin: 'https://evil.invalid' }); assert.equal(response.status, 403);
   const oauthCookie = `${oauthCookieName(f.settings, state)}=${browser}`;
   response = await call('GET', `/soop/callback?state=${state}&code=${code}`, undefined, { Cookie: `rogi_session=${token}; ${oauthCookie}` });
   assert.equal(response.status, 303); assert.equal(response.headers.get('location'), `${f.settings.origin}/`);

@@ -17,7 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-data class SessionOperationState(val busy: Boolean = false, val error: String? = null, val consentNeeded: Boolean = false, val consentProvider: SignInProvider = SignInProvider.SOOP)
+data class SessionOperationState(val busy: Boolean = false, val error: String? = null)
 class SessionViewModel(private val services: ProductServices, private val injectedScope: CoroutineScope? = null,
                        private val clock: Clock = Clock.systemUTC()) : ViewModel() {
     private val mutable = MutableStateFlow(SessionOperationState())
@@ -62,7 +62,9 @@ class SessionViewModel(private val services: ProductServices, private val inject
         if (services.session.value.access != ShellAccess.SIGNED_OUT) return
         if (provider !in actions.providers) return
         if (services.auth != null) {
-            if (!services.auth.authState.value.active) mutable.value = mutable.value.copy(consentNeeded = true, consentProvider = provider)
+            if (!services.auth.authState.value.active) services.auth.let { auth -> perform("로그인을 시작하지 못했어요.") {
+                if (provider == SignInProvider.APPLE) auth.startAppleLogin("") else auth.startLogin("")
+            } }
             return
         }
         perform("로그인을 완료하지 못했어요. 다시 시도해 주세요.") { actions.signIn(provider) }
@@ -84,14 +86,6 @@ class SessionViewModel(private val services: ProductServices, private val inject
                 })
             } finally { if (ticket == revision) mutable.value = mutable.value.copy(busy = false) }
         }
-    }
-    fun dismissConsent() { mutable.value = mutable.value.copy(consentNeeded = false) }
-    fun confirmConsent() {
-        if (!mutable.value.consentNeeded || services.session.value.access != ShellAccess.SIGNED_OUT) return
-        val provider = mutable.value.consentProvider
-        services.auth?.let { auth -> perform("로그인을 시작하지 못했어요.") {
-            if (provider == SignInProvider.APPLE) auth.startAppleLogin(CURRENT_TERMS) else auth.startLogin(CURRENT_TERMS)
-        } }
     }
     fun cancelAuthentication() { services.auth?.let { auth ->
         (injectedScope ?: viewModelScope).launch { auth.cancelAuthentication() }

@@ -15,9 +15,9 @@ test('password input preserves Unicode and whitespace while rejecting controls, 
   assert.equal(passwordValue(password), password);
   assert.equal(passwordValue('가'.repeat(12)), '가'.repeat(12));
   for (const value of [undefined, null, 12, 'short', '가'.repeat(86), 'x'.repeat(257), 'long-password\u0000', 'long-password\n', 'long-password\u007f', 'long-password\ud800']) assert.throws(() => passwordValue(value));
-  const input = { clientId: 'web', loginId: 'Review.ID-42', password, termsVersion: '2026-09-20' };
+  const input = { clientId: 'web', loginId: 'Review.ID-42', password };
   assert.equal(passwordLogin(input).loginId, 'review.id-42');
-  for (const extra of [{ role: 'STREAMER' }, { clientId: 'WEB' }, { loginId: ' review' }, { loginId: 'éxample' }, { termsVersion: 'old' }]) assert.throws(() => passwordLogin({ ...input, ...extra }));
+  for (const extra of [{ role: 'STREAMER' }, { clientId: 'WEB' }, { loginId: ' review' }, { loginId: 'éxample' }]) assert.throws(() => passwordLogin({ ...input, ...extra }));
   assert.throws(() => passwordChange({ clientId: 'ios', currentPassword: password, newPassword: password, userId: randomUUID() }));
 });
 

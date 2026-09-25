@@ -24,7 +24,7 @@ data class ReadContext(val value: String) {
     override fun toString() = "ReadContext([redacted])"
 }
 data class OwnReadState(val messageId: ReadStateId?)
-data class OwnReadStates(val readContext: ReadContext, val items: List<OwnReadState>)
+data class OwnReadStates(val readContext: ReadContext, val items: List<OwnReadState>, val firstUnreadMessageId: ReadStateId? = null)
 
 /** Frozen M11 DTOs. Read state is own display progress, not unread counts or a sync cursor. */
 object M11Dtos {
@@ -42,7 +42,9 @@ object M11Dtos {
         val root = StrictAuthJson.objectValue(text)
         val items = root.getValue("items").jsonArray
         require(items.size <= 100)
-        OwnReadStates(ReadContext(root.string("readContext")), items.map { readItem(it.jsonObject) })
+        val boundary = root["firstUnreadMessageId"]
+        OwnReadStates(ReadContext(root.string("readContext")), items.map { readItem(it.jsonObject) },
+            if (boundary == null || boundary == JsonNull) null else ReadStateId(root.string("firstUnreadMessageId")))
     }
     fun readState(text: String): OwnReadState = decode { readItem(StrictAuthJson.objectValue(text)) }
     fun displayed(messageId: ReadStateId, context: ReadContext) = buildJsonObject {

@@ -82,6 +82,32 @@ private class ConversationAccess(private val api: NativeApi) : ConversationGatew
 }
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConversationCoordinatorTest {
+    @Test fun oldFanSharedOutboxIsOnlyCheckedForReceiptAndNewSharedSendIsRejected() = runTest {
+        val api = ConversationTransport(); val store = ConversationMemory()
+        val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.FAN))
+        val old = TextCommand(ACTOR_ID, SCOPE_M, "SHARED", null, null, "이전에 작성한 내용")
+        store.rows += OutboxRecord(old, SCOPE_A, OutboxPhase.UNKNOWN, 1)
+        val model = RoomConversationCoordinator(ConversationAccess(api), store, backgroundScope)
+        val handle = model.open(selected); runCurrent()
+        val scope = requireNotNull(handle.state.value.data).scope
+        assertEquals(0, api.sends); assertEquals(1, api.lookups)
+        assertEquals(old, store.rows.single().command)
+        assertTrue(model.send(handle, TextSendIntent(scope,
+            TextCommand(MESSAGE_ID, SCOPE_M, "SHARED", null, null, "새로 작성한 내용"), null)).isFailure)
+        assertEquals(0, api.sends); assertEquals(1, store.rows.size)
+    }
+    @Test fun fanRoomOwnerCannotSendPrivateWithoutSelectingMessage() = runTest {
+        val api = ConversationTransport(); val store = ConversationMemory()
+        val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.STREAMER))
+        val model = RoomConversationCoordinator(ConversationAccess(api), store, backgroundScope)
+        val handle = model.open(selected); runCurrent()
+        val scope = requireNotNull(handle.state.value.data).scope
+        val direct = TextCommand(ACTOR_ID, SCOPE_M, "PRIVATE", ACTOR_ID, null, "선택하지 않은 답장")
+        assertTrue(model.send(handle, TextSendIntent(scope, direct, null)).isFailure)
+        assertEquals(0, api.sends); assertEquals(0, store.commits)
+        model.send(handle, TextSendIntent(scope, TextCommand(ACTOR_ID, SCOPE_M, "SHARED", null, null, "전체 메시지"), null)).getOrThrow()
+        runCurrent(); assertEquals(1, api.sends)
+    }
     @Test fun roomOwnerAdmitsOnlyFanAndUnknownSendReconcilesWithoutResending() = runTest {
         for ((mode, role) in listOf(RoomMode.FAN to RoomRole.FAN, RoomMode.FAN to RoomRole.STREAMER, RoomMode.GROUP to RoomRole.MEMBER)) {
             val api = ConversationTransport(); val store = ConversationMemory()

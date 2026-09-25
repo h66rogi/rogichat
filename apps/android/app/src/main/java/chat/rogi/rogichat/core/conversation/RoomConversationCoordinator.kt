@@ -20,7 +20,7 @@ data class ConversationState(val loading: Boolean = true, val data: Conversation
                              val sending: Boolean = false, val recipients: List<PrivateRecipient> = emptyList(),
                              val recipientRevision: RoomId? = null, val recipientNext: RoomId? = null, val action: ConversationActionState? = null,
                              val anchor: ScrollAnchor? = null, val reactions: Map<RoomId, MessageReactions> = emptyMap(),
-                             val authorityClosed: Boolean = false)
+                             val authorityClosed: Boolean = false, val firstUnreadMessageId: String? = null)
 class ConversationHandle internal constructor(val selection: ConversationSelection, internal val identity: String,
                                               val state: StateFlow<ConversationState>)
 data class TextSendIntent(val scope: ConversationScope, val command: TextCommand, val recipientRevision: RoomId?)
@@ -194,6 +194,7 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
         val page = request(entry) { api, token -> ConversationDtos.history(api.getConversation(token, entry.selection.membership.roomId, ConversationRoute.HISTORY, query(entry, cursor))) }
         if (page is HistoryPage.Reset) { reset(entry); return@guarded }
         page as HistoryPage.Success
+        if (page.next == cursor) throw InvalidResponse()
         publish(entry, commit(entry) { storage.history(requireNotNull(entry.scope), cursor, page, it) })
     }
     private suspend fun recipients(entry: Entry, after: RoomId?) {
@@ -252,14 +253,16 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
     }
     private suspend fun loadReadContext(entry: Entry) {
         entry.reads.select(actionScope(entry))
+        update(entry) { it.copy(firstUnreadMessageId = null) }
         val token = requireNotNull(entry.reads.capture())
         try {
             val response = request(entry) { api, bearer -> api.messageAction(bearer, MessageReadWire.get(token.scope)) }
             if (response.status != 200) return
-            entry.reads.accept(token, MessageReadWire.snapshot(response.body))
+            val snapshot = MessageReadWire.snapshot(response.body)
+            entry.reads.accept(token, snapshot)
             val visible = entry.state.value.data?.messages?.map { it.id.value }?.toSet().orEmpty()
             val anchor = reads(entry) { entry.reads.restoreAnchor(token, visible) }
-            update(entry) { it.copy(anchor = anchor) }
+            update(entry) { it.copy(anchor = anchor, firstUnreadMessageId = snapshot.firstUnreadMessageId) }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (_: Exception) { /* No read receipt is claimed; timeline remains independently authorized. */ }
     }
@@ -274,12 +277,14 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
                 withContext(NonCancellable) {
                     owner.launch {
                         entry.mutex.withLock {
+                            var accepted = false
                             try {
                                 val response = request(entry) { api, bearer -> api.messageActionAdmitted(bearer, permit.request(), admission(entry, scope, permit::claim)) }
-                                entry.reads.finish(permit, response.status == 200, if (response.status == 200) MessageReadWire.saved(response.body) else null)
-                            } catch (_: Exception) { entry.reads.finish(permit, false, null) }
-                            // A fresh read context is GET-only. This visible row is never replayed automatically.
-                            if (entry.reads.needsRefresh && !entry.retired && entry.scope == scope) loadReadContext(entry)
+                                val saved = if (response.status == 200) MessageReadWire.saved(response.body) else null
+                                accepted = entry.reads.finish(permit, response.status == 200, saved)
+                            } catch (_: Exception) { accepted = entry.reads.finish(permit, false, null) }
+                            // Refresh the unread boundary after a saved read without replaying the PUT.
+                            if (accepted && !entry.retired && entry.scope == scope) loadReadContext(entry)
                         }
                     }
                 }
@@ -425,13 +430,13 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
             if (intent.command.quote != null) {
                 val quote = current.messages.singleOrNull { it.id == intent.command.quote } ?: throw InvalidResponse()
                 require(intent.command.intent == "PRIVATE" && quote.actions.reply && quote.replyTarget != null && quote.replyTarget == intent.command.recipient)
-            } else if (intent.command.intent == "SHARED") Unit
+                if (membership.mode == RoomMode.FAN) require(membership.role == RoomRole.STREAMER)
+            } else if (intent.command.intent == "SHARED") {
+                require(membership.mode != RoomMode.FAN || membership.role == RoomRole.STREAMER)
+            }
             else if (intent.command.intent == "ROOM_OWNER") {
                 require(membership.mode == RoomMode.FAN && membership.role == RoomRole.FAN)
-            } else {
-                require(membership.mode == RoomMode.FAN && intent.recipientRevision != null && intent.recipientRevision == entry.state.value.recipientRevision)
-                require(entry.state.value.recipients.any { it.actorId == intent.command.recipient })
-            }
+            } else throw InvalidResponse() // A private send requires a selected, authorized fan message.
             // A real user intent is durable before the session-owned asynchronous dispatch starts.
             // Once the durable intent commits, cancellation cannot leave an unowned active command.
             withContext(NonCancellable) {

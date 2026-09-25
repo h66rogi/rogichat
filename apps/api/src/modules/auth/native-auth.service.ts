@@ -48,7 +48,7 @@ export class NativeAuthService {
         !['ios', 'android'].includes(row.client_id ?? '') || !['login', 'link'].includes(row.intent) ||
         !row.app_challenge || !/^[A-Za-z0-9_-]{43}$/.test(row.app_challenge) ||
         !row.return_state || !/^[A-Za-z0-9_-]{43}$/.test(row.return_state) ||
-        (row.intent === 'login' ? row.terms_version !== '2026-09-20' : row.terms_version !== null)) throw new ApiError('NATIVE_CALLBACK_FAILED', 400);
+        (row.intent === 'link' && row.terms_version !== null)) throw new ApiError('NATIVE_CALLBACK_FAILED', 400);
   }
   private async binding(tx: Transaction, row: NativeTransaction, credentials?: NativeCredentials, requireBearer = false) {
     if (row.intent !== 'link') {
@@ -78,7 +78,7 @@ export class NativeAuthService {
       } else if (credentials) throw new ApiError('INVALID_REQUEST', 400);
       const now = await tx.now();
       await this.repository.create(tx, { id, channel: 'NATIVE', state_digest: new Uint8Array(digest(state)), browser_digest: new Uint8Array(digest(secret())),
-        verifier: this.seal(verifier, id, 'verifier'), intent: input.intent, terms_version: input.intent === 'login' ? '2026-09-20' : null,
+        verifier: this.seal(verifier, id, 'verifier'), intent: input.intent, terms_version: null,
         audience: this.config.audience, user_id: userId ?? null, session_id: sessionId ?? null, bound_generation: generation ?? null,
         client_id: input.clientId, app_challenge: input.codeChallenge, return_state: input.returnState,
         launch_digest: new Uint8Array(digest(ticket)), expires_at: new Date(now.getTime() + 600000) });
@@ -165,7 +165,6 @@ export class NativeAuthService {
           let userId: string;
           try { userId = await this.identities.resolve(tx, identity, row.intent === 'link' ? row.user_id! : undefined); }
           catch (error) { if (error instanceof ApiError && error.code === 'CONFLICT') throw new ApiError('SOOP_LINK_CONFLICT', 409); throw error; }
-          if (row.intent === 'login' && row.terms_version === '2026-09-20') await this.logins.terms(tx, userId, row.terms_version);
           const issued = await this.sessions.issueNative(tx, userId, input.clientId);
           if (row.session_id) await this.logins.revokeSession(tx, row.session_id);
           const session = await this.sessions.nativeSession(tx, issued.token, input.clientId);

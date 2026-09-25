@@ -22,12 +22,14 @@ export class PrivateRecipientsCoreService {
     const blocked = new Set(await this.access.blockedActors(tx, roomId, viewer.id, true));
     const targetRole = viewer.role === 'STREAMER' ? 'FAN' : 'STREAMER';
     let scannedAfter = after === undefined ? '' : identifier(after);
+    const room = viewer.role === 'FAN' ? await tx.prisma.rooms.findUnique({ where: { id: roomId }, select: { owner_member_id: true } }) : null;
+    if (viewer.role === 'FAN' && !room?.owner_member_id) return { recipients: [], next: null };
     const now = await tx.now();
     const eligible: PrivateRecipientDto[] = [];
     // Internal candidate windows are not response pages: authorization happens
     // before the eligible 50 + 1 LIMIT. Never expose a skipped actor as a cursor.
     for (let scanned = 0; scanned < 10000; scanned += RECIPIENT_BATCH_SIZE) {
-      const candidates = await this.repository.candidates(tx, roomId, targetRole, scannedAfter);
+      const candidates = await this.repository.candidates(tx, roomId, targetRole, scannedAfter, room?.owner_member_id ?? undefined);
       const pairs = candidates.length ? await this.repository.pairs(tx, roomId, viewer.id, candidates.map(candidate => candidate.id), now) : [];
       const byRecipient = new Map(pairs.map(pair => [pair.left_member_id === viewer.id ? pair.right_member_id : pair.left_member_id, pair]));
       for (const candidate of candidates) {

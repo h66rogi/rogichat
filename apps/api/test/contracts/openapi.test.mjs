@@ -109,13 +109,12 @@ test('request schemas agree with parsers on message union, forbidden fields and 
   }
 });
 
-test('native issuance contract preserves conditional consent, strict proofs and native-only admission', async t => {
+test('native issuance contract preserves strict proofs and native-only admission', async t => {
   const proof = 'a'.repeat(43);
-  const base = { clientId: 'ios', intent: 'login', codeChallenge: proof, codeChallengeMethod: 'S256', returnState: proof, termsVersion: '2026-09-20' };
+  const base = { clientId: 'ios', intent: 'login', codeChallenge: proof, codeChallengeMethod: 'S256', returnState: proof };
   check(nativeStartRequest, base);
-  const link = { ...base }; delete link.termsVersion;
-  check(nativeStartRequest, { ...link, intent: 'link' });
-  for (const body of [link, { ...base, intent: 'link' }, { ...base, codeChallengeMethod: 'plain' }, { ...base, termsVersion: null }, { ...base, returnUrl: 'https://untrusted.invalid' }]) check(nativeStartRequest, body, false);
+  check(nativeStartRequest, { ...base, intent: 'link' });
+  for (const body of [{ ...base, codeChallengeMethod: 'plain' }, { ...base, unexpected: true }, { ...base, returnUrl: 'https://untrusted.invalid' }]) check(nativeStartRequest, body, false);
   const exchange = { clientId: 'android', transactionId: randomUUID(), code: proof, codeVerifier: 'v'.repeat(128) };
   check(nativeExchangeRequest, exchange);
   for (const body of [{ ...exchange, codeVerifier: 'v'.repeat(129) }, { ...exchange, codeVerifier: 'short' }, { ...exchange, code: null }, { ...exchange, clientId: 'web' }, { ...exchange, subject: 'injected' }]) check(nativeExchangeRequest, body, false);

@@ -93,7 +93,7 @@ export class PrivacyClient {
   async blocks(room: string, after: string | null, signal: AbortSignal) { return blockPage(await this.request(`/v1/rooms/${uuid(room)}/blocks${after === null ? '' : `?after=${uuid(after)}`}`, 200, signal, undefined, undefined, {}, 32768)); }
   async block(room: string, actor: string, blocked: boolean, csrf: string, signal: AbortSignal) { return blockReceipt(await this.request(`/v1/rooms/${uuid(room)}/blocks/${uuid(actor)}`, 200, signal, blocked ? 'PUT' : 'DELETE', csrf, blocked ? {} : null), actor, blocked); }
   async login(signal: AbortSignal): Promise<string> {
-    const data = exact(await this.request('/v1/auth/soop/start', 200, signal, 'POST', undefined, { intent: 'login', termsVersion: '2026-09-20' }), ['authorizeUrl']);
+    const data = exact(await this.request('/v1/auth/soop/start', 200, signal, 'POST', undefined, { intent: 'login' }), ['authorizeUrl']);
     if (typeof data.authorizeUrl !== 'string') throw new ApiError(502, 'INVALID_AUTH_URL');
     const url = new URL(data.authorizeUrl);
     if (url.protocol !== 'https:' || url.username || url.password) throw new ApiError(502, 'INVALID_AUTH_URL');

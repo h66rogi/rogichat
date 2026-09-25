@@ -40,7 +40,6 @@ export class AuthController {
     if (request.headers.origin !== this.config.origin || !request.is('application/json')) throw new ApiError('FORBIDDEN', 403);
     const body = object(request.body, ['intent', 'termsVersion']);
     if (body.intent !== 'login' && body.intent !== 'link') throw new ApiError('INVALID_REQUEST', 400);
-    if (body.intent === 'login' && body.termsVersion !== '2026-09-20') throw new ApiError('INVALID_REQUEST', 400);
     const rawCookies = request.headers.cookie ?? '';
     if (rawCookies.length > 8192) throw new ApiError('INVALID_REQUEST', 400);
     const pending = rawCookies.split(';').map(p => p.trim()).filter(p => p.startsWith(`${cookieName(this.config, 'oauth')}_`));

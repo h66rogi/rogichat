@@ -19,7 +19,7 @@ import Foundation
         let proof = Data(repeating: 1, count: 32).base64EncodedString().replacingOccurrences(of: "=", with: "")
         let login = try AppleIdentityStart(intent: .login, codeChallenge: proof, returnState: proof)
         let loginJSON = try JSONSerialization.jsonObject(with: AppleIdentityEndpoint.start(login).body()) as! [String: Any]
-        precondition(loginJSON["termsVersion"] as? String == "2026-09-20" && loginJSON["codeChallengeMethod"] == nil)
+        precondition(loginJSON["termsVersion"] == nil && loginJSON["codeChallengeMethod"] == nil)
         let linkBody = try AppleIdentityStart(intent: .link, codeChallenge: proof, returnState: proof)
         let linkJSON = try JSONSerialization.jsonObject(with: AppleIdentityEndpoint.start(linkBody).body()) as! [String: Any]
         precondition(linkJSON["termsVersion"] == nil)

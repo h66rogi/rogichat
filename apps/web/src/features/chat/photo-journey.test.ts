@@ -18,6 +18,7 @@ function server(post: ChatRequest): ChatRequest {
     if (path.startsWith('/v1/sync?')) return { schemaVersion: 2, resetRequired: false, generation: 'a', complete: true, nextCursor: null, rooms: [{ roomId, actorId: assetId, name: '테스트 방', mode: 'FAN', role: 'FAN', membershipScope: base.membershipScope, authorizationRevision: base.authorizationRevision }] };
     if (path.includes('/profile-sync?')) return { ...base, generation: 'p', complete: true, nextCursor: null, profiles: [{ actorId: assetId, role: 'FAN', nickname: '팬', avatar: null }] };
     if (path.includes('/private-recipients')) return { recipients: [{ actorId: otherRoomId, nickname: '운영자', avatar: null }], next: null };
+    if (path.includes('/read-state')) return { readContext: 'A'.repeat(43), items: [], firstUnreadMessageId: null };
     if (path.includes('/snapshot?')) return { ...base, messages: [], nextCursor: 'events', historyCursor: null };
     if (path.includes('/events?')) return { ...base, events: [], nextCursor: 'events-next', hasMore: false };
     return post(path, options);

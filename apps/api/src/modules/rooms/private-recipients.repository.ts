@@ -6,12 +6,12 @@ export const RECIPIENT_BATCH_SIZE = 100;
 
 @Injectable()
 export class PrivateRecipientsRepository {
-  async candidates(tx: Transaction, roomId: string, role: 'FAN' | 'STREAMER', after: string) {
+  async candidates(tx: Transaction, roomId: string, role: 'FAN' | 'STREAMER', after: string, ownerMemberId?: string) {
     const delegations = await tx.prisma.room_test_grants.findMany({ where: { room_id: roomId, revoked_at: null, expires_at: { gt: await tx.now() }, member: { status: 'ACTIVE', user: { admin: { is: { manage_test_access: true } } }, active_period: { is: { left_at: null } } } }, take: 10001, select: { member_id: true, period_id: true, member: { select: { active_period_id: true } } } });
     if (delegations.length > 10000) throw new ServiceUnavailableException();
     const delegates = delegations.filter(g => g.period_id === g.member.active_period_id).map(g => g.member_id);
     const rows = await tx.prisma.room_members.findMany({
-      where: { room_id: roomId, id: { gt: after }, ...(role === 'FAN' ? { role, NOT: { id: { in: delegates } } } : { OR: [{ role }, { id: { in: delegates } }] }), status: 'ACTIVE',
+      where: { room_id: roomId, id: { gt: after, ...(ownerMemberId ? { equals: ownerMemberId } : {}) }, ...(role === 'FAN' ? { role, NOT: { id: { in: delegates } } } : { OR: [{ role }, { id: { in: delegates } }] }), status: 'ACTIVE',
         active_period: { is: { left_at: null } },
         user: { ...chatUser(await tx.now()), profile: { isNot: null } } },
       orderBy: { id: 'asc' }, take: RECIPIENT_BATCH_SIZE,

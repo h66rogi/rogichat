@@ -1,6 +1,6 @@
 import Foundation
 
-struct ReadSnapshot: Equatable, Sendable { let context: String; let messageIds: [String] }
+struct ReadSnapshot: Equatable, Sendable { let context: String; let messageIds: [String]; var firstUnreadMessageId: String? = nil }
 struct ScrollAnchor: Codable, Equatable, Sendable { let messageId: String; let offset: Int }
 @MainActor protocol ScrollAnchorStore {
     func load(_ scope: ActionScope) throws -> ScrollAnchor?
@@ -52,6 +52,12 @@ final class ReadDisplayPermit: @unchecked Sendable {
         else if let savedMessageId, !savedMessageIds.contains(savedMessageId) { savedMessageIds.append(savedMessageId); savedMessageIds = Array(savedMessageIds.suffix(100)) }
         return true
     }
+    // A successful batch needs a fresh server boundary; no old readContext or
+    // pending PUT is reused while that GET is in flight.
+    func requestRefresh() {
+        guard scope != nil, pending == nil else { return }
+        generation &+= 1; context = nil; needsRefresh = true; savedMessageIds = []
+    }
     func saveAnchor(_ token: ReadViewToken, anchor: ScrollAnchor, currentlyReadable: Set<String>) throws {
         guard actionID(anchor.messageId), anchor.offset >= 0 else { throw MessageActionError.invalidResponse }
         if admits(token), currentlyReadable.contains(anchor.messageId) { try anchors.save(token.scope, anchor: anchor) }
@@ -77,12 +83,15 @@ enum MessageReadWire {
     }
     static func snapshot(_ data: Data) throws -> ReadSnapshot {
         let root = try ActionJSON.object(data)
-        guard Set(root.keys) == ["readContext", "items"], let context = root["readContext"] as? String, validContext(context),
+        guard Set(root.keys).subtracting(["firstUnreadMessageId"]) == ["readContext", "items"], let context = root["readContext"] as? String, validContext(context),
               let items = root["items"] as? [[String: Any]], items.count <= 100 else { throw MessageActionError.invalidResponse }
+        let boundary = root["firstUnreadMessageId"] as? String
+        if let boundary, !actionID(boundary) { throw MessageActionError.invalidResponse }
+        if root["firstUnreadMessageId"] != nil && boundary == nil && !(root["firstUnreadMessageId"] is NSNull) { throw MessageActionError.invalidResponse }
         let ids = try items.map { item -> String in
             guard Set(item.keys) == ["messageId"], let id = item["messageId"] as? String, actionID(id) else { throw MessageActionError.invalidResponse }; return id
         }
-        return ReadSnapshot(context: context, messageIds: ids)
+        return ReadSnapshot(context: context, messageIds: ids, firstUnreadMessageId: boundary)
     }
     static func saved(_ data: Data) throws -> String? {
         let root = try ActionJSON.object(data)

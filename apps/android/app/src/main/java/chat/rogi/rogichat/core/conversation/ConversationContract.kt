@@ -171,6 +171,10 @@ object ConversationDtos {
         put("id", message.id.value); put("version", message.version.value); put("createdAt", message.createdAt.toString()); put("audience", message.audience)
         put("counterpart", message.counterpart?.let { buildJsonObject { put("actorId", it.value) } } ?: JsonNull)
         put("allowedActions", buildJsonObject { put("reply", message.actions.reply); put("publish", message.actions.publish); put("delete", message.actions.delete) })
+        put("reactions", buildJsonObject {
+            put("counts", buildJsonArray { message.reactions.counts.forEach { count -> add(buildJsonObject { put("emoji", count.emoji); put("count", count.count) }) } })
+            put("mine", message.reactions.mine?.let(::JsonPrimitive) ?: JsonNull)
+        })
         put("author", when (val author = message.author) {
             MessageAuthor.Anonymous -> buildJsonObject { put("kind", "anonymous") }
             is MessageAuthor.Member -> buildJsonObject { put("kind", "member"); put("actorId", author.actorId.value); put("nickname", author.nickname); put("avatar", avatarJson(author.avatarAssetId)) }

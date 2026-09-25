@@ -10,8 +10,8 @@ export const readStateOpenApi = {
     ReadStateInput: { type: 'object', additionalProperties: false, required: ['messageId', 'readContext'],
       properties: { messageId: identifier, readContext: context } },
     OwnReadState: item,
-    OwnReadStates: { type: 'object', additionalProperties: false, required: ['readContext', 'items'],
-      properties: { readContext: context, items: { type: 'array', maxItems: 100, items: item } } },
+    OwnReadStates: { type: 'object', additionalProperties: false, required: ['readContext', 'items', 'firstUnreadMessageId'],
+      properties: { readContext: context, items: { type: 'array', maxItems: 100, items: item }, firstUnreadMessageId: message } },
   },
   paths: {
     '/v1/rooms/{roomId}/read-state': {

@@ -453,7 +453,7 @@ Socket.IO adapter는 C01 native handshake가 통과한 뒤 붙인다. REST-only 
 | MB01 — 계약 확정 | MB00, 서버 구조 보정 경계 합의 | C01–C08 ADR, 작은 auth/room/message/sync OpenAPI, JSON fixture, 고정 DTO generator | backend 응답과 양 OS 모델 parity, 공개 projection 검증, D 항목 결정 |
 | MB02 — 앱 기반 | MB00; 서버 adapter만 확정 계약 의존 | 아래 MB02a–d: 원본 기능 흐름 재사용·제품 shell·설정·OS 경계부터, 이후 API/Session/DB | 재사용/신규 사유 ledger, QA/prod 공통 제품 경로, 배포 fixture 배제, gate/상태 복구와 adapter 시험 |
 | MB03 — 실제 인증·방 | MB01/02, Apple/provider/broker 등록·실연동 | 시스템 인증, Apple/SOOP 연결, bootstrap, 방 입장, 초기 profile/settings, 최소 logout/작업 취소/세션·cache 정리 | Android/iPhone 실제 왕복·취소·재시작·충돌·기한 만료·계정 교체 시험 |
-| MB04 — 텍스트와 복구 | MB03, C04/C05/C06 확정 | 로컬 outbox, snapshot/events/history, 기본 SHARED composer와 메시지 선택형 스트리머 PRIVATE 답장, 삭제, REST fallback, socket adapter | 팬 SHARED, 스트리머 SHARED/선택한 메시지 작성자에게 PRIVATE 답장의 두 OS 왕복, ACK 유실+강제 종료, 중복/역순/reset/철회 시험 |
+| MB04 — 텍스트와 복구 | MB03, C04/C05/C06 확정 | 로컬 outbox, snapshot/events/history, 팬 ROOM_OWNER·스트리머 SHARED composer와 메시지 선택형 스트리머 PRIVATE 답장, 삭제, REST fallback, socket adapter | 팬 ROOM_OWNER, 스트리머 SHARED/선택한 메시지 작성자에게 PRIVATE 답장의 두 OS 왕복, ACK 유실+강제 종료, 중복/역순/reset/철회 시험 |
 | MB05 — 대화 UX | MB04, M07 확인 | 스와이프·답장 선택 UX/접근성, 전체공개 상태, 반응, scroll anchor | 대상 오발송 0, 익명 공개본 역추적 정보 0, 원본 삭제 연쇄 반영 |
 | MB06 — 미디어 | MB04/05, M08 계약·실배포 검증 | picker/전처리, upload 상태 머신, 처리 대기·재시도, authorized URL loader, 스티커/아바타 | 권한/URL 만료/취소/재시작/크기·형식 거부 및 계정 전환 시험 |
 | MB07 — 계정·알림·출시 UX | MB03/04, C09 계약 합의, 서버 lifecycle/push/moderation/delete 준비 | MB03 logout 확장, 서버 탈퇴, 신고/차단, 생일 공개 철회, MB02c adapter에 실제 push binding/선호 설정/재인가 연결 | 늦은 push/callback/응답의 계정 혼입 0, 데이터 삭제·정책 링크·접근성 |

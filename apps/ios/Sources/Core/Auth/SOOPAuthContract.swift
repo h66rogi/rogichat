@@ -11,7 +11,7 @@ enum SOOPAuthError: String, Error, LocalizedError, Sendable, Hashable {
     var errorDescription: String? {
         switch self {
         case .recentAuth: "다시 로그인한 뒤 SOOP 계정을 연결해 주세요. 계정 관리에서 로그아웃할 수 있어요."
-        case .terms, .consentRequired: "이용 안내를 확인하고 동의한 뒤 다시 로그인해 주세요. 연결 중인 계정은 변경하지 않았어요."
+        case .terms, .consentRequired: "로그인 상태를 확인하지 못했어요. 다시 로그인해 주세요."
         case .sessionChanged: "로그인 상태가 변경되어 계정 연결을 중단했어요."
         case .conflict: "이미 다른 계정에 연결된 SOOP 계정이에요. 현재 계정은 변경하지 않았어요."
         case .unavailable: "지금은 SOOP 로그인에 연결할 수 없어요. 다시 시도해 주세요."

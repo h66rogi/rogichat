@@ -4,7 +4,8 @@ export interface MessageRow {
   content_owner_user_id: string; deletion_root_id: string | null; quote_id: string | null;
   text_content: string | null; content_kind: string; version: string; created_order: string;
   created_at: Date; deleted_at: Date | null; moderated: number; stream_kind: 'ROOM_SHARED' | 'RESTRICTED';
-  nickname: string; content_owner_status: string; root_blocked: number; avatar_id: string | null;
+  nickname: string; sender_role: 'FAN' | 'MEMBER' | 'STREAMER'; content_owner_status: string; root_blocked: number; avatar_id: string | null;
+  room_mode: 'FAN' | 'GROUP'; owner_member_id: string | null; published_active: number;
 }
 
 export interface MessageIdRow { id: string }

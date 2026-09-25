@@ -6,7 +6,7 @@ ID/PW 로그인에 사용할 수 있으며, 공개 가입·기본 비밀번호·
 ## 계약
 
 - `POST /v1/auth/password/login`은 `clientId: web`, 입력한 `loginId`와
-  `password`, 명시적으로 동의한 `termsVersion: 2026-09-20`을 전송한다.
+  `password`를 전송한다. 과거 클라이언트의 선택적 `termsVersion`은 로그인에 영향을 주지 않는다.
   응답은 웹 Session이며 HttpOnly 쿠키를 통한 별도 session 조회가 같은
   partition/CSRF임을 확인한 뒤 기존 인증 게이트를 갱신한다.
 - SOOP 연결 여부와 채팅 사용 권한은 다르다. 서버가 명시한

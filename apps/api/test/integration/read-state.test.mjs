@@ -48,14 +48,16 @@ test('two sessions advance persisted own state monotonically without transferrin
   const firstContext = (await f.get(f.a)).readContext, secondContext = (await f.get(second)).readContext;
   assert.notEqual(firstContext, secondContext);
   const older = (await f.send(f.owner)).messageId, newer = (await f.send(f.owner)).messageId;
+  assert.equal((await f.get(f.a)).firstUnreadMessageId, older);
   await Promise.all([f.put(second, newer, secondContext), f.put(f.a, older, firstContext)]);
+  assert.equal((await f.get(f.a)).firstUnreadMessageId, null);
   assert.deepEqual((await f.get(f.a)).items, [{ messageId: newer }]);
   assert.deepEqual(await f.put(f.a, older, firstContext), { messageId: newer });
   assert.deepEqual((await f.get(f.b)).items, []);
   await assert.rejects(f.put(f.b, newer, firstContext), { code: 'CONFLICT' });
   await assert.rejects(f.put(second, newer, firstContext), { code: 'CONFLICT' });
   const result = await f.get(f.a);
-  assert.deepEqual(Object.keys(result).sort(), ['items', 'readContext']);
+  assert.deepEqual(Object.keys(result).sort(), ['firstUnreadMessageId', 'items', 'readContext']);
   assert.deepEqual(Object.keys(result.items[0]), ['messageId']);
   for (const secret of [f.a.id, f.a.actor, 'last_read_order', 'stream_id', 'period_id']) assert.ok(!JSON.stringify(result).includes(secret));
   const rows = await f.db.transactions.read(tx => tx.prisma.own_read_states.findMany({ where: { member_id: f.a.actor }, select: { last_read_order: true } }));
@@ -68,7 +70,10 @@ test('private streams stay independent; revoked grants, deleted messages and unr
   const f = await fixture(t), scope = (await f.get(f.a)).readContext;
   const shared = (await f.send(f.owner)).messageId, privateA = (await f.send(f.owner, f.a)).messageId;
   const privateB = (await f.send(f.owner, f.b)).messageId;
+  assert.equal((await f.get(f.a)).firstUnreadMessageId, shared);
   await f.put(f.a, shared, scope); await f.put(f.a, privateA, scope);
+  assert.equal((await f.get(f.a)).firstUnreadMessageId, null);
+  assert.equal((await f.get(f.b)).firstUnreadMessageId, shared);
   assert.deepEqual(new Set((await f.get(f.a)).items.map(row => row.messageId)), new Set([shared, privateA]));
   await denied(f.put(f.a, privateB, scope)); await denied(f.get(f.outside));
   const otherRoom = await f.db.transactions.write(async tx => { const id = await createRoom(tx, '다른 합성 방', 'GROUP'); await joinRoom(tx, id, f.a.id); return id; });

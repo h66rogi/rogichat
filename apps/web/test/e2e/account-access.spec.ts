@@ -9,7 +9,7 @@ test('password login confirms a real server session while reviewer SOOP linkage 
   let attempts = 0;
   await page.route('**/v1/auth/password/login', async route => {
     attempts++;
-    expect(route.request().postDataJSON()).toEqual({ clientId: 'web', loginId: 'synthetic-reviewer', password: 'isolated-test-password', termsVersion: '2026-09-20' });
+    expect(route.request().postDataJSON()).toEqual({ clientId: 'web', loginId: 'synthetic-reviewer', password: 'isolated-test-password' });
     expect(route.request().headers()['x-csrf-token']).toBeUndefined();
     if (attempts === 1) { await json(route, { error: { code: 'AUTH_FAILED' } }, 401); return; }
     state.authenticated = true; await json(route, session());
@@ -18,7 +18,6 @@ test('password login confirms a real server session while reviewer SOOP linkage 
   await page.getByText('아이디·비밀번호로 로그인', { exact: true }).click();
   await page.getByLabel('아이디', { exact: true }).fill('synthetic-reviewer');
   await page.getByLabel('비밀번호', { exact: true }).fill('isolated-test-password');
-  await page.locator('input[name="terms"]').check();
   expect((await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze()).violations).toEqual([]);
   await page.getByRole('button', { name: '아이디로 로그인' }).click();
   await expect(page.locator('form [role="alert"]')).toHaveText('아이디 또는 비밀번호를 확인해 주세요.');
@@ -52,7 +51,6 @@ test('cookie installed before a failed confirmation recovers without another pas
   await page.getByText('아이디·비밀번호로 로그인', { exact: true }).click();
   await page.getByLabel('아이디', { exact: true }).fill('synthetic-reviewer');
   await page.getByLabel('비밀번호', { exact: true }).fill('isolated-test-password');
-  await page.locator('input[name="terms"]').check();
   await page.getByRole('button', { name: '아이디로 로그인' }).click();
   await expect(page.getByRole('button', { name: '로그인 상태 다시 확인' })).toBeVisible();
   state.sessionStatus = 200;
@@ -80,7 +78,6 @@ test('a session appearing before password submit is recovered without replacing 
   await page.getByText('아이디·비밀번호로 로그인', { exact: true }).click();
   await page.getByLabel('아이디', { exact: true }).fill('synthetic-reviewer');
   await page.getByLabel('비밀번호', { exact: true }).fill('isolated-test-password');
-  await page.locator('input[name="terms"]').check();
   state.authenticated = true;
   await page.getByRole('button', { name: '아이디로 로그인' }).click();
   await expect(page.getByRole('heading', { name: '로그인되어 있어요' })).toBeVisible();

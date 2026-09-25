@@ -85,14 +85,16 @@ test('pre-owner fan inbox commits privately and idempotently; later real owner r
   assert.equal(first.status, 'committed'); assert.deepEqual(await send(input), first);
   assert.equal((await f.db.transactions.read(tx => getMessage(tx, DEFAULT_ROOM_ID, fan, first.messageId))).audience, 'PRIVATE');
   await assert.rejects(f.db.transactions.read(tx => getMessage(tx, DEFAULT_ROOM_ID, other, first.messageId)), { code: 'NOT_FOUND' });
-  const shared = await send(sendInput({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '방장 가입 전 전체 채팅' } }));
+  const shared = await send(sendInput({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '방장 가입 전 이전 클라이언트 전송' } }));
   assert.equal(shared.status, 'committed');
-  assert.equal((await f.db.transactions.read(tx => getMessage(tx, DEFAULT_ROOM_ID, other, shared.messageId))).audience, 'SHARED');
+  assert.equal((await f.db.transactions.read(tx => getMessage(tx, DEFAULT_ROOM_ID, fan, shared.messageId))).audience, 'PRIVATE');
+  await assert.rejects(f.db.transactions.read(tx => getMessage(tx, DEFAULT_ROOM_ID, other, shared.messageId)), { code: 'NOT_FOUND' });
   const before = await f.db.transactions.read(tx => tx.prisma.messages.findUnique({ where: { id: first.messageId }, select: { stream_id: true } }));
   assert.equal((await f.inspect()).users, 2); assert.equal((await f.inspect()).creators.length, 0);
   const owner = await f.seed();
   assert.equal(await bootstrap.provision(), 'bound');
   assert.equal((await f.db.transactions.read(tx => getMessage(tx, DEFAULT_ROOM_ID, owner, first.messageId))).content.text, input.content.text);
+  assert.equal((await f.db.transactions.read(tx => getMessage(tx, DEFAULT_ROOM_ID, owner, shared.messageId))).audience, 'PRIVATE');
   assert.deepEqual(await send(input), first);
   const next = await send({ ...input, clientMessageId: randomUUID() });
   const after = await f.db.transactions.read(tx => tx.prisma.messages.findUnique({ where: { id: next.messageId }, select: { stream_id: true } }));

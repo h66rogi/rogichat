@@ -31,7 +31,7 @@ SOOP access token의 단순 만료를 identity 철회와 동일시하지 않는�
 
 1. iOS는 native Sign in with Apple을 사용한다. Android/web에도 같은 계정 접근이
    가능하도록 Apple web 인증 경로와 Services ID 구성을 함께 계획한다.
-2. 서버가 검증한 Apple identity가 없으면 약관 동의 후 제한 계정을 생성한다. 기존 identity면
+2. 서버가 검증한 Apple identity가 없으면 제한 계정을 생성한다. 기존 identity면
    같은 user로 로그인한다. 이름/이메일 재수신을 매 로그인 조건으로 요구하지 않는다.
 3. 미연결이면 SOOP 연결 안내로 이동한다. 기존 broker의 `intent=link` transaction에
    로그인한 user·session·환경·nonce/일회용 code·앱 S256 challenge를 결합한다.

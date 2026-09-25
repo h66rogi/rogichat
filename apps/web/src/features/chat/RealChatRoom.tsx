@@ -136,11 +136,12 @@ function LiveRoom({ controller, csrf, roomId, session, origin }: { session: Sess
     composerMemory={controller} composerEpoch={state.epoch}
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
+    firstUnreadMessageId={state.firstUnreadMessageId} onVisibleMessage={controller.displayed}
     outgoing={state.outgoing} outgoingBusy={state.commandBusy} onRetryOutgoing={controller.retry}
     streamerRecipients={recipients}
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}
     submitBlockedReason={state.storageError ?? undefined}
     submitBusy={state.commandBusy}
-    onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} isLoadingOlder={state.loadingOlder}
+    onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} historyCursor={state.historyCursor} isLoadingOlder={state.loadingOlder}
   /></ReactionContext.Provider></div></div></SessionMediaProvider></ChatPrivacyContext.Provider>;
 }

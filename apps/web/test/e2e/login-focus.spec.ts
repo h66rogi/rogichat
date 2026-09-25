@@ -19,11 +19,9 @@ for (const path of ['/chat', '/settings']) {
   });
 }
 
-test('login consent and first pointer activation survive focus and page restoration', async ({ page }) => {
+test('first login pointer activation survives focus and page restoration', async ({ page }) => {
   await installApi(page, false);
   await page.goto('/login');
-  const consent = page.getByRole('checkbox');
-  await consent.check();
   let release!: () => void;
   const pending = new Promise<void>(resolve => { release = resolve; });
   await page.route('**/v1/auth/session', async route => { await pending; await json(route, {}, 401); });
@@ -38,11 +36,10 @@ test('login consent and first pointer activation survive focus and page restorat
     window.dispatchEvent(new Event('focus'));
   });
   try {
-    await expect(consent).toBeChecked();
+    await expect(page.getByRole('button', { name: 'SOOP으로 로그인', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'SOOP으로 로그인', exact: true }).click();
     await expect.poll(() => starts).toBe(1);
     await expect(page.getByRole('alert').filter({ hasText: '요청을 완료하지 못했습니다.' })).toBeVisible();
-    await expect(consent).toBeChecked();
   } finally { release(); }
 });
 

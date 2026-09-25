@@ -25,7 +25,7 @@ const MESSAGES: Record<PushFailureKind, string> = {
   'invalid-request': '알림 설정 요청을 서버가 받아들이지 않았습니다. 잠시 후 다시 시도해 주세요.',
   unauthenticated: '로그인이 필요합니다.',
   forbidden: '접근 권한을 다시 확인해 주세요.',
-  'soop-link-required': 'SOOP 계정 연결과 최신 약관 동의가 필요합니다.',
+  'soop-link-required': 'SOOP 계정 연결이 필요합니다.',
   'not-found': '알림 설정을 확인할 수 없어요. 다시 설정해 주세요.',
   conflict: '알림 설정이 다른 곳에서 변경되었습니다. 현재 설정을 다시 확인해 주세요.',
   unavailable: '지금은 알림을 켤 수 없어요. 잠시 후 다시 시도해 주세요.',

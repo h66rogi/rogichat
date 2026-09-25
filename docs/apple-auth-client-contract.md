@@ -13,8 +13,8 @@ wire input types. All routes use `/v1/auth/apple` below.
    codeChallenge,returnState,termsVersion?}`. Challenge is SHA256(verifier),
    base64url without padding (43 chars); verifier is RFC7636 43–128 chars.
    returnState is a fresh random 32-byte base64url value (43 chars).
-   Login requires `termsVersion:"2026-09-20"`; link omits termsVersion and
-   requires the original authenticated session, recent authentication and terms.
+   Login may omit `termsVersion`; an optional legacy value has no effect. Link
+   omits it and requires the original authenticated session and recent authentication.
    Response: `{transactionId,state,nonce,authorizeUrl,expiresIn:600}`.
 2. iOS sets **exact returned nonce** on `ASAuthorizationAppleIDRequest.nonce`
    (do not hash again) and returned state on the request. Native success goes
@@ -54,5 +54,6 @@ SOOP conflict is `409 SOOP_LINK_CONFLICT`. Apple conflict is
 log in directly with the existing SOOP account, then explicitly link Apple from
 account settings; an Apple identity already owned by another restricted account
 still conflicts. `401 LINK_SESSION_CHANGED`, `403 RECENT_AUTH_REQUIRED`,
-`403 TERMS_REQUIRED`, `400 AUTH_FAILED`, and `503 AUTH_UNAVAILABLE` are stable
-Apple errors; unavailable provider config is never successful authentication.
+`400 AUTH_FAILED` and `503 AUTH_UNAVAILABLE` are stable Apple errors;
+`403 TERMS_REQUIRED` remains a legacy reserved code. Unavailable provider config
+is never successful authentication.

@@ -47,22 +47,23 @@ export function isSameTarget(a: ChatComposerTarget | null, b: ChatComposerTarget
 
 /**
  * The composer may only target what the harness authorized:
- * - Everyone: SHARED.
- * - STREAMER: a server-authorized fan when replying to a selected message.
+ * - FAN: the room owner, without selecting or identifying an actor.
+ * - STREAMER: SHARED or a server-authorized fan when replying to a selected message.
  * A stale target (recipient no longer authorized) is rejected; the caller keeps the draft.
  */
 export function isAuthorizedTarget(
   target: ChatComposerTarget,
   options: { viewerRole: 'FAN' | 'STREAMER'; streamerRecipients: readonly ChatActorRef[] },
 ): boolean {
-  if (target.scope === 'SHARED') return true;
-  if (target.scope === 'ROOM_OWNER' || options.viewerRole === 'FAN') return false;
+  if (target.scope === 'ROOM_OWNER') return options.viewerRole === 'FAN';
+  if (target.scope === 'SHARED') return options.viewerRole === 'STREAMER';
+  if (options.viewerRole !== 'STREAMER') return false;
   return options.streamerRecipients.some((r) => r.actorId === target.recipient.actorId);
 }
 
 export function targetLabel(target: ChatComposerTarget | null): string {
   if (target === null) return '보낼 대상 없음';
   if (target.scope === 'SHARED') return '전체 참여자';
-  if (target.scope === 'ROOM_OWNER') return '방장에게만';
-  return `${target.recipient.displayName}님에게만`;
+  if (target.scope === 'ROOM_OWNER') return '방장';
+  return `${target.recipient.displayName}님`;
 }

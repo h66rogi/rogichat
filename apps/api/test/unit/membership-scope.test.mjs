@@ -27,7 +27,9 @@ test('A retains the exact viewer ACL vector including account generation; other-
   const service = new MembershipScopeService({ key, audience }, { batch: async (_tx, _user, _rooms, captured) => { assert.equal(captured, now); return { members: [member], grants: [grant], revoked }; } });
   const one = await service.one({}, userId, roomId, now);
   const vector = [member.id, member.role, member.room.mode, periodId, '9007199254740993', '3', 4, '7', '2', [{ stream_id: grant.stream_id, can_read: 1, can_send: 0, valid_from: grant.valid_from, expires_at: now, revoked_at: null, active: 0 }], [revoked[0].id]];
-  assert.equal(one.authorizationRevision, createHmac('sha256', key).update('authorization-revision:v1:').update(JSON.stringify([audience, vector])).digest('base64url'));
+  const digest = version => createHmac('sha256', key).update(`authorization-revision:${version}:`).update(JSON.stringify([audience, vector])).digest('base64url');
+  assert.equal(one.authorizationRevision, digest('v2'));
+  assert.notEqual(one.authorizationRevision, digest('v1'), 'the policy revision invalidates timelines cached under the former fan ACL');
   member.user.membership_generation++;
   const two = await service.one({}, userId, roomId, now);
   assert.equal(one.membershipScope, two.membershipScope); assert.notEqual(one.authorizationRevision, two.authorizationRevision);

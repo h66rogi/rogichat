@@ -15,8 +15,8 @@ are implemented by `native-auth.controller.ts` and the existing
 `X-Rogi-Client: ios|android` matching body `clientId`. Login omits Authorization;
 link supplies the original native Bearer at start and exchange. Reject Origin,
 CSRF headers, web session cookies, malformed/duplicate headers and unknown JSON
-fields. Link must omit `termsVersion`; only login accepts explicit current terms
-consent. Response bodies contain no provider identity or broker URL.
+fields. Link must omit `termsVersion`; login may send the legacy optional field,
+which has no effect on authentication. Response bodies contain no provider identity or broker URL.
 
 Start returns exactly `transactionId`, API `authorizeUrl` and `expiresIn:600`.
 Launch accepts only the one-time `request` query and sets its own transaction cookie
@@ -40,7 +40,7 @@ Native errors are fixed codes, never provider messages:
 | `FORBIDDEN` | 403 | Native POST cannot use browser Origin/CSRF transport. |
 | `UNAUTHENTICATED` | 401 | Link start needs a current native credential. |
 | `RECENT_AUTH_REQUIRED` | 403 | Reauthenticate; original session is older than 15 minutes. |
-| `TERMS_REQUIRED` | 403 | Offer explicit login with current consent; never silently convert link into login. |
+| `TERMS_REQUIRED` | 403 | Legacy reserved error; current login and linking do not require consent. |
 | `LINK_SESSION_CHANGED` | 401 | Cancel pending link; original session/account/generation is no longer current. |
 | `SOOP_LINK_CONFLICT` | 409 | Keep the current account; do not merge or overwrite another identity. |
 | `NATIVE_CALLBACK_FAILED` | 400 | Failed, expired or consumed stage, invalid proof, or unverifiable provider result; reauthenticate. |
@@ -80,19 +80,16 @@ establish a repeatable-read snapshot before a concurrent first-login account is
 registered; the later own-account DTO can see the newly committed canonical
 account. A deterministic two-request regression forces this ordering.
 `SessionRepository.boundNative` uses a fixed, bound joined session/account lock
-for fresh session, account status, DB-clock recent-auth, consent and generation
+for fresh session, account status, DB-clock recent-auth and generation
 checks. These checks and protected mutations share the caller transaction.
 Neither repository opens a hidden transaction or independent database pool.
 
 Broker request/exchange I/O is outside database transactions. Callback validates
 browser/state/channel/environment/session before claiming and before broker I/O,
 then revalidates on completion storage. Link exchange requires the same still-live
-Bearer/session/client/account/generation, and repeats consent/recent-auth checks.
-Stale/null terms reject start, callback and exchange with `TERMS_REQUIRED` while
-preserving existing consent and session. This narrowly protects link issuance;
-future global terms-policy changes still need a separate shared command gate.
+Bearer/session/client/account/generation, and repeats recent-auth checks.
 
-Identity resolution, explicit login consent, native issuance, original link-session
+Identity resolution, native issuance, original link-session
 revocation and code consumption commit atomically. Unique-identity races retry only
 after confirmed rollback. Unknown COMMIT acknowledgement never replays issuance.
 A lost exchange response requires reauthentication; it cannot recover plaintext
@@ -103,7 +100,7 @@ credentials or reuse the completion code.
 `test/integration/native-soop.test.mjs` exercises real loopback MySQL and HTTP:
 strict DTO/header/body parsing; stage replay/concurrency/expiry; S256/client/env
 mismatch; browser/state swaps and reversed tabs; stored web/native dispatch;
-recent-auth, logout, generation/account replacement and deletion; consent and link
+recent-auth, logout, generation/account replacement and deletion; link
 conflicts; nested DTO parity; actual lost COMMIT acknowledgement; safe errors and
 callback query redaction. Existing web and native transport suites remain required.
 Synthetic broker identities exist only in these isolated tests.

@@ -37,8 +37,8 @@ void test('mutations fail closed without CSRF and serialize server contracts', a
   assert.equal(count, 0);
   assert.equal(await client.request('/v1/auth/logout', { method: 'POST', csrf: 'synthetic-test-only' }), undefined);
 });
-void test('OAuth login start uses explicit reviewed terms and credentials', async () => {
-  const client = new ApiClient(origin, async (_url, init) => { assert.deepEqual(JSON.parse(String(init?.body)), { intent: 'login', termsVersion: '2026-09-20' }); assert.equal(init?.credentials, 'include'); return Response.json({ authorizeUrl: 'https://provider.example/authorize' }); });
+void test('OAuth login start sends only the login intent with credentials', async () => {
+  const client = new ApiClient(origin, async (_url, init) => { assert.deepEqual(JSON.parse(String(init?.body)), { intent: 'login' }); assert.equal(init?.credentials, 'include'); return Response.json({ authorizeUrl: 'https://provider.example/authorize' }); });
   assert.equal(await client.authorize('login'), 'https://provider.example/authorize');
 });
 void test('HTTP error bodies never leak private text or server HTML', async () => {

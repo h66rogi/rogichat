@@ -4,8 +4,8 @@
 
 ## Runtime contract
 
-- `/v1/auth/soop/start` accepts `intent=login|link`. Login requires the exact accepted
-  `termsVersion=2026-09-20`; link requires the current session, exact Origin, CSRF and a session
+- `/v1/auth/soop/start` accepts `intent=login|link`. Login needs no consent field;
+  an optional legacy `termsVersion` is ignored. Link requires the current session, exact Origin, CSRF and a session
   created within 15 minutes. There is no public test-login or arbitrary provider/user ID API.
 - Backend creates a 10-minute transaction with UUID, state/browser SHA-256 digests and an
   AES-256-GCM encrypted S256 verifier. Each state has an independent HttpOnly browser cookie,

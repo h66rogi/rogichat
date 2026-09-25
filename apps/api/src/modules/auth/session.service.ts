@@ -35,7 +35,6 @@ export class SessionService {
     const row = await this.repository.boundNative(tx, sessionId, this.audience, clientId);
     if (!row) throw new ApiError('LINK_SESSION_CHANGED', 401);
     if (Number(row.recent) !== 1) throw new ApiError('RECENT_AUTH_REQUIRED', 403);
-    if (row.terms_version !== '2026-09-20') throw new ApiError('TERMS_REQUIRED', 403);
     return { userId: row.user_id, generation: BigInt(row.membership_generation) };
   }
 

@@ -40,8 +40,6 @@ export class AuthService {
 
   async requireEnrollment(tx: Transaction, credentials: SessionCredentials): Promise<Principal> {
     const actor = await this.require(tx, credentials, true);
-    const account = await this.sessionRepository.currentTerms(tx, actor.userId);
-    if (account?.terms_version !== '2026-09-20') throw new ApiError('TERMS_REQUIRED', 403);
     return actor;
   }
 

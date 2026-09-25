@@ -7,6 +7,7 @@ import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -48,19 +51,22 @@ private object AuthorizedImageCache {
 /** Mount with key(original ConversationScope, assetId, access context). Disposal stops playback and
  * deletes private scratch. The server rendition is H.264/AAC MP4, poster is WebP. */
 @Composable
-fun AuthorizedMedia(client: MediaClient, assetId: String, access: MediaAccess, modifier: Modifier = Modifier, avatar: Boolean = false) {
+fun AuthorizedMedia(client: MediaClient, assetId: String, access: MediaAccess, modifier: Modifier = Modifier, avatar: Boolean = false, zoomable: Boolean = false) {
     key(MediaPresentationIdentity(client.scope.presentationID, assetId, access)) {
-        AuthorizedMediaBody(client, assetId, access, modifier, avatar)
+        AuthorizedMediaBody(client, assetId, access, modifier, avatar, zoomable)
     }
 }
 
 @Composable
-private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: MediaAccess, modifier: Modifier, avatar: Boolean) {
+private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: MediaAccess, modifier: Modifier, avatar: Boolean, zoomable: Boolean) {
     val context = LocalContext.current
     var retry by remember { mutableIntStateOf(0) }
     var file by remember { mutableStateOf<java.io.File?>(null) }
     var bitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var failed by remember { mutableStateOf(false) }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offsetX by remember { mutableFloatStateOf(0f) }
+    var offsetY by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(client, assetId, access, retry) {
         failed = false; file = null
         var scratch: java.io.File? = null
@@ -104,11 +110,18 @@ private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: M
             }
         } else if (access.variant != MediaVariant.video && bitmap != null) {
             Image(requireNotNull(bitmap), contentDescription = if (avatar) "프로필 사진" else "첨부 이미지",
-                modifier = if (avatar) Modifier.fillMaxSize() else Modifier,
+                modifier = if (zoomable) Modifier.fillMaxSize().pointerInput(assetId) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        scale = (scale * zoom).coerceIn(1f, 5f)
+                        if (scale > 1f) { offsetX += pan.x; offsetY += pan.y }
+                        else { offsetX = 0f; offsetY = 0f }
+                    }
+                }.graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
+                else if (avatar) Modifier.fillMaxSize() else Modifier,
                 contentScale = if (avatar) ContentScale.Crop else ContentScale.Fit)
         } else if (file == null) { if (avatar) AvatarPlaceholder(Modifier.fillMaxSize()) else Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)) }
         else if (access.variant == MediaVariant.video) {
-            AndroidView(factory = { ctx -> VideoView(ctx).apply {
+            AndroidView(modifier = Modifier.fillMaxSize(), factory = { ctx -> VideoView(ctx).apply {
                 setMediaController(MediaController(ctx).also { it.setAnchorView(this) })
                 setOnErrorListener { _, _, _ -> failed = true; true }
                 setVideoURI(Uri.fromFile(file))

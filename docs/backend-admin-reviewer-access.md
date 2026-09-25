@@ -31,13 +31,13 @@ password, impersonated platform identity or fabricated room owner is installed.
 | POST `/v1/admin/rooms/:roomId/test-grants` | `{requestId,durationSeconds,reason}`; self only, 201 receipt |
 | GET same path | Own history, `?after=UUID`, at most 50 rows and `next` |
 | POST same path + `/:grantId/revoke` | `{reason}`, idempotent 204 |
-| POST `/v1/auth/password/login` | `{clientId,loginId,password,termsVersion}` |
+| POST `/v1/auth/password/login` | `{clientId,loginId,password}`; optional legacy `termsVersion` is ignored |
 | POST `/v1/auth/password/change` | `{clientId,currentPassword,newPassword}` |
 
 Password login/change return the existing WEB session body + HttpOnly session
 cookie, or the existing native `{tokenType,accessToken,expiresAt,session}` body.
 No client persists passwords. Native credentials use the existing protected
-session store, not a second auth store. `termsVersion` is `2026-09-20`.
+session store, not a second auth store.
 
 WEB requires JSON and exact allowed Origin. A valid prior cookie requires current
 CSRF proof. Only a confirmed unauthenticated expired/revoked HttpOnly cookie is

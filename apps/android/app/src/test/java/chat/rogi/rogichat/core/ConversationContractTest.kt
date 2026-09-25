@@ -28,6 +28,13 @@ class ConversationContractTest {
         assertEquals("👍", message.reactions.mine)
         assertEquals(message, ConversationDtos.message(ConversationDtos.encode(message)))
     }
+    @Test fun reactionSummarySurvivesConversationProjectionAndLocalEncoding() {
+        val original = messageProjection().dropLast(1) + ",\"reactions\":{\"counts\":[{\"emoji\":\"👍\",\"count\":2}],\"mine\":\"👍\"}}"
+        val message = ConversationDtos.message(original)
+        assertEquals("👍", message.reactions.mine)
+        assertEquals(2L, message.reactions.counts.single().count)
+        assertEquals(message.reactions, ConversationDtos.message(ConversationDtos.encode(message)).reactions)
+    }
     @Test fun roomOwnerCommandIsActorFreeAndRoundTripsThroughDurableOutbox() {
         val pending = ConversationDtos.message(messageProjection().replace("\"SHARED\"", "\"PRIVATE\"").replace("\"reply\":true", "\"reply\":false"))
         assertNull(pending.counterpart); assertNull(pending.replyTarget)

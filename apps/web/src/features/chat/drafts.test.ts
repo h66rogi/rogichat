@@ -15,21 +15,24 @@ const fanA: ChatActorRef = { actorId: 'actor-fan-a', displayName: '팬 A', avata
 const fanB: ChatActorRef = { actorId: 'actor-fan-b', displayName: '팬 B', avatarUrl: null, role: 'FAN' };
 
 const shared: ChatComposerTarget = { scope: 'SHARED' };
+const roomOwner: ChatComposerTarget = { scope: 'ROOM_OWNER' };
 const toStreamer: ChatComposerTarget = { scope: 'PRIVATE', recipient: streamer };
 const toFanA: ChatComposerTarget = { scope: 'PRIVATE', recipient: fanA };
 const toFanB: ChatComposerTarget = { scope: 'PRIVATE', recipient: fanB };
 
 describe('isAuthorizedTarget', () => {
-  it('lets a fan write to the shared chat only', () => {
+  it('lets a fan write only to the room owner', () => {
     const opts = { viewerRole: 'FAN' as const, fanRecipient: streamer, streamerRecipients: [] };
     assert.equal(isAuthorizedTarget(toStreamer, opts), false);
-    assert.equal(isAuthorizedTarget(shared, opts), true);
+    assert.equal(isAuthorizedTarget(shared, opts), false);
+    assert.equal(isAuthorizedTarget(roomOwner, opts), true);
     assert.equal(isAuthorizedTarget(toFanA, opts), false);
   });
 
-  it('locks a fan when no recipient was provided', () => {
+  it('uses the room owner target without relying on a profile recipient', () => {
     const opts = { viewerRole: 'FAN' as const, fanRecipient: null, streamerRecipients: [] };
     assert.equal(isAuthorizedTarget(toStreamer, opts), false);
+    assert.equal(isAuthorizedTarget(roomOwner, opts), true);
   });
 
   it('lets a streamer write SHARED or PRIVATE to an authorized fan', () => {
@@ -79,7 +82,7 @@ describe('scoped drafts', () => {
   it('always names the target', () => {
     assert.equal(targetLabel(null), '보낼 대상 없음');
     assert.equal(targetLabel(shared), '전체 참여자');
-    assert.equal(targetLabel(toStreamer), '스트리머님에게만');
+    assert.equal(targetLabel(toStreamer), '스트리머님');
   });
 });
 
@@ -99,22 +102,23 @@ describe('formatters', () => {
 });
 
 
-void test('fan writes shared regardless of legacy private-recipient records', () => {
+void test('fan writes only to the room owner regardless of legacy private-recipient records', () => {
   const second = { ...streamer, actorId: 'second-streamer' };
   const options = { viewerRole: 'FAN' as const, fanRecipient: null, fanRecipients: [streamer, second], streamerRecipients: [] };
   assert.equal(isAuthorizedTarget({ scope: 'PRIVATE', recipient: second }, options), false);
   assert.equal(isAuthorizedTarget({ scope: 'PRIVATE', recipient: fanA }, options), false);
-  assert.equal(isAuthorizedTarget({ scope: 'SHARED' }, options), true);
+  assert.equal(isAuthorizedTarget({ scope: 'SHARED' }, options), false);
+  assert.equal(isAuthorizedTarget({ scope: 'ROOM_OWNER' }, options), true);
 });
 
-test('room-owner drafts remain distinct for legacy recovery but are unavailable to the new composer', () => {
+test('room-owner drafts are distinct and available only to fans', () => {
   const target: ChatComposerTarget = { scope: 'ROOM_OWNER' };
   const opts = { viewerRole: 'FAN' as const, fanRecipient: null, streamerRecipients: [], fanRoomOwner: true };
-  assert.equal(isAuthorizedTarget(target, opts), false);
+  assert.equal(isAuthorizedTarget(target, opts), true);
   assert.equal(isAuthorizedTarget(target, { ...opts, viewerRole: 'STREAMER' }), false);
-  assert.equal(isAuthorizedTarget(shared, opts), true);
+  assert.equal(isAuthorizedTarget(shared, opts), false);
   assert.equal(isAuthorizedTarget(toFanA, opts), false);
   assert.equal(draftKeyFor(target), 'room-owner');
   assert.notEqual(draftKeyFor(target), draftKeyFor(toStreamer));
-  assert.equal(targetLabel(target), '방장에게만');
+  assert.equal(targetLabel(target), '방장');
 });

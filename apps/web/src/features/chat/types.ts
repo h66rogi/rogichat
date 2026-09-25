@@ -2,8 +2,9 @@
  * Presentation-only models for the 로기챗 chat screen.
  *
  * These types describe what the UI needs to render and nothing more. They are not
- * server DTOs: the live REST sync controller projects real data into this shape. Fans only ever receive SHARED
- * items and their own PRIVATE conversation; that projection happens before this layer.
+ * server DTOs: the live REST sync controller projects real data into this shape. Fans receive
+ * SHARED items (including earlier fan messages) and only their own PRIVATE conversation;
+ * that projection happens before this layer.
  */
 
 import type { MediaUpload } from '../media/upload';

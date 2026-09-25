@@ -89,7 +89,7 @@ export function AccountDeletionRecovery({ origin, onResume, onBlocked, onPrepare
     finally { setBusy(false); }
   };
   const login = async () => {
-    if (!consent || busy) return;
+    if (busy) return;
     setBusy(true);
     const url = await flow.current?.login();
     if (url) window.location.assign(url);
@@ -97,13 +97,13 @@ export function AccountDeletionRecovery({ origin, onResume, onBlocked, onPrepare
   };
   return <section aria-label="계정 탈퇴 요청 확인" className="mx-auto max-w-xl space-y-4 px-4 py-10"><h1 className="text-xl font-semibold">계정 탈퇴 요청 확인</h1><p role="status">{deletionText[state]}</p>{!['blocked', 'checking', 'sending', 'preparing'].includes(state) && <>
     <Button disabled={busy} variant="outline" onClick={() => void flow.current?.recover()}>로그인 상태 다시 확인</Button>
-    <label className="flex gap-3"><input type="checkbox" checked={consent} disabled={busy} onChange={event => setConsent(event.target.checked)} /><span>{state === 'ready' ? '이전 요청이 접수되었을 수 있음을 이해하며 같은 계정의 탈퇴를 다시 요청합니다.' : <>같은 SOOP 계정으로 로그인합니다. <a href="/rules" className="underline">이용 안내</a>(2026-09-20)를 확인했으며 개인 메시지가 방장에 의해 전체 공개될 수 있음을 이해합니다.</>}</span></label>
-    {state === 'ready' ? <Button disabled={!consent || busy} onClick={() => void retry()}>탈퇴 다시 요청</Button> : <Button disabled={!consent || busy} onClick={() => void login()}>같은 SOOP 계정으로 다시 로그인</Button>}
+    {state === 'ready' && <label className="flex gap-3"><input type="checkbox" checked={consent} disabled={busy} onChange={event => setConsent(event.target.checked)} /><span>이전 요청이 접수되었을 수 있음을 이해하며 같은 계정의 탈퇴를 다시 요청합니다.</span></label>}
+    {state === 'ready' ? <Button disabled={!consent || busy} onClick={() => void retry()}>탈퇴 다시 요청</Button> : <Button disabled={busy} onClick={() => void login()}>같은 SOOP 계정으로 다시 로그인</Button>}
   </>}{['ready', 'differentAccount', 'blocked', 'storageError'].includes(state) && <><p>이 화면을 닫아도 이미 접수된 탈퇴 요청은 취소되지 않습니다.</p><Button variant="outline" disabled={busy} onClick={resume}>확인 화면 닫고 로그인 상태 확인</Button></>}</section>;
 }
 
 const publicationText: Record<PublicationState, string> = {
-  idle: '개인 메시지를 이 방의 열람 권한이 있는 참여자에게 익명으로 공개합니다. 본문 내용으로 작성자가 추측될 수 있습니다.',
+  idle: '이 메시지를 채팅방에 공유합니다.',
   sending: '메시지를 공개하고 있어요.', preparing: '공개를 마무리하고 있어요.',
   published: '메시지를 공개했어요.', revoked: '메시지 공개가 취소됐어요.',
   unknown: '공개 여부를 확인할 수 없어요. 다시 확인해 주세요.', unavailable: '지금은 이 메시지를 공개할 수 없어요.',
@@ -115,7 +115,6 @@ export function PublicationControl(props: PublicationControlProps) {
 }
 function PublicationForm(props: PublicationControlProps) {
   const [state, setState] = useState<PublicationState>('idle');
-  const [confirmed, setConfirmed] = useState(false);
   const [open, setOpen] = useState(false);
   const [canCheck, setCanCheck] = useState(false);
   const flow = useRef<PublicationFlow | null>(null);
@@ -135,9 +134,8 @@ function PublicationForm(props: PublicationControlProps) {
       <AlertDialog.Title className="text-lg font-semibold text-ink">이 메시지를 공개할까요?</AlertDialog.Title>
       <AlertDialog.Description className="mt-3 text-sm leading-6 text-muted">{publicationText.idle}</AlertDialog.Description>
       {state !== 'idle' && <p role="status" className="mt-4 text-sm text-body">{publicationText[state]}</p>}
-      {state === 'idle' && <label className="mt-5 flex items-start gap-3 text-sm leading-6 text-body"><input type="checkbox" className="mt-1 size-4" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /><span>이 메시지의 방 전체 공개 범위를 확인했습니다.</span></label>}
       {(state === 'preparing' || state === 'unknown') && canCheck && <Button className="mt-4" variant="outline" onClick={() => void flow.current?.check()}>다시 확인</Button>}
-      <div className={actionDialogFooterClass}><AlertDialog.Cancel asChild><Button variant="outline" disabled={state === 'sending'}>{state === 'idle' ? '취소' : '닫기'}</Button></AlertDialog.Cancel>{state === 'idle' && <Button disabled={!confirmed} onClick={() => void flow.current?.publish(confirmed)}>익명으로 전체 공개</Button>}</div>
+      <div className={actionDialogFooterClass}><AlertDialog.Cancel asChild><Button variant="outline" disabled={state === 'sending'}>{state === 'idle' ? '취소' : '닫기'}</Button></AlertDialog.Cancel>{state === 'idle' && <Button onClick={() => void flow.current?.publish()}>익명으로 전체 공개</Button>}</div>
     </AlertDialog.Content></AlertDialog.Portal>
   </AlertDialog.Root>;
 }

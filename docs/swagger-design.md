@@ -66,7 +66,7 @@ raw JSON 및 operationId 설정을 확인했다. 예제는 설치 버전의 타�
   수동으로 별도 paths 목록을 유지하지 않는다. 누락 방지는 route inventory와 생성 결과 비교로 확인한다.
 - 첫 배포에 등록된 모든 공개 HTTP 컨트롤러를 포함한다: health, auth,
   users, rooms, messages, sync, reactions, publications, 활성화된 media/stickers. FAN 방의 `private-recipients`와 현재 권한·50개 페이지 조건을 포함한다.
-  현재 별도 terms/account 컨트롤러는 없다. 약관 동의는 기존 auth 요청으로 설명하며,
+  현재 별도 terms/account 컨트롤러는 없다. 로그인에는 약관 동의 필수 필드를 표시하지 않으며,
   계정 관련 신규 endpoint는 QA에 실제 등록된 뒤 포함한다.
   동적 기능이 비활성 상태라면 실행 중인 문서에 해당 route가 나타나지 않아야 한다.
 - 응답은 Prisma 모델이 아니라 viewer별 공개 projection을 기준으로 명시한다.

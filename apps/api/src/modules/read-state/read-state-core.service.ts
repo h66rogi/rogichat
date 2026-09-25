@@ -34,7 +34,8 @@ export class ReadStateCoreService {
       const item = await this.project(tx, viewer, row.stream_id, row.last_read_order);
       if (item.messageId !== null) items.push(item);
     }
-    return { readContext: readContext(viewer, binding), items };
+    const firstUnreadMessageId = await this.repository.firstUnread(tx, viewer, await tx.now());
+    return { readContext: readContext(viewer, binding), items, firstUnreadMessageId };
   }
 
   async put(tx: Transaction, roomId: string, userId: string, input: ReadStateInput, binding: ReadContextBinding): Promise<OwnReadStateDto> {

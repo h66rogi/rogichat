@@ -88,7 +88,6 @@ async function fixture(t, withHttp = false, secure = false) {
   const principal = token => db.transactions.read(tx => sessions.require(tx, token));
   const localSession = () => db.transactions.write(async tx => {
     const userId = await createUser(tx, '연결 전 합성 계정');
-    await tx.prisma.users.update({ where: { id: userId }, data: { terms_version: '2026-09-20' } });
     return { userId, ...await sessions.issue(tx, userId) };
   });
   return { db, config, sessions, broker, flow, begin, complete, principal, localSession,
@@ -114,14 +113,14 @@ test('real MySQL HTTP login/session/logout uses strict minimal DTOs, cookie bind
   });
   const endpoint = '/v1/auth/soop/start';
   for (const body of [
-    { intent: 'login' }, { intent: 'login', termsVersion: 'unaccepted' },
-    { intent: 'login', termsVersion: '2026-09-20', userId: randomUUID(), role: 'owner' },
+    { intent: 'login', unexpected: true },
+    { intent: 'login', userId: randomUUID(), role: 'owner' },
   ]) {
     const response = await post(endpoint, body);
     assert.equal(response.status, 400);
     assert.deepEqual(await response.json(), { error: { code: 'INVALID_REQUEST' } });
   }
-  const body = { intent: 'login', termsVersion: '2026-09-20' };
+  const body = { intent: 'login' };
   let response = await post(endpoint, body, { Origin: 'https://evil.invalid' });
   assert.equal(response.status, 403);
   assert.equal(response.headers.get('access-control-allow-origin'), null);
@@ -154,8 +153,6 @@ test('real MySQL HTTP login/session/logout uses strict minimal DTOs, cookie bind
   assert.match(status.csrfToken, /^[A-Za-z0-9_-]{43}$/);
   const token = sessionCookie.slice('rogi_session='.length);
   const principal = await f.principal(token);
-  const [account] = await f.db.transactions.read(tx => tx.rows('SELECT terms_version FROM users WHERE id=?', [principal.userId]));
-  assert.equal(account.terms_version, '2026-09-20');
   response = await post('/v1/auth/logout', {}, { Cookie: sessionCookie, 'X-CSRF-Token': secret() });
   assert.equal(response.status, 403);
   assert.equal((await f.principal(token)).userId, principal.userId);
@@ -305,7 +302,7 @@ test('first-login tabs keep separate cookies under reversed response order and r
   const f = await fixture(t, true);
   const start = () => fetch(`${f.base}/v1/auth/soop/start`, {
     method: 'POST', headers: { Origin: f.config.origin, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ intent: 'login', termsVersion: '2026-09-20' }),
+    body: JSON.stringify({ intent: 'login' }),
   });
   const responses = await Promise.all([start(), start()]);
   const tabs = [];
@@ -348,7 +345,7 @@ test('denied OAuth clears only its cookie, consumes state, and start bounds supp
   const f = await fixture(t, true);
   const post = cookies => fetch(`${f.base}/v1/auth/soop/start`, {
     method: 'POST', headers: { Origin: f.config.origin, 'Content-Type': 'application/json', ...(cookies ? { Cookie: cookies } : {}) },
-    body: JSON.stringify({ intent: 'login', termsVersion: '2026-09-20' }),
+    body: JSON.stringify({ intent: 'login' }),
   });
   for (const reason of ['PROVIDER_DENIED', 'PROVIDER_AUTH_FAILED']) {
     const start = await post(); assert.equal(start.status, 200);

@@ -17,7 +17,7 @@ enum SOOPRequest: Sendable {
         let body: Data
         switch self {
         case .start(let input):
-            guard input.intent == .login ? credential == nil && input.termsVersion == "2026-09-20" : credential != nil && input.termsVersion == nil else { throw SOOPAuthError.invalidRequest }
+            guard input.intent == .login ? credential == nil : credential != nil else { throw SOOPAuthError.invalidRequest }
             path = "auth/native/soop/transactions"; body = try JSONEncoder().encode(input)
         case .password(let input):
             guard input.changing == (credential != nil) else { throw ProductError.sessionChanged }
@@ -61,7 +61,7 @@ actor SOOPAuthCoordinator: SOOPAuthenticating {
         self.environment = environment; self.store = store; self.api = api; self.browser = browser; self.now = now
     }
     func authenticate(pending: SOOPPending, consentVersion: String?, attempt: SessionAttempt = SessionAttempt()) async throws -> SOOPAuthResult {
-        guard pending.provider == nil, pending.intent == .login ? consentVersion == "2026-09-20" && pending.originalCredential == nil : consentVersion == nil && pending.originalCredential != nil else { throw SOOPAuthError.consentRequired }
+        guard pending.provider == nil, pending.intent == .login ? pending.originalCredential == nil : pending.originalCredential != nil else { throw SOOPAuthError.invalidRequest }
         // Reservation belongs to the service before its first actor hop. A cancelled
         // ticket cannot create a fresh pending operation when this actor finally runs.
         var preservePending = false
@@ -69,7 +69,7 @@ actor SOOPAuthCoordinator: SOOPAuthenticating {
             try attempt.check(); try requireReserved(pending)
             await closeBrowser()
             try attempt.check(); try requireReserved(pending)
-            let start = SOOPStart(intent: pending.intent, codeChallenge: pending.proof.challenge, returnState: pending.proof.state, termsVersion: consentVersion)
+            let start = SOOPStart(intent: pending.intent, codeChallenge: pending.proof.challenge, returnState: pending.proof.state, termsVersion: nil)
             let data = try await api.performSOOP(.start(start), credential: pending.originalCredential, admit: admission(pending, phase: .starting, attempt: attempt))
             try Task.checkCancellation()
             let response = try decode(SOOPStartResponse.self, data)

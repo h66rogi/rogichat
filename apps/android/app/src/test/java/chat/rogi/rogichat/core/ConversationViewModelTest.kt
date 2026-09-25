@@ -27,7 +27,7 @@ class ConversationViewModelTest {
         override suspend fun send(handle: ConversationHandle, intent: TextSendIntent): Result<Unit> { sent = intent; return Result.success(Unit) }
     }
     private fun data(message: ConversationMessage) = ConversationData(scope, listOf(message), emptyList(), true, SyncCursor("events"), null, emptyList())
-    @Test fun fanWithoutRecipientsSendsToSharedChatAndCannotStartPrivateReply() = runTest {
+    @Test fun fanWithoutRecipientsSendsOnlyToOwnerAndCannotStartPrivateReply() = runTest {
         val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.FAN))
         val fanScope = scope.copy(selection = selected)
         val original = ConversationDtos.message(messageProjection())
@@ -35,11 +35,30 @@ class ConversationViewModelTest {
         val repository = Repository(state)
         val model = ConversationViewModel(repository, selected, backgroundScope)
         runCurrent(); assertTrue(state.value.recipients.isEmpty())
-        model.text("전체 채팅"); model.send(fanScope); runCurrent()
-        assertEquals("SHARED", repository.sent!!.command.intent)
+        model.text("방장에게"); model.send(fanScope); runCurrent()
+        assertEquals("ROOM_OWNER", repository.sent!!.command.intent)
         assertNull(repository.sent!!.command.recipient); assertNull(repository.sent!!.recipientRevision)
         model.reply(original, fanScope); assertNull(model.draft.value.quote)
-        model.text("계속 전체 채팅"); model.send(fanScope); runCurrent()
+        model.text("계속 방장에게"); model.send(fanScope); runCurrent()
+        assertEquals("ROOM_OWNER", repository.sent!!.command.intent)
+    }
+    @Test fun fanRoomOwnerSendsToFansUnlessReplyingToSelectedFan() = runTest {
+        val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.STREAMER))
+        val ownerScope = scope.copy(selection = selected)
+        val fanMessage = ConversationDtos.message(messageProjection()).copy(audience = "PRIVATE", counterpart = ACTOR_ID)
+        val state = MutableStateFlow(ConversationState(loading = false, data = data(fanMessage).copy(scope = ownerScope)))
+        val repository = Repository(state)
+        val model = ConversationViewModel(repository, selected, backgroundScope)
+        runCurrent()
+        model.text("모든 팬에게"); model.send(ownerScope); runCurrent()
+        assertEquals("SHARED", repository.sent!!.command.intent)
+        assertNull(repository.sent!!.command.recipient)
+        model.reply(fanMessage, ownerScope)
+        model.text("선택한 팬에게"); model.send(ownerScope); runCurrent()
+        assertEquals("PRIVATE", repository.sent!!.command.intent)
+        assertEquals(ACTOR_ID, repository.sent!!.command.recipient)
+        assertEquals(fanMessage.id, repository.sent!!.command.quote)
+        model.text("다시 모든 팬에게"); model.send(ownerScope); runCurrent()
         assertEquals("SHARED", repository.sent!!.command.intent)
     }
     @Test fun equalVersionProjectionReplacesQuotedBodyAndRemovedReplyClearsOriginalContentAndTarget() = runTest {

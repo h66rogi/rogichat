@@ -19,7 +19,7 @@ export interface ChannelFeatureConfig {
 export const CHANNEL_FEATURES: Record<ChannelFeatureKey, ChannelFeatureConfig> = {
   home: { key: 'home', label: '프로필', segment: '', description: '후로기 채널 홈' },
   chat: { key: 'chat', label: '채팅', segment: 'chat', description: '후로기의 채팅방' },
-  rules: { key: 'rules', label: '규칙·이용 안내', segment: 'rules', description: '채팅 이용 안내와 개인답장 공개 범위' },
+  rules: { key: 'rules', label: '규칙·이용 안내', segment: 'rules', description: '채팅 이용 방법과 계정 관리' },
   settings: { key: 'settings', label: '내 설정', segment: 'settings', description: '내 프로필, 연결, 알림, 계정' },
   schedule: { key: 'schedule', label: '일정', segment: 'schedule', description: '후로기의 방송 일정과 기념일' },
   wardrobe: { key: 'wardrobe', label: '옷장', segment: 'wardrobe', description: '후로기의 의상과 헤어' },

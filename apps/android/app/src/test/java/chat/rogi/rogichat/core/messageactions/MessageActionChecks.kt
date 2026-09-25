@@ -98,11 +98,14 @@ class MessageActionChecks {
                 val position = MessageReadPosition(TestAnchors()); position.select(scope); val readToken = position.capture()!!
                 val context = "A".repeat(43)
                 verify(position.accept(readToken, ReadSnapshot(context, listOf(b))))
-                val read = position.displayed(readToken, b)!!; read.claim()
+                verify(position.displayed(readToken, b) == null) // Already saved; scrolling does not repeat the PUT.
+                val read = position.displayed(readToken, c)!!; read.claim()
                 verify(position.finish(read, false, null)); verify(position.needsRefresh)
-                verify(position.displayed(readToken, b) == null); verify(!position.accept(readToken, ReadSnapshot(context, listOf(b))))
+                verify(position.displayed(readToken, c) == null); verify(!position.accept(readToken, ReadSnapshot(context, listOf(b))))
                 val fresh = position.capture()!!; verify(position.accept(fresh, ReadSnapshot(context, emptyList())))
                 verify(!position.accept(fresh, ReadSnapshot(context, listOf(b))))
+                val saved = position.displayed(fresh, b)!!; saved.claim()
+                verify(position.finish(saved, true, b)); verify(position.displayed(fresh, b) == null)
                 position.saveAnchor(fresh, ScrollAnchor(b, 22), setOf(b)); verify(position.restoreAnchor(fresh, setOf(b))?.offset == 22)
                 verify(position.restoreAnchor(fresh, emptySet()) == null)
                 rejects { MessageReadWire.snapshot("""{"readContext":"$context","items":[{"messageId":null}]}""") }

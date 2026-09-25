@@ -13,8 +13,7 @@ function client(value: unknown): 'web' | 'ios' | 'android' {
 }
 export function passwordLogin(value: unknown) {
   const body = object(value, ['clientId', 'loginId', 'password', 'termsVersion']);
-  if (body.termsVersion !== '2026-09-20') throw new ApiError('INVALID_REQUEST', 400);
-  return { clientId: client(body.clientId), loginId: loginIdValue(body.loginId), password: passwordValue(body.password), termsVersion: body.termsVersion };
+  return { clientId: client(body.clientId), loginId: loginIdValue(body.loginId), password: passwordValue(body.password) };
 }
 export function passwordChange(value: unknown) {
   const body = object(value, ['clientId', 'currentPassword', 'newPassword']);

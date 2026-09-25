@@ -76,6 +76,7 @@ private actor ModelConversation: ConversationCoordinating {
         // A new draft typed while the owned command awaits must never be erased.
         let second = ModelConversation(scope: scope, value: listing([original])); let other = ConversationScreenModel(coordinator: second)
         await other.load(); other.draft = "첫 메시지"; other.send(); await second.wait()
+        check(await second.lastCommand()?.intent == "SHARED")
         other.draft = "다음 메시지"; await second.complete(.unknown); try await finish(other)
         check(other.draft == "다음 메시지")
         other.reply(to: original)
@@ -92,20 +93,41 @@ private actor ModelConversation: ConversationCoordinating {
         let fanScope = try Self.scope(mode: "FAN", role: "FAN")
         let fanRemote = ModelConversation(scope: fanScope, value: listing([original]))
         let fan = ConversationScreenModel(coordinator: fanRemote)
-        await fan.load(); fan.draft = "전체 채팅에"
-        check(fan.canSend && fan.targetName == "전체 채팅")
+        await fan.load(); fan.draft = "방장에게"
+        check(fan.canSend && fan.targetName == "방장" && fan.sendAccessibilityLabel == "메시지 보내기")
         fan.send(); await fanRemote.wait()
-        check(await fanRemote.lastCommand()?.intent == "SHARED")
+        check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
         check(await fanRemote.lastCommand()?.recipientActorID == nil)
         await fanRemote.complete(.unknown); try await finish(fan)
         fan.reply(to: original); check(fan.quote == nil)
-        fan.draft = "계속 전체 채팅"; fan.send(); await fanRemote.wait()
-        check(await fanRemote.lastCommand()?.intent == "SHARED")
+        fan.draft = "계속 방장에게"; fan.send(); await fanRemote.wait()
+        check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
         check(await fanRemote.lastCommand()?.recipientActorID == nil)
         await fanRemote.complete(.committed); try await finish(fan)
         let attachment = Task { try await fan.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: messageID)) }
-        await fanRemote.wait(); check(await fanRemote.lastCommand()?.intent == "SHARED")
+        await fanRemote.wait(); check(await fanRemote.lastCommand()?.intent == "ROOM_OWNER")
         await fanRemote.complete(.unknown); _ = try await attachment.value
-        print("iOS conversation model: pre-write draft preservation, owned single send, unknown outcome, edited draft, GROUP private quote, stale row and scope invalidation passed")
+        let ownerMedia = ModelConversation(scope: scope, value: listing([original]))
+        let owner = ConversationScreenModel(coordinator: ownerMedia)
+        await owner.load(); owner.reply(to: original)
+        let privateAttachment = Task { try await owner.sendAttachment(OutgoingAttachment(type: "PHOTO", assetIds: [messageID])) }
+        await ownerMedia.wait()
+        check(await ownerMedia.lastCommand()?.intent == "PRIVATE")
+        check(await ownerMedia.lastCommand()?.recipientActorID == peerID)
+        check(await ownerMedia.lastCommand()?.quoteID == messageID)
+        await ownerMedia.complete(.committed); _ = try await privateAttachment.value
+        check(owner.quote == nil)
+        let sharedAttachment = Task { try await owner.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: messageID)) }
+        await ownerMedia.wait(); check(await ownerMedia.lastCommand()?.intent == "SHARED")
+        await ownerMedia.complete(.committed); _ = try await sharedAttachment.value
+        let withHistory = ConversationListing(messages: [original], commands: [], profiles: [], eventCursor: "events",
+            historyCursor: "older", ready: true, profilesComplete: true, profileCursor: nil)
+        let historyRemote = ModelConversation(scope: fanScope, value: withHistory)
+        let historyModel = ConversationScreenModel(coordinator: historyRemote)
+        await historyModel.load()
+        check(historyModel.canLoadHistory && historyModel.historyRevision == 0)
+        let loadedHistory = await historyModel.history()
+        check(loadedHistory && historyModel.historyRevision == 1)
+        print("iOS conversation model: private fan inbox, owner broadcast and selected private replies, media intents, durable draft and scope checks passed")
     }
 }

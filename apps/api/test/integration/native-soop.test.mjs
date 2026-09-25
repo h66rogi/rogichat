@@ -76,7 +76,7 @@ async function fixture(t, overrides = {}) {
     const verifier = options.verifier ?? secret(); const state = secret();
     const clientId = options.clientId ?? 'ios';
     const response = await call(startPath, { clientId, intent: options.token ? 'link' : 'login', codeChallenge: challenge(verifier),
-      codeChallengeMethod: 'S256', returnState: state, ...(options.token ? {} : { termsVersion: '2026-09-20' }) },
+      codeChallengeMethod: 'S256', returnState: state },
     { 'X-Rogi-Client': clientId, ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}) });
     assert.equal(response.status, 200, JSON.stringify(await response.clone().json()));
     assert.equal(response.headers.get('cache-control'), 'no-store'); assert.equal(response.headers.get('set-cookie'), null);
@@ -110,7 +110,6 @@ async function fixture(t, overrides = {}) {
     { 'X-Rogi-Client': started.clientId, ...(started.token ? { Authorization: `Bearer ${started.token}` } : {}), ...headers });
   const local = async () => db.transactions.write(async tx => {
     const userId = await createUser(tx, '네이티브 연결 합성 계정');
-    await tx.prisma.users.update({ where: { id: userId }, data: { terms_version: '2026-09-20' } });
     const issued = await sessions.issueNative(tx, userId, 'ios');
     const principal = await sessions.require(tx, issued.token, undefined, false, { transport: 'NATIVE', clientId: 'ios' });
     return { ...issued, ...principal };
@@ -136,8 +135,8 @@ test('native SOOP HTTP login returns the exact nested session DTO, opaque seven-
 });
 
 test('strict native JSON/body/header grammar rejects field injection, mixed transports and duplicate headers', { timeout: 20000 }, async t => {
-  const f = await fixture(t); const body = { clientId: 'ios', intent: 'login', codeChallenge: secret(), codeChallengeMethod: 'S256', returnState: secret(), termsVersion: '2026-09-20' };
-  for (const change of [{ returnUrl: 'https://evil.invalid' }, { subject: 'fake' }, { termsVersion: undefined }, { clientId: 'web' }, { codeChallengeMethod: 'plain' }, { codeChallenge: 'short' }, { returnState: 'short' }, { intent: 'link' }]) {
+  const f = await fixture(t); const body = { clientId: 'ios', intent: 'login', codeChallenge: secret(), codeChallengeMethod: 'S256', returnState: secret() };
+  for (const change of [{ returnUrl: 'https://evil.invalid' }, { subject: 'fake' }, { clientId: 'web' }, { codeChallengeMethod: 'plain' }, { codeChallenge: 'short' }, { returnState: 'short' }]) {
     assert.equal((await f.call(startPath, { ...body, ...change })).status, 400);
   }
   for (const headers of [{ 'X-Rogi-Client': 'android' }, { 'X-Rogi-Client': '' }, { Cookie: `rogi_session=${secret()}` }, { Cookie: `__Host-rogi_session=${secret()}` }, { 'X-CSRF-Token': secret() }, { Authorization: 'Bearer broken' }, { 'Content-Type': 'text/plain' }]) {
@@ -194,13 +193,12 @@ test('concurrent launch/callback/exchange admits exactly one consumer at each st
   const results = await Promise.all([f.exchange(started), f.exchange(started)]); assert.deepEqual(results.map(r => r.status).sort(), [200, 400]);
 });
 
-test('native link preserves terms, rotates only its bound session and rejects session/account replacement', { timeout: 20000 }, async t => {
+test('native link rotates only its bound session and rejects session/account replacement', { timeout: 20000 }, async t => {
   const f = await fixture(t); const local = await f.local(); const other = await f.local();
   const started = await f.complete(await f.launch(await f.begin({ token: local.token })));
   assert.equal((await f.exchange(started, {}, { Authorization: `Bearer ${other.token}` })).status, 401);
   assert.equal((await f.exchange(started, {}, { Authorization: '' })).status, 400);
   const response = await f.exchange(started); assert.equal(response.status, 200); const body = await response.json(); assert.equal(body.session.account.userId, local.userId);
-  const account = await f.db.transactions.read(tx => tx.prisma.users.findUnique({ where: { id: local.userId } })); assert.equal(account.terms_version, '2026-09-20');
   await assert.rejects(f.db.transactions.read(tx => f.sessions.require(tx, local.token, undefined, false, { transport: 'NATIVE', clientId: 'ios' })), { code: 'UNAUTHENTICATED' });
   assert.equal((await f.db.transactions.read(tx => f.sessions.require(tx, other.token, undefined, false, { transport: 'NATIVE', clientId: 'ios' }))).userId, other.userId);
 });
@@ -276,7 +274,7 @@ test('unconfigured broker/environment fails closed; production uses the exact pr
 
 test('broker start timeout or arbitrary authorization URL cannot produce a launch ticket', { timeout: 20000 }, async t => {
   const f = await fixture(t);
-  const body = { clientId: 'ios', intent: 'login', codeChallenge: secret(), codeChallengeMethod: 'S256', returnState: secret(), termsVersion: '2026-09-20' };
+  const body = { clientId: 'ios', intent: 'login', codeChallenge: secret(), codeChallengeMethod: 'S256', returnState: secret() };
   f.broker.requestFailure = true;
   let response = await f.call(startPath, body); assert.equal(response.status, 503); assert.deepEqual(await response.json(), { error: { code: 'AUTH_UNAVAILABLE' } });
   f.broker.request = async () => 'https://evil.invalid/authorize';
@@ -338,25 +336,5 @@ test('native link logout before callback and after callback invalidates the boun
     const response = stage === 'callback' ? await f.callback(started) : await f.exchange(started);
     assert.equal(response.status, 401); assert.deepEqual(await response.json(), { error: { code: 'LINK_SESSION_CHANGED' } });
     assert.equal(await f.db.transactions.read(tx => tx.prisma.platform_soop.count({ where: { user_id: local.userId } })), 0);
-  }
-});
-
-test('stale or missing terms reject native link start/callback/exchange without upgrading consent or revoking the current session', { timeout: 20000 }, async t => {
-  const f = await fixture(t);
-  for (const terms_version of [null, 'older-consent']) {
-    for (const stage of ['start', 'callback', 'exchange']) {
-      const local = await f.local(); let started;
-      if (stage !== 'start') started = await f.launch(await f.begin({ token: local.token }));
-      if (stage === 'exchange') await f.complete(started);
-      await f.db.transactions.write(tx => tx.prisma.users.update({ where: { id: local.userId }, data: { terms_version } }));
-      const response = stage === 'start'
-        ? await f.call(startPath, { clientId: 'ios', intent: 'link', codeChallenge: secret(), codeChallengeMethod: 'S256', returnState: secret() }, { Authorization: `Bearer ${local.token}` })
-        : stage === 'callback' ? await f.callback(started) : await f.exchange(started);
-      assert.equal(response.status, 403); assert.deepEqual(await response.json(), { error: { code: 'TERMS_REQUIRED' } }); assert.equal(response.headers.get('set-cookie'), null);
-      const account = await f.db.transactions.read(tx => tx.prisma.users.findUnique({ where: { id: local.userId } })); assert.equal(account.terms_version, terms_version);
-      assert.equal(await f.db.transactions.read(tx => tx.prisma.auth_sessions.count({ where: { user_id: local.userId } })), 1);
-      assert.equal(await f.db.transactions.read(tx => tx.prisma.platform_soop.count({ where: { user_id: local.userId } })), 0);
-      assert.equal((await f.db.transactions.read(tx => f.sessions.require(tx, local.token, undefined, false, { transport: 'NATIVE', clientId: 'ios' }))).userId, local.userId);
-    }
   }
 });

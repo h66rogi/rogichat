@@ -42,7 +42,6 @@ export class PasswordService {
       if (credentials) await this.auth.require(tx, credentials);
       const current = await this.repository.lock(tx, candidate.user_id);
       if (!current || current.disabled_at || current.password_hash !== candidate.password_hash || BigInt(current.revision) !== candidate.revision) throw new ApiError('AUTH_FAILED', 401);
-      await this.repository.terms(tx, current.user_id, input.termsVersion);
       await this.repository.audit(tx, current.user_id, 'PASSWORD_LOGIN');
       return this.issue(tx, current.user_id, input.clientId);
     });

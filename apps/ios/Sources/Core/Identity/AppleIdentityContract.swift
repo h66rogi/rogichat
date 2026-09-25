@@ -6,12 +6,10 @@ struct AppleIdentityStart: Encodable, Sendable {
     let intent: String
     let codeChallenge: String
     let returnState: String
-    let termsVersion: String?
     init(intent: IdentityIntent, codeChallenge: String, returnState: String) throws {
         guard AppleIdentityContract.opaque(codeChallenge), AppleIdentityContract.opaque(returnState) else { throw AppleIdentityError.invalidRequest }
         self.intent = intent == .login ? "login" : "link"
         self.codeChallenge = codeChallenge; self.returnState = returnState
-        termsVersion = intent == .login ? "2026-09-20" : nil
     }
 }
 struct AppleIdentityStartResponse: Decodable, Sendable, CustomStringConvertible {

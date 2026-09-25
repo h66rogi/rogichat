@@ -52,14 +52,14 @@ export function ChannelHome({ channel }: { channel: ChannelDescriptor }) {
           <FeatureCard
             icon={MessageSquareText}
             title={`${channel.displayName} ${CHANNEL_FEATURES.chat.label}`}
-            description="팬은 후로기에게 개인 메시지를 보내고, 후로기의 전체 메시지와 나에게 온 답장을 한 타임라인에서 봅니다."
+            description="후로기와 대화를 이어가세요."
             href={channelHref('chat')}
             action="입장"
           />
           <FeatureCard
             icon={Info}
             title={CHANNEL_FEATURES.rules.label}
-            description="채팅 규칙, 개인답장이 공개될 수 있는 경우, 방 나가기와 계정 탈퇴의 차이를 안내합니다."
+            description="채팅 이용 방법과 계정 관리 방법을 안내합니다."
             href={channelHref('rules')}
             action="보기"
           />

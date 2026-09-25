@@ -26,7 +26,7 @@ test('admin/password OpenAPI exposes exact real routes and no credential, identi
   for (const field of ['userId', 'providerSubject', 'reason', 'passwordHash', 'periodId']) assert.equal(response({ ...receipt, [field]: 'forbidden' }), false);
   const login = doc.paths['/v1/auth/password/login'].post;
   assert.equal(login.requestBody.content['application/json'].schema.properties.password.writeOnly, true);
-  assert.equal(ajv.compile(login.requestBody.content['application/json'].schema)({ clientId: 'ios', loginId: 'review-account', password: 'isolated-long-password', termsVersion: '2026-09-20', role: 'STREAMER' }), false);
+  assert.equal(ajv.compile(login.requestBody.content['application/json'].schema)({ clientId: 'ios', loginId: 'review-account', password: 'isolated-long-password', role: 'STREAMER' }), false);
   assert.equal(doc.paths['/v1/auth/password/register'], undefined);
   assert.equal(doc.paths['/v1/admin/bootstrap'], undefined);
 });

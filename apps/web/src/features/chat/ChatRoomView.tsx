@@ -36,8 +36,8 @@ import type {
  * src/domains/talk/components/room/TalkStreamerView.tsx. From the original only the
  * composition "header + TalkMessageList + TalkMessageInput" and the reply/quote hand-off
  * survive. Removed: feed/fan-filter tabs, the fan list derived from loaded messages, the
- * per-fan message query and the "DM으로 전환" room creation. Everyone writes to
- * the shared timeline; a streamer can privately reply to a selected message.
+ * per-fan message query and the "DM으로 전환" room creation. Fans write to the
+ * room owner; a streamer writes to the room or privately replies to a selected message.
  *
  * This component owns UI state only: scoped drafts, quote, current target, per-target
  * result notices. It never sends, authenticates or persists; the harness does that through
@@ -67,7 +67,7 @@ export interface ChatRoomViewProps {
   outgoing?: readonly ChatOutgoingMessage[] | undefined;
   onRetryOutgoing?: ((id: string) => void | Promise<void>) | undefined;
   outgoingBusy?: boolean | undefined;
-  /** STREAMER only: fans the server authorized for PRIVATE replies. SHARED is always available. */
+  /** STREAMER only: fans the server authorized for PRIVATE replies. */
   streamerRecipients?: readonly ChatActorRef[] | undefined;
   /** Absent means sending is not wired yet; the composer says so instead of pretending. */
   onSubmit?: ((submission: ChatComposerSubmission) => ChatSubmitResult | Promise<ChatSubmitResult>) | undefined;
@@ -77,7 +77,10 @@ export interface ChatRoomViewProps {
   actionNotice?: string | undefined;
   onLoadOlder?: (() => void | Promise<void>) | undefined;
   hasOlder?: boolean | undefined;
+  historyCursor?: string | null | undefined;
   isLoadingOlder?: boolean | undefined;
+  firstUnreadMessageId?: string | null | undefined;
+  onVisibleMessage?: ((messageId: string) => void) | undefined;
   className?: string | undefined;
 }
 
@@ -88,6 +91,7 @@ export function ChatRoomView(props: ChatRoomViewProps) {
 
 const EMPTY_RECIPIENTS: readonly ChatActorRef[] = [];
 const SHARED_TARGET: ChatComposerTarget = { scope: 'SHARED' };
+const ROOM_OWNER_TARGET: ChatComposerTarget = { scope: 'ROOM_OWNER' };
 
 function ScopedChatRoom({
   conversationScopeKey,
@@ -95,6 +99,8 @@ function ScopedChatRoom({
   roomName,
   viewerRole,
   items,
+  firstUnreadMessageId,
+  onVisibleMessage,
   outgoing = [], onRetryOutgoing, outgoingBusy = false,
   streamerRecipients = EMPTY_RECIPIENTS,
   onSubmit,
@@ -104,6 +110,7 @@ function ScopedChatRoom({
   onDelete,
   actionNotice,
   hasOlder,
+  historyCursor,
   isLoadingOlder,
   className,
 }: ChatRoomViewProps) {
@@ -116,7 +123,7 @@ function ScopedChatRoom({
     () => ({ viewerRole, streamerRecipients }),
     [viewerRole, streamerRecipients],
   );
-  const defaultTarget = SHARED_TARGET;
+  const defaultTarget = viewerRole === 'FAN' ? ROOM_OWNER_TARGET : SHARED_TARGET;
 
   const [requestedTarget, setRequestedTarget] = useState<ChatComposerTarget | null>(() => {
     const parked = composerMemory?.getComposer().target;
@@ -167,7 +174,7 @@ function ScopedChatRoom({
   }, [announcement]);
 
   // A reply only exists while it still has a selected source message. Revoked fan
-  // authority locks the private draft; a removed quote returns to shared chat.
+  // authority locks the private draft; a removed quote returns to the role's default target.
   const draftKeyTarget = requestedTarget?.scope === 'PRIVATE' && !readDraft(drafts, requestedTarget).quote ? defaultTarget : requestedTarget ?? defaultTarget;
   const target = isAuthorizedTarget(draftKeyTarget, authorization) ? draftKeyTarget : null;
 
@@ -219,8 +226,8 @@ function ScopedChatRoom({
       return;
     }
     setDrafts((prev) => clearDraft(prev, draftKeyTarget));
-    setRequestedTarget(SHARED_TARGET);
-  }, [draftKeyTarget, currentKey, isSubmittingCurrent, setNoticeFor]);
+    setRequestedTarget(defaultTarget);
+  }, [draftKeyTarget, currentKey, isSubmittingCurrent, setNoticeFor, defaultTarget]);
 
   const handleReplyPrivate = useCallback(
     (item: ChatMessageItemModel) => {
@@ -278,7 +285,7 @@ function ScopedChatRoom({
       if (result.accepted || (!result.accepted && result.pendingDelivery)) {
         // Clear only the exact draft that was sent. Any other draft (or a changed one) stays.
         setDrafts((prev) => (prev[submittedKey] === submittedDraft ? clearDraft(prev, submittedTarget) : prev));
-        if (submittedTarget.scope === 'PRIVATE' && currentKeyRef.current === submittedKey) setRequestedTarget({ scope: 'SHARED' });
+        if (submittedTarget.scope === 'PRIVATE' && currentKeyRef.current === submittedKey) setRequestedTarget(defaultTarget);
       }
 
       if (!result.accepted && result.retryCommandId && !result.pendingDelivery) {
@@ -303,11 +310,11 @@ function ScopedChatRoom({
         );
       }
     })();
-  }, [onSubmit, submitBlockedReason, submitBusy, target, currentKey, submittingKey, drafts, setNoticeFor]);
+  }, [onSubmit, submitBlockedReason, submitBusy, target, currentKey, submittingKey, drafts, setNoticeFor, defaultTarget]);
 
   const canReply = viewerRole === 'STREAMER' && streamerRecipients.length > 0;
-  // Media commands do not carry a source message, so attachments stay in shared chat.
-  const attachmentAction = onSubmit && target?.scope === 'SHARED' && media?.configured ? (
+  // Media commands do not carry a source message, so attachments use the role's ordinary target.
+  const attachmentAction = onSubmit && target?.scope === defaultTarget.scope && media?.configured ? (
     <Popover.Root open={attachmentsOpen} onOpenChange={setAttachmentsOpen}>
       <Popover.Trigger asChild>
         <Button type="button" variant="ghost" size="icon" className="rounded-full text-chat-accent hover:bg-surface-soft" aria-label="첨부 메뉴 열기" aria-expanded={attachmentsOpen}>
@@ -347,6 +354,8 @@ function ScopedChatRoom({
 
       <ChatTimeline
         items={items}
+        firstUnreadMessageId={firstUnreadMessageId}
+        onVisibleMessage={onVisibleMessage}
         outgoing={outgoing}
         onRetryOutgoing={onRetryOutgoing}
         outgoingBusy={outgoingBusy}
@@ -355,6 +364,7 @@ function ScopedChatRoom({
         onDelete={onDelete}
         onLoadOlder={onLoadOlder}
         hasOlder={hasOlder}
+        historyPageKey={historyCursor}
         isLoadingOlder={isLoadingOlder}
         ariaLabel={`${roomName} 메시지`}
       />

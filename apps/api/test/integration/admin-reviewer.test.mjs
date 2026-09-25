@@ -52,7 +52,7 @@ async function fixture(t) {
     verify(method, path, response.status, data);
     return { status: response.status, data, cookie: response.headers.get('set-cookie')?.split(';')[0] };
   };
-  const login = (extra = {}, headers = {}) => request('/v1/auth/password/login', 'POST', { clientId: 'web', loginId, password, termsVersion: '2026-09-20', ...extra }, { origin: config.origin, ...headers });
+  const login = (extra = {}, headers = {}) => request('/v1/auth/password/login', 'POST', { clientId: 'web', loginId, password, ...extra }, { origin: config.origin, ...headers });
   const headers = session => ({ cookie: `rogi_session=${session.token}`, origin: config.origin, 'x-csrf-token': session.csrf });
   return { db, config, bootstrap, base, adminRequest, reviewerRequest, operator, reviewer, loginId, password, sessions, ...seed, request, login, headers, logs: () => logs };
 }
@@ -73,7 +73,7 @@ test('real password reviewer uses existing session transports and chat without f
   const recovered = await f.login({}, { cookie: login.cookie }); assert.equal(recovered.status, 200);
   await f.db.transactions.write(tx => tx.prisma.auth_sessions.updateMany({ where: { user_id: f.reviewer }, data: { expires_at: new Date(0) } }));
   const unexpired = await f.login({}, { cookie: recovered.cookie }); assert.equal(unexpired.status, 200);
-  const native = await f.request('/v1/auth/password/login', 'POST', { clientId: 'ios', loginId: f.loginId.toUpperCase(), password: f.password, termsVersion: '2026-09-20' }, { 'x-rogi-client': 'ios' });
+  const native = await f.request('/v1/auth/password/login', 'POST', { clientId: 'ios', loginId: f.loginId.toUpperCase(), password: f.password }, { 'x-rogi-client': 'ios' });
   assert.equal(native.status, 200); assert.equal(native.cookie, undefined); assert.equal(native.data.session.soopLinkStatus, 'REQUIRED');
   const nativeHeaders = { authorization: `Bearer ${native.data.accessToken}`, 'x-rogi-client': 'ios' };
   assert.equal((await f.request('/v1/auth/session', 'GET', undefined, nativeHeaders)).status, 200);

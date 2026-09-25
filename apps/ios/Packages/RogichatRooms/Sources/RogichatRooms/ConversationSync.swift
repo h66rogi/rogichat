@@ -70,8 +70,8 @@ public struct ConversationHistory: Decodable, Sendable {
         if resetRequired {
             guard membershipScope == nil, authorizationRevision == nil, messages.isEmpty, nextCursor == nil else { throw ConversationError.invalidResponse }
         } else {
-            guard membershipScope.map(RoomsWire.token) == true, authorizationRevision.map(RoomsWire.token) == true, nextCursor.map(RoomsWire.cursor) ?? true,
-                  nextCursor == nil || !messages.isEmpty else { throw ConversationError.invalidResponse }
+            guard membershipScope.map(RoomsWire.token) == true, authorizationRevision.map(RoomsWire.token) == true,
+                  nextCursor.map(RoomsWire.cursor) ?? true else { throw ConversationError.invalidResponse }
         }
     }
 }

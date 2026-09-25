@@ -14,8 +14,8 @@ dependency and project mounting to the existing Android/iOS single writers.
   `apps/api/src/modules/auth/apple/apple.dto.ts` on `task/apple-soop-link`.
   New request paths: POST `/v1/auth/apple/start`,
   `/v1/auth/apple/native/complete` (iOS), `/v1/auth/apple/exchange`.
-  Start sends clientId/intent/codeChallenge/returnState and login-only
-  `termsVersion:2026-09-20`. Unlike SOOP, **no codeChallengeMethod** field.
+  Start sends clientId/intent/codeChallenge/returnState. An optional legacy login
+  `termsVersion` is ignored. Unlike SOOP, **no codeChallengeMethod** field.
   iOS sets the server-returned nonce directly, without hashing it again, and
   checks returned state; complete sends transactionId/state/authorizationCode/
   identityToken/codeVerifier. Exchange sends clientId/transactionId/code/
@@ -134,7 +134,7 @@ Small Swift and Kotlin executable checks cover permission denial/unknown,
 unavailable registration, old token/duplicate callback, rotation, retry after
 unknown failure, logout, A→B→A, cold launch stale authorization, wrong room,
 duplicate route and TTL. Swift Apple wire checks cover native nonce DTO,
-login/link consent differences and one-shot scope cancellation. Swift device SDK
+login/link request differences and one-shot scope cancellation. Swift device SDK
 strict-concurrency typecheck covers the native Apple/permission/UI primitives.
 Additional Android JUnit contract tests await the parent's normal unit matrix.
 

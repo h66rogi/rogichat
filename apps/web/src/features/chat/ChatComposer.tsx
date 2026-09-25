@@ -149,7 +149,7 @@ export function ChatComposer({
         <div className="flex items-end gap-2 px-3 py-2.5">
           {attachmentAction}
           <label htmlFor={inputId} className="sr-only">
-            {quote ? `${quote.authorName}님에게 비공개 답장` : '전체 채팅 메시지 입력'}
+            {quote ? `${quote.authorName}님에게 답장` : '메시지 입력'}
           </label>
           <textarea
             id={inputId}
@@ -164,7 +164,7 @@ export function ChatComposer({
               composingRef.current = false;
             }}
             rows={1}
-            placeholder={target?.scope === 'PRIVATE' ? '비공개 답장을 입력하세요' : '전체 채팅에 메시지 보내기'}
+            placeholder={quote ? '답장 입력' : '메시지 입력'}
             readOnly={isSubmitting}
             aria-busy={isSubmitting}
             autoComplete="off"
@@ -184,7 +184,7 @@ export function ChatComposer({
             type="submit"
             size="icon"
             disabled={!canSend}
-            aria-label={isSubmitting ? '보내는 중' : quote ? `${quote.authorName}님에게 비공개 답장 보내기` : '전체 채팅에 보내기'}
+            aria-label={isSubmitting ? '보내는 중' : quote ? `${quote.authorName}님에게 답장 보내기` : '메시지 보내기'}
             aria-busy={isSubmitting}
             className="rounded-full bg-chat-accent text-white hover:bg-chat-accent-hover"
             data-testid="chat-composer-send"

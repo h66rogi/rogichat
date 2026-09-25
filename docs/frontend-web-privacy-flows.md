@@ -60,8 +60,8 @@ No token, CSRF, raw account UUID, message content, or deletion request UUID is
 stored. Receipt status `blocked` means account access blocked, never physical
 purge complete. 401, 503, malformed JSON and lost ACK remain uncertain. Recovery
 is read-only until a new explicit confirmation; session/account comparisons
-prevent deleting a newly logged-in account. SOOP uses supported `login` intent
-and terms consent; no invented reauth intent or automatic deletion retry.
+prevent deleting a newly logged-in account. SOOP uses supported `login` intent;
+no invented reauth intent or automatic deletion retry.
 
 Publication 202 receipts are checked strictly; only `published` has `messageId`.
 Five timed GET polls at two-second intervals are bounded, followed by manual

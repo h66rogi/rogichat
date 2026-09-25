@@ -33,6 +33,8 @@ struct MessageActionsPanel: View {
                         .padding(5)
                         .background(reactions?.mine == emoji ? Color.accentColor.opacity(0.18) : Color.clear, in: Capsule())
                         .disabled(blocked(reactions?.mine == emoji ? .removeReaction : .setReaction))
+                        .accessibilityLabel("\(emoji) 반응\(reactions?.mine == emoji ? " 취소" : " 선택")")
+                        .accessibilityValue(reactions?.mine == emoji ? "내 반응" : "")
                 } }
             }
         }

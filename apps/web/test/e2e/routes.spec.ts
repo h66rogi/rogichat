@@ -32,9 +32,8 @@ test.describe('public routes', () => {
   test('/rules is public content', async ({ page }) => {
     await page.goto('/rules');
     await expect(page.getByRole('heading', { level: 1, name: '이용 안내' })).toBeVisible();
-    const publicationHeading = page.getByRole('heading', { level: 2, name: '비공개 답장의 범위' });
-    await expect(publicationHeading).toHaveCount(1);
-    await expect(publicationHeading).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: '채팅은 이렇게 동작해요' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 2, name: '비공개 답장의 범위' })).toHaveCount(0);
   });
 
   for (const route of ['/chat', '/settings']) {
@@ -50,11 +49,10 @@ test.describe('public routes', () => {
     expect(response.status()).toBe(200);
     expect(await response.text()).toContain('로그인 후 이용할 수 있어요');
   });
-  test('/login requires terms and reports provider failure truthfully', async ({ page }) => {
+  test('/login reports provider failure truthfully', async ({ page }) => {
     await page.goto('/login?reason=cancelled');
     await expect(page.getByText('로그인을 취소했어요. 다시 시도할 수 있어요.')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'SOOP으로 로그인' })).toBeDisabled();
-    await page.getByRole('checkbox').check();
+    await expect(page.getByRole('button', { name: 'SOOP으로 로그인' })).toBeEnabled();
     await page.getByRole('button', { name: 'SOOP으로 로그인' }).click();
     await expect(page.getByRole('alert').filter({ hasText: '요청을 완료하지 못했습니다' })).toBeVisible();
     await expect(page).toHaveURL(/login/);
