@@ -27,6 +27,10 @@ import chat.rogi.rogichat.feature.media.*
 import chat.rogi.rogichat.feature.messageactions.*
 import chat.rogi.rogichat.core.design.ScreenStatus
 import chat.rogi.rogichat.core.network.RoomRole
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.regular.Plus
+import com.adamglin.phosphoricons.regular.Smiley
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -235,7 +239,11 @@ private fun MessageBubble(message: ConversationMessage, own: Boolean, media: Med
                 }
             }
             Surface(onClick = onActions, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                Text("☺+", Modifier.padding(horizontal = 9.dp, vertical = 5.dp), style = MaterialTheme.typography.labelMedium)
+                Box(Modifier.padding(horizontal = 9.dp, vertical = 5.dp)) {
+                    Icon(PhosphorIcons.Regular.Smiley, contentDescription = "반응 추가", modifier = Modifier.size(17.dp))
+                    Icon(PhosphorIcons.Regular.Plus, contentDescription = null,
+                        modifier = Modifier.align(Alignment.TopEnd).offset(x = 5.dp, y = (-3).dp).size(9.dp))
+                }
             }
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
