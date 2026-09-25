@@ -36,6 +36,8 @@ TEMPLATES = {'compose': 'infrastructure/runtime/compose.app.yaml',
              'caddy': 'infrastructure/runtime/Caddyfile.app',
              'bootstrap': 'infrastructure/runtime/Caddyfile.bootstrap'}
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
+NEW_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml',
+                 'mobile.yml', 'qa-backend-publication.yml'}
 
 
 def require(value):
@@ -103,7 +105,8 @@ def validate_request(r, p, now=None):
     require(type(r['expires_at']) is int and now < r['expires_at'] <= now + 3600)
     for key in ('policy_sha256', 'previous_state_sha256'):
         require(type(r[key]) is str and HASH.fullmatch(r[key]))
-    require(type(r['verification_runs']) is dict and set(r['verification_runs']) == WORKFLOWS
+    require(type(r['verification_runs']) is dict
+            and set(r['verification_runs']) in (WORKFLOWS, NEW_WORKFLOWS)
             and all(type(n) is int and n > 0 for n in r['verification_runs'].values()))
     a = r['archive']
     require(type(a) is dict and set(a) == {'export_sha', 'export_run', 'export_attempt', 'artifact_id',

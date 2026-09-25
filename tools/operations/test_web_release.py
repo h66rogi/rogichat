@@ -222,6 +222,36 @@ class ValidationTests(unittest.TestCase):
                 with self.subTest(key=key), self.assertRaises(w.Rejected):
                     w.verify_runs({'web-publish.yml': 1}, r['source_sha'], 'qa')
 
+    def test_event_publication_requires_successful_web_result_and_all_checks(self):
+        r = request()
+        r['verification_runs'] = dict.fromkeys(w.NEW_WORKFLOWS, 123)
+        self.assertIs(w.validate_request(r), r)
+        publisher = {'head_sha': r['source_sha'], 'head_branch': 'qa', 'event': 'workflow_run',
+                     'status': 'completed', 'conclusion': 'success',
+                     'repository': {'full_name': 'h66rogi/rogichat'},
+                     'head_repository': {'full_name': 'h66rogi/rogichat'},
+                     'path': '.github/workflows/qa-web-publication.yml',
+                     'name': 'QA web image publication', 'run_attempt': 1}
+        listing = {'total_count': 1, 'jobs': [{'name': 'Web publication result', 'run_id': 123,
+                    'run_attempt': 1, 'status': 'completed', 'conclusion': 'success'}]}
+        with patch.object(w, 'github', side_effect=[publisher, listing]):
+            w.verify_runs({'qa-web-publication.yml': 123}, r['source_sha'], 'qa')
+        for change in ('event', 'sha', 'other_component', 'job_name', 'job_attempt', 'job_failure'):
+            run = copy.deepcopy(publisher)
+            jobs = copy.deepcopy(listing)
+            if change == 'event': run['event'] = 'pull_request'
+            elif change == 'sha': run['head_sha'] = 'f' * 40
+            elif change == 'other_component': run['path'] = '.github/workflows/qa-backend-publication.yml'
+            elif change == 'job_name': jobs['jobs'][0]['name'] = 'publish'
+            elif change == 'job_attempt': jobs['jobs'][0]['run_attempt'] = 2
+            else: jobs['jobs'][0]['conclusion'] = 'failure'
+            with self.subTest(change=change), patch.object(w, 'github', side_effect=[run, jobs]), \
+                    self.assertRaises(w.Rejected):
+                w.verify_runs({'qa-web-publication.yml': 123}, r['source_sha'], 'qa')
+        r['verification_runs'].pop('mobile.yml')
+        with self.assertRaises(w.Rejected):
+            w.validate_request(r)
+
     def test_no_redirect_health(self):
         with self.assertRaises(w.Rejected):
             w.NoRedirect().redirect_request(None, None, 302, '', {}, 'https://elsewhere.invalid')

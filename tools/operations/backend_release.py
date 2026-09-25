@@ -48,6 +48,8 @@ ARTIFACTS = {
 }
 FEATURE_ARTIFACTS = {'media': 'infrastructure/runtime/compose.media.yaml'}
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
+NEW_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml',
+                 'mobile.yml', 'qa-backend-publication.yml'}
 
 
 class Rejected(ValueError):
@@ -120,7 +122,8 @@ def validate_request(value):
         require(type(migration['checksum']) is str and HASH.fullmatch(migration['checksum']))
         names.append(migration['name'])
     require(names == sorted(set(names)))
-    require(type(value['verification_runs']) is dict and set(value['verification_runs']) == WORKFLOWS)
+    require(type(value['verification_runs']) is dict
+            and set(value['verification_runs']) in (WORKFLOWS, NEW_WORKFLOWS))
     require(all(type(n) is int and n > 0 for n in value['verification_runs'].values()))
     require(type(value['request_id']) is str and str(uuid.UUID(value['request_id'])) == value['request_id'])
     require(type(value['expires_at']) is int and time.time() < value['expires_at'] <= time.time() + 3600)
@@ -151,16 +154,32 @@ def docker(*args, **kwargs):
     return run(['/usr/bin/docker', *args], **kwargs)
 
 
+def github_read(path):
+    url = 'https://api.github.com/repos/h66rogi/rogichat/' + path
+    with urllib.request.urlopen(urllib.request.Request(url, headers={'Accept': 'application/vnd.github+json'}), timeout=15) as response:
+        return json.load(response)
+
+
 def verify_ci(request):
     for workflow, run_id in request['verification_runs'].items():
-        url = f'https://api.github.com/repos/h66rogi/rogichat/actions/runs/{run_id}'
-        with urllib.request.urlopen(urllib.request.Request(url, headers={'Accept': 'application/vnd.github+json'}), timeout=15) as response:
-            result = json.load(response)
+        result = github_read(f'actions/runs/{run_id}')
         require(result['head_sha'] == request['source_sha'] and result['head_branch'] == 'qa'
-                and result['event'] == 'push' and result['status'] == 'completed'
+                and result['event'] in ({'workflow_run', 'schedule', 'workflow_dispatch'}
+                                        if workflow == 'qa-backend-publication.yml' else {'push'})
+                and result['status'] == 'completed'
                 and result['conclusion'] == 'success' and result['repository']['full_name'] == 'h66rogi/rogichat'
                 and result['head_repository']['full_name'] == 'h66rogi/rogichat'
                 and result['path'] == '.github/workflows/' + workflow)
+        if workflow == 'qa-backend-publication.yml':
+            require(result['name'] == 'QA backend image publication'
+                    and type(result['run_attempt']) is int and result['run_attempt'] > 0)
+            listing = github_read(f"actions/runs/{run_id}/attempts/{result['run_attempt']}/jobs?per_page=100")
+            require(type(listing['total_count']) is int and 0 < listing['total_count'] <= 100
+                    and type(listing['jobs']) is list and len(listing['jobs']) == listing['total_count'])
+            jobs = [job for job in listing['jobs'] if job['name'] == 'Backend publication result']
+            require(len(jobs) == 1 and jobs[0]['run_id'] == run_id
+                    and jobs[0]['run_attempt'] == result['run_attempt']
+                    and jobs[0]['status'] == 'completed' and jobs[0]['conclusion'] == 'success')
 
 
 def verify_image(image, source_sha):

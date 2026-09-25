@@ -59,6 +59,43 @@ def ready_container(role='api'):
 
 
 class RequestTests(unittest.TestCase):
+    def test_event_publication_verification_requires_exact_aggregate(self):
+        value = fixture()
+        value['verification_runs'] = {name: index for index, name in enumerate(sorted(release.NEW_WORKFLOWS), 1)}
+        self.assertIs(release.validate_request(value), value)
+        publication_id = value['verification_runs']['qa-backend-publication.yml']
+        responses = {f'actions/runs/{identity}': {
+            'head_sha': value['source_sha'], 'head_branch': 'qa',
+            'event': 'workflow_run' if name == 'qa-backend-publication.yml' else 'push',
+            'status': 'completed', 'conclusion': 'success',
+            'repository': {'full_name': 'h66rogi/rogichat'},
+            'head_repository': {'full_name': 'h66rogi/rogichat'},
+            'path': '.github/workflows/' + name,
+            'name': 'QA backend image publication' if name == 'qa-backend-publication.yml' else name,
+            'run_attempt': 2,
+        } for name, identity in value['verification_runs'].items()}
+        job_path = f'actions/runs/{publication_id}/attempts/2/jobs?per_page=100'
+        responses[job_path] = {'total_count': 1, 'jobs': [{
+            'name': 'Backend publication result', 'run_id': publication_id,
+            'run_attempt': 2, 'status': 'completed', 'conclusion': 'success'}]}
+        with patch.object(release, 'github_read', side_effect=lambda path: responses[path]):
+            release.verify_ci(value)
+            for change in ('wrong_event', 'wrong_sha', 'other_component', 'failed_job', 'wrong_attempt'):
+                altered = copy.deepcopy(responses)
+                if change == 'wrong_event':
+                    altered[f'actions/runs/{publication_id}']['event'] = 'pull_request'
+                elif change == 'wrong_sha':
+                    altered[f'actions/runs/{publication_id}']['head_sha'] = 'f' * 40
+                elif change == 'other_component':
+                    altered[f'actions/runs/{publication_id}']['path'] = '.github/workflows/qa-web-publication.yml'
+                elif change == 'failed_job':
+                    altered[job_path]['jobs'][0]['conclusion'] = 'failure'
+                else:
+                    altered[job_path]['jobs'][0]['run_attempt'] = 1
+                with self.subTest(change=change), patch.object(release, 'github_read',
+                        side_effect=lambda path: altered[path]), self.assertRaises(release.Rejected):
+                    release.verify_ci(value)
+
     def test_media_request_requires_exact_decoder_and_overlay(self):
         value = media_fixture()
         self.assertIs(release.validate_request(value), value)

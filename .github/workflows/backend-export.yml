@@ -16,6 +16,12 @@ on:
       decoder_digest:
         description: Optional decoder registry sha256 hex; selects exact three-image v2 archive
         required: false
+      publication_run_id:
+        description: Optional exact QA publication run ID for event-driven images
+        required: false
+      publication_attempt:
+        description: Exact attempt of the event-driven publication run
+        required: false
 
 permissions: {}
 
@@ -45,6 +51,8 @@ jobs:
           EXPORT_RUNTIME_DIGEST: ${{ inputs.runtime_digest }}
           EXPORT_MIGRATION_DIGEST: ${{ inputs.migration_digest }}
           EXPORT_DECODER_DIGEST: ${{ inputs.decoder_digest }}
+          EXPORT_PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
+          EXPORT_PUBLICATION_ATTEMPT: ${{ inputs.publication_attempt }}
         run: python3 tools/operations/backend_archive.py produce
       - name: Validate ID-only Compose image references without starting services
         run: |

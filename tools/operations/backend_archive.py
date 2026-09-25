@@ -26,6 +26,12 @@ import zipfile
 REPOSITORY = 'h66rogi/rogichat'
 SOURCE = 'https://github.com/' + REPOSITORY
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
+FIVE_QA_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'}
+NEW_PUBLICATION_WORKFLOW = 'qa-backend-publication.yml'
+NEW_PUBLICATION_NAME = 'QA backend image publication'
+NEW_WORKFLOWS = FIVE_QA_WORKFLOWS | {NEW_PUBLICATION_WORKFLOW}
+NEW_PUBLICATION_EVENTS = {'workflow_run', 'schedule', 'workflow_dispatch'}
+PUBLICATION_JOB = 'Backend publication result'
 BACKEND_ROLES = {'runtime': 'rogichat-api', 'migration': 'rogichat-api-migration'}
 ROLES = dict(BACKEND_ROLES)
 DECODER_ROLE = {'decoder': 'rogichat-media-decoder'}
@@ -93,11 +99,35 @@ def verify_run(value, sha, workflow, event='push'):
             and value['path'] == '.github/workflows/' + workflow)
 
 
+def verify_publication_run(value, sha, token=None):
+    require(value['head_sha'] == sha and value['head_branch'] == 'qa'
+            and value['event'] in NEW_PUBLICATION_EVENTS
+            and value['status'] == 'completed' and value['conclusion'] == 'success'
+            and value['repository']['full_name'] == REPOSITORY
+            and value['head_repository']['full_name'] == REPOSITORY
+            and value['path'] == '.github/workflows/' + NEW_PUBLICATION_WORKFLOW
+            and value['name'] == NEW_PUBLICATION_NAME
+            and type(value['id']) is int and value['id'] > 0
+            and type(value['run_attempt']) is int and value['run_attempt'] > 0)
+    listing = api(f"actions/runs/{value['id']}/attempts/{value['run_attempt']}/jobs?per_page=100", token)
+    require(type(listing['total_count']) is int and 0 < listing['total_count'] <= 100
+            and type(listing['jobs']) is list and len(listing['jobs']) == listing['total_count'])
+    jobs = [job for job in listing['jobs'] if job['name'] == PUBLICATION_JOB]
+    require(len(jobs) == 1 and jobs[0]['run_id'] == value['id']
+            and jobs[0]['run_attempt'] == value['run_attempt']
+            and jobs[0]['status'] == 'completed' and jobs[0]['conclusion'] == 'success')
+
+
 def verify_source(source, runs, token=None):
-    require(SHA.fullmatch(source) and type(runs) is dict and set(runs) == WORKFLOWS)
+    require(SHA.fullmatch(source) and type(runs) is dict
+            and set(runs) in (WORKFLOWS, NEW_WORKFLOWS))
     for workflow, run_id in runs.items():
         require(type(run_id) is int and run_id > 0)
-        verify_run(api(f'actions/runs/{run_id}', token), source, workflow)
+        run = api(f'actions/runs/{run_id}', token)
+        if workflow == NEW_PUBLICATION_WORKFLOW:
+            verify_publication_run(run, source, token)
+        else:
+            verify_run(run, source, workflow)
 
 
 def validate_config(config, source):
@@ -212,7 +242,8 @@ def validate_descriptor(value, *, producer_events=frozenset({'workflow_dispatch'
     require(SHA.fullmatch(producer['sha']) and type(producer['run_id']) is int and producer['run_id'] > 0
             and type(producer['run_attempt']) is int and producer['run_attempt'] > 0
             and producer['event'] in producer_events and producer['ref'] == 'refs/heads/qa')
-    require(set(value['verification_runs']) == WORKFLOWS and set(value['images']) == set(roles))
+    require(set(value['verification_runs']) in (WORKFLOWS, NEW_WORKFLOWS)
+            and set(value['images']) == set(roles))
     for role, repo in roles.items():
         item = value['images'][role]
         require(set(item) == {'image', 'config_id', 'archive_sha256'})
@@ -301,11 +332,31 @@ def produce(*, expected_event='workflow_dispatch', verification_runs=None):
     token = os.environ.pop('GITHUB_TOKEN')
     runs = {}
     if verification_runs is None:
-        for workflow in sorted(WORKFLOWS):
+        supplied_id = os.environ.get('EXPORT_PUBLICATION_RUN_ID', '')
+        supplied_attempt = os.environ.get('EXPORT_PUBLICATION_ATTEMPT', '')
+        if supplied_id or supplied_attempt:
+            require(supplied_id.isdecimal() and supplied_attempt.isdecimal())
+            publication_id, attempt = int(supplied_id), int(supplied_attempt)
+            require(publication_id > 0 and attempt > 0)
+            workflows = FIVE_QA_WORKFLOWS
+        else:
+            publication_id = attempt = None
+            workflows = WORKFLOWS
+        for workflow in sorted(workflows - {NEW_PUBLICATION_WORKFLOW, 'backend-publish.yml'}):
             candidates = api(f'actions/workflows/{workflow}/runs?branch=qa&event=push&head_sha={source}&per_page=20', token)['workflow_runs']
             require(candidates)
             verify_run(candidates[0], source, workflow)
             runs[workflow] = candidates[0]['id']
+        if publication_id is None:
+            candidates = api(f'actions/workflows/backend-publish.yml/runs?branch=qa&event=push&head_sha={source}&per_page=20', token)['workflow_runs']
+            require(candidates)
+            verify_run(candidates[0], source, 'backend-publish.yml')
+            runs['backend-publish.yml'] = candidates[0]['id']
+        else:
+            publication = api(f'actions/runs/{publication_id}/attempts/{attempt}', token)
+            require(publication['id'] == publication_id and publication['run_attempt'] == attempt)
+            verify_publication_run(publication, source, token)
+            runs[NEW_PUBLICATION_WORKFLOW] = publication_id
     else:
         require(type(verification_runs) is dict)
         runs = dict(verification_runs)

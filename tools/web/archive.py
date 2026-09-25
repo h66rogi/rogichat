@@ -23,6 +23,10 @@ spec = importlib.util.spec_from_file_location('rogichat_web_archive_core', Path(
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)
 core.WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml', 'web-publish.yml'}
+core.NEW_PUBLICATION_WORKFLOW = 'qa-web-publication.yml'
+core.NEW_PUBLICATION_NAME = 'QA web image publication'
+core.NEW_WORKFLOWS = core.FIVE_QA_WORKFLOWS | {core.NEW_PUBLICATION_WORKFLOW}
+core.PUBLICATION_JOB = 'Web publication result'
 core.ROLES = {'runtime': 'rogichat-web'}
 IMAGE_FILES = {'descriptor.json', 'runtime.tar', 'runtime.manifest.json'}
 PROOF_FILE = 'publication-proof.zip'
@@ -205,8 +209,19 @@ def exact_run(identity, attempt, source, workflow, token=None):
     positive_id(attempt)
     run = core.api(f'actions/runs/{identity}/attempts/{attempt}', token)
     exact_identity(run, identity, attempt)
-    core.verify_run(run, source, workflow)
+    if workflow == core.NEW_PUBLICATION_WORKFLOW:
+        core.verify_publication_run(run, source, token)
+    else:
+        core.verify_run(run, source, workflow)
     return run
+
+
+def publication_workflow(descriptor):
+    runs = descriptor['verification_runs']
+    if set(runs) in ({'web-publish.yml'}, core.WORKFLOWS):
+        return 'web-publish.yml'
+    require(set(runs) in ({core.NEW_PUBLICATION_WORKFLOW}, core.NEW_WORKFLOWS))
+    return core.NEW_PUBLICATION_WORKFLOW
 
 
 def export_attempt(producer, token=None):
@@ -225,8 +240,9 @@ def export_attempt(producer, token=None):
 
 def publication_artifact(descriptor, token=None, *, attempt):
     source = descriptor['source_sha']
-    publication_id = descriptor['verification_runs']['web-publish.yml']
-    run = exact_run(publication_id, attempt, source, 'web-publish.yml', token)
+    workflow = publication_workflow(descriptor)
+    publication_id = descriptor['verification_runs'][workflow]
+    run = exact_run(publication_id, attempt, source, workflow, token)
     export = export_attempt(descriptor['producer'], token)
     cutoff = timestamp(export['run_started_at'])
     listing = core.api(f'actions/runs/{publication_id}/artifacts?per_page=100', token)
@@ -252,7 +268,8 @@ def verify_publication_proof(descriptor, token=None, *, publication_proof=None):
     artifact, _ = publication_artifact(descriptor, token, attempt=attempt)
     proof_zip(publication_proof, artifact['digest'])
     source = descriptor['source_sha']
-    publication_id = descriptor['verification_runs']['web-publish.yml']
+    workflow = publication_workflow(descriptor)
+    publication_id = descriptor['verification_runs'][workflow]
     image = descriptor['images']['runtime']
     require(type(proof['schemaVersion']) is int and proof['schemaVersion'] == 1
             and proof['repository'] == core.REPOSITORY
@@ -262,8 +279,8 @@ def verify_publication_proof(descriptor, token=None, *, publication_proof=None):
             and proof['runtimeEnvironmentsVerified'] == ['qa', 'production'])
     verification = proof['verification']
     require(type(verification) is list and len(verification) == 5)
-    expected = {name: identity for name, identity in descriptor['verification_runs'].items() if name != 'web-publish.yml'}
-    require(set(expected) == core.WORKFLOWS - {'web-publish.yml'}
+    expected = {name: identity for name, identity in descriptor['verification_runs'].items() if name != workflow}
+    require(set(expected) == core.FIVE_QA_WORKFLOWS
             and {item['workflow'] for item in verification} == set(expected)
             and len({positive_id(item['id']) for item in verification}) == 5)
     for item in verification:
@@ -287,18 +304,32 @@ def resolve_publication(token):
         supplied = payload['workflow_run']
         source = supplied['head_sha']
         require(core.SHA.fullmatch(source))
-        core.verify_run(supplied, source, 'web-publish.yml')
+        workflow = supplied['path'].removeprefix('.github/workflows/')
+        require(workflow in {'web-publish.yml', core.NEW_PUBLICATION_WORKFLOW})
+        if workflow == core.NEW_PUBLICATION_WORKFLOW:
+            core.verify_publication_run(supplied, source, token)
+        else:
+            core.verify_run(supplied, source, workflow)
         identity, attempt = positive_id(supplied['id']), positive_id(supplied['run_attempt'])
     else:
         source = os.environ['EXPORT_SOURCE_SHA']
         require(core.SHA.fullmatch(source) and core.HEX.fullmatch(os.environ['EXPORT_RUNTIME_DIGEST']))
-        candidates = core.api(f'actions/workflows/web-publish.yml/runs?branch=qa&event=push&head_sha={source}&per_page=20', token)['workflow_runs']
-        require(type(candidates) is list and 0 < len(candidates) <= 20)
-        selected = candidates[0]
-        core.verify_run(selected, source, 'web-publish.yml')
-        identity, attempt = positive_id(selected['id']), positive_id(selected['run_attempt'])
+        supplied_id = os.environ.get('EXPORT_PUBLICATION_RUN_ID', '')
+        supplied_attempt = os.environ.get('EXPORT_PUBLICATION_ATTEMPT', '')
+        if supplied_id or supplied_attempt:
+            require(supplied_id.isdecimal() and supplied_attempt.isdecimal())
+            identity, attempt = positive_id(int(supplied_id)), positive_id(int(supplied_attempt))
+            workflow = core.NEW_PUBLICATION_WORKFLOW
+            exact_run(identity, attempt, source, workflow, token)
+        else:
+            workflow = 'web-publish.yml'
+            candidates = core.api(f'actions/workflows/web-publish.yml/runs?branch=qa&event=push&head_sha={source}&per_page=20', token)['workflow_runs']
+            require(type(candidates) is list and 0 < len(candidates) <= 20)
+            selected = candidates[0]
+            core.verify_run(selected, source, workflow)
+            identity, attempt = positive_id(selected['id']), positive_id(selected['run_attempt'])
     descriptor = {'version': 1, 'repository': core.REPOSITORY, 'source_sha': source,
-                  'producer': producer, 'verification_runs': {'web-publish.yml': identity}, 'images': {}}
+                  'producer': producer, 'verification_runs': {workflow: identity}, 'images': {}}
     artifact, _ = publication_artifact(descriptor, token, attempt=attempt)
     data = download_proof(artifact, token)
     proof = proof_zip(data, artifact['digest'])
@@ -325,6 +356,7 @@ def produce():
     producer_core = importlib.util.module_from_spec(producer_spec)
     producer_spec.loader.exec_module(producer_core)
     producer_core.WORKFLOWS = core.WORKFLOWS.copy()
+    producer_core.PUBLICATION_JOB = core.PUBLICATION_JOB
     producer_core.ROLES = core.ROLES.copy()
     producer_core.FILES = IMAGE_FILES.copy()
     producer_core.validate_config = validate_config

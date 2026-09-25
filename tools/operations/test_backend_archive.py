@@ -90,6 +90,51 @@ def oci_tar(root, descriptor, *, mutate=None, role='runtime'):
 
 
 class ArchiveTests(unittest.TestCase):
+    def test_new_publication_requires_exact_five_checks_and_successful_aggregate(self):
+        source = 'a' * 40
+        runs = {name: index for index, name in enumerate(sorted(archive.NEW_WORKFLOWS), 1)}
+        publication_id = runs[archive.NEW_PUBLICATION_WORKFLOW]
+        results = {f'actions/runs/{identity}': {
+            'id': identity, 'run_attempt': 1, 'head_sha': source, 'head_branch': 'qa',
+            'event': 'workflow_run' if workflow == archive.NEW_PUBLICATION_WORKFLOW else 'push',
+            'status': 'completed', 'conclusion': 'success',
+            'repository': {'full_name': archive.REPOSITORY},
+            'head_repository': {'full_name': archive.REPOSITORY},
+            'path': '.github/workflows/' + workflow,
+            'name': 'QA backend image publication' if workflow == archive.NEW_PUBLICATION_WORKFLOW else workflow,
+        } for workflow, identity in runs.items()}
+        job_path = f'actions/runs/{publication_id}/attempts/1/jobs?per_page=100'
+        results[job_path] = {'total_count': 1, 'jobs': [{
+            'name': archive.PUBLICATION_JOB, 'run_id': publication_id, 'run_attempt': 1,
+            'status': 'completed', 'conclusion': 'success',
+        }]}
+        with patch.object(archive, 'api', side_effect=lambda path, token: results[path]):
+            archive.verify_source(source, runs, 'test-token')
+            for change in ('missing_mobile', 'wrong_source', 'wrong_event', 'wrong_path',
+                           'failed_job', 'wrong_attempt', 'duplicate_job'):
+                with self.subTest(change=change):
+                    altered = copy.deepcopy(results)
+                    candidate = dict(runs)
+                    publication = altered[f'actions/runs/{publication_id}']
+                    job = altered[job_path]['jobs'][0]
+                    if change == 'missing_mobile':
+                        del candidate['mobile.yml']
+                    elif change == 'wrong_source':
+                        publication['head_sha'] = 'f' * 40
+                    elif change == 'wrong_event':
+                        publication['event'] = 'pull_request'
+                    elif change == 'wrong_path':
+                        publication['path'] = '.github/workflows/web-publish.yml'
+                    elif change == 'failed_job':
+                        job['conclusion'] = 'failure'
+                    elif change == 'wrong_attempt':
+                        job['run_attempt'] = 2
+                    else:
+                        altered[job_path]['jobs'].append(copy.deepcopy(job))
+                        altered[job_path]['total_count'] = 2
+                    with patch.object(archive, 'api', side_effect=lambda path, token: altered[path]), self.assertRaises(ValueError):
+                        archive.verify_source(source, candidate, 'test-token')
+
     def test_v2_decoder_full_chain_and_closed_roles(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
