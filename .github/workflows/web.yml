@@ -77,9 +77,9 @@ jobs:
         run: |
           npm install --global pnpm@12.4.2 --ignore-scripts
           pnpm install --frozen-lockfile
-      - name: Restore incremental web build cache
+      - name: Cache incremental web builds
         id: next-cache
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: apps/web/.next/cache
           key: web-next-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/web/next.config.ts') }}-${{ github.sha }}
@@ -113,12 +113,6 @@ jobs:
           retention-days: 3
           if-no-files-found: ignore
       - run: git diff --exit-code
-      - name: Save verified incremental web build cache
-        if: matrix.shard == 1 && steps.next-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: apps/web/.next/cache
-          key: ${{ steps.next-cache.outputs.cache-primary-key }}
 
   container:
     name: Production container and all-layer security
