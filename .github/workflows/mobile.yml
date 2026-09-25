@@ -10,8 +10,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: mobile-${{ github.ref }}
-  cancel-in-progress: true
+  group: mobile-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   changes:
     runs-on: ubuntu-24.04
@@ -43,6 +43,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/**/*.gradle*
+            apps/android/gradle.properties
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+            apps/android/gradle/libs.versions.toml
+            tools/mobile/check_android.py
       - name: Install pinned Android SDK packages
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - name: Reject synthetic product entry points in either environment
@@ -54,6 +61,28 @@ jobs:
         run: python3 tools/mobile/check_android.py
       - name: Verify QA release upload guards
         run: python3 -m unittest discover -s tools/mobile -p 'test_*.py'
+  android-signing:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/**/*.gradle*
+            apps/android/gradle.properties
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+            apps/android/gradle/libs.versions.toml
+            tools/mobile/release_android.py
+      - name: Install pinned Android SDK packages
+        run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0"'
       - name: Build signed QA APK and AAB using an ephemeral test key
         run: |
           python3 - <<'PY'
@@ -82,6 +111,13 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            apps/android/**/*.gradle*
+            apps/android/gradle.properties
+            apps/android/gradle/wrapper/gradle-wrapper.properties
+            apps/android/gradle/libs.versions.toml
+            tools/mobile/check_android_storage.py
       - name: Install fixed platform and storage-test system image
         run: '"$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-37.0" "build-tools;37.0.0" "platform-tools" "emulator" "system-images;android-36;google_apis;x86_64"'
       - name: Allow this ephemeral hosted runner to use KVM
@@ -128,7 +164,7 @@ jobs:
   required:
     name: Mobile required checks
     if: always()
-    needs: [changes, android, android-storage, ios-state, ios-build]
+    needs: [changes, android, android-signing, android-storage, ios-state, ios-build]
     runs-on: ubuntu-24.04
     steps:
       - name: Require successful builds for each affected platform
@@ -137,13 +173,14 @@ jobs:
           ANDROID_CHANGED: ${{ needs.changes.outputs.android }}
           IOS_CHANGED: ${{ needs.changes.outputs.ios }}
           ANDROID_RESULT: ${{ needs.android.result }}
+          ANDROID_SIGNING_RESULT: ${{ needs.android-signing.result }}
           ANDROID_STORAGE_RESULT: ${{ needs.android-storage.result }}
           IOS_STATE_RESULT: ${{ needs.ios-state.result }}
           IOS_BUILD_RESULT: ${{ needs.ios-build.result }}
         run: |
           test "$CHANGE_RESULT" = success
-          case "$ANDROID_CHANGED:$ANDROID_RESULT:$ANDROID_STORAGE_RESULT" in
-            true:success:success|false:skipped:skipped) ;;
+          case "$ANDROID_CHANGED:$ANDROID_RESULT:$ANDROID_SIGNING_RESULT:$ANDROID_STORAGE_RESULT" in
+            true:success:success:success|false:skipped:skipped:skipped) ;;
             *) echo "unexpected Android result"; exit 1 ;;
           esac
           case "$IOS_CHANGED:$IOS_STATE_RESULT:$IOS_BUILD_RESULT" in
