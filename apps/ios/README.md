@@ -120,9 +120,13 @@ Swift 6 / SwiftUI, iOS 18 이상, iPhone 전용 앱이다. QA와 prod는 같은
   명시적 ByteStore, 실제 on-disk GRDB를 구분한다. 실제 iOS Keychain/APNs/provider 검증을 뜻하지 않는다.
 
 CLI로 검증한다. Xcode GUI와 실행 중인 시뮬레이터를 사용하지 않는다.
+상태 모델을 수정하는 동안에는 해당 검사만 먼저 실행할 수 있다. 이름을 모르면
+`check_ios_wireframe.py`의 `run_checks` 이름을 확인한다. CI와 최종 검증은 인자 없이
+전체 검사를 실행한다.
 
 ```sh
 xcodegen generate --spec apps/ios/project.yml
+python3 tools/mobile/check_ios_wireframe.py --only navigation-state-checks
 python3 tools/mobile/check_ios_wireframe.py
 swift test --package-path apps/ios/Packages/RogichatRooms --scratch-path /Volumes/hyeonwoo-ext/rogichat-build-cache/mobile-rooms-ios/swiftpm --cache-path /Volumes/hyeonwoo-ext/rogichat-build-cache/mobile-rooms-ios/swiftpm-cache --force-resolved-versions --jobs 2
 python3 tools/mobile/build_ios.py --derived-data /Volumes/hyeonwoo-ext/DerivedData/rogichat-ios
