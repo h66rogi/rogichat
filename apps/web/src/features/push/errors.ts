@@ -26,15 +26,15 @@ const MESSAGES: Record<PushFailureKind, string> = {
   unauthenticated: '로그인이 필요합니다.',
   forbidden: '접근 권한을 다시 확인해 주세요.',
   'soop-link-required': 'SOOP 계정 연결과 최신 약관 동의가 필요합니다.',
-  'not-found': '이 브라우저의 알림 등록 정보를 서버에서 찾을 수 없습니다.',
+  'not-found': '알림 설정을 확인할 수 없어요. 다시 설정해 주세요.',
   conflict: '알림 설정이 다른 곳에서 변경되었습니다. 현재 설정을 다시 확인해 주세요.',
-  unavailable: '지금은 알림을 켤 수 없습니다. 서버의 웹 푸시 설정이 준비되면 다시 시도해 주세요.',
+  unavailable: '지금은 알림을 켤 수 없어요. 잠시 후 다시 시도해 주세요.',
   'rate-limited': '요청이 많습니다. 잠시 후 다시 시도해 주세요.',
   server: '요청을 완료하지 못했습니다. 다시 시도해 주세요.',
   network: '서버에 연결하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도해 주세요.',
-  'invalid-response': '서버 응답을 확인하지 못했습니다. 다시 시도해 주세요.',
-  browser: '이 브라우저에서 알림 구독 정보를 확인하지 못했습니다.',
-  storage: '브라우저 저장소를 사용할 수 없어 알림 설정을 이 브라우저에 유지할 수 없습니다. 시크릿 모드나 저장소 차단 설정을 확인해 주세요.',
+  'invalid-response': '알림을 확인할 수 없어요. 다시 시도해 주세요.',
+  browser: '이 브라우저에서 알림을 사용할 수 없어요.',
+  storage: '이 브라우저에서 알림 설정을 유지할 수 없어요. 브라우저 설정을 확인해 주세요.',
 };
 
 export class PushError extends Error {

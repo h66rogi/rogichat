@@ -185,7 +185,7 @@ void test('an unavailable server capability never prompts, registers or reports 
   assert.equal(context.browser.subscribes, 0);
   assert.deepEqual(context.routes(), []);
   assert.equal(context.enrollment.getState().serverAvailable, false);
-  assert.equal(context.enrollment.getState().notice, '서버의 웹 푸시 준비 상태를 확인한 뒤 다시 시도해 주세요.');
+  assert.equal(context.enrollment.getState().notice, '지금은 알림을 켤 수 없어요. 잠시 후 다시 시도해 주세요.');
 });
 
 void test('a capability that has not been read yet is never prompted against', async () => {
@@ -199,7 +199,7 @@ void test('a capability that has not been read yet is never prompted against', a
 void test('a capability request that fails leaves an unavailable state, not an enabled toggle', async () => {
   const context = harness([failure(503, 'AUTH_UNAVAILABLE')], { permission: 'not-asked' });
   await context.enrollment.refresh();
-  assert.equal(context.enrollment.getState().notice, '지금은 알림을 켤 수 없습니다. 서버의 웹 푸시 설정이 준비되면 다시 시도해 주세요.');
+  assert.equal(context.enrollment.getState().notice, '지금은 알림을 켤 수 없어요. 잠시 후 다시 시도해 주세요.');
   assert.equal(context.enrollment.model().enabled, null);
   await context.enrollment.enable();
   assert.equal(context.browser.prompts, 0);
@@ -462,7 +462,7 @@ void test('a subscription owned by another session is not removed by this one', 
   assert.deepEqual(context.routes(), ['GET /v1/me/notification-preferences', 'PUT /v1/me/notification-preferences'], 'only the owning session may withdraw it');
   assert.equal(context.browser.unsubscribes, 1);
   assert.equal(context.values[PUSH_BINDING_KEY], undefined);
-  assert.match(context.enrollment.getState().notice, /다른 로그인 세션/);
+  assert.match(context.enrollment.getState().notice, /다른 기기의 알림/);
 });
 
 void test('a server record that already moved on is reported, not presented as a clean removal', async () => {
@@ -471,7 +471,7 @@ void test('a server record that already moved on is reported, not presented as a
     { stored: await record('https://push.example/a'), subscription: subscription('https://push.example/a') },
   );
   await context.enrollment.disable();
-  assert.match(context.enrollment.getState().notice, /이미 변경되어/);
+  assert.match(context.enrollment.getState().notice, /알림 설정이 변경되어/);
   assert.equal(context.browser.unsubscribes, 1);
   assert.equal(context.values[PUSH_BINDING_KEY], undefined);
 });
@@ -596,7 +596,7 @@ void test('a browser storage that cannot be written reports that, and claims not
   assert.ok(context.sent.every(request => request.method !== 'PUT'), 'the preference is not stored when the record cannot be');
   assert.equal(context.enrollment.getState().subscriptionId, null);
   assert.equal(context.enrollment.model().enabled, false);
-  assert.match(context.enrollment.getState().notice, /저장소/);
+  assert.match(context.enrollment.getState().notice, /알림 설정을 유지할 수 없어요/);
 });
 
 void test('a browser storage that cannot be read reports that instead of looking empty', async () => {
@@ -610,7 +610,7 @@ void test('a browser storage that cannot be read reports that instead of looking
   });
   await context.enrollment.refresh();
   assert.equal(context.enrollment.model().enabled, false);
-  assert.match(context.enrollment.getState().notice, /저장소/);
+  assert.match(context.enrollment.getState().notice, /알림 설정을 유지할 수 없어요/);
 });
 
 void test('a server without the enrollment routes is an error to retry, not notifications off', async () => {
@@ -633,7 +633,7 @@ void test('a server that answers unavailable is a settled state, not an error', 
   const state = context.enrollment.getState();
   assert.equal(state.failure, null, 'the server answered; nothing failed');
   assert.equal(state.serverAvailable, false);
-  assert.deepEqual(context.enrollment.model().toggle, { enabled: false, reason: '서버에서 웹 푸시가 아직 준비되지 않았습니다.' });
+  assert.deepEqual(context.enrollment.model().toggle, { enabled: false, reason: '지금은 알림을 켤 수 없어요. 잠시 후 다시 시도해 주세요.' });
 });
 
 void test('a retry after a failed read clears the error and reports real state', async () => {

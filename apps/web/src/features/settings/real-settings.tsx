@@ -56,7 +56,7 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
     } catch (e) {
       if (!mounted.current) return false;
       if (e instanceof ApiError && [401, 403].includes(e.status)) { invalidateSession(); return false; }
-      setNotice(e instanceof ApiError ? e.message : '저장 결과를 확인하지 못했습니다. 다시 확인한 뒤 저장해 주세요.');
+      setNotice(e instanceof ApiError ? e.message : '변경 내용을 저장했는지 확인할 수 없어요. 다시 확인해 주세요.');
       return false;
     } finally { saving.current = false; if (mounted.current) setBusy(false); }
   };
@@ -69,7 +69,7 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
       if (!mounted.current) return;
       marker = await setLogoutPending(binding, api.origin, session);
       await eraseSessionOutbox(api.origin, session);
-    } catch { loggingOut.current = false; setNotice('로그아웃 상태를 안전하게 저장할 수 없습니다. 브라우저 저장소를 확인해 주세요.'); return; }
+    } catch { loggingOut.current = false; setNotice('지금은 로그아웃할 수 없어요. 잠시 후 다시 시도해 주세요.'); return; }
     // The local flag unmounts all private views before the command is sent. Do not abort logout on unmount.
     try {
       await api.request('/v1/auth/logout', { method: 'POST', csrf: session.csrfToken });
@@ -86,7 +86,7 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
     } catch (e) {
       if (!mounted.current) return;
       if (e instanceof ApiError && [401, 403].includes(e.status)) { invalidateSession(); return; }
-      setNotice('나가기 결과를 확인하지 못했습니다. 서버 상태를 다시 확인해 주세요.');
+      setNotice('채팅방을 나갔는지 확인할 수 없어요. 다시 확인해 주세요.');
     } finally { leaving.current = false; if (mounted.current) setBusy(false); }
   };
   const unavailable = (reason: string) => ({ enabled: false as const, reason });
@@ -98,7 +98,7 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
     session: { logout: { enabled: true } },
     account: { deletion: unavailable('계정 탈퇴 기능을 아직 제공하지 않습니다.') },
   };
-  return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>서버 상태 다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLinkSoop={async () => { try { window.location.assign(await api.authorize('link', session.csrfToken)); } catch { setNotice('SOOP 연결을 시작하지 못했습니다. 다시 시도해 주세요.'); } }} onLeaveRoom={leave} onToggleNotifications={push.toggle} onRetryNotifications={push.refresh}
+  return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLinkSoop={async () => { try { window.location.assign(await api.authorize('link', session.csrfToken)); } catch { setNotice('SOOP 연결을 시작하지 못했습니다. 다시 시도해 주세요.'); } }} onLeaveRoom={leave} onToggleNotifications={push.toggle} onRetryNotifications={push.refresh}
     accountControls={<AccountDeletionControl origin={api.origin} session={session} generation={generation} cleanupBinding={current => cleanupBinding(api.origin, current)} onPrepare={current => eraseSessionOutbox(api.origin, current)} onBlocked={current => { revokeChatOutboxes(current.accountPartition, current.csrfToken); forgetChatMemory(); invalidateSession(); }} />}
     privacyControls={<><AccountAccess session={session} /><ReportRecovery origin={api.origin} session={session} generation={generation} /><BlockedRoomsControl origin={api.origin} session={session} generation={generation} onReset={refresh} /></>}
     profileAvatar={<ProfileAvatar profile={profile} />}

@@ -87,7 +87,7 @@ function usePrivateSessionState(initialState: PrivateState) {
         update({ kind: 'deletionPending', operation }); setObscured(false); return;
       }
       if (localStorage.getItem(LOGOUT_PENDING)) { forgetChatMemory(); update({ kind: 'logoutPending' }); setObscured(false); return; }
-    } catch { update({ kind: 'error', message: '브라우저 저장소에 접근할 수 없어 안전하게 로그인 상태를 확인할 수 없습니다.' }); setObscured(false); return; }
+    } catch { update({ kind: 'error', message: '로그인 상태를 확인할 수 없어요. 잠시 후 다시 시도해 주세요.' }); setObscured(false); return; }
     // Public sign-in controls contain no private data. Keep them mounted while
     // rechecking so window focus cannot swallow a click or reset terms consent.
     // A visible tab keeps its mounted chat during a routine focus check. Explicit
