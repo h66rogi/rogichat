@@ -2,6 +2,7 @@
 set -euo pipefail
 image=${1:?image required}
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = '10001:10001'
+test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["node"]'
 test "$(docker image inspect --format '{{.Architecture}}' "$image")" = amd64
 docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges "$image" -e '
 const fs = require("node:fs");

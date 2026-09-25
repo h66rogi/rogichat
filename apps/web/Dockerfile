@@ -28,4 +28,5 @@ USER 10001:10001
 EXPOSE 3000
 STOPSIGNAL SIGTERM
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"]
+ENTRYPOINT ["node"]
 CMD ["server.js"]
