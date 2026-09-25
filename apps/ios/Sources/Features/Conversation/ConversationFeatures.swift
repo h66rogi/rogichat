@@ -196,8 +196,17 @@ struct ConversationActionTransport: MessageActionTransport {
             let value = ActionSelection(scope: actionScope, messageId: message.id, version: message.version.rawValue,
                 hints: ActionHints(delete: message.allowedActions.delete, publish: message.allowedActions.publish), contentKind: kind,
                 anonymous: message.author.actorID == nil, visibleActorId: message.author.actorID)
-            try actions.select(value); selectedProjection = message; reactions = nil; revision += 1
+            try actions.select(value); selectedProjection = message
+            reactions = MessageReactions(counts: message.reactions.counts.map { ReactionCount(emoji: $0.emoji, count: $0.count) }, mine: message.reactions.mine)
+            revision += 1
         } catch { failure(error) }
+    }
+    func react(_ message: ConversationMessage, emoji: String) {
+        guard !busy else { return }
+        select(message)
+        guard let token else { return }
+        let remove = message.reactions.mine == emoji
+        action(token, remove ? .removeReaction : .setReaction, emoji: remove ? nil : emoji)
     }
     func dismissActions() { actions.reset(); selectedProjection = nil; reactions = nil; revision += 1 }
     func action(_ token: ActionViewToken, _ action: MessageAction, emoji: String? = nil, reason: ReportReason? = nil) {

@@ -124,11 +124,30 @@ public enum MessageContent: Codable, Equatable, Sendable {
 }
 public struct MessageQuote: Codable, Equatable, Sendable {
     public let id: String
+    public let authorName: String
     public let content: MessageContent
-    enum CodingKeys: CodingKey { case id, content }
+    enum CodingKeys: CodingKey { case id, authorName, content }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self); id = try c.decode(String.self, forKey: .id); content = try c.decode(MessageContent.self, forKey: .content)
+        authorName = try c.decodeIfPresent(String.self, forKey: .authorName) ?? "사용자"
         guard RoomsWire.uuid(id), case .text(.some) = content else { throw ConversationError.invalidResponse }
+    }
+}
+public struct ConversationReactionCount: Codable, Equatable, Sendable {
+    public let emoji: String
+    public let count: Int64
+}
+public struct ConversationReactions: Codable, Equatable, Sendable {
+    public let counts: [ConversationReactionCount]
+    public let mine: String?
+    public static let empty = Self(counts: [], mine: nil)
+    public init(counts: [ConversationReactionCount], mine: String?) { self.counts = counts; self.mine = mine }
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        counts = try c.decode([ConversationReactionCount].self, forKey: .counts)
+        mine = try c.decodeIfPresent(String.self, forKey: .mine)
+        guard counts.count <= 64, counts.allSatisfy({ $0.count > 0 && !$0.emoji.isEmpty }),
+              Set(counts.map(\.emoji)).count == counts.count else { throw ConversationError.invalidResponse }
     }
 }
 public struct MessageActions: Codable, Equatable, Sendable { public let reply: Bool; public let publish: Bool; public let delete: Bool }
@@ -148,15 +167,17 @@ public struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
     public let author: MessageAuthor
     public let content: MessageContent
     public let quote: MessageQuote?
+    public let reactions: ConversationReactions
     public let counterpart: MessageCounterpart?
     public let allowedActions: MessageActions
-    enum CodingKeys: CodingKey { case id, version, createdAt, audience, author, content, quote, counterpart, allowedActions }
+    enum CodingKeys: CodingKey { case id, version, createdAt, audience, author, content, quote, reactions, counterpart, allowedActions }
     public init(from decoder: any Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id); version = try c.decode(MessageVersion.self, forKey: .version); createdAt = try c.decode(String.self, forKey: .createdAt)
         audience = try c.decode(String.self, forKey: .audience); author = try c.decode(MessageAuthor.self, forKey: .author); content = try c.decode(MessageContent.self, forKey: .content)
         guard RoomsWire.uuid(id), ConversationWire.timestamp(createdAt), ["SHARED", "PRIVATE"].contains(audience), c.contains(.quote), c.contains(.counterpart) else { throw ConversationError.invalidResponse }
-        quote = try c.decodeIfPresent(MessageQuote.self, forKey: .quote); counterpart = try c.decodeIfPresent(MessageCounterpart.self, forKey: .counterpart); allowedActions = try c.decode(MessageActions.self, forKey: .allowedActions)
+        quote = try c.decodeIfPresent(MessageQuote.self, forKey: .quote); reactions = try c.decodeIfPresent(ConversationReactions.self, forKey: .reactions) ?? .empty
+        counterpart = try c.decodeIfPresent(MessageCounterpart.self, forKey: .counterpart); allowedActions = try c.decode(MessageActions.self, forKey: .allowedActions)
         if audience == "SHARED", counterpart != nil { throw ConversationError.invalidResponse }
         if case .anonymous = author, counterpart != nil || allowedActions.reply { throw ConversationError.invalidResponse }
     }
@@ -164,7 +185,7 @@ public struct ConversationMessage: Codable, Equatable, Identifiable, Sendable {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id); try c.encode(version, forKey: .version); try c.encode(createdAt, forKey: .createdAt)
         try c.encode(audience, forKey: .audience); try c.encode(author, forKey: .author); try c.encode(content, forKey: .content)
-        try c.encode(quote, forKey: .quote); try c.encode(counterpart, forKey: .counterpart); try c.encode(allowedActions, forKey: .allowedActions)
+        try c.encode(quote, forKey: .quote); try c.encode(reactions, forKey: .reactions); try c.encode(counterpart, forKey: .counterpart); try c.encode(allowedActions, forKey: .allowedActions)
     }
     public var replyRecipient: String? {
         guard allowedActions.reply else { return nil }

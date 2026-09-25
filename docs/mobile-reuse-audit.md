@@ -407,3 +407,9 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | ID | 원본·대상 | 재사용과 변경 경계 |
 |---|---|---|
 | R73 | QA20 `d95a34adf71c38f888ddddc759bd6fce7d921046`의 Android/iOS `AuthorizedMedia` provider-avatar decoder | **기존 구현 직접 재사용**: BitmapFactory bounds/downsample와 ImageIO index-0 thumbnail을 테스트 가능한 ProviderAvatarDecoder로 옮긴다. 기존 20 MP/256 기준을 보존하고 provider MIME에만 GIF를 추가한다. 멜로밍 채팅 UX·다른 이미지 라이브러리·원본 설정을 가져오지 않는다. 합성 GIF는 테스트 소스에만 둔다. |
+
+## 메시지 반응과 인용 원문
+
+| ID | 원본 commit/path | 대상과 재사용 | 필요한 변경 |
+|---|---|---|---|
+| R74 | meloming-ios `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `Meloming/Presentation/TalkV2/CoreV2TalkRoomView.swift`의 반응 표시 및 `meloming-android` `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, `feature/talk/.../components/MessageBubble.kt` 확인 | Android/iOS 기존 Rogichat `ConversationMessage`, 캐시, `ConversationScreen`, 액션 전송을 직접 확장 | Meloming Talk/TalkV2 채팅 UX는 사용자 제외 범위라 이식하지 않는다. 기존 로기챗 API의 메시지별 `reactions`와 `quote.authorName`을 최초 응답과 캐시에 보존해 말풍선 아래 반응과 원문 이동을 구현한다. |

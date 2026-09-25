@@ -59,6 +59,16 @@ private final class ConversationDisk {
     #expect(try decodeC(sent, SendReceipt.self).commandID == command.id)
     #expect(throws: (any Error).self) { try decodeC(sent, CommandReceipt.self) }
 }
+@Test func conversationInitialReactionsAndQuotedAuthorSurviveLocalEncoding() throws {
+    var wire = cm()
+    wire["reactions"] = ["counts": [["emoji": "👍", "count": 3]], "mine": "👍"]
+    wire["quote"] = ["id": cRoom, "authorName": "원문 작성자", "content": ["type": "TEXT", "text": "원문"]]
+    let message = try decodeC(wire, ConversationMessage.self)
+    #expect(message.reactions.counts.first?.count == 3)
+    #expect(message.reactions.mine == "👍")
+    #expect(message.quote?.authorName == "원문 작성자")
+    #expect(try JSONDecoder().decode(ConversationMessage.self, from: JSONEncoder().encode(message)) == message)
+}
 @Test func conversationAtomicCursorTerminalTombstoneAndEqualProjection() throws {
     let disk = try ConversationDisk(); defer { disk.remove() }; try disk.snapshot([cm("9007199254740993")])
     try disk.db.applySingleMessage(decodeC(cm("9007199254740993", reply: false), ConversationMessage.self), scope: disk.scope)

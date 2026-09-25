@@ -84,6 +84,15 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
     fun reconcile() { caller.launch { repository.reconcile(handle) } }
     fun displayed(scope: ConversationScope, anchor: ScrollAnchor) { caller.launch { repository.displayed(handle, scope, anchor) } }
     fun showActions(message: ConversationMessage, scope: ConversationScope) { caller.launch { repository.selectAction(handle, scope, message) } }
+    fun react(message: ConversationMessage, scope: ConversationScope, emoji: String) { caller.launch {
+        val current = state.value.data?.takeIf { it.scope == scope }?.messages?.find { it.id == message.id } ?: return@launch
+        if (current != message || state.value.action?.busy == true) return@launch
+        repository.selectAction(handle, scope, current)
+        val token = state.value.action?.token?.takeIf { it.selection.messageId == current.id.value } ?: return@launch
+        val remove = current.reactions.mine == emoji
+        repository.runAction(handle, token, if (remove) MessageAction.REMOVE_REACTION else MessageAction.SET_REACTION,
+            if (remove) null else emoji, null)
+    } }
     fun closeActions() { caller.launch { repository.closeAction(handle) } }
     fun action(token: ActionViewToken, action: MessageAction, emoji: String? = null, reason: ReportReason? = null) {
         caller.launch { repository.runAction(handle, token, action, emoji, reason) }

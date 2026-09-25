@@ -15,6 +15,7 @@ struct ConversationScreen: View {
     @State private var visibleIDs: [String] = []
     @State private var atLatest = true
     @State private var visible = false
+    @State private var quoteNotice: String?
     @FocusState private var composing: Bool
     @Environment(\.scenePhase) private var scenePhase
     let onReopen: () -> Void
@@ -35,6 +36,7 @@ struct ConversationScreen: View {
                 }.frame(maxWidth: .infinity, alignment: .leading).padding().background(.regularMaterial)
                 .accessibilityElement(children: .contain)
             }
+            if let quoteNotice { Text(quoteNotice).font(.footnote).foregroundStyle(.secondary).padding(.horizontal) }
             if let listing = model.listing, model.active {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -59,7 +61,8 @@ struct ConversationScreen: View {
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 16)
                                 }
-                                messageRow(message, beginsGroup: !sameGroup(previous, message), endsGroup: !sameGroup(message, next))
+                                messageRow(message, beginsGroup: !sameGroup(previous, message), endsGroup: !sameGroup(message, next),
+                                    onQuote: { id in Task { await jumpToQuote(id, proxy: proxy) } })
                                     .padding(.top, sameGroup(previous, message) ? 0 : 12)
                                     .id(message.id)
                                     .onScrollVisibilityChange(threshold: 0.6) { isVisible in if isVisible { features?.displayed(message.id) } }
@@ -287,7 +290,7 @@ struct ConversationScreen: View {
         case .sticker: Label("스티커", systemImage: "face.smiling")
         }
     }
-    private func messageRow(_ message: ConversationMessage, beginsGroup: Bool, endsGroup: Bool) -> some View {
+    private func messageRow(_ message: ConversationMessage, beginsGroup: Bool, endsGroup: Bool, onQuote: @escaping (String) -> Void) -> some View {
         let mine = message.author.actorID == model.scope.room.actorId
         return HStack(alignment: .bottom, spacing: 8) {
             if mine { Spacer(minLength: 52) }
@@ -307,19 +310,26 @@ struct ConversationScreen: View {
                 }
                 HStack(alignment: .bottom, spacing: 5) {
                     if mine && endsGroup { Text(time(message.createdAt)).font(.caption2).foregroundStyle(.tertiary) }
+                    VStack(alignment: mine ? .trailing : .leading, spacing: 4) {
                     VStack(alignment: .leading, spacing: 8) {
                         if let quote = message.quote {
-                            content(quote.content)
-                                .font(.caption).lineLimit(2)
+                            Button { onQuote(quote.id) } label: {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(quote.authorName).font(.caption2.weight(.semibold))
+                                    content(quote.content).font(.caption).lineLimit(2)
+                                }
                                 .foregroundStyle(mine ? Color.white.opacity(0.8) : Color.secondary)
                                 .padding(.leading, 10)
                                 .overlay(alignment: .leading) { Rectangle().fill(mine ? Color.white.opacity(0.55) : Color.secondary.opacity(0.4)).frame(width: 2) }
+                            }.buttonStyle(.plain).accessibilityLabel("\(quote.authorName)의 원본 메시지로 이동")
                         }
                         messageContent(message).font(.body)
                     }
                     .foregroundStyle(mine ? Color.white : Color.primary)
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .background(mine ? AppTheme.accent : Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    reactionPills(message)
+                    }
                     if !mine && endsGroup { Text(time(message.createdAt)).font(.caption2).foregroundStyle(.tertiary) }
                 }
             }
@@ -328,6 +338,44 @@ struct ConversationScreen: View {
             if let features { Button("메시지 작업", systemImage: "ellipsis.circle") { features.select(message); showActions = features.token != nil } }
             if !mine && model.scope.room.role == "STREAMER" && message.replyRecipient != nil { Button("비공개 답장", systemImage: "arrowshape.turn.up.left") { model.reply(to: message); composing = true } }
         }.accessibilityElement(children: .contain)
+    }
+    private func reactionPills(_ message: ConversationMessage) -> some View {
+        let counts = message.reactions.counts
+        return VStack(alignment: .leading, spacing: 4) {
+            ForEach(0..<((counts.count + 1 + 2) / 3), id: \.self) { row in
+                HStack(spacing: 4) {
+                    ForEach(row * 3..<min((row + 1) * 3, counts.count + 1), id: \.self) { index in
+                        if index < counts.count {
+                            let reaction = counts[index]
+                            Button { features?.react(message, emoji: reaction.emoji) } label: {
+                                Text("\(reaction.emoji) \(reaction.count)").font(.caption.weight(.medium))
+                                    .padding(.horizontal, 9).padding(.vertical, 5)
+                                    .background(message.reactions.mine == reaction.emoji ? AppTheme.accent.opacity(0.16) : Color(uiColor: .tertiarySystemFill), in: Capsule())
+                            }.buttonStyle(.plain).accessibilityLabel("\(reaction.emoji) 반응 \(reaction.count)개")
+                        } else {
+                            Button { features?.select(message); showActions = features?.token != nil } label: {
+                                Image(systemName: "face.smiling").font(.caption)
+                                    .overlay(alignment: .topTrailing) { Image(systemName: "plus").font(.system(size: 7, weight: .bold)).offset(x: 5, y: -3) }
+                                    .padding(.horizontal, 9).padding(.vertical, 6)
+                                    .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
+                            }.buttonStyle(.plain).accessibilityLabel("반응 추가")
+                        }
+                    }
+                }
+            }
+        }
+    }
+    private func jumpToQuote(_ id: String, proxy: ScrollViewProxy) async {
+        quoteNotice = nil
+        while !Task.isCancelled {
+            if model.listing?.messages.contains(where: { $0.id == id }) == true {
+                withAnimation { proxy.scrollTo(id, anchor: .center) }
+                return
+            }
+            guard let cursor = model.listing?.historyCursor else { quoteNotice = "원본 메시지를 볼 수 없어요."; return }
+            await model.history()
+            if model.listing?.historyCursor == cursor { quoteNotice = "원본 메시지를 볼 수 없어요."; return }
+        }
     }
     @ViewBuilder private func avatar(for message: ConversationMessage) -> some View {
         if let actor = message.author.actorID,

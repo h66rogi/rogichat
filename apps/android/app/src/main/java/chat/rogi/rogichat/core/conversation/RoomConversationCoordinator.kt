@@ -287,7 +287,7 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
     override suspend fun selectAction(handle: ConversationHandle, scope: ConversationScope, message: ConversationMessage) = guarded(handle) { entry ->
         if (entry.scope != scope || entry.state.value.data?.messages?.find { it.id == message.id } != message) return@guarded
         actions(entry) { entry.actions.select(actionSelection(entry, message)) }
-        showAction(entry)
+        showAction(entry, message.reactions)
     }
     override suspend fun closeAction(handle: ConversationHandle) {
         val entry = entry(handle)
