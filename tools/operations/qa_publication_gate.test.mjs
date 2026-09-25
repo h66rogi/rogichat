@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { exactChecks, REQUIRED, selectSource, triggerIsLatest } from './qa_publication_gate.mjs';
 import { completedPublication, publicationNeeds } from './qa_publication_preflight.mjs';
+import { priorPublicationBase } from './qa_publication_base.mjs';
 import { verifyFinalQaAncestry } from './qa_publication_finalize.mjs';
 import { publicationDecision } from './qa_registry.mjs';
 
@@ -166,10 +167,41 @@ test('backend recovery accepts only its independent successful publication run',
   }
 });
 
+test('missed web completion at A is recovered from the earlier proven source at docs-only B', async () => {
+  const previous = '1'.repeat(40);
+  const missed = '2'.repeat(40);
+  const docsOnlyHead = '3'.repeat(40);
+  const marker = (id, head_sha) => ({ id, name: 'qa-web-published-base', expired: false,
+    workflow_run: { head_sha, head_branch: 'qa' } });
+  const fetcher = async () => new Response(JSON.stringify({ total_count: 3,
+    artifacts: [marker(30, docsOnlyHead), marker(20, missed), marker(10, previous)] }));
+  const examined = [];
+  const base = await priorPublicationBase('web', docsOnlyHead, 'token', {
+    fetcher, isAncestor: async () => true,
+    completed: async (_, source) => { examined.push(source); return source === previous; },
+  });
+  assert.equal(base, previous);
+  assert.deepEqual(examined, [missed, previous]);
+  assert.equal(await priorPublicationBase('web', docsOnlyHead, 'token', {
+    fetcher, isAncestor: async () => true, completed: async () => false,
+  }), '0'.repeat(40));
+});
+
+test('current-source marker is excluded so a missing current image is rechecked', async () => {
+  const fetcher = async () => new Response(JSON.stringify({ total_count: 1,
+    artifacts: [{ id: 1, name: 'qa-backend-published-base', expired: false,
+      workflow_run: { head_sha: SHA, head_branch: 'qa' } }] }));
+  assert.equal(await priorPublicationBase('backend', SHA, 'token', {
+    fetcher, isAncestor: async () => true, completed: async () => true,
+  }), '0'.repeat(40));
+});
+
 test('rate limited gate and recovery fail closed until a later scheduled sweep', async () => {
   const limited = async () => new Response('{}', { status: 429 });
   await assert.rejects(exactChecks(SHA, 'token', limited), /API failed \(429\)/);
   await assert.rejects(completedPublication('web', SHA, 'token', limited), /API failed \(429\)/);
+  await assert.rejects(priorPublicationBase('web', SHA, 'token', { fetcher: limited }),
+    /API failed \(429\)/);
 });
 
 test('final publication check requires current QA head or exact ancestor', async () => {

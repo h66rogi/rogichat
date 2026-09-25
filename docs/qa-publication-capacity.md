@@ -11,6 +11,15 @@ an ancestor of that head. The downstream export and receiver independently
 verify provenance. A failed backend run cannot hide or retry a successful web
 run, and vice versa.
 
+Each component compares the current QA source with its last **earlier proven
+publication**, not merely the latest merge parent. A fixed-name artifact only
+discovers candidates; the source-specific marker, exact run/attempt/result job,
+and web proof must validate before a candidate becomes the base. A missing or
+uncertain base becomes all zeroes, which makes the change classifier rebuild
+that component. Excluding a marker for the current source keeps missing current
+images or proofs eligible for recovery. Thus a missed web publication at A is
+still detected if a docs-only B becomes the QA head before the next sweep.
+
 The preflight skips a component on any trigger only when its source-tagged registry
 images exist **and** a successful `qa-web-publication.yml` or
 `qa-backend-publication.yml` run has its own successful aggregate job and
@@ -35,20 +44,23 @@ documents that scheduled events may be delayed or dropped under load.
 The current exact-check gate reads the QA ref plus five run lists, five exact
 attempts and five attempt-job lists: **16 REST requests** per invocation. Two
 five-minute sweeps on a fully green QA head make **384 REST requests and start
-24 gate jobs per hour**, if GitHub starts every scheduled run. Each web sweep
-also starts one lightweight web-export result job and makes one job-list REST
-read, for **36 fixed Ubuntu jobs and about 396 REST reads per hour** before
-marker checks. When both components changed and their
-completion markers are present, preflight can add about seven REST reads per
-sweep. These reads do not hold a publisher runner while waiting for checks.
+24 gate jobs per hour**, if GitHub starts every scheduled run. Two prior-source
+listings and the lightweight web-export result read per sweep bring the nominal
+fixed cost to **36 Ubuntu jobs and about 420 REST reads per hour** before
+candidate verification and current-marker checks. A nearest proven prior
+web/backend candidate adds about seven reads per sweep (the search examines at
+most five candidates per component); checking both current completion
+markers can add another seven. These reads do not hold a publisher runner
+while waiting for checks.
 
 One QA source with both components changed invokes four exact gates (two callers
-and two reusable publishers): **64 REST requests**, plus up to four final
-ancestry reads, one web-export result read, registry probes, and export
+and two reusable publishers): **64 REST requests**, plus two prior-source
+listings, up to four final ancestry reads, one web-export result read, registry probes, and export
 provenance reads. A literal **50 successful QA source publications in one hour**
-would need at least **3,584 GitHub REST requests** from exact gates and fixed
-sweeps alone (50 × 64 + 384), and roughly **3,834** before export provenance
-when ancestry and result reads are included. It would create up to eight Ubuntu
+would need at least **3,720 GitHub REST requests** from exact gates, baseline
+listings and fixed sweeps alone (50 × 66 + 420), and roughly **3,970** before
+export provenance when ancestry and result reads are included. Verified prior
+markers, current-marker checks and other CI add more. It would create up to eight Ubuntu
 jobs per changed source (two gates, two publishers, two result jobs, web export
 result and archive) plus 36 fixed jobs per hour. Fifty simultaneous developers
 need not produce 50 QA publications per hour, but this is **a current-volume
