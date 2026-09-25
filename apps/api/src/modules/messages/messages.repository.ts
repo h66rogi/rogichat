@@ -121,7 +121,7 @@ export class MessagesRepository {
 
   async insertMessage(tx: Transaction, fields: { id: string; roomId: string; streamId: string; actorId: string; userId: string; quoteId: string | null; content: SendInput['content']; order: bigint }): Promise<void> {
     const { id, roomId, streamId, actorId, userId, quoteId, content, order } = fields;
-    await tx.prisma.messages.create({ data: { id, room_id: roomId, stream_id: streamId, sender_member_id: actorId, content_owner_user_id: userId, quote_id: quoteId, content_kind: content.type, text_content: content.type === 'TEXT' ? content.text : null, created_order: order }, select: { id: true } });
+    await tx.prisma.messages.create({ data: { id, room_id: roomId, stream_id: streamId, sender_member_id: actorId, content_owner_user_id: userId, quote_id: quoteId, content_kind: content.type, text_content: content.type === 'TEXT' ? content.text : content.type === 'PHOTO' || content.type === 'VIDEO' ? content.caption ?? null : null, created_order: order }, select: { id: true } });
     if (content.type === 'PHOTO' || content.type === 'VIDEO') await tx.prisma.message_attachments.createMany({ data: content.assetIds.map((asset_id, position) => ({ id: randomUUID(), room_id: roomId, message_id: id, asset_id, position })) });
   }
   async insertReceipt(tx: Transaction, fields: { roomId: string; actorId: string; clientMessageId: string; messageId: string; payloadDigest: Buffer }): Promise<void> {

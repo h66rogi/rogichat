@@ -347,7 +347,7 @@ private func intent(_ listing: RoomsListing, _ lifetime: RoomsScope, action: Roo
     let current = try await coordinator.command(intent(before, lifetime))
     #expect(current.outcome == .unknown)
     #expect(current.listing.memberships.isEmpty) // Only this GET's current state.
-    #expect(current.outcome.notice != nil)
+    #expect(current.outcome.notice == nil)
     // The already-sent server command commits after that reconciliation GET.
     await remote.commit(.join)
     let later = try await coordinator.refresh()

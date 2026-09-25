@@ -2,6 +2,8 @@ package chat.rogi.rogichat.core.conversation
 
 import chat.rogi.rogichat.core.auth.StrictAuthJson
 import chat.rogi.rogichat.core.media.*
+import chat.rogi.rogichat.core.messageactions.MessageActionWire
+import chat.rogi.rogichat.core.messageactions.MessageReactions
 import chat.rogi.rogichat.core.network.*
 import chat.rogi.rogichat.core.rooms.RoomsAccountScope
 import chat.rogi.rogichat.feature.settings.ProfileEditor
@@ -25,14 +27,15 @@ sealed interface MessageAuthor {
 }
 sealed interface MessageContent {
     data class Text(val text: String?) : MessageContent
-    data class Media(val type: String, val attachments: List<Attachment>) : MessageContent
+    data class Media(val type: String, val attachments: List<Attachment>, val caption: String? = null) : MessageContent
     data class Sticker(val stickerId: RoomId, val assetId: RoomId, val width: Int, val height: Int) : MessageContent
 }
 data class Attachment(val assetId: RoomId, val width: Int, val height: Int, val variant: String)
 data class MessageQuote(val id: RoomId, val text: String)
 data class ConversationMessage(val id: RoomId, val version: MessageVersion, val createdAt: Instant,
                                val audience: String, val author: MessageAuthor, val content: MessageContent,
-                               val quote: MessageQuote?, val counterpart: RoomId?, val actions: MessageActions) {
+                               val quote: MessageQuote?, val counterpart: RoomId?, val actions: MessageActions,
+                               val reactions: MessageReactions = MessageReactions(emptyList(), null)) {
     // C05 reply semantics differ by audience. Hints never bypass send authorization.
     val replyTarget: RoomId? get() = if (!actions.reply) null else when (audience) {
         "PRIVATE" -> counterpart
@@ -176,8 +179,14 @@ object ConversationDtos {
             is MessageContent.Text -> buildJsonObject { put("type", "TEXT"); put("text", content.text?.let(::JsonPrimitive) ?: JsonNull) }
             is MessageContent.Media -> buildJsonObject { put("type", content.type); put("attachments", buildJsonArray { content.attachments.forEach { attachment -> add(buildJsonObject {
                 put("assetId", attachment.assetId.value); put("width", attachment.width); put("height", attachment.height); put("variant", attachment.variant)
-            }) } }) }
+            }) } }); content.caption?.let { put("caption", it) } }
             is MessageContent.Sticker -> buildJsonObject { put("type", "STICKER"); put("stickerId", content.stickerId.value); put("assetId", content.assetId.value); put("width", content.width); put("height", content.height) }
+        })
+        put("reactions", buildJsonObject {
+            put("counts", buildJsonArray { message.reactions.counts.forEach { reaction -> add(buildJsonObject {
+                put("emoji", reaction.emoji); put("count", reaction.count)
+            }) } })
+            put("mine", message.reactions.mine?.let(::JsonPrimitive) ?: JsonNull)
         })
         put("quote", message.quote?.let { buildJsonObject { put("id", it.id.value); put("content", buildJsonObject { put("type", "TEXT"); put("text", it.text) }) } } ?: JsonNull)
     }.toString()
@@ -197,7 +206,7 @@ object ConversationDtos {
             "PHOTO", "VIDEO" -> MessageContent.Media(type, content.list("attachments", if (type == "PHOTO") 4 else 1).map { item ->
                 val attachment = item.jsonObject
                 Attachment(attachment.id("assetId"), attachment.dimension("width"), attachment.dimension("height"), attachment.string("variant").also { require(it.isNotEmpty()) })
-            })
+            }, content["caption"]?.jsonPrimitive?.let { require(it.isString); TextCommand.normalizeText(it.content) })
             "STICKER" -> MessageContent.Sticker(content.id("stickerId"), content.id("assetId"), content.dimension("width"), content.dimension("height"))
             else -> error("unsupported_content")
         }
@@ -207,7 +216,8 @@ object ConversationDtos {
         val counterpart = root.getValue("counterpart").takeUnless { it == JsonNull }?.jsonObject?.id("actorId")
         val actions = root.getValue("allowedActions").jsonObject
         return ConversationMessage(root.id("id"), MessageVersion(root.string("version")), created, audience, author, body, quote,
-            counterpart, MessageActions(actions.flag("reply"), actions.flag("publish"), actions.flag("delete")))
+            counterpart, MessageActions(actions.flag("reply"), actions.flag("publish"), actions.flag("delete")),
+            root["reactions"]?.let { MessageActionWire.reactionResult(it.toString()) } ?: MessageReactions(emptyList(), null))
     }
     private fun root(text: String) = StrictAuthJson.objectValue(text).also {
         val version = it.getValue("schemaVersion").jsonPrimitive; require(!version.isString && version.intOrNull == 2)

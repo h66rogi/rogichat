@@ -63,7 +63,7 @@ struct ProductRootView: View {
             }
             Button("취소", role: .cancel) {}
         } message: {
-            Text("저장된 로그인 정보와 이 기기의 접수 기록이 지워져요. 서버의 탈퇴 요청을 취소하거나 접수 여부를 확인하는 작업은 아니에요.")
+            Text("이 기기의 로그인 정보와 탈퇴 요청 내역이 지워져요. 이미 신청한 탈퇴는 취소되지 않아요.")
         }
         .task {
             session.scopeInvalidated = { realtime.disconnect() }
@@ -191,7 +191,7 @@ struct ProductRootView: View {
                     }
                 }.frame(maxHeight: .infinity)
             } else if session.access == .accountClosing {
-                ScreenStatus(title: "탈퇴 요청 확인 중", message: "요청을 다시 보내지 않고 처리 결과를 기다리고 있어요.", loading: true)
+                ScreenStatus(title: "탈퇴 진행 중", message: "잠시만 기다려 주세요.", loading: true)
                     .safeAreaInset(edge: .bottom) { Button("요청 상태 보기") { session.showDeletionHistory = true }.padding() }
             } else {
                 ContentUnavailableView(session.access == .accountClosing ? "계정 탈퇴를 처리하고 있어요" : "계정을 이용할 수 없어요", systemImage: "person.crop.circle.badge.exclamationmark")

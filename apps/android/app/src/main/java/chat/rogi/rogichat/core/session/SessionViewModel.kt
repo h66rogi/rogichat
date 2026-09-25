@@ -120,7 +120,7 @@ class SessionViewModel(private val services: ProductServices, private val inject
         if (!state.blocksSession) dismissedDeletion.value = if (state.capacityReached) "capacity" else state.record?.operationId
     }
     fun retryDeletionCleanup() { services.deletion?.let { actions ->
-        (injectedScope ?: viewModelScope).launch { val result = request { actions.retryDeletionCleanup() }; if (result.isFailure) mutable.value = mutable.value.copy(error = "기기 정보를 정리하지 못했어요. 탈퇴 요청을 다시 보내지는 않았어요.") }
+        (injectedScope ?: viewModelScope).launch { val result = request { actions.retryDeletionCleanup() }; if (result.isFailure) mutable.value = mutable.value.copy(error = "이 기기의 계정 정보를 지우지 못했어요. 다시 시도해 주세요.") }
     } }
     fun resetDeletionData(intent: DeletionResetIntent) {
         val actions = services.deletion ?: return

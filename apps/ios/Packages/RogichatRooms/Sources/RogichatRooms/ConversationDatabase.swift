@@ -18,9 +18,17 @@ extension RoomsDatabase {
                   try String.fetchOne(db, sql: "SELECT run FROM manifest WHERE complete=1") == cycle,
                   let data = try Data.fetchOne(db, sql: "SELECT value FROM memberships WHERE id=?", arguments: [roomID]) else { throw ConversationError.staleScope }
             let room = try JSONDecoder().decode(MembershipRoom.self, from: data)
-            let context = ConversationScope(account: scope, room: room, deviceID: deviceID, cycle: cycle)
-            try db.execute(sql: "INSERT OR REPLACE INTO conversation(room,cache,profileCache,membership,authority,cycle) VALUES (?,?,?,?,?,?)", arguments: [roomID, context.cacheID, context.profileCacheID, room.membershipScope, room.authorizationRevision, cycle])
-            for table in ["timeline", "conversation_profiles", "profile_staging", "conversation_cursors"] { try db.execute(sql: "DELETE FROM \(table) WHERE room=?", arguments: [roomID]) }
+            let previous = try Row.fetchOne(db, sql: "SELECT cache,profileCache,membership,authority FROM conversation WHERE room=?", arguments: [roomID])
+            let sameAuthority = previous != nil && previous?["membership"] as String? == room.membershipScope && previous?["authority"] as String? == room.authorizationRevision
+            let context = ConversationScope(account: scope, room: room, deviceID: deviceID, cycle: cycle,
+                cacheID: sameAuthority ? previous?["cache"] : nil,
+                profileCacheID: sameAuthority ? previous?["profileCache"] : nil)
+            if sameAuthority {
+                try db.execute(sql: "UPDATE conversation SET cycle=? WHERE room=?", arguments: [cycle, roomID])
+            } else {
+                try db.execute(sql: "INSERT OR REPLACE INTO conversation(room,cache,profileCache,membership,authority,cycle) VALUES (?,?,?,?,?,?)", arguments: [roomID, context.cacheID, context.profileCacheID, room.membershipScope, room.authorizationRevision, cycle])
+                for table in ["timeline", "conversation_profiles", "profile_staging", "conversation_cursors"] { try db.execute(sql: "DELETE FROM \(table) WHERE room=?", arguments: [roomID]) }
+            }
             // Cold or interrupted work is reconciled by GET only, never replayed.
             try db.execute(sql: "UPDATE text_commands SET phase='unknown' WHERE room=? AND phase IN ('queued','sending')", arguments: [roomID])
             try db.execute(sql: "DELETE FROM text_commands WHERE room=? AND membership<>?", arguments: [roomID, room.membershipScope])

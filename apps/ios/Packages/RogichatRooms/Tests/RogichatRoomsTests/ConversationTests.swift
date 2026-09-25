@@ -30,7 +30,11 @@ private final class ConversationDisk {
         let request = try db.beginManifest(); _ = try db.manifestPage(manifestC(membership, mode: mode, role: role), request: request)
         scope = try db.beginConversation(roomID: cRoom, cycle: try #require(db.listing().cycle))
     }
-    func snapshot(_ messages: [[String: Any]] = []) throws { try db.applySnapshot(JSONDecoder().decode(ConversationSnapshot.self, from: cs(messages)), scope: scope) }
+    func snapshot(_ messages: [[String: Any]] = []) throws {
+        if try !db.conversationListing(scope: scope).ready {
+            try db.applySnapshot(JSONDecoder().decode(ConversationSnapshot.self, from: cs(messages)), scope: scope)
+        }
+    }
     func close() throws { account.invalidate(); try db.close() }
     func remove() { try? close(); try? FileManager.default.removeItem(at: directory) }
 }
@@ -75,9 +79,12 @@ private final class ConversationDisk {
     disk.scope.invalidate()
     #expect(throws: (any Error).self) { try disk.db.applySingleMessage(decodeC(cm(), ConversationMessage.self), scope: disk.scope) }
     let newScope = try disk.db.beginConversation(roomID: cRoom, cycle: #require(disk.db.listing().cycle))
-    #expect(newScope.cacheID != disk.scope.cacheID)
-    try disk.db.applySnapshot(JSONDecoder().decode(ConversationSnapshot.self, from: cs([cm()])), scope: newScope)
-    #expect(try disk.db.conversationListing(scope: newScope).messages.count == 1)
+    #expect(newScope.cacheID == disk.scope.cacheID)
+    #expect(try disk.db.conversationListing(scope: newScope).ready)
+    #expect(try disk.db.conversationListing(scope: newScope).messages.isEmpty)
+    #expect(throws: ConversationError.staleScope) {
+        try disk.db.applySnapshot(JSONDecoder().decode(ConversationSnapshot.self, from: cs([cm()])), scope: newScope)
+    }
 }
 @Test func conversationProfilesReplaceAndHistoryRollback() throws {
     let disk = try ConversationDisk(); defer { disk.remove() }; try disk.snapshot()

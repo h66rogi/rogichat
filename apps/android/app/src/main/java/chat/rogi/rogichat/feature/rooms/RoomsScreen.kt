@@ -83,7 +83,7 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
     private fun applyCommand(command: RoomCommandState) {
         revision++; job?.cancel()
         mutable.value = RoomsState(loading = false, directory = command.directory, error = command.verificationIssue?.message ?: command.issue?.takeUnless { it == RoomCommandIssue.UNKNOWN }?.message, command = command,
-            notice = command.issue?.takeIf { it == RoomCommandIssue.UNKNOWN }?.message)
+            notice = command.issue?.takeIf { it == RoomCommandIssue.UNKNOWN && it.message.isNotEmpty() }?.message)
     }
     private fun commandBlocks() = repository.roomCommands.value.let {
         it.scope == accountScope && (it.busy || it.needsVerification)
@@ -124,14 +124,17 @@ class RoomsViewModel(private val repository: RoomsRepository, private val accoun
     }
     private fun unresolvedNotice() = repository.roomCommands.value.takeIf {
         it.scope == accountScope && it.issue == RoomCommandIssue.UNKNOWN
-    }?.issue?.message
+    }?.issue?.message?.takeIf { it.isNotEmpty() }
+    private fun unresolvedMembership() = repository.roomCommands.value.let {
+        it.scope == accountScope && it.issue == RoomCommandIssue.UNKNOWN
+    }
     fun reload() {
         if (commandBlocks()) return
         job?.cancel()
         val ticket = ++revision
         // An unresolved join/leave may have invalidated the old membership. Do not
         // keep its rows visible while authoritative reconciliation is retried.
-        val previous = mutable.value.directory.takeIf { unresolvedNotice() == null }
+        val previous = mutable.value.directory.takeUnless { unresolvedMembership() }
         mutable.value = RoomsState(loading = true, directory = previous, notice = unresolvedNotice())
         job = (injectedScope ?: viewModelScope).launch {
             try {
@@ -264,8 +267,7 @@ fun RoomsScreen(model: RoomsViewModel, onOpenSettings: () -> Unit,
             command?.busy == true -> ScreenStatus(
                 if (command.phase == RoomCommandPhase.SENDING) "요청을 처리하는 중" else "참여 상태를 확인하는 중",
                 "잠시만 기다려 주세요.", loading = true)
-            command?.needsVerification == true -> ScreenStatus("참여 상태를 확인하지 못했어요",
-                state.error ?: "연결을 확인하고 참여 상태를 다시 확인해 주세요.", onRetry = model::recheck, retryLabel = "참여 상태 다시 확인")
+            command?.needsVerification == true -> ScreenStatus("대화를 확인하는 중", "잠시 후 목록이 업데이트돼요.", loading = true)
             state.loading && directory == null -> ScreenStatus("대화 목록을 불러오는 중", "", loading = true)
             directory == null -> ScreenStatus("대화 목록을 확인하지 못했어요", state.error.orEmpty(), onRetry = model::reload)
             else -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {

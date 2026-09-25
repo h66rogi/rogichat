@@ -3,6 +3,7 @@ package chat.rogi.rogichat.feature.messageactions
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,7 +21,7 @@ fun MessageActionsPanel(token: ActionViewToken, record: ActionRecord?, busy: Boo
     fun blocked(action: MessageAction) = busy || action in unavailableActions
     Column {
         if (busy) CircularProgressIndicator()
-        record?.let { Text(actionStatus(it.phase)) }
+        record?.takeIf { it.phase in setOf(ActionPhase.REPORTED, ActionPhase.REJECTED, ActionPhase.BLOCKED) }?.let { Text(actionStatus(it.phase)) }
         reactions?.let { summary ->
             Row { summary.counts.forEach { Text("${it.emoji} ${it.count}  ") } }
         }
@@ -32,13 +33,16 @@ fun MessageActionsPanel(token: ActionViewToken, record: ActionRecord?, busy: Boo
                     TextButton(enabled = !blocked(MessageAction.PUBLISH), onClick = { confirmation = MessageAction.PUBLISH }) { Text("익명으로 공개") }
             }
             Row {
-                reactionChoices.forEach { emoji -> TextButton(enabled = !blocked(MessageAction.SET_REACTION),
-                    onClick = { onAction(token, MessageAction.SET_REACTION, emoji) }) { Text(emoji) } }
+                reactionChoices.forEach { emoji ->
+                    val selected = reactions?.mine == emoji
+                    val command = if (selected) MessageAction.REMOVE_REACTION else MessageAction.SET_REACTION
+                    TextButton(enabled = !blocked(command),
+                        onClick = { onAction(token, command, if (selected) null else emoji) },
+                        colors = if (selected) ButtonDefaults.textButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                            else ButtonDefaults.textButtonColors()) { Text(emoji) }
+                }
             }
-            if (reactions?.mine != null) TextButton(enabled = !blocked(MessageAction.REMOVE_REACTION),
-                onClick = { onAction(token, MessageAction.REMOVE_REACTION, null) }) { Text("내 반응 취소") }
         }
-        TextButton(enabled = !busy, onClick = { onRefresh(token) }) { Text("현재 상태 확인") }
     }
     // Adapted from Meloming non-chat MyReviewsScreen's captured deleteTarget AlertDialog.
     confirmation?.let { target ->
@@ -55,14 +59,14 @@ fun MessageActionsPanel(token: ActionViewToken, record: ActionRecord?, busy: Boo
 }
 fun actionStatus(phase: ActionPhase) = when (phase) {
     ActionPhase.REPORTED -> "신고가 접수되었어요."
-    ActionPhase.ACTOR_BLOCKED -> "차단이 반영되었어요. 방 내용을 다시 불러옵니다."
-    ActionPhase.UNKNOWN -> "처리 결과를 확인하지 못했어요. 같은 요청을 다시 보내지 않고 현재 상태를 확인해 주세요."
+    ActionPhase.ACTOR_BLOCKED -> "작성자를 차단했어요."
+    ActionPhase.UNKNOWN -> "잠시 후 다시 확인해 주세요."
     ActionPhase.BLOCKED -> "메시지 접근이 차단되었어요."
-    ActionPhase.PREPARING -> "공개 요청을 접수했어요. 공개 상태를 확인해 주세요."
+    ActionPhase.PREPARING -> "공개하는 중이에요."
     ActionPhase.PUBLISHED -> "메시지가 익명으로 공개되었어요."
     ActionPhase.REVOKED -> "공개본 접근이 회수되었어요."
     ActionPhase.REACTED -> "반응이 반영되었어요."
-    ActionPhase.REJECTED -> "요청을 처리할 수 없어요. 현재 상태를 확인해 주세요."
+    ActionPhase.REJECTED -> "요청을 처리하지 못했어요."
 }
 
 /** Optional detail is intentionally omitted. Anonymous messages can be reported without exposing an actor. */

@@ -16,6 +16,7 @@ export interface MessageReadModel {
   readonly content: { readonly type: 'TEXT'; readonly text: string | null } | {
     readonly type: 'PHOTO' | 'VIDEO';
     readonly attachments: readonly MessageAttachmentReadModel[];
+    readonly caption?: string;
   } | { readonly type: 'STICKER'; readonly stickerId: string; readonly assetId: string; readonly width: number; readonly height: number };
   counterpart: { readonly actorId: string } | null;
   allowedActions: { reply: boolean; publish: boolean; delete: boolean };
@@ -27,7 +28,7 @@ export interface MessageDto {
   id: string; version: string; createdAt: string; audience: 'SHARED' | 'PRIVATE';
   author: { kind: 'anonymous' } | { kind: 'member'; actorId: string; nickname: string; avatar: { assetId: string } | null };
   content: { type: 'TEXT'; text: string | null } | {
-    type: 'PHOTO' | 'VIDEO'; attachments: { assetId: string; width: number; height: number; variant: string }[];
+    type: 'PHOTO' | 'VIDEO'; attachments: { assetId: string; width: number; height: number; variant: string }[]; caption?: string;
   } | { type: 'STICKER'; stickerId: string; assetId: string; width: number; height: number };
   counterpart: { actorId: string } | null;
   allowedActions: { reply: boolean; publish: boolean; delete: boolean };
@@ -53,7 +54,7 @@ export function projectMessageDto(model: MessageReadModel): MessageDto {
   } else if (model.content.type === 'PHOTO' || model.content.type === 'VIDEO') {
     content = { type: model.content.type, attachments: model.content.attachments.map(attachment => ({
       assetId: attachment.assetId, width: attachment.width, height: attachment.height, variant: attachment.variant,
-    })) };
+    })), ...(model.content.caption === undefined ? {} : { caption: model.content.caption }) };
   } else throw new Error('invalid_message_read_model');
 
   return { id: model.id, version: String(model.version), createdAt: model.createdAt.toISOString(), audience: model.audience,

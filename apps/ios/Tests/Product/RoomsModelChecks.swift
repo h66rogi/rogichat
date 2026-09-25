@@ -73,11 +73,11 @@ private actor ModelRoomsCoordinator: RoomsCoordinating {
             await model.refresh()
             precondition(model.canAct && model.listing?.cycle == fresh.cycle)
             if outcome == .unknown {
-                precondition(model.notice?.contains("처리 결과") == true)
+                precondition(model.notice == nil)
                 await coordinator.failRefresh(true); await model.refresh()
                 let afterReadFailure = owner.model(scope: scope) { preconditionFailure("Read error recreated owner") }
                 precondition(afterReadFailure === model && !model.canAct && model.error != nil)
-                precondition(model.notice?.contains("처리 결과") == true)
+                precondition(model.notice == nil)
                 check(await coordinator.commandCount == 1)
                 await coordinator.failRefresh(false); await model.refresh()
             }
@@ -94,6 +94,6 @@ private actor ModelRoomsCoordinator: RoomsCoordinating {
             let newModel = owner.model(scope: newScope) { RoomsScreenModel(repository: coordinator, scope: newScope) }
             precondition(newModel !== model && !newModel.canAct && newModel.notice == nil)
         }
-        print("iOS rooms model: owned task/reattach, preserved-list authority closed, unknown notice, old rendered/alert cycle and scope invalidation passed")
+        print("iOS rooms model: owned task/reattach, preserved-list authority closed, automatic unknown recovery, old rendered/alert cycle and scope invalidation passed")
     }
 }

@@ -60,29 +60,29 @@ struct AccountAvatarSection: View {
                         try await client.updateAvatar(ready)
                         try await upload.acknowledged(ready.assetId)
                         await confirmed()
-                    } catch { self.error = "프로필 사진 변경 결과를 확인하지 못했어요. 현재 프로필을 다시 확인해 주세요."; await readPending(); throw error }
+                    } catch { self.error = "프로필 사진을 확인하고 있어요."; await confirmed(); throw error }
                 }
                 if currentAssetID != nil || providerAvatarAvailable {
                     Button("프로필 사진 삭제", role: .destructive) { Task {
                         busy = true; defer { busy = false }
                         do { try await client.updateAvatar(nil); await confirmed() }
-                        catch { self.error = "프로필 사진 변경 결과를 확인하지 못했어요." }
+                        catch { self.error = "프로필 사진을 확인하지 못했어요." }
                     } }.disabled(busy)
                 }
                 ForEach(pending, id: \.assetId) { item in
-                    Button("이전 프로필 사진 업로드 확인") { Task {
+                    Button("사진 계속 설정") { Task {
                         busy = true; defer { busy = false }
                         do {
                             let receipt = try await client.status(item.assetId)
-                            if receipt.status == .ready { error = "업로드는 완료되었어요. 프로필 반영 여부는 현재 프로필을 다시 확인해 주세요." }
-                            else { error = "업로드 처리가 아직 완료되지 않았어요." }
-                        } catch { self.error = "이전 업로드 상태를 확인하지 못했어요." }
+                            if receipt.status == .ready { error = "사진이 준비됐어요. 다시 선택해 주세요." }
+                            else { error = "사진을 준비하고 있어요." }
+                        } catch { self.error = "사진을 확인하지 못했어요." }
                     } }.disabled(busy)
                 }
             } else if error == nil { ProgressView("프로필 사진 확인 중") }
-            else { Button("사진 작업 기록 다시 확인") { Task { await load() } } }
+            else { Button("다시 시도") { Task { await load() } } }
             if let error { Text(error).font(.footnote).foregroundStyle(.secondary) }
-            Button("현재 프로필 사진 다시 확인") { Task { await confirmed() } }.disabled(busy)
+            Button("프로필 사진 새로고침") { Task { await confirmed() } }.disabled(busy)
         } header: { Text("프로필 사진") } footer: { Text("프로필 사진은 선택하거나 삭제하면 바로 반영돼요.") }
         .task { await load() }
     }

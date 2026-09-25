@@ -6,7 +6,7 @@ export interface RoomMembership { roomId: string; name: string; actorId: string;
 export interface ServerMessage {
   id: string; version: string; createdAt: string; audience: 'SHARED' | 'PRIVATE';
   author: { kind: 'anonymous' } | { kind: 'member'; actorId: string; nickname: string; avatar: { assetId: string } | null };
-  content: { type: 'TEXT'; text: string | null } | { type: 'PHOTO' | 'VIDEO'; attachments: { assetId: string; width: number; height: number; variant: string }[] } | { type: 'STICKER'; stickerId: string; assetId: string; width: number; height: number };
+  content: { type: 'TEXT'; text: string | null } | { type: 'PHOTO' | 'VIDEO'; attachments: { assetId: string; width: number; height: number; variant: string }[]; caption?: string } | { type: 'STICKER'; stickerId: string; assetId: string; width: number; height: number };
   quote: { id: string; authorName?: string; content: { type: 'TEXT'; text: string } } | null;
   reactions?: ReactionSummary;
   counterpart: { actorId: string } | null;
@@ -81,7 +81,12 @@ export function message(value: unknown): ServerMessage {
   else { exact(author, ['kind', 'actorId', 'nickname', 'avatar']); if (author.kind !== 'member') throw new Error('INVALID_RESPONSE'); parsedAuthor = { kind: 'member', actorId: uuid(author.actorId), nickname: text(author.nickname), avatar: avatar(author.avatar) }; }
   let parsedContent: ServerMessage['content'];
   if (content.type === 'TEXT') { exact(content, ['type', 'text']); parsedContent = { type: 'TEXT', text: content.text === null ? null : text(content.text) }; }
-  else if (content.type === 'PHOTO' || content.type === 'VIDEO') { exact(content, ['type', 'attachments']); parsedContent = { type: content.type, attachments: list(content.attachments).map(value => { const a = exact(value, ['assetId', 'width', 'height', 'variant']); return { assetId: uuid(a.assetId), width: integer(a.width), height: integer(a.height), variant: text(a.variant) }; }) }; }
+  else if (content.type === 'PHOTO' || content.type === 'VIDEO') {
+    exact(content, ['type', 'attachments'], ['caption']);
+    const caption = content.caption === undefined ? undefined : text(content.caption);
+    if (caption !== undefined && (!caption.trim() || [...caption].length > 4000 || new TextEncoder().encode(caption).length > 16384 || caption.includes('\0'))) throw new Error('INVALID_RESPONSE');
+    parsedContent = { type: content.type, attachments: list(content.attachments).map(value => { const a = exact(value, ['assetId', 'width', 'height', 'variant']); return { assetId: uuid(a.assetId), width: integer(a.width), height: integer(a.height), variant: text(a.variant) }; }), ...(caption === undefined ? {} : { caption }) };
+  }
   else { exact(content, ['type', 'stickerId', 'assetId', 'width', 'height']); if (content.type !== 'STICKER') throw new Error('INVALID_RESPONSE'); parsedContent = { type: 'STICKER', stickerId: uuid(content.stickerId), assetId: uuid(content.assetId), width: integer(content.width), height: integer(content.height) }; }
   let quote: ServerMessage['quote'] = null;
   if (data.quote !== null) { const source = exact(data.quote, ['id', 'content'], ['authorName']); const quoted = exact(source.content, ['type', 'text']); if (quoted.type !== 'TEXT') throw new Error('INVALID_RESPONSE'); quote = { id: uuid(source.id), ...(source.authorName === undefined ? {} : { authorName: text(source.authorName) }), content: { type: 'TEXT', text: text(quoted.text) } }; }
@@ -110,7 +115,7 @@ export function projectMessages(messages: readonly ServerMessage[], viewerId: st
         ? { type: 'VIDEO' as const, revision: item.version, assets: content.attachments }
       : content.type === 'STICKER' ? { type: 'STICKER' as const, revision: item.version, assets: [{ assetId: content.assetId, width: content.width, height: content.height }], stickerId: content.stickerId } : undefined;
     if (!media && (content.type !== 'TEXT' || content.text === null)) return { kind: 'unsupported', id: item.id, scope: item.audience, createdAt: item.createdAt, allowedActions: item.allowedActions };
-    const body = content.type === 'TEXT' ? content.text! : '';
+    const body = content.type === 'TEXT' ? content.text! : content.type === 'STICKER' ? '' : content.caption ?? '';
     if (item.author.kind === 'anonymous') return { kind: 'publication', id: item.id, body, createdAt: item.createdAt, allowedActions: item.allowedActions, ...(item.reactions ? { reactions: item.reactions } : {}), ...(media ? { media } : {}) };
     const author = item.author;
     const recipient = profiles.find(p => p.actorId === item.counterpart?.actorId);

@@ -81,7 +81,7 @@ struct MoreView: View {
                 Text("이 기기에서 로기챗 계정이 로그아웃됩니다.")
             }
             .task(id: [account?.id ?? "", account?.displayName ?? "", account?.avatarAssetID ?? "", String(profileRetry)]) {
-                profile = nil
+                if profile?.id != account?.id { profile = nil }
                 profileError = nil
                 guard let account, let onLoadProfile else { loadingProfile = false; return }
                 loadingProfile = true
@@ -238,13 +238,13 @@ struct MoreView: View {
     private func signedInProfileRow(account: AccountSummary) -> some View {
         HStack(spacing: 16) {
             Group {
-                if let profile, (profile.avatarAssetID != nil || profile.providerAvatarURL != nil), let photo = avatar(profile) { photo }
+                if let profile, profile.id == account.id, (profile.avatarAssetID != nil || profile.providerAvatarURL != nil), let photo = avatar(profile) { photo }
                 else {
                     Circle()
                         .fill(Color.accentColor.opacity(0.2))
                         .overlay(
-                            Text(String((profile?.displayName ?? account.displayName).prefix(1)))
-                                .font(.title2.bold())
+                            Image(systemName: "person.fill")
+                                .font(.title2)
                                 .foregroundColor(.accentColor)
                         )
                 }
@@ -253,7 +253,7 @@ struct MoreView: View {
             .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(profile?.displayName ?? account.displayName)
+                Text(profile?.id == account.id ? profile?.displayName ?? account.displayName : account.displayName)
                     .font(.headline)
                 Text(account.soopConnected ? "SOOP 계정 연결됨" : "SOOP 계정 연결 필요")
                     .font(.subheadline)

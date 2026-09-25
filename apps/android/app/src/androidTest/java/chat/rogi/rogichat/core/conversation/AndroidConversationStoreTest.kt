@@ -147,7 +147,10 @@ class AndroidConversationStoreTest {
         assertTrue(runCatching { store.profiles(scope, SyncCursor("next"), ProfilePage.Success(m, a, emptyList(), "wrong-generation", true, null)) {} }.isFailure)
         store.profiles(scope, SyncCursor("next"), ProfilePage.Success(m, a, emptyList(), "profile-one", true, null)) {}
         assertEquals(ActorBirthday(2, 29), store.current(scope) {}.profiles.single().birthday)
-        val refreshed = open(store, directory(store))
+        val refreshed = store.beginConversation(directory(store)) {}
+        assertEquals(scope.cacheId, refreshed.cacheId)
+        store.beginProfiles(refreshed) {}
+        assertEquals(ActorBirthday(2, 29), store.current(refreshed) {}.profiles.single().birthday)
         store.profiles(refreshed, null, ProfilePage.Success(m, a, listOf(birthday.copy(birthday = null)), "profile-two", true, null)) {}
         assertNull(store.current(refreshed) {}.profiles.single().birthday)
     }

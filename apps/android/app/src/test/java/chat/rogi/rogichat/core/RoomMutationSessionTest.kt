@@ -232,23 +232,23 @@ class RoomMutationSessionTest {
         gate.complete(Unit); runCurrent()
         assertEquals(RoomCommandPhase.VERIFIED, f.gateway.roomCommands.value.phase); assertEquals(1, f.api.joins)
     }
-    @Test fun unknownNoticeSurvivesNewViewModelAndManualGetWithoutReplayingOldDirectory() = runTest {
+    @Test fun uncertainCommandKeepsCurrentDirectoryWithoutInternalNotice() = runTest {
         val f = mutationFixture(); f.api.join = { _, _ -> throw IOException() }
         f.gateway.submitRoomCommand(f.intent()); runCurrent()
         val oldCycle = f.gateway.roomCommands.value.directory!!.cycle
         val first = RoomsViewModel(f.gateway, f.scope, backgroundScope); runCurrent()
-        assertEquals(RoomCommandIssue.UNKNOWN.message, first.state.value.notice)
+        assertNull(first.state.value.notice)
         assertNotEquals(oldCycle, first.state.value.directory!!.cycle)
         ViewModelStore().apply { put("rooms", first); clear() }
         val second = RoomsViewModel(f.gateway, f.scope, backgroundScope); runCurrent()
-        assertEquals(RoomCommandIssue.UNKNOWN.message, second.state.value.notice)
+        assertNull(second.state.value.notice)
         val beforeRefresh = second.state.value.directory!!.cycle
         second.reload(); runCurrent()
-        assertEquals(RoomCommandIssue.UNKNOWN.message, second.state.value.notice)
+        assertNull(second.state.value.notice)
         assertNotEquals(beforeRefresh, second.state.value.directory!!.cycle)
         assertEquals(1, f.api.joins)
     }
-    @Test fun unknownNoticeSurvivesLoadingFailedAndCancelledReadsAndFreshViewModelWithoutOldRows() = runTest {
+    @Test fun uncertainCommandKeepsInternalNoticeHiddenThroughFailedReads() = runTest {
         val f = mutationFixture(); f.api.join = { _, _ -> throw IOException() }
         f.gateway.submitRoomCommand(f.intent()); runCurrent()
         val model = RoomsViewModel(f.gateway, f.scope, backgroundScope); runCurrent()
@@ -256,26 +256,26 @@ class RoomMutationSessionTest {
         f.api.manifest = { gate.await(); throw IOException() }
         model.reload(); runCurrent()
         assertTrue(model.state.value.loading); assertNull(model.state.value.directory)
-        assertEquals(RoomCommandIssue.UNKNOWN.message, model.state.value.notice)
+        assertNull(model.state.value.notice)
         gate.complete(Unit); runCurrent()
         assertNotNull(model.state.value.error); assertNull(model.state.value.directory)
-        assertEquals(RoomCommandIssue.UNKNOWN.message, model.state.value.notice)
+        assertNull(model.state.value.notice)
         ViewModelStore().apply { put("rooms", model); clear() }
         val recreated = RoomsViewModel(f.gateway, f.scope, backgroundScope); runCurrent()
         assertNull(recreated.state.value.directory); assertNotNull(recreated.state.value.error)
-        assertEquals(RoomCommandIssue.UNKNOWN.message, recreated.state.value.notice)
+        assertNull(recreated.state.value.notice)
         f.api.manifest = { throw CancellationException("isolated_get_cancel") }
         recreated.reload(); runCurrent()
         assertFalse(recreated.state.value.loading); assertNotNull(recreated.state.value.error)
-        assertEquals(RoomCommandIssue.UNKNOWN.message, recreated.state.value.notice)
+        assertNull(recreated.state.value.notice)
         f.api.manifest = { manifestJson() }; f.api.discovery = { discoveryJson(next = ROOM_TWO) }
         recreated.reload(); runCurrent()
         val confirmed = recreated.state.value.directory
         f.api.discovery = { throw IOException() }
         recreated.more()
-        assertEquals(RoomCommandIssue.UNKNOWN.message, recreated.state.value.notice)
+        assertNull(recreated.state.value.notice)
         runCurrent(); assertEquals(confirmed, recreated.state.value.directory); assertNotNull(recreated.state.value.error)
-        assertEquals(RoomCommandIssue.UNKNOWN.message, recreated.state.value.notice); assertEquals(1, f.api.joins)
+        assertNull(recreated.state.value.notice); assertEquals(1, f.api.joins)
     }
     @Test fun oldRenderedJoinAndLeaveHandlersCannotRebindToNewCycleButFreshHandlersWork() = runTest {
         for (action in RoomAction.entries) {

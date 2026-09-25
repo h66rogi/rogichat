@@ -15,7 +15,7 @@ struct MessageActionsPanel: View {
     var body: some View {
         VStack(alignment: .leading) {
             if busy { ProgressView() }
-            if let record { Text(actionStatus(record.phase)) }
+            if let record, [.reported, .rejected, .blocked].contains(record.phase) { Text(actionStatus(record.phase)) }
             if let reactions {
                 HStack { ForEach(reactions.counts, id: \.emoji) { count in Text("\(count.emoji) \(count.count)") } }
             }
@@ -29,11 +29,12 @@ struct MessageActionsPanel: View {
                     }
                 }
                 HStack { ForEach(reactionChoices, id: \.self) { emoji in
-                    Button(emoji) { onAction(token, .setReaction, emoji) }.disabled(blocked(.setReaction))
+                    Button(emoji) { onAction(token, reactions?.mine == emoji ? .removeReaction : .setReaction, reactions?.mine == emoji ? nil : emoji) }
+                        .padding(5)
+                        .background(reactions?.mine == emoji ? Color.accentColor.opacity(0.18) : Color.clear, in: Capsule())
+                        .disabled(blocked(reactions?.mine == emoji ? .removeReaction : .setReaction))
                 } }
-                if reactions?.mine != nil { Button("내 반응 취소") { onAction(token, .removeReaction, nil) }.disabled(blocked(.removeReaction)) }
             }
-            Button("현재 상태 확인") { onRefresh(token) }.disabled(busy)
         }
         .onChange(of: token) { _, _ in confirmation = nil }
         // Adapted from non-chat MyReviewsView's presenting-target deletion alert.
@@ -54,14 +55,14 @@ struct MessageActionsPanel: View {
 func actionStatus(_ phase: ActionPhase) -> String {
     switch phase {
     case .reported: "신고가 접수되었어요."
-    case .actorBlocked: "차단이 반영되었어요. 방 내용을 다시 불러옵니다."
-    case .unknown: "처리 결과를 확인하지 못했어요. 같은 요청을 다시 보내지 않고 현재 상태를 확인해 주세요."
+    case .actorBlocked: "작성자를 차단했어요."
+    case .unknown: "잠시 후 다시 확인해 주세요."
     case .blocked: "메시지 접근이 차단되었어요."
-    case .preparing: "공개 요청을 접수했어요. 공개 상태를 확인해 주세요."
+    case .preparing: "공개하는 중이에요."
     case .published: "메시지가 익명으로 공개되었어요."
     case .revoked: "공개본 접근이 회수되었어요."
     case .reacted: "반응이 반영되었어요."
-    case .rejected: "요청을 처리할 수 없어요. 현재 상태를 확인해 주세요."
+    case .rejected: "요청을 처리하지 못했어요."
     }
 }
 
