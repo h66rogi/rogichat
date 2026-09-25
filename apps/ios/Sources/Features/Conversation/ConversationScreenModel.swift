@@ -27,10 +27,16 @@ final class ConversationScreenModel {
     var targetName: String { privateReplyName ?? "전체 채팅" }
     var privateTarget: String? { privateReplyTarget }
     var canSend: Bool {
-        active && listing?.ready == true && !loading && !loadingHistory && !sending && !checking &&
+        active && listing?.ready == true && !sending &&
         (privateTarget == nil || quote != nil && scope.room.role == "STREAMER") && (try? ConversationWire.normalizedText(draft)) != nil
     }
-    func load() async { if listing == nil, !loading { await refresh() } }
+    func load() async {
+        if listing?.ready == true { await poll(); return }
+        if listing == nil, !loading, let local = try? await coordinator.listing() {
+            state = .loaded(local)
+        }
+        await refresh()
+    }
     func refresh() async {
         guard !loading, !loadingHistory, !sending, !checking else { return }
         let previous = listing; state = .loading(previous: previous); error = nil
@@ -89,14 +95,18 @@ final class ConversationScreenModel {
         }
     }
     func sendAttachment(_ attachment: OutgoingAttachment) async throws -> TextCommand {
-        guard active, listing?.ready == true, !loading, !loadingHistory, !sending, !checking,
+        guard active, listing?.ready == true, !sending,
               (privateTarget == nil || quote != nil && scope.room.role == "STREAMER") else { throw ConversationError.busy }
         let command = try TextCommand(roomID: scope.room.id, membershipScope: scope.room.membershipScope,
             recipientActorID: privateTarget, quoteID: quote?.id, attachment: attachment)
+        let originalDraft = draft
         sending = true; error = nil; defer { sending = false }
         do {
             let result = try await coordinator.send(command); try scope.check(); state = .loaded(result)
-            if try await coordinator.containsCommand(command.id) { cancelReply() }
+            if try await coordinator.containsCommand(command.id) {
+                cancelReply()
+                if attachment.caption != nil && draft == originalDraft { draft = "" }
+            }
             return command
         } catch { await failed(error); throw error }
     }

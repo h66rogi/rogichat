@@ -25,6 +25,9 @@ interface ConversationStore {
     /** Withdraw UI/cache authority while keeping immutable pending commands parked for read-only recovery. */
     suspend fun withdrawAuthority()
     suspend fun beginConversation(selection: ConversationSelection, validate: () -> Unit): ConversationScope
+    suspend fun restartConversation(selection: ConversationSelection, validate: () -> Unit): ConversationScope = beginConversation(selection, validate)
+    suspend fun restore(scope: ConversationScope, validate: () -> Unit): ConversationData? = null
+    suspend fun beginProfiles(scope: ConversationScope, validate: () -> Unit): Unit = Unit
     suspend fun snapshot(scope: ConversationScope, page: SnapshotPage, validate: () -> Unit): ConversationData
     suspend fun events(scope: ConversationScope, requested: SyncCursor, page: EventPage.Success, validate: () -> Unit): ConversationData
     suspend fun history(scope: ConversationScope, requested: SyncCursor, page: HistoryPage.Success, validate: () -> Unit): ConversationData

@@ -60,6 +60,9 @@ void test('media payload retains only wire references and freezes independent as
   assert.equal(media.content.type === 'PHOTO' && media.content.assetIds.length, 1);
   assert.throws(() => normalizePayload({ ...payload, content: { type: 'PHOTO', assetIds: [id, id] } }));
   assert.throws(() => normalizePayload({ ...payload, content: { type: 'VIDEO', assetIds: [id, roomId] } }));
+  assert.deepEqual(normalizePayload({ ...payload, content: { type: 'PHOTO', assetIds: [id], caption: '사진 설명' } }).content,
+    { type: 'PHOTO', assetIds: [id], caption: '사진 설명' });
+  assert.throws(() => normalizePayload({ ...payload, content: { type: 'PHOTO', assetIds: [id], caption: ' ' } }));
   assert.deepEqual(normalizePayload({ ...payload, content: { type: 'STICKER', stickerId: id } }).content, { type: 'STICKER', stickerId: id });
 });
 void test('scope and session scrubbing preserve irreversible deleted receipt tombstones', () => {

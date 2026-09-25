@@ -212,7 +212,7 @@ public enum RoomCommandOutcome: Sendable, Equatable {
     public var notice: String? {
         switch self {
         case .acknowledged: nil
-        case .unknown: "현재 참여 상태를 확인했어요. 앞선 요청의 처리 결과는 확인하지 못했어요."
+        case .unknown: nil
         case .rejected(let error): error.errorDescription
         }
     }

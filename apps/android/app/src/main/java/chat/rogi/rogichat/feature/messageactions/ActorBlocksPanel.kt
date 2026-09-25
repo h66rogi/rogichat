@@ -13,17 +13,16 @@ fun ActorBlocksPanel(token: BlockViewToken, blocks: List<BlockedActor>, complete
     Column {
         Text("이 방의 차단 관리")
         if (busy) CircularProgressIndicator()
-        if (!busy && lastOutcome == UnblockOutcome.REJECTED) Text("차단 해제 요청을 처리할 수 없어요. 현재 상태를 확인해 주세요.")
+        if (!busy && lastOutcome == UnblockOutcome.REJECTED) Text("차단을 해제하지 못했어요.")
         if (!busy && lastOutcome == UnblockOutcome.ACKNOWLEDGED) Text("차단 해제가 반영되었어요.")
         if (failed) Text("차단 목록을 불러오지 못했어요. 다시 확인해 주세요.")
         if (complete && blocks.isEmpty()) Text("차단한 사용자가 없어요.")
-        if (unknownActors.isNotEmpty()) Text("이전 요청의 처리 결과는 확인하지 못했어요. 목록은 현재 확인된 차단 상태예요.")
         blocks.forEach { actor ->
             Text("${actor.displayLabel} · ${actor.blockedAt.take(10)}")
             TextButton(enabled = complete && !busy, onClick = { selected = actor.actorId }) { Text("차단 해제") }
         }
         if (!complete && blocks.isNotEmpty()) TextButton(enabled = !busy, onClick = onMore) { Text("더 보기") }
-        TextButton(enabled = !busy, onClick = onRefresh) { Text("현재 상태 확인") }
+        TextButton(enabled = !busy, onClick = onRefresh) { Text("새로고침") }
     }
     selected?.let { actor -> AlertDialog(onDismissRequest = { selected = null }, title = { Text("차단 해제") },
         text = { Text("이 방에서 차단을 해제할까요? 이전 참여 권한은 복구되지 않아요.") },

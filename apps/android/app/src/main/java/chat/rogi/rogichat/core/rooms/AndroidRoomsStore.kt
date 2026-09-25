@@ -198,9 +198,33 @@ class AndroidRoomsStore(private val context: Context, private val environment: S
             valid(directory.complete && directory.cacheId == selection.directoryCycle.value)
             valid(database.rooms().memberships().any { it.domain() == selection.membership })
             val room = selection.membership.roomId.value; val dao = database.conversation()
+            val previous = dao.checkpoint(room)
+            val sameAuthority = previous != null && previous.membership == selection.membership.membershipScope.value &&
+                previous.authorization == selection.membership.authorizationRevision.value
+            val scope = ConversationScope(selection, RoomId(if (sameAuthority) requireNotNull(previous).cacheId else UUID.randomUUID().toString()))
+            if (!sameAuthority) {
+                dao.clearMessages(room); dao.clearProfiles(room); dao.clearStaging(room); dao.clearPages(room)
+                dao.checkpoint(ConversationCheckpoint(room, scope.cacheId.value, selection.membership.membershipScope.value, selection.membership.authorizationRevision.value))
+            }
+            dao.purgeOldMedia(room, selection.membership.membershipScope.value); dao.purgeOldMembership(room, selection.membership.membershipScope.value)
+            validate(); scope
+        }
+    }
+    override suspend fun restore(scope: ConversationScope, validate: () -> Unit): ConversationData? = conversationTransaction(scope, validate) { dao, checkpoint ->
+        if (checkpoint.snapshotComplete) data(dao, scope) else null
+    }
+    override suspend fun beginProfiles(scope: ConversationScope, validate: () -> Unit): Unit = conversationTransaction(scope, validate) { dao, checkpoint ->
+        dao.clearStaging(checkpoint.roomId); dao.clearProfilePages(checkpoint.roomId)
+        dao.checkpoint(checkpoint.copy(profileGeneration = null, profileCursor = null, profileComplete = false))
+    }
+    override suspend fun restartConversation(selection: ConversationSelection, validate: () -> Unit): ConversationScope = storage {
+        val database = db(selection.account)
+        database.withTransaction {
+            validate()
+            val room = selection.membership.roomId.value
+            val dao = database.conversation()
             val scope = ConversationScope(selection, RoomId(UUID.randomUUID().toString()))
             dao.clearMessages(room); dao.clearProfiles(room); dao.clearStaging(room); dao.clearPages(room)
-            dao.purgeOldMedia(room, selection.membership.membershipScope.value); dao.purgeOldMembership(room, selection.membership.membershipScope.value)
             dao.checkpoint(ConversationCheckpoint(room, scope.cacheId.value, selection.membership.membershipScope.value, selection.membership.authorizationRevision.value))
             validate(); scope
         }
@@ -229,7 +253,7 @@ class AndroidRoomsStore(private val context: Context, private val environment: S
         valid(checkpoint.snapshotComplete)
         val rows = dao.messages(room); valid(rows.size <= 10000)
         return ConversationData(scope, rows.filter { !it.deleted }.map { ConversationDtos.message(requireNotNull(it.body)) },
-            if (checkpoint.profileComplete) dao.profiles(room).map { it.domain() } else emptyList(), checkpoint.profileComplete,
+            dao.profiles(room).map { it.domain() }, checkpoint.profileComplete,
             checkpoint.eventsCursor?.let(::SyncCursor), checkpoint.historyCursor?.let(::SyncCursor), dao.outbox(room).map { it.domain() }, dao.media(room, checkpoint.membership, checkpoint.authorization).map { PendingMedia(it.assetId, MediaKind.valueOf(it.kind)) })
     }
     private fun matches(checkpoint: ConversationCheckpoint, membership: RoomScopeToken, authorization: RoomScopeToken) {

@@ -37,3 +37,14 @@ test('message input canonicalizes typed text, enforces code-point bounds, and re
   const recipientActorId = randomUUID(); const quoteId = randomUUID();
   assert.deepEqual(sendInput({ ...body, intent: 'PRIVATE', recipientActorId, quoteId }), { ...body, intent: 'PRIVATE', recipientActorId, quoteId });
 });
+test('photo and video captions are normalized without weakening media input bounds', () => {
+  const body = input(), assetIds = [randomUUID()];
+  assert.deepEqual(sendInput({ ...body, content: { type: 'PHOTO', assetIds, caption: 'e\u0301' } }).content,
+    { type: 'PHOTO', assetIds, caption: 'é' });
+  assert.deepEqual(sendInput({ ...body, content: { type: 'VIDEO', assetIds } }).content,
+    { type: 'VIDEO', assetIds });
+  for (const caption of ['', '  ', '\u0000', '😀'.repeat(4001)]) {
+    assert.throws(() => sendInput({ ...body, content: { type: 'PHOTO', assetIds, caption } }), { code: 'INVALID_REQUEST' });
+  }
+  assert.throws(() => sendInput({ ...body, content: { type: 'STICKER', stickerId: randomUUID(), caption: '글' } }), { code: 'INVALID_REQUEST' });
+});

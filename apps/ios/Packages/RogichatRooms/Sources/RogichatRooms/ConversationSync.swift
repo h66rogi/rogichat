@@ -86,9 +86,10 @@ public final class ConversationScope: @unchecked Sendable {
     public let directoryCycle: String
     private let lock = NSRecursiveLock()
     private var valid = true
-    init(account: RoomsScope, room: MembershipRoom, deviceID: String, cycle: String) {
+    init(account: RoomsScope, room: MembershipRoom, deviceID: String, cycle: String, cacheID: String? = nil, profileCacheID: String? = nil) {
         self.account = account; self.room = room; self.deviceID = deviceID; directoryCycle = cycle
-        cacheID = UUID().uuidString.lowercased(); profileCacheID = UUID().uuidString.lowercased()
+        self.cacheID = cacheID ?? UUID().uuidString.lowercased()
+        self.profileCacheID = profileCacheID ?? UUID().uuidString.lowercased()
     }
     public func invalidate() { lock.withLock { valid = false } }
     public func check() throws { try withCurrent {} }

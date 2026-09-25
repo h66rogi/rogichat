@@ -12,6 +12,7 @@ struct ConversationScreen: View {
     @State private var showStickers = false
     @State private var showAttachments = false
     @State private var showActions = false
+    @State private var playingVideo: ConversationMessage?
     @State private var visibleIDs: [String] = []
     @State private var atLatest = true
     @State private var visible = false
@@ -62,10 +63,12 @@ struct ConversationScreen: View {
                                 messageRow(message, beginsGroup: !sameGroup(previous, message), endsGroup: !sameGroup(message, next))
                                     .padding(.top, sameGroup(previous, message) ? 0 : 12)
                                     .id(message.id)
-                                    .onScrollVisibilityChange(threshold: 0.6) { isVisible in if isVisible { features?.displayed(message.id) } }
+                                    .onScrollVisibilityChange(threshold: 0.6) { isVisible in if isVisible {
+                                        features?.displayed(message.id)
+                                        if let features { Task { await features.loadReaction(message) } }
+                                    } }
                             }
-                            let visibleIDs = Set(listing.messages.map(\.id))
-                            ForEach(listing.commands.filter { $0.phase != .committed || !visibleIDs.contains($0.messageID ?? "") }) { command in
+                            ForEach(listing.commands.filter { [.queued, .sending, .unknown, .rejected, .blocked].contains($0.phase) }) { command in
                                 commandRow(command).id(command.id)
                             }
                             Color.clear.frame(height: 1).id("conversation-bottom")
@@ -124,7 +127,7 @@ struct ConversationScreen: View {
         .onChange(of: model.listing?.messages) { _, _ in
             if let listing = model.listing { features?.projectionChanged(listing, history: model.loadingHistory) }
         }
-        .onChange(of: model.active) { _, active in if !active { features?.close(); showActions = false; showMedia = false; showCamera = false; showStickers = false; showAttachments = false } }
+        .onChange(of: model.active) { _, active in if !active { features?.close(); showActions = false; showMedia = false; showCamera = false; showStickers = false; showAttachments = false; playingVideo = nil } }
         .onChange(of: composing) { _, focused in if focused { showAttachments = false; showStickers = false } }
         .onAppear { visible = true }
         .onDisappear { visible = false }
@@ -136,7 +139,7 @@ struct ConversationScreen: View {
                 await model.poll()
             }
         }
-        .onChange(of: scenePhase) { _, phase in if phase == .active, visible { Task { await model.refresh() } } }
+        .onChange(of: scenePhase) { _, phase in if phase == .active, visible { Task { await model.poll() } } }
         .sheet(isPresented: $showMedia) { mediaSheet }
         .sheet(isPresented: $showCamera, onDismiss: {
             if mediaAfterCamera { mediaAfterCamera = false; if model.active { showMedia = true } }
@@ -161,6 +164,18 @@ struct ConversationScreen: View {
         } message: { Text("다시 촬영하거나 사진을 선택해 주세요.") }
         .sheet(isPresented: $showActions, onDismiss: { features?.dismissActions() }) {
             if let features, let token = features.token { ConversationActionsSheet(features: features, token: token, onClose: { showActions = false }) }
+        }
+        .sheet(item: $playingVideo) { message in
+            if let features, case .video(let items, _) = message.content, let item = items.first {
+                NavigationStack {
+                    AuthorizedMedia(client: features.media, assetID: item.assetId,
+                        access: .message(room: model.scope.room.id, message: message.id, variant: .video))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.black)
+                        .navigationTitle("동영상").navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기") { playingVideo = nil } } }
+                }
+            }
         }
     }
     private func scrollToLatest(_ proxy: ScrollViewProxy) {
@@ -191,13 +206,11 @@ struct ConversationScreen: View {
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                     .padding(.horizontal, 12).padding(.bottom, 8)
             }
-            if let features, let (pending, _) = features.readyMedia {
+            if let features, let (pending, receipt) = features.readyMedia {
                 HStack(spacing: 10) {
-                    Image(systemName: pending.kind == .video ? "video.fill" : "photo.fill")
-                        .font(.system(size: 17)).foregroundStyle(AppTheme.accent)
-                        .frame(width: 36, height: 36)
-                        .background(AppTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
-                    Button(pending.kind == .video ? "동영상 보내기 준비됨" : "사진 보내기 준비됨") { showMedia = true }
+                    AuthorizedMedia(client: features.media, assetID: receipt.assetId, access: .preview(pending.kind == .video ? .poster : .image))
+                        .frame(width: 48, height: 48).clipShape(RoundedRectangle(cornerRadius: 10))
+                    Button(pending.kind == .video ? "동영상" : "사진") { showMedia = true }
                         .font(.subheadline.weight(.medium))
                     Spacer(minLength: 8)
                     Button { features.discardMedia() } label: { Image(systemName: "xmark.circle.fill") }
@@ -234,7 +247,7 @@ struct ConversationScreen: View {
                         .lineLimit(1...6).textFieldStyle(.plain).focused($composing)
                         .padding(.leading, 15).padding(.vertical, 10)
                         .submitLabel(.send)
-                        .onSubmit { model.send() }
+                        .onSubmit { sendComposer() }
                         .accessibilityLabel("메시지 내용")
                     if features != nil {
                         Button { toggleStickers() } label: {
@@ -245,21 +258,33 @@ struct ConversationScreen: View {
                     }
                 }
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                Button { model.send() } label: {
+                Button { sendComposer() } label: {
                     Group {
                         if model.sending { ProgressView().tint(.white) }
                         else { Image(systemName: "arrow.up").font(.system(size: 18, weight: .bold)) }
                     }
                     .foregroundStyle(.white)
                     .frame(width: 42, height: 42)
-                    .background(model.canSend || model.sending ? AppTheme.accent : Color(uiColor: .systemGray3), in: Circle())
-                }.disabled(!model.canSend)
+                    .background(canSendComposer || model.sending ? AppTheme.accent : Color(uiColor: .systemGray3), in: Circle())
+                }.disabled(!canSendComposer)
                     .accessibilityLabel("메시지 보내기")
             }.padding(.horizontal, 10).padding(.top, 9).padding(.bottom, 7)
         }
         .tint(AppTheme.accent)
         .background(Color(uiColor: .systemBackground))
         .overlay(alignment: .top) { Color(uiColor: .separator).opacity(0.35).frame(height: 0.5) }
+    }
+    private var canSendComposer: Bool {
+        if let features, features.readyMedia != nil {
+            return model.active && model.listing?.ready == true && !model.sending && !features.mediaBusy &&
+                (model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || (try? ConversationWire.normalizedText(model.draft)) != nil)
+        }
+        return model.canSend
+    }
+    private func sendComposer() {
+        guard canSendComposer else { return }
+        if let features, features.readyMedia != nil { Task { await features.sendReadyMedia() } }
+        else { model.send() }
     }
     private func toggleStickers() {
         if showStickers {
@@ -311,7 +336,7 @@ struct ConversationScreen: View {
     @ViewBuilder private func content(_ value: MessageContent) -> some View {
         switch value {
         case .text(let text): Text(text ?? "내용을 표시할 수 없는 메시지").textSelection(.enabled)
-        case .photo(let items): Label("사진 \(items.count)장", systemImage: "photo")
+        case .photo(let items, _): Label("사진 \(items.count)장", systemImage: "photo")
         case .video: Label("동영상", systemImage: "video")
         case .sticker: Label("스티커", systemImage: "face.smiling")
         }
@@ -351,9 +376,29 @@ struct ConversationScreen: View {
                     .background(mine ? AppTheme.accent : Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                     if !mine && endsGroup { Text(time(message.createdAt)).font(.caption2).foregroundStyle(.tertiary) }
                 }
+                if let summary = features?.reactionsFor(message.id) {
+                    HStack(spacing: 5) {
+                        ForEach(summary.counts.filter { $0.count > 0 }, id: \.emoji) { count in
+                            Button("\(count.emoji) \(count.count)") {
+                                features?.select(message); showActions = features?.token != nil
+                            }.font(.caption).buttonStyle(.bordered)
+                        }
+                    }
+                }
             }
             if !mine { Spacer(minLength: 52) }
         }.contextMenu {
+            if let features {
+                ForEach(reactionChoices, id: \.self) { emoji in
+                    Button(emoji) {
+                        features.select(message)
+                        if let token = features.token {
+                            let mine = features.reactionsFor(message.id)?.mine == emoji
+                            features.action(token, mine ? .removeReaction : .setReaction, emoji: mine ? nil : emoji)
+                        }
+                    }
+                }
+            }
             if let features { Button("메시지 작업", systemImage: "ellipsis.circle") { features.select(message); showActions = features.token != nil } }
             if !mine && model.scope.room.role == "STREAMER" && message.replyRecipient != nil { Button("비공개 답장", systemImage: "arrowshape.turn.up.left") { model.reply(to: message); composing = true } }
         }.accessibilityElement(children: .contain)
@@ -367,12 +412,12 @@ struct ConversationScreen: View {
                     .clipShape(Circle())
             } else if profile.providerAvatarAvailable {
                 AuthorizedProviderAvatar(client: features.media, actorID: actor).clipShape(Circle())
-            } else { fallbackAvatar(message.author.displayName) }
-        } else { fallbackAvatar(message.author.displayName) }
+            } else { fallbackAvatar() }
+        } else { fallbackAvatar() }
     }
-    private func fallbackAvatar(_ name: String) -> some View {
-        Text(String(name.prefix(1)))
-            .font(.caption.weight(.semibold)).foregroundStyle(AppTheme.accent)
+    private func fallbackAvatar() -> some View {
+        Image(systemName: "person.fill")
+            .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.accent.opacity(0.12), in: Circle())
     }
@@ -403,12 +448,20 @@ struct ConversationScreen: View {
         if let features {
             switch message.content {
             case .text: content(message.content)
-            case .photo(let items):
+            case .photo(let items, let caption):
                 ForEach(items, id: \.assetId) { item in AuthorizedMedia(client: features.media, assetID: item.assetId,
                     access: .message(room: model.scope.room.id, message: message.id, variant: .image)).frame(maxWidth: 280, maxHeight: 360) }
-            case .video(let items):
-                ForEach(items, id: \.assetId) { item in AuthorizedMedia(client: features.media, assetID: item.assetId,
-                    access: .message(room: model.scope.room.id, message: message.id, variant: .video)).frame(width: 260, height: 220) }
+                if let caption { Text(caption) }
+            case .video(let items, let caption):
+                ForEach(items, id: \.assetId) { item in
+                    Button { playingVideo = message } label: {
+                        AuthorizedMedia(client: features.media, assetID: item.assetId,
+                            access: .message(room: model.scope.room.id, message: message.id, variant: .poster))
+                            .frame(width: 260, height: 220)
+                            .overlay { Image(systemName: "play.circle.fill").font(.system(size: 46)).foregroundStyle(.white).shadow(radius: 5) }
+                    }.buttonStyle(.plain).accessibilityLabel("동영상 재생")
+                }
+                if let caption { Text(caption) }
             case .sticker(let id, let asset, _, _):
                 AuthorizedMedia(client: features.media, assetID: asset, access: .sticker(room: model.scope.room.id, sticker: id, message: message.id)).frame(width: 150, height: 150)
             }
@@ -428,8 +481,8 @@ struct ConversationScreen: View {
                     if let (pending, receipt) = features.readyMedia {
                         AuthorizedMedia(client: features.media, assetID: receipt.assetId, access: .preview(pending.kind == .video ? .video : .image))
                             .frame(maxWidth: .infinity).frame(height: 280).clipShape(RoundedRectangle(cornerRadius: 18))
-                        Button("메시지로 보내기") { Task { await features.sendReadyMedia(); if features.readyMedia == nil { showMedia = false } } }
-                            .disabled(model.sending || features.mediaBusy)
+                        Button("작성창으로 돌아가기") { showMedia = false }
+                            .disabled(features.mediaBusy)
                             .buttonStyle(.borderedProminent).frame(maxWidth: .infinity)
                         Button("선택 취소", role: .cancel) { features.discardMedia() }.disabled(model.sending)
                             .frame(maxWidth: .infinity)
@@ -443,7 +496,7 @@ struct ConversationScreen: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("이전에 선택한 항목").font(.headline)
                                 ForEach(features.pendingMedia, id: \.assetId) { pending in
-                                    Button(pending.kind == .video ? "동영상 상태 확인" : "사진 상태 확인") { Task { await features.recover(pending) } }.disabled(features.mediaBusy)
+                                    Button(pending.kind == .video ? "동영상 계속 첨부" : "사진 계속 첨부") { Task { await features.recover(pending) } }.disabled(features.mediaBusy)
                                 }
                             }
                         }
@@ -463,10 +516,7 @@ struct ConversationScreen: View {
             if [.queued, .sending, .unknown, .rejected].contains(command.phase), let text = command.command?.text {
                 Text(text).padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
             }
-            Text(command.notice).font(.caption).foregroundStyle(.secondary)
-            if command.phase == .unknown || command.phase == .sending {
-                Button("저장 여부 확인") { Task { await model.checkCommands() } }.font(.caption).disabled(model.sending || model.checking || model.loading)
-            }
+            if !command.notice.isEmpty { Text(command.notice).font(.caption).foregroundStyle(.secondary) }
         }.frame(maxWidth: .infinity, alignment: .trailing).padding(.leading, 36)
     }
     private func time(_ value: String) -> String {

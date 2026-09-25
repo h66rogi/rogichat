@@ -98,16 +98,16 @@ class ConversationCoordinatorTest {
             } else { assertTrue(result.isFailure); assertEquals(0, api.sends); assertTrue(store.rows.isEmpty()) }
         }
     }
-    @Test fun reopeningImmediatelyWithdrawsCachedBodyAndLoadsFreshHints() = runTest {
+    @Test fun reopeningKeepsAuthorizedBodyWhileRefreshingHints() = runTest {
         val api = ConversationTransport(); val store = ConversationMemory()
         val model = RoomConversationCoordinator(ConversationAccess(api), store, backgroundScope)
         val first = model.open(selection); runCurrent(); val firstScope = requireNotNull(first.state.value.data).scope
         val gate = CompletableDeferred<Unit>(); api.snapshotGate = { gate.await() }
         val reopened = model.open(selection)
-        assertNull(first.state.value.data); assertNull(reopened.state.value.data)
-        runCurrent(); assertEquals(2, api.snapshots); assertNull(reopened.state.value.data)
+        assertNotNull(first.state.value.data); assertNotNull(reopened.state.value.data)
+        runCurrent(); assertEquals(2, api.snapshots); assertNotNull(reopened.state.value.data)
         gate.complete(Unit); runCurrent()
-        assertNotEquals(firstScope, requireNotNull(reopened.state.value.data).scope)
+        assertEquals(firstScope, requireNotNull(reopened.state.value.data).scope)
         assertEquals(0, api.sends)
     }
 

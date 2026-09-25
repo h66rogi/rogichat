@@ -16,7 +16,21 @@ import kotlinx.coroutines.flow.collect
 import java.util.UUID
 
 /** Retained only within the existing private account ViewModelStore, never a persisted route payload. */
-class ConversationNavigation : ViewModel() { var selected by mutableStateOf<ConversationSelection?>(null) }
+class ConversationNavigation : ViewModel() {
+    private var selection by mutableStateOf<ConversationSelection?>(null)
+    var selected: ConversationSelection?
+        get() = selection
+        set(value) {
+            if (selection?.account != value?.account) drafts.clear()
+            selection = value
+        }
+    private val drafts = mutableMapOf<ConversationSelection, ConversationDraft>()
+    fun draft(selection: ConversationSelection) = drafts[selection]
+    fun save(selection: ConversationSelection, draft: ConversationDraft) {
+        if (selected?.account == selection.account) drafts[selection] = draft.copy(submitting = false, uploading = false)
+    }
+    override fun onCleared() { drafts.clear() }
+}
 data class ConversationDraft(val text: String = "", val privateMessage: Boolean, val recipient: RoomId? = null,
                              val quote: ConversationMessage? = null, val recipientRevision: RoomId? = null,
                              val error: String? = null, val submitting: Boolean = false, val media: MediaContent? = null,
@@ -26,22 +40,23 @@ fun ConversationDraft.visibleQuote(data: ConversationData): ConversationMessage?
     data.messages.find { it.id == original.id }?.takeIf { it.replyTarget != null && it.replyTarget == recipient }
 }
 class ConversationViewModel(private val repository: ConversationRepository, val selection: ConversationSelection,
-                            private val injectedScope: CoroutineScope? = null) : ViewModel() {
+                            private val injectedScope: CoroutineScope? = null, private val navigation: ConversationNavigation? = null) : ViewModel() {
     private val caller get() = injectedScope ?: viewModelScope
     private val handle = repository.open(selection)
     val state = handle.state
-    private val mutableDraft = MutableStateFlow(ConversationDraft(privateMessage = false))
+    private val mutableDraft = MutableStateFlow(navigation?.draft(selection) ?: ConversationDraft(privateMessage = false))
     val draft = mutableDraft.asStateFlow()
     private var polling: Job? = null
     private var resumedBefore = false
     init {
+        caller.launch { draft.collect { navigation?.save(selection, it) } }
         caller.launch {
             state.collect { current ->
                 val originalDraft = mutableDraft.value
-                val draft = if (originalDraft.mediaScope != null && current.data?.scope != originalDraft.mediaScope)
+                val draft = if (originalDraft.mediaScope != null && current.data != null && current.data.scope != originalDraft.mediaScope)
                     originalDraft.copy(media = null, mediaScope = null) else originalDraft
                 if (draft !== originalDraft) mutableDraft.value = draft
-                if (current.data == null && !current.loading) {
+                if (current.authorityClosed) {
                     mutableDraft.value = ConversationDraft(privateMessage = false)
                 } else if (current.data != null && draft.quote != null) {
                     val latest = current.data.messages.find { it.id == draft.quote.id }
@@ -54,7 +69,10 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
         }
     }
     fun text(value: String) {
-        if (!mutableDraft.value.submitting && !mutableDraft.value.uploading && mutableDraft.value.media == null) mutableDraft.value = mutableDraft.value.copy(text = value.substring(0, value.offsetByCodePoints(0, minOf(20000, value.codePointCount(0, value.length)))), error = null)
+        if (mutableDraft.value.submitting || mutableDraft.value.uploading || mutableDraft.value.media is MediaContent.Sticker) return
+        val valid = value.codePointCount(0, value.length) <= 4000 && value.toByteArray(Charsets.UTF_8).size <= 16384 && '\u0000' !in value
+        mutableDraft.value = if (valid) mutableDraft.value.copy(text = value, error = null)
+            else mutableDraft.value.copy(error = "메시지는 최대 4,000자까지 작성할 수 있어요.")
     }
     fun reply(message: ConversationMessage, renderedScope: ConversationScope) {
         if (mutableDraft.value.submitting || state.value.data?.scope != renderedScope || selection.membership.role != RoomRole.STREAMER) return
@@ -89,12 +107,13 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
         caller.launch { repository.runAction(handle, token, action, emoji, reason) }
     }
     fun refreshAction(token: ActionViewToken) { caller.launch { repository.refreshAction(handle, token) } }
+    fun loadReaction(scope: ConversationScope, message: ConversationMessage) { caller.launch { repository.loadReaction(handle, scope, message) } }
     fun media(scope: ConversationScope) = repository.media(handle, scope)
     fun clearMedia() { if (!mutableDraft.value.uploading && !mutableDraft.value.submitting) mutableDraft.value = mutableDraft.value.copy(media = null, mediaScope = null) }
     fun mediaFailure() { mutableDraft.value = mutableDraft.value.copy(error = "첨부 파일을 준비하지 못했어요. 형식과 연결 상태를 확인해 주세요.") }
     suspend fun upload(scope: ConversationScope, file: MediaFile) {
         val adapter = media(scope) ?: return
-        if (draft.value.uploading || draft.value.submitting || draft.value.text.isNotEmpty()) return
+        if (draft.value.uploading || draft.value.submitting) return
         mutableDraft.value = draft.value.copy(uploading = true, error = null)
         try {
             val ready = MediaUpload(adapter.client, adapter.journal).start(file)
@@ -103,7 +122,7 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
         } finally { mutableDraft.value = draft.value.copy(uploading = false) }
     }
     fun recoverMedia(scope: ConversationScope, pending: PendingMedia) {
-        if (draft.value.uploading || draft.value.submitting || draft.value.text.isNotEmpty()) return
+        if (draft.value.uploading || draft.value.submitting) return
         val adapter = media(scope) ?: return
         caller.launch {
             mutableDraft.value = draft.value.copy(uploading = true, error = null)
@@ -116,7 +135,8 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
         }
     }
     fun selectMedia(scope: ConversationScope, content: MediaContent) {
-        if (state.value.data?.scope != scope || draft.value.submitting || draft.value.text.isNotEmpty()) return
+        if (state.value.data?.scope != scope || draft.value.submitting) return
+        if (content is MediaContent.Sticker && draft.value.text.isNotBlank()) return
         mutableDraft.value = draft.value.copy(media = content, mediaScope = scope, error = null)
     }
     fun send(renderedScope: ConversationScope) {
@@ -126,9 +146,15 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
         val text = try { if (draft.media == null) TextCommand.normalizeText(draft.text) else "" } catch (_: Exception) {
             mutableDraft.value = draft.copy(error = "메시지는 공백을 제외해 입력하고, 4,000자 이내로 작성해 주세요."); return
         }
+        val media = try {
+            if (draft.media is MediaContent.Attachment) draft.media.withCaption(if (draft.text.isBlank()) null else TextCommand.normalizeText(draft.text))
+            else draft.media
+        } catch (_: Exception) {
+            mutableDraft.value = draft.copy(error = "메시지는 최대 4,000자까지 작성할 수 있어요."); return
+        }
         if (draft.privateMessage && (selection.membership.role != RoomRole.STREAMER || draft.quote == null || draft.recipient == null)) { mutableDraft.value = draft.copy(error = "답장할 메시지를 다시 선택해 주세요."); return }
         val command = TextCommand(RoomId(UUID.randomUUID().toString()), renderedScope.selection.membership.membershipScope,
-            if (draft.privateMessage) "PRIVATE" else "SHARED", draft.recipient.takeIf { draft.privateMessage }, draft.quote?.id, text, draft.media)
+            if (draft.privateMessage) "PRIVATE" else "SHARED", draft.recipient.takeIf { draft.privateMessage }, draft.quote?.id, text, media)
         val intent = TextSendIntent(renderedScope, command, draft.recipientRevision)
         mutableDraft.value = draft.copy(submitting = true, error = null)
         caller.launch {
@@ -142,5 +168,5 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
             } finally { if (mutableDraft.value.submitting) mutableDraft.value = mutableDraft.value.copy(submitting = false) }
         }
     }
-    override fun onCleared() { stopPolling(); mutableDraft.value = ConversationDraft(privateMessage = false) }
+    override fun onCleared() { stopPolling(); navigation?.save(selection, mutableDraft.value) }
 }
