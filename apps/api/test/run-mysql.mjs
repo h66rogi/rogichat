@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { createConnection } from 'mysql2/promise';
 import { unusedPort, waitFor } from './helpers.mjs';
 import { selectShard } from './support/shard.mjs';
+import { migrationMode } from './support/migration-mode.mjs';
 
 let directory;
 let server;
@@ -41,6 +42,7 @@ async function run(command, args, env, timeoutMs = 60000) {
 }
 
 try {
+  const mode = migrationMode(process.argv);
   if (['--quality', '--soak', '--restore', '--expansion'].some(flag => process.argv.includes(flag)) && (!process.env.TEST_MYSQL_PORT || process.env.ROGICHAT_TEST_MYSQL !== 'disposable')) {
     throw new Error('specialized suite requires an explicitly disposable MySQL service; local datadir fallback forbidden');
   }
@@ -89,9 +91,11 @@ try {
   // Generated migrations only, on this harness-owned loopback database. Never reads repository .env.
   const migrationName = process.argv.find(x => x.startsWith('--migration-name='))?.split('=')[1] ?? 'schema_update';
   if (!/^[a-z0-9_]{1,64}$/.test(migrationName)) throw new Error('invalid fixture migration name');
-  // Includes migration replay and Prisma shadow/drift validation as the schema grows.
-  // Other setup children retain the existing one-minute limit.
-  await run(process.execPath, [createRequire(import.meta.url).resolve('prisma/build/index.js'), 'migrate', 'dev', '--name', migrationName], {
+  // One CI shard retains shadow/drift validation; the other shards replay only
+  // committed migrations. Other setup children retain the one-minute limit.
+  const migrationArgs = [createRequire(import.meta.url).resolve('prisma/build/index.js'), 'migrate', mode];
+  if (mode === 'dev') migrationArgs.push('--name', migrationName);
+  await run(process.execPath, migrationArgs, {
     PATH: process.env.PATH, DATABASE_URL: adminUrl,
   }, 180000);
   if (process.argv.includes('--migration-only')) {
