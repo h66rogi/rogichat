@@ -17,7 +17,7 @@ concurrency:
 jobs:
   decoder-image:
     needs: changes
-    if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
+    if: github.event_name == 'pull_request' && needs.changes.outputs.image == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     permissions:
@@ -48,6 +48,7 @@ jobs:
       actions: read
     outputs:
       backend: ${{ steps.classify.outputs.backend }}
+      image: ${{ steps.classify.outputs.backend_image }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -67,7 +68,7 @@ jobs:
 
   publish:
     needs: changes
-    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push' && needs.changes.outputs.backend == 'true'
+    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa' && github.event_name == 'push' && needs.changes.outputs.image == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:

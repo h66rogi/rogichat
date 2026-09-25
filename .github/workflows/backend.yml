@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       backend: ${{ steps.classify.outputs.backend }}
+      image: ${{ steps.classify.outputs.backend_image }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -120,7 +121,7 @@ jobs:
       - run: git diff --exit-code
   image-safety:
     needs: changes
-    if: needs.changes.outputs.backend == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
+    if: needs.changes.outputs.image == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -166,6 +167,7 @@ jobs:
         env:
           CHANGE_RESULT: ${{ needs.changes.result }}
           CHANGED: ${{ needs.changes.outputs.backend }}
+          IMAGE_CHANGED: ${{ needs.changes.outputs.image }}
           STATIC_RESULT: ${{ needs.static.result }}
           INTEGRATION_RESULT: ${{ needs.integration.result }}
           IMAGE_RESULT: ${{ needs.image-safety.result }}
@@ -173,6 +175,7 @@ jobs:
         run: |
           test "$CHANGE_RESULT" = success
           if test "$CHANGED" = false; then
+            test "$IMAGE_CHANGED" = false
             test "$STATIC_RESULT" = skipped
             test "$INTEGRATION_RESULT" = skipped
             test "$IMAGE_RESULT" = skipped
@@ -181,9 +184,12 @@ jobs:
           test "$CHANGED" = true
           test "$STATIC_RESULT" = success
           test "$INTEGRATION_RESULT" = success
-          if test "$EVENT_NAME" = pull_request || test "$EVENT_NAME" = merge_group || test "$EVENT_NAME" = workflow_dispatch; then
+          if test "$IMAGE_CHANGED" = false; then
+            test "$IMAGE_RESULT" = skipped
+          elif test "$IMAGE_CHANGED" = true && { test "$EVENT_NAME" = pull_request || test "$EVENT_NAME" = merge_group || test "$EVENT_NAME" = workflow_dispatch; }; then
             test "$IMAGE_RESULT" = success
           else
+            test "$IMAGE_CHANGED" = true
             test "$EVENT_NAME" = push
             test "$IMAGE_RESULT" = skipped
           fi

@@ -42,6 +42,13 @@ BACKEND_ONLY_FILES = {
     '.github/workflows/backend-expansion.yml',
     '.github/workflows/backend-restore.yml',
 }
+# Only these MySQL harness files are outside every image verification command.
+# Other test files may be bind-mounted into image checks; unknown paths rebuild.
+BACKEND_NON_IMAGE_TEST_FILES = {
+    'apps/api/test/run-mysql.mjs',
+    'apps/api/test/support/migration-mode.mjs',
+    'apps/api/test/unit/migration-mode.test.mjs',
+}
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
     'tools/infrastructure/',
@@ -82,6 +89,12 @@ def classify(paths: list[str]) -> tuple[bool, bool]:
     return web, backend
 
 
+def backend_image_changed(paths: list[str]) -> bool:
+    """Skip image work only for reviewed MySQL harness files."""
+    return any(classify_path(path)[1] and path not in BACKEND_NON_IMAGE_TEST_FILES
+               for path in paths)
+
+
 def changed_paths(base: str, head: str) -> list[str] | None:
     """Return None when the comparison cannot be proven; callers rebuild both."""
     if not SHA.fullmatch(base) or not SHA.fullmatch(head) or base == '0' * 40:
@@ -119,11 +132,13 @@ def main() -> None:
             raise SystemExit('Cannot establish the release change boundary')
     paths = changed_paths(args.base, args.head)
     web, backend = (True, True) if paths is None else classify(paths)
-    result = {'web': web, 'backend': backend, 'paths': paths}
+    image = True if paths is None else backend_image_changed(paths)
+    result = {'web': web, 'backend': backend, 'backend_image': image, 'paths': paths}
     print(json.dumps(result, sort_keys=True))
     if output := os.getenv('GITHUB_OUTPUT'):
         with open(output, 'a', encoding='utf-8') as stream:
-            stream.write(f'web={str(web).lower()}\nbackend={str(backend).lower()}\n')
+            stream.write(f'web={str(web).lower()}\nbackend={str(backend).lower()}\n'
+                         f'backend_image={str(image).lower()}\n')
 
 
 if __name__ == '__main__':
