@@ -1,0 +1,112 @@
+name: QA web image publication
+
+on:
+  workflow_run:
+    workflows: [Mobile foundation]
+    types: [completed]
+    branches: [qa]
+  schedule:
+    - cron: '2,17,32,47 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+# A delayed completion event or scheduled recovery cannot race another publisher
+# for the same source. Each component also checks the immutable tag after scanning.
+concurrency:
+  group: qa-web-publication-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      packages: read
+    outputs:
+      ready: ${{ steps.verify.outputs.ready }}
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+      web: ${{ steps.preflight.outputs.web }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate event and exact five QA required jobs
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          node tools/operations/qa_publication_gate.mjs
+      - name: Find the last proven web source for cumulative change detection
+        id: previous
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          PUBLICATION_KIND: web
+          SOURCE_SHA: ${{ steps.verify.outputs.source_sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: node tools/operations/qa_publication_base.mjs
+      - name: Classify trusted QA source change
+        id: classify
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          SOURCE_SHA: ${{ steps.verify.outputs.source_sha }}
+          BASE_SHA: ${{ steps.previous.outputs.base }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          python3 tools/release/changes.py --base "$BASE_SHA" --head "$SOURCE_SHA"
+      - name: Skip only verified completed web publications
+        id: preflight
+        if: steps.verify.outputs.ready == 'true'
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ steps.verify.outputs.source_sha }}
+          WEB_CHANGED: ${{ steps.classify.outputs.web }}
+          BACKEND_CHANGED: 'false'
+        run: node tools/operations/qa_publication_preflight.mjs
+
+  publish-web:
+    needs: gate
+    if: needs.gate.outputs.ready == 'true' && needs.gate.outputs.web == 'true'
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+    uses: ./.github/workflows/web-publish.yml
+    with:
+      source_sha: ${{ needs.gate.outputs.source_sha }}
+
+  web-result:
+    name: Web publication result
+    needs: [gate, publish-web]
+    if: always() && needs.gate.outputs.ready == 'true' && needs.publish-web.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Record completed web publication for bounded recovery
+        env:
+          SOURCE_SHA: ${{ needs.gate.outputs.source_sha }}
+        run: |
+          test "${#SOURCE_SHA}" -eq 40
+          printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/qa-web-published.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-web-published-${{ needs.gate.outputs.source_sha }}
+          path: ${{ runner.temp }}/qa-web-published.txt
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-web-published-base
+          path: ${{ runner.temp }}/qa-web-published.txt
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true

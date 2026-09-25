@@ -1,4 +1,5 @@
 name: Web verified image export
+run-name: Web export ${{ inputs.source_sha || github.event.workflow_run.head_sha }}
 
 on:
   workflow_run:
@@ -24,7 +25,11 @@ permissions: {}
 
 jobs:
   publication-result:
-    if: github.event_name == 'workflow_run' && github.repository == 'h66rogi/rogichat'
+    # Scheduled publication recovery is followed by the independent export
+    # reconciler. Skip the empty result runner on every quiet scheduled sweep.
+    if: >-
+      github.event_name == 'workflow_run' && github.repository == 'h66rogi/rogichat' &&
+      github.event.workflow_run.event != 'schedule'
     runs-on: ubuntu-24.04
     permissions:
       actions: read
@@ -60,9 +65,11 @@ jobs:
             throw new Error('Publication jobs listing incomplete');
           }
           const jobs = result.jobs.filter(job => job.name === expected);
-          if (jobs.length !== 1) throw new Error('Publication job missing or duplicate');
+          if (jobs.length > 1 || (jobs.length === 0 && expected === 'publish')) {
+            throw new Error('Publication job missing or duplicate');
+          }
           appendFileSync(process.env.GITHUB_OUTPUT,
-            `published=${jobs[0].run_id === run && jobs[0].run_attempt === attempt && jobs[0].status === 'completed' && jobs[0].conclusion === 'success'}\n`);
+            `published=${jobs.length === 1 && jobs[0].run_id === run && jobs[0].run_attempt === attempt && jobs[0].status === 'completed' && jobs[0].conclusion === 'success'}\n`);
           JS
 
   export:
@@ -120,3 +127,18 @@ jobs:
           compression-level: 6
           retention-days: 1
           overwrite: false
+      - name: Record the completed proof-bound web export
+        if: steps.producer.outputs.source_sha != ''
+        env:
+          SOURCE_SHA: ${{ steps.producer.outputs.source_sha }}
+        run: |
+          test "${#SOURCE_SHA}" -eq 40
+          printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/qa-web-exported.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.producer.outputs.source_sha != ''
+        with:
+          name: qa-web-exported-${{ steps.producer.outputs.source_sha }}
+          path: ${{ runner.temp }}/qa-web-exported.txt
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true

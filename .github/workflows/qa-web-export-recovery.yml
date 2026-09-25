@@ -1,0 +1,29 @@
+name: QA web export recovery
+
+on:
+  schedule:
+    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
+
+permissions: {}
+
+concurrency:
+  group: qa-web-export-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    if: github.repository == 'h66rogi/rogichat' && github.ref == 'refs/heads/qa'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Reconcile one missed proof-bound QA web export
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/operations/qa_web_export_reconcile.py

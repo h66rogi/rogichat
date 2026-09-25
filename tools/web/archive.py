@@ -356,12 +356,17 @@ def produce():
     producer_core = importlib.util.module_from_spec(producer_spec)
     producer_spec.loader.exec_module(producer_core)
     producer_core.WORKFLOWS = core.WORKFLOWS.copy()
+    producer_core.NEW_PUBLICATION_WORKFLOW = core.NEW_PUBLICATION_WORKFLOW
+    producer_core.NEW_PUBLICATION_NAME = core.NEW_PUBLICATION_NAME
+    producer_core.NEW_WORKFLOWS = core.NEW_WORKFLOWS.copy()
     producer_core.PUBLICATION_JOB = core.PUBLICATION_JOB
     producer_core.ROLES = core.ROLES.copy()
     producer_core.FILES = IMAGE_FILES.copy()
     producer_core.validate_config = validate_config
     producer_core.validate_descriptor = validate_descriptor
-    producer_core.produce(expected_event=expected['producer']['event'], verification_runs=expected['verification_runs'])
+    producer_core.produce(expected_event=expected['producer']['event'],
+                          verification_runs=expected['verification_runs'],
+                          publication_attempt=positive_id(parse_proof_zip(publication_proof)['publicationAttempt']))
     directory = Path(os.environ['RUNNER_TEMP']) / 'rogichat-export'
     descriptor = validate_descriptor(json.loads((directory / 'descriptor.json').read_bytes()))
     require(descriptor['source_sha'] == expected['source_sha'] and descriptor['producer'] == expected['producer']
@@ -370,8 +375,6 @@ def produce():
     with (directory / PROOF_FILE).open('xb') as output:
         output.write(publication_proof)
     validate_directory(directory)
-    with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-        output.write(f"source_sha={descriptor['source_sha']}\n")
     del token
     print('Archive digest and config match the exact pre-existing trusted publication proof.')
 
