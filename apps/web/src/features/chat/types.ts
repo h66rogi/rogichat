@@ -8,6 +8,7 @@
 
 import type { MediaUpload } from '../media/upload';
 import type { StickerCatalog } from '../media/sticker-catalog';
+import type { ReactionSummary } from './reactions';
 export type ChatScope = 'SHARED' | 'PRIVATE';
 export interface ChatImageContent { type: 'PHOTO' | 'STICKER' | 'VIDEO'; revision: string; assets: readonly { assetId: string; width: number; height: number; variant?: string }[]; stickerId?: string }
 
@@ -43,6 +44,7 @@ export interface ChatMessageItemModel {
   kind: 'message';
   counterpartActorId?: string | null;
   allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
+  reactions?: ReactionSummary;
   id: string;
   scope: ChatScope;
   author: ChatActorRef;
@@ -66,6 +68,7 @@ export interface ChatMessageItemModel {
 export interface ChatPublicationItemModel {
   kind: 'publication';
   allowedActions?: { reply: boolean; publish: boolean; delete: boolean };
+  reactions?: ReactionSummary;
   id: string;
   body: string;
   media?: ChatImageContent;

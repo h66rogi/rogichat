@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { envelope, event, mergeMessages, message, receipt, token, version } from './contract';
+import { envelope, event, mergeMessages, message, projectMessages, receipt, token, version } from './contract';
 import { SendCommands } from './commands';
 
 // Exact C05 492f2f75 fixture, copied only into isolated tests.
@@ -16,6 +16,16 @@ void test('exact C05 fixtures replace whole equal-version DTO including absent c
   assert.deepEqual(mergeMessages([outgoing], [changed]), [changed]);
   assert.equal(message(fixture.anonymousPublisher).allowedActions.delete, true);
   assert.deepEqual(event(fixture.tombstone), fixture.tombstone);
+});
+
+void test('snapshot message carries ready reaction counts and a named navigable quote', () => {
+  const original = fixture.privateOutgoing;
+  const quoted = message({ ...original, quote: { id: fixture.anonymousPublisher.id, authorName: '원본 작성자', content: { type: 'TEXT', text: '원문' } } });
+  const item = projectMessages([quoted], fixture.privateOutgoing.counterpart.actorId, [])[0];
+  assert.equal(item?.kind, 'message');
+  if (item?.kind !== 'message') return;
+  assert.deepEqual(item.reactions, { counts: [{ emoji: '👍', count: 2 }], mine: '👍' });
+  assert.deepEqual(item.quote, { messageId: fixture.anonymousPublisher.id, authorName: '원본 작성자', excerpt: '원문' });
 });
 
 void test('nested message allowlists reject private identities, extra hints and malformed media', () => {

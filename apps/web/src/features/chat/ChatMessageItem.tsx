@@ -42,13 +42,14 @@ export interface ChatMessageItemProps {
   /** Offered only where a private reply makes sense; the room view decides the target. */
   onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
+  onQuoteNavigate?: ((messageId: string) => void) | undefined;
 }
 
-export function ChatMessageItem({ item, viewerRole, onReplyPrivate, onDelete }: ChatMessageItemProps) {
+export function ChatMessageItem({ item, viewerRole, onReplyPrivate, onDelete, onQuoteNavigate }: ChatMessageItemProps) {
   if (item.kind === 'publication') return <PublicationRow item={item} onDelete={onDelete} />;
   if (item.kind === 'unsupported') return <UnsupportedRow item={item} onDelete={onDelete} />;
   if (item.status === 'deleted') return <TombstoneRow item={item} />;
-  return <MessageRow item={item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} />;
+  return <MessageRow item={item} viewerRole={viewerRole} onReplyPrivate={onReplyPrivate} onDelete={onDelete} onQuoteNavigate={onQuoteNavigate} />;
 }
 
 function MessageRow({
@@ -56,11 +57,13 @@ function MessageRow({
   viewerRole,
   onReplyPrivate,
   onDelete,
+  onQuoteNavigate,
 }: {
   item: ChatMessageItemModel;
   viewerRole: ChatViewerRole;
   onDelete?: ((messageId: string) => Promise<ChatSubmitResult>) | undefined;
   onReplyPrivate?: ((item: ChatMessageItemModel) => void) | undefined;
+  onQuoteNavigate?: ((messageId: string) => void) | undefined;
 }) {
   const isOwn = item.isOwn;
   const isPrivate = item.scope === 'PRIVATE';
@@ -78,7 +81,7 @@ function MessageRow({
       <div className={cn('flex min-w-0 max-w-[min(100%,36rem)] flex-col gap-0.5', isOwn ? 'items-end' : 'items-start')}>
         {!isOwn && <span className="px-1 text-[12px] font-semibold text-body">{item.author.displayName}</span>}
 
-        {item.quote && <QuoteBlock quote={item.quote} align={isOwn ? 'end' : 'start'} />}
+        {item.quote && <QuoteBlock quote={item.quote} align={isOwn ? 'end' : 'start'} onNavigate={onQuoteNavigate} />}
 
         <div className={cn('flex min-w-0 items-end gap-1.5', isOwn ? 'flex-row-reverse' : 'flex-row')}>
           <div
@@ -97,7 +100,7 @@ function MessageRow({
             <time dateTime={item.createdAt}>{timeLabel}</time>
           </div>
           {(canReply || item.status === 'saved' || (item.allowedActions?.delete && onDelete)) && <div className={cn('flex shrink-0 items-center gap-0.5', isOwn && 'flex-row-reverse')}>
-            {item.status === 'saved' && <ReactionControl messageId={item.id} />}
+            {item.status === 'saved' && <ReactionControl messageId={item.id} initialSummary={item.reactions} />}
             {canReply && <button type="button" onClick={() => onReplyPrivate(item)} className="flex size-11 items-center justify-center rounded-full text-chat-accent hover:bg-surface-soft focus-visible:outline-2 focus-visible:outline-focus-ring" aria-label={replyLabelFor(item, viewerRole)} title="비공개 답장" data-testid="chat-reply"><Reply className="size-5" aria-hidden="true" /></button>}
             <MessageActionMenu>
               {item.status === 'saved' && <ChatPrivacyActions messageId={item.id} />}
@@ -149,11 +152,11 @@ function StatusMark({ status }: { status: ChatMessageStatus }) {
   }
 }
 
-function QuoteBlock({ quote, align }: { quote: ChatQuotePreview; align: 'start' | 'end' }) {
+function QuoteBlock({ quote, align, onNavigate }: { quote: ChatQuotePreview; align: 'start' | 'end'; onNavigate?: ((messageId: string) => void) | undefined }) {
   return (
-    <div
+    <button type="button" onClick={() => onNavigate?.(quote.messageId)} aria-label={`${quote.authorName}님의 원본 메시지로 이동`} disabled={!onNavigate}
       className={cn(
-        'flex max-w-full flex-col gap-0.5 rounded-sm border-l-2 border-control-border bg-surface-soft px-2.5 py-1.5 text-[13px] text-muted',
+        'flex max-w-full flex-col gap-0.5 rounded-sm border-l-2 border-control-border bg-surface-soft px-2.5 py-1.5 text-left text-[13px] text-muted hover:bg-chat-other-bubble focus-visible:outline-2 focus-visible:outline-focus-ring',
         align === 'end' && 'self-end',
       )}
     >
@@ -162,7 +165,7 @@ function QuoteBlock({ quote, align }: { quote: ChatQuotePreview; align: 'start' 
         {quote.authorName}
       </span>
       <span className="truncate">{quote.excerpt}</span>
-    </div>
+    </button>
   );
 }
 
@@ -178,7 +181,7 @@ function PublicationRow({ item, onDelete }: { item: ChatPublicationItemModel; on
           <time dateTime={item.createdAt}>{timeLabelFor(item.createdAt)}</time>
         </div>
         {item.media ? <ChatMediaImages messageId={item.id} media={item.media} /> : <p className="whitespace-pre-wrap break-words text-[16px] leading-normal text-ink">{item.body}</p>}
-        <div className="flex items-center gap-1"><ReactionControl messageId={item.id} /><MessageActionMenu><ChatPrivacyActions messageId={item.id} />{item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}</MessageActionMenu></div>
+        <div className="flex items-center gap-1"><ReactionControl messageId={item.id} initialSummary={item.reactions} /><MessageActionMenu><ChatPrivacyActions messageId={item.id} />{item.allowedActions?.delete && onDelete && <DeleteMessageControl onDelete={() => onDelete(item.id)} />}</MessageActionMenu></div>
       </div>
     </div>
   );

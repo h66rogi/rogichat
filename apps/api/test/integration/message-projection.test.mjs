@@ -5,6 +5,7 @@ import { createUser, createRoom, joinRoom, leaveRoom, sendMessage, sendInput, ge
 import { readConfig } from '../../dist/infrastructure/config/config.js';
 import { MysqlDatabase } from '../../dist/infrastructure/database/database.js';
 import { AccessService } from '../../dist/modules/access/access.service.js';
+import { BlockPolicyRepository } from '../../dist/modules/access/block-policy.repository.js';
 import { MembershipRepository } from '../../dist/modules/access/membership.repository.js';
 import { MessagesQueryService } from '../../dist/modules/messages/messages-query.service.js';
 import { MessagesQueryRepository } from '../../dist/modules/messages/messages-query.repository.js';
@@ -27,8 +28,8 @@ async function fixture(t) {
     await tx.execute('UPDATE rooms SET owner_member_id=? WHERE id=?', [result[0].actor, room]);
     return { room, owner: result[0], fan: result[1], other: result[2] };
   });
-  const access = new AccessService(new MembershipRepository());
-  const query = new MessagesQueryService(new MessagesQueryRepository(), new MessageEligibilityService(new MessageEligibilityRepository()));
+  const access = new AccessService(new MembershipRepository(), new BlockPolicyRepository());
+  const query = new MessagesQueryService(new MessagesQueryRepository(), new MessageEligibilityService(new MessageEligibilityRepository()), access);
   const key = randomBytes(32);
   const send = (who, target) => db.transactions.write(tx => sendMessage(tx, people.room, who.id, sendInput({ clientMessageId: randomUUID(),
     intent: target ? 'PRIVATE' : 'SHARED', ...(target ? { recipientActorId: target.actor } : {}), content: { type: 'TEXT', text: '합성 본문' } }), key));

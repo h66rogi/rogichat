@@ -177,15 +177,18 @@ test('blocked author cannot reappear through own quotes, profiles or reaction co
   const quoted = await f.send(f.fan1, '내 인용 합성', f.owner, shared);
   await f.call(f.owner, 'PUT', `/rooms/${f.room}/messages/${quoted}/reactions/me`, { emoji: '😀' });
   const before = await f.call(f.fan1, 'GET', `/rooms/${f.room}/messages/${quoted}`); assert.equal(before.body.quote.id, shared);
+  assert.deepEqual(before.body.reactions, { counts: [{ emoji: '😀', count: 1 }], mine: null });
   await f.call(f.fan1, 'PUT', `/rooms/${f.room}/blocks/${f.owner.actor}`, {});
   const after = await f.call(f.fan1, 'GET', `/rooms/${f.room}/messages/${quoted}`);
   assert.equal(after.status, 200); assert.equal(after.body.quote, null); assert.equal(after.body.counterpart, null);
   assert.equal(after.body.allowedActions.reply, false);
+  assert.deepEqual(after.body.reactions, { counts: [], mine: null });
   const reactions = await f.call(f.fan1, 'GET', `/rooms/${f.room}/messages/${quoted}/reactions`);
   assert.deepEqual(reactions.body.counts, []);
   assert.equal((await f.call(f.fan1, 'PUT', `/rooms/${f.room}/messages/${quoted}/reactions/me`, { emoji: '😀' })).status, 404);
   assert.equal((await f.call(f.owner, 'PUT', `/rooms/${f.room}/messages/${quoted}/reactions/me`, { emoji: '😀' })).status, 404);
   const page = await f.roomSync(f.fan1, 'snapshot'); assert.equal(page.body.messages.find(m => m.id === quoted).quote, null);
+  assert.deepEqual(page.body.messages.find(m => m.id === quoted).reactions, { counts: [], mine: null });
   assert.equal((await f.call(f.fan1, 'GET', `/rooms/${f.room}/actors/${f.owner.actor}/profile`)).status, 404);
   await f.call(f.fan1, 'DELETE', `/rooms/${f.room}/blocks/${f.owner.actor}`);
   assert.equal((await f.call(f.fan1, 'GET', `/rooms/${f.room}/messages/${quoted}`)).body.quote.id, shared);

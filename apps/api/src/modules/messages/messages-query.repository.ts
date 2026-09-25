@@ -21,13 +21,14 @@ async page(tx: Transaction, actorId: string, roomId: string, visibleFrom: string
   const rows = await tx.rows<RowDataPacket>(`SELECT m.id,m.version,m.created_order,m.created_at,m.deletion_root_id,m.sender_member_id,m.text_content,m.content_kind,s.kind,p.nickname,av.id AS avatar_id,${blocked} AS blocked,
     ${events ? 'e.event_order,' : ''}
     CASE WHEN m.deletion_root_id IS NULL AND q.id IS NOT NULL AND q.content_kind='TEXT' AND q.deleted_at IS NULL AND q.moderated=0 AND qu.status NOT IN ('DELETING','DELETED') AND (q.deletion_root_id IS NULL OR (qr.id IS NOT NULL AND qr.deleted_at IS NULL AND qr.moderated=0 AND qru.status NOT IN ('DELETING','DELETED'))) AND ${personal('q')} AND q.created_order>=? AND (qs.kind='ROOM_SHARED' OR ((q.stream_id=m.stream_id OR (s.kind='RESTRICTED' AND q.sender_member_id<>m.sender_member_id AND EXISTS (SELECT 1 FROM stream_pairs qp WHERE qp.room_id=m.room_id AND qp.stream_id=m.stream_id AND qp.left_member_id=LEAST(m.sender_member_id,q.sender_member_id) AND qp.right_member_id=GREATEST(m.sender_member_id,q.sender_member_id)))) AND ${grant('q')})) THEN q.id ELSE NULL END AS quote_id,
-    q.text_content AS quote_text
+    q.text_content AS quote_text, CASE WHEN q.deletion_root_id IS NOT NULL THEN '공개된 메시지' ELSE qp_profile.nickname END AS quote_author_name
     FROM ${events ? 'room_events e JOIN messages m ON m.id=e.message_id AND m.room_id=e.room_id AND m.stream_id=e.stream_id' : 'messages m'}
     JOIN message_streams s ON s.id=m.stream_id AND s.room_id=m.room_id JOIN users u ON u.id=m.content_owner_user_id
     JOIN room_members sender ON sender.id=m.sender_member_id AND sender.room_id=m.room_id LEFT JOIN user_profiles p ON p.user_id=sender.user_id
     LEFT JOIN users su ON su.id=sender.user_id LEFT JOIN media_assets av ON av.id=p.avatar_asset_id AND av.owner_user_id=p.user_id AND av.kind='AVATAR' AND av.room_id IS NULL AND av.state='READY' AND av.deleted_at IS NULL AND su.status='ACTIVE'
     LEFT JOIN messages root ON root.id=m.deletion_root_id AND root.room_id=m.room_id LEFT JOIN users ru ON ru.id=root.content_owner_user_id
     LEFT JOIN messages q ON q.id=m.quote_id AND q.room_id=m.room_id LEFT JOIN message_streams qs ON qs.id=q.stream_id AND qs.room_id=q.room_id LEFT JOIN users qu ON qu.id=q.content_owner_user_id
+    LEFT JOIN room_members quote_sender ON quote_sender.id=q.sender_member_id AND quote_sender.room_id=q.room_id LEFT JOIN user_profiles qp_profile ON qp_profile.user_id=quote_sender.user_id
     LEFT JOIN messages qr ON qr.id=q.deletion_root_id AND qr.room_id=q.room_id LEFT JOIN users qru ON qru.id=qr.content_owner_user_id
     WHERE m.room_id=? AND ${personal('m')} AND ${audience} AND ${range} ${events ? '' : `AND NOT ${blocked}`}
     ORDER BY ${events ? 'e.event_order ASC' : 'm.created_order DESC'} LIMIT ?`, [actorId, visibleFrom, actorId, now, now, roomId, actorId, visibleFrom, actorId, now, now, ...values, limit]);
@@ -51,6 +52,20 @@ async page(tx: Transaction, actorId: string, roomId: string, visibleFrom: string
   } : null]));
   for (const row of rows) row.sticker = bySticker.get(String(row.id)) ?? null;
   return rows;
+}
+
+// The page IDs have already passed the viewer ACL. Binary grouping preserves distinct emoji sequences.
+async reactions(tx: Transaction, roomId: string, memberId: string, ids: string[], blockedActors: string[]) {
+  if (!ids.length) return new Map<string, { counts: { emoji: string; count: number }[]; mine: string | null }>();
+  const rows = await tx.rows<RowDataPacket>(`SELECT r.message_id,MIN(r.emoji) AS emoji,COUNT(*) AS total
+    FROM message_reactions r JOIN room_members m ON m.id=r.member_id AND m.room_id=r.room_id
+    JOIN users u ON u.id=m.user_id AND u.status NOT IN ('DELETING','DELETED')
+    WHERE r.room_id=? AND r.message_id IN (${ids.map(() => '?').join(',')}) ${blockedActors.length ? `AND r.member_id NOT IN (${blockedActors.map(() => '?').join(',')})` : ''}
+    GROUP BY r.message_id,BINARY r.emoji ORDER BY r.message_id,BINARY r.emoji`, [roomId, ...ids, ...blockedActors]);
+  const mine = await tx.prisma.message_reactions.findMany({ where: { room_id: roomId, message_id: { in: ids }, member_id: memberId, member: { user: { status: { notIn: ['DELETING', 'DELETED'] } } } }, select: { message_id: true, emoji: true } });
+  const result = new Map(ids.map(id => [id, { counts: [] as { emoji: string; count: number }[], mine: mine.find(row => row.message_id === id)?.emoji ?? null }]));
+  for (const row of rows) result.get(String(row.message_id))?.counts.push({ emoji: String(row.emoji), count: Number(row.total) });
+  return result;
 }
 
 async stickerRevocations(tx: Transaction, roomId: string, actorId: string, visibleFrom: string, delegated = false) {

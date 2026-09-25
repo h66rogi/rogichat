@@ -19,7 +19,8 @@ export interface MessageReadModel {
   } | { readonly type: 'STICKER'; readonly stickerId: string; readonly assetId: string; readonly width: number; readonly height: number };
   counterpart: { readonly actorId: string } | null;
   allowedActions: { reply: boolean; publish: boolean; delete: boolean };
-  readonly quote: { readonly id: string; readonly content: { readonly type: 'TEXT'; readonly text: string } } | null;
+  readonly reactions?: { readonly counts: readonly { readonly emoji: string; readonly count: number }[]; readonly mine: string | null };
+  readonly quote: { readonly id: string; readonly authorName?: string; readonly content: { readonly type: 'TEXT'; readonly text: string } } | null;
 }
 
 export interface MessageDto {
@@ -30,7 +31,8 @@ export interface MessageDto {
   } | { type: 'STICKER'; stickerId: string; assetId: string; width: number; height: number };
   counterpart: { actorId: string } | null;
   allowedActions: { reply: boolean; publish: boolean; delete: boolean };
-  quote: { id: string; content: { type: 'TEXT'; text: string } } | null;
+  reactions: { counts: { emoji: string; count: number }[]; mine: string | null };
+  quote: { id: string; authorName: string; content: { type: 'TEXT'; text: string } } | null;
 }
 
 // Projection only: the caller must construct this model after fresh authorization,
@@ -57,5 +59,6 @@ export function projectMessageDto(model: MessageReadModel): MessageDto {
   return { id: model.id, version: String(model.version), createdAt: model.createdAt.toISOString(), audience: model.audience,
     counterpart: model.counterpart === null ? null : { actorId: model.counterpart.actorId },
     allowedActions: { reply: model.allowedActions.reply, publish: model.allowedActions.publish, delete: model.allowedActions.delete },
-    author, content, quote: model.quote === null ? null : { id: model.quote.id, content: { type: 'TEXT', text: model.quote.content.text } } };
+    author, content, reactions: { counts: (model.reactions?.counts ?? []).map(row => ({ emoji: row.emoji, count: row.count })), mine: model.reactions?.mine ?? null },
+    quote: model.quote === null ? null : { id: model.quote.id, authorName: model.quote.authorName || '사용자', content: { type: 'TEXT', text: model.quote.content.text } } };
 }

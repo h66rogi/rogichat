@@ -7,6 +7,7 @@
     "author": {"kind": "member", "actorId": "00000000-0000-4000-8000-000000000002", "nickname": "사용자", "avatar": null},
     "content": {"type": "TEXT", "text": "안녕하세요"},
     "quote": null,
+    "reactions": {"counts": [{"emoji": "👍", "count": 2}], "mine": "👍"},
     "counterpart": {"actorId": "00000000-0000-4000-8000-000000000003"},
     "allowedActions": {"reply": true, "publish": true, "delete": true}
   },
@@ -18,6 +19,7 @@
     "author": {"kind": "anonymous"},
     "content": {"type": "TEXT", "text": "공유된 본문"},
     "quote": null,
+    "reactions": {"counts": [], "mine": null},
     "counterpart": null,
     "allowedActions": {"reply": false, "publish": false, "delete": true}
   },
@@ -29,6 +31,7 @@
     "author": {"kind": "member", "actorId": "00000000-0000-4000-8000-000000000002", "nickname": "사용자", "avatar": null},
     "content": {"type": "TEXT", "text": "안녕하세요"},
     "quote": null,
+    "reactions": {"counts": [{"emoji": "👍", "count": 2}], "mine": "👍"},
     "counterpart": null,
     "allowedActions": {"reply": false, "publish": true, "delete": true}
   },

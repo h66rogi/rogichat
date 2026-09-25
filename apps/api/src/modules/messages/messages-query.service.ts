@@ -7,6 +7,7 @@ import type { ActiveMember } from '../access/access.types.js';
 import { projectMessageDto } from './message-projection.js';
 import type { MessageDto } from './message-projection.js';
 import { MessagesQueryRepository } from './messages-query.repository.js';
+import { AccessService } from '../access/access.service.js';
 
 export type MessageWindow = { kind: 'snapshot' | 'history'; from: string } | { kind: 'events'; from: string; high: string };
 export type MessagePageItem = {
@@ -17,7 +18,12 @@ export interface MessagePage { readonly items: readonly MessagePageItem[]; reado
 @Injectable()
 export class MessagesQueryService {
   constructor(@Inject(MessagesQueryRepository) private readonly repository: MessagesQueryRepository,
-    @Inject(MessageEligibilityService) private readonly eligibility: MessageEligibilityService) {}
+    @Inject(MessageEligibilityService) private readonly eligibility: MessageEligibilityService,
+    @Inject(AccessService) private readonly access: AccessService) {}
+
+  reactions(tx: Transaction, viewer: ActiveMember, ids: string[]) {
+    return this.access.blockedActors(tx, viewer.room_id, viewer.id).then(blocked => this.repository.reactions(tx, viewer.room_id, viewer.id, ids, blocked));
+  }
 
   async page(tx: Transaction, viewer: ActiveMember, window: MessageWindow, limit: number, now?: Date): Promise<MessagePage> {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ServiceUnavailableException();
@@ -26,6 +32,7 @@ export class MessagesQueryService {
     // The repository applies ACL before LIMIT. Project only the page, never the lookahead
     // row, and never expose source identifiers, grants, SQL rows or storage keys to Sync.
     const hints = await this.eligibility.project(tx, viewer, rows.slice(0, limit).filter(row => Number(row.blocked) !== 1).map(row => String(row.id)), capturedNow);
+    const reactions = await this.reactions(tx, viewer, rows.slice(0, limit).filter(row => Number(row.blocked) !== 1).map(row => String(row.id)));
     const items = rows.slice(0, limit).map((row): MessagePageItem => {
       const position = { id: String(row.id), version: String(row.version), createdOrder: String(row.created_order),
         eventOrder: row.event_order === undefined ? null : String(row.event_order) };
@@ -33,7 +40,7 @@ export class MessagesQueryService {
         if (window.kind !== 'events') throw new ServiceUnavailableException();
         return { ...position, blocked: true, message: null };
       }
-      return { ...position, blocked: false, message: project(row, hints.get(String(row.id))!) };
+      return { ...position, blocked: false, message: project(row, hints.get(String(row.id))!, reactions.get(String(row.id))!) };
     });
     return { items, hasMore: rows.length > limit };
   }
@@ -48,11 +55,11 @@ export class MessagesQueryService {
   }
 }
 
-function project(row: RowDataPacket, hints: MessageEligibility): MessageDto {
+function project(row: RowDataPacket, hints: MessageEligibility, reactions: { counts: { emoji: string; count: number }[]; mine: string | null }): MessageDto {
   const kind = row.content_kind as string;
   if (!['TEXT', 'PHOTO', 'VIDEO', 'STICKER'].includes(kind)) throw new ServiceUnavailableException();
   if (kind === 'STICKER' && !row.sticker) throw new ServiceUnavailableException();
-  return projectMessageDto({ ...hints, id: row.id, version: String(row.version), createdAt: row.created_at as Date, audience: row.kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
+  return projectMessageDto({ ...hints, reactions, id: row.id, version: String(row.version), createdAt: row.created_at as Date, audience: row.kind === 'ROOM_SHARED' ? 'SHARED' : 'PRIVATE',
     author: row.deletion_root_id ? { kind: 'anonymous' } : { kind: 'member', actorId: row.sender_member_id, nickname: row.nickname ?? '사용자', avatar: row.avatar_id ? { assetId: row.avatar_id } : null },
-    content: kind === 'TEXT' ? { type: 'TEXT', text: row.text_content } : kind === 'STICKER' ? { type: 'STICKER', stickerId: row.sticker.stickerId, assetId: row.sticker.assetId, width: row.sticker.width, height: row.sticker.height } : { type: kind as 'PHOTO' | 'VIDEO', attachments: row.attachments }, quote: !row.deletion_root_id && row.quote_id ? { id: row.quote_id, content: { type: 'TEXT', text: row.quote_text } } : null });
+    content: kind === 'TEXT' ? { type: 'TEXT', text: row.text_content } : kind === 'STICKER' ? { type: 'STICKER', stickerId: row.sticker.stickerId, assetId: row.sticker.assetId, width: row.sticker.width, height: row.sticker.height } : { type: kind as 'PHOTO' | 'VIDEO', attachments: row.attachments }, quote: !row.deletion_root_id && row.quote_id ? { id: row.quote_id, authorName: row.quote_author_name ?? '사용자', content: { type: 'TEXT', text: row.quote_text } } : null });
 }
