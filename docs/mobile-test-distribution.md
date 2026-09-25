@@ -170,8 +170,11 @@ xcodebuild -showdestinations -project apps/ios/Rogichat.xcodeproj -scheme Rogich
 
 ## CI
 
-`Mobile foundation`은 네 Android variant 검사와 iOS 네 configuration 빌드를 수행한다.
-추가로 업로드 안전장치 단위 검증과 임시 QA 키를 이용한 APK/AAB 빌드를 실행한다.
+`Mobile foundation`은 변경된 플랫폼만 빌드한다. Android 입력은 네 variant와 에뮬레이터
+저장소 검사, 임시 QA 키를 이용한 APK/AAB 빌드를 실행한다. iOS 입력은 상태·서명 안전장치
+검사와 QA/prod 네 configuration 빌드를 독립된 macOS 작업에서 병렬 실행한다. 공통 모바일
+도구 또는 모바일 workflow가 바뀌면 양 플랫폼을 모두 검증하며, 필수 결과는 플랫폼별 성공과
+의도된 건너뛰기를 구별해 검사한다.
 임시 키는 runner의 저장소 밖에 생성하고 CI 종료 시 폐기한다. 실제 계정 자격증명·배포 키는
 CI/PR에 제공하지 않으며 CI에서 Firebase/TestFlight 업로드를 수행하지 않는다.
 
