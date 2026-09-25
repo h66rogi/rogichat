@@ -65,8 +65,11 @@ class ComponentChangesTest(unittest.TestCase):
             output = root / 'outputs.txt'
             command = [sys.executable, str(Path(changes.__file__).resolve()),
                        '--base', base, '--head', head]
+            # This fixture models a push boundary even when invoked by a real
+            # merge_group runner with unrelated group SHA environment values.
             result = subprocess.run(command, cwd=root,
-                                    env=dict(os.environ, GITHUB_OUTPUT=str(output)),
+                                    env=dict(os.environ, GITHUB_EVENT_NAME='push',
+                                             GITHUB_OUTPUT=str(output)),
                                     capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertEqual(json.loads(result.stdout)['backend_image'], False)
