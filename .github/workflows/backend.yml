@@ -142,6 +142,7 @@ jobs:
           DOCKER_BUILDKIT: '1'
         run: |
           set -euo pipefail
+          scan_args=()
           for target in runtime migration; do
             image="rogichat-check:$target"
             start=$SECONDS
@@ -154,8 +155,12 @@ jobs:
             test "$(docker image inspect --format '{{.Id}}' "$image")" = "$image_id"
             bytes=$(docker image inspect --format '{{.Size}}' "$image")
             printf '| %s | %s s | %s s | %s bytes |\n' "$target" "$cold" "$warm" "$bytes" >> "$GITHUB_STEP_SUMMARY"
-            docker image save "$image_id" | python3 tools/security/image_scan.py -
+            scan_args+=(--docker-image "$image_id")
           done
+          # One scanner invocation retains exact-content scan results across
+          # the shared runtime and migration layers. Each image still receives
+          # independent archive limits, layer checks and failure handling.
+          python3 tools/security/image_scan.py "${scan_args[@]}"
       - name: Verify lean migration image with its real CLI and driver
         run: |
           set -euo pipefail
