@@ -1,7 +1,7 @@
 # Image publication boundary
 
-The publisher scans both locally built Docker-save streams **before GHCR login**.
-The export workflow scans both saved images again **before public artifact upload**.
+The publisher scans every locally built Docker-save stream **before GHCR login**.
+The export workflow scans every saved image again **before public artifact upload**.
 Neither scan runs an image or receives a cloud/runtime credential. A parse error,
 missing/wrong scanner, unsupported compression, limit breach or unreviewed finding
 blocks publication. No raw finding or archive-controlled name reaches CI output.
@@ -39,3 +39,10 @@ outside the checkout containing only content hashes and rule identifiers. Never
 upload diagnostics or failed images as public artifacts. Run
 `python3 tools/security/test_image_scan.py` to exercise real scanner failures and
 the normal no-credential image path. The source-security gate remains independent.
+
+For a multi-image release, pass all archive paths in one invocation, or repeat
+`--docker-image sha256:...` for local immutable image IDs. Each image still receives
+its own structure, policy and resource-limit checks. Exact content bytes that
+already passed Gitleaks in the same invocation are not converted and scanned a
+second time; changed bytes are checked normally. The QA backend publisher and
+exporter use this batch mode for their three images.

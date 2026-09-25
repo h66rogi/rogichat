@@ -64,11 +64,13 @@ jobs:
           python3 tools/security/install.py
           images=(runtime migration)
           if test -n "$EXPORT_DECODER_DIGEST"; then images+=(decoder); fi
+          archives=()
           for image in "${images[@]}"; do
             printf '| %s transport tar | %s bytes |\n' "$image" \
               "$(stat -c %s "$RUNNER_TEMP/rogichat-export/$image.tar")" >> "$GITHUB_STEP_SUMMARY"
-            python3 tools/security/image_scan.py "$RUNNER_TEMP/rogichat-export/$image.tar"
+            archives+=("$RUNNER_TEMP/rogichat-export/$image.tar")
           done
+          python3 tools/security/image_scan.py "${archives[@]}"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: backend-${{ inputs.source_sha }}-${{ github.run_id }}-${{ github.run_attempt }}
