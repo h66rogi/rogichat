@@ -31,7 +31,7 @@ jobs:
         run: python3 tools/release/changes.py --base "$BASE_SHA" --head "$GITHUB_SHA"
 
   verify:
-    name: Lint, typecheck, unit, production build and browser
+    name: Lint, typecheck and unit
     needs: changes
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
@@ -53,6 +53,30 @@ jobs:
       - run: pnpm web:lint
       - run: pnpm web:typecheck
       - run: pnpm web:test:unit
+      - run: git diff --exit-code
+
+  browser:
+    name: Production build and browser ${{ matrix.shard }}/2
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+      - name: Install pinned package manager and locked dependencies
+        run: |
+          npm install --global pnpm@12.4.2 --ignore-scripts
+          pnpm install --frozen-lockfile
       - name: Production build (no preview routes)
         env:
           NEXT_TELEMETRY_DISABLED: '1'
@@ -66,14 +90,16 @@ jobs:
           ffmpeg -hide_banner -version
       - name: Browser tests against the production artifact
         id: browser
+        env:
+          SHARD: ${{ matrix.shard }}
         run: |
           pnpm --filter @rogichat/web exec playwright install --with-deps chromium
-          pnpm web:test
+          pnpm --filter @rogichat/web exec playwright test --shard="$SHARD/2"
       - name: Retain failed browser evidence
         if: failure() && steps.browser.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: failed-web-browser-evidence
+          name: failed-web-browser-evidence-${{ matrix.shard }}-${{ github.run_attempt }}
           path: |
             apps/web/test-results
             apps/web/playwright-report
@@ -115,13 +141,12 @@ jobs:
         run: |
           set -euo pipefail
           python3 tools/security/install.py
-          python3 tools/security/test_image_scan.py
           docker image save rogichat-web:check | python3 tools/security/image_scan.py -
 
   required:
-    # Always reported so a required status never stays pending when the path filter skips verify.
+    # Always reported so a required status never stays pending when the path filter skips verification.
     name: Web required checks
-    needs: [changes, verify, container]
+    needs: [changes, verify, browser, container]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -131,14 +156,15 @@ jobs:
           CHANGES_RESULT: ${{ needs.changes.result }}
           CHANGED: ${{ needs.changes.outputs.web }}
           VERIFY: ${{ needs.verify.result }}
+          BROWSER: ${{ needs.browser.result }}
           CONTAINER: ${{ needs.container.result }}
         run: |
-          echo "changes: $CHANGES_RESULT, web changed: '$CHANGED', verify: $VERIFY"
+          echo "changes: $CHANGES_RESULT, web changed: '$CHANGED', verify: $VERIFY, browser: $BROWSER"
           if [ "$CHANGES_RESULT" != "success" ]; then echo "change detection did not succeed"; exit 1; fi
-          case "$CHANGED:$VERIFY:$CONTAINER:$GITHUB_EVENT_NAME" in
-            false:skipped:skipped:*) echo "no web change; verify skipped"; exit 0 ;;
-            true:success:success:pull_request|true:success:success:workflow_dispatch)
+          case "$CHANGED:$VERIFY:$BROWSER:$CONTAINER:$GITHUB_EVENT_NAME" in
+            false:skipped:skipped:skipped:*) echo "no web change; verification skipped"; exit 0 ;;
+            true:success:success:success:pull_request|true:success:success:success:workflow_dispatch)
               echo "web verified with pre-merge image safety"; exit 0 ;;
-            true:success:skipped:push) echo "web source verified; publisher checks the image"; exit 0 ;;
+            true:success:success:skipped:push) echo "web verified; publisher checks the image"; exit 0 ;;
             *) echo "unexpected combination"; exit 1 ;;
           esac

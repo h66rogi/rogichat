@@ -26,6 +26,9 @@ SHARED_FILES = {
     'tools/operations/backend_archive.py',
 }
 WEB_ONLY_FILES = {
+    '.github/workflows/web.yml',
+    '.github/workflows/web-publish.yml',
+    '.github/workflows/web-export.yml',
     'tools/operations/web_release.py',
     'tools/operations/test_web_release.py',
     'tools/operations/web-release.md',

@@ -3,11 +3,18 @@
 The QA release jobs classify changed tracked paths before building images. Changes
 under `apps/web` publish the web image; changes under `apps/api` publish the API,
 migration and decoder images. Shared build, workflow, security and operations
-inputs publish both. Unknown paths also publish both. Mobile and documentation
+inputs publish both, except the web verification, publication and export workflows,
+which affect only the web pipeline. Unknown paths also publish both. Mobile and
+documentation
 changes publish neither. `apps/api/package.json` is shared because the web
 Dockerfile copies it. The fixed web release helper, its tests and operator guide
 affect only the web pipeline; changes to other operations tools remain shared.
 An unavailable Git comparison publishes both.
+
+The Security workflow runs the scanner test suite for every PR and QA push.
+Web container verification and publication each scan their actual image layers;
+they do not rerun the scanner's fixture suite. The publisher still requires the
+exact successful Security workflow run before registry authentication.
 
 Web and backend verification have stable required job names even when their
 component is unchanged. Backend static checks and four disposable MySQL
