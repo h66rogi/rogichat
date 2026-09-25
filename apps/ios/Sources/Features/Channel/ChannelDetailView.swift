@@ -163,25 +163,28 @@ private struct ChannelSongBookView: View {
 
     private func load() async {
         loading = true; error = nil
+        let requestedSearch = searchText
         do {
-            let response = try await repository.fetchSongs(page: 1, search: searchText)
-            guard !Task.isCancelled else { return }
+            let response = try await repository.fetchSongs(page: 1, search: requestedSearch)
+            guard !Task.isCancelled, searchText == requestedSearch else { return }
             songs = response.items.map { $0.toDomain() }
             total = response.total; page = 1
-        } catch { if !Task.isCancelled { self.error = "잠시 후 다시 시도해 주세요." } }
-        guard !Task.isCancelled else { return }
+        } catch { if !Task.isCancelled, searchText == requestedSearch { self.error = "잠시 후 다시 시도해 주세요." } }
+        guard !Task.isCancelled, searchText == requestedSearch else { return }
         loading = false
     }
     private func loadMore() async {
         guard !loading, songs.count < total else { return }
         loading = true; error = nil
+        let requestedSearch = searchText
+        let nextPage = page + 1
         do {
-            let response = try await repository.fetchSongs(page: page + 1, search: searchText)
-            guard !Task.isCancelled else { return }
+            let response = try await repository.fetchSongs(page: nextPage, search: requestedSearch)
+            guard !Task.isCancelled, searchText == requestedSearch, page + 1 == nextPage else { return }
             songs.append(contentsOf: response.items.map { $0.toDomain() })
-            total = response.total; page += 1
-        } catch { if !Task.isCancelled { self.error = "노래를 더 불러올 수 없어요." } }
-        guard !Task.isCancelled else { return }
+            total = response.total; page = nextPage
+        } catch { if !Task.isCancelled, searchText == requestedSearch { self.error = "노래를 더 불러올 수 없어요." } }
+        guard !Task.isCancelled, searchText == requestedSearch else { return }
         loading = false
     }
 }
@@ -231,8 +234,13 @@ private struct ChannelScheduleView: View {
     }
     private func load() async {
         loading = true; error = nil
-        do { schedules = try await repository.fetchSchedules(yearMonth: monthKey).items.map { $0.toDomain() } }
-        catch { self.error = "잠시 후 다시 시도해 주세요." }
+        let requestedMonth = monthKey
+        do {
+            let response = try await repository.fetchSchedules(yearMonth: requestedMonth)
+            guard !Task.isCancelled, monthKey == requestedMonth else { return }
+            schedules = response.items.map { $0.toDomain() }
+        } catch { if !Task.isCancelled, monthKey == requestedMonth { self.error = "잠시 후 다시 시도해 주세요." } }
+        guard !Task.isCancelled, monthKey == requestedMonth else { return }
         loading = false
     }
 }
