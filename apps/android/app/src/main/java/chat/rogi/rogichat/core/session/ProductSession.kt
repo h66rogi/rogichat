@@ -19,6 +19,7 @@ import chat.rogi.rogichat.feature.settings.ProfileRepository
 import chat.rogi.rogichat.feature.settings.ProfileEditor
 import chat.rogi.rogichat.feature.settings.NotificationPreferencesRepository
 import chat.rogi.rogichat.feature.rooms.RoomsRepository
+import chat.rogi.rogichat.feature.channel.ChannelRepository
 import kotlinx.coroutines.flow.StateFlow
 
 data class AccountSummary(val id: String, val nickname: String, val signInMethod: String?, val soopConnected: Boolean,
@@ -81,6 +82,7 @@ class ProductServices(
     val push: NativePushCoordinator? = null,
     val blocks: chat.rogi.rogichat.core.messageactions.AccountBlocksCoordinator? = null,
     val accountMedia: chat.rogi.rogichat.core.media.AccountMediaRepository? = null,
+    val channel: ChannelRepository? = null,
 ) {
     private val callbackScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     fun receiveSyncWake() { callbackScope.launch { actions?.revalidate(); conversations?.wake() } }
@@ -93,9 +95,10 @@ class ProductServices(
         // Application-scoped so activity recreation never pairs a retained ViewModel with a new gateway.
         fun installed(context: Context): ProductServices = installedServices ?: synchronized(this) {
             installedServices ?: run {
+                val api = ApiClient(BuildConfig.API_BASE_URL)
                 val coordinator = NativeSessionCoordinator(
-                androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT),
-                ApiClient(BuildConfig.API_BASE_URL),
+                    androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT),
+                    api,
                 realtime = NativeRealtimeManager(SocketIORealtimeFactory()),
                 deletionStore = androidAccountDeletionStore(context.applicationContext, BuildConfig.ENVIRONMENT),
                 roomsStore = AndroidRoomsStore(context.applicationContext, BuildConfig.ENVIRONMENT),
@@ -109,7 +112,7 @@ class ProductServices(
                 }
                 val push = NativePushCoordinator(coordinator, androidPushInstallation(context.applicationContext, BuildConfig.ENVIRONMENT),
                     FirebasePushProvider(context.applicationContext), AndroidPushPermission(context.applicationContext)::current, coordinator.session, owner)
-                coordinator.services(push).also { installedServices = it }
+                coordinator.services(push, ChannelRepository(api)).also { installedServices = it }
             }
         }
     }

@@ -46,6 +46,7 @@ enum class ConversationRoute(val path: String, val cursorRequired: Boolean) {
 class NativeResponse(val status: Int, val body: String) { override fun toString() = "NativeResponse(status=$status, [redacted])" }
 private val nativeAdmission = AttributeKey<() -> Unit>("rogichat.native.admission")
 interface NativeApi : AppleIdentityTransport, NativePushTransport {
+    suspend fun getPublicChannel(path: String, query: Map<String, String> = emptyMap()): String = throw IllegalStateException("operation_unavailable")
     suspend fun nativePushAdmitted(route: NativePushRoute, bearer: String, body: String?, admission: () -> Unit): String { admission(); return performNativePush(route, bearer, body) }
     suspend fun removePushAdmitted(id: String, bearer: String, body: String, admission: () -> Unit) { admission(); removeNativePush(id, bearer, body) }
     suspend fun putAdmitted(route: ApiRoute, bearer: String, body: String, admission: () -> Unit): String { admission(); return put(route, bearer, body) }
@@ -101,6 +102,12 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
             request.attributes.getOrNull(nativeAdmission)?.invoke()
             execute(request)
         }
+    }
+    override suspend fun getPublicChannel(path: String, query: Map<String, String>): String {
+        require(path in setOf("channel/h66rogi", "channel/1/profile", "channel/h66rogi/feature-settings",
+            "channel/h66rogi/wardrobe", "favorites/channels/1/count", "songs/channel/h66rogi", "schedules/channel/1", "song-live/public/setlists") ||
+            path.matches(Regex("song-live/public/setlists/[1-9][0-9]{0,9}")))
+        return call(HttpMethod.Get, path, null, query = query, publicEndpoint = true)
     }
     override suspend fun getConversation(token: String, room: RoomId, route: ConversationRoute, query: ManifestRequest): String {
         require(route != ConversationRoute.SNAPSHOT || query.cursor == null)
@@ -205,8 +212,9 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
     }
     private suspend fun call(method: HttpMethod, path: String, token: String?, body: String? = null, empty: Boolean = false,
                              authEndpoint: Boolean = false, strictDeletion: Boolean = false, query: Map<String, String> = emptyMap(),
-                             expectedStatus: Int = if (empty) 204 else 200, upload: MediaFile? = null, uploadScope: MediaScope? = null, admission: (() -> Unit)? = null): String {
-        val response = rawCall(method, path, token, body, authEndpoint, query, upload, uploadScope, rejectUnauthenticated = !authEndpoint && !strictDeletion, admission = admission)
+                             expectedStatus: Int = if (empty) 204 else 200, upload: MediaFile? = null, uploadScope: MediaScope? = null, admission: (() -> Unit)? = null,
+                             publicEndpoint: Boolean = false): String {
+        val response = rawCall(method, path, token, body, authEndpoint, query, upload, uploadScope, rejectUnauthenticated = !authEndpoint && !strictDeletion, admission = admission, publicEndpoint = publicEndpoint)
         if (response.status == 401 && !authEndpoint && !strictDeletion) throw ApiException(401, "UNAUTHENTICATED")
         if (response.status != expectedStatus) {
             val code = if (strictDeletion) chat.rogi.rogichat.core.deletion.AccountDeletionDto.errorCode(response.body)
@@ -219,8 +227,9 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
     }
     private suspend fun rawCall(method: HttpMethod, path: String, token: String?, body: String? = null,
                                 authEndpoint: Boolean = false, query: Map<String, String> = emptyMap(),
-                                upload: MediaFile? = null, uploadScope: MediaScope? = null, rejectUnauthenticated: Boolean = true, admission: (() -> Unit)? = null): NativeResponse {
-        require(token == null && authEndpoint || token != null && token.matches(Regex("[A-Za-z0-9_-]{43}")))
+                                upload: MediaFile? = null, uploadScope: MediaScope? = null, rejectUnauthenticated: Boolean = true, admission: (() -> Unit)? = null,
+                                publicEndpoint: Boolean = false): NativeResponse {
+        require(token == null && (authEndpoint || publicEndpoint) || token != null && token.matches(Regex("[A-Za-z0-9_-]{43}")))
         require(path.matches(Regex("[A-Za-z0-9/_-]+")) && !path.startsWith('/') && "//" !in path)
         require(upload == null || body == null)
         return client.prepareRequest(baseUrl + path) {
@@ -228,7 +237,7 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
             admission?.let { attributes.put(nativeAdmission, it) }
             url { query.forEach { (key, value) -> parameters.append(key, value) } }
             if (token != null) headers.append(HttpHeaders.Authorization, "Bearer $token")
-            headers.append("X-Rogi-Client", "android")
+            if (!publicEndpoint) headers.append("X-Rogi-Client", "android")
             headers.append(HttpHeaders.Accept, "application/json")
             if (body != null) { contentType(ContentType.Application.Json); setBody(body) }
             if (upload != null) {

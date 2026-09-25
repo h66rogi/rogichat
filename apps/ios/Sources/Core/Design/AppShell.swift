@@ -24,11 +24,13 @@ struct AppShell<Content: View>: View {
             if #available(iOS 26.0, *) {
                 TabView(selection: selection) {
                     Tab("대화", systemImage: "bubble.left.and.bubble.right.fill", value: AppTab.talks) { stack(.talks) }
+                    Tab("채널", systemImage: "music.note.house", value: AppTab.channel) { stack(.channel) }
                     Tab("더보기", systemImage: "ellipsis", value: AppTab.settings) { stack(.settings) }
                 }
             } else {
                 TabView(selection: selection) {
                     stack(.talks).tabItem { Label("대화", systemImage: "bubble.left.and.bubble.right.fill") }.tag(AppTab.talks)
+                    stack(.channel).tabItem { Label("채널", systemImage: "music.note.house") }.tag(AppTab.channel)
                     stack(.settings).tabItem { Label("더보기", systemImage: "ellipsis") }.tag(AppTab.settings)
                 }
             }
@@ -46,6 +48,6 @@ struct AppShell<Content: View>: View {
     private func page(_ value: AppPage) -> some View {
         content(value)
             .navigationTitle(value.rawValue)
-            .navigationBarTitleDisplayMode([.settings, .rooms].contains(value) ? .large : .inline)
+            .navigationBarTitleDisplayMode([.settings, .rooms, .channel].contains(value) ? .large : .inline)
     }
 }
