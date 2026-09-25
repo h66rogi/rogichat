@@ -3,6 +3,7 @@ import SwiftUI
 // Adapted MyPageView's account actions and explicit destructive confirmation.
 // Only operations backed by the injected account service are displayed.
 struct AccountScreen: View {
+    let session: AppSession
     let account: AccountSummary
     let capabilities: SessionCapabilities
     let onLink: () -> Void
@@ -28,6 +29,7 @@ struct AccountScreen: View {
                 if capabilities.canLinkApple { Button("Apple 계정 연결", action: onLinkApple) }
             } header: { Text("연결된 계정") }
               footer: { Text("대화를 이용하려면 SOOP 계정이 연결되어 있어야 해요.") }
+            AccountAccessSettings(session: session)
             if capabilities.canDeleteAccount {
                 Section {
                     Button("회원 탈퇴", role: .destructive) {
