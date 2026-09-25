@@ -24,6 +24,8 @@ import chat.rogi.rogichat.BuildConfig
 import chat.rogi.rogichat.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -65,8 +67,7 @@ private fun loadChannelBitmap(value: String?): androidx.compose.ui.graphics.Imag
         }
         try {
             if (connection.responseCode != 200 || connection.contentLengthLong > 3_000_000) return null
-            val bytes = connection.inputStream.use { input -> input.readNBytes(3_000_001) }
-            if (bytes.size > 3_000_000) return null
+            val bytes = connection.inputStream.use(::readBoundedImage) ?: return null
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
             if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -74,4 +75,16 @@ private fun loadChannelBitmap(value: String?): androidx.compose.ui.graphics.Imag
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.asImageBitmap()
         } finally { connection.disconnect() }
     }.getOrNull()
+}
+
+private fun readBoundedImage(input: InputStream): ByteArray? {
+    val output = ByteArrayOutputStream()
+    val buffer = ByteArray(8_192)
+    while (true) {
+        val count = input.read(buffer)
+        if (count < 0) break
+        if (output.size() + count > 3_000_000) return null
+        output.write(buffer, 0, count)
+    }
+    return output.toByteArray()
 }
