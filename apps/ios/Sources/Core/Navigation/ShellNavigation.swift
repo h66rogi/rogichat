@@ -3,11 +3,11 @@ enum ShellAccess: String, CaseIterable, Sendable {
     case signedOut = "미로그인", linkRequired = "SOOP 연결 필요", ready = "이용 가능"
     case restoring = "복원 중", retryableFailure = "연결 오류", blocked = "이용 제한", accountClosing = "계정 종료 중"
 }
-enum AppTab: String, CaseIterable, Sendable { case talks = "대화", settings = "설정" }
+enum AppTab: String, CaseIterable, Sendable { case talks = "대화", settings = "더보기" }
 enum AppPage: String, Hashable, Sendable {
-    case welcome = "로기챗", link = "SOOP 계정 연결", rooms = "대화", chat = "대화방", settings = "설정"
+    case welcome = "로기챗", link = "SOOP 계정 연결", rooms = "대화", chat = "대화방", settings = "더보기"
     case profile = "내 프로필", account = "계정 관리", report = "차단 관리"
-    case notifications = "알림 설정", about = "로기챗 정보", appearance = "화면 모드", status = "이용 상태"
+    case notifications = "알림 설정", licenses = "오픈소스 라이선스", appearance = "화면 모드", status = "이용 상태"
 }
 struct ShellNavigation: Sendable {
     private(set) var access: ShellAccess = .signedOut
@@ -36,7 +36,7 @@ struct ShellNavigation: Sendable {
         case .report: allowed = (page == .settings || page == .chat) && access == .ready
         case .profile: allowed = page == .settings && canManageAccount
         case .account: allowed = page == .settings && canManageAccount
-        case .notifications, .about, .appearance: allowed = page == .settings
+        case .notifications, .licenses, .appearance: allowed = page == .settings
         default: allowed = false
         }
         guard allowed else { return }

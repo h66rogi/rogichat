@@ -409,8 +409,14 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 |---|---|---|
 | R73 | QA20 `d95a34adf71c38f888ddddc759bd6fce7d921046`의 Android/iOS `AuthorizedMedia` provider-avatar decoder | **기존 구현 직접 재사용**: BitmapFactory bounds/downsample와 ImageIO index-0 thumbnail을 테스트 가능한 ProviderAvatarDecoder로 옮긴다. 기존 20 MP/256 기준을 보존하고 provider MIME에만 GIF를 추가한다. 멜로밍 채팅 UX·다른 이미지 라이브러리·원본 설정을 가져오지 않는다. 합성 GIF는 테스트 소스에만 둔다. |
 
+## iOS 1.2.3 더보기 화면
+
+| ID | 원본·대상 | 재사용과 변경 경계 |
+|---|---|---|
+| R74 | meloming-ios build 26 시점 `d133fb4`의 `Meloming/Presentation/More/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `Presentation/Common/Components/NotificationButton.swift`, `Presentation/Navigation/MainTabView.swift` → `Sources/Features/Settings/MoreView.swift`, `ServiceGridSection.swift`, `ServiceItem.swift`, `NotificationButton.swift`, `Sources/Core/Design/AppShell.swift` | **원본 코드 복사 후 계약 수정**: `MoreView`의 `moreListView`/`listSections`/로그인 행/고정 헤더/앱 정보와 `ServiceGridSection`의 행·타일 코드, `ServiceItem` 모델, 알림 버튼의 색상·크기 코드를 파일·구조 그대로 가져왔다. 상위 `NavigationStack`은 기존 `AppShell`이 소유하므로 중복하지 않고, Kingfisher/인증·채널·배지·웹뷰·개발자 도구의 멜로밍 전용 코드와 8번째 전체보기 슬롯은 로기챗 실기능이 없어 제거했다. 프로필/로그아웃/알림/서비스 목적지만 로기챗 세션과 QA·Prod 실제 경로로 바꿨다. 하단 탐색의 시각 구조는 R75의 대화 목록 요구에 따라 조정하고 `더보기` 목적지는 유지한다. 활성 최신 소스의 `MyPageView`를 1.2.3 화면으로 간주하지 않는다. |
+
 ## 모바일 대화 목록 정리
 
 | ID | 원본 commit/path | 대상 | 필요한 변경 |
 |---|---|---|---|
-| R74 | R40·R42의 Android `RoomsViewModel` StateFlow와 iOS `RoomsScreenModel` Loadable, R44·R45의 선택 대상 확인창. 원본 SHA는 R39–R43과 같다. | 양 OS 방 목록·대화 화면, iOS `AppShell`, Android `AppNavigationBar` | **기존 구현 수정 재사용**: 확인된 참여 목록과 명령 대상·cycle 검증은 유지한다. 재조회 중 목록을 보존하고 갱신 문구를 행에서 제거한다. 사용자 제공 카카오톡 화면의 상단 검색·새 대화·설정, 가로 필터, 원형 이미지 영역과 전체 행 대화 열기, 하단 탐색 구조를 실제 로기챗 기능에 맞춰 적용한다. `나가기`는 목록에서 제거하고 대화 화면 메뉴에서 원래 참여 권한을 다시 확인한 뒤 실행한다. 실제 계약에 없는 광고·읽지 않음 수·마지막 메시지와 시간은 생성하지 않는다. 멜로밍 Talk/TalkV2 화면은 사용자 제외 조건이므로 재사용하지 않는다. |
+| R75 | R40·R42의 Android `RoomsViewModel` StateFlow와 iOS `RoomsScreenModel` Loadable, R44·R45의 선택 대상 확인창. 원본 SHA는 R39–R43과 같다. | 양 OS 방 목록·대화 화면, iOS `AppShell`, Android `AppNavigationBar` | **기존 구현 수정 재사용**: 확인된 참여 목록과 명령 대상·cycle 검증은 유지한다. 재조회 중 목록을 보존하고 갱신 문구를 행에서 제거한다. 사용자 제공 카카오톡 화면의 상단 검색·새 대화·설정, 가로 필터, 원형 이미지 영역과 전체 행 대화 열기, 하단 탐색 구조를 실제 로기챗 기능에 맞춰 적용한다. `나가기`는 목록에서 제거하고 대화 화면 메뉴에서 원래 참여 권한을 다시 확인한 뒤 실행한다. 실제 계약에 없는 광고·읽지 않음 수·마지막 메시지와 시간은 생성하지 않는다. 멜로밍 Talk/TalkV2 화면은 사용자 제외 조건이므로 재사용하지 않는다. |

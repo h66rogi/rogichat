@@ -33,7 +33,7 @@ struct AppShell<Content: View>: View {
     private var footer: some View {
         HStack(spacing: 0) {
             tabButton(.talks, symbol: "bubble.left.and.bubble.right.fill", label: "채팅")
-            tabButton(.settings, symbol: "person.crop.circle", label: "마이")
+            tabButton(.settings, symbol: "ellipsis", label: "더보기")
         }
         .padding(.top, 11).padding(.bottom, 7)
         .background(Color(uiColor: .systemBackground))
