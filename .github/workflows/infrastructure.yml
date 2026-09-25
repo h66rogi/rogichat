@@ -3,9 +3,17 @@ on:
   push:
     branches: [qa, main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
+    branches: [qa, main]
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  # Only supersede an older attempt for the same PR. Release and queue checks
+  # receive unique groups and are never interrupted by a later event.
+  group: infrastructure-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   validate:
     runs-on: ubuntu-24.04
@@ -14,12 +22,26 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Select full infrastructure validation
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.event.before }}
+          MERGE_GROUP_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MERGE_GROUP_BASE_REF: ${{ github.event.merge_group.base_ref }}
+        run: python3 tools/infrastructure/changed.py
+      - name: Test infrastructure scope guard
+        run: python3 -m unittest discover -s tools/infrastructure -p 'test_changed.py'
       - run: python3 tools/infrastructure/install.py
+        if: steps.scope.outputs.full != 'false'
       - name: Test automation security boundaries
+        if: steps.scope.outputs.full != 'false'
         run: python3 -m unittest discover -s tools/automation -p 'test_*.py'
       - name: Validate formatting
+        if: steps.scope.outputs.full != 'false'
         run: .tools/terraform fmt -check -recursive infrastructure
       - name: Test with mock providers and ephemeral fixture key
+        if: steps.scope.outputs.full != 'false'
         shell: bash
         run: |
           set -euo pipefail
@@ -37,6 +59,7 @@ jobs:
             fi
           done
       - name: Validate Caddy and Compose without contacting ACME
+        if: steps.scope.outputs.full != 'false'
         run: |
           .tools/caddy adapt --config infrastructure/runtime/Caddyfile.bootstrap --adapter caddyfile --validate > /dev/null
           docker compose -f infrastructure/runtime/compose.bootstrap.yaml config --quiet
@@ -59,6 +82,7 @@ jobs:
             docker compose -f "$edge" -f "infrastructure/runtime/web/edge.$env.yaml" config --quiet
           done
       - name: Verify web runtime and release boundaries
+        if: steps.scope.outputs.full != 'false'
         run: |
           python3 tools/operations/check_web_runtime.py
           python3 -m unittest discover -s tools/operations -p 'test_web_*.py'
