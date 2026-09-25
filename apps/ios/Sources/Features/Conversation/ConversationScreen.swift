@@ -189,6 +189,11 @@ struct ConversationScreen: View {
             }
         }
     }
+    private func sendText() {
+        guard model.canSend else { return }
+        features?.latest()
+        model.send()
+    }
     private var composer: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let features, features.viewport.incomingCount > 0 {
@@ -229,6 +234,7 @@ struct ConversationScreen: View {
             }
             if showStickers, let features {
                 StickerPicker(client: features.media, sending: model.sending) { sticker in
+                    features.latest()
                     _ = try await model.sendAttachment(OutgoingAttachment(type: "STICKER", stickerId: sticker.id))
                 }
                 .frame(height: 280)
@@ -254,7 +260,7 @@ struct ConversationScreen: View {
                         .lineLimit(1...6).textFieldStyle(.plain).focused($composing)
                         .padding(.leading, 15).padding(.vertical, 10)
                         .submitLabel(.send)
-                        .onSubmit { model.send() }
+                        .onSubmit { sendText() }
                         .accessibilityLabel("메시지 내용")
                     if features != nil {
                         Button { toggleStickers() } label: {
@@ -265,7 +271,7 @@ struct ConversationScreen: View {
                     }
                 }
                 .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                Button { model.send() } label: {
+                Button { sendText() } label: {
                     Group {
                         if model.sending { ProgressView().tint(.white) }
                         else { Image(systemName: "arrow.up").font(.system(size: 18, weight: .bold)) }
