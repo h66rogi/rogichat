@@ -24,9 +24,23 @@ class ComponentChangesTest(unittest.TestCase):
     def test_backend_only(self):
         self.assertEqual(classify(['apps/api/src/main.ts']), (False, True))
         self.assertEqual(classify(['apps/migration/package.json']), (False, True))
+        for path in changes.BACKEND_ONLY_FILES:
+            self.assertEqual(classify_path(path), (False, True), path)
 
     def test_unrelated_and_unknown(self):
         self.assertEqual(classify(['apps/ios/project.yml', 'docs/notes.md']), (False, False))
+        self.assertEqual(classify([
+            '.github/workflows/infrastructure.yml',
+            '.github/workflows/overlay.yml',
+            '.github/workflows/media-gateway.yml',
+            'tools/infrastructure/changed.py',
+            'tools/mobile/release_ios.py',
+        ]), (False, False))
+        self.assertEqual(classify_path('.github/workflows/mobile.yml'), (False, False))
+        self.assertEqual(classify([
+            '.github/workflows/infrastructure.yml', 'apps/web/src/app/page.tsx',
+        ]), (True, False))
+        self.assertEqual(classify_path('.github/workflows/new-release.yml'), (True, True))
         self.assertEqual(classify_path('new-build-system/config'), (True, True))
 
     def test_shared_and_security_inputs(self):
