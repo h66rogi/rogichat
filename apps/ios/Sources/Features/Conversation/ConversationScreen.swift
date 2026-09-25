@@ -359,7 +359,8 @@ struct ConversationScreen: View {
         return Calendar.current.isDate(a, inSameDayAs: b)
     }
     private func sameGroup(_ first: ConversationMessage?, _ second: ConversationMessage?) -> Bool {
-        guard let first, let second, first.author.actorID == second.author.actorID,
+        guard let first, let second, first.author.actorID != nil,
+              first.author.actorID == second.author.actorID,
               first.author.displayName == second.author.displayName,
               first.audience == second.audience, sameDay(first, second),
               let a = date(first.createdAt), let b = date(second.createdAt) else { return false }
