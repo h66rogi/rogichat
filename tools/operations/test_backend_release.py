@@ -227,6 +227,29 @@ class RequestTests(unittest.TestCase):
                 release.deploy_no_ddl(value, files, 'caddy-id')
             closed.assert_called_once_with('caddy-id', b'bootstrap', value)
 
+    def test_no_ddl_head_move_before_drain_consumes_request_but_keeps_incumbent(self):
+        value = no_ddl_fixture()
+        files = {'bootstrap': b'bootstrap', 'compose': b'compose',
+                 'feature_media': b'media', 'unit': b'unit', 'caddy': b'caddy'}
+        with tempfile.TemporaryDirectory() as root, ExitStack() as stack:
+            stack.enter_context(patch.object(release, 'RELEASES', Path(root)))
+            stack.enter_context(patch.object(release, 'verify_no_ddl_candidate'))
+            stack.enter_context(patch.object(release, 'verify_previous_runtime'))
+            stack.enter_context(patch.object(release, 'readonly_schema_probe'))
+            stack.enter_context(patch.object(release, 'protected', return_value=b'previous'))
+            writes = stack.enter_context(patch.object(release, 'atomic'))
+            stack.enter_context(patch.object(release, 'fsync_directory'))
+            stack.enter_context(patch.object(release, 'verify_qa_head', side_effect=release.Rejected('head moved')))
+            caddy = stack.enter_context(patch.object(release, 'caddy_config'))
+            stop = stack.enter_context(patch.object(release, 'run'))
+            closed = stack.enter_context(patch.object(release, 'fail_closed'))
+            with self.assertRaises(release.Rejected):
+                release.deploy_no_ddl(value, files, 'caddy-id')
+            self.assertTrue(any(call.args[0].name == 'consumed.json' for call in writes.call_args_list))
+            caddy.assert_not_called()
+            stop.assert_not_called()
+            closed.assert_not_called()
+
     def test_event_publication_verification_requires_exact_aggregate(self):
         value = fixture()
         value['verification_runs'] = {name: index for index, name in enumerate(sorted(release.NEW_WORKFLOWS), 1)}

@@ -812,8 +812,10 @@ def deploy_no_ddl(request, files, container):
     atomic(backup / 'consumed.json', json.dumps(request).encode(), 0o600)
     fsync_directory(backup)
     fsync_directory(backup.parent)
+    # A moving QA head before drain consumes this one-time request, but does
+    # not make a healthy incumbent fail closed when no host change began.
+    verify_qa_head(request['source_sha'])
     try:
-        verify_qa_head(request['source_sha'])
         caddy_config(container, files['bootstrap'])
         for role in ('decoder', 'worker', 'api'):
             run(['/usr/bin/systemctl', 'stop', 'rogichat-app@' + role], timeout=40)
