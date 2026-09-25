@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // Only trusted QA push workflows can authorize publication; PR artifacts are never inputs.
 import { appendFile } from 'node:fs/promises';
+import { waitForPublicationCheck } from '../operations/publication_poll.mjs';
 const sha = process.env.SOURCE_SHA;
 const repository = process.env.SOURCE_REPOSITORY;
 if (!/^[a-f0-9]{40}$/.test(sha ?? '') || repository !== 'h66rogi/rogichat') throw new Error('Invalid source');
 const workflows = ['web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'];
 const deadline = Date.now() + 25 * 60 * 1000;
-const pollInterval = 90_000;
 while (true) {
   const evidence = [];
   for (const workflow of workflows) {
@@ -41,9 +41,6 @@ while (true) {
     console.log('Exact QA push passed all five verification workflows');
     process.exit(0);
   }
-  const remaining = deadline - Date.now();
-  if (remaining <= 0) break;
-  // Always make one final exact-source check at the deadline.
-  await new Promise(resolve => setTimeout(resolve, Math.min(pollInterval, remaining)));
+  if (!await waitForPublicationCheck(deadline)) break;
 }
 throw new Error('Timed out waiting for exact-source verification');
