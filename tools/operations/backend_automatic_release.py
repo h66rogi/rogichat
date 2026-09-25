@@ -31,6 +31,9 @@ LOCK = Path('/run/lock/rogichat-deploy.lock')
 HASH = re.compile(r'[a-f0-9]{64}\Z')
 SHA = re.compile(r'[a-f0-9]{40}\Z')
 IMAGE = re.compile(r'sha256:[a-f0-9]{64}\Z')
+REPOSITORY = 'h66rogi/rogichat'
+REPOSITORY_ID = 1377178939
+MAX_PROOF_ZIP = 1024 * 1024
 TEMPLATES = {'compose': 'infrastructure/runtime/compose.app.yaml',
              'unit': 'infrastructure/runtime/rogichat-app@.service',
              'caddy': 'infrastructure/runtime/Caddyfile.app',
@@ -38,6 +41,19 @@ TEMPLATES = {'compose': 'infrastructure/runtime/compose.app.yaml',
 WORKFLOWS = {'backend.yml', 'security.yml', 'infrastructure.yml', 'backend-publish.yml'}
 NEW_WORKFLOWS = {'web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml',
                  'mobile.yml', 'qa-backend-publication.yml'}
+CURRENT_CHECKS = {'web.yml', 'backend.yml', 'mobile.yml', 'security.yml', 'infrastructure.yml'}
+# Excluded paths are not copied by apps/api/Dockerfile and do not supply the
+# backend templates, lockfile, release logic, scanner or workflow contracts.
+# Every other tracked blob is conservatively part of the backend input set.
+BACKEND_IGNORED_PREFIXES = ('apps/android/', 'apps/ios/', 'apps/web/',
+                            'docs/', 'tools/mobile/', 'tools/web/')
+BACKEND_IGNORED_FILES = {'README.md', 'LICENSE', '.gitignore'}
+BACKEND_REQUIRED_INPUTS = {'.dockerignore', 'package.json', 'pnpm-lock.yaml',
+                           'pnpm-workspace.yaml', 'apps/api/Dockerfile',
+                           'apps/migration/package.json',
+                           'tools/operations/backend_archive.py',
+                           'tools/release/changes.py',
+                           '.github/workflows/backend-publish.yml'}
 
 
 def require(value):
@@ -69,6 +85,49 @@ def pinned_module(name, expected):
     # Compile checked bytes, never unpinned pycache or candidate imports.
     exec(compile(raw, str(path), 'exec'), module.__dict__)
     return module
+
+
+def bind_metadata_client(helper, archive, client):
+    """Use only a trusted, injected read-only App client for GitHub metadata.
+
+    The request and archive cannot select this capability. The installed caller
+    supplies it in memory; no token is read from the environment, CLI or disk.
+    """
+    require(client is not None and callable(getattr(client, 'fresh', None))
+            and callable(getattr(client, 'artifact_zip', None)))
+
+    def read(path):
+        require(type(path) is str)
+        try:
+            value = client.fresh(path)
+            require(type(value) in (dict, list))
+            return value
+        except Exception:
+            raise ValueError('automatic release rejected') from None
+
+    repository = read('')
+    require(type(repository) is dict and repository.get('full_name') == REPOSITORY
+            and type(repository.get('id')) is int and repository['id'] == REPOSITORY_ID
+            and repository.get('private') is False and repository.get('fork') is False)
+
+    def archive_api(path, token=None):
+        require(token is None)
+        return read(path)
+
+    def proof_artifact(artifact_id, token=None):
+        require(token is None and type(artifact_id) is int and artifact_id > 0)
+        try:
+            raw = client.artifact_zip(artifact_id)
+            require(type(raw) is bytes and 0 < len(raw) <= MAX_PROOF_ZIP)
+            return raw
+        except Exception:
+            raise ValueError('automatic release rejected') from None
+
+    # Both pinned modules resolve these names at call time. In particular the
+    # archive proof ZIP must never fall through to its anonymous URL opener.
+    archive.api = archive_api
+    archive.download_publication_artifact = proof_artifact
+    helper.github_read = read
 
 
 def validate_policy(p):
@@ -121,10 +180,74 @@ def validate_request(r, p, now=None):
     return r
 
 
+def backend_inputs(api, source):
+    """Compare immutable tree blobs/modes, not GitHub's truncated diff list."""
+    require(type(source) is str and SHA.fullmatch(source))
+    tree = api('git/trees/' + source + '?recursive=1')
+    require(type(tree) is dict and tree.get('truncated') is False
+            and type(tree.get('tree')) is list and len(tree['tree']) <= 100000)
+    result, seen = {}, set()
+    for entry in tree['tree']:
+        require(type(entry) is dict and type(entry.get('path')) is str)
+        path = entry['path']
+        require(path not in seen and path and not path.startswith('/')
+                and all(part not in ('', '.', '..') for part in path.split('/')))
+        seen.add(path)
+        if path in BACKEND_IGNORED_FILES or path.startswith(BACKEND_IGNORED_PREFIXES):
+            continue
+        if entry.get('type') == 'tree':
+            continue
+        require(entry.get('type') == 'blob' and entry.get('mode') in ('100644', '100755')
+                and type(entry.get('sha')) is str and SHA.fullmatch(entry['sha']))
+        result[path] = (entry['sha'], entry['mode'])
+    require(BACKEND_REQUIRED_INPUTS <= result.keys())
+    return result
+
+
+def equivalent_backend_source(api, source, head):
+    require(type(source) is str and SHA.fullmatch(source)
+            and type(head) is str and SHA.fullmatch(head))
+    if source == head:
+        return
+    require(backend_inputs(api, source) == backend_inputs(api, head))
+    compare = api('compare/' + source + '...' + head)
+    require(type(compare) is dict and compare.get('status') == 'ahead'
+            and compare.get('merge_base_commit', {}).get('sha') == source)
+
+
+def current_qa_checks(api, head, archive):
+    """The latest QA head itself must pass the five required push workflows."""
+    for workflow in sorted(CURRENT_CHECKS):
+        listing = api(f'actions/workflows/{workflow}/runs?branch=qa&event=push&head_sha={head}&per_page=1')
+        require(type(listing) is dict and type(listing.get('total_count')) is int
+                and listing['total_count'] >= 1 and type(listing.get('workflow_runs')) is list
+                and len(listing['workflow_runs']) == 1)
+        archive.verify_run(listing['workflow_runs'][0], head, workflow)
+
+
 def fresh(r, archive):
     require(time.time() < r['expires_at'])
-    require(archive.api('git/ref/heads/qa')['object']['sha'] == r['source_sha'])
-    archive.verify_source(r['source_sha'], r['verification_runs'])
+    ref = archive.api('git/ref/heads/qa')
+    require(type(ref) is dict and ref.get('ref') == 'refs/heads/qa')
+    head = ref.get('object', {}).get('sha')
+    require(type(head) is str and SHA.fullmatch(head))
+    if set(r['verification_runs']) == NEW_WORKFLOWS:
+        # The publication attempt is pinned inside the independently verified
+        # archive descriptor, which is checked before activation. The current
+        # run-level response can describe a later rerun, so verify only the
+        # five exact push runs here.
+        for workflow in sorted(CURRENT_CHECKS):
+            run_id = r['verification_runs'][workflow]
+            item = archive.api(f'actions/runs/{run_id}')
+            require(type(item) is dict and item.get('id') == run_id)
+            archive.verify_run(item, r['source_sha'], workflow)
+    else:
+        archive.verify_source(r['source_sha'], r['verification_runs'])
+    equivalent_backend_source(archive.api, r['source_sha'], head)
+    current_qa_checks(archive.api, head, archive)
+    # A later merge never silently changes the request's source or image. The
+    # next invocation will check the new head and choose a separate candidate.
+    require(archive.api('git/ref/heads/qa').get('object', {}).get('sha') == head)
 
 
 def verify_current(r, p, helper):
@@ -229,12 +352,53 @@ def verify_candidate_schema(r, p, archive):
     require(parse_candidate_manifest(raw) == p['migrations'])
 
 
-def verify_candidate(r, p, helper, archive, output):
+def verify_automatic_proof(r, descriptor, archive):
+    """Independently require v2 publication proof on the mutation path."""
+    require(set(r['verification_runs']) == NEW_WORKFLOWS
+            and type(descriptor) is dict and descriptor.get('version') == 2
+            and type(descriptor.get('producer')) is dict
+            and descriptor['producer'].get('event') in ('workflow_run', 'workflow_dispatch')
+            and type(descriptor.get('publication')) is dict
+            and set(descriptor['publication']) == {'attempt', 'proof_digest'}
+            and type(descriptor['publication']['attempt']) is int
+            and descriptor['publication']['attempt'] > 0
+            and type(descriptor['publication']['proof_digest']) is str
+            and IMAGE.fullmatch(descriptor['publication']['proof_digest'])
+            and type(descriptor.get('images')) is dict
+            and set(descriptor['images']) == {'runtime', 'migration', 'decoder'}
+            and callable(getattr(archive, 'publication_proof', None)))
+    publication_id = r['verification_runs']['qa-backend-publication.yml']
+    publication_attempt = descriptor['publication']['attempt']
+    publication = archive.api(f'actions/runs/{publication_id}/attempts/{publication_attempt}')
+    require(type(publication) is dict and publication.get('id') == publication_id
+            and publication.get('run_attempt') == publication_attempt
+            and publication.get('head_sha') == r['source_sha'])
+    a = r['archive']
+    exported = archive.api(f"actions/runs/{a['export_run']}/attempts/{a['export_attempt']}")
+    require(type(exported) is dict and exported.get('id') == a['export_run']
+            and exported.get('run_attempt') == a['export_attempt']
+            and exported.get('head_sha') == a['export_sha']
+            and exported.get('event') == descriptor['producer']['event']
+            and type(exported.get('run_started_at')) is str)
+    proof = archive.publication_proof(r['source_sha'], publication_id,
+                                      publication_attempt, exported['run_started_at'], None,
+                                      expected_digest=descriptor['publication']['proof_digest'])
+    require(type(proof) is dict and type(proof.get('images')) is dict
+            and set(proof['images']) == {'runtime', 'migration', 'decoder'})
+    for role in ('runtime', 'migration', 'decoder'):
+        image = descriptor['images'][role]
+        require(type(image) is dict and proof['images'][role] ==
+                {'image': image['image'], 'checkedImageId': image['config_id']})
+
+
+def verify_candidate(r, p, helper, archive, output, *, automatic=False):
     path = helper.RELEASES / r['source_sha'] / 'export.zip'
     helper.protected(path, read=False)
     descriptor, configs = archive.validate_zip(path, r['archive']['artifact_sha256'], output)
     archive.verify_provenance(descriptor, r['archive'])
     require(descriptor['source_sha'] == r['source_sha'] and descriptor['verification_runs'] == r['verification_runs'])
+    if automatic:
+        verify_automatic_proof(r, descriptor, archive)
     # Artifact source is now independently verified; inspect its immutable Git
     # source blob, not a checkout or executable candidate/migrator module.
     verify_candidate_schema(r, p, archive)
@@ -333,17 +497,21 @@ def sync_directory(path):
         os.close(fd)
 
 
-def main():
+def main(metadata_client=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--apply', action='store_true')
     args = parser.parse_args()
+    require(metadata_client is not None)
     require(os.geteuid() == 0)
     require(Path(__file__).absolute() == ROOT / 'backend_automatic_release.py')
     protected(Path(__file__).absolute())
     p = validate_policy(json.loads(protected(POLICY, 0o600)))
     r = validate_request(json.loads(protected(REQUEST, 0o600)), p)
+    if args.apply:
+        require(set(r['verification_runs']) == NEW_WORKFLOWS)
     helper = pinned_module('backend_release', p['release_helper_sha256'])
     archive = pinned_module('backend_archive', p['archive_helper_sha256'])
+    bind_metadata_client(helper, archive, metadata_client)
     # Lock is preinstalled root-owned 0600; no symlink/parent traversal or new
     # inode on concurrent invocations. The manual deployer uses the same lock.
     with deployment_lock():
@@ -360,7 +528,7 @@ def main():
         schema_probe(p, helper)
         with tempfile.TemporaryDirectory(prefix='rogichat-auto-', dir='/var/tmp') as temporary:
             output = Path(temporary) / 'verified'
-            candidate = verify_candidate(r, p, helper, archive, output)
+            candidate = verify_candidate(r, p, helper, archive, output, automatic=args.apply)
             if not args.apply:
                 print('QA artifact/schema verified; activation and candidate health not performed.')
                 return

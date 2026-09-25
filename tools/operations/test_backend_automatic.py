@@ -10,6 +10,7 @@ class ProbeTests(unittest.TestCase):
 
 import copy
 import json
+import sys
 import tempfile
 import time
 from unittest.mock import MagicMock, patch
@@ -35,6 +36,103 @@ def request():
 
 
 class AutomaticTests(unittest.TestCase):
+    def test_unattended_entry_requires_injected_client_before_host_access(self):
+        with patch.object(sys, 'argv', ['backend_automatic_release.py']), \
+             patch.object(auto, 'protected') as protected:
+            with self.assertRaises(ValueError):
+                auto.main()
+            protected.assert_not_called()
+
+    def test_app_client_routes_all_pinned_metadata_and_proof_reads(self):
+        client = MagicMock()
+        client.fresh.side_effect = lambda path: (
+            {'id': auto.REPOSITORY_ID, 'full_name': auto.REPOSITORY,
+             'private': False, 'fork': False} if path == '' else {'path': path})
+        client.artifact_zip.return_value = b'proof zip bytes'
+        helper, archive = MagicMock(), MagicMock()
+        auto.bind_metadata_client(helper, archive, client)
+        self.assertEqual(archive.api('git/ref/heads/qa'), {'path': 'git/ref/heads/qa'})
+        self.assertEqual(archive.api('actions/runs/7', None), {'path': 'actions/runs/7'})
+        self.assertEqual(helper.github_read('actions/runs/7'), {'path': 'actions/runs/7'})
+        self.assertEqual(archive.download_publication_artifact(7, None), b'proof zip bytes')
+        client.artifact_zip.assert_called_once_with(7)
+        with self.assertRaises(ValueError):
+            archive.api('actions/runs/7', 'untrusted-token')
+        with self.assertRaises(ValueError):
+            archive.download_publication_artifact(7, 'untrusted-token')
+
+    def test_app_client_rejects_wrong_repo_failure_and_oversized_proof(self):
+        helper, archive = MagicMock(), MagicMock()
+        client = MagicMock()
+        client.fresh.return_value = {'id': auto.REPOSITORY_ID + 1,
+                                     'full_name': auto.REPOSITORY, 'private': False, 'fork': False}
+        with self.assertRaises(ValueError):
+            auto.bind_metadata_client(helper, archive, client)
+        client.fresh.side_effect = lambda path: (
+            {'id': auto.REPOSITORY_ID, 'full_name': auto.REPOSITORY,
+             'private': False, 'fork': False} if path == '' else (_ for _ in ()).throw(OSError('secret')))
+        auto.bind_metadata_client(helper, archive, client)
+        with self.assertRaisesRegex(ValueError, '^automatic release rejected$'):
+            archive.api('actions/runs/7')
+        client.artifact_zip.return_value = b'x' * (auto.MAX_PROOF_ZIP + 1)
+        with self.assertRaises(ValueError):
+            archive.download_publication_artifact(7)
+
+    def test_apply_requires_v2_proof_for_all_three_immutable_images(self):
+        r = request()
+        r['verification_runs'] = {name: index + 1 for index, name in enumerate(sorted(auto.NEW_WORKFLOWS))}
+        r['archive']['export_run'] = 7
+        r['archive']['export_attempt'] = 2
+        images = {role: {'image': 'ghcr.io/h66rogi/' + role + '@sha256:' + 'a' * 64,
+                         'config_id': 'sha256:' + 'b' * 64}
+                  for role in ('runtime', 'migration', 'decoder')}
+        descriptor = {'version': 2, 'producer': {'event': 'workflow_dispatch'},
+            'publication': {'attempt': 2, 'proof_digest': 'sha256:' + 'c' * 64},
+            'images': images}
+        archive = MagicMock()
+        publication_id = r['verification_runs']['qa-backend-publication.yml']
+        archive.api.side_effect = lambda path: (
+            {'id': publication_id, 'run_attempt': 2, 'head_sha': r['source_sha']}
+            if path == f'actions/runs/{publication_id}/attempts/2' else
+            {'id': 7, 'run_attempt': 2, 'head_sha': r['archive']['export_sha'],
+             'event': 'workflow_dispatch', 'run_started_at': '2026-09-26T00:00:00Z'})
+        archive.publication_proof.return_value = {'images': {
+            role: {'image': value['image'], 'checkedImageId': value['config_id']}
+            for role, value in images.items()}}
+        auto.verify_automatic_proof(r, descriptor, archive)
+        archive.publication_proof.assert_called_once_with(r['source_sha'], publication_id, 2,
+            '2026-09-26T00:00:00Z', None, expected_digest='sha256:' + 'c' * 64)
+        self.assertNotIn(f'actions/runs/{publication_id}',
+            [call.args[0] for call in archive.api.call_args_list])
+        for bad in ('legacy', 'version', 'event', 'image', 'missing_verifier',
+                    'missing_publication', 'bad_attempt', 'bad_digest'):
+            with self.subTest(bad=bad):
+                changed_r, changed_d, changed_archive = copy.deepcopy(r), copy.deepcopy(descriptor), archive
+                if bad == 'legacy':
+                    changed_r['verification_runs'] = {name: 1 for name in auto.WORKFLOWS}
+                elif bad == 'version':
+                    changed_d['version'] = 1
+                elif bad == 'event':
+                    changed_d['producer']['event'] = 'schedule'
+                elif bad == 'image':
+                    changed_archive.publication_proof.return_value = {'images': {
+                        **archive.publication_proof.return_value['images'],
+                        'decoder': {'image': 'wrong', 'checkedImageId': 'sha256:' + 'b' * 64}}}
+                elif bad == 'missing_publication':
+                    del changed_d['publication']
+                elif bad == 'bad_attempt':
+                    changed_d['publication']['attempt'] = True
+                elif bad == 'bad_digest':
+                    changed_d['publication']['proof_digest'] = 'latest'
+                else:
+                    changed_archive = MagicMock()
+                    changed_archive.publication_proof = None
+                with self.assertRaises(ValueError):
+                    auto.verify_automatic_proof(changed_r, changed_d, changed_archive)
+                archive.publication_proof.return_value = {'images': {
+                    role: {'image': value['image'], 'checkedImageId': value['config_id']}
+                    for role, value in images.items()}}
+
     def test_manual_media_unit_cannot_enter_automatic_activation(self):
         files = {key: key.encode() for key in auto.TEMPLATES}
         files['unit'] = b'ExecStart=-f /opt/rogichat/app/compose.features.yaml'
@@ -70,13 +168,119 @@ class AutomaticTests(unittest.TestCase):
             r=request(); r['archive'][key]=value
             with self.assertRaises(ValueError): auto.validate_request(r,policy())
 
-    def test_source_must_still_be_current_qa(self):
-        archive=MagicMock(); archive.api.return_value={'object':{'sha':'b'*40}}
+    def test_fresh_exact_source_requires_current_qa_checks(self):
+        archive=MagicMock()
+        head='a'*40
+        def api(path):
+            if path=='git/ref/heads/qa':
+                return {'ref':'refs/heads/qa','object':{'sha':head}}
+            if path.startswith('actions/workflows/'):
+                return {'total_count':1,'workflow_runs':[{'id':1}]}
+            self.fail(path)
+        archive.api.side_effect=api
+        auto.fresh(request(),archive)
+        archive.verify_source.assert_called_once_with(head,request()['verification_runs'])
+        self.assertEqual(archive.verify_run.call_count,5)
+
+    def test_fresh_new_workflows_ignores_later_publication_rerun(self):
+        r=request()
+        r['verification_runs']={name:index+1 for index,name in enumerate(sorted(auto.NEW_WORKFLOWS))}
+        archive=MagicMock()
+        paths=[]
+        def api(path):
+            paths.append(path)
+            if path=='git/ref/heads/qa':
+                return {'ref':'refs/heads/qa','object':{'sha':r['source_sha']}}
+            if path.startswith('actions/workflows/'):
+                return {'total_count':1,'workflow_runs':[{'id':1}]}
+            for workflow in auto.CURRENT_CHECKS:
+                if path==f"actions/runs/{r['verification_runs'][workflow]}":
+                    return {'id':r['verification_runs'][workflow]}
+            self.fail(path)
+        archive.api.side_effect=api
+        auto.fresh(r,archive)
+        archive.verify_source.assert_not_called()
+        self.assertEqual(archive.verify_run.call_count,10)
+        self.assertNotIn(f"actions/runs/{r['verification_runs']['qa-backend-publication.yml']}",paths)
+
+    def backend_tree(self, *, changed=None, added=None, truncated=False, mode='100644'):
+        paths=auto.BACKEND_REQUIRED_INPUTS | {'apps/api/src/main.ts', 'patches/driver.patch',
+            'infrastructure/runtime/Caddyfile.app', '.github/workflows/security.yml',
+            'tools/security/check.py', 'packages/common/index.ts',
+            'apps/web/src/main.ts', 'apps/ios/Sources/App.swift', 'docs/release.md'}
+        entries=[{'path':path,'type':'blob','mode':mode,
+                  'sha':('b'*40 if path==changed else 'a'*40)} for path in sorted(paths)]
+        if added:
+            entries.append({'path':added,'type':'blob','mode':'100644','sha':'c'*40})
+        return {'truncated':truncated,'tree':entries}
+
+    def test_backend_ancestor_uses_complete_immutable_input_tree(self):
+        source='a'*40; head='b'*40
+        old=self.backend_tree()
+        new=self.backend_tree(changed='apps/ios/Sources/App.swift',added='apps/web/src/extra.ts')
+        def api(path):
+            if path=='git/trees/'+source+'?recursive=1': return old
+            if path=='git/trees/'+head+'?recursive=1': return new
+            if path=='compare/'+source+'...'+head:
+                return {'status':'ahead','merge_base_commit':{'sha':source},
+                        'files':[{'filename':'apps/api/src/main.ts'}], 'total_commits':400}
+            self.fail(path)
+        auto.equivalent_backend_source(api,source,head)
+        # Compare's file list may be truncated after 300 paths. We never read it.
+        for important in ('apps/api/src/main.ts','patches/driver.patch','package.json',
+                          'pnpm-lock.yaml','tools/security/check.py',
+                          'tools/release/changes.py','infrastructure/runtime/Caddyfile.app',
+                          '.github/workflows/security.yml','packages/common/index.ts'):
+            with self.subTest(important=important), self.assertRaises(ValueError):
+                auto.equivalent_backend_source(lambda path: (
+                    self.backend_tree(changed=important) if path.endswith(head+'?recursive=1')
+                    else old if path.endswith(source+'?recursive=1') else api(path)), source, head)
+
+    def test_ancestor_rejects_divergence_unknown_tree_and_unsafe_entries(self):
+        source='a'*40; head='b'*40
+        old=self.backend_tree()
+        def api(path):
+            if path=='git/trees/'+source+'?recursive=1': return old
+            if path=='git/trees/'+head+'?recursive=1': return self.backend_tree()
+            return {'status':'diverged','merge_base_commit':{'sha':'c'*40}}
+        with self.assertRaises(ValueError): auto.equivalent_backend_source(api,source,head)
+        for bad in (self.backend_tree(truncated=True),
+                    self.backend_tree(added='apps/api/unknown.ts',mode='120000'),
+                    {'truncated':False,'tree':[entry for entry in self.backend_tree()['tree']
+                                               if entry['path']!='package.json']}):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                auto.backend_inputs(lambda _:bad,source)
+
+    def test_fresh_ancestor_fails_if_latest_check_fails_or_qa_moves(self):
+        source='a'*40; head='b'*40
+        old=self.backend_tree()
+        for fail in ('check','moving'):
+            with self.subTest(fail=fail):
+                archive=MagicMock(); refs=0
+                def api(path):
+                    nonlocal refs
+                    if path=='git/ref/heads/qa':
+                        refs+=1
+                        return {'ref':'refs/heads/qa','object':{'sha':
+                            'c'*40 if fail=='moving' and refs==2 else head}}
+                    if path.startswith('git/trees/'): return old
+                    if path=='compare/'+source+'...'+head:
+                        return {'status':'ahead','merge_base_commit':{'sha':source}}
+                    if path.startswith('actions/workflows/'):
+                        return {'total_count':1,'workflow_runs':[{'id':1}]}
+                    self.fail(path)
+                archive.api.side_effect=api
+                if fail=='check': archive.verify_run.side_effect=ValueError('failed current check')
+                with self.assertRaises(ValueError): auto.fresh(request(),archive)
+
+    def test_fresh_rejects_main_ref_and_metadata_failure(self):
+        archive=MagicMock()
+        archive.api.return_value={'ref':'refs/heads/main','object':{'sha':'a'*40}}
         with self.assertRaises(ValueError): auto.fresh(request(),archive)
         archive.verify_source.assert_not_called()
-        archive.api.return_value={'object':{'sha':'a'*40}}
-        auto.fresh(request(),archive)
-        archive.verify_source.assert_called_once()
+        archive.api.side_effect=OSError('unavailable')
+        with self.assertRaises(OSError): auto.fresh(request(),archive)
+        archive.verify_source.assert_not_called()
 
     @patch.object(auto,'protected',return_value=b'print("never execute")')
     def test_import_rejects_unpinned_helper(self,_):

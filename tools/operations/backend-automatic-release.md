@@ -11,8 +11,8 @@ existing production verification remains separate.
 A trusted administrator installs these files under `/opt/rogichat/automatic`,
 root-owned and not writable by the receiver, candidate or application:
 
-- `backend_automatic_release.py` (this reviewed version, invoked using
-  `/usr/bin/python3 -I /opt/rogichat/automatic/backend_automatic_release.py`).
+- `backend_automatic_release.py` (this reviewed version, invoked by a separate
+  root-installed caller using Python isolated mode and `main(metadata_client)`).
 - Exact reviewed copies of `backend_release.py` and `backend_archive.py`. Their
   bytes are pinned in policy and compiled from checked bytes, ignoring pycache.
 - `backend_schema_readonly.mjs`, separately reviewed and SHA256-pinned in policy.
@@ -38,6 +38,19 @@ The private receiver/poller belongs to the infrastructure coordinator. It stages
 trusted QA source templates and `export.zip` in `/opt/rogichat/releases/<source_sha>`
 using a privileged, independently reviewed installation boundary. Neither GitHub
 webhook data nor a candidate may write policy, helper code or current state.
+
+The trusted caller must inject a repository-scoped, read-only GitHub App metadata
+client in memory. Its `fresh(path)` returns uncached JSON for an exact allowlisted
+repository API path; `artifact_zip(id)` returns bounded authenticated proof
+ZIP bytes. The helper verifies the expected repository identity before any host
+action and routes both pinned modules' metadata and proof reads through the
+client. An absent client, wrong repository, non-JSON response, failed/expired
+authorization or oversized proof fails closed. The standalone script entry has
+no client and therefore rejects. A root-owned private bridge must pin the client
+implementation, supply its short-lived token through a restricted channel,
+enforce read-only App permissions and exact path/redirect limits, and keep the
+client valid through final verification. This bridge is not commissioned here;
+the candidate, archive and request cannot select a client or provide a token.
 
 ## Policy version 1
 
@@ -69,15 +82,22 @@ reviewed template/helper version; unknown current edge changes fail closed.
 
 The root-installed `/etc/rogichat/backend-automatic-request.json` contains exactly:
 
-- `environment`: `qa`; `source_sha`: current full QA head; `request_id`: canonical
-  UUID; `expires_at`: integer Unix seconds, future and no more than one hour away.
+- `environment`: `qa`; `source_sha`: full SHA of the verified backend image
+  artifact; `request_id`: canonical UUID; `expires_at`: integer Unix seconds,
+  future and no more than one hour away. An ancestor source is eligible only
+  while the complete backend input tree matches the current QA head.
 - `policy_sha256`: hash of UTF-8 Python `json.dumps(policy, sort_keys=True,
   separators=(',', ':'))`; no trailing newline. Policy fields are ASCII. Migration
   dictionary key order has no semantic effect.
 - `previous_state_sha256`: hash of the **raw file bytes** of the current state.
-- `verification_runs`: exact positive integer run IDs for `backend.yml`,
-  `security.yml`, `infrastructure.yml`, and `backend-publish.yml`. These must be
-  successful same-repository QA push runs at the exact candidate source SHA.
+- `verification_runs`: exact positive integer run IDs. The apply path requires
+  `web.yml`, `backend.yml`, `mobile.yml`, `security.yml`, `infrastructure.yml`
+  and `qa-backend-publication.yml` at the exact candidate source SHA. The five
+  push runs must succeed, and publication must pass the descriptor-pinned
+  attempt's aggregate job and proof ZIP digest checks. A later rerun of the
+  publication run cannot silently change the accepted attempt. The older
+  four-run form is parsed for diagnostics
+  only; it cannot activate through `--apply`.
 - `archive`: exactly `export_sha`, `export_run`, `export_attempt`, `artifact_id`,
   `artifact_sha256`, `runtime_config_id`, `execution_identity`,
   `runtime_execution_id`. IDs/attempt are positive integers; source is a full SHA;
@@ -86,7 +106,12 @@ The root-installed `/etc/rogichat/backend-automatic-request.json` contains exact
   Config mode requires execution ID equal to config ID; archive-manifest mode
   requires the verified archive descriptor digest and Docker descriptor identity.
 
-Existing manual `backend-export.yml` provenance is supported. The pinned archive
+Existing manual `backend-export.yml` provenance can be inspected without
+`--apply`; the activation path requires descriptor version 2 and independently
+replays the publication proof ZIP check for all three immutable image digests and
+config IDs, including recovery dispatch. The descriptor must contain exactly
+`publication: {attempt, proof_digest}`; the proof digest is measured over the
+original Actions artifact ZIP. The pinned archive
 verifier verifies the whole ZIP, raw registry manifests, config, rootfs, producer
 run/attempt, exact artifact digest/ID and QA ancestry. It parses migration archive
 bytes solely to validate this existing export format. **Only `runtime.tar` is
@@ -102,7 +127,23 @@ retrieval failure or oversized data fail closed. Property order within a row is
 semantic. Existing exact-source contract CI also checks source SQL checksums.
 
 Automatic-export event support requires separately reviewing and pinning the
-future archive verifier; this PR does not loosen existing producer checks.
+proof-verifying archive verifier. This PR does not loosen producer checks.
+Before the archive descriptor is verified, the helper checks the five exact
+source push runs and current QA head checks. It verifies the publication's
+exact attempt and pinned proof during archive verification, then repeats the
+current-head checks immediately before activation.
+
+An unrelated QA merge after image publication may advance HEAD. The automatic
+helper reads complete immutable Git trees for the candidate and current QA
+commits, comparing blob hashes and modes for every tracked path except the
+explicitly excluded Android, iOS, web, mobile/web tooling and documentation
+trees, plus three unrelated root files. The backend Dockerfile, lockfile, workspace
+manifests, packages, patches, runtime templates, release and security tools,
+and workflows stay in the compared set. A changed or unknown backend input,
+truncated tree, unsafe entry, non-ancestor, failed current-head check, or moving
+QA ref rejects activation. GitHub compare's paginated file list is not used as
+the equivalence proof. The request and immutable image retain their original
+source SHA; they are never relabeled as the newer QA head.
 
 Initial `/var/lib/rogichat/backend-automatic/current.json` must be commissioned
 from the running, reviewed compatible release. It contains exactly `source_sha`,
@@ -151,8 +192,11 @@ readiness is deliberately not claimed by verification alone.
 
 `--apply` is a later root-owned host action. Under the common nonblocking lock:
 
-1. Revalidate policy/request, expiry, exact current QA head and all exact checks;
-   verify current host state and pinned templates; run the trusted readonly probe.
+1. Revalidate policy/request and expiry. Require the image source to equal or
+   precede the current QA head, compare every relevant Git tree blob and mode,
+   and verify all five required push workflows at the current head as well as
+   the original source checks. Verify current host state and pinned templates;
+   run the trusted readonly probe.
 2. Verify archive and immutable candidate source manifest completely. Create `request-<uuid>` in the private state
    directory, save consumed request and previous state/configuration, and fsync
    both directories. An interrupted/failed consumed request cannot be replayed.
