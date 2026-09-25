@@ -205,7 +205,8 @@ fun ConversationScreen(model: ConversationViewModel) {
             } }
             quoteNotice?.let { Text(it, Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            if (newCount > 0 || listState.firstVisibleItemIndex > 1) TextButton(
+            val awayFromLatest by remember(listState) { derivedStateOf { listState.firstVisibleItemIndex > 1 } }
+            if (newCount > 0 || awayFromLatest) TextButton(
                 onClick = { userInteracted = true; scrollScope.launch { listState.animateScrollToItem(0); newCount = 0 } },
                 modifier = Modifier.fillMaxWidth()) {
                 Text(if (newCount > 0) "새 메시지 ${newCount}개 · 최신으로" else "최신 메시지로")

@@ -202,7 +202,11 @@ test('anonymous publication permits report but never exposes or targets its hidd
     const stream = await tx.prisma.message_streams.findFirstOrThrow({ where: { room_id: f.room, kind: 'ROOM_SHARED' }, select: { id: true } });
     const id = randomUUID(); await tx.prisma.messages.create({ data: { id, room_id: f.room, stream_id: stream.id,
       sender_member_id: f.owner.actor, content_owner_user_id: f.fan1.id, deletion_root_id: root,
-      text_content: '익명 원본 합성', created_order: await nextOrder(tx, f.room) } }); return id;
+      text_content: '익명 원본 합성', created_order: await nextOrder(tx, f.room) } });
+    await tx.prisma.message_publications.create({ data: { id: randomUUID(), room_id: f.room,
+      source_message_id: root, source_version: 1n, publisher_member_id: f.owner.actor,
+      published_message_id: id, state: 'PUBLISHED' } });
+    return id;
   });
   const shown = await f.call(f.fan2, 'GET', `/rooms/${f.room}/messages/${publication}`);
   assert.equal(shown.status, 200); assert.deepEqual(shown.body.author, { kind: 'anonymous' });

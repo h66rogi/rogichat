@@ -98,6 +98,8 @@ test('reaction rollback is atomic and root deletion wins every publication/react
     const [stream] = await tx.rows("SELECT id FROM message_streams WHERE room_id=? AND kind='ROOM_SHARED'", [f.room]);
     const id = randomUUID(); const order = await nextOrder(tx, f.room);
     await tx.execute('INSERT INTO messages (id,room_id,stream_id,sender_member_id,content_owner_user_id,deletion_root_id,text_content,created_order) VALUES (?,?,?,?,?,?,?,?)', [id, f.room, stream.id, f.owner.actor, f.a.id, source, '익명 공개 반응', String(order)]);
+    await tx.execute("INSERT INTO message_publications (id,room_id,source_message_id,source_version,publisher_member_id,published_message_id,state) VALUES (?,?,?,?,?,?,'PUBLISHED')",
+      [randomUUID(), f.room, source, '1', f.owner.actor, id]);
     return id;
   });
   await assert.rejects(f.authenticated(f.b, true, async tx => { await setReaction(tx, f.room, f.b.id, publication, '😀'); throw new Error('reaction-rollback'); }), /reaction-rollback/);

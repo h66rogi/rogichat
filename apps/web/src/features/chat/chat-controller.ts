@@ -135,10 +135,10 @@ export class ChatController {
   private eventCursor: string | null = null;
   private historyCursor: string | null = null;
   private readContext: string | null = null;
-  private readUnavailable = false;
   private readQueue: string[] = [];
   private readSeen = new Set<string>();
   private readBusy = false;
+  private readWriteRevision = 0;
   private manifestGeneration: string | null = null;
   private profileGeneration: string | null = null;
   private recipientBinding: string | null = null;
@@ -222,7 +222,7 @@ export class ChatController {
     this.abort.abort(); this.abort = new AbortController(); this.cacheId = crypto.randomUUID();
     this.reactionFlights = new Set(); this.reactionCooldown = 0;
     this.messages = []; this.tombstones.clear(); this.scope = null; this.projectionGeneration++; this.eventCursor = null; this.historyCursor = null;
-    this.readContext = null; this.readUnavailable = false; this.readQueue = []; this.readSeen.clear();
+    this.readContext = null; this.readQueue = []; this.readSeen.clear(); this.readWriteRevision++;
     this.awaitingProjection.clear();
     this.manifestGeneration = null; this.profileGeneration = null; this.recipientBinding = null;
     this.refreshPending = false;
@@ -275,21 +275,21 @@ export class ChatController {
     return { context, boundary };
   }
   private async loadReadState() {
-    if (this.readContext || this.readUnavailable || !this.scope) return;
+    if (!this.scope || (this.readContext && (this.readBusy || this.readQueue.length))) return;
     const signal = this.abort.signal;
+    const revision = this.readWriteRevision;
     try {
       const { context, boundary } = await this.readStateSnapshot();
-      if (signal.aborted || this.dead) return;
+      if (signal.aborted || this.dead || revision !== this.readWriteRevision) return;
       this.readContext = context;
       this.publish({ firstUnreadMessageId: boundary });
-    } catch {
-      if (!signal.aborted && !this.dead) this.readUnavailable = true;
-    }
+    } catch { /* A later sync retries transient read-state failures. */ }
   }
   displayed = (messageId: string) => {
     if (this.dead || !this.readContext || !this.messages.some(item => item.id === messageId) || this.readSeen.has(messageId)) return;
     this.readSeen.add(messageId);
     this.readQueue.push(messageId);
+    this.readWriteRevision++;
     void this.flushReadQueue();
   };
   private async flushReadQueue() {
@@ -307,7 +307,8 @@ export class ChatController {
         if (result.messageId !== null) uuid(result.messageId);
         wrote = true;
       }
-      if (wrote && this.state.firstUnreadMessageId !== null && !signal.aborted && !this.dead) {
+      if (wrote && !signal.aborted && !this.dead) {
+        this.readWriteRevision++;
         const { context, boundary } = await this.readStateSnapshot();
         if (!signal.aborted && !this.dead) {
           this.readContext = context;
@@ -315,7 +316,7 @@ export class ChatController {
         }
       }
     } catch {
-      this.readContext = null; this.readQueue = []; this.readSeen.clear(); this.readUnavailable = true;
+      this.readContext = null; this.readQueue = []; this.readSeen.clear(); this.readWriteRevision++;
     } finally {
       this.readBusy = false;
       if (this.readQueue.length && this.readContext && !signal.aborted && !this.dead) void this.flushReadQueue();

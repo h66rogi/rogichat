@@ -2,7 +2,7 @@
 // Stream kind alone is not its audience: only the fan and current owner may
 // read it. Owner messages and explicit anonymous publication copies stay shared.
 export const publishedCopySql = (message: string, includeRevoked = false) =>
-  `EXISTS (SELECT 1 FROM message_publications publication WHERE publication.room_id=${message}.room_id AND publication.published_message_id=${message}.id${includeRevoked ? '' : " AND publication.state='PUBLISHED'"})`;
+  `EXISTS (SELECT 1 FROM message_publications publication WHERE publication.room_id=${message}.room_id AND publication.published_message_id=${message}.id AND publication.state ${includeRevoked ? "IN ('PUBLISHED','REVOKED')" : "='PUBLISHED'"})`;
 
 export const fanSharedVisibleSql = (message: string, room: string, viewer: string, includeRevoked = false) =>
   `(${room}.mode<>'FAN' OR ${message}.sender_member_id=${viewer}.id OR ${room}.owner_member_id=${viewer}.id OR (` +

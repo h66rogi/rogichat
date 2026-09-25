@@ -9,6 +9,10 @@ const grant = (alias: string) => `EXISTS (SELECT 1 FROM room_members rm WHERE rm
 const personal = (alias: string) => `NOT EXISTS (SELECT 1 FROM actor_blocks b WHERE b.room_id=${alias}.room_id AND b.blocker_actor_id=? AND b.target_actor_id=${alias}.sender_member_id)`;
 const audience = `m.created_order>=? AND ((s.kind='ROOM_SHARED' AND ${fanSharedVisibleSql('m', 'r', 'viewer')}) OR (s.kind='RESTRICTED' AND ${grant('m')}))`;
 const previouslyVisibleAudience = `m.created_order>=? AND ((s.kind='ROOM_SHARED' AND ${fanSharedVisibleSql('m', 'r', 'viewer', true)}) OR (s.kind='RESTRICTED' AND ${grant('m')}))`;
+// A deleted anonymous copy loses its PUBLISHED link in the same transaction.
+// Its deletion event may use the former audience, while live rows use the
+// current audience. Legacy fan originals remain sender/owner restricted.
+const eventAudience = `m.created_order>=? AND ((s.kind='ROOM_SHARED' AND (${fanSharedVisibleSql('m', 'r', 'viewer')} OR (e.kind='MESSAGE_DELETED' AND m.deleted_at IS NOT NULL AND ${fanSharedVisibleSql('m', 'r', 'viewer', true)}))) OR (s.kind='RESTRICTED' AND ${grant('m')}))`;
 const blocked = `(m.deleted_at IS NOT NULL OR m.moderated=1 OR u.status IN ('DELETING','DELETED') OR (m.deletion_root_id IS NOT NULL AND (root.id IS NULL OR root.deleted_at IS NOT NULL OR root.moderated=1 OR ru.status IN ('DELETING','DELETED')))
   OR (m.content_kind='STICKER' AND NOT EXISTS (SELECT 1 FROM message_stickers ms JOIN sticker_catalog sc ON sc.id=ms.sticker_id JOIN media_assets sa ON sa.id=sc.asset_id
     WHERE ms.room_id=m.room_id AND ms.message_id=m.id AND sc.status IN ('ACTIVE','RETIRED') AND sc.approved_at IS NOT NULL
@@ -32,7 +36,7 @@ async page(tx: Transaction, actorId: string, roomId: string, visibleFrom: string
     LEFT JOIN messages q ON q.id=m.quote_id AND q.room_id=m.room_id LEFT JOIN message_streams qs ON qs.id=q.stream_id AND qs.room_id=q.room_id LEFT JOIN users qu ON qu.id=q.content_owner_user_id
     LEFT JOIN room_members quote_sender ON quote_sender.id=q.sender_member_id AND quote_sender.room_id=q.room_id LEFT JOIN user_profiles qp_profile ON qp_profile.user_id=quote_sender.user_id
     LEFT JOIN messages qr ON qr.id=q.deletion_root_id AND qr.room_id=q.room_id LEFT JOIN users qru ON qru.id=qr.content_owner_user_id
-    WHERE m.room_id=? AND ${personal('m')} AND ${audience} AND ${range} ${events ? '' : `AND NOT ${blocked}`}
+    WHERE m.room_id=? AND ${personal('m')} AND ${events ? eventAudience : audience} AND ${range} ${events ? '' : `AND NOT ${blocked}`}
     ORDER BY ${events ? 'e.event_order ASC' : 'm.created_order DESC'} LIMIT ?`, [actorId, visibleFrom, actorId, now, now, actorId, roomId, actorId, visibleFrom, actorId, now, now, ...values, limit]);
   // Batch only already-authorized page IDs. No keys or signed URLs enter the journal projection.
   const mediaIds = rows.filter(row => Number(row.blocked) !== 1 && ['PHOTO', 'VIDEO'].includes(String(row.content_kind))).map(row => String(row.id));
@@ -91,6 +95,6 @@ async stickerRevocations(tx: Transaction, roomId: string, actorId: string, visib
 }
 
 async affected(tx: Transaction, roomId: string, actorId: string, visibleFrom: string, from: string, high: string, now: Date) {
-    return tx.rows<RowDataPacket>(`SELECT m.id FROM messages m JOIN message_streams s ON s.id=m.stream_id AND s.room_id=m.room_id JOIN rooms r ON r.id=m.room_id JOIN room_members viewer ON viewer.id=? AND viewer.room_id=m.room_id LEFT JOIN messages quoted ON quoted.id=m.quote_id AND quoted.room_id=m.room_id LEFT JOIN message_streams qs ON qs.id=quoted.stream_id AND qs.room_id=quoted.room_id WHERE m.room_id=? AND ${personal('m')} AND ${previouslyVisibleAudience} AND EXISTS (SELECT 1 FROM room_events e WHERE e.room_id=m.room_id AND e.event_order>? AND e.event_order<=? AND (e.message_id=m.deletion_root_id OR (${personal('quoted')} AND quoted.created_order>=? AND ((qs.kind='ROOM_SHARED' AND ${fanSharedVisibleSql('quoted', 'r', 'viewer', true)}) OR (qs.kind='RESTRICTED' AND ${grant('quoted')})) AND (e.message_id=m.quote_id OR e.message_id=quoted.deletion_root_id)))) LIMIT 1`, [actorId, roomId, actorId, visibleFrom, actorId, now, now, from, high, actorId, visibleFrom, actorId, now, now]);
+    return tx.rows<RowDataPacket>(`SELECT m.id FROM messages m JOIN message_streams s ON s.id=m.stream_id AND s.room_id=m.room_id JOIN rooms r ON r.id=m.room_id JOIN room_members viewer ON viewer.id=? AND viewer.room_id=m.room_id LEFT JOIN messages quoted ON quoted.id=m.quote_id AND quoted.room_id=m.room_id LEFT JOIN message_streams qs ON qs.id=quoted.stream_id AND qs.room_id=quoted.room_id WHERE m.room_id=? AND ${personal('m')} AND ${previouslyVisibleAudience} AND EXISTS (SELECT 1 FROM room_events e WHERE e.room_id=m.room_id AND e.event_order>? AND e.event_order<=? AND (e.message_id=m.deletion_root_id OR (m.deletion_root_id IS NOT NULL AND m.deleted_at IS NOT NULL AND e.message_id=m.id AND e.kind='MESSAGE_DELETED') OR (${personal('quoted')} AND quoted.created_order>=? AND ((qs.kind='ROOM_SHARED' AND ${fanSharedVisibleSql('quoted', 'r', 'viewer', true)}) OR (qs.kind='RESTRICTED' AND ${grant('quoted')})) AND (e.message_id=m.quote_id OR e.message_id=quoted.deletion_root_id)))) LIMIT 1`, [actorId, roomId, actorId, visibleFrom, actorId, now, now, from, high, actorId, visibleFrom, actorId, now, now]);
 }
 }
