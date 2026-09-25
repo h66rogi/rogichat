@@ -268,6 +268,12 @@ class PublicationProofTests(unittest.TestCase):
                 archive.produce()
             self.assertEqual((directory / archive.PROOF_FILE).read_bytes(), data)
             self.assertEqual(producer.FILES, archive.IMAGE_FILES)
+            self.assertEqual(producer.NEW_PUBLICATION_WORKFLOW, archive.core.NEW_PUBLICATION_WORKFLOW)
+            self.assertEqual(producer.NEW_WORKFLOWS, archive.core.NEW_WORKFLOWS)
+            producer.produce.assert_called_once_with(
+                expected_event=descriptor['producer']['event'],
+                verification_runs=descriptor['verification_runs'],
+                publication_attempt=proof['publicationAttempt'])
             self.assertEqual(archive.core.FILES, archive.IMAGE_FILES | {archive.PROOF_FILE})
             self.assertIs(archive.core.validate_directory, archive.validate_directory)
             verify.assert_called_once_with(descriptor, 'test-only', publication_proof=data)

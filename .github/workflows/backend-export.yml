@@ -1,4 +1,5 @@
 name: Backend verified image export
+run-name: Backend export ${{ inputs.source_sha || github.event.workflow_run.head_sha }}
 
 on:
   workflow_run:
@@ -25,6 +26,9 @@ on:
         required: false
       publication_attempt:
         description: Exact attempt of the event-driven publication run
+        required: false
+      publication_proof_digest:
+        description: Exact sha256 digest of the publication proof artifact ZIP
         required: false
 
 permissions: {}
@@ -109,6 +113,7 @@ jobs:
           EXPORT_DECODER_DIGEST: ${{ inputs.decoder_digest }}
           EXPORT_PUBLICATION_RUN_ID: ${{ inputs.publication_run_id }}
           EXPORT_PUBLICATION_ATTEMPT: ${{ inputs.publication_attempt }}
+          EXPORT_PUBLICATION_PROOF_DIGEST: ${{ inputs.publication_proof_digest }}
         run: python3 tools/operations/backend_archive.py produce
       - name: Validate ID-only Compose image references without starting services
         run: |
@@ -148,3 +153,22 @@ jobs:
           compression-level: 6
           retention-days: 1
           overwrite: false
+      - name: Record the completed proof-bound backend export
+        if: steps.producer.outputs.publication_run_id != ''
+        env:
+          SOURCE_SHA: ${{ steps.producer.outputs.source_sha }}
+          PUBLICATION_RUN_ID: ${{ steps.producer.outputs.publication_run_id }}
+          PUBLICATION_ATTEMPT: ${{ steps.producer.outputs.publication_attempt }}
+        run: |
+          test "${#SOURCE_SHA}" -eq 40
+          test "$PUBLICATION_RUN_ID" -gt 0
+          test "$PUBLICATION_ATTEMPT" -gt 0
+          printf '%s %s %s\n' "$SOURCE_SHA" "$PUBLICATION_RUN_ID" "$PUBLICATION_ATTEMPT" > "$RUNNER_TEMP/qa-backend-exported.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: steps.producer.outputs.publication_run_id != ''
+        with:
+          name: qa-backend-exported-${{ steps.producer.outputs.source_sha }}
+          path: ${{ runner.temp }}/qa-backend-exported.txt
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true

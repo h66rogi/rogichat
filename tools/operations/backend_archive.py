@@ -122,15 +122,21 @@ def verify_publication_run(value, sha, token=None):
             and jobs[0]['status'] == 'completed' and jobs[0]['conclusion'] == 'success')
 
 
-def verify_source(source, runs, token=None):
+def verify_source(source, runs, token=None, *, publication_attempt=None):
     require(SHA.fullmatch(source) and type(runs) is dict
             and set(runs) in (WORKFLOWS, NEW_WORKFLOWS))
     for workflow, run_id in runs.items():
         require(type(run_id) is int and run_id > 0)
-        run = api(f'actions/runs/{run_id}', token)
         if workflow == NEW_PUBLICATION_WORKFLOW:
+            if publication_attempt is not None:
+                require(type(publication_attempt) is int and publication_attempt > 0)
+                run = api(f'actions/runs/{run_id}/attempts/{publication_attempt}', token)
+                require(run['id'] == run_id and run['run_attempt'] == publication_attempt)
+            else:
+                run = api(f'actions/runs/{run_id}', token)
             verify_publication_run(run, source, token)
         else:
+            run = api(f'actions/runs/{run_id}', token)
             verify_run(run, source, workflow)
 
 
@@ -238,7 +244,11 @@ def verify_tar(path, config_id, source):
 
 
 def validate_descriptor(value, *, producer_events=frozenset({'workflow_dispatch', 'workflow_run'})):
-    require(type(value) is dict and set(value) == {'version', 'repository', 'source_sha', 'producer', 'verification_runs', 'images'})
+    require(type(value) is dict)
+    new_publication = (NEW_PUBLICATION_WORKFLOW == 'qa-backend-publication.yml'
+                       and set(value.get('verification_runs', {})) == NEW_WORKFLOWS)
+    keys = {'version', 'repository', 'source_sha', 'producer', 'verification_runs', 'images'}
+    require(set(value) == keys | ({'publication'} if new_publication else set()))
     roles = descriptor_roles(value)
     require(value['repository'] == REPOSITORY and SHA.fullmatch(value['source_sha']))
     producer = value['producer']
@@ -248,6 +258,12 @@ def validate_descriptor(value, *, producer_events=frozenset({'workflow_dispatch'
             and producer['event'] in producer_events and producer['ref'] == 'refs/heads/qa')
     require(set(value['verification_runs']) in (WORKFLOWS, NEW_WORKFLOWS)
             and set(value['images']) == set(roles))
+    if new_publication:
+        publication = value['publication']
+        require(value['version'] == 2 and type(publication) is dict
+                and set(publication) == {'attempt', 'proof_digest'}
+                and type(publication['attempt']) is int and publication['attempt'] > 0
+                and re.fullmatch(r'sha256:[a-f0-9]{64}', publication['proof_digest']))
     for role, repo in roles.items():
         item = value['images'][role]
         require(set(item) == {'image', 'config_id', 'archive_sha256'})
@@ -319,15 +335,15 @@ def verify_provenance(descriptor, approval, token=None):
             and artifact['workflow_run']['id'] == producer['run_id']
             and artifact['workflow_run']['head_sha'] == producer['sha']
             and artifact['name'] == f"backend-{descriptor['source_sha']}-{producer['run_id']}-{producer['run_attempt']}")
-    verify_source(descriptor['source_sha'], descriptor['verification_runs'], token)
-    if producer['event'] == 'workflow_run':
+    publication = descriptor.get('publication')
+    verify_source(descriptor['source_sha'], descriptor['verification_runs'], token,
+                  publication_attempt=publication['attempt'] if publication else None)
+    if set(descriptor['verification_runs']) == NEW_WORKFLOWS:
         require(descriptor['version'] == 2)
         publication_id = descriptor['verification_runs'][NEW_PUBLICATION_WORKFLOW]
-        publication = api(f'actions/runs/{publication_id}', token)
-        require(publication['id'] == publication_id and type(publication['run_attempt']) is int
-                and publication['run_attempt'] > 0)
         proof = publication_proof(descriptor['source_sha'], publication_id,
-                                  publication['run_attempt'], result['run_started_at'], token)
+                                  publication['attempt'], result['run_started_at'], token,
+                                  expected_digest=publication['proof_digest'])
         for role in BACKEND_ROLES | DECODER_ROLE:
             image = descriptor['images'][role]
             require(proof['images'][role] == {'image': image['image'],
@@ -401,7 +417,8 @@ def download_publication_artifact(artifact_id, token):
     return data
 
 
-def publication_proof(source, run_id, attempt, export_started_at, token):
+def publication_proof(source, run_id, attempt, export_started_at, token, *, expected_digest=None,
+                      return_digest=False):
     require(SHA.fullmatch(source) and type(run_id) is int and run_id > 0
             and type(attempt) is int and attempt > 0)
     publication = api(f'actions/runs/{run_id}/attempts/{attempt}', token)
@@ -417,12 +434,41 @@ def publication_proof(source, run_id, attempt, export_started_at, token):
     require(type(artifact['id']) is int and artifact['id'] > 0
             and artifact['expired'] is False
             and re.fullmatch(r'sha256:[a-f0-9]{64}', artifact['digest'])
+            and (expected_digest is None or artifact['digest'] == expected_digest)
             and artifact['workflow_run']['id'] == run_id
             and artifact['workflow_run']['head_sha'] == source
             and timestamp(publication['run_started_at']) <= timestamp(artifact['created_at'])
             and timestamp(artifact['created_at']) <= timestamp(export_started_at))
     data = download_publication_artifact(artifact['id'], token)
-    return proof_zip(data, artifact['digest'], source, run_id, attempt)
+    proof = proof_zip(data, artifact['digest'], source, run_id, attempt)
+    return (proof, artifact['digest']) if return_digest else proof
+
+
+def resolve_dispatch_publication():
+    require(os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch'
+            and os.environ['GITHUB_REPOSITORY'] == REPOSITORY
+            and os.environ['GITHUB_REF'] == 'refs/heads/qa'
+            and SHA.fullmatch(os.environ['GITHUB_SHA']))
+    source = os.environ['EXPORT_SOURCE_SHA']
+    supplied_id = os.environ['EXPORT_PUBLICATION_RUN_ID']
+    supplied_attempt = os.environ['EXPORT_PUBLICATION_ATTEMPT']
+    digest = os.environ['EXPORT_PUBLICATION_PROOF_DIGEST']
+    require(SHA.fullmatch(source) and supplied_id.isdecimal() and supplied_attempt.isdecimal()
+            and re.fullmatch(r'sha256:[a-f0-9]{64}', digest))
+    run_id, attempt = int(supplied_id), int(supplied_attempt)
+    token = os.environ['GITHUB_TOKEN']
+    export_id, export_attempt = int(os.environ['GITHUB_RUN_ID']), int(os.environ['GITHUB_RUN_ATTEMPT'])
+    export = api(f'actions/runs/{export_id}/attempts/{export_attempt}', token)
+    require(export['id'] == export_id and export['run_attempt'] == export_attempt
+            and export['head_sha'] == os.environ['GITHUB_SHA'] and export['head_branch'] == 'qa'
+            and export['event'] == 'workflow_dispatch' and export['path'] == '.github/workflows/backend-export.yml'
+            and export['repository']['full_name'] == REPOSITORY
+            and export['head_repository']['full_name'] == REPOSITORY)
+    proof = publication_proof(source, run_id, attempt, export['run_started_at'], token,
+                              expected_digest=digest)
+    for role, item in proof['images'].items():
+        require(os.environ['EXPORT_' + role.upper() + '_DIGEST'] == item['image'].split('@sha256:')[1])
+    return proof['images']
 
 
 def resolve_automatic_publication():
@@ -453,16 +499,19 @@ def resolve_automatic_publication():
             and export['event'] == 'workflow_run' and export['path'] == '.github/workflows/backend-export.yml'
             and export['repository']['full_name'] == REPOSITORY
             and export['head_repository']['full_name'] == REPOSITORY)
-    proof = publication_proof(source, supplied['id'], supplied['run_attempt'], export['run_started_at'], token)
+    proof, digest = publication_proof(source, supplied['id'], supplied['run_attempt'],
+                                      export['run_started_at'], token, return_digest=True)
     os.environ['EXPORT_SOURCE_SHA'] = source
     os.environ['EXPORT_PUBLICATION_RUN_ID'] = str(supplied['id'])
     os.environ['EXPORT_PUBLICATION_ATTEMPT'] = str(supplied['run_attempt'])
+    os.environ['EXPORT_PUBLICATION_PROOF_DIGEST'] = digest
     for role, item in proof['images'].items():
         os.environ['EXPORT_' + role.upper() + '_DIGEST'] = item['image'].split('@sha256:')[1]
     return proof['images']
 
 
-def produce(*, expected_event='workflow_dispatch', verification_runs=None, expected_images=None):
+def produce(*, expected_event='workflow_dispatch', verification_runs=None, expected_images=None,
+            publication_attempt=None):
     source = os.environ['EXPORT_SOURCE_SHA']
     sha = os.environ['GITHUB_SHA']
     require(SHA.fullmatch(source) and SHA.fullmatch(sha) and os.environ['GITHUB_REPOSITORY'] == REPOSITORY
@@ -500,7 +549,7 @@ def produce(*, expected_event='workflow_dispatch', verification_runs=None, expec
         require(type(verification_runs) is dict)
         runs = dict(verification_runs)
         # Supplied identities never bypass independent exact-source verification.
-        verify_source(source, runs, token)
+        verify_source(source, runs, token, publication_attempt=publication_attempt)
     compare = api(f'compare/{source}...{sha}', token)
     require(compare['status'] in ('ahead', 'identical') and compare['merge_base_commit']['sha'] == source)
     print('Exact source CI and reviewed QA ancestry verified.', flush=True)
@@ -513,6 +562,12 @@ def produce(*, expected_event='workflow_dispatch', verification_runs=None, expec
                                'run_attempt': int(os.environ['GITHUB_RUN_ATTEMPT']),
                                'event': expected_event, 'ref': 'refs/heads/qa'},
                   'verification_runs': runs, 'images': {}}
+    if NEW_PUBLICATION_WORKFLOW == 'qa-backend-publication.yml' and NEW_PUBLICATION_WORKFLOW in runs:
+        digest = os.environ.get('EXPORT_PUBLICATION_PROOF_DIGEST', '')
+        supplied_attempt = os.environ.get('EXPORT_PUBLICATION_ATTEMPT', '')
+        require(supplied_attempt.isdecimal() and int(supplied_attempt) > 0
+                and re.fullmatch(r'sha256:[a-f0-9]{64}', digest))
+        descriptor['publication'] = {'attempt': int(supplied_attempt), 'proof_digest': digest}
     with tempfile.TemporaryDirectory(prefix='rogichat-registry-', dir=os.environ['RUNNER_TEMP']) as config:
         env = {**os.environ, 'DOCKER_CONFIG': config}
         command(['docker', 'login', 'ghcr.io', '--username', os.environ['GITHUB_ACTOR'], '--password-stdin'], data=token.encode(), env=env)
@@ -553,6 +608,9 @@ def produce(*, expected_event='workflow_dispatch', verification_runs=None, expec
     if os.environ.get('GITHUB_OUTPUT'):
         with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as output:
             output.write(f'source_sha={source}\n')
+            if os.environ.get('EXPORT_PUBLICATION_RUN_ID') and os.environ.get('EXPORT_PUBLICATION_ATTEMPT'):
+                output.write(f"publication_run_id={os.environ['EXPORT_PUBLICATION_RUN_ID']}\n")
+                output.write(f"publication_attempt={os.environ['EXPORT_PUBLICATION_ATTEMPT']}\n")
     print('Exact published images, raw registry manifests, source and rootfs verified; no deployment performed.')
 
 
@@ -595,6 +653,9 @@ def main():
         if os.environ.get('GITHUB_EVENT_NAME') == 'workflow_run':
             images = resolve_automatic_publication()
             produce(expected_event='workflow_run', expected_images=images)
+        elif os.environ.get('EXPORT_PUBLICATION_RUN_ID') or os.environ.get('EXPORT_PUBLICATION_ATTEMPT'):
+            images = resolve_dispatch_publication()
+            produce(expected_event='workflow_dispatch', expected_images=images)
         else:
             produce()
     else:

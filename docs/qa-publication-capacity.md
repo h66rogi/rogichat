@@ -44,6 +44,20 @@ config IDs to the exported archive. The archive verifier repeats that proof
 comparison before host use. The export run's own head SHA may be newer than
 the publication source, so its ancestry is checked separately.
 
+The backend export also has a separate five-minute scheduled recovery. It reads
+the latest page of fixed-name publication markers and selects the highest
+originating run ID so a slower older publisher cannot supersede a newer one.
+It checks for a successful source-specific export marker or an active export,
+downloads and verifies the small original publication proof ZIP, rechecks the QA ref, and dispatches one
+`backend-export.yml` run with its exact three digests and proof artifact digest.
+The dispatched export independently checks the same proof before registry
+authentication. Its marker is written only after the full archive upload and
+becomes eligible only when that export run succeeds. This is a read-only
+recovery request; it does not activate a host. A manually dispatched run with
+the same complete proof is still eligible under the archive contract, so the
+descriptor pins the original publication attempt and proof digest, proving
+image provenance even if that publication run is later rerun.
+
 ## Measured latency and fixed cost
 
 Recent QA hosted runs spent about 2.8 minutes on the web build, checks, scan,
@@ -104,5 +118,15 @@ reduce API use.
 The gate and recovery helper throw on GitHub API 403/429. They never turn a
 rate-limited response into a successful publication; the next five-minute
 scheduled sweep is the bounded recovery path after budget becomes available.
+The separate backend export recovery starts 12 short Ubuntu jobs per hour.
+Its normal sweep uses one name-filtered publication-marker page, one
+source-specific export-marker page, and two active-export run listings:
+roughly 48 reads per hour before proof and ancestry checks. GitHub's artifact
+API does not document its page ordering, so the first 100 marker uploads are a
+bounded discovery window, not a proof that an older page has no higher run ID.
+At 50 simultaneous publications a late older completion can displace at most
+49 newer markers; larger backlogs require an expanded discovery mechanism.
+Measure page ordering, missed events, and API calls in the 50-source canary.
+Free repository token limits remain insufficient for 50 QA pushes per hour.
 
 References: [GitHub REST API rate limits](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api), [scheduled workflow behavior](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows), [artifact name filtering](https://docs.github.com/en/rest/actions/artifacts#list-artifacts-for-a-repository).
