@@ -80,11 +80,25 @@ def changed_paths(base: str, head: str) -> list[str] | None:
         return None
 
 
+def valid_merge_group_boundary(base: str, head: str, group_head: str,
+                               base_ref: str, checkout_head: str) -> bool:
+    return (bool(SHA.fullmatch(base)) and base != '0' * 40
+            and bool(SHA.fullmatch(head)) and group_head == head
+            and base_ref in {'refs/heads/qa', 'refs/heads/main'}
+            and checkout_head == head)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--base', required=True)
     parser.add_argument('--head', required=True)
     args = parser.parse_args()
+    if os.getenv('GITHUB_EVENT_NAME') == 'merge_group':
+        checkout = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True, check=False)
+        if (checkout.returncode or not valid_merge_group_boundary(
+                args.base, args.head, os.getenv('MERGE_GROUP_HEAD_SHA', ''),
+                os.getenv('MERGE_GROUP_BASE_REF', ''), checkout.stdout.decode().strip())):
+            raise SystemExit('Cannot establish the release change boundary')
     paths = changed_paths(args.base, args.head)
     web, backend = (True, True) if paths is None else classify(paths)
     result = {'web': web, 'backend': backend, 'paths': paths}
