@@ -14,20 +14,18 @@ COPY apps/web ./apps/web
 COPY tools/web/check-production.mjs tools/web/prepare-runtime.mjs tools/web/runtime-server.mjs ./tools/web/
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @rogichat/web build && node tools/web/check-production.mjs \
-    && node tools/web/prepare-runtime.mjs
+    && node tools/web/prepare-runtime.mjs \
+    && mkdir -p apps/web/.next/standalone/apps/web/.next/cache
 
-FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
-RUN groupadd --gid 10001 rogichat && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin rogichat
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:7924c53f56526359d0f491c22517306d8d92f1b285656a6094398e2c55bbaeca AS runtime
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000 PATH=/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 COPY --from=build /workspace/apps/web/.next/standalone ./
 COPY --from=build /workspace/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build /workspace/apps/web/public ./apps/web/public
-RUN mkdir -p /app/apps/web/.next/cache && chown 10001:10001 /app/apps/web/.next/cache
 WORKDIR /app/apps/web
 USER 10001:10001
 EXPOSE 3000
 STOPSIGNAL SIGTERM
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"
-ENTRYPOINT ["node"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(1))"]
 CMD ["server.js"]
