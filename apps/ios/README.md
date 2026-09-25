@@ -4,13 +4,13 @@ Swift 6 / SwiftUI, iOS 18 이상, iPhone 전용 앱이다. QA와 prod는 같은
 `RogichatApp → ProductRootView` 제품 경로를 실행한다. 환경은 endpoint, 앱 식별자,
 서명 설정으로만 분리한다.
 
-멜로밍의 `MainTabView`, `MyPageView`, `ProfileSettingsView`,
+멜로밍의 `MainTabView`, 1.2.3(26) `MoreView`/`ServiceGridSection`/`ServiceItem`, `ProfileSettingsView`,
 `NotificationSettingsView`, `Loadable/LoadableView`를 로기챗 계약에 맞게 수정 재사용한다.
 출처와 구체적인 변경은 [재사용 기록](../../docs/mobile-reuse-audit.md)을 따른다.
 채팅 UX는 멜로밍에서 가져오지 않는다.
 
-- 대화/설정의 독립적인 네이티브 탐색, 화면 모드 저장/복원, 실제 기기 알림 상태 조회와
-  시스템 설정 이동, 버전 정보가 제품 경로에 연결되어 있다.
+- 대화/더보기의 독립적인 네이티브 탐색, 화면 모드 저장/복원, 실제 기기 알림 상태 조회와
+  시스템 설정 이동, 번들 버전 및 오픈소스 라이선스가 더보기 화면에 연결되어 있다.
 - 프로필 Form은 표시 이름, 생일 월/일과 스트리머 공개 설정을 검증한다. nullable PATCH는
   변경 없음과 명시적인 삭제를 구별한다. 전체 프로필은 `GET /v1/me/profile`로 읽고
   `PATCH /v1/me/profile`로 저장하며, 세션 요약에 없는 생일이나 로그인 방식을 추정하지 않는다.
@@ -99,9 +99,9 @@ Swift 6 / SwiftUI, iOS 18 이상, iPhone 전용 앱이다. QA와 prod는 같은
   `dbe78f2f9f380399d25b82dd26e7a3a539c61c44`, own-block discovery는
   `0d75c977244b43c2882b6f0fcbce8bc50664e25f`다. 운영 API 통합배포·실계정·실기기 검증은 별도다.
 - GRDB 7.11.1, SocketIO 16.1.1, Starscream 4.0.8의 exact revision을 고정한다.
-  앱에는 두 SDK 원본 라이선스와 GRDB/Starscream privacy bundle이 포함되고 앱 정보에 표시된다.
+  앱에는 두 SDK 원본 라이선스와 GRDB/Starscream privacy bundle이 포함되고 더보기 화면에서 라이선스를 열 수 있다.
   Host SwiftPM lock은 GRDB만, Xcode lock은 세 dependency를 포함한다. `Packages/RogichatRooms`가 실제 앱 dependency이며,
-  라이선스는 앱 정보에 표시한다. 저장소는 WAL/FULL, 백업 제외와 iOS complete 파일 보호를
+  라이선스는 더보기 화면의 앱 정보에서 표시한다. 저장소는 WAL/FULL, 백업 제외와 iOS complete 파일 보호를
   사용한다. 종료 중 실패한 삭제는 다음 실행에서 완료해야 한다.
 - 동기화 `deviceId`는 첫 저장소 수명주기 작업에서 생성한 환경별 임의 UUID다. 백업 제외
   보호 파일에 저장하고, 로그아웃·계정 전환 후에도 유지하며 재설치·앱 데이터 삭제 시 바뀐다.

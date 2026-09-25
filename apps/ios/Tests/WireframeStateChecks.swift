@@ -48,7 +48,7 @@ struct WireframeStateChecks {
         for access in [ShellAccess.signedOut, .restoring, .retryableFailure, .blocked, .accountClosing] {
             var nav = ShellNavigation(); nav.setAccess(access); nav.selectTab(.settings)
             nav.open(.account); nav.open(.profile); precondition(nav.page == .settings)
-            nav.open(.about); precondition(nav.page == .about)
+            nav.open(.licenses); precondition(nav.page == .licenses)
         }
         var single = WireframeState(); single.previewLink(); single.previewRooms(singleRoom: true)
         precondition(single.page == .chat && single.visibleRooms.count == 1)
