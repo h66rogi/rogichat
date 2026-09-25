@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 import changed
-from changed import mobile_changed
+from changed import affected_platforms, mobile_changed
 
 
 class ChangesTest(unittest.TestCase):
@@ -14,6 +14,21 @@ class ChangesTest(unittest.TestCase):
         for path in [b"apps/android/app/build.gradle.kts", b"apps/ios/project.yml",
                      b"tools/mobile/keychain_unlock.py", b".github/workflows/mobile.yml"]:
             self.assertTrue(mobile_changed([path]))
+
+    def test_platform_only_changes_skip_the_other_expensive_build(self):
+        self.assertEqual(affected_platforms([b"apps/android/app/src/main/Feature.kt"]), (True, False))
+        self.assertEqual(affected_platforms([b"apps/ios/Sources/Feature.swift"]), (False, True))
+        self.assertEqual(affected_platforms([b"tools/mobile/check_android_storage.py"]), (True, False))
+        self.assertEqual(affected_platforms([b"tools/mobile/check_ios_wireframe.py"]), (False, True))
+        self.assertEqual(affected_platforms([b"apps/android/app/src/main/Feature.kt",
+                                             b"apps/ios/Sources/Feature.swift"]), (True, True))
+
+    def test_shared_and_unknown_mobile_tools_keep_both_gates(self):
+        for path in (b"tools/mobile/product_guards.py", b"tools/mobile/changed.py",
+                     b"tools/mobile/qa_release.py", b"tools/mobile/future/tool.py",
+                     b".github/workflows/mobile.yml"):
+            with self.subTest(path=path):
+                self.assertEqual(affected_platforms([path]), (True, True))
 
     def test_unrelated_docs_do_not_spend_mobile_build_minutes(self):
         self.assertFalse(mobile_changed([b"docs/design.md", b"apps/api/src/main.ts", b""]))
@@ -43,7 +58,7 @@ class ChangesTest(unittest.TestCase):
                                     env=dict(os.environ, EVENT_NAME="push", BASE_SHA=base,
                                              GITHUB_OUTPUT=str(output)), capture_output=True)
             self.assertEqual(result.returncode, 0)
-            self.assertEqual(output.read_text(), "changed=true\n")
+            self.assertEqual(output.read_text(), "android=false\nios=true\n")
 
     def test_missing_boundary_fails_closed_without_raw_value(self):
         with tempfile.TemporaryDirectory() as temporary:
