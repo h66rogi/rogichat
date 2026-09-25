@@ -60,9 +60,11 @@ jobs:
             throw new Error('Publication jobs listing incomplete');
           }
           const jobs = result.jobs.filter(job => job.name === expected);
-          if (jobs.length !== 1) throw new Error('Publication job missing or duplicate');
+          if (jobs.length > 1 || (jobs.length === 0 && expected === 'publish')) {
+            throw new Error('Publication job missing or duplicate');
+          }
           appendFileSync(process.env.GITHUB_OUTPUT,
-            `published=${jobs[0].run_id === run && jobs[0].run_attempt === attempt && jobs[0].status === 'completed' && jobs[0].conclusion === 'success'}\n`);
+            `published=${jobs.length === 1 && jobs[0].run_id === run && jobs[0].run_attempt === attempt && jobs[0].status === 'completed' && jobs[0].conclusion === 'success'}\n`);
           JS
 
   export:

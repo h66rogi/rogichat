@@ -68,6 +68,11 @@ jobs:
           [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
           docker image save "$image_id" | python3 tools/security/image_scan.py -
           printf '%s\n' "$image_id" > "$RUNNER_TEMP/web.checked-id"
+      - name: Verify final QA ancestry before registry authentication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: node tools/operations/qa_publication_finalize.mjs
       - name: Publish only the checked image and write promotion proof
         env:
           GHCR_TOKEN: ${{ github.token }}

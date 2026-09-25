@@ -2,11 +2,11 @@ name: QA verified image publication
 
 on:
   workflow_run:
-    workflows: [Web production, Backend foundation, Security, Infrastructure validation, Mobile foundation]
+    workflows: [Mobile foundation]
     types: [completed]
     branches: [qa]
   schedule:
-    - cron: '7,17,27,37,47,57 * * * *'
+    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 * * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -89,3 +89,49 @@ jobs:
     uses: ./.github/workflows/backend-publish.yml
     with:
       source_sha: ${{ needs.gate.outputs.source_sha }}
+
+  web-result:
+    name: Web publication result
+    needs: [gate, publish-web]
+    if: always() && needs.gate.outputs.ready == 'true' && needs.publish-web.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Record completed web publication for bounded recovery
+        env:
+          SOURCE_SHA: ${{ needs.gate.outputs.source_sha }}
+        run: |
+          test "${#SOURCE_SHA}" -eq 40
+          printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/qa-web-published.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-web-published-${{ needs.gate.outputs.source_sha }}
+          path: ${{ runner.temp }}/qa-web-published.txt
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
+
+  backend-result:
+    name: Backend publication result
+    needs: [gate, publish-backend]
+    if: always() && needs.gate.outputs.ready == 'true' && needs.publish-backend.result == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Record completed backend publication for bounded recovery
+        env:
+          SOURCE_SHA: ${{ needs.gate.outputs.source_sha }}
+        run: |
+          test "${#SOURCE_SHA}" -eq 40
+          printf '%s\n' "$SOURCE_SHA" > "$RUNNER_TEMP/qa-backend-published.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-backend-published-${{ needs.gate.outputs.source_sha }}
+          path: ${{ runner.temp }}/qa-backend-published.txt
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true

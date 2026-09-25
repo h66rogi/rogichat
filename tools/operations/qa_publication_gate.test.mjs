@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { exactChecks, REQUIRED, selectSource, triggerIsLatest } from './qa_publication_gate.mjs';
-import { publicationNeeds } from './qa_publication_preflight.mjs';
+import { completedPublication, publicationNeeds } from './qa_publication_preflight.mjs';
+import { verifyFinalQaAncestry } from './qa_publication_finalize.mjs';
 import { publicationDecision } from './qa_registry.mjs';
 
 const SHA = 'a'.repeat(40);
@@ -102,8 +103,61 @@ test('scheduled recovery rebuilds a missing component and skips complete existin
   const lookup = async repository => repository === 'rogichat-api-migration'
     ? null : { manifestDigest: `sha256:${'d'.repeat(64)}` };
   const needs = await publicationNeeds({ web: true, backend: true }, 'schedule', SHA,
-    'token', lookup);
+    'token', lookup, async kind => kind === 'web');
   assert.deepEqual(needs, { web: false, backend: true });
   assert.deepEqual(await publicationNeeds({ web: true, backend: true },
     'workflow_run', SHA, 'token', lookup), { web: true, backend: true });
+});
+
+function recoveryApi({ failedJob = false, missingProof = false, wrongAttempt = false,
+  failedRun = false } = {}) {
+  const artifact = name => ({ id: 42, name, expired: false,
+    digest: `sha256:${'e'.repeat(64)}`,
+    workflow_run: { id: 12, head_sha: SHA, head_branch: 'qa' } });
+  return async url => {
+    const parsed = new URL(url);
+    const path = parsed.pathname;
+    let result;
+    if (path.endsWith('/actions/artifacts')) {
+      result = { total_count: 1, artifacts: [artifact(`qa-web-published-${SHA}`)] };
+    } else if (path.endsWith('/actions/runs/12')) {
+      result = { id: 12, run_attempt: 2, head_sha: SHA, head_branch: 'qa',
+        event: 'workflow_run', path: '.github/workflows/qa-publication.yml',
+        name: 'QA verified image publication', status: 'completed',
+        conclusion: failedRun ? 'failure' : 'success',
+        repository: { full_name: REPO }, head_repository: { full_name: REPO } };
+    } else if (path.endsWith('/actions/runs/12/attempts/2/jobs')) {
+      result = { total_count: 1, jobs: [{ name: 'Web publication result', run_id: 12,
+        run_attempt: wrongAttempt ? 1 : 2, status: 'completed',
+        conclusion: failedJob ? 'failure' : 'success' }] };
+    } else if (path.endsWith('/actions/runs/12/artifacts')) {
+      result = { total_count: missingProof ? 0 : 1, artifacts: missingProof ? [] :
+        [artifact(`web-publication-proof-${SHA}-2`)] };
+    } else throw new Error(`Unexpected recovery API: ${url}`);
+    return new Response(JSON.stringify(result));
+  };
+}
+
+test('scheduled completion requires exact successful aggregate and original web proof', async () => {
+  assert.equal(await completedPublication('web', SHA, 'token', recoveryApi()), true);
+  for (const scenario of [{ failedJob: true }, { wrongAttempt: true },
+    { failedRun: true }, { missingProof: true }]) {
+    assert.equal(await completedPublication('web', SHA, 'token', recoveryApi(scenario)),
+      false, JSON.stringify(scenario));
+  }
+  const existing = async () => ({ manifestDigest: `sha256:${'f'.repeat(64)}` });
+  assert.deepEqual(await publicationNeeds({ web: true, backend: false }, 'schedule',
+    SHA, 'token', existing, async () => false), { web: true, backend: false });
+});
+
+test('final publication check requires current QA head or exact ancestor', async () => {
+  const next = 'b'.repeat(40);
+  const fetcher = async url => new Response(JSON.stringify(url.includes('/git/ref/')
+    ? { object: { sha: next } }
+    : { status: 'ahead', merge_base_commit: { sha: SHA } }));
+  assert.equal(await verifyFinalQaAncestry(SHA, 'token', fetcher), next);
+  const diverged = async url => new Response(JSON.stringify(url.includes('/git/ref/')
+    ? { object: { sha: next } }
+    : { status: 'diverged', merge_base_commit: { sha: next } }));
+  await assert.rejects(verifyFinalQaAncestry(SHA, 'token', diverged), /left QA ancestry/);
 });

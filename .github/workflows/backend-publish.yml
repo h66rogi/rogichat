@@ -217,6 +217,11 @@ jobs:
             printf '%s\n' "$image_id" > "$RUNNER_TEMP/$repository.checked-id"
           done
           python3 tools/security/image_scan.py "${scan_args[@]}"
+      - name: Verify final QA ancestry before registry authentication
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
+        run: node tools/operations/qa_publication_finalize.mjs
       - name: Publish only the checked images
         env:
           GHCR_TOKEN: ${{ github.token }}
