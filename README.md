@@ -60,6 +60,7 @@ JavaScript 의존성 관리는 pnpm workspace를 사용한다.
 12. [Service Worker·웹 푸시 기반 요구사항](docs/web-push-foundation.md)
 13. [프론트엔드 웹 구현 계획](docs/frontend-web-implementation-plan.md)
 14. [웹 디자인 기준](apps/web/DESIGN.md)
+15. [사회·채팅 서비스 UI·UX 기대 동작 조사](docs/social-chat-ux-expectations.md)
 
 제품 표기는 **로기챗**으로 통일한다. QA 웹은 `qa.rogi.chat`, API는
 `api.qa.rogi.chat`이다. 기존 OAuth callback을 유지하는 로그인 중계만 외부
