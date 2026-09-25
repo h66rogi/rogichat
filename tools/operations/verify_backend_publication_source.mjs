@@ -5,9 +5,10 @@ const repository = process.env.SOURCE_REPOSITORY;
 if (!/^[a-f0-9]{40}$/.test(sha ?? '') || repository !== 'h66rogi/rogichat') throw new Error('Invalid source');
 const workflows = ['backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'];
 const deadline = Date.now() + 20 * 60 * 1000;
+const pollInterval = 90_000;
 const headers = {Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json',
   'X-GitHub-Api-Version': '2022-11-28'};
-while (Date.now() < deadline) {
+while (true) {
   let ready = true;
   for (const workflow of workflows) {
     const response = await fetch(`https://api.github.com/repos/${repository}/actions/workflows/${workflow}/runs?branch=qa&event=push&head_sha=${sha}&per_page=20`,
@@ -37,6 +38,9 @@ while (Date.now() < deadline) {
     console.log('Exact QA source passed backend, security, infrastructure and mobile verification');
     process.exit(0);
   }
-  await new Promise(resolve => setTimeout(resolve, 15000));
+  const remaining = deadline - Date.now();
+  if (remaining <= 0) break;
+  // Always make one final exact-source check at the deadline.
+  await new Promise(resolve => setTimeout(resolve, Math.min(pollInterval, remaining)));
 }
 throw new Error('Timed out waiting for exact-source verification');
