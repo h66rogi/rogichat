@@ -17,7 +17,7 @@ import java.time.ZoneId
 // ChannelDetailViewModel from meloming-android ecb3dbed supplies the StateFlow,
 // parallel shell loading, selected-tab state and per-section loading pattern.
 enum class ChannelTab(val title: String, val key: String) {
-    SONGBOOK("노래책", "musicbook"), SCHEDULE("캘린더", "schedule"),
+    HOME("홈", "home"), SONGBOOK("노래책", "musicbook"), SCHEDULE("캘린더", "schedule"),
     SETLIST("셋리스트", "setlist"), WARDROBE("옷장", "wardrobe");
     companion object { fun fromKey(key: String) = entries.firstOrNull { it.key == key } }
 }
@@ -28,7 +28,7 @@ data class ChannelDetailUiState(
     val profile: ChannelProfile? = null,
     val visibleTabs: List<ChannelTab> = ChannelTab.entries,
     val tabLabels: Map<ChannelTab, String> = emptyMap(),
-    val selectedTab: ChannelTab = ChannelTab.SONGBOOK,
+    val selectedTab: ChannelTab = ChannelTab.HOME,
     val error: String? = null,
     val sectionLoading: Boolean = false,
     val sectionError: String? = null,
@@ -36,8 +36,15 @@ data class ChannelDetailUiState(
     val songSearch: String = "",
     val songTotal: Int = 0,
     val songPage: Int = 1,
+    val categories: List<Category> = emptyList(),
+    val artists: List<Artist> = emptyList(),
+    val selectedSongCategory: Int? = null,
+    val selectedArtist: Artist? = null,
+    val selectedDifficulty: Int? = null,
     val month: String = YearMonth.now(ZoneId.of("Asia/Seoul")).toString(),
     val schedules: List<Schedule> = emptyList(),
+    val homeSongsError: Boolean = false,
+    val homeSchedulesError: Boolean = false,
     val wardrobe: ChannelWardrobeResponse = ChannelWardrobeResponse(),
     val selectedCategory: Int? = null,
     val setlists: List<ChannelSetlistSummary> = emptyList(),
@@ -65,8 +72,9 @@ class ChannelDetailViewModel(private val repository: ChannelRepository) : ViewMo
                     val count = async { try { repository.getFavoritesCount() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } }
                     Triple(profile.await(), settings.await(), count.await())
                 }
-                val tabs = settings?.items?.sortedBy { it.order }?.filter { it.isEnabled }
-                    ?.mapNotNull { ChannelTab.fromKey(it.key) }?.distinct() ?: ChannelTab.entries
+                val tabs = listOf(ChannelTab.HOME) + (settings?.items?.sortedBy { it.order }?.filter { it.isEnabled }
+                    ?.mapNotNull { ChannelTab.fromKey(it.key) }?.filter { it != ChannelTab.HOME }?.distinct()
+                    ?: ChannelTab.entries.filter { it != ChannelTab.HOME })
                 val labels = settings?.items?.mapNotNull { item ->
                     ChannelTab.fromKey(item.key)?.let { tab -> tab to (item.displayLabel ?: tab.title) }
                 }?.toMap().orEmpty()
@@ -92,6 +100,16 @@ class ChannelDetailViewModel(private val repository: ChannelRepository) : ViewMo
         if (mutable.value.selectedTab == ChannelTab.SONGBOOK) loadSelected(debounce = true)
     }
 
+    fun selectSongCategory(id: Int?) {
+        mutable.update { it.copy(selectedSongCategory = id) }
+        loadSelected()
+    }
+
+    fun applySongFilters(artist: Artist?, difficulty: Int?) {
+        mutable.update { it.copy(selectedArtist = artist, selectedDifficulty = difficulty) }
+        loadSelected()
+    }
+
     fun loadMoreSongs() {
         val state = mutable.value
         if (state.sectionLoading || state.songs.size >= state.songTotal) return
@@ -99,7 +117,8 @@ class ChannelDetailViewModel(private val repository: ChannelRepository) : ViewMo
         sectionJob = viewModelScope.launch {
             mutable.update { it.copy(sectionLoading = true, sectionError = null) }
             try {
-                val page = repository.getSongs(next, state.songSearch)
+                val page = repository.getSongs(next, state.songSearch, state.selectedSongCategory,
+                    state.selectedArtist?.id, state.selectedDifficulty)
                 mutable.update { it.copy(songs = it.songs + page.songs.map(SongDTO::toDomain),
                     songPage = next, songTotal = page.total, sectionLoading = false) }
             } catch (cancelled: CancellationException) { throw cancelled }
@@ -135,10 +154,47 @@ class ChannelDetailViewModel(private val repository: ChannelRepository) : ViewMo
             mutable.update { it.copy(sectionLoading = true, sectionError = null) }
             try {
                 when (state.selectedTab) {
+                    ChannelTab.HOME -> {
+                        val (songPage, schedulePages) = coroutineScope {
+                            val songs = async { try { repository.getSongs() }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (_: Exception) { null } }
+                            val schedules = async {
+                                val current = YearMonth.now(ZoneId.of("Asia/Seoul"))
+                                val thisMonth = try { repository.getSchedules(current.toString()).items }
+                                    catch (cancelled: CancellationException) { throw cancelled }
+                                    catch (_: Exception) { null }
+                                val nextMonth = try { repository.getSchedules(current.plusMonths(1).toString()).items }
+                                    catch (cancelled: CancellationException) { throw cancelled }
+                                    catch (_: Exception) { null }
+                                if (thisMonth == null && nextMonth == null) null else thisMonth.orEmpty() + nextMonth.orEmpty()
+                            }
+                            songs.await() to schedules.await()
+                        }
+                        mutable.update { it.copy(songs = songPage?.songs?.map(SongDTO::toDomain) ?: it.songs,
+                            songTotal = songPage?.total ?: it.songTotal,
+                            schedules = schedulePages?.map(ScheduleDTO::toDomain) ?: it.schedules,
+                            sectionLoading = false,
+                            homeSongsError = songPage == null,
+                            homeSchedulesError = schedulePages == null,
+                            sectionError = if (songPage == null && schedulePages == null) "잠시 후 다시 시도해 주세요." else null) }
+                    }
                     ChannelTab.SONGBOOK -> {
-                        val page = repository.getSongs(search = state.songSearch)
+                        val (page, taxonomy) = coroutineScope {
+                            val songs = async { repository.getSongs(search = state.songSearch,
+                                categoryId = state.selectedSongCategory, artistId = state.selectedArtist?.id,
+                                difficulty = state.selectedDifficulty) }
+                            val categories = async { try { repository.getCategories() }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (_: Exception) { emptyList() } }
+                            val artists = async { try { repository.getArtists() }
+                                catch (cancelled: CancellationException) { throw cancelled }
+                                catch (_: Exception) { emptyList() } }
+                            songs.await() to (categories.await() to artists.await())
+                        }
                         mutable.update { it.copy(songs = page.songs.map(SongDTO::toDomain), songTotal = page.total,
-                            songPage = 1, sectionLoading = false) }
+                            songPage = 1, categories = taxonomy.first, artists = taxonomy.second,
+                            sectionLoading = false) }
                     }
                     ChannelTab.SCHEDULE -> {
                         val page = repository.getSchedules(state.month)

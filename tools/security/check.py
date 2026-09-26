@@ -38,6 +38,18 @@ REVIEWED_FONTS = {
 REVIEWED_TTF = {
     "apps/web/public/fonts/Paperlogy-4Regular.ttf": "05e1021e3de620dddc97875342e2be1a94c5f8e9b9f792bd16c4c1d0085343b3",
     "apps/web/public/fonts/Paperlogy-7Bold.ttf": "7effb892621474e9c2a9112f482eb87dd25b65a470e5ae5971be5a68d89ad89b",
+    # Exact copies from meloming-android ecb3dbedb1dde5364bd617f072bc1ac4091b1a17.
+    # Each path is hash-pinned and structurally checked below; no suffix exemption.
+    "apps/android/app/src/main/res/font/ibm_plex_sans_kr_bold.ttf": "66be40fea728d36f22ea7ca37bcd2aad15ce6fc298a5f5e8b3572e9e73d7f197",
+    "apps/android/app/src/main/res/font/ibm_plex_sans_kr_light.ttf": "cbfdac1f7937a9b9c78973b57b9d0831d05069b0a048dc73ae50671d26f506e1",
+    "apps/android/app/src/main/res/font/ibm_plex_sans_kr_medium.ttf": "8c0f583c268f87de572bd82462b01f86e0a359a289ccfbff4061f8b5141ddd34",
+    "apps/android/app/src/main/res/font/ibm_plex_sans_kr_regular.ttf": "691e167e7b78c7376992bafa04ac2478e22963b2ff7d9fc478d1c9cca5f85b9e",
+    "apps/android/app/src/main/res/font/ibm_plex_sans_kr_semibold.ttf": "d87730d860b553c460c3a8bb123510b4bf1aedcdc589c344f56f033f326c8f97",
+    "apps/android/app/src/main/res/font/paperlogy_bold.ttf": "7effb892621474e9c2a9112f482eb87dd25b65a470e5ae5971be5a68d89ad89b",
+    "apps/android/app/src/main/res/font/paperlogy_extrabold.ttf": "fb0324f8ac057e50f4f4632331617e347bfe5a04184f7b0db514be682fb6b25c",
+    "apps/android/app/src/main/res/font/paperlogy_medium.ttf": "f3c97ace885bb7d2a53a73dc71d832fa79988d5f546c2562abbb87aa07492f4b",
+    "apps/android/app/src/main/res/font/paperlogy_regular.ttf": "05e1021e3de620dddc97875342e2be1a94c5f8e9b9f792bd16c4c1d0085343b3",
+    "apps/android/app/src/main/res/font/paperlogy_semibold.ttf": "ca92034a1c4602a57c55434dfdbf8428a0bb88ac84a99a5effec1a41f0118127",
 }
 REVIEWED_PNG = {
     "apps/web/public/static/chzzk-square.png": "88c73a21da0cffa4025dec1e188e23a799c70dc101ace0343acf70a99d8e01cd",
