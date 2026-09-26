@@ -67,6 +67,11 @@ struct ProductRootView: View {
         }
         .task {
             session.scopeInvalidated = { realtime.disconnect() }
+            NativePushWakeOwner.shared.bindInbox {
+                guard session.access == .ready else { return false }
+                navigation.showInbox()
+                return true
+            }
             NativePushWakeOwner.shared.wake = {
                 await session.revalidate()
                 guard session.access == .ready, session.account != nil else { return false }
@@ -113,7 +118,23 @@ struct ProductRootView: View {
         }
         .onChange(of: session.roomsScope?.clientScope) { _, value in if value == nil { roomsFeatures.clear() } }
         .onChange(of: session.generation) { _, _ in navigation.setAccess(session.access, accountID: session.account?.id) }
-        .onChange(of: session.access, initial: true) { _, access in navigation.setAccess(access, accountID: session.account?.id) }
+        .onChange(of: session.access, initial: true) { _, access in
+            navigation.setAccess(access, accountID: session.account?.id)
+            NativePushWakeOwner.shared.drainInbox()
+        }
+    }
+    private func openInboxRoom(_ roomId: String) async {
+        guard session.access == .ready, let scope = session.roomsScope else { return }
+        let model = roomsFeatures.model(scope: scope) {
+            RoomsScreenModel(repository: RoomsRepository(remote: NativeRoomsRemote(session: session), storage: roomsStorage, scope: scope), scope: scope)
+        }
+        await model.refresh()
+        guard session.roomsScope === scope else { return }
+        navigation.selectTab(.talks)
+        navigation.pop(to: [], in: .talks)
+        guard let listing = model.listing, listing.memberships.contains(where: { $0.roomId == roomId }),
+              await model.openConversation(roomID: roomId, displayedCycle: listing.cycle) else { return }
+        navigation.open(.chat)
     }
     private func connectRealtime() async {
         guard scenePhase == .active, session.access == .ready else { realtime.disconnect(); return }
@@ -145,6 +166,13 @@ struct ProductRootView: View {
                 }).id(session.account?.id)
         case .appearance: AppearanceScreen()
         case .notifications:
+            if session.access == .ready {
+                NotificationInboxScreen(session: session, scope: session.generation,
+                    onOpenRoom: { roomId in Task { await openInboxRoom(roomId) } }, onOpenSettings: { navigation.open(.notificationSettings) })
+            } else {
+                ContentUnavailableView("로그인이 필요합니다", systemImage: "bell", description: Text("알림을 확인하려면 로그인해 주세요."))
+            }
+        case .notificationSettings:
             let scope = session.generation
             NotificationSettingsScreen(accountScope: session.account == nil ? nil : scope, session: session,
                                        fetchPreferences: { try await session.loadNotificationPreferences(scope: scope) },

@@ -99,7 +99,7 @@ class RequestTests(unittest.TestCase):
         manifest = (Path(__file__).parents[2] /
                     release.SCHEMA_MANIFEST).read_bytes()
         rows = release.parse_schema_manifest(manifest)
-        self.assertEqual(len(rows), 48)
+        self.assertEqual(len(rows), 49)
         for candidate in (manifest + b'\nprocess.exit(0)',
                           manifest.replace(rows[0]['checksum'].encode(), b'0' * 64, 1),
                           b'export const migrationManifest = []'):

@@ -4,7 +4,7 @@ import RogichatRooms
 #endif
 
 // Real native transport and one-shot provider completion; no bootstrap credentials.
-actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, NativePushServing, SessionServing, AccountNotificationsServing, RoomsAuthorizing, AccountDeletionServing, ConversationAuthorizing {
+actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, NativePushServing, SessionServing, AccountNotificationsServing, NotificationInboxServing, RoomsAuthorizing, AccountDeletionServing, ConversationAuthorizing {
     nonisolated let capabilities: SessionCapabilities
     private let auth: (any SOOPAuthenticating)?
     private var deletionTask: Task<AccountDeletionUpdate, any Error>?
@@ -306,6 +306,14 @@ actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, Na
         guard scope == clientScope else { throw ProductError.sessionChanged }
         guard revision == preferenceRevision else { throw M11Error.superseded }
         return value
+    }
+    func notificationInbox(cursor: String?, scope: UUID) async throws -> NotificationInboxPage {
+        guard validated?.access == .ready else { throw ProductError.linkRequired }
+        return try decode(NotificationInboxPage.self, await accountM11(.notificationInbox(cursor: cursor), scope: scope))
+    }
+    func markNotificationRead(id: String, scope: UUID) async throws {
+        guard validated?.access == .ready else { throw ProductError.linkRequired }
+        _ = try await accountM11(.markNotificationRead(id: id), scope: scope)
     }
     func disableAccountNotifications(expected: PreferenceGeneration, scope: UUID) async throws -> AccountNotificationPreferences {
         guard scope == clientScope else { throw ProductError.sessionChanged }

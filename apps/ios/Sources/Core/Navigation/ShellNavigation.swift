@@ -7,7 +7,7 @@ enum AppTab: String, CaseIterable, Sendable { case talks = "대화", channel = "
 enum AppPage: String, Hashable, Sendable {
     case welcome = "로기챗", link = "SOOP 계정 연결", rooms = "대화", chat = "대화방", channel = "채널", settings = "더보기"
     case profile = "프로필 설정", account = "계정 관리", report = "차단 관리"
-    case notifications = "알림 설정", licenses = "오픈소스 라이선스", appearance = "화면 모드", status = "이용 상태"
+    case notifications = "알림", notificationSettings = "알림 설정", licenses = "오픈소스 라이선스", appearance = "화면 모드", status = "이용 상태"
 }
 struct ShellNavigation: Sendable {
     private(set) var access: ShellAccess = .signedOut
@@ -48,6 +48,7 @@ struct ShellNavigation: Sendable {
         self = ShellNavigation(access: value, accountID: accountID)
     }
     mutating func selectTab(_ value: AppTab) { tab = value }
+    mutating func showInbox() { tab = .settings; settingsPath = [.notifications] }
     mutating func open(_ value: AppPage) {
         if value == .settings { tab = .settings; return }
         let allowed: Bool
@@ -56,7 +57,7 @@ struct ShellNavigation: Sendable {
         case .report: allowed = (page == .settings || page == .chat) && access == .ready
         case .profile: allowed = page == .settings && canManageAccount
         case .account: allowed = page == .settings && canManageAccount
-        case .notifications, .licenses, .appearance: allowed = page == .settings
+        case .notifications, .notificationSettings, .licenses, .appearance: allowed = page == .settings || page == .notifications
         default: allowed = false
         }
         guard allowed else { return }

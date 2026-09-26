@@ -457,6 +457,23 @@ final class AppSession {
     func loadNotificationPreferences(scope: UInt64) async throws -> AccountNotificationPreferences {
         try await notificationPreferences(scope: scope) { try await $0.loadNotificationPreferences(scope: $1) }
     }
+    func notificationInbox(cursor: String?, scope: UInt64) async throws -> NotificationInboxPage {
+        guard scope == generation, access == .ready, !busy, let clientScope,
+              let inbox = service as? any NotificationInboxServing else { throw ProductError.sessionChanged }
+        do {
+            let value = try await inbox.notificationInbox(cursor: cursor, scope: clientScope)
+            guard scope == generation, self.clientScope == clientScope else { throw ProductError.sessionChanged }
+            return value
+        } catch { await handleAccountError(error, ticket: scope); throw error }
+    }
+    func markNotificationRead(id: String, scope: UInt64) async throws {
+        guard scope == generation, access == .ready, !busy, let clientScope,
+              let inbox = service as? any NotificationInboxServing else { throw ProductError.sessionChanged }
+        do {
+            try await inbox.markNotificationRead(id: id, scope: clientScope)
+            guard scope == generation, self.clientScope == clientScope else { throw ProductError.sessionChanged }
+        } catch { await handleAccountError(error, ticket: scope); throw error }
+    }
     func disableAccountNotifications(expected: PreferenceGeneration, scope: UInt64) async throws -> AccountNotificationPreferences {
         try await notificationPreferences(scope: scope) { try await $0.disableAccountNotifications(expected: expected, scope: $1) }
     }

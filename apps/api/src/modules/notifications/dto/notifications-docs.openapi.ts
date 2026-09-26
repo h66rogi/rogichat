@@ -30,6 +30,12 @@ export const pushCapabilities: Schema = { oneOf: [
 ] };
 
 export const notificationsDocs = {
+  inbox: () => contract({ id: 'getNotificationInbox', summary: 'List currently readable message notifications',
+    response: object({ items: { type: 'array', items: object({ id: uuid, type: { type: 'string', enum: ['MESSAGE'] }, title: { type: 'string' }, body: { type: 'string' }, url: { type: 'string' }, roomId: uuid, readAt: { type: 'string', format: 'date-time', nullable: true }, createdAt: { type: 'string', format: 'date-time' } }) },
+      nextCursor: { type: 'string', nullable: true }, hasNextPage: boolean }),
+    description: 'Current account and message ACL are checked before pagination. No message content or private actor is returned. Limit 1–50; opaque keyset cursor.', errors: [400, 401, 403] }),
+  markRead: () => contract({ id: 'markNotificationRead', summary: 'Mark one currently readable notification as read',
+    auth: 'write', params: ['id'], status: 204, description: 'Own current message access is required; repeated calls are idempotent.', errors: [400, 401, 403, 404] }),
   capabilities: () => contract({ id: 'getPushCapabilities', summary: 'Read own push enrollment capability', response: pushCapabilities,
     description: 'Authenticated current session/account, verified SOOP and current terms required. WEB with configured Web Push returns only available true and canonical public applicationServerKey; otherwise available false (including native). No-store. Capability is not enqueue, delivery or notification receipt success.', errors: [400, 401, 403] }),
   preferences: () => contract({ id: 'getNotificationPreferences', summary: 'Read own notification preferences', response: notificationPreferences,

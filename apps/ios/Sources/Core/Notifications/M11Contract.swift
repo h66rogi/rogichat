@@ -94,3 +94,25 @@ protocol AccountNotificationsServing: Sendable {
     func loadNotificationPreferences(scope: UUID) async throws -> AccountNotificationPreferences
     func disableAccountNotifications(expected: PreferenceGeneration, scope: UUID) async throws -> AccountNotificationPreferences
 }
+protocol NotificationInboxServing: Sendable {
+    func notificationInbox(cursor: String?, scope: UUID) async throws -> NotificationInboxPage
+    func markNotificationRead(id: String, scope: UUID) async throws
+}
+
+struct InboxNotification: Decodable, Identifiable, Equatable, Sendable {
+    let id: String
+    let type: String
+    let title: String
+    let body: String
+    let url: String
+    let roomId: String
+    var readAt: String?
+    let createdAt: String
+    var isRead: Bool { readAt != nil }
+}
+
+struct NotificationInboxPage: Decodable, Sendable {
+    let items: [InboxNotification]
+    let nextCursor: String?
+    let hasNextPage: Bool
+}

@@ -212,7 +212,7 @@ actor NativeAPIClient: AccountFeatureRequesting, AppleIdentityRequesting, Native
             guard response.expectedContentLength <= Int64(Self.maximumBodyBytes) else { throw ProductError.invalidResponse }
             let data = try await Self.readBody(bytes, cancel: { bytes.task.cancel() })
             try Task.checkCancellation()
-            guard response.statusCode == 200 else { throw M11Error.response(data, status: response.statusCode) }
+            guard response.statusCode == endpoint.successStatus else { throw M11Error.response(data, status: response.statusCode) }
             return data
         } catch let error as M11Error { throw error }
         catch let error as ProductError { throw error }

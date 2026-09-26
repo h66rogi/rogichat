@@ -46,6 +46,8 @@ enum class ConversationRoute(val path: String, val cursorRequired: Boolean) {
 class NativeResponse(val status: Int, val body: String) { override fun toString() = "NativeResponse(status=$status, [redacted])" }
 private val nativeAdmission = AttributeKey<() -> Unit>("rogichat.native.admission")
 interface NativeApi : AppleIdentityTransport, NativePushTransport {
+    suspend fun getNotificationInbox(token: String, cursor: String?): String = throw IllegalStateException("operation_unavailable")
+    suspend fun markNotificationRead(token: String, id: String): Unit = throw IllegalStateException("operation_unavailable")
     suspend fun getPublicChannel(path: String, query: Map<String, String> = emptyMap()): String = throw IllegalStateException("operation_unavailable")
     suspend fun nativePushAdmitted(route: NativePushRoute, bearer: String, body: String?, admission: () -> Unit): String { admission(); return performNativePush(route, bearer, body) }
     suspend fun removePushAdmitted(id: String, bearer: String, body: String, admission: () -> Unit) { admission(); removeNativePush(id, bearer, body) }
@@ -108,6 +110,14 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
             "channel/h66rogi/wardrobe", "favorites/channels/1/count", "songs/channel/h66rogi", "schedules/channel/1", "song-live/public/setlists") ||
             path.matches(Regex("song-live/public/setlists/[1-9][0-9]{0,9}")))
         return call(HttpMethod.Get, path, null, query = query, publicEndpoint = true)
+    }
+    override suspend fun getNotificationInbox(token: String, cursor: String?): String =
+        call(HttpMethod.Get, "me/notifications", token, query = buildMap {
+            put("limit", "20")
+            cursor?.let { require(it.length <= 160 && it.matches(Regex("[A-Za-z0-9_-]+"))); put("cursor", it) }
+        })
+    override suspend fun markNotificationRead(token: String, id: String) {
+        call(HttpMethod.Post, "me/notifications/${ReadStateId(id).value}/read", token, "{}", empty = true)
     }
     override suspend fun getConversation(token: String, room: RoomId, route: ConversationRoute, query: ManifestRequest): String {
         require(route != ConversationRoute.SNAPSHOT || query.cursor == null)

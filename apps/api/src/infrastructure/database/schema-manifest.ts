@@ -48,4 +48,5 @@ export const migrationManifest: readonly { name: string; checksum: string }[] = 
   { name: '20260924044000_lyrics_quota', checksum: '7796668c2f431df2d2881d58066ee3de21b2449d1613bcae9d2ba08041b4f8a1' },
   { name: '20260924045000_channel_overlay_token', checksum: '42549d9ab79e2f9c85273427faaabb8edfc7e6ccd8007e9349693c1cdfb23370' },
   { name: '20260924050000_meloming_video_cache', checksum: '2e6d323ee62fc3de6f73c5702dfba6e554881516b4207052a84c463b75e6b283' },
+  { name: '20260926060000_notification_reads', checksum: '3490d36c099e2a351e1eef76b81df38a4b73928064567d3c11991cb267ff7ce2' },
 ];

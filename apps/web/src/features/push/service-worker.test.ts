@@ -155,10 +155,10 @@ void test('a click focuses this origin app and never a URL from a payload', asyn
   assert.deepEqual(plain(page.messages.at(-1)), { type: WAKE_SYNC, account: 'account-one', session: 'session-one', generation: 1 });
 });
 
-void test('a click with no page open opens this origin app root', async () => {
+void test('a click with no page open opens this origin notification inbox', async () => {
   const context = worker([]);
   await context.fire('notificationclick', { notification: { close: () => undefined } });
-  assert.deepEqual(plain(context.opened), ['/']);
+  assert.deepEqual(plain(context.opened), ['/notifications']);
 });
 
 void test('a page of another origin is not treated as this app', async () => {
@@ -166,7 +166,7 @@ void test('a page of another origin is not treated as this app', async () => {
   const context = worker([foreign]);
   await context.fire('notificationclick', { notification: { close: () => undefined } });
   assert.equal(foreign.focused, false);
-  assert.deepEqual(plain(context.opened), ['/']);
+  assert.deepEqual(plain(context.opened), ['/notifications']);
 });
 
 void test('one page unbinding never silences another that is still signed in', async () => {

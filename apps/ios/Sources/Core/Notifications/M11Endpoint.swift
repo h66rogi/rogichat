@@ -5,6 +5,8 @@ import Foundation
 enum M11Endpoint: Sendable {
     case enableNotifications(PreferenceGeneration)
     case notificationPreferences
+    case notificationInbox(cursor: String?)
+    case markNotificationRead(id: String)
     case disableNotifications(DisableAccountNotifications)
     case readState(room: ReadStateID)
     case reportReadState(room: ReadStateID, input: ReportOwnReadState)
@@ -17,12 +19,25 @@ enum M11Endpoint: Sendable {
             struct Input: Encodable { let pushEnabled = true; let expectedGeneration: PreferenceGeneration }
             path = "me/notification-preferences"; body = try JSONEncoder().encode(Input(expectedGeneration: expected))
         case .notificationPreferences: path = "me/notification-preferences"; body = nil
+        case .notificationInbox(let cursor):
+            guard cursor == nil || (cursor!.utf8.count <= 160 && cursor!.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil) else { throw ProductError.invalidResponse }
+            path = "me/notifications"; body = nil
+        case .markNotificationRead(let id):
+            guard NativePushContract.uuid(id) else { throw ProductError.invalidResponse }
+            path = "me/notifications/\(id)/read"; body = Data("{}".utf8)
         case .disableNotifications(let input): path = "me/notification-preferences"; body = try JSONEncoder().encode(input)
         case .readState(let room): path = "rooms/\(room.value)/read-state"; body = nil
         case .reportReadState(let room, let input): path = "rooms/\(room.value)/read-state"; body = try JSONEncoder().encode(input)
         }
         var request = URLRequest(url: environment.baseURL.appendingPathComponent(path))
-        request.httpMethod = body == nil ? "GET" : "PUT"; request.httpBody = body
+        if case .notificationInbox(let cursor) = self {
+            var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
+            components.queryItems = [URLQueryItem(name: "limit", value: "20")] + (cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? [])
+            request.url = components.url
+        }
+        if case .markNotificationRead = self { request.httpMethod = "POST" }
+        else { request.httpMethod = body == nil ? "GET" : "PUT" }
+        request.httpBody = body
         request.cachePolicy = .reloadIgnoringLocalCacheData; request.httpShouldHandleCookies = false
         request.setValue("Bearer \(credential.token)", forHTTPHeaderField: "Authorization")
         request.setValue("ios", forHTTPHeaderField: "X-Rogi-Client")
@@ -30,6 +45,7 @@ enum M11Endpoint: Sendable {
         if body != nil { request.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         return request
     }
+    var successStatus: Int { if case .markNotificationRead = self { 204 } else { 200 } }
 }
 protocol M11Requesting: Sendable {
     func performM11(_ endpoint: M11Endpoint, credential: NativeCredential) async throws -> Data
