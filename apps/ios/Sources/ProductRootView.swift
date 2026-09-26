@@ -112,8 +112,8 @@ struct ProductRootView: View {
             } catch { /* View cancellation does not change credentials. */ }
         }
         .onChange(of: session.roomsScope?.clientScope) { _, value in if value == nil { roomsFeatures.clear() } }
-        .onChange(of: session.generation) { _, _ in navigation.setAccess(session.access) }
-        .onChange(of: session.access, initial: true) { _, access in navigation.setAccess(access) }
+        .onChange(of: session.generation) { _, _ in navigation.setAccess(session.access, accountID: session.account?.id) }
+        .onChange(of: session.access, initial: true) { _, access in navigation.setAccess(access, accountID: session.account?.id) }
     }
     private func connectRealtime() async {
         guard scenePhase == .active, session.access == .ready else { realtime.disconnect(); return }
@@ -142,7 +142,7 @@ struct ProductRootView: View {
                     let client = MediaClient(transport: AccountMediaTransport(session: session, original: scope), scope: AccountMediaScope(original: scope), apiBaseURL: nativeEnvironment.baseURL)
                     if let asset = profile.avatarAssetID { return AnyView(AuthorizedMedia(client: client, assetID: asset, access: .preview(.image), avatar: true)) }
                     return AnyView(AuthorizedProviderAvatar(client: client))
-                }).id(session.generation)
+                }).id(session.account?.id)
         case .appearance: AppearanceScreen()
         case .notifications:
             let scope = session.generation
@@ -156,7 +156,7 @@ struct ProductRootView: View {
                     guard let scope = session.roomsScope else { return nil }
                     return AnyView(AccountAvatarSection(session: session, storage: roomsStorage, scope: scope, accountID: profile.id, originalAssetID: profile.avatarAssetID, apiBaseURL: nativeEnvironment.baseURL, originalProviderAvatarAvailable: profile.providerAvatarURL != nil))
                 })
-                    .id(session.generation)
+                    .id(session.account?.id)
             }
         case .account:
             if let account = session.account {

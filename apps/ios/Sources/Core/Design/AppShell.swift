@@ -70,5 +70,6 @@ struct AppShell<Content: View>: View {
         content(value)
             .navigationTitle(value.rawValue)
             .navigationBarTitleDisplayMode([.settings, .rooms, .channel].contains(value) ? .large : .inline)
+            .toolbar([.settings, .rooms, .channel].contains(value) ? .hidden : .visible, for: .navigationBar)
     }
 }
