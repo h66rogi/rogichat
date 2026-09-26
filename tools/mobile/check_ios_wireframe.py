@@ -52,17 +52,66 @@ NATIVE_FEATURE_SOURCES = [
     "Sources/Core/Session/AccountFeatureGateway.swift",
     "Sources/Core/MessageActions/OwnBlockRooms.swift",
 ]
+NATIVE_MODULE_NAME = "RogichatNativeStateChecks"
+
+
+def swiftc(sdk, directory):
+    return [
+        "xcrun", "--sdk", "macosx", "swiftc", "-sdk", sdk, "-swift-version", "6",
+        "-strict-concurrency=complete", "-j", "2",
+        "-module-cache-path", str(directory / "ModuleCache"),
+    ]
+
+
+def compile_and_run(sdk, directory, name, sources):
+    executable = directory / name
+    subprocess.run([
+        *swiftc(sdk, directory),
+        *(str(ROOT / "apps/ios" / source) for source in sources), "-o", str(executable),
+    ], check=True)
+    subprocess.run([str(executable)], check=True)
 
 
 def run_checks(sdk, directory, name, sources):
+    if wanted(name):
+        compile_and_run(sdk, directory, name, sources)
+
+
+def run_native_checks(sdk, directory, name, common_sources, extras):
     if not wanted(name):
         return
+    # A single --only check remains the fastest local loop without module setup.
+    if SELECTED is not None and len(SELECTED) == 1:
+        compile_and_run(sdk, directory, name, [*common_sources, *extras])
+        return
+
+    module = directory / f"{NATIVE_MODULE_NAME}.swiftmodule"
+    library = directory / f"lib{NATIVE_MODULE_NAME}.dylib"
+    if not module.exists():
+        subprocess.run([
+            *swiftc(sdk, directory), "-parse-as-library", "-module-name", NATIVE_MODULE_NAME,
+            "-enable-testing", "-emit-library", "-emit-module",
+            "-emit-module-path", str(module),
+            *(str(ROOT / "apps/ios" / source) for source in common_sources),
+            "-o", str(library),
+        ], check=True)
+
+    # The existing scenario files still run as independent executables. An
+    # imported testable module gives them the same internal declarations without
+    # recompiling all 49 product sources for every scenario.
+    prepared = []
+    for index, source in enumerate(extras):
+        copied = directory / f"{name}-{index}.swift"
+        copied.write_text(f"@testable import {NATIVE_MODULE_NAME}\n"
+                          + (ROOT / "apps/ios" / source).read_text(encoding="utf-8"),
+                          encoding="utf-8")
+        prepared.append(copied)
     executable = directory / name
     subprocess.run([
-        "xcrun", "--sdk", "macosx", "swiftc", "-sdk", sdk, "-swift-version", "6",
-        "-strict-concurrency=complete",
-        "-j", "2", "-module-cache-path", str(directory / "ModuleCache"),
-        *(str(ROOT / "apps/ios" / source) for source in sources), "-o", str(executable),
+        *swiftc(sdk, directory), "-parse-as-library", "-I", str(directory),
+        "-L", str(directory), f"-l{NATIVE_MODULE_NAME}",
+        "-Xlinker", "-rpath", "-Xlinker", str(directory),
+        *(str(source) for source in prepared), "-o", str(executable),
     ], check=True)
     subprocess.run([str(executable)], check=True)
 
@@ -129,35 +178,34 @@ def main():
             "Sources/Core/Auth/SOOPAuthCoordinator.swift",
         ]
         native_sources += NATIVE_FEATURE_SOURCES
-        run_checks(sdk, Path(temporary), "native-transport-checks", [
-            *native_sources, "Tests/Product/NativeTransportChecks.swift",
+        run_native_checks(sdk, Path(temporary), "native-transport-checks", native_sources, [
+            "Tests/Product/NativeTransportChecks.swift",
         ])
-        run_checks(sdk, Path(temporary), "native-auth-checks", [
-            *native_sources, "Tests/Product/SOOPAuthChecks.swift",
+        run_native_checks(sdk, Path(temporary), "native-auth-checks", native_sources, [
+            "Tests/Product/SOOPAuthChecks.swift",
         ])
-        run_checks(sdk, Path(temporary), "notification-contract-checks", [
-            *native_sources,
+        run_native_checks(sdk, Path(temporary), "notification-contract-checks", native_sources, [
             "Sources/Features/Settings/AccountNotificationModel.swift",
             "Tests/Product/M11Checks.swift",
         ])
-        run_checks(sdk, Path(temporary), "rooms-transport-checks", [
-            *native_sources, "Tests/Product/RoomsTransportChecks.swift",
+        run_native_checks(sdk, Path(temporary), "rooms-transport-checks", native_sources, [
+            "Tests/Product/RoomsTransportChecks.swift",
         ])
-        run_checks(sdk, Path(temporary), "conversation-transport-checks", [
-            *native_sources, "Tests/Product/ConversationTransportChecks.swift",
+        run_native_checks(sdk, Path(temporary), "conversation-transport-checks", native_sources, [
+            "Tests/Product/ConversationTransportChecks.swift",
         ])
-        run_checks(sdk, Path(temporary), "account-deletion-checks", [
-            *native_sources, "Tests/Product/AccountDeletionChecks.swift",
+        run_native_checks(sdk, Path(temporary), "account-deletion-checks", native_sources, [
+            "Tests/Product/AccountDeletionChecks.swift",
         ])
-        run_checks(sdk, Path(temporary), "apple-composition-checks", [
-            *native_sources, "Tests/Features/AppleCompositionChecks.swift",
+        run_native_checks(sdk, Path(temporary), "apple-composition-checks", native_sources, [
+            "Tests/Features/AppleCompositionChecks.swift",
         ])
         for name, source in (
             ("native-feature-admission-checks", "Tests/Features/NativeFeatureAdmissionChecks.swift"),
             ("push-composition-checks", "Tests/Features/PushCompositionChecks.swift"),
             ("own-block-room-checks", "Tests/Features/OwnBlockRoomsChecks.swift"),
         ):
-            run_checks(sdk, Path(temporary), name, [*native_sources, source])
+            run_native_checks(sdk, Path(temporary), name, native_sources, [source])
         run_checks(sdk, Path(temporary), "rooms-model-checks", [
             "Sources/Core/Navigation/ShellNavigation.swift",
             "Sources/Features/Settings/ProfileEditor.swift",
@@ -190,8 +238,8 @@ def main():
             "Sources/Core/Identity/IdentityAttempt.swift", "Sources/Core/Identity/AppleIdentityContract.swift",
             "Sources/Core/Identity/AppleIdentityProblem.swift", "Tests/Identity/IdentityChecks.swift",
         ])
-        run_checks(sdk, Path(temporary), "push-checks", [
-            *native_sources, "Tests/Push/PushChecks.swift",
+        run_native_checks(sdk, Path(temporary), "push-checks", native_sources, [
+            "Tests/Push/PushChecks.swift",
         ])
         run_checks(sdk, Path(temporary), "realtime-lifecycle-checks", [
             "Sources/Core/Realtime/RealtimeContract.swift", "Sources/Core/Realtime/NativeRealtimeManager.swift",
