@@ -56,8 +56,14 @@ RUN rm -f /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources \
     && apt-get update \
     && apt-get install --no-install-recommends --yes openssl \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=production-dependencies /workspace/node_modules /workspace/node_modules
-COPY --from=migration-dependencies /workspace/node_modules /workspace/node_modules
+# Both inputs contain many of the same pnpm packages at the same paths. Merge
+# them in one layer so the migration-specific copy does not retain overwritten
+# runtime packages in a separate image layer.
+RUN --mount=type=bind,from=production-dependencies,source=/workspace/node_modules,target=/run/production-node-modules,readonly \
+    --mount=type=bind,from=migration-dependencies,source=/workspace/node_modules,target=/run/migration-node-modules,readonly \
+    install -d /workspace/node_modules \
+    && cp -a /run/production-node-modules/. /workspace/node_modules/ \
+    && cp -a /run/migration-node-modules/. /workspace/node_modules/
 COPY --from=production-dependencies /workspace/apps/api/node_modules /workspace/apps/api/node_modules
 COPY --from=migration-dependencies /workspace/apps/migration/node_modules /workspace/apps/api/node_modules
 COPY --from=build /workspace/apps/api/dist /workspace/apps/api/dist
