@@ -19,13 +19,14 @@ test('four integration shards distribute channel content and retain full coverag
   assert.deepEqual(groups.flat().sort(), files);
   const pieces = new Map([
     ['channel-content-core.test.mjs', 1],
-    ['channel-content-media.test.mjs', 0],
+    ['channel-content-media.test.mjs', 2],
     ['channel-content-live.test.mjs', 3],
     ['channel-content-requests.test.mjs', 2],
   ]);
   for (const [name, shard] of pieces) {
     assert.equal(groups[shard].includes(`test/integration/${name}`), true, name);
   }
+  assert.equal(groups[1].includes('test/integration/default-room.test.mjs'), true);
   const testCount = [...pieces.keys()].reduce((total, name) =>
     total + (readFileSync(new URL(`../integration/${name}`, import.meta.url), 'utf8').match(/^test\('/gm)?.length ?? 0), 0);
   assert.ok(testCount >= 20);
