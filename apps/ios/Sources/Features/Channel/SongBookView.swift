@@ -1,23 +1,71 @@
 import SwiftUI
+import Kingfisher
+
+struct SongBookSearchBar: View {
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField("노래 검색", text: $text)
+                .textFieldStyle(.plain)
+
+            if !text.isEmpty {
+                Button {
+                    text = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityLabel("검색어 지우기")
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 11)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.06), radius: 5, y: 2)
+    }
+}
 
 struct SongBookView: View {
     let channelId: Int
     let identifier: String
+    let refreshToken: UUID
     private let pinnedSearchText: Binding<String>?
 
     @StateObject private var viewModel: SongBookViewModel
+    @ObservedObject var songRequestManager: SongRequestManager
+    var onShowQueue: (() -> Void)?
     @State private var showFilterSheet = false
     @State private var selectedSong: Song?
+    @State private var songToEdit: Song?
+    @State private var showRequestSuccess = false
+    @State private var showDeleteConfirmation = false
+    @State private var songToDelete: Song?
+    @State private var deleteError: String?
+    @State private var showDeleteError = false
     @State private var pendingCopyToast: CopyToastModel?
 
     init(
         channelId: Int,
         identifier: String,
-        pinnedSearchText: Binding<String>? = nil
+        refreshToken: UUID = UUID(),
+        songRequestManager: SongRequestManager,
+        pinnedSearchText: Binding<String>? = nil,
+        onShowQueue: (() -> Void)? = nil
     ) {
         self.channelId = channelId
         self.identifier = identifier
+        self.refreshToken = refreshToken
+        self.songRequestManager = songRequestManager
         self.pinnedSearchText = pinnedSearchText
+        self.onShowQueue = onShowQueue
         self._viewModel = StateObject(wrappedValue: SongBookViewModel(channelId: channelId, identifier: identifier))
     }
 
@@ -32,6 +80,18 @@ struct SongBookView: View {
             // Filter Bar
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
+                    // Favorites Only Button
+                    Button {
+                        viewModel.isFavoriteMode.toggle()
+                    } label: {
+                        Image(systemName: viewModel.isFavoriteMode ? "heart.fill" : "heart")
+                            .font(.subheadline)
+                            .foregroundColor(viewModel.isFavoriteMode ? .white : .red)
+                            .frame(width: 36, height: 36)
+                            .background(viewModel.isFavoriteMode ? Color.red : Color(.systemGray6))
+                            .cornerRadius(18)
+                    }
+
                     // Filter Button
                     Button {
                         showFilterSheet = true
@@ -73,22 +133,30 @@ struct SongBookView: View {
             }
             .padding(.bottom, 8)
 
+            // Live Song Request Banner
+            if songRequestManager.showRequestUI {
+                LiveSongRequestBanner(manager: songRequestManager)
+                    .contentShape(Rectangle())
+                    .onTapGesture { onShowQueue?() }
+            }
+
             // Song List
             if viewModel.isLoading && viewModel.songs.isEmpty {
-                LoadingView().frame(height: 200)
-            } else if viewModel.loadError && viewModel.songs.isEmpty {
-                EmptyStateView(icon: "exclamationmark.triangle", title: "노래책을 불러올 수 없어요",
-                               message: "잠시 후 다시 시도해 주세요", actionTitle: "다시 시도") {
-                    Task { await viewModel.loadSongs() }
-                }.frame(height: 200)
+                LoadingView()
             } else if viewModel.songs.isEmpty {
-                EmptyStateView(icon: "music.note", title: "노래가 없습니다",
-                    message: viewModel.searchText.isEmpty ? "이 채널에 등록된 노래가 없습니다" : "검색 결과가 없습니다")
-                    .frame(height: 200)
+                EmptyStateView(
+                    icon: viewModel.isFavoriteMode ? "heart.slash" : "music.note",
+                    title: viewModel.isFavoriteMode ? "좋아요한 곡이 없습니다" : "노래가 없습니다",
+                    message: viewModel.isFavoriteMode
+                        ? "하트를 눌러 좋아하는 곡을 저장해보세요"
+                        : (viewModel.searchText.isEmpty ? "이 채널에 등록된 노래가 없습니다" : "검색 결과가 없습니다")
+                )
             } else {
                 LazyVStack(spacing: 0) {
                     ForEach(viewModel.songs) { song in
-                        SongRow(song: song, onTap: {
+                        SongRow(
+                            song: song,
+                            onTap: {
                                 let text = "\(song.artist.name) - \(song.title)"
                                 UIPasteboard.general.string = text
                                 UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -97,7 +165,18 @@ struct SongBookView: View {
                                     description: text
                                 )
                                 selectedSong = song
-                            })
+                            },
+                            onLikeToggle: {
+                                Task { await viewModel.toggleLike(song: song) }
+                            },
+                            songRequestManager: songRequestManager.showRequestUI ? songRequestManager : nil,
+                            onRequest: {
+                                Task {
+                                    let success = await songRequestManager.requestSong(song)
+                                    if success { showRequestSuccess = true }
+                                }
+                            }
+                        )
                         .padding(.horizontal)
                         .padding(.vertical, 4)
 
@@ -106,7 +185,7 @@ struct SongBookView: View {
                     }
 
                     // Load More
-                    if viewModel.hasMore {
+                    if viewModel.hasMore && !viewModel.isFavoriteMode {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                             .padding()
@@ -124,13 +203,26 @@ struct SongBookView: View {
             guard let pinnedSearchText else { return }
             viewModel.searchText = pinnedSearchText.wrappedValue
         }
-        .onChange(of: viewModel.searchText) { _, value in
+        .alert("신청 완료", isPresented: $showRequestSuccess) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text("신청곡이 등록되었습니다")
+        }
+        .alert("오류", isPresented: Binding(
+            get: { songRequestManager.requestError != nil },
+            set: { if !$0 { songRequestManager.requestError = nil } }
+        )) {
+            Button("확인", role: .cancel) {}
+        } message: {
+            Text(songRequestManager.requestError ?? "")
+        }
+        .onChange(of: viewModel.searchText) { value in
             if let pinnedSearchText, pinnedSearchText.wrappedValue != value {
                 pinnedSearchText.wrappedValue = value
             }
             viewModel.debounceSearch()
         }
-        .onChange(of: pinnedSearchText?.wrappedValue) { _, value in
+        .onChange(of: pinnedSearchText?.wrappedValue) { value in
             guard let value, viewModel.searchText != value else { return }
             viewModel.searchText = value
         }
@@ -139,23 +231,160 @@ struct SongBookView: View {
                 await viewModel.loadSongs()
             }
         }
+        .onChange(of: viewModel.isFavoriteMode) { _ in
+            Task {
+                await viewModel.loadSongs()
+            }
+        }
+        .onChange(of: refreshToken) { _ in
+            Task {
+                await viewModel.loadSongs()
+            }
+        }
         .sheet(isPresented: $showFilterSheet) {
             FilterSheet(viewModel: viewModel)
         }
         .sheet(item: $selectedSong) { song in
-            SongDetailSheet(song: song, initialCopyToast: pendingCopyToast)
-                .presentationDetents([.large])
+            SongDetailSheet(
+                song: song,
+                channelIdentifier: identifier,
+                permission: viewModel.permission,
+                pricingSettings: viewModel.pricingSettings,
+                songRequestManager: songRequestManager.showRequestUI ? songRequestManager : nil,
+                onRequest: {
+                    Task {
+                        let success = await songRequestManager.requestSong(song)
+                        if success {
+                            showRequestSuccess = true
+                            selectedSong = nil
+                        }
+                    }
+                },
+                onLikeToggle: {
+                    Task {
+                        await viewModel.toggleLike(song: song)
+                        // Update selected song's like status
+                        if let updatedSong = viewModel.songs.first(where: { $0.id == song.id }) {
+                            selectedSong = updatedSong
+                        }
+                    }
+                },
+                onEdit: {
+                    selectedSong = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        songToEdit = song
+                    }
+                },
+                onDelete: {
+                    selectedSong = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        songToDelete = song
+                        showDeleteConfirmation = true
+                    }
+                },
+                onSongUpdated: { updatedSong in
+                    viewModel.updateSong(updatedSong)
+                    selectedSong = updatedSong
+                },
+                initialCopyToast: pendingCopyToast
+            )
+            .presentationDetents([.large])
         }
-        .overlay(alignment: .top) {
-            if let pendingCopyToast { CopyToastView(toast: pendingCopyToast).padding(.horizontal, 20).padding(.top, 8) }
+        .sheet(item: $songToEdit) { song in
+            EditSongView(
+                channelId: channelId,
+                identifier: identifier,
+                song: song,
+                onComplete: { updatedSong in
+                    viewModel.updateSong(updatedSong)
+                    songToEdit = nil
+                    // Optionally re-open detail sheet
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        selectedSong = updatedSong
+                    }
+                },
+                onDelete: {
+                    songToEdit = nil
+                    Task {
+                        await viewModel.loadSongs()
+                    }
+                }
+            )
         }
-        .onChange(of: pendingCopyToast) { _, toast in
-            guard toast != nil else { return }
-            Task { try? await Task.sleep(for: .seconds(2)); pendingCopyToast = nil }
+        .alert("노래 삭제", isPresented: $showDeleteConfirmation) {
+            Button("삭제", role: .destructive) {
+                if let song = songToDelete {
+                    Task {
+                        do {
+                            try await ChannelAPIClient.shared.requestWithoutResponse(
+                                endpoint: .deleteSong(channelIdentifier: identifier, songId: song.id)
+                            )
+                            await viewModel.loadSongs()
+                        } catch {
+                            deleteError = "노래를 삭제할 수 없습니다."
+                            showDeleteError = true
+                        }
+                    }
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("이 노래를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")
+        }
+        .alert("오류", isPresented: $showDeleteError) {
+            Button("확인") { deleteError = nil }
+        } message: {
+            if let error = deleteError { Text(error) }
         }
     }
 }
 
+// MARK: - Copy Toast
+struct CopyToastModel: Equatable, Identifiable {
+    let id = UUID()
+    let title: String
+    let description: String?
+}
+
+struct CopyToastView: View {
+    let toast: CopyToastModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "doc.on.clipboard.fill")
+                .font(.subheadline)
+                .foregroundColor(.accentColor)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(toast.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                if let description = toast.description, !description.isEmpty {
+                    Text(description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color(.systemBackground))
+                .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 2)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(Color(.separator).opacity(0.5), lineWidth: 0.5)
+        )
+    }
+}
+
+// MARK: - Filter Sheet
 struct FilterSheet: View {
     @ObservedObject var viewModel: SongBookViewModel
     @Environment(\.dismiss) private var dismiss
@@ -300,6 +529,171 @@ struct FilterSheet: View {
             localArtistId = viewModel.selectedArtistId
             localDifficulty = viewModel.selectedDifficulty
         }
+    }
+}
+
+// MARK: - Live Song Request Banner
+private struct LiveSongRequestBanner: View {
+    @ObservedObject var manager: SongRequestManager
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .foregroundColor(.white)
+
+            Text(manager.isPaused ? "신청곡 일시정지" : "신청곡 받는 중")
+                .font(.subheadline.weight(.medium))
+                .foregroundColor(.white)
+
+            Spacer()
+
+            if manager.maxQueueSize > 0 {
+                Text("대기열 \(manager.queueCount)/\(manager.maxQueueSize)")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.9))
+            }
+
+            if manager.isQueueFull {
+                Text("가득")
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(.white.opacity(0.3))
+                    .cornerRadius(4)
+                    .foregroundColor(.white)
+            }
+
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(.white.opacity(0.7))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            LinearGradient(
+                colors: [Color.purple, Color.pink],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+        )
+    }
+}
+
+// MARK: - Song Row
+struct SongRow: View {
+    let song: Song
+    var onTap: (() -> Void)?
+    var onLikeToggle: (() -> Void)?
+    var songRequestManager: SongRequestManager?
+    var onRequest: (() -> Void)?
+
+    var body: some View {
+        Button(action: { onTap?() }) {
+            HStack(spacing: 12) {
+                // Album Art
+                KFImage(ChannelEnvironment.imageURL(song.albumArt ?? ""))
+                    .placeholder {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.gray.opacity(0.2))
+                            .overlay(
+                                Image(systemName: "music.note")
+                                    .foregroundColor(.gray)
+                            )
+                    }
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: 56, height: 56)
+                    .cornerRadius(8)
+
+                // Info
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(song.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundColor(.primary)
+                        .lineLimit(1)
+
+                    HStack(spacing: 6) {
+                        Text(song.artist.name)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .lineLimit(1)
+
+                        if let difficulty = song.difficulty, difficulty > 0 {
+                            HStack(spacing: 1) {
+                                ForEach(1...difficulty, id: \.self) { _ in
+                                    Image(systemName: "star.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundColor(.yellow)
+                                }
+                            }
+                        }
+                    }
+
+                    // Categories
+                    if !song.categories.isEmpty {
+                        HStack(spacing: 4) {
+                            ForEach(song.categories.prefix(2)) { category in
+                                Text(category.name)
+                                    .font(.caption2)
+                                    .padding(.horizontal, 6)
+                                    .padding(.vertical, 2)
+                                    .background(Color(hex: category.color ?? "#6b7280").opacity(0.2))
+                                    .foregroundColor(Color(hex: category.color ?? "#6b7280"))
+                                    .cornerRadius(4)
+                            }
+                        }
+                    }
+                }
+
+                Spacer()
+
+                // Song Request Button
+                if let manager = songRequestManager, let onRequest {
+                    let blocked = manager.isBlockedCategory(song: song)
+                    let duplicate = manager.isDuplicateRequest(songId: song.id)
+                    let canSubmit = manager.canRequest && !manager.isSubmitting && !blocked && !duplicate
+                    Button(action: onRequest) {
+                        Text(songRequestButtonLabel(manager: manager, isBlockedCategory: blocked, isDuplicateRequest: duplicate))
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(canSubmit ? Color.purple : Color.gray.opacity(0.3))
+                            .foregroundColor(canSubmit ? .white : .secondary)
+                            .cornerRadius(6)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSubmit)
+                }
+
+                // Like Button
+                if let onLikeToggle = onLikeToggle {
+                    Button(action: onLikeToggle) {
+                        VStack(spacing: 2) {
+                            Image(systemName: song.isLiked ? "heart.fill" : "heart")
+                                .foregroundColor(song.isLiked ? .red : .secondary)
+                            if song.likeCount > 0 {
+                                Text("\(song.likeCount)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func songRequestButtonLabel(manager: SongRequestManager, isBlockedCategory: Bool = false, isDuplicateRequest: Bool = false) -> String {
+        if isBlockedCategory { return "신청 불가" }
+        if isDuplicateRequest { return "신청됨" }
+        if manager.isSubmitting { return "신청중" }
+        if manager.isPaused { return "일시정지" }
+        if manager.isQueueFull { return "대기열 가득" }
+        return "신청"
     }
 }
 

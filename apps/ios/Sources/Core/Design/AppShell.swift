@@ -45,10 +45,14 @@ struct AppShell<Content: View>: View {
                 .navigationDestination(for: AppPage.self) { page($0) }
         }
     }
-    private func page(_ value: AppPage) -> some View {
-        content(value)
-            .navigationTitle(value.rawValue)
-            .navigationBarTitleDisplayMode([.settings, .rooms, .channel].contains(value) ? .large : .inline)
-            .toolbar(value == .settings ? .hidden : .visible, for: .navigationBar)
+    @ViewBuilder private func page(_ value: AppPage) -> some View {
+        if value == .channel {
+            content(value)
+        } else {
+            content(value)
+                .navigationTitle(value.rawValue)
+                .navigationBarTitleDisplayMode([.settings, .rooms].contains(value) ? .large : .inline)
+                .toolbar(value == .settings ? .hidden : .visible, for: .navigationBar)
+        }
     }
 }

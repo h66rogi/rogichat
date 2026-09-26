@@ -37,6 +37,9 @@ settings:
     Release-Prod:
       APS_ENVIRONMENT: production
 packages:
+  Kingfisher:
+    url: https://github.com/onevcat/Kingfisher
+    exactVersion: 7.12.0
   SocketIO:
     url: https://github.com/socketio/socket.io-client-swift
     exactVersion: 16.1.1
@@ -58,6 +61,8 @@ targets:
         # resource bundles, which cannot accept provisioning profiles.
         PROVISIONING_PROFILE_SPECIFIER: "$(ROGICHAT_PROVISIONING_PROFILE)"
     dependencies:
+      - package: Kingfisher
+        product: Kingfisher
       - package: SocketIO
         product: SocketIO
       - package: Starscream
@@ -72,6 +77,8 @@ targets:
       - path: Resources/SocketIO-LICENSE.txt
         buildPhase: resources
       - path: Resources/Starscream-LICENSE.txt
+        buildPhase: resources
+      - path: Resources/Kingfisher-LICENSE.txt
         buildPhase: resources
       - path: Resources/GRDB-LICENSE.txt
         buildPhase: resources

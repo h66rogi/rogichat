@@ -29,7 +29,7 @@ struct OpenSourceLicensesScreen: View {
     var body: some View {
         List {
             Section {
-                ForEach(["GRDB 7.11.1", "SocketIO 16.1.1", "Starscream 4.0.8"], id: \.self) { package in
+                ForEach(["GRDB 7.11.1", "SocketIO 16.1.1", "Starscream 4.0.8", "Kingfisher 7.12.0"], id: \.self) { package in
                     NavigationLink(package) {
                         ScrollView {
                             Text(license(String(package.split(separator: " ")[0])))

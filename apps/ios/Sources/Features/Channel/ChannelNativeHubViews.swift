@@ -1,29 +1,18 @@
 import AVKit
 import Foundation
+import Kingfisher
 import SwiftUI
-
-struct ChannelHuyeorDestination: Identifiable {
-    let roomID: String
-    let title: String
-    let channelName: String
-    let channelImageURL: String?
-    let channelID: Int
-
-    var id: String { roomID }
-}
-
-// MARK: - Profile shell
 
 struct ChannelProfileHero: View {
     let channel: Channel
     let profile: ChannelProfile?
+    let isFavorited: Bool
     let favoriteCount: Int
-    let isLive: Bool
-    let onVisit: () -> Void
-    let onCopyLink: () -> Void
+    let isOwner: Bool
+    let onFavorite: () -> Void
     let onTalk: () -> Void
-    let onSongbook: () -> Void
-    let onLive: (() -> Void)?
+    let onEditProfile: () -> Void
+    let onManage: () -> Void
 
     private var themeTint: Color {
         Color(hex: channel.themeColor)
@@ -41,7 +30,7 @@ struct ChannelProfileHero: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .center, spacing: 18) {
-                ChannelProfileAvatar(channel: channel, isLive: isLive)
+                ChannelProfileAvatar(channel: channel, isLive: false)
 
                 HStack(spacing: 0) {
                     ChannelProfileMetric(value: favoriteCount.formatted(), label: "즐겨찾기")
@@ -73,18 +62,7 @@ struct ChannelProfileHero: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                if isLive, let onLive {
-                    Button(action: onLive) {
-                        Label("후여르 LIVE", systemImage: "flame.fill")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(ChannelNativePalette.huyeorAmber)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(ChannelNativePalette.paleAmber, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("후여르 라이브 참여")
-                }
+
             }
 
             profileActions
@@ -123,22 +101,41 @@ struct ChannelProfileHero: View {
 
     @ViewBuilder
     private var profileActions: some View {
-        HStack(spacing: 8) {
-                Button(action: onVisit) {
-                    Label("방송 보기", systemImage: "play.rectangle")
+        if isOwner {
+            HStack(spacing: 10) {
+                Button(action: onEditProfile) {
+                    Label("채널 수정", systemImage: "pencil")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.accentColor)
+                .accessibilityLabel("채널 프로필 수정")
+
+                Button(action: onTalk) {
+                    Label("채널톡", systemImage: "bubble.left.and.bubble.right")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.accentColor)
+
+                Button(action: onManage) {
+                    Image(systemName: "slider.horizontal.3")
+                        .frame(minWidth: 24)
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.accentColor)
+                .accessibilityLabel("채널 관리")
+            }
+        } else {
+            HStack(spacing: 8) {
+                Button(action: onFavorite) {
+                    Label("즐겨찾기", systemImage: isFavorited ? "star.fill" : "star")
                         .lineLimit(1)
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(ChannelGlassActionButtonStyle(tint: Color.accentColor))
-                .accessibilityLabel("방송 보기")
+                .accessibilityLabel(isFavorited ? "즐겨찾기 해제" : "즐겨찾기 추가")
 
-                Button(action: onCopyLink) {
-                    Label("링크 복사", systemImage: "link")
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(ChannelGlassActionButtonStyle(tint: .pink))
-                .accessibilityLabel("채널 링크 복사")
 
                 Button(action: onTalk) {
                     Image(systemName: "bubble.left.and.bubble.right.fill")
@@ -146,11 +143,8 @@ struct ChannelProfileHero: View {
                 .buttonStyle(ChannelGlassActionButtonStyle(tint: Color.accentColor, compact: true))
                 .accessibilityLabel("채널톡")
 
-                Button(action: onSongbook) {
-                    Image(systemName: "music.note.list")
-                }
-                .buttonStyle(ChannelGlassActionButtonStyle(tint: .orange, compact: true))
-                .accessibilityLabel("노래책")
+
+            }
         }
     }
 }
@@ -246,7 +240,7 @@ private struct ChannelVerificationMark: View {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.subheadline)
                     .foregroundStyle(Color.accentColor)
-                    .accessibilityLabel("인증 채널")
+                    .accessibilityLabel(hasAmbassadorVerification ? "앰배서더 인증" : "인증 채널")
             }
 
             if channel.isOwnerProSubscriber {
@@ -288,14 +282,10 @@ private struct ChannelProfileAvatar: View {
             }
 
             Group {
-                if channel.profileImageUrl == "/images/h66rogi-profile.png" {
-                    Image("ChannelProfile").resizable().aspectRatio(contentMode: .fill)
-                } else if let urlString = channel.profileImageUrl, let url = ChannelImageURL.resolve(urlString) {
-                    AsyncImage(url: url) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
-                        Circle().fill(Color(hex: channel.themeColor).opacity(0.16))
-                    }
+                if let urlString = channel.profileImageUrl, let url = URL(string: urlString) {
+                    KFImage(url)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
                 } else {
                     Circle()
                         .fill(Color(hex: channel.themeColor).opacity(0.16))
@@ -320,12 +310,12 @@ private struct ChannelProfileAvatar: View {
                 isPulsing = true
             }
         }
-        .onChange(of: isLive) { _, live in
+        .onChange(of: isLive) { live in
             if !live {
                 isPulsing = false
             }
         }
-        .accessibilityLabel(isLive ? "\(channel.name), 후여르 라이브 중" : channel.name)
+        .accessibilityLabel(isLive ? "\(channel.name), 라이브 중" : channel.name)
     }
 }
 
@@ -363,7 +353,7 @@ struct ChannelSectionRail: View {
             .onAppear {
                 proxy.scrollTo(selectedTab, anchor: .center)
             }
-            .onChange(of: selectedTab) { _, tab in
+            .onChange(of: selectedTab) { tab in
                 withAnimation(.easeInOut(duration: 0.28)) {
                     proxy.scrollTo(tab, anchor: .center)
                 }
@@ -416,6 +406,257 @@ struct ChannelSectionRail: View {
                 radius: isSelected ? 9 : 5,
                 y: 3
             )
+    }
+}
+
+// MARK: - Voice commission
+
+// MARK: - Channel wardrobe
+
+struct ChannelWardrobeView: View {
+    @StateObject private var viewModel: ChannelWardrobeViewModel
+    @State private var selectedCategoryID: Int?
+    @State private var selectedItem: ChannelWardrobeItem?
+
+    init(identifier: String) {
+        _viewModel = StateObject(wrappedValue: ChannelWardrobeViewModel(identifier: identifier))
+    }
+
+    private let columns = Array(repeating: GridItem(.flexible(), spacing: 2), count: 3)
+
+    private var visibleItems: [ChannelWardrobeItem] {
+        guard let selectedCategoryID else { return viewModel.items }
+        return viewModel.items.filter { $0.categoryID == selectedCategoryID }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if !viewModel.categories.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        Button("전체") { selectedCategoryID = nil }
+                            .buttonStyle(.bordered)
+                            .tint(selectedCategoryID == nil ? .primary : .secondary)
+
+                        ForEach(viewModel.categories) { category in
+                            Button(category.name) { selectedCategoryID = category.id }
+                                .buttonStyle(.bordered)
+                                .tint(selectedCategoryID == category.id ? .primary : .secondary)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.top, 22)
+            }
+
+            if viewModel.isLoading && viewModel.items.isEmpty {
+                ProgressView()
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, 64)
+            } else if let errorMessage = viewModel.errorMessage, viewModel.items.isEmpty {
+                ChannelEmptyState(
+                    title: "옷장을 불러올 수 없어요",
+                    systemImage: "exclamationmark.triangle",
+                    message: errorMessage
+                )
+                .padding(.top, 48)
+            } else if visibleItems.isEmpty {
+                ChannelEmptyState(
+                    title: "등록된 옷장이 없어요",
+                    systemImage: "tshirt",
+                    message: "새로운 의상과 이미지가 추가되면 여기에 모아둘게요."
+                )
+                .padding(.top, 48)
+            } else {
+                LazyVGrid(columns: columns, spacing: 2) {
+                    ForEach(visibleItems) { item in
+                        Button { selectedItem = item } label: {
+                            ChannelWardrobeGridItem(item: item)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("옷장 항목 \(item.title)")
+                    }
+                }
+            }
+        }
+        .task { await viewModel.load() }
+        .refreshable { await viewModel.load(force: true) }
+        .sheet(item: $selectedItem) { item in
+            ChannelWardrobeDetailSheet(
+                item: item,
+                category: viewModel.categories.first { $0.id == item.categoryID }
+            )
+        }
+    }
+}
+
+private struct ChannelWardrobeGridItem: View {
+    let item: ChannelWardrobeItem
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            KFImage(ChannelEnvironment.imageURL(item.imageURL))
+                .placeholder {
+                    Rectangle()
+                        .fill(Color(.secondarySystemBackground))
+                        .overlay { ProgressView() }
+                }
+                .resizable()
+                .scaledToFill()
+                .frame(maxWidth: .infinity)
+                .aspectRatio(1, contentMode: .fit)
+                .clipped()
+
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.58)],
+                startPoint: .center,
+                endPoint: .bottom
+            )
+            .frame(height: 54)
+
+            Text(item.title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .padding(7)
+        }
+    }
+}
+
+private struct ChannelWardrobeDetailSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let item: ChannelWardrobeItem
+    let category: ChannelWardrobeCategory?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    KFImage(ChannelEnvironment.imageURL(item.imageURL))
+                        .placeholder {
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(Color(.secondarySystemBackground))
+                                .overlay { ProgressView() }
+                        }
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+                    VStack(alignment: .leading, spacing: 9) {
+                        if let category {
+                            Text(category.name)
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(item.title)
+                            .font(.title2.weight(.bold))
+
+                        if let description = item.description?.trimmingCharacters(in: .whitespacesAndNewlines), !description.isEmpty {
+                            Text(description)
+                                .font(.body)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        if !item.tags.isEmpty {
+                            FlowLayout(spacing: 7) {
+                                ForEach(item.tags, id: \.self) { tag in
+                                    Text("#\(tag)")
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(.secondary)
+                                        .padding(.horizontal, 9)
+                                        .padding(.vertical, 6)
+                                        .background(Color(.secondarySystemBackground), in: Capsule())
+                                }
+                            }
+                        }
+                    }
+                }
+                .padding(20)
+            }
+            .navigationTitle("옷장")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("닫기") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+@MainActor
+private final class ChannelWardrobeViewModel: ObservableObject {
+    @Published private(set) var categories: [ChannelWardrobeCategory] = []
+    @Published private(set) var items: [ChannelWardrobeItem] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var errorMessage: String?
+
+    private let identifier: String
+    private let repository: ChannelRepository
+
+    init(identifier: String, repository: ChannelRepository = AppClientChannelRepository()) {
+        self.identifier = identifier
+        self.repository = repository
+    }
+
+    func load(force: Bool = false) async {
+        guard !isLoading else { return }
+        if !force, !items.isEmpty { return }
+
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            let wardrobe = try await repository.fetchChannelWardrobe(identifier: identifier)
+            categories = wardrobe.categories.filter(\.isEnabled)
+            items = wardrobe.items
+        } catch {
+            errorMessage = "잠시 후 다시 시도해 주세요."
+        }
+    }
+}
+
+struct ChannelWardrobeResponse: Decodable {
+    let categories: [ChannelWardrobeCategory]
+    let items: [ChannelWardrobeItem]
+}
+
+struct ChannelWardrobeCategory: Decodable, Identifiable {
+    let id: Int
+    let name: String
+    let defaultAspectRatio: String
+    let isEnabled: Bool
+    let order: Int
+}
+
+struct ChannelWardrobeItem: Decodable, Identifiable {
+    let id: Int
+    let categoryID: Int
+    let title: String
+    let imageURL: String
+    let description: String?
+    let tags: [String]
+    let isVisible: Bool
+    let order: Int
+    let createdAt: String
+    let updatedAt: String
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case categoryID = "categoryId"
+        case title
+        case imageURL = "imageUrl"
+        case description
+        case tags
+        case isVisible
+        case order
+        case createdAt
+        case updatedAt
     }
 }
 

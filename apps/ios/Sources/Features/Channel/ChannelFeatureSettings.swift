@@ -1,7 +1,7 @@
 import Foundation
 
 /// GET /v1/channel/{identifier}/feature-settings 응답 (public)
-/// 채널에 설정된 메뉴와 순서를 반환합니다.
+/// items는 15개 고정 key 세트가 order와 함께 항상 전체 반환됩니다.
 struct ChannelFeatureSettingItem: Decodable, Equatable {
     let key: String
     let label: String?
