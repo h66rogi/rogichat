@@ -3,7 +3,6 @@ package chat.rogi.rogichat.feature.channel.component
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import android.content.Intent
-import android.net.Uri
 import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable

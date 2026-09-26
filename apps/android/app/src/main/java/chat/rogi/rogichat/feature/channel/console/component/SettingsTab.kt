@@ -1,7 +1,7 @@
 package chat.rogi.rogichat.feature.channel.console.component
 
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -23,14 +22,11 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -69,10 +65,10 @@ fun SettingsTab(
             .fillMaxSize()
             .padding(horizontal = 16.dp),
     ) {
-        // Section: 기본 설정
+        // Section: 신청 설정
         item {
             Spacer(modifier = Modifier.height(16.dp))
-            SectionHeader(title = "기본 설정")
+            SectionHeader(title = "신청 설정")
             Spacer(modifier = Modifier.height(8.dp))
         }
 
@@ -121,45 +117,17 @@ fun SettingsTab(
         }
 
         item {
-            SettingsNumberRow(
-                label = "최대 대기열 크기",
-                value = settings.maxQueueSize,
-                onValueChange = {
-                    onUpdateSettings(settings.copy(maxQueueSize = it))
+            SettingsToggleRow(
+                label = "후원 우선순위",
+                description = "후원과 함께 신청된 곡을 우선 배치합니다",
+                checked = settings.donationPriorityEnabled,
+                onCheckedChange = {
+                    onUpdateSettings(settings.copy(donationPriorityEnabled = it))
                 },
             )
         }
 
-        item {
-            SettingsNumberRow(
-                label = "인당 최대 신청 수",
-                description = "0 = 무제한",
-                value = settings.maxRequestsPerUser,
-                onValueChange = {
-                    onUpdateSettings(settings.copy(maxRequestsPerUser = it))
-                },
-            )
-        }
-
-        item {
-            SettingsNumberRow(
-                label = "총 최대 신청 수",
-                description = "0 = 무제한",
-                value = settings.maxTotalRequests,
-                onValueChange = {
-                    onUpdateSettings(settings.copy(maxTotalRequests = it))
-                },
-            )
-        }
-
-        // Section: 신청 제한 (카테고리 차단)
         if (categories.isNotEmpty()) {
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-                SectionHeader(title = "신청 제한")
-                Spacer(modifier = Modifier.height(8.dp))
-            }
-
             item {
                 Column(
                     modifier = Modifier
@@ -205,20 +173,44 @@ fun SettingsTab(
             }
         }
 
-        // Section: 오버레이 표시
         item {
-            Spacer(modifier = Modifier.height(16.dp))
-            SectionHeader(title = "오버레이 표시")
-            Spacer(modifier = Modifier.height(8.dp))
+            SettingsTextFieldRow(
+                label = "신청 명령어",
+                value = settings.requestCommand,
+                onValueChange = {
+                    onUpdateSettings(settings.copy(requestCommand = it))
+                },
+            )
         }
 
         item {
-            SettingsToggleRow(
-                label = "신청자 이름 표시",
-                description = "오버레이에 곡 신청자의 닉네임을 표시합니다",
-                checked = settings.showRequesterName,
-                onCheckedChange = {
-                    onUpdateSettings(settings.copy(showRequesterName = it))
+            SettingsNumberRow(
+                label = "최대 대기열 크기",
+                value = settings.maxQueueSize,
+                onValueChange = {
+                    onUpdateSettings(settings.copy(maxQueueSize = it))
+                },
+            )
+        }
+
+        item {
+            SettingsNumberRow(
+                label = "인당 최대 신청 수",
+                description = "0 = 무제한",
+                value = settings.maxRequestsPerUser,
+                onValueChange = {
+                    onUpdateSettings(settings.copy(maxRequestsPerUser = it))
+                },
+            )
+        }
+
+        item {
+            SettingsNumberRow(
+                label = "총 최대 신청 수",
+                description = "0 = 무제한",
+                value = settings.maxTotalRequests,
+                onValueChange = {
+                    onUpdateSettings(settings.copy(maxTotalRequests = it))
                 },
             )
         }
@@ -252,18 +244,18 @@ fun SettingsTab(
             )
         }
 
-        // Section: 팬에게 표시할 참고 가격
+        // Section: 가격 설정
         item {
             Spacer(modifier = Modifier.height(24.dp))
-            SectionHeader(title = "참고 가격")
+            SectionHeader(title = "가격 설정")
             Spacer(modifier = Modifier.height(8.dp))
         }
 
         if (pricingSettings != null) {
             item {
                 SettingsToggleRow(
-                    label = "참고 가격 표시",
-                    description = "팬에게 곡별 참고 가격을 보여줍니다. 신청 접수와 재생 순서에는 영향을 주지 않습니다",
+                    label = "가격 기능 사용",
+                    description = "곡 신청에 포인트/가격을 적용합니다",
                     checked = pricingSettings.pricingEnabled,
                     onCheckedChange = {
                         onUpdatePricingSettings(pricingSettings.copy(pricingEnabled = it))
@@ -273,7 +265,7 @@ fun SettingsTab(
 
             item {
                 SettingsNumberRow(
-                    label = "기본 참고 가격",
+                    label = "기본 가격",
                     value = pricingSettings.defaultPrice ?: 0,
                     onValueChange = {
                         onUpdatePricingSettings(pricingSettings.copy(defaultPrice = it))
@@ -291,7 +283,7 @@ fun SettingsTab(
                             .padding(vertical = 8.dp),
                     ) {
                         Text(
-                            text = "난이도별 참고 가격",
+                            text = "난이도별 가격",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                         )
@@ -317,7 +309,7 @@ fun SettingsTab(
                             .padding(vertical = 8.dp),
                     ) {
                         Text(
-                            text = "참고 가격 단위",
+                            text = "화폐 설정",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                         )
@@ -336,7 +328,7 @@ fun SettingsTab(
         } else {
             item {
                 Text(
-                    text = "참고 가격 설정을 불러오는 중...",
+                    text = "가격 설정을 불러오는 중...",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 8.dp),
@@ -400,6 +392,39 @@ private fun SettingsToggleRow(
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
+        )
+    }
+}
+
+@Composable
+private fun SettingsTextFieldRow(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var text by remember(value) { mutableStateOf(value) }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        OutlinedTextField(
+            value = text,
+            onValueChange = { newText ->
+                text = newText
+                onValueChange(newText)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium,
         )
     }
 }

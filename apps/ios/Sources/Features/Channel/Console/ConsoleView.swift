@@ -1,4 +1,5 @@
 import SwiftUI
+import Kingfisher
 
 struct ConsoleView: View {
     @StateObject private var viewModel: ConsoleViewModel

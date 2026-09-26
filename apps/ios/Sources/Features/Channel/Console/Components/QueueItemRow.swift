@@ -121,12 +121,7 @@ struct ConsoleQueueItemRow: View {
     @ViewBuilder
     private var badges: some View {
         if request.isDonation {
-            let donationText = DonationFormatter.format(
-                nativeAmount: request.donationNativeAmount,
-                currency: request.donationCurrency,
-                krwSnapshot: request.donationAmount
-            )
-            Text(donationText.isEmpty ? "후원" : "후원 \(donationText)")
+            Text("후원")
                 .font(.caption2.bold())
                 .foregroundColor(.orange)
                 .padding(.horizontal, 6)

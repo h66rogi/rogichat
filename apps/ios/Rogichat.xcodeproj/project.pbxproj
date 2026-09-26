@@ -46,7 +46,6 @@
 		3EA81263899C086BC9E2BADF /* ChannelDetailViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3ED8AFE69D861878966B774 /* ChannelDetailViewModel.swift */; };
 		407D6E4E3F56096CE3287786 /* NativePushRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CEEF4885F8BBE4C15FF36C2 /* NativePushRequest.swift */; };
 		441B9073C6A3AD50A2973C74 /* ChannelRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = 819D080D11ADC0D9989B4437 /* ChannelRepository.swift */; };
-		442E8CA0FC5623A82B8F0552 /* ChannelNativeHubViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 717DE9623713920730373A3B /* ChannelNativeHubViews.swift */; };
 		46A1020AF00225CB1479EC9A /* M11Contract.swift in Sources */ = {isa = PBXBuildFile; fileRef = D334362D02642EF5856BEAEA /* M11Contract.swift */; };
 		47D7B8DF5CEA15C334EBE4C2 /* RealtimeSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 057F021769FFEC19AE35A9DF /* RealtimeSession.swift */; };
 		47DDF7E513248F66940481D5 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3B7272D32F058E07C761C49E /* Assets.xcassets */; };
@@ -131,6 +130,7 @@
 		CDC611DCE9B61BF23E49521D /* AppShell.swift in Sources */ = {isa = PBXBuildFile; fileRef = D53969ED5B74A20CAAA027AD /* AppShell.swift */; };
 		CE96B8FF2ABB65816340C680 /* ChannelSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9C9CDD4ED8040E113F97C617 /* ChannelSettingsView.swift */; };
 		CF0214D5F1053B212D24455D /* AccountNotificationSection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6026A7294F18052158E3A9A7 /* AccountNotificationSection.swift */; };
+		CF3A8507CD53AC33865794D8 /* ChannelWardrobeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FD5E468EBFB18BA3167F8836 /* ChannelWardrobeView.swift */; };
 		D0D2CC14C176755A33D65340 /* SocketIO-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = B54CF3BE6EABC19F7CDCE033 /* SocketIO-LICENSE.txt */; };
 		D26476500D8EA7CB70F68BBC /* NativeCredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 306959893BFAB5D6566C792A /* NativeCredentialStore.swift */; };
 		D33E7D17E14060F2AEFCC392 /* CameraCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA8EAE88F3B4FA28F2CA058B /* CameraCapture.swift */; };
@@ -234,7 +234,6 @@
 		6FE645979D5EC1572B69A3C5 /* AccountScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountScreen.swift; sourceTree = "<group>"; };
 		70801E792CFD5BBDDFFBCB8B /* ScheduleView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleView.swift; sourceTree = "<group>"; };
 		7123CD1CC23BAE8D595CA3C1 /* MoreView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreView.swift; sourceTree = "<group>"; };
-		717DE9623713920730373A3B /* ChannelNativeHubViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelNativeHubViews.swift; sourceTree = "<group>"; };
 		733302BD68AB190F0E8F7806 /* NotificationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationState.swift; sourceTree = "<group>"; };
 		75353A5018DCAA300148B362 /* SongLiveSocketManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongLiveSocketManager.swift; sourceTree = "<group>"; };
 		75A7351D1500FED5B7264B1D /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
@@ -318,6 +317,7 @@
 		F65E5A75894486FE607631CF /* AccountDeletionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountDeletionState.swift; sourceTree = "<group>"; };
 		FB6B87842FAC26170BB550F1 /* Channel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Channel.swift; sourceTree = "<group>"; };
 		FCA69E8AC81C6BAF717967D4 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		FD5E468EBFB18BA3167F8836 /* ChannelWardrobeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelWardrobeView.swift; sourceTree = "<group>"; };
 		FF1514F54FF65C33CE3BF437 /* ConversationScreenModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationScreenModel.swift; sourceTree = "<group>"; };
 		FF5E5373A7927B473C46A4B0 /* IdentityEntrySection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdentityEntrySection.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -624,12 +624,12 @@
 				19AED47345759FA86CF3D825 /* ChannelFeatureSettings.swift */,
 				30F336F77B32477A540445D8 /* ChannelManagementView.swift */,
 				4E931236F9D5F99C5EA3E8BF /* ChannelManagementViewModel.swift */,
-				717DE9623713920730373A3B /* ChannelNativeHubViews.swift */,
 				819D080D11ADC0D9989B4437 /* ChannelRepository.swift */,
 				6A80267D2144CE5D031F2681 /* ChannelSafariView.swift */,
 				7D9A8363ED71E70BB7B625B9 /* ChannelSetlistView.swift */,
 				9C9CDD4ED8040E113F97C617 /* ChannelSettingsView.swift */,
 				7AEFB62238003FAF93A68B21 /* ChannelSettingsViewModel.swift */,
+				FD5E468EBFB18BA3167F8836 /* ChannelWardrobeView.swift */,
 				8C65EE6EFD3128681CBC852D /* ConsoleSession.swift */,
 				32E93D0963D9C438EA805A18 /* ConsoleSongRequest.swift */,
 				001ED6C952FBAA6C3F4F77C0 /* DonationFormatter.swift */,
@@ -885,12 +885,12 @@
 				1A2C6F27754CD1DFA1B43D6D /* ChannelFeatureSettings.swift in Sources */,
 				03639D321D7B8EB899ABFF9A /* ChannelManagementView.swift in Sources */,
 				08A170E01B2434C87B9C9BCE /* ChannelManagementViewModel.swift in Sources */,
-				442E8CA0FC5623A82B8F0552 /* ChannelNativeHubViews.swift in Sources */,
 				441B9073C6A3AD50A2973C74 /* ChannelRepository.swift in Sources */,
 				7DDE46C382F98E17E232C95E /* ChannelSafariView.swift in Sources */,
 				DCDEB9B9C00A7C44BF767FF5 /* ChannelSetlistView.swift in Sources */,
 				CE96B8FF2ABB65816340C680 /* ChannelSettingsView.swift in Sources */,
 				936427908EABDFF88E817AF1 /* ChannelSettingsViewModel.swift in Sources */,
+				CF3A8507CD53AC33865794D8 /* ChannelWardrobeView.swift in Sources */,
 				398EB882B3B6B74EE1C1ECA2 /* ConsoleRepository.swift in Sources */,
 				DB82A3BE9E6EC9D0CFB1EE2A /* ConsoleSession.swift in Sources */,
 				C0301B0939A9B0F8E94766E8 /* ConsoleSongRequest.swift in Sources */,

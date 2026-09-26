@@ -366,7 +366,7 @@ private fun EditSongContent(
             if (uiState.albumArt.isNotBlank()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 AsyncImage(
-                    model = chat.rogi.rogichat.feature.channel.channelImageUrl(uiState.albumArt),
+                    model = channelImageUrl(uiState.albumArt),
                     contentDescription = "앨범아트 미리보기",
                     modifier = Modifier
                         .size(100.dp)
@@ -755,7 +755,7 @@ private fun AlbumArtItem(
             .clickable(onClick = onClick),
     ) {
         AsyncImage(
-            model = chat.rogi.rogichat.feature.channel.channelImageUrl(imageUrl),
+            model = channelImageUrl(imageUrl),
             contentDescription = null,
             modifier = Modifier.fillMaxSize(),
         )

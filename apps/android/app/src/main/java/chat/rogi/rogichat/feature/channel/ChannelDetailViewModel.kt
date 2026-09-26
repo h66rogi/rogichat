@@ -13,7 +13,6 @@ import chat.rogi.rogichat.channelport.core.domain.repository.SongLiveSocketServi
 import chat.rogi.rogichat.channelport.core.domain.repository.SongRepository
 import chat.rogi.rogichat.channelport.core.domain.repository.SongRequestRepository
 import chat.rogi.rogichat.channelport.core.model.song.CreateSongRequestPayload
-import chat.rogi.rogichat.channelport.core.model.song.PublicLiveSession
 import chat.rogi.rogichat.channelport.core.model.song.Song
 import chat.rogi.rogichat.channelport.core.network.dto.UpdateScheduleRequest
 import kotlinx.coroutines.Job
@@ -37,8 +36,7 @@ class ChannelDetailViewModel constructor(
     private val songRepository: SongRepository,
     private val scheduleRepository: ScheduleRepository,
     private val favoriteRepository: FavoriteRepository,
-    // Exposed for ChannelTalkSection's non-Hilt ViewModel factory — see ChannelTalkViewModel
-    internal val authRepository: ChannelSession,
+    private val authRepository: ChannelSession,
     private val songRequestRepository: SongRequestRepository,
     private val songLiveSocketService: SongLiveSocketService,
     private val songPricingRepository: SongPricingRepository,
@@ -52,30 +50,23 @@ class ChannelDetailViewModel constructor(
 
     val isLoggedIn: StateFlow<Boolean> = authRepository.isLoggedIn
     val currentUserId: Int? get() = authRepository.currentUser.value?.id
-    val isIdentityVerified: Boolean get() = authRepository.currentUser.value?.isIdentityVerified == true
+
     private val _shareEvent = MutableSharedFlow<String>()
     val shareEvent = _shareEvent.asSharedFlow()
 
     private val _messageEvent = MutableSharedFlow<String>()
     val messageEvent = _messageEvent.asSharedFlow()
 
-
+    private var wardrobeLoaded = false
     private var currentPage = 1
     private val pageSize = 30
-    private var guestbookPage = 1
-    private val guestbookPageSize = 20
     private var currentYearMonth = LocalDate.now()
     private var liveRequestPollingJob: Job? = null
     private var socketJob: Job? = null
-    private var wardrobeLoaded = false
-    private var latestFeatureSettingItems:
-        List<chat.rogi.rogichat.channelport.core.model.channel.ChannelFeatureSettingItem>? = null
 
     companion object {
         private const val LIVE_REQUEST_POLL_INTERVAL_MS = 30_000L
     }
-
-
 
     init {
         loadChannel()
@@ -216,14 +207,7 @@ class ChannelDetailViewModel constructor(
                     // 신청곡 상태가 완료될 때까지 대기 후 UI 표시
                     liveRequestJob.join()
 
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            channel = channel,
-                            favoritesCount = channel.favoritesCount,
-                        )
-                    }
-                    loadFeatureSettings()
+                    _uiState.update { it.copy(isLoading = false, channel = channel) }
                     loadFavoriteStatus(channel.id)
                     loadFavoritesCount(channel.id)
                     loadPermission()
@@ -275,86 +259,6 @@ class ChannelDetailViewModel constructor(
         }
     }
 
-    private fun selectTab(tab: ChannelTab) {
-        _uiState.update { it.copy(selectedTab = tab) }
-        if (tab == ChannelTab.WARDROBE && !wardrobeLoaded) loadWardrobe()
-    }
-
-    /**
-     * feature-settings 기반 탭 노출/순서/라벨 동적화 (웹 getConfiguredTabItems 대응).
-     * 실패 시 기존 하드코딩 순서 폴백 (무중단).
-     */
-    private fun loadFeatureSettings() {
-        viewModelScope.launch {
-            channelRepository.getChannelFeatureSettings(channelIdentifier)
-                .onSuccess { response ->
-                    latestFeatureSettingItems = response.items
-                    applyFeatureSettings(response.items)
-                }
-                .onFailure {
-                    latestFeatureSettingItems = null
-                    applyFeatureSettings(null)
-                }
-        }
-    }
-
-    private fun applyFeatureSettings(
-        items: List<chat.rogi.rogichat.channelport.core.model.channel.ChannelFeatureSettingItem>?,
-    ) {
-        if (items.isNullOrEmpty()) {
-            val fallbackTabs = DEFAULT_CHANNEL_TABS
-            _uiState.update { state ->
-                val selected = state.selectedTab.takeIf { it in fallbackTabs }
-                    ?: fallbackTabs.firstOrNull()
-                    ?: ChannelTab.SONGBOOK
-                state.copy(
-                    visibleTabs = fallbackTabs,
-                    tabLabels = emptyMap(),
-                    selectedTab = selected,
-                )
-            }
-            return
-        }
-        val keyToTab = mapOf(
-            "setlist" to ChannelTab.SETLIST,
-            chat.rogi.rogichat.channelport.core.model.channel.ChannelFeatureKeys.WARDROBE to ChannelTab.WARDROBE,
-            chat.rogi.rogichat.channelport.core.model.channel.ChannelFeatureKeys.MUSICBOOK to ChannelTab.SONGBOOK,
-            chat.rogi.rogichat.channelport.core.model.channel.ChannelFeatureKeys.SCHEDULE to ChannelTab.SCHEDULE,
-            chat.rogi.rogichat.channelport.core.model.channel.ChannelFeatureKeys.INFO to ChannelTab.INFO,
-        )
-        // 웹과 동일하게 실제 보이스커미션이 활성 상태면 채널 설정과 무관하게 강제 노출한다.
-        // 단, 전역 kill switch가 꺼져 있으면 활성 채널도 노출하지 않는다.
-        val mapped = items
-            .filter { it.isEnabled }
-            .sortedBy { it.order }
-            .mapNotNull { item -> keyToTab[item.key]?.let { tab -> tab to item } }
-        if (mapped.isEmpty()) {
-            val fallbackTabs = DEFAULT_CHANNEL_TABS
-            _uiState.update { state ->
-                state.copy(
-                    visibleTabs = fallbackTabs,
-                    tabLabels = emptyMap(),
-                    selectedTab = state.selectedTab.takeIf { it in fallbackTabs }
-                        ?: fallbackTabs.firstOrNull()
-                        ?: ChannelTab.SONGBOOK,
-                )
-            }
-            return
-        }
-        val tabs = mapped.map { it.first }.toMutableList()
-        val labels = mapped.mapNotNull { (tab, item) ->
-            item.displayLabel?.let { label -> tab to label }
-        }.toMap()
-        _uiState.update { state ->
-            val selected = when {
-                state.selectedTab in tabs -> state.selectedTab
-                // home 비활성 채널: 첫 노출 탭으로 폴백 (웹은 404, 앱은 무중단 우선)
-                else -> tabs.first()
-            }
-            state.copy(visibleTabs = tabs, tabLabels = labels, selectedTab = selected)
-        }
-    }
-
     private fun loadWardrobe() {
         wardrobeLoaded = true
         viewModelScope.launch {
@@ -365,12 +269,14 @@ class ChannelDetailViewModel constructor(
         }
     }
 
+    private fun selectTab(tab: ChannelTab) {
+        _uiState.update { it.copy(selectedTab = tab) }
+        if (tab == ChannelTab.WARDROBE && !wardrobeLoaded) loadWardrobe()
+
+    }
+
     private fun toggleFavorite() {
         val channel = _uiState.value.channel ?: return
-        if (!isLoggedIn.value) {
-            _uiState.update { it.copy(showLoginRequiredDialog = true) }
-            return
-        }
         val currentState = _uiState.value.isFavorite
         val currentCount = _uiState.value.favoritesCount
 
@@ -378,7 +284,7 @@ class ChannelDetailViewModel constructor(
         _uiState.update {
             it.copy(
                 isFavorite = !currentState,
-                favoritesCount = if (currentState) (currentCount - 1).coerceAtLeast(0) else currentCount + 1,
+                favoritesCount = if (currentState) currentCount - 1 else currentCount + 1,
             )
         }
 
@@ -423,7 +329,45 @@ class ChannelDetailViewModel constructor(
 
         songRequestRepository.getPublicActiveSession(channelIdentifier)
             .onSuccess { session ->
-                applyLiveRequestSession(session)
+                val settings = session.settings
+                val requestEnabled = settings?.requestEnabled == true
+                val paused = settings?.paused == true
+                val maxQueueSize = settings?.maxQueueSize ?: 0
+                val queueCount = session.queueCount
+                val isLive = session.isLive && session.sessionId != null
+                val isQueueFull = maxQueueSize > 0 && queueCount >= maxQueueSize
+                val showRequestUI = isLive && requestEnabled
+
+                val preventDuplicateSongs = settings?.preventDuplicateSongs == true
+                val blockedCategoryIds = settings?.blockedCategoryIds ?: emptyList()
+
+
+                _uiState.update { state ->
+                    state.copy(
+                        songbookState = state.songbookState.copy(
+                            liveRequestState = state.songbookState.liveRequestState.copy(
+                                isLive = isLive,
+                                sessionId = session.sessionId,
+                                requestEnabled = requestEnabled,
+                                paused = paused,
+                                maxQueueSize = maxQueueSize,
+                                queueCount = queueCount,
+                                isQueueFull = isQueueFull,
+                                canRequest = showRequestUI && !paused && !isQueueFull,
+                                showRequestUI = showRequestUI,
+                                loading = false,
+                                preventDuplicateSongs = preventDuplicateSongs,
+                                blockedCategoryIds = blockedCategoryIds,
+                            ),
+                        ),
+                    )
+                }
+
+                // 중복 신청 체크용 songIds 가져오기
+                val sid = session.sessionId
+                if (preventDuplicateSongs && sid != null) {
+                    fetchRequestedSongIds(sid)
+                }
             }
             .onFailure {
                 _uiState.update { state ->
@@ -434,47 +378,6 @@ class ChannelDetailViewModel constructor(
                     )
                 }
             }
-    }
-
-    private suspend fun applyLiveRequestSession(session: PublicLiveSession) {
-        val settings = session.settings
-        val requestEnabled = settings?.requestEnabled == true
-        val paused = settings?.paused == true
-        val maxQueueSize = settings?.maxQueueSize ?: 0
-        val queueCount = session.queueCount
-        val isLive = session.isLive && session.sessionId != null
-        val isQueueFull = maxQueueSize > 0 && queueCount >= maxQueueSize
-        val showRequestUI = isLive && requestEnabled
-
-        val preventDuplicateSongs = settings?.preventDuplicateSongs == true
-        val blockedCategoryIds = settings?.blockedCategoryIds ?: emptyList()
-
-        _uiState.update { state ->
-            state.copy(
-                songbookState = state.songbookState.copy(
-                    liveRequestState = state.songbookState.liveRequestState.copy(
-                        isLive = isLive,
-                        sessionId = session.sessionId,
-                        requestEnabled = requestEnabled,
-                        paused = paused,
-                        maxQueueSize = maxQueueSize,
-                        queueCount = queueCount,
-                        isQueueFull = isQueueFull,
-                        canRequest = showRequestUI && !paused && !isQueueFull,
-                        showRequestUI = showRequestUI,
-                        loading = false,
-                        preventDuplicateSongs = preventDuplicateSongs,
-                        blockedCategoryIds = blockedCategoryIds,
-                    ),
-                ),
-            )
-        }
-
-        // 중복 신청 체크용 songIds 가져오기
-        val sessionId = session.sessionId
-        if (preventDuplicateSongs && sessionId != null) {
-            fetchRequestedSongIds(sessionId)
-        }
     }
 
     private suspend fun fetchRequestedSongIds(sessionId: Int) {
@@ -543,8 +446,8 @@ class ChannelDetailViewModel constructor(
             songLiveSocketService.connect(channelIdentifier).collect { event ->
                 when (event) {
                     is SongLiveSocketEvent.Joined -> {
-                        event.session?.let { applyLiveRequestSession(it) }
-                            ?: fetchLiveRequestState()
+                        // Joined 이벤트 수신 시 REST API로 전체 설정(blockedCategoryIds 포함) 가져오기
+                        fetchLiveRequestState()
                     }
                     is SongLiveSocketEvent.StateChanged -> {
                         fetchLiveRequestState()
@@ -564,6 +467,8 @@ class ChannelDetailViewModel constructor(
             _uiState.update { it.copy(showLoginRequiredDialog = true) }
             return
         }
+
+
 
         val sessionId = liveRequestState.sessionId
         if (sessionId == null || !liveRequestState.showRequestUI) {
@@ -1066,27 +971,6 @@ class ChannelDetailViewModel constructor(
                 .onFailure { Timber.d(it, "Failed to load pricing settings") }
         }
     }
-
-    // Guestbook functions
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     override fun onCleared() {
         socketJob?.cancel()

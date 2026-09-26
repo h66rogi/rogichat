@@ -12,7 +12,7 @@ struct ChannelSetlistView: View {
     @State private var error: Error?
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 0) {
             if loading && items.isEmpty {
                 LoadingView()
             } else if let error, items.isEmpty {
@@ -22,22 +22,21 @@ struct ChannelSetlistView: View {
             } else {
                 ForEach(items) { item in
                     Button { selected = item } label: {
-                        HStack(spacing: 14) {
+                        HStack(spacing: 12) {
                             KFImage(ChannelEnvironment.imageURL(item.albumArtPreviews.first))
                                 .placeholder { Image(systemName: "music.note.list").foregroundStyle(.secondary) }
-                                .resizable().scaledToFill().frame(width: 64, height: 64)
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
+                                .resizable().scaledToFill().frame(width: 56, height: 56)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(item.dateTitle).font(.headline).foregroundStyle(.primary)
-                                Text("\(item.completedCount)곡").font(.subheadline).foregroundStyle(.secondary)
+                                Text(item.dateTitle).font(.subheadline.weight(.medium)).foregroundStyle(.primary)
+                                Text("\(item.completedCount)곡").font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                         }
-                        .padding(16)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20))
-                        .overlay { RoundedRectangle(cornerRadius: 20).stroke(Color.primary.opacity(0.08), lineWidth: 0.5) }
+                        .padding(.vertical, 8)
                     }.buttonStyle(.plain)
+                    Divider().padding(.leading, 68)
                 }
                 if items.count < total {
                     if error != nil {

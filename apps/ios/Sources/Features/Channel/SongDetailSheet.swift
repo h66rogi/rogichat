@@ -12,12 +12,10 @@ struct SongDetailSheet: View {
     var onEdit: (() -> Void)?
     var onDelete: (() -> Void)?
     var onSongUpdated: ((Song) -> Void)?
-    var initialCopyToast: CopyToastModel?
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @State private var isExpanded = false
-    @State private var copyToast: CopyToastModel?
 
     private var canViewLyrics: Bool {
         guard let permission = permission else { return false }
@@ -109,27 +107,6 @@ struct SongDetailSheet: View {
                     }
                 }
             }
-            .overlay(alignment: .top) {
-                if let toast = copyToast {
-                    CopyToastView(toast: toast)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .zIndex(1)
-                }
-            }
-        }
-        .onAppear {
-            guard let pending = initialCopyToast, copyToast == nil else { return }
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                copyToast = pending
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
-                guard copyToast?.id == pending.id else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    copyToast = nil
-                }
-            }
         }
     }
 
@@ -211,7 +188,7 @@ struct SongDetailSheet: View {
     // MARK: - Price Section
     private var priceSectionView: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("참고 가격")
+            Text("신청 가격")
                 .font(.caption)
                 .foregroundColor(.secondary)
 

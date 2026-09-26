@@ -1,43 +1,10 @@
 import SwiftUI
 import Kingfisher
 
-struct SongBookSearchBar: View {
-    @Binding var text: String
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-
-            TextField("노래 검색", text: $text)
-                .textFieldStyle(.plain)
-
-            if !text.isEmpty {
-                Button {
-                    text = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
-                }
-                .accessibilityLabel("검색어 지우기")
-            }
-        }
-        .padding(.horizontal, 13)
-        .padding(.vertical, 11)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.10), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.06), radius: 5, y: 2)
-    }
-}
-
 struct SongBookView: View {
     let channelId: Int
     let identifier: String
     let refreshToken: UUID
-    private let pinnedSearchText: Binding<String>?
 
     @StateObject private var viewModel: SongBookViewModel
     @ObservedObject var songRequestManager: SongRequestManager
@@ -50,32 +17,38 @@ struct SongBookView: View {
     @State private var songToDelete: Song?
     @State private var deleteError: String?
     @State private var showDeleteError = false
-    @State private var pendingCopyToast: CopyToastModel?
 
-    init(
-        channelId: Int,
-        identifier: String,
-        refreshToken: UUID = UUID(),
-        songRequestManager: SongRequestManager,
-        pinnedSearchText: Binding<String>? = nil,
-        onShowQueue: (() -> Void)? = nil
-    ) {
+    init(channelId: Int, identifier: String, refreshToken: UUID = UUID(), songRequestManager: SongRequestManager, onShowQueue: (() -> Void)? = nil) {
         self.channelId = channelId
         self.identifier = identifier
         self.refreshToken = refreshToken
         self.songRequestManager = songRequestManager
-        self.pinnedSearchText = pinnedSearchText
         self.onShowQueue = onShowQueue
         self._viewModel = StateObject(wrappedValue: SongBookViewModel(channelId: channelId, identifier: identifier))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if pinnedSearchText == nil {
-                SongBookSearchBar(text: $viewModel.searchText)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 8)
+            // Search Bar
+            HStack {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(.secondary)
+
+                TextField("노래 검색", text: $viewModel.searchText)
+                    .textFieldStyle(.plain)
+
+                if !viewModel.searchText.isEmpty {
+                    Button(action: { viewModel.searchText = "" }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
+            .padding(12)
+            .background(Color(.systemGray6))
+            .cornerRadius(10)
+            .padding(.horizontal)
+            .padding(.bottom, 8)
 
             // Filter Bar
             ScrollView(.horizontal, showsIndicators: false) {
@@ -156,16 +129,7 @@ struct SongBookView: View {
                     ForEach(viewModel.songs) { song in
                         SongRow(
                             song: song,
-                            onTap: {
-                                let text = "\(song.artist.name) - \(song.title)"
-                                UIPasteboard.general.string = text
-                                UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                                pendingCopyToast = CopyToastModel(
-                                    title: "클립보드에 복사되었습니다",
-                                    description: text
-                                )
-                                selectedSong = song
-                            },
+                            onTap: { selectedSong = song },
                             onLikeToggle: {
                                 Task { await viewModel.toggleLike(song: song) }
                             },
@@ -199,10 +163,6 @@ struct SongBookView: View {
         .task {
             await viewModel.loadInitialData()
         }
-        .onAppear {
-            guard let pinnedSearchText else { return }
-            viewModel.searchText = pinnedSearchText.wrappedValue
-        }
         .alert("신청 완료", isPresented: $showRequestSuccess) {
             Button("확인", role: .cancel) {}
         } message: {
@@ -216,15 +176,8 @@ struct SongBookView: View {
         } message: {
             Text(songRequestManager.requestError ?? "")
         }
-        .onChange(of: viewModel.searchText) { value in
-            if let pinnedSearchText, pinnedSearchText.wrappedValue != value {
-                pinnedSearchText.wrappedValue = value
-            }
+        .onChange(of: viewModel.searchText) { _ in
             viewModel.debounceSearch()
-        }
-        .onChange(of: pinnedSearchText?.wrappedValue) { value in
-            guard let value, viewModel.searchText != value else { return }
-            viewModel.searchText = value
         }
         .onChange(of: viewModel.selectedCategoryId) { _ in
             Task {
@@ -285,8 +238,7 @@ struct SongBookView: View {
                 onSongUpdated: { updatedSong in
                     viewModel.updateSong(updatedSong)
                     selectedSong = updatedSong
-                },
-                initialCopyToast: pendingCopyToast
+                }
             )
             .presentationDetents([.large])
         }
@@ -336,51 +288,6 @@ struct SongBookView: View {
         } message: {
             if let error = deleteError { Text(error) }
         }
-    }
-}
-
-// MARK: - Copy Toast
-struct CopyToastModel: Equatable, Identifiable {
-    let id = UUID()
-    let title: String
-    let description: String?
-}
-
-struct CopyToastView: View {
-    let toast: CopyToastModel
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "doc.on.clipboard.fill")
-                .font(.subheadline)
-                .foregroundColor(.accentColor)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(toast.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundColor(.primary)
-                    .lineLimit(1)
-                if let description = toast.description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color(.systemBackground))
-                .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 2)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .strokeBorder(Color(.separator).opacity(0.5), lineWidth: 0.5)
-        )
     }
 }
 

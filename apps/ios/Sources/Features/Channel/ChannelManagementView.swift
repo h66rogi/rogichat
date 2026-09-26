@@ -5,7 +5,6 @@ struct ChannelManagementView: View {
     let channelId: Int
     let channelName: String
     let identifier: String
-    let isOwner: Bool
 
     var body: some View {
         List {
@@ -23,12 +22,9 @@ struct ChannelManagementView: View {
                 } label: {
                     Label("카테고리 관리", systemImage: "folder")
                 }
-
             }
 
             Section("채널 설정") {
-
-
                 NavigationLink {
                     ChannelSettingsView(channelId: channelId, identifier: identifier)
                 } label: {
@@ -40,7 +36,6 @@ struct ChannelManagementView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 }
-
 
 // MARK: - Category Management View
 struct CategoryManagementView: View {

@@ -1,5 +1,8 @@
 package chat.rogi.rogichat.feature.channel.console.component
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
+import chat.rogi.rogichat.feature.channel.channelImageUrl
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,11 +30,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -223,7 +224,7 @@ private fun SongSearchItem(
         ) {
             if (!song.albumArt.isNullOrBlank()) {
                 AsyncImage(
-                    model = chat.rogi.rogichat.feature.channel.channelImageUrl(song.albumArt),
+                    model = channelImageUrl(song.albumArt),
                     contentDescription = null,
                     modifier = Modifier
                         .size(48.dp)

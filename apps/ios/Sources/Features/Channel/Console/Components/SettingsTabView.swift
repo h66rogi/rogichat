@@ -5,8 +5,7 @@ struct SettingsTabView: View {
 
     var body: some View {
         Form {
-            basicSettingsSection
-            overlayDisplaySection
+            requestSettingsSection
             if !viewModel.categories.isEmpty {
                 blockedCategoriesSection
             }
@@ -15,10 +14,10 @@ struct SettingsTabView: View {
         }
     }
 
-    // MARK: - Basic Settings
+    // MARK: - Request Settings
 
-    private var basicSettingsSection: some View {
-        Section("기본 설정") {
+    private var requestSettingsSection: some View {
+        Section("신청 설정") {
             if let settings = viewModel.settings {
                 Toggle("신청 받기", isOn: settingsBinding(\.requestEnabled) { value in
                     UpdateSettingsPayload(requestEnabled: value)
@@ -35,6 +34,17 @@ struct SettingsTabView: View {
                 Toggle("중복 곡 방지", isOn: settingsBinding(\.preventDuplicateSongs) { value in
                     UpdateSettingsPayload(preventDuplicateSongs: value)
                 })
+
+                Toggle("후원 우선순위", isOn: settingsBinding(\.donationPriorityEnabled) { value in
+                    UpdateSettingsPayload(donationPriorityEnabled: value)
+                })
+
+                HStack {
+                    Text("신청 명령어")
+                    Spacer()
+                    Text(settings.requestCommand)
+                        .foregroundColor(.secondary)
+                }
 
                 Stepper(
                     "대기열 최대: \(settings.maxQueueSize)",
@@ -62,25 +72,6 @@ struct SettingsTabView: View {
             } else {
                 Text("설정을 불러오는 중...")
                     .foregroundColor(.secondary)
-            }
-        }
-    }
-
-    // MARK: - Overlay Display
-
-    private var overlayDisplaySection: some View {
-        Section("오버레이 표시") {
-            if viewModel.settings != nil {
-                Toggle(isOn: settingsBinding(\.showRequesterName) { value in
-                    UpdateSettingsPayload(showRequesterName: value)
-                }) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("신청자 이름 표시")
-                        Text("오버레이에 곡 신청자의 닉네임을 표시합니다")
-                            .font(.caption2)
-                            .foregroundColor(.secondary)
-                    }
-                }
             }
         }
     }
@@ -167,9 +158,9 @@ struct SettingsTabView: View {
     // MARK: - Pricing Settings
 
     private var pricingSettingsSection: some View {
-        Section("참고 가격") {
+        Section("가격 설정") {
             if let pricing = viewModel.pricingSettings {
-                Toggle("참고 가격 표시", isOn: Binding(
+                Toggle("가격 설정 사용", isOn: Binding(
                     get: { pricing.pricingEnabled },
                     set: { newValue in
                         Task {
@@ -181,13 +172,9 @@ struct SettingsTabView: View {
                 ))
 
                 if pricing.pricingEnabled {
-                    Text("팬에게 곡별 참고 가격을 보여줍니다. 신청 접수와 재생 순서에는 영향을 주지 않습니다.")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
                     if let defaultPrice = pricing.defaultPrice {
                         HStack {
-                            Text("기본 참고 가격")
+                            Text("기본 가격")
                             Spacer()
                             Text("\(defaultPrice) \(pricing.currencyUnit)")
                                 .foregroundColor(.secondary)
@@ -211,7 +198,7 @@ struct SettingsTabView: View {
                     }
                 }
             } else {
-                Text("참고 가격 설정을 불러오는 중...")
+                Text("가격 설정을 불러오는 중...")
                     .foregroundColor(.secondary)
             }
         }

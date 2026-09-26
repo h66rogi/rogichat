@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.adamglin.PhosphorIcons
-import chat.rogi.rogichat.channelport.core.common.DonationFormatter
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.fill.CurrencyDollar
@@ -73,11 +72,6 @@ fun QueueItemRow(
                 )
                 if (item.isDonation) {
                     Spacer(modifier = Modifier.width(4.dp))
-                    val donationText = DonationFormatter.format(
-                        nativeAmount = item.donationNativeAmount,
-                        currency = item.donationCurrency,
-                        krwSnapshot = item.donationAmount,
-                    )
                     Surface(
                         shape = RoundedCornerShape(4.dp),
                         color = MaterialTheme.colorScheme.tertiaryContainer,
@@ -93,7 +87,7 @@ fun QueueItemRow(
                                 tint = MaterialTheme.colorScheme.onTertiaryContainer,
                             )
                             Text(
-                                text = if (donationText.isEmpty()) "후원" else "후원 $donationText",
+                                text = "후원",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer,
                             )

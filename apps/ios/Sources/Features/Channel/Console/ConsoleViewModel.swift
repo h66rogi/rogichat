@@ -258,7 +258,9 @@ final class ConsoleViewModel: ObservableObject {
         if var current = settings {
             if let v = payload.requestEnabled { current.requestEnabled = v }
             if let v = payload.paused { current.paused = v }
+            if let v = payload.requestCommand { current.requestCommand = v }
             if let v = payload.maxQueueSize { current.maxQueueSize = v }
+            if let v = payload.donationPriorityEnabled { current.donationPriorityEnabled = v }
             if let v = payload.requireSongMatch { current.requireSongMatch = v }
             if let v = payload.preventDuplicateSongs { current.preventDuplicateSongs = v }
             if let v = payload.maxRequestsPerUser { current.maxRequestsPerUser = v }
@@ -266,7 +268,6 @@ final class ConsoleViewModel: ObservableObject {
             if let v = payload.blockedCategoryIds { current.blockedCategoryIds = v }
             if let v = payload.karaokePlaybackMode { current.karaokePlaybackMode = v }
             if let v = payload.karaokeVideoType { current.karaokeVideoType = v }
-            if let v = payload.showRequesterName { current.showRequesterName = v }
             settings = current
         }
 
