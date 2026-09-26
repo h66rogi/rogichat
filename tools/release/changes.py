@@ -66,8 +66,6 @@ WEB_NON_IMAGE_FILES = {
     'tools/operations/web_release.py',
     'tools/operations/test_web_release.py',
     'tools/operations/web-release.md',
-    'tools/release/changes.py',
-    'tools/release/test_changes.py',
     'tools/release/test_web_publication_base.py',
 }
 # Exact backend-only helpers and tests that no image build or verification reads.
@@ -83,8 +81,6 @@ BACKEND_NON_IMAGE_FILES = {
     'tools/operations/backend_release.py',
     'tools/operations/test_backend_release.py',
     'tools/operations/backend-release.md',
-    'tools/release/changes.py',
-    'tools/release/test_changes.py',
     'tools/release/web_publication_base.py',
     'tools/release/test_web_publication_base.py',
 }
@@ -103,9 +99,17 @@ BACKEND_IMAGE_ONLY_FILES = {
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
     'tools/infrastructure/',
+    # These host-only Terraform roots are validated by infrastructure.yml.
+    # They cannot change the web or backend source/container inputs.
+    'infrastructure/environments/qa/aws-ec2/',
+    'infrastructure/environments/management/aws/',
 )
 UNRELATED_FILES = {
     'README.md', 'LICENSE', '.gitignore',
+    # The backend changes job always runs this classifier's unit suite.
+    # Product source checks do not exercise or package these CI-only files.
+    'tools/release/changes.py',
+    'tools/release/test_changes.py',
     '.github/workflows/mobile.yml',
     '.github/workflows/infrastructure.yml',
     '.github/workflows/overlay.yml',
