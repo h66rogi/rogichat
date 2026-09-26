@@ -1,9 +1,8 @@
 /**
  * Wake handling for the service worker.
  *
- * The only payload the server sends is `{"type":"sync_required","version":1}`. It carries no
- * room, member or message id, no author, no text, no URL and no sync cursor, so a wake can
- * never be rendered as content. Anything else that arrives is not a 로기챗 wake and is ignored.
+ * A message wake carries opaque room/message IDs, with no author, text or URL.
+ * The destination rechecks current membership and message access on every tap.
  *
  * A wake is a hint that the client should re-read its own data with its own credentials.
  * Receiving one proves nothing about what changed, so the generic notification below must not
@@ -19,14 +18,16 @@
  */
 
 export const WAKE_ONLY_PUSH = Object.freeze({ type: 'sync_required', version: 1 } as const);
-export type WakeOnlyPush = typeof WAKE_ONLY_PUSH;
+export type WakeOnlyPush = typeof WAKE_ONLY_PUSH | { type: 'sync_required'; version: 1; roomId: string; messageId: string };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** Accepts exactly the contract payload: right type, right version, no additional fields. */
 export function isWakePayload(value: unknown): value is WakeOnlyPush {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const record = value as Record<string, unknown>;
   const keys = Object.keys(record);
-  return keys.length === 2 && record.type === WAKE_ONLY_PUSH.type && record.version === WAKE_ONLY_PUSH.version;
+  return record.type === WAKE_ONLY_PUSH.type && record.version === WAKE_ONLY_PUSH.version &&
+    (keys.length === 2 || keys.length === 4 && UUID.test(String(record.roomId)) && UUID.test(String(record.messageId)));
 }
 
 /** Parses raw push data. Unparseable or unexpected data is not treated as a wake. */
@@ -42,7 +43,7 @@ export function readWakePayload(raw: string | null | undefined): boolean {
 /**
  * Text for the notification a wake must show, because `userVisibleOnly` subscriptions owe the
  * user something visible. It states only that there may be something to read: the worker has
- * no message, no sender and no room, and inventing one would be a claim the payload cannot support.
+ * no message content or sender, and inventing one would be a claim the payload cannot support.
  */
 export const WAKE_NOTIFICATION = Object.freeze({
   title: '로기챗',

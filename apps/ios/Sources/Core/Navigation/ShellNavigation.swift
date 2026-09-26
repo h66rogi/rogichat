@@ -7,7 +7,7 @@ enum AppTab: String, CaseIterable, Sendable { case talks = "대화", channel = "
 enum AppPage: String, Hashable, Sendable {
     case welcome = "로기챗", link = "SOOP 계정 연결", rooms = "대화", chat = "대화방", channel = "채널", settings = "더보기"
     case profile = "프로필 설정", account = "계정 관리", report = "차단 관리"
-    case notifications = "알림", notificationSettings = "알림 설정", licenses = "오픈소스 라이선스", appearance = "화면 모드", status = "이용 상태"
+    case notifications = "알림", notificationSettings = "알림 설정", licenses = "오픈소스 라이선스", appearance = "화면 모드", status = "이용 상태", search = "대화 내용 검색"
 }
 struct ShellNavigation: Sendable {
     private(set) var access: ShellAccess = .signedOut
@@ -54,6 +54,7 @@ struct ShellNavigation: Sendable {
         let allowed: Bool
         switch value {
         case .chat: allowed = page == .rooms && access == .ready
+        case .search: allowed = page == .rooms && access == .ready
         case .report: allowed = (page == .settings || page == .chat) && access == .ready
         case .profile: allowed = page == .settings && canManageAccount
         case .account: allowed = page == .settings && canManageAccount

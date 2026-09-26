@@ -76,6 +76,41 @@ async function fixture(t, mode = 'FAN', configured = true) {
 }
 const keys = value => Object.keys(value).sort();
 
+test('message search respects private grants and room closure before pagination', { timeout: 20000 }, async t => {
+  const f = await fixture(t);
+  const shared = await f.send(f.owner, f.command('고유검색 공통 본문'));
+  assert.equal(shared.status, 200);
+  await f.nextBurst(f.owner);
+  const privateMessage = await f.send(f.owner, f.command('고유검색 비공개 본문', 'PRIVATE', f.fan1.actor));
+  assert.equal(privateMessage.status, 200);
+  const secondRoom = await f.db.transactions.write(async tx => {
+    const id = await createRoom(tx, '다른 합성방', 'GROUP');
+    const actor = await joinRoom(tx, id, f.owner.id);
+    await joinRoom(tx, id, f.fan1.id);
+    await tx.prisma.room_members.update({ where: { id: actor }, data: { role: 'STREAMER' } });
+    await tx.prisma.rooms.update({ where: { id }, data: { owner_member_id: actor } });
+    return id;
+  });
+  const elsewhere = await f.db.transactions.write(tx => sendMessage(tx, secondRoom, f.owner.id,
+    sendInput(f.command('고유검색 다른 방')), f.config.key));
+  const search = who => f.call(who, 'GET', '/me/messages/search?q=%EA%B3%A0%EC%9C%A0%EA%B2%80%EC%83%89');
+  const fan1 = await search(f.fan1);
+  assert.equal(fan1.status, 200);
+  assert.deepEqual(new Set(fan1.body.items.map(item => item.messageId)), new Set([shared.body.messageId, privateMessage.body.messageId, elsewhere.messageId]));
+  assert.deepEqual(fan1.body.items.map(item => Object.keys(item).sort()), Array(3).fill(['author', 'createdAt', 'excerpt', 'messageId', 'roomId', 'roomName']));
+  assert.deepEqual((await search(f.fan2)).body.items.map(item => item.messageId), [shared.body.messageId]);
+  assert.deepEqual((await search(f.outsider)).body.items, []);
+  assert.equal((await f.call(f.fan1, 'GET', '/me/messages/search?q=%25')).status, 400);
+  assert.equal((await f.call(f.fan1, 'POST', `/rooms/${f.room}/leave`, {})).status, 204);
+  assert.deepEqual((await search(f.fan1)).body.items.map(item => item.messageId), [elsewhere.messageId]);
+  assert.equal((await f.call(f.owner, 'POST', `/rooms/${f.room}/leave`, {})).status, 204);
+  assert.deepEqual((await search(f.fan2)).body.items, []);
+  assert.deepEqual((await search(f.fan1)).body.items.map(item => item.messageId), [elsewhere.messageId]);
+  const rows = await f.db.transactions.read(tx => tx.rows('SELECT text_content,deleted_at FROM messages WHERE room_id=?', [f.room]));
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every(row => row.text_content === null && row.deleted_at));
+});
+
 test('same-key concurrent commands and API restart return one durable message, event, receipt and hint job', { timeout: 20000 }, async t => {
   const f = await fixture(t); const body = f.command();
   const replies = await Promise.all(Array.from({ length: 5 }, () => f.send(f.owner, body)));

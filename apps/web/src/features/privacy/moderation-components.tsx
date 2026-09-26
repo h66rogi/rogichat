@@ -41,6 +41,10 @@ function MessageModerationForm(props: MessageModerationControlProps) {
     return () => { reporter.dispose(); blocker.dispose(); report.current = null; block.current = null; };
   }, []);
   const target = blockTarget(props.message, props.scope.actorId);
+  const content = props.message.content;
+  const preview = content.type === 'TEXT' ? content.text ?? '내용을 볼 수 없는 메시지' :
+    content.type === 'PHOTO' ? `사진${content.caption ? ` · ${content.caption}` : ''}` :
+    content.type === 'VIDEO' ? `동영상${content.caption ? ` · ${content.caption}` : ''}` : '스티커';
   return <div aria-label="메시지 신고 및 차단">
     <Dialog.Root open={reportOpen} onOpenChange={next => { if (state !== 'sending') setReportOpen(next); }}>
       <Dialog.Trigger asChild><button type="button" className={actionMenuItemClass}><Flag className="size-4" aria-hidden="true" />메시지 신고</button></Dialog.Trigger>
@@ -48,7 +52,9 @@ function MessageModerationForm(props: MessageModerationControlProps) {
         <Dialog.Overlay className={actionDialogOverlayClass} />
         <Dialog.Content className={actionDialogContentClass} aria-busy={state === 'sending'}>
           <Dialog.Title className="text-lg font-semibold text-ink">메시지 신고</Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm leading-6 text-muted">현재 열람 중인 메시지를 신고합니다. 메시지 본문은 상세 내용에 자동으로 복사되지 않습니다.</Dialog.Description>
+          <Dialog.Description className="mt-2 text-sm leading-6 text-muted">{props.scope.name} 대화에서 아래 메시지를 신고합니다.</Dialog.Description>
+          <blockquote className="mt-3 max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-surface-soft p-3 text-sm text-body">{preview}</blockquote>
+          <p className="mt-2 text-xs leading-5 text-muted">신고 사유와 직접 적은 상세 내용, 이 메시지의 위치가 전달됩니다. 주변 대화와 메시지 본문은 상세 내용에 자동으로 추가되지 않습니다.</p>
           {state === 'idle' ? <form className="mt-5 space-y-4" onSubmit={event => { event.preventDefault(); void report.current?.submit(props.scope.roomId, props.message.id, reason, detail); }}>
             <label className="block text-sm font-medium text-ink">신고 사유<select className="mt-2 min-h-11 w-full rounded-lg border border-line bg-canvas px-3 text-ink focus-visible:outline-2 focus-visible:outline-focus-ring" value={reason} onChange={event => setReason(event.target.value as ReportReason)}>{REPORT_REASONS.map(value => <option key={value} value={value}>{reasons[value]}</option>)}</select></label>
             <label className="block text-sm font-medium text-ink">상세 내용 (선택, 최대 1,000자)<textarea className="mt-2 min-h-28 w-full resize-y rounded-lg border border-line bg-canvas p-3 text-ink focus-visible:outline-2 focus-visible:outline-focus-ring" maxLength={2000} value={detail} onChange={event => setDetail([...event.target.value].slice(0, 1000).join(''))} /></label>

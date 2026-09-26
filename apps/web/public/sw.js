@@ -5,10 +5,8 @@
  * storage: no API response, media or message is ever kept here, so an account switch has only
  * in-memory work to invalidate.
  *
- * The only payload the server sends is {"type":"sync_required","version":1}. It carries no
- * room, member or message id, no author, no text, no URL and no cursor, so nothing in a wake
- * can be rendered. The notification below therefore says only that there may be something to
- * check; the real content appears after the page syncs with its own credentials. This worker
+ * A message wake carries only opaque room/message IDs. The notification remains generic;
+ * the destination rechecks the viewer's current access before rendering. This worker
  * never fetches private data itself and never stores cookies, tokens or account identifiers.
  *
  * This file mirrors apps/web/src/features/push/wake.ts, which is the source of truth and is
@@ -26,6 +24,7 @@ const NOTIFICATION = {
   tag: 'rogichat-sync',
   renotify: false,
 };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /**
  * Which account and session each open page is signed in as; memory only, keyed by client id.
@@ -67,42 +66,50 @@ self.addEventListener('message', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-  if (!isWake(event.data)) return;
-  event.waitUntil(wake());
+  const payload = readWake(event.data);
+  if (!payload) return;
+  event.waitUntil(wake(payload));
 });
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  event.waitUntil(open());
+  event.waitUntil(open(event.notification.data));
 });
 
 /** Accepts exactly the contract payload: right type, right version, no additional fields. */
-function isWake(data) {
-  if (!data) return false;
+function readWake(data) {
+  if (!data) return null;
   let raw;
   try {
     raw = data.text();
   } catch {
-    return false;
+    return null;
   }
-  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 256) return false;
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 256) return null;
   let payload;
   try {
     payload = JSON.parse(raw);
   } catch {
-    return false;
+    return null;
   }
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
-  return Object.keys(payload).length === 2 && payload.type === WAKE_TYPE && payload.version === WAKE_VERSION;
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const count = Object.keys(payload).length;
+  if (payload.type !== WAKE_TYPE || payload.version !== WAKE_VERSION ||
+      !(count === 2 || count === 4 && UUID.test(payload.roomId) && UUID.test(payload.messageId))) return null;
+  return payload;
 }
 
 /**
  * A `userVisibleOnly` subscription owes the user something visible for every wake, so the
- * notification is always shown; the shared tag collapses a burst into one. The sync work is
+ * notification is always shown; distinct message targets use distinct tags. The sync work is
  * coalesced instead: while one run is in flight, further wakes are covered by one more run.
  */
-async function wake() {
-  await self.registration.showNotification(NOTIFICATION_TITLE, NOTIFICATION);
+async function wake(payload) {
+  const target = UUID.test(payload.roomId) && UUID.test(payload.messageId)
+    ? { roomId: payload.roomId, messageId: payload.messageId } : null;
+  await self.registration.showNotification(NOTIFICATION_TITLE, target
+    ? { ...NOTIFICATION, tag: payload.messageId, data: target }
+    : NOTIFICATION);
   if (running) {
     pending = true;
     return;
@@ -141,13 +148,17 @@ async function notify() {
 }
 
 /** Always this origin's app; a wake carries no URL and none is ever taken from one. */
-async function open() {
+async function open(data) {
+  const destination = data && UUID.test(data.roomId) && UUID.test(data.messageId)
+    ? `/chat?roomId=${data.roomId}&messageId=${data.messageId}` : '/notifications';
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const existing = clients.find((client) => client.url.startsWith(`${self.location.origin}/`));
   if (existing) {
+    let navigated = false;
     if (typeof existing.navigate === 'function') {
-      try { await existing.navigate('/notifications'); } catch { /* Keep the existing window usable. */ }
+      try { await existing.navigate(destination); navigated = true; } catch { /* Open the destination below. */ }
     }
+    if (!navigated && destination !== '/notifications') { await self.clients.openWindow(destination); return; }
     await existing.focus();
     const current = bindings.get(existing.id);
     if (current !== undefined) {
@@ -155,5 +166,5 @@ async function open() {
     }
     return;
   }
-  await self.clients.openWindow('/notifications');
+  await self.clients.openWindow(destination);
 }

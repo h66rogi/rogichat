@@ -7,7 +7,7 @@ import { useApi } from '@/core/runtime/provider';
 import { PrivateGate } from '@/features/auth/auth-panel';
 import { usePrivateSession } from '@/features/auth/private-session';
 
-interface Item { id: string; type: 'MESSAGE'; title: string; body: string; url: '/chat'; roomId: string; readAt: string | null; createdAt: string }
+interface Item { id: string; type: 'MESSAGE'; title: string; body: string; url: '/chat'; roomId: string; messageId: string; readAt: string | null; createdAt: string }
 interface Page { items: Item[]; nextCursor: string | null; hasNextPage: boolean }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 function page(value: unknown): Page {
@@ -16,7 +16,7 @@ function page(value: unknown): Page {
   if (!Array.isArray(result.items) || result.items.length > 20 ||
       !(result.nextCursor === null || typeof result.nextCursor === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(result.nextCursor)) ||
       typeof result.hasNextPage !== 'boolean' ||
-      result.items.some(item => !item || !UUID.test(item.id) || !UUID.test(item.roomId) || item.type !== 'MESSAGE' || item.url !== '/chat' ||
+      result.items.some(item => !item || !UUID.test(item.id) || !UUID.test(item.roomId) || !UUID.test(item.messageId) || item.id !== item.messageId || item.type !== 'MESSAGE' || item.url !== '/chat' ||
         typeof item.title !== 'string' || item.title.length > 80 || typeof item.body !== 'string' || item.body.length > 120 ||
         (item.readAt !== null && (typeof item.readAt !== 'string' || !Number.isFinite(Date.parse(item.readAt)))) ||
         !Number.isFinite(Date.parse(item.createdAt)))) throw new Error('invalid_notification_page');
@@ -87,7 +87,7 @@ function Inbox({ csrf }: { csrf: string }) {
       <ul className="divide-y divide-line rounded-xl border border-line">
         {items.map(item => <li key={item.id}>
           <button type="button" className={`flex min-h-20 w-full items-start gap-3 p-4 text-left ${item.readAt === null ? 'bg-accent/5' : ''}`}
-            onClick={() => { void (async () => { if (!item.readAt) await mark(item); router.push('/chat'); })(); }}>
+            onClick={() => { void (async () => { if (!item.readAt) await mark(item); router.push(`/chat?roomId=${encodeURIComponent(item.roomId)}&messageId=${encodeURIComponent(item.messageId)}`); })(); }}>
             <span aria-hidden="true" className="mt-1 rounded-full bg-accent/10 p-2">🔔</span>
             <span className="min-w-0 flex-1"><span className="block truncate font-medium text-ink">{item.title}</span>
               <span className="block text-sm text-muted">{item.body}</span>

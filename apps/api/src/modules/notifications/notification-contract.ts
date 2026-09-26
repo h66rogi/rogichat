@@ -1,9 +1,12 @@
 import { ApiError } from '../auth/auth-primitives.js';
 import { identifier } from '../../common/validation/identifier.js';
 
-// Transport data only: wake the client, then authenticated sync projects current ACL.
-// Never add room/message/member IDs, fan identity, content, URLs or cursor values.
+// Transport data contains only opaque identifiers. Every tap rechecks the live
+// room and message ACL before displaying content; no names or message body travel.
 export const WAKE_ONLY_PUSH = Object.freeze({ type: 'sync_required', version: 1 } as const);
+export function messagePushTarget(roomId: string, messageId: string) {
+  return { ...WAKE_ONLY_PUSH, roomId: identifier(roomId), messageId: identifier(messageId) };
+}
 export type WakeOnlyPush = typeof WAKE_ONLY_PUSH;
 export interface NotificationPreferencesDto { pushEnabled: boolean; generation: string }
 export interface PushSubscriptionDto { id: string; generation: string }

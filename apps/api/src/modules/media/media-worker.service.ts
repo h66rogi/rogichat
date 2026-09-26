@@ -219,7 +219,8 @@ export class MediaWorkerService {
       // using current locking reads after our asset lock, not an earlier consistent snapshot.
       // Explicitly DELETING assets must still be purged even if historical links remain.
       const [current] = await this.repository.currentState(tx, asset.id);
-      if (current?.state === 'READY') {
+      const closedRoom = current?.room_id ? await tx.prisma.rooms.findFirst({ where: { id: String(current.room_id), status: 'CLOSED' }, select: { id: true } }) : null;
+      if (current?.state === 'READY' && !closedRoom) {
         const attachments = await this.repository.attachments(tx, asset.id);
         const avatars = await this.repository.avatars(tx, asset.id);
         const catalog = await this.repository.catalog(tx, asset.id);

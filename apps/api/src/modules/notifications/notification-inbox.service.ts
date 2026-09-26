@@ -35,7 +35,7 @@ export class NotificationInboxService {
       const rows = await this.repository.page(tx, actor.userId, limit, cursor);
       const items = rows.slice(0, limit).map(row => ({
         id: row.id, type: 'MESSAGE' as const, title: row.room_name,
-        body: '새 메시지가 도착했어요', url: '/chat', roomId: row.room_id,
+        body: '새 메시지가 도착했어요', url: '/chat', roomId: row.room_id, messageId: row.id,
         readAt: row.read_at?.toISOString() ?? null, createdAt: row.created_at.toISOString(),
       }));
       return { items, nextCursor: rows.length > limit && items.length ? cursorOf(rows[limit - 1]!.created_at, rows[limit - 1]!.id) : null,

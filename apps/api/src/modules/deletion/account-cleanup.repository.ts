@@ -3,6 +3,7 @@ import { encodeDeletionIntent } from './deletion-ledger.js';
 import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import type { DeletionReceipt } from './deletion-ledger.js';
+import { closeOwnedRoom } from '../rooms/room-state.repository.js';
 
 /** Private account authority and bounded non-content dependency persistence. */
 @Injectable()
@@ -119,6 +120,20 @@ export class AccountCleanupRepository {
   }
 
   async memberPage(tx: Transaction, userId: string, limit: number) {
+    // Account closure must have the same room consequence as an owner leaving.
+    // Select only an active owned room so the next bounded pass can drain the
+    // retained member anchors and period/grant dependencies normally.
+    const owned = await tx.prisma.rooms.findFirst({ where: { status: 'ACTIVE', owner: { user_id: userId } },
+      orderBy: { id: 'asc' }, select: { id: true } });
+    if (owned) {
+      const [current] = await tx.rows<{ status: string; owner_member_id: string | null }>(
+        'SELECT status,owner_member_id FROM rooms WHERE id=? FOR UPDATE', [owned.id]);
+      const owner = current?.owner_member_id ? await tx.prisma.room_members.findUnique({ where: { id: current.owner_member_id }, select: { user_id: true } }) : null;
+      if (current?.status === 'ACTIVE' && owner?.user_id === userId) {
+        await closeOwnedRoom(tx, owned.id);
+        return { phase: 'membership' as const, changed: 1 };
+      }
+    }
     // Retained, fully drained UUID rows must not starve later rooms. This is one
     // account-scoped existence query, not a materialized scan of every room.
     const member = await tx.prisma.room_members.findFirst({ where: { user_id: userId, OR: [

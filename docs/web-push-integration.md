@@ -144,15 +144,13 @@ module, so it mirrors `wake.ts`, and `src/features/push/service-worker.test.ts` 
 file itself against stub globals and checks the same rules. Keep the two in step; a build step
 that generates the worker from the module would remove that duty entirely.
 
-What it does, and nothing else:
+Current delivery behavior:
 
-1. `push`: treats the data as a wake only when it is exactly `{"type":"sync_required","version":1}`.
-   Extra fields, another type or version and unparseable data are ignored. The payload carries
-   no room, member or message id, no author, no text, no URL and no cursor, so nothing in it is
-   rendered.
-2. Shows the generic notification for every wake, because a `userVisibleOnly` subscription owes
-   the user something visible; the shared tag collapses a burst into one. It says only that
-   there may be something to check and never claims a message, a sender or content.
+1. `push`: accepts `{"type":"sync_required","version":1}` and a message target with valid
+   opaque UUID `roomId` and `messageId`. Other fields and unparseable data are ignored. The
+   payload never carries an author, text, media URL or account identifier.
+2. Shows a generic notification for every wake. A message target gets its own tag so separate
+   messages remain separately tappable; a wake without a target retains the shared tag.
 3. Coalesces the sync work: while one run is in flight, further wakes are covered by one more.
 4. Tells each signed-in page to sync, through `WAKE_SYNC`, on that page's own binding. Bindings
    are kept per client id and a message binds only the page that sent it, so a stale tab
@@ -163,8 +161,10 @@ What it does, and nothing else:
    while it is still the one held, so one page signing out and back in before an earlier
    cleanup arrives keeps its newer binding. The worker fetches no private data, keeps no Cache
    API storage and reads no cookie, token or account identifier; bindings are memory only.
-5. `notificationclick`: focuses an existing page of this origin, or opens this origin's root.
-   The target is fixed; no URL is ever taken from a payload.
+5. `notificationclick`: opens the app's fixed `/chat` route with the validated room and message
+   IDs when a target exists. The chat then checks the signed-in account and current room access,
+   loads history and scrolls to the exact message. A wake without a target opens the notification inbox.
+   No URL is taken from the payload.
 
 Browser policy the product has to respect: permission is requested only from a user gesture; a
 denied permission can be changed only in browser settings, so the UI states that instead of

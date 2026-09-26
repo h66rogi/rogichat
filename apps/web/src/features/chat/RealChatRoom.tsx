@@ -27,6 +27,7 @@ export interface RealChatRoomProps {
   accountId: string;
   session: Session;
   roomId: string;
+  targetMessageId?: string | null;
   sessionScopeKey: string;
   accountPartition: string;
   apiOrigin: string;
@@ -40,7 +41,7 @@ export function RealChatRoom(props: RealChatRoomProps) {
   return <ScopedRealChatRoom key={`${props.accountPartition}:${props.sessionScopeKey}:${props.roomId}`} {...props} />;
 }
 
-function ScopedRealChatRoom({ active, suspended = false, visit, session, accountId, roomId, apiOrigin, csrfToken, accountPartition, request, onInvalidate, seed }: RealChatRoomProps) {
+function ScopedRealChatRoom({ active, suspended = false, visit, session, accountId, roomId, targetMessageId, apiOrigin, csrfToken, accountPartition, request, onInvalidate, seed }: RealChatRoomProps) {
   const [controller, setController] = useState<ChatController | null>(() => seed ? new ChatController(roomId, request, onInvalidate, csrfToken, accountPartition,
     typeof window === 'undefined' ? undefined : sessionChatMemory(accountPartition, csrfToken, roomId),
     typeof window === 'undefined' ? undefined : apiOrigin === 'https://api.qa.rogi.chat' ? 'qa' : 'production', seed) : null);
@@ -112,12 +113,12 @@ function ScopedRealChatRoom({ active, suspended = false, visit, session, account
   if (!controller) return <ChatRoomSkeleton />;
   return <>
     <div hidden={!active} className={!active ? 'hidden' : 'flex min-h-0 flex-1 flex-col'}>
-      <LiveRoom controller={controller} csrf={csrfToken} roomId={roomId} session={session} origin={apiOrigin} />
+      <LiveRoom controller={controller} csrf={csrfToken} roomId={roomId} targetMessageId={targetMessageId} session={session} origin={apiOrigin} />
     </div>
   </>;
 }
 
-function LiveRoom({ controller, csrf, roomId, session, origin }: { session: Session; origin: string; controller: ChatController; csrf: string; roomId: string }) {
+function LiveRoom({ controller, csrf, roomId, targetMessageId, session, origin }: { session: Session; origin: string; controller: ChatController; csrf: string; roomId: string; targetMessageId?: string | null }) {
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot, controller.getSnapshot);
   const lifetime = useMemo(() => controller.mediaLifetime(state.epoch), [controller, state.epoch]);
   if (state.phase === 'loading') return <ChatRoomSkeleton />;
@@ -137,6 +138,7 @@ function LiveRoom({ controller, csrf, roomId, session, origin }: { session: Sess
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
     firstUnreadMessageId={state.firstUnreadMessageId} onVisibleMessage={controller.displayed}
+    targetMessageId={targetMessageId}
     outgoing={state.outgoing} outgoingBusy={state.commandBusy} onRetryOutgoing={controller.retry}
     streamerRecipients={recipients}
     onDelete={controller.remove} actionNotice={state.notice ?? undefined}

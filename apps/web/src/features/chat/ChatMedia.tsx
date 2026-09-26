@@ -7,6 +7,7 @@ import { MediaUploadPanel } from '@/features/media/components';
 import { ScopedMediaImage, ScopedMediaVideo, useMediaRoomId, useMediaUpload } from '@/features/media/session-ui';
 import type { MediaUpload } from '@/features/media/upload';
 import type { ChatComposerSubmission, ChatComposerTarget, ChatImageContent, ChatSubmitResult } from './types';
+import { targetLabel } from './drafts';
 
 export function ChatMediaImages({ messageId, media }: { messageId: string; media: ChatImageContent }) {
   const roomId = useMediaRoomId();
@@ -35,12 +36,12 @@ function MessageMediaViewer({ label, assetId, media, roomId, messageId }: { labe
 }
 
 /** Each visited target keeps its own upload. The room/session epoch owns all of them. */
-export function PhotoDraftComposer(props: { submitBlocked?: boolean | undefined; kind?: 'PHOTO' | 'VIDEO'; target: ChatComposerTarget; onSubmit: (submission: ChatComposerSubmission) => Promise<ChatSubmitResult> | ChatSubmitResult; onClose: () => void }) {
+export function PhotoDraftComposer(props: { submitBlocked?: boolean | undefined; kind?: 'PHOTO' | 'VIDEO'; roomName: string; target: ChatComposerTarget; onSubmit: (submission: ChatComposerSubmission) => Promise<ChatSubmitResult> | ChatSubmitResult; onClose: () => void }) {
   const upload = useMediaUpload(); const roomId = useMediaRoomId();
   if (!upload || !roomId) return <p role="status">지금은 첨부를 보낼 수 없습니다.</p>;
   return <PhotoDraft upload={upload} roomId={roomId} {...props} />;
 }
-function PhotoDraft({ upload, roomId, target, onSubmit, onClose, submitBlocked, kind = 'PHOTO' }: { submitBlocked?: boolean | undefined; kind?: 'PHOTO' | 'VIDEO'; upload: MediaUpload; roomId: string; target: ChatComposerTarget; onSubmit: (submission: ChatComposerSubmission) => Promise<ChatSubmitResult> | ChatSubmitResult; onClose: () => void }) {
+function PhotoDraft({ upload, roomId, roomName, target, onSubmit, onClose, submitBlocked, kind = 'PHOTO' }: { submitBlocked?: boolean | undefined; kind?: 'PHOTO' | 'VIDEO'; upload: MediaUpload; roomId: string; roomName: string; target: ChatComposerTarget; onSubmit: (submission: ChatComposerSubmission) => Promise<ChatSubmitResult> | ChatSubmitResult; onClose: () => void }) {
   const label = kind === 'VIDEO' ? '영상' : '사진';
   const state = useSyncExternalStore(upload.subscribe, upload.getSnapshot, upload.getSnapshot);
   const [selected, setSelected] = useState<string | null>(null);
@@ -67,10 +68,11 @@ function PhotoDraft({ upload, roomId, target, onSubmit, onClose, submitBlocked, 
   };
   return <section aria-label={`${label} 보내기`} className="space-y-3 border-t border-line p-4">
     <p className="font-semibold">{label} 보내기</p>
-    <p className="text-sm">{label}을 선택하고 원하는 메시지를 함께 보내세요.</p>
+    <p className="text-sm">{roomName} · 받는 사람: {targetLabel(target)}</p>
     <fieldset disabled={busy}><MediaUploadPanel upload={upload} lifetime={upload.lifetime} kind={kind} roomId={roomId} onReady={id => { if (selected !== id) retryId.current = undefined; setSelected(id); }} /></fieldset>
     {ready && kind === 'VIDEO' && <ScopedMediaVideo assetId={selected} context={{}} revision={`draft:${selected}`} />}
     {ready && kind === 'PHOTO' && <ScopedMediaImage assetId={selected} context={{ variant: 'image' }} alt="보낼 사진 미리보기" />}
+    {ready && <Button type="button" variant="outline" disabled={busy} onClick={() => { upload.clear(); setSelected(null); retryId.current = undefined; }}>{label} 선택 취소</Button>}
     <textarea value={caption} onChange={event => { setCaption(event.target.value); retryId.current = undefined; }} maxLength={4000}
       placeholder="메시지 추가" aria-label="첨부 파일과 함께 보낼 메시지" className="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-ink" />
     {error && <p role="alert">{error}</p>}

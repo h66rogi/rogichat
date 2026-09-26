@@ -13,7 +13,6 @@ import { identifier } from '../../common/validation/identifier.js';
 function domainError(error: unknown): never {
   if (error instanceof Error && error.message === 'room_unavailable') throw new ApiError('NOT_FOUND', 404);
   if (error instanceof Error && ['membership_banned', 'join_policy_unsupported'].includes(error.message)) throw new ApiError('FORBIDDEN', 403);
-  if (error instanceof Error && error.message === 'owner_transfer_required') throw new ApiError('CONFLICT', 409);
   throw error;
 }
 

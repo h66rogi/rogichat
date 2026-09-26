@@ -11,7 +11,7 @@ export class ApiError extends Error {
   }
 }
 export interface Profile { providerAvatarUrl?: string | null; soop?: { displayId: string } | null; id: string; nickname: string; avatar: { assetId: string } | null; birthday: { month: number; day: number } | null; birthdayVisibleToStreamers: boolean }
-export interface Room { isDefault?: boolean; availability?: 'OWNER_PENDING' | 'READY'; roomId: string; name: string; mode: string; joined: boolean; actorId?: string }
+export interface Room { isDefault?: boolean; availability?: 'OWNER_PENDING' | 'READY'; roomId: string; name: string; mode: string; joined: boolean; actorId?: string; role?: 'FAN' | 'STREAMER' | 'MEMBER' }
 export type Message = ServerMessage;
 export class ApiClient {
   readonly origin: string;

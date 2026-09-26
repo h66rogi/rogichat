@@ -32,6 +32,12 @@ export const sendReceipt: Schema = { oneOf: [
 ] };
 export const deletionReceipt = object({ requestId: { ...uuid, pattern: '^[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' }, status: enumeration('blocked') });
 export const messageDocs = {
+  search: () => contract({ id: 'searchMyMessages', summary: '내가 볼 수 있는 대화 메시지 검색',
+    query: [{ name: 'q', required: true, schema: { type: 'string', minLength: 2, maxLength: 100 } },
+      { name: 'cursor', required: false, schema: { type: 'string', pattern: '^[A-Za-z0-9_-]{1,160}$' } }],
+    response: object({ items: array(object({ messageId: uuid, roomId: uuid, roomName: text,
+      createdAt: { type: 'string', format: 'date-time' }, author: text, excerpt: text })), nextCursor: nullable(text) }),
+    description: '현재 활성 방 참여와 메시지별 공개 범위, 비공개 권한, 차단, 삭제 상태를 검색 결과마다 확인합니다. 최신순 30개씩 반환합니다.' }),
   send: () => contract({ id: 'sendMessage', summary: '메시지 발송', auth: 'write', params: ['roomId'], body: sendRequest, response: sendReceipt,
     description: '활성 방 구성원과 SOOP 연동이 필요합니다. FAN 방의 팬 일반 메시지는 ROOM_OWNER로 보내며 작성자와 방장에게만 보입니다. 이전 클라이언트의 팬 SHARED 명령도 새 메시지에 한해 같은 비공개 수신함으로 저장합니다. 방장의 SHARED 일반 메시지는 참여 팬에게 보입니다. 방장이 팬 메시지를 선택한 PRIVATE 답장은 recipientActorId와 quoteId를 지정하며 해당 팬에게만 보입니다. GROUP 방 일반 메시지는 SHARED입니다. SHARED/ROOM_OWNER에서는 recipientActorId를 생략합니다. membershipScope는 필수이며 현재 입장 기간과 다르면 409 MEMBERSHIP_SCOPE_MISMATCH입니다. 기존 요청의 scope를 바꾸어 재전송하지 않습니다. 같은 clientMessageId와 같은 내용으로 재시도하며 내용이 다르면 409입니다. committed는 DB 저장 완료이며 전달·읽음 ACK가 아닙니다.', errors: [400, 401, 403, 404, 409, 413, 429] }),
   get: () => contract({ id: 'getMessage', summary: '권한에 맞는 메시지 조회', params: ['roomId', 'messageId'], response: message,

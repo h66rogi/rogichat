@@ -4,7 +4,7 @@ import RogichatRooms
 #endif
 
 // Real native transport and one-shot provider completion; no bootstrap credentials.
-actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, NativePushServing, SessionServing, AccountNotificationsServing, NotificationInboxServing, RoomsAuthorizing, AccountDeletionServing, ConversationAuthorizing {
+actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, NativePushServing, SessionServing, AccountNotificationsServing, NotificationInboxServing, MessageSearchServing, RoomsAuthorizing, AccountDeletionServing, ConversationAuthorizing {
     nonisolated let capabilities: SessionCapabilities
     private let auth: (any SOOPAuthenticating)?
     private var deletionTask: Task<AccountDeletionUpdate, any Error>?
@@ -310,6 +310,13 @@ actor NativeSessionService: AccountFeatureAuthorizing, NativeRealtimeServing, Na
     func notificationInbox(cursor: String?, scope: UUID) async throws -> NotificationInboxPage {
         guard validated?.access == .ready else { throw ProductError.linkRequired }
         return try decode(NotificationInboxPage.self, await accountM11(.notificationInbox(cursor: cursor), scope: scope))
+    }
+    func searchMessages(query: String, cursor: String?, scope: UUID) async throws -> MessageSearchPage {
+        guard validated?.access == .ready else { throw ProductError.linkRequired }
+        let page = try decode(MessageSearchPage.self, await accountM11(.messageSearch(query: query, cursor: cursor), scope: scope))
+        guard page.items.count <= 30, page.items.allSatisfy({ NativePushContract.uuid($0.messageId) && NativePushContract.uuid($0.roomId) &&
+            $0.roomName.count <= 80 && $0.author.count <= 80 && $0.excerpt.count <= 400 }) else { throw ProductError.invalidResponse }
+        return page
     }
     func markNotificationRead(id: String, scope: UUID) async throws {
         guard validated?.access == .ready else { throw ProductError.linkRequired }

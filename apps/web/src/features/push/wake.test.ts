@@ -15,9 +15,10 @@ void test('the wake payload is exactly the contract object', () => {
   assert.deepEqual(WAKE_ONLY_PUSH, { type: 'sync_required', version: 1 });
   assert.ok(isWakePayload({ type: 'sync_required', version: 1 }));
   assert.ok(readWakePayload(JSON.stringify(WAKE_ONLY_PUSH)));
+  assert.ok(isWakePayload({ ...WAKE_ONLY_PUSH, roomId: '2f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b', messageId: '3f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b' }));
 });
 
-void test('anything carrying content or identifiers is not accepted as a wake', () => {
+void test('content and incomplete or malformed targets are not accepted as a wake', () => {
   for (const payload of [
     { type: 'sync_required', version: 1, roomId: '2f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b' },
     { type: 'sync_required', version: 1, body: '새 메시지' },

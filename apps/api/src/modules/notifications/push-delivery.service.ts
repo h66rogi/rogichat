@@ -44,7 +44,7 @@ export class PushDeliveryService {
       if (error instanceof ApiError && error.code === 'NOT_FOUND') return null;
       throw error;
     }
-    return sub;
+    return { ...sub, roomId: intent.room_id, messageId: intent.message_id };
   }
   async consume(lease: JobLease): Promise<'completed' | 'lease_lost'> {
     if (lease.purpose !== 'PUSH' || !lease.resourceId || !lease.roomId) throw new JobFailure('INVALID_RESOURCE', true);
@@ -61,8 +61,8 @@ export class PushDeliveryService {
         if (initial.provider === 'APNS' || initial.provider === 'FCM') {
           const config = this.native.config;
           prepared = config?.audience === initial.audience && initial.nativeToken
-            ? await this.native.prepare(initial.provider, openNativeToken(initial.nativeToken, config.encryptionKey, `${initial.audience}:${initial.id}:${initial.generation}`)) : null;
-        } else prepared = await this.transport.prepare({ endpoint: initial.endpoint, p256dh: initial.p256dh, auth_secret: initial.auth });
+            ? await this.native.prepare(initial.provider, openNativeToken(initial.nativeToken, config.encryptionKey, `${initial.audience}:${initial.id}:${initial.generation}`), { roomId: initial.roomId, messageId: initial.messageId }) : null;
+        } else prepared = await this.transport.prepare({ endpoint: initial.endpoint, p256dh: initial.p256dh, auth_secret: initial.auth }, { roomId: initial.roomId, messageId: initial.messageId });
       }
       catch (error) {
         if (error instanceof Error && ['invalid_push_endpoint', 'invalid_push_subscription'].includes(error.message)) throw new JobFailure('INVALID_RESOURCE', true);

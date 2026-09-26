@@ -341,6 +341,9 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     override suspend fun getInbox(scope: NotificationAccountScope, cursor: String?): Result<chat.rogi.rogichat.feature.notifications.InboxPage> = ownState(scope) { token ->
         chat.rogi.rogichat.feature.notifications.InboxContract.page(api.getNotificationInbox(token, cursor))
     }
+    override suspend fun searchMessages(scope: NotificationAccountScope, query: String, cursor: String?): Result<chat.rogi.rogichat.feature.notifications.MessageSearchPage> = ownState(scope) { token ->
+        chat.rogi.rogichat.feature.notifications.MessageSearchContract.page(api.searchMessages(token, query, cursor))
+    }
     override suspend fun markInboxRead(scope: NotificationAccountScope, id: String): Result<Unit> = ownState(scope) { token ->
         api.markNotificationRead(token, id)
     }
