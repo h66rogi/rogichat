@@ -1070,6 +1070,13 @@
       "source": "feature/console/src/main/java/com/meloming/android/feature/console/component/SettingsTab.kt",
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/component/SettingsTab.kt",
       "source_sha256": "d66bea59ad80c6f9be57c217abdc2a6b6630e65b10d644c1494ba2c3aaac6719"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Resources/Assets.xcassets/AccentColor.colorset/Contents.json",
+      "destination": "apps/ios/Resources/Assets.xcassets/ChannelAccentColor.colorset/Contents.json",
+      "source_sha256": "51af2a2d9be9c75dd585e803124d261bded75f3409efda4077854a68090123f7"
     }
   ],
   "new_files": [

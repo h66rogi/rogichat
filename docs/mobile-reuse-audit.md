@@ -536,6 +536,9 @@ Android `feature/channel`의 이전 19개 파일을 모두 삭제했다. 그 뒤
   비운 노래·일정 메타데이터는 명시적 null로 전송하고 선택하지 않은 가수 ID는 생략한다.
 - 이미지 URL의 상대 경로를 Rogichat 웹 주소에 연결한다. 원본 이미지 컴포넌트와
   Kingfisher/Coil을 그대로 사용한다. iOS 공통 셸이 원본의 제목 표시를 덮어쓰지 않게 한다.
+- iOS 원본 `AccentColor.colorset/Contents.json`을 바이트 그대로 `ChannelAccentColor`에 복사하고
+  채널 NavigationStack의 accentColor/tint로 적용한다. 원본 `Color.accentColor` 참조와
+  상세·시트의 색상 상속을 유지하며 로기챗의 앱 강조색이 채널에 섞이지 않게 한다.
 - 셋리스트는 원본 앱에 구현이 없어 목록/상세를 새로 작성하고 기존 공개 API에 연결한다.
   옷장은 원본의 3열 그리드 구현을 복사한다.
 - Kingfisher 7.12.0, Coil 3.0.4, Timber 5.0.1, Reorderable 2.4.3,

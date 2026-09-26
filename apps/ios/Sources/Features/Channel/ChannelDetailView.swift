@@ -168,7 +168,6 @@ struct ChannelDetailView: View {
                 }
             }
         }
-        .tint(Color(hex: "#6366F1"))
         .navigationTitle(viewModel.channel?.name ?? "채널")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
