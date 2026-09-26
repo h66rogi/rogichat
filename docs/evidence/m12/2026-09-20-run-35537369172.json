@@ -1,0 +1,99 @@
+{
+  "schemaVersion": 1,
+  "runId": 35537369172,
+  "runUrl": "https://github.com/h66rogi/rogichat/actions/runs/35537369172",
+  "artifact": {
+    "name": "m12-soak-evidence-35537369172-1",
+    "id": 10614525301,
+    "sha256": "3cd66f9cf7b4c6217ea95dae5c6b35d35eb8ffd713fb3af93d9635cb78425772"
+  },
+  "prHeadSha": "b7b599f48068e5c7ed92e9772db364406757d27d",
+  "testedMergeSha": "01400e731bcb85c3538bb2301d704c097d6bec1a",
+  "deployedSourceSha": "a63bbdae583dcd84c42b07872b1c374c84bd6b01",
+  "runtimeTestLockAndWorkflowIdenticalToDeployed": true,
+  "outcome": "passed",
+  "tests": {
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0
+  },
+  "node": "v24.21.0",
+  "startedAt": "2026-09-20T21:03:35.554Z",
+  "measuredAt": "2026-09-20T21:33:36.332Z",
+  "jobCompletedAt": "2026-09-20T21:33:40Z",
+  "durationMs": 1800768.7364039999,
+  "connections": 10,
+  "commands": 1800,
+  "projections": 18000,
+  "ack": {
+    "count": 1800,
+    "p50Ms": 39.52,
+    "p95Ms": 75.13,
+    "p99Ms": 99.38,
+    "maxMs": 1287.13
+  },
+  "sendToCache": {
+    "count": 18000,
+    "p50Ms": 293.64,
+    "p95Ms": 433.57,
+    "p99Ms": 479.33,
+    "maxMs": 6065.41
+  },
+  "videoOverlapAck": {
+    "count": 100,
+    "p50Ms": 46.36,
+    "p95Ms": 75.83,
+    "p99Ms": 119.13,
+    "maxMs": 295.39
+  },
+  "videoOverlapCache": {
+    "count": 1048,
+    "p50Ms": 328.87,
+    "p95Ms": 583.48,
+    "p99Ms": 4258.71,
+    "maxMs": 6065.41
+  },
+  "clientRestartRecovery": {
+    "count": 10,
+    "p50Ms": 1315.43,
+    "p95Ms": 3850.99,
+    "p99Ms": 3850.99,
+    "maxMs": 3850.99
+  },
+  "completedVideos": 7,
+  "videoInputBytes": 7399461,
+  "firstPostCrashWorkerCompletionMs": 313267.580551,
+  "firstPostCrashWorkerCompletionIsKilledJob": false,
+  "killedVideoRetryGeneration": 2,
+  "killedVideoEventuallyCompleted": true,
+  "scheduleLag": {
+    "count": 1800,
+    "p50Ms": 0,
+    "p95Ms": 0.59,
+    "p99Ms": 1.18,
+    "maxMs": 425.38
+  },
+  "sampledHighWaterKiB": {
+    "api": 557880,
+    "worker": 222620,
+    "decoder": 74228
+  },
+  "errors": {
+    "expectedRestartWindow": 7,
+    "unexpected": 0
+  },
+  "thresholds": {
+    "ackP95Ms": 500,
+    "syncP95Ms": 1000,
+    "everyClientRecoveryMs": 20000
+  },
+  "limitations": [
+    "reference cache commit is not rendered browser latency",
+    "private disk fixture replaces R2; real native video decoder and real queue leases",
+    "same-host hosted runner; not production capacity certification",
+    "video upload admission uses real domain service fixture, not HTTP upload",
+    "RSS high-water samples exclude short-lived native decoder children",
+    "worker completion duration measures first completion after crash, not killed job reclamation or completion",
+    "RSS samples are process high-water observations, not leak analysis or a production memory budget"
+  ]
+}
