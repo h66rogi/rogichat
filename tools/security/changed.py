@@ -13,8 +13,15 @@ APP_PREFIXES = (
     b"apps/api/", b"apps/android/app/", b"apps/ios/",
     b"apps/web/src/", b"apps/web/test/", b"docs/",
     b"tools/mobile/", b"tools/infrastructure/", b"tools/web/",
+    # Host-only Terraform roots cannot change the scanner or its fixtures.
+    b"infrastructure/environments/qa/aws-ec2/",
+    b"infrastructure/environments/management/aws/",
 )
-APP_FILES = {b"README.md", b"LICENSE", b"NOTICE"}
+APP_FILES = {
+    b"README.md", b"LICENSE", b"NOTICE",
+    # The release classifier is exercised by backend.yml's changes job.
+    b"tools/release/changes.py", b"tools/release/test_changes.py",
+}
 
 
 def needs_self_tests(paths):
