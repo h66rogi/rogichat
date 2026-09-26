@@ -56,7 +56,7 @@ jobs:
         run: python3 tools/mobile/product_guards.py
       - name: Compile every variant and check environment separation
         working-directory: apps/android
-        run: ./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdDebug :app:assembleProdRelease :app:test :app:lint :app:lintQaDebug :app:lintQaRelease :app:lintProdRelease --no-daemon
+        run: ./gradlew :app:assembleQaDebug :app:assembleQaRelease :app:assembleProdDebug :app:assembleProdRelease :app:test :app:lint :app:lintQaDebug :app:lintQaRelease :app:lintProdRelease --configuration-cache --configuration-cache-problems=fail --max-workers=4 --no-daemon
       - name: Verify packaged APK configuration
         run: python3 tools/mobile/check_android.py
       - name: Verify QA release upload guards
