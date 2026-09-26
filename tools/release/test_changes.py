@@ -93,12 +93,14 @@ class ComponentChangesTest(unittest.TestCase):
 
     def test_classifier_only_uses_its_own_unit_suite(self):
         classifier = ['tools/release/changes.py', 'tools/release/test_changes.py']
-        self.assertEqual(classify(classifier), (True, True))
+        self.assertEqual(classify(classifier), (False, False))
         self.assertFalse(backend_tests_changed(classifier))
         self.assertFalse(backend_image_changed(classifier))
         self.assertFalse(web_image_changed(classifier))
         self.assertTrue(backend_tests_changed(classifier + ['apps/api/src/main.ts']))
         self.assertTrue(backend_tests_changed(classifier + ['.github/workflows/backend.yml']))
+        self.assertEqual(classify(classifier + ['apps/web/src/app/page.tsx']),
+                         (True, False))
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -257,7 +259,7 @@ class ComponentChangesTest(unittest.TestCase):
     def test_shared_and_security_inputs(self):
         for path in ('pnpm-lock.yaml', 'patches/mariadb.patch',
                      'tools/security/image_scan.py',
-                     'tools/release/changes.py', 'apps/api/package.json'):
+                     'apps/api/package.json'):
             self.assertEqual(classify_path(path), (True, True), path)
 
     def test_exact_security_guard_changes_skip_product_builds(self):

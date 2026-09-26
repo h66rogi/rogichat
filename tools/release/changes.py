@@ -66,8 +66,6 @@ WEB_NON_IMAGE_FILES = {
     'tools/operations/web_release.py',
     'tools/operations/test_web_release.py',
     'tools/operations/web-release.md',
-    'tools/release/changes.py',
-    'tools/release/test_changes.py',
     'tools/release/test_web_publication_base.py',
 }
 # Exact backend-only helpers and tests that no image build or verification reads.
@@ -83,8 +81,6 @@ BACKEND_NON_IMAGE_FILES = {
     'tools/operations/backend_release.py',
     'tools/operations/test_backend_release.py',
     'tools/operations/backend-release.md',
-    'tools/release/changes.py',
-    'tools/release/test_changes.py',
     'tools/release/web_publication_base.py',
     'tools/release/test_web_publication_base.py',
 }
@@ -100,12 +96,6 @@ BACKEND_NON_IMAGE_PREFIXES = (
 BACKEND_IMAGE_ONLY_FILES = {
     'apps/api/Dockerfile',
 }
-BACKEND_NON_TEST_FILES = BACKEND_IMAGE_ONLY_FILES | {
-    # The changes job runs this classifier's own unit suite. These files do
-    # not change the API sources exercised by MySQL, static, or contract jobs.
-    'tools/release/changes.py',
-    'tools/release/test_changes.py',
-}
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
     'tools/infrastructure/',
@@ -116,6 +106,10 @@ UNRELATED_PREFIXES = (
 )
 UNRELATED_FILES = {
     'README.md', 'LICENSE', '.gitignore',
+    # The backend changes job always runs this classifier's unit suite.
+    # Product source checks do not exercise or package these CI-only files.
+    'tools/release/changes.py',
+    'tools/release/test_changes.py',
     '.github/workflows/mobile.yml',
     '.github/workflows/infrastructure.yml',
     '.github/workflows/overlay.yml',
@@ -168,8 +162,8 @@ def web_image_changed(paths: list[str]) -> bool:
 
 
 def backend_tests_changed(paths: list[str]) -> bool:
-    """Run API source tests only for inputs that can affect those tests."""
-    return any(classify_path(path)[1] and path not in BACKEND_NON_TEST_FILES
+    """Skip source tests only when every backend input is the reviewed Dockerfile."""
+    return any(classify_path(path)[1] and path not in BACKEND_IMAGE_ONLY_FILES
                for path in paths)
 
 
