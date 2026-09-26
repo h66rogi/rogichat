@@ -48,6 +48,8 @@ crash.*.log
 node_modules/
 apps/api/src/generated/prisma/
 .next/
+.docker-next-cache/*
+!.docker-next-cache/.gitkeep
 .turbo/
 dist/
 build/

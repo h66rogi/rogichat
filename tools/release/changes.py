@@ -39,6 +39,7 @@ SECURITY_ONLY_FILES = {
     'tools/security/test_fetch_public_refs.py',
 }
 WEB_ONLY_FILES = {
+    '.docker-next-cache/.gitkeep',
     '.github/workflows/web.yml',
     '.github/workflows/web-publish.yml',
     '.github/workflows/web-export.yml',

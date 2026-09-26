@@ -14,6 +14,9 @@ from changes import (backend_image_changed, backend_tests_changed, changed_paths
 class ComponentChangesTest(unittest.TestCase):
     def test_web_only(self):
         self.assertEqual(classify(['apps/web/src/app/page.tsx']), (True, False))
+        self.assertEqual(classify_path('.docker-next-cache/.gitkeep'), (True, False))
+        self.assertFalse(backend_image_changed(['.docker-next-cache/.gitkeep']))
+        self.assertTrue(web_image_changed(['.docker-next-cache/.gitkeep']))
         for path in ('tools/operations/web_release.py',
                      'tools/operations/test_web_release.py',
                      'tools/operations/web-release.md',
