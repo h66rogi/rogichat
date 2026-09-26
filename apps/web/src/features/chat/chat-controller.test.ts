@@ -98,6 +98,41 @@ void test('a transient read-state failure is retried on the next authorized sync
     assert.equal(readGets, 2);
   } finally { controller.dispose(); }
 });
+void test('a failed incremental read retains the authorized conversation but blocks commands until recovery', async () => {
+  let failEvents: 'server' | 'network' | null = null;
+  let failAuthority = false;
+  const controller = new ChatController(room.roomId, backend(async path => {
+    if (failAuthority && path === '/v1/auth/session') throw Object.assign(new Error('offline'), { status: 503 });
+    if (failEvents && path.includes('/events?')) {
+      if (failEvents === 'network') throw new TypeError('Failed to fetch');
+      throw Object.assign(new Error('offline'), { status: 503 });
+    }
+    return undefined;
+  }));
+  try {
+    await controller.refresh();
+    const items = controller.getSnapshot().items;
+    assert.equal(items.length, 1);
+    failEvents = 'server';
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().phase, 'ready');
+    assert.deepEqual(controller.getSnapshot().items, items);
+    assert.match(controller.getSnapshot().error ?? '', /다시 시도/);
+    assert.equal((await controller.send(submission)).accepted, false);
+    failEvents = 'network';
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().phase, 'ready');
+    assert.deepEqual(controller.getSnapshot().items, items);
+    failEvents = null;
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().error, null);
+    assert.deepEqual(controller.getSnapshot().items, items);
+    failAuthority = true;
+    await controller.refresh();
+    assert.equal(controller.getSnapshot().phase, 'error');
+    assert.deepEqual(controller.getSnapshot().items, []);
+  } finally { controller.dispose(); }
+});
 void test('a wake received during an in-flight read schedules one trailing read', async () => {
   let release!: (value: unknown) => void;
   let reached!: () => void;

@@ -132,16 +132,20 @@ function LiveRoom({ controller, csrf, roomId, session, origin }: { session: Sess
   if (!viewer) return <p className="p-6" role="alert">내 참여 정보를 확인하지 못했습니다. 다시 접속해 주세요.</p>;
   const recipients = state.recipients;
   return <ChatPrivacyContext.Provider value={{ origin, session, controller }}><SessionMediaProvider key={state.epoch} csrf={csrf} lifetime={lifetime} roomId={roomId}><div className="flex h-full min-h-0 flex-col">
-    <div className="min-h-0 flex-1"><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision }}><ChatRoomView
+    {state.error && <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line-subtle px-4 py-2 text-sm">
+      <p role="alert">{state.error}</p>
+      <Button variant="outline" onClick={() => { void controller.refresh(); }}>다시 시도</Button>
+    </div>}
+    <div className="min-h-0 flex-1"><ReactionContext.Provider value={{ controller, reactions: state.reactions, reactionRevision: state.reactionRevision, disabled: Boolean(state.error) }}><ChatRoomView
     composerMemory={controller} composerEpoch={state.epoch}
     conversationScopeKey={`${room.actorId}:${state.epoch}`}
     roomName={room.name} viewer={viewer} viewerRole={room.role} items={state.items}
-    firstUnreadMessageId={state.firstUnreadMessageId} onVisibleMessage={controller.displayed}
-    outgoing={state.outgoing} outgoingBusy={state.commandBusy} onRetryOutgoing={controller.retry}
+    firstUnreadMessageId={state.firstUnreadMessageId} onVisibleMessage={state.error ? undefined : controller.displayed}
+    outgoing={state.outgoing} outgoingBusy={state.commandBusy} onRetryOutgoing={state.error ? undefined : controller.retry}
     streamerRecipients={recipients}
-    onDelete={controller.remove} actionNotice={state.notice ?? undefined}
-    submitBlockedReason={state.storageError ?? undefined}
+    onDelete={state.error ? undefined : controller.remove} actionNotice={state.notice ?? undefined}
+    submitBlockedReason={state.storageError ?? state.error ?? undefined}
     submitBusy={state.commandBusy}
-    onSubmit={controller.send} onLoadOlder={controller.loadOlder} hasOlder={state.hasOlder} historyCursor={state.historyCursor} isLoadingOlder={state.loadingOlder}
+    onSubmit={controller.send} onLoadOlder={state.error ? undefined : controller.loadOlder} hasOlder={state.hasOlder} historyCursor={state.historyCursor} isLoadingOlder={state.loadingOlder}
   /></ReactionContext.Provider></div></div></SessionMediaProvider></ChatPrivacyContext.Provider>;
 }

@@ -459,6 +459,27 @@ test('empty state is truthful, snapshot failure offers retry, and keyboard view 
   const results = await new AxeBuilder({ page }).analyze(); expect(results.violations).toEqual([]);
 });
 
+test('temporary message refresh failure keeps the conversation and draft until retry', async ({ page }) => {
+  const { state, hint } = await chatApi(page);
+  let failEvents = false;
+  await page.route('**/events?*', route => failEvents ? json(route, {}, 503) : route.fallback());
+  await page.goto('/chat');
+  const input = page.getByTestId('chat-composer-input');
+  await expect(input).toBeVisible();
+  await input.fill('연결이 돌아오면 보낼 초안');
+  await expect.poll(() => state.sockets.length).toBeGreaterThan(0);
+  failEvents = true; hint();
+  await expect(page.getByRole('alert').filter({ hasText: '새 메시지를 확인하지 못했습니다' })).toBeVisible();
+  await expect(page.getByText(incoming.content.text, { exact: true })).toBeVisible();
+  await expect(input).toHaveValue('연결이 돌아오면 보낼 초안');
+  await expect(page.getByTestId('chat-composer-send')).toBeDisabled();
+  failEvents = false;
+  await page.getByRole('button', { name: '다시 시도', exact: true }).click();
+  await expect(page.getByRole('alert').filter({ hasText: '새 메시지를 확인하지 못했습니다' })).toHaveCount(0);
+  await expect(input).toHaveValue('연결이 돌아오면 보낼 초안');
+  await expect(page.getByTestId('chat-composer-send')).toBeEnabled();
+});
+
 test('room-owner composer remains available without private recipient grants and revoked access clears content', async ({ page }) => {
   const { state, hint } = await chatApi(page); state.canSend = false;
   await page.goto('/chat'); await expect(page.getByText(incoming.content.text, { exact: true })).toBeVisible();
