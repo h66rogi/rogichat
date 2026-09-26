@@ -78,6 +78,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/operations -p 'test_backend_*.py'
           node --test tools/operations/test_migrate_entry.mjs
+          node --test tools/operations/verify_backend_publication_source.test.mjs
       - run: git diff --exit-code
 
   integration:
