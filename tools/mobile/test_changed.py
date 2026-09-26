@@ -6,7 +6,7 @@ import sys
 import tempfile
 
 import changed
-from changed import affected_platforms, mobile_changed
+from changed import affected_checks, affected_platforms, mobile_changed
 
 
 class ChangesTest(unittest.TestCase):
@@ -56,7 +56,7 @@ class ChangesTest(unittest.TestCase):
                 result = subprocess.run([sys.executable, script], cwd=root, env=env,
                                         capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr.decode())
-                self.assertEqual(output.read_text(), "android=false\nios=false\n")
+                self.assertEqual(output.read_text(), "android=false\nios=false\nios_build=false\n")
             finally:
                 os.chdir(previous)
 
@@ -72,6 +72,23 @@ class ChangesTest(unittest.TestCase):
         self.assertEqual(affected_platforms([b"tools/mobile/check_ios_wireframe.py"]), (False, True))
         self.assertEqual(affected_platforms([b"apps/android/app/src/main/Feature.kt",
                                              b"apps/ios/Sources/Feature.swift"]), (True, True))
+
+    def test_ios_checker_only_runs_state_gate(self):
+        for path in (b"tools/mobile/check_ios_wireframe.py",
+                     b"tools/mobile/test_ios_focused_checks.py"):
+            with self.subTest(path=path):
+                self.assertEqual(affected_checks([path]), (False, True, False))
+        self.assertEqual(affected_checks([b"apps/ios/Sources/Feature.swift"]),
+                         (False, True, True))
+        self.assertEqual(affected_checks([b"tools/mobile/check_ios_wireframe.py",
+                                          b"apps/ios/Sources/Feature.swift"]),
+                         (False, True, True))
+        self.assertEqual(affected_checks([b"tools/mobile/ios_dependencies.py"]),
+                         (False, True, True))
+        for path in (b"tools/mobile/changed.py",
+                     b".github/workflows/mobile.yml", b"tools/mobile/future/tool.py"):
+            with self.subTest(path=path):
+                self.assertEqual(affected_checks([path]), (True, True, True))
 
     def test_shared_and_unknown_mobile_tools_keep_both_gates(self):
         for path in (b"tools/mobile/product_guards.py", b"tools/mobile/changed.py",
@@ -108,7 +125,7 @@ class ChangesTest(unittest.TestCase):
                                     env=dict(os.environ, EVENT_NAME="push", BASE_SHA=base,
                                              GITHUB_OUTPUT=str(output)), capture_output=True)
             self.assertEqual(result.returncode, 0)
-            self.assertEqual(output.read_text(), "android=false\nios=true\n")
+            self.assertEqual(output.read_text(), "android=false\nios=true\nios_build=true\n")
 
     def test_merge_group_checks_exact_head_and_cumulative_changes(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -137,7 +154,7 @@ class ChangesTest(unittest.TestCase):
             command = [sys.executable, str(Path(changed.__file__).resolve())]
             result = subprocess.run(command, cwd=root, env=env, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
-            self.assertEqual(output.read_text(), "android=true\nios=true\n")
+            self.assertEqual(output.read_text(), "android=true\nios=true\nios_build=true\n")
             output.unlink()
             result = subprocess.run(command, cwd=root,
                                     env=dict(env, MERGE_GROUP_HEAD_SHA=base), capture_output=True)

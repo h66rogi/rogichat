@@ -12,27 +12,38 @@ IOS_TOOLS = (
     b"release_ios.py", b"test_ios_", b"test_keychain_unlock.py",
 )
 SHA = re.compile(r"[a-f0-9]{40}\Z")
+IOS_STATE_ONLY_TOOLS = {
+    b"check_ios_wireframe.py", b"test_ios_focused_checks.py",
+}
 
 
-def affected_platforms(paths):
-    android = ios = False
+def affected_checks(paths):
+    """Return Android, iOS state, and iOS bundle inputs independently."""
+    android = ios = ios_build = False
     for path in paths:
         if path.startswith(b"apps/android/"):
             android = True
         elif path.startswith(b"apps/ios/"):
-            ios = True
+            ios = ios_build = True
         elif path == b".github/workflows/mobile.yml":
-            android = ios = True
+            android = ios = ios_build = True
         elif path.startswith(b"tools/mobile/"):
             name = path.removeprefix(b"tools/mobile/")
             if b"/" in name:
-                android = ios = True
+                android = ios = ios_build = True
             elif name.startswith(ANDROID_TOOLS):
                 android = True
-            elif name.startswith(IOS_TOOLS):
+            elif name in IOS_STATE_ONLY_TOOLS:
                 ios = True
+            elif name.startswith(IOS_TOOLS):
+                ios = ios_build = True
             else:
-                android = ios = True
+                android = ios = ios_build = True
+    return android, ios, ios_build
+
+
+def affected_platforms(paths):
+    android, ios, _ = affected_checks(paths)
     return android, ios
 
 
@@ -76,7 +87,7 @@ def main():
         if base is None:
             raise SystemExit("Cannot establish the mobile pull-request boundary")
     if event == "workflow_dispatch" or base == "0" * 40:
-        android = ios = True
+        android = ios = ios_build = True
     else:
         if event not in {"push", "pull_request", "merge_group"} or not SHA.fullmatch(base):
             raise SystemExit("Cannot establish the mobile change boundary")
@@ -84,10 +95,11 @@ def main():
                                 capture_output=True)
         if result.returncode:
             raise SystemExit("Cannot inspect the mobile change boundary")
-        android, ios = affected_platforms(result.stdout.split(b"\0"))
+        android, ios, ios_build = affected_checks(result.stdout.split(b"\0"))
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         output.write("android=" + str(android).lower() + "\n")
         output.write("ios=" + str(ios).lower() + "\n")
+        output.write("ios_build=" + str(ios_build).lower() + "\n")
 
 
 if __name__ == "__main__":
