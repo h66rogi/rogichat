@@ -29,13 +29,18 @@ secret therefore cannot block a clean candidate's required gate, but its own
 candidate gate and the full audit detect it. An audit failure requires private
 triage and does not authorize ignoring a failure in the candidate itself.
 
-The guard uses the checksum-pinned Gitleaks release and its default detectors,
-plus the repository's public-key and GitHub installation-token detectors.
-The additive installation-token rule covers legacy and variable-length formats
-with a 36-character minimum suffix and no upper length or assignment requirement.
-The independent image scanner embeds the same rule; regression tests check parity. It rejects policy changes that do
-not match the reviewed rule structure, index/worktree policy differences,
+The repository guard (`check.py`) uses the checksum-pinned Gitleaks release and
+its default detectors, plus the repository's public-key and GitHub
+installation-token detectors. The repository guard rejects policy changes that
+do not match the reviewed rule structure, index/worktree policy differences,
 implicit ignore files, scanner environment overrides and inline exemptions.
+
+The additive installation-token rule covers `ghs_` legacy and variable-length
+formats with a 36-character minimum suffix, no upper length or assignment
+requirement, and no leading word boundary. Tokens remain detectable next to
+other literals, including in minified or compiled content. The independent image
+scanner (`image_scan.py`) embeds the same rule and scans image layers and
+configuration, including decoded content; regression tests check rule parity.
 Errors omit filenames, file contents and raw scanner diagnostics. Inspect a
 failure privately; do not upload unredacted diagnostic output to an issue.
 
