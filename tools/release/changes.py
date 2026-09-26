@@ -25,6 +25,19 @@ SHARED_FILES = {
     'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'apps/api/package.json',
     'tools/operations/backend_archive.py',
 }
+SECURITY_ONLY_FILES = {
+    '.githooks/pre-commit',
+    '.githooks/pre-push',
+    '.github/workflows/security.yml',
+    '.github/workflows/security-audit.yml',
+    'tools/security/README.md',
+    'tools/security/check.py',
+    'tools/security/test_guard.py',
+    'tools/security/changed.py',
+    'tools/security/test_changed.py',
+    'tools/security/fetch_public_refs.py',
+    'tools/security/test_fetch_public_refs.py',
+}
 WEB_ONLY_FILES = {
     '.github/workflows/web.yml',
     '.github/workflows/web-publish.yml',
@@ -80,6 +93,8 @@ SHA = re.compile(r'[a-f0-9]{40}\Z')
 
 def classify_path(path: str) -> tuple[bool, bool]:
     """Return web/backend impact. Unknown paths intentionally affect both."""
+    if path in SECURITY_ONLY_FILES:
+        return False, False
     if path in WEB_ONLY_FILES:
         return True, False
     if path in BACKEND_ONLY_FILES:

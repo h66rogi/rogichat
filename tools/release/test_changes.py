@@ -163,6 +163,16 @@ class ComponentChangesTest(unittest.TestCase):
                      'tools/release/changes.py', 'apps/api/package.json'):
             self.assertEqual(classify_path(path), (True, True), path)
 
+    def test_exact_security_guard_changes_skip_product_builds(self):
+        self.assertEqual(classify(list(changes.SECURITY_ONLY_FILES)), (False, False))
+        self.assertFalse(backend_image_changed(list(changes.SECURITY_ONLY_FILES)))
+        for path in ('tools/security/image_scan.py', 'tools/security/install.py',
+                     'tools/security/new_guard.py', '.gitleaks.toml'):
+            self.assertEqual(classify_path(path), (True, True), path)
+            self.assertTrue(backend_image_changed([path]), path)
+        self.assertEqual(classify(['tools/security/check.py', 'apps/api/src/main.ts']), (False, True))
+        self.assertTrue(backend_image_changed(['tools/security/check.py', 'apps/api/src/main.ts']))
+
     def test_deleted_or_renamed_source_is_detected_by_path(self):
         self.assertEqual(classify(['apps/web/src/removed.tsx']), (True, False))
         self.assertEqual(classify(['apps/web/src/old.tsx', 'apps/api/src/new.ts']), (True, True))
