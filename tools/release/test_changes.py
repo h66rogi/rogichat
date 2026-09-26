@@ -32,6 +32,22 @@ class ComponentChangesTest(unittest.TestCase):
         for path in changes.BACKEND_ONLY_FILES:
             self.assertEqual(classify_path(path), (False, True), path)
 
+    def test_backend_host_delivery_does_not_rebuild_web(self):
+        paths = ['infrastructure/runtime/compose.app.yaml',
+                 'infrastructure/environments/prod/runtime/compose.app.yaml',
+                 'tools/operations/backend_release.py',
+                 'tools/operations/test_backend_release.py',
+                 'tools/operations/backend_production_release.py',
+                 'tools/operations/test_backend_production.py',
+                 'docs/backend-native-push.md']
+        self.assertEqual(classify(paths), (False, True))
+        self.assertFalse(web_image_changed(paths))
+        # A backend archive must still carry these changed deployment inputs.
+        self.assertTrue(backend_image_changed(paths))
+        self.assertTrue(backend_tests_changed(paths))
+        self.assertEqual(classify_path('infrastructure/runtime/web/compose.yaml'),
+                         (True, False))
+
     def test_reviewed_backend_helpers_run_tests_without_rebuilding_images(self):
         tests = ['apps/api/test/run-mysql.mjs',
                  'apps/api/test/support/migration-mode.mjs',
