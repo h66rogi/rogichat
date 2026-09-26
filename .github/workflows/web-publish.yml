@@ -18,6 +18,7 @@ jobs:
       actions: read
     outputs:
       image: ${{ steps.classify.outputs.web_image }}
+      base: ${{ steps.published_base.outputs.base }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -52,6 +53,19 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
+      - name: Restore incremental web cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: apps/web/.next/cache
+          key: web-next-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/web/next.config.ts') }}-${{ needs.changes.outputs.base }}
+          restore-keys: web-next-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/web/next.config.ts') }}-
+      - name: Stage incremental cache outside the excluded source tree
+        run: |
+          mkdir -p .docker-next-cache
+          if test -d apps/web/.next/cache; then
+            cp -a apps/web/.next/cache/. .docker-next-cache/
+          fi
       - name: Build exact source without registry credentials
         env:
           SOURCE_SHA: ${{ github.sha }}

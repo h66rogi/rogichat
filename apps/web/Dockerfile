@@ -11,6 +11,7 @@ RUN --mount=type=cache,id=rogichat-pnpm-v12,target=/root/.local/share/pnpm/store
     pnpm --filter @rogichat/web... install --frozen-lockfile --ignore-scripts \
     && rm -rf /root/.cache/pnpm
 COPY apps/web ./apps/web
+COPY .docker-next-cache/ ./apps/web/.next/cache/
 COPY tools/web/check-production.mjs tools/web/prepare-runtime.mjs tools/web/runtime-server.mjs ./tools/web/
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
 RUN pnpm --filter @rogichat/web build && node tools/web/check-production.mjs \
