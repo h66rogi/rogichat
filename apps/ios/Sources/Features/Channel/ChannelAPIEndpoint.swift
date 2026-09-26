@@ -7,6 +7,19 @@ struct UpdateChannelRequestBody: Encodable {
     let additionalLinks: [ChannelLink]
     let themeColor: String
     let channelDescription: String?
+    let visibility: String
+    enum CodingKeys: String, CodingKey { case name, webPath, profileImageUrl, additionalLinks, themeColor, channelDescription, visibility }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(name, forKey: .name)
+        try container.encode(webPath, forKey: .webPath)
+        try container.encode(profileImageUrl, forKey: .profileImageUrl)
+        try container.encode(additionalLinks, forKey: .additionalLinks)
+        try container.encode(themeColor, forKey: .themeColor)
+        try container.encode(channelDescription ?? "", forKey: .channelDescription)
+        try container.encode(visibility, forKey: .visibility)
+    }
+
 }
 
 enum ChannelAPIEndpoint {

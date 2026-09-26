@@ -238,7 +238,7 @@ class EditSongViewModel constructor(
             val request = UpdateSongRequest(
                 title = state.title.trim(),
                 artistName = state.artistName.trim(),
-                categoryNames = allCategoryNames.ifEmpty { null },
+                categoryNames = allCategoryNames,
                 difficulty = state.difficulty,
                 albumArt = state.albumArt.trim().ifBlank { null },
                 songKey = state.songKey.trim().ifBlank { null },

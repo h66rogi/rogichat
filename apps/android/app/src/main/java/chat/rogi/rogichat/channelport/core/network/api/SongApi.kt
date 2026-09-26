@@ -77,7 +77,7 @@ class SongApi constructor(
     suspend fun updateSong(channelIdentifier: String, songId: Int, request: UpdateSongRequest): Song =
         apiClient.patch<SongDTO>("/v1/songs/channel/$channelIdentifier/$songId") {
             contentType(ContentType.Application.Json)
-            setBody(request)
+            setBody(ChannelWriteBodies.song(request))
         }.toDomain()
 
     suspend fun deleteSong(channelIdentifier: String, songId: Int) {

@@ -10,6 +10,7 @@ data class ChannelVerificationSummary(
 
 // MARK: - Domain Model
 data class Channel(
+    val visibility: String? = null,
     val id: Int,
     val name: String,
     val webPath: String,
@@ -76,6 +77,7 @@ data class ChannelVerificationDTO(
 // MARK: - Channel DTO (API Response)
 @Serializable
 data class ChannelDTO(
+    val visibility: String? = null,
     val id: Int,
     val name: String,
     val webPath: String,
@@ -99,6 +101,7 @@ data class ChannelDTO(
     val voiceCommissionActive: Boolean? = null,
 ) {
     fun toDomain(): Channel = Channel(
+        visibility = visibility,
         id = id,
         name = name,
         webPath = webPath,
@@ -275,6 +278,7 @@ data class ProfileUpcomingEvent(
 // MARK: - Update Channel Request
 @Serializable
 data class UpdateChannelRequest(
+    val visibility: String,
     val name: String,
     val webPath: String,
     val profileImageUrl: String? = null,

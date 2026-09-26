@@ -135,6 +135,17 @@ def main():
     inspect_product_sources(platforms=("ios",))
     sdk = subprocess.check_output(["xcrun", "--sdk", "macosx", "--show-sdk-path"], text=True).strip()
     with tempfile.TemporaryDirectory(prefix="rogichat-state-checks-") as temporary:
+        run_checks(sdk, Path(temporary), "channel-write-checks", [
+            "Sources/Features/Channel/Channel.swift",
+            "Sources/Features/Channel/Song.swift",
+            "Sources/Features/Channel/Schedule.swift",
+            "Sources/Features/Channel/PricingSettings.swift",
+            "Sources/Features/Channel/ConsoleSession.swift",
+            "Sources/Features/Channel/ConsoleSongRequest.swift",
+            "Sources/Features/Channel/SongRequest.swift",
+            "Sources/Features/Channel/ChannelAPIEndpoint.swift",
+            "Tests/Channel/ChannelWriteChecks.swift",
+        ])
         run_checks(sdk, Path(temporary), "navigation-state-checks", [
             "Sources/Core/Navigation/ShellNavigation.swift",
             "Sources/Core/Navigation/PendingRoute.swift",

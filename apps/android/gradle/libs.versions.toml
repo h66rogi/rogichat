@@ -61,6 +61,7 @@ android-test-core = { module = "androidx.test:core", version.ref = "android-test
 android-test-junit = { module = "androidx.test.ext:junit", version.ref = "android-test-junit" }
 
 [plugins]
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 room = { id = "androidx.room", version.ref = "room" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 android-application = { id = "com.android.application", version.ref = "agp" }

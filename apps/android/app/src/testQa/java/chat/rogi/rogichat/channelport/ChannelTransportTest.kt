@@ -47,4 +47,11 @@ class ChannelTransportTest {
         val api = ApiClient(Store(), HttpClient(MockEngine { respond("") }))
         assertNull(api.getNullable<Int>("/v1/song-live/sessions/active"))
     }
+    @Test fun copiedChannelDtoDecodesThroughNativeTransport() = runTest {
+        val api = ApiClient(Store(), HttpClient(MockEngine { respond("""{"id":1,"name":"후로기","webPath":"h66rogi","visibility":"PUBLIC"}""") }))
+        val channel = api.get<chat.rogi.rogichat.channelport.core.model.channel.ChannelDTO>("/v1/channel/h66rogi").toDomain()
+        assertEquals("후로기", channel.name)
+        assertEquals("PUBLIC", channel.visibility)
+    }
+
 }

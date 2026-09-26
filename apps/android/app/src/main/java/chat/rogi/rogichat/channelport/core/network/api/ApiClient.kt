@@ -18,6 +18,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readBuffer
 import kotlinx.io.readByteArray
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import java.time.Instant
 import kotlin.coroutines.coroutineContext
@@ -32,7 +33,7 @@ class ApiException(val statusCode: Int, message: String) : Exception(message)
 // The copied APIs retain their request/response contracts. Only transport and
 // authentication are replaced with Rogichat's protected native credentials.
 class ApiClient(@PublishedApi internal val credentials: CredentialStore, clientOverride: HttpClient? = null) : BaseUrlProvider {
-    @PublishedApi internal val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
+    @PublishedApi internal val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; explicitNulls = false; coerceInputValues = true }
     @PublishedApi internal val client = clientOverride ?: HttpClient(OkHttp) {
         expectSuccess = false
         followRedirects = false
@@ -58,11 +59,11 @@ class ApiClient(@PublishedApi internal val credentials: CredentialStore, clientO
     suspend fun putWithoutResponse(path: String) { request<Unit>(HttpMethod.Put, path) {} }
     suspend fun deleteWithoutResponse(path: String) { request<Unit>(HttpMethod.Delete, path) {} }
 
-    suspend inline fun <reified T> request(method: HttpMethod, path: String, noinline block: HttpRequestBuilder.() -> Unit): T {
+    suspend inline fun <reified T> request(method: HttpMethod, path: String, noinline block: HttpRequestBuilder.() -> Unit): T = try {
         val original = credentials.read()
         val stamp = credentials.clearStamp()
         if (original != null && original.expiresAt <= Instant.now()) throw ApiException(401, "로그인 후 이용해 주세요.")
-        return client.prepareRequest(buildUrl(path)) {
+        client.prepareRequest(buildUrl(path)) {
             this.method = method
             contentType(ContentType.Application.Json)
             block()
@@ -77,7 +78,9 @@ class ApiClient(@PublishedApi internal val credentials: CredentialStore, clientO
             check(credentials.read()?.token == original?.token && credentials.clearStamp() == stamp) { "로그인 상태가 변경되었어요." }
             result
         }
-    }
+    } catch (e: CancellationException) { throw e }
+    catch (e: ApiException) { throw e }
+    catch (_: Exception) { throw ApiException(0, "처리하지 못했어요. 다시 시도해 주세요.") }
 
     suspend inline fun <reified T> handleResponse(response: HttpResponse): T {
         val bytes = response.bodyAsChannel().readBuffer(4_194_305L).readByteArray()

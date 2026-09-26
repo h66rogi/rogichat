@@ -49,7 +49,7 @@ class ScheduleApi constructor(
     suspend fun updateSchedule(scheduleId: Int, request: UpdateScheduleRequest): Schedule {
         val response = apiClient.patch<ScheduleDTO>("/v1/schedules/$scheduleId") {
             contentType(ContentType.Application.Json)
-            setBody(request)
+            setBody(ChannelWriteBodies.schedule(request))
         }
         return response.toDomain()
     }

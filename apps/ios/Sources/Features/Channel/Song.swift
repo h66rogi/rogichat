@@ -270,6 +270,25 @@ struct UpdateSongRequest: Encodable {
     let lyricsLink: String?
     let lyricsText: String?
 
+    enum CodingKeys: String, CodingKey { case title, artistName, artistId, categoryNames, categoryIds, difficulty, albumArt, songKey, bpm, karaokeUrl, originalUrl, coverUrl, lyricsLink, lyricsText }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(artistName, forKey: .artistName)
+        try container.encodeIfPresent(artistId, forKey: .artistId)
+        try container.encodeIfPresent(categoryNames, forKey: .categoryNames)
+        try container.encodeIfPresent(categoryIds, forKey: .categoryIds)
+        try container.encode(difficulty, forKey: .difficulty)
+        try container.encode(albumArt, forKey: .albumArt)
+        try container.encode(songKey, forKey: .songKey)
+        try container.encode(bpm, forKey: .bpm)
+        try container.encode(karaokeUrl, forKey: .karaokeUrl)
+        try container.encode(originalUrl, forKey: .originalUrl)
+        try container.encode(coverUrl, forKey: .coverUrl)
+        try container.encode(lyricsLink, forKey: .lyricsLink)
+        try container.encode(lyricsText, forKey: .lyricsText)
+    }
+
     init(
         title: String? = nil,
         artistName: String? = nil,

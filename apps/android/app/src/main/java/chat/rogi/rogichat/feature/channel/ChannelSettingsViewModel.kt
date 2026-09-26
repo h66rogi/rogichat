@@ -20,6 +20,7 @@ data class ChannelSettingsUiState(
     val additionalLinks: List<ChannelLink> = emptyList(),
     val themeColor: String = "#6366f1",
     val originalWebPath: String = "",
+    val originalVisibility: String? = null,
     val originalChannelDescription: String? = null,
     val error: String? = null,
     val saveSuccess: Boolean = false,
@@ -113,6 +114,7 @@ class ChannelSettingsViewModel constructor(
                             themeColor = channel.themeColor,
                             originalWebPath = channel.webPath,
                             originalChannelDescription = channel.channelDescription,
+                            originalVisibility = channel.visibility,
                         )
                     }
                 }
@@ -148,6 +150,11 @@ class ChannelSettingsViewModel constructor(
             return
         }
 
+        val visibility = state.originalVisibility
+        if (visibility !in setOf("PUBLIC", "UNLISTED")) {
+            _uiState.update { it.copy(error = "채널 정보를 다시 불러와 주세요.") }
+            return
+        }
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true) }
 
@@ -156,12 +163,13 @@ class ChannelSettingsViewModel constructor(
             }
 
             val request = UpdateChannelRequest(
+                visibility = requireNotNull(visibility),
                 name = state.name,
                 webPath = state.originalWebPath,
                 profileImageUrl = state.profileImageUrl,
                 additionalLinks = validLinks,
                 themeColor = state.themeColor,
-                channelDescription = state.originalChannelDescription,
+                channelDescription = state.originalChannelDescription.orEmpty(),
             )
 
             channelRepository.updateChannel(channelIdentifier, request)

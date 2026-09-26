@@ -18,6 +18,7 @@ final class ChannelSettingsViewModel: ObservableObject {
 
     // Preserved fields (not editable but needed for PUT)
     private var originalWebPath = ""
+    private var originalVisibility: String?
     private var originalChannelDescription: String?
 
     init(channelId: Int, identifier: String, repository: ChannelRepository = AppClientChannelRepository()) {
@@ -38,6 +39,7 @@ final class ChannelSettingsViewModel: ObservableObject {
             themeColor = channel.themeColor ?? "#6366f1"
             originalWebPath = channel.webPath
             originalChannelDescription = channel.channelDescription
+            originalVisibility = channel.visibility
         } catch {
             showErrorMessage("채널 정보를 불러오는데 실패했습니다")
         }
@@ -69,13 +71,18 @@ final class ChannelSettingsViewModel: ObservableObject {
             .filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty && !$0.url.trimmingCharacters(in: .whitespaces).isEmpty }
             .map { ChannelLink(name: $0.name.trimmingCharacters(in: .whitespaces), url: $0.url.trimmingCharacters(in: .whitespaces)) }
 
+        guard let visibility = originalVisibility, ["PUBLIC", "UNLISTED"].contains(visibility) else {
+            showErrorMessage("채널 정보를 다시 불러와 주세요.")
+            return false
+        }
         let body = UpdateChannelRequestBody(
             name: trimmedName,
             webPath: originalWebPath,
             profileImageUrl: profileImageUrl,
             additionalLinks: validLinks,
             themeColor: themeColor,
-            channelDescription: originalChannelDescription
+            channelDescription: originalChannelDescription ?? "",
+            visibility: visibility
         )
 
         do {

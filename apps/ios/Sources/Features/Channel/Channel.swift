@@ -87,6 +87,7 @@ struct MyChannelDTO: Decodable {
 
 // MARK: - Channel DTO
 struct ChannelDTO: Decodable {
+    let visibility: String?
     let id: Int
     let name: String
     let webPath: String

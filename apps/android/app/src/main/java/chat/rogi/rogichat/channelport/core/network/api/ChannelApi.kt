@@ -72,7 +72,7 @@ class ChannelApi constructor(
         request: UpdateChannelRequest,
     ): Channel = apiClient.put<ChannelDTO>("/v1/channel/$identifier") {
         contentType(ContentType.Application.Json)
-        setBody(request)
+        setBody(ChannelWriteBodies.channel(request))
     }.toDomain()
 
     suspend fun getMembershipCatalog(channelId: Int): ChannelMembershipCatalog =

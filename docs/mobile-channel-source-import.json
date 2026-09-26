@@ -1079,6 +1079,7 @@
     "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/ChannelSetlistRepository.kt",
     "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/ChannelSession.kt",
     "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/ApiClient.kt",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/ChannelWriteBodies.kt",
     "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelEnvironment.kt",
     "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelNavigation.kt",
     "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelSetlistSection.kt"

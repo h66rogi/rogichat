@@ -126,7 +126,7 @@ final class EditSongViewModel: ObservableObject {
         let request = UpdateSongRequest(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             artistName: artistName.trimmingCharacters(in: .whitespacesAndNewlines),
-            categoryNames: categoryNames.isEmpty ? nil : categoryNames,
+            categoryNames: categoryNames,
             difficulty: difficulty,
             albumArt: albumArt.isEmpty ? nil : albumArt,
             songKey: songKey.isEmpty ? nil : songKey,
