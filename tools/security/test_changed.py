@@ -61,6 +61,37 @@ class ScannerSelfTestSelection(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIsNone(changed.changed_paths("invalid", head))
 
+    def test_push_uses_ancestor_diff_and_falls_back_on_unknown_boundary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def git(*args):
+                return subprocess.check_output(["git", "-C", directory, *args],
+                                               stderr=subprocess.PIPE).decode().strip()
+            git("init", "-q")
+            git("config", "user.name", "Fixture")
+            git("config", "user.email", "fixture@example.invalid")
+            target = root / "infrastructure/environments/qa/aws-ec2/main.tf"
+            target.parent.mkdir(parents=True)
+            target.write_text("base\n")
+            git("add", ".")
+            git("commit", "-qm", "base")
+            base = git("rev-parse", "HEAD")
+            target.write_text("next\n")
+            git("commit", "-qam", "host")
+            head = git("rev-parse", "HEAD")
+            output = root / "result"
+            command = [sys.executable, str(Path(changed.__file__).resolve())]
+            env = dict(os.environ, GITHUB_EVENT_NAME="push", GITHUB_SHA=head,
+                       BASE_SHA=base, GITHUB_OUTPUT=str(output))
+            result = subprocess.run(command, cwd=root, env=env, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(output.read_text(), "run_tests=false\n")
+            output.write_text("")
+            result = subprocess.run(command, cwd=root,
+                                    env=dict(env, BASE_SHA="0" * 40), capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(output.read_text(), "run_tests=true\n")
+
 
 if __name__ == "__main__":
     unittest.main()

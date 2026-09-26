@@ -57,7 +57,9 @@ def main():
                 or os.environ.get("MERGE_GROUP_BASE_REF") not in
                 {"refs/heads/qa", "refs/heads/main"}):
             raise SystemExit("Cannot establish security merge-group boundary")
-    paths = changed_paths(base, head) if event in {"pull_request", "merge_group"} else None
+    # A normal push has a trustworthy ancestor boundary in github.event.before.
+    # New branches and rewritten history fall back to running the self-tests.
+    paths = changed_paths(base, head) if event in {"pull_request", "merge_group", "push"} else None
     run_tests = paths is None or needs_self_tests(paths)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write("run_tests=" + str(run_tests).lower() + "\n")
