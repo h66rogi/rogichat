@@ -1,5 +1,6 @@
 package chat.rogi.rogichat.feature.channel
 
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -8,6 +9,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -17,16 +19,24 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import chat.rogi.rogichat.core.design.ScreenStatus
 import chat.rogi.rogichat.feature.channel.theme.ChannelTheme
+import chat.rogi.rogichat.feature.channel.theme.IbmPlexSansKrFontFamily
+import chat.rogi.rogichat.BuildConfig
+import com.adamglin.PhosphorIcons
+import com.adamglin.phosphoricons.Fill
+import com.adamglin.phosphoricons.Regular
+import com.adamglin.phosphoricons.fill.ShareNetwork
+import com.adamglin.phosphoricons.regular.ArrowLeft
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-// Adapted from meloming-android ecb3dbed ChannelDetailScreen.kt tab composition.
-// ProfileHero, SectionRail, SongItem and ScheduleItem are copied into sibling files.
+// Channel shell copied from meloming-android ecb3dbed ChannelDetailScreen.kt.
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ChannelDetailScreen(model: ChannelDetailViewModel, onTalk: () -> Unit) {
@@ -37,6 +47,7 @@ fun ChannelDetailScreen(model: ChannelDetailViewModel, onTalk: () -> Unit) {
 @Composable
 private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Unit) {
     val state by model.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
     var selectedSong by remember { mutableStateOf<Song?>(null) }
     var selectedSchedule by remember { mutableStateOf<Schedule?>(null) }
     var selectedWardrobe by remember { mutableStateOf<ChannelWardrobeItem?>(null) }
@@ -44,21 +55,78 @@ private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Un
     var draftArtist by remember { mutableStateOf<Artist?>(null) }
     var draftDifficulty by remember { mutableStateOf<Int?>(null) }
 
-    if (state.isLoading && state.channel == null) {
-        ScreenStatus("채널을 불러오는 중", "잠시만 기다려 주세요.", loading = true)
-        return
+    val channel = state.channel
+    val channelURL = (if (BuildConfig.ENVIRONMENT == "qa") "https://qa.rogi.chat" else "https://rogi.chat") +
+        "/channel/" + (channel?.webPath ?: "h66rogi")
+    fun shareChannel() {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, channelURL)
+        }
+        context.startActivity(Intent.createChooser(intent, "공유하기"))
     }
-    if (state.channel == null) {
-        ScreenStatus("채널을 불러올 수 없어요", state.error ?: "잠시 후 다시 시도해 주세요.", onRetry = model::refresh)
-        return
+    fun visitChannel() {
+        val url = channel?.platformUrl?.takeIf { it.startsWith("https://") }
+            ?: "https://play.sooplive.com/h66rogi"
+        if (!url.startsWith("https://")) return
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, url.toUri())) }
     }
-    val channel = requireNotNull(state.channel)
-    LazyColumn(Modifier.fillMaxSize()) {
-        item("profile") { ChannelProfileHero(channel, state.profile, onTalk) }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+      Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+          ChannelCenterTopBar(
+              title = channel?.name ?: "",
+              backgroundColor = MaterialTheme.colorScheme.background,
+              contentColor = MaterialTheme.colorScheme.onBackground,
+              titleFontFamily = IbmPlexSansKrFontFamily,
+              navigationIcon = {
+                  IconButton(onClick = onTalk) {
+                      Icon(PhosphorIcons.Regular.ArrowLeft, contentDescription = "뒤로가기")
+                  }
+              },
+              actions = {
+                  IconButton(onClick = ::shareChannel) {
+                      Icon(PhosphorIcons.Fill.ShareNetwork, contentDescription = "채널 공유")
+                  }
+              },
+          )
+          if (state.isLoading && channel == null) {
+              ScreenStatus("채널을 불러오는 중", "잠시만 기다려 주세요.", loading = true)
+          } else if (channel == null) {
+              ScreenStatus("채널을 불러올 수 없어요", state.error ?: "잠시 후 다시 시도해 주세요.", onRetry = model::refresh)
+          } else {
+            val listState = rememberLazyListState()
+            LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+        item("profile") {
+            ChannelProfileHero(
+                channel = channel,
+                profile = state.profile,
+                onVisit = ::visitChannel,
+                onShare = ::shareChannel,
+                onTalk = onTalk,
+                onSongbook = { model.selectTab(ChannelTab.SONGBOOK) },
+            )
+        }
         stickyHeader("tabs") {
-            if (state.visibleTabs.isNotEmpty()) Surface(color = MaterialTheme.colorScheme.surface) {
-                ChannelSectionRail(state.visibleTabs, state.selectedTab, MaterialTheme.colorScheme.primary,
-                    model::selectTab, state.tabLabels)
+            if (state.visibleTabs.isNotEmpty()) Column(modifier = Modifier.background(MaterialTheme.colorScheme.background)) {
+                ChannelSectionRail(
+                    tabs = state.visibleTabs,
+                    labels = state.tabLabels,
+                    selectedTab = state.selectedTab,
+                    selectedColor = MaterialTheme.colorScheme.primary,
+                    onTabSelected = model::selectTab,
+                )
+                if (state.selectedTab == ChannelTab.SONGBOOK) {
+                    ChannelSearchBar(
+                        query = state.songSearch,
+                        onQueryChange = model::searchSongs,
+                        onSearch = {},
+                        onClear = { model.searchSongs("") },
+                        placeholder = "노래 검색",
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                    )
+                }
             }
         }
         if (state.visibleTabs.isEmpty()) {
@@ -72,15 +140,6 @@ private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Un
                     } else channelHomeTabContent(state, model::selectTab, model::retrySection)
                 }
                 ChannelTab.SONGBOOK -> {
-                    item("song_search") {
-                        Column {
-                            Spacer(Modifier.height(16.dp))
-                            ChannelSearchBar(query = state.songSearch, onQueryChange = model::searchSongs,
-                                onSearch = {}, onClear = { model.searchSongs("") }, placeholder = "곡 검색",
-                                modifier = Modifier.padding(horizontal = 16.dp))
-                            Spacer(Modifier.height(12.dp))
-                        }
-                    }
                     item("song_filters") {
                         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                             .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -129,49 +188,30 @@ private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Un
                     onScheduleClick = { selectedSchedule = it },
                     onRetry = model::retrySection,
                 )
-                ChannelTab.SETLIST -> {
-                    if (state.sectionLoading && state.setlists.isEmpty()) item { SectionLoading() }
-                    else if (state.sectionError != null && state.setlists.isEmpty()) item {
-                        SectionError("셋리스트를 불러올 수 없어요", state.sectionError.orEmpty(), model::retrySection)
-                    }
-                    else if (state.setlists.isEmpty()) item { ScreenStatus("공개된 셋리스트가 없어요", "") }
-                    else items(state.setlists, key = { "setlist_${it.sessionId}" }) { setlist ->
-                        Row(Modifier.fillMaxWidth().clickable { model.openSetlist(setlist.sessionId) }
-                            .padding(horizontal = 20.dp, vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(setlist.startedAt.take(10), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                            Text("${setlist.completedCount}곡", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        HorizontalDivider()
-                    }
-                }
                 ChannelTab.WARDROBE -> {
-                    item("wardrobe_categories") {
-                        if (state.wardrobe.categories.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            FilterChip(state.selectedCategory == null, onClick = { model.selectCategory(null) }, label = { Text("전체") })
-                            state.wardrobe.categories.filter { it.isEnabled }.take(3).forEach { category ->
-                                FilterChip(state.selectedCategory == category.id, onClick = { model.selectCategory(category.id) },
-                                    label = { Text(category.name) })
-                            }
-                        }
-                    }
-                    val visible = state.wardrobe.items.filter { it.isVisible &&
-                        (state.selectedCategory == null || it.categoryId == state.selectedCategory) }
-                    if (state.sectionLoading && visible.isEmpty()) item { SectionLoading() }
-                    else if (state.sectionError != null && visible.isEmpty()) item {
-                        SectionError("옷장을 불러올 수 없어요", state.sectionError.orEmpty(), model::retrySection)
-                    }
-                    else if (visible.isEmpty()) item { ScreenStatus("등록된 옷장이 없어요", "") }
-                    else items(visible.chunked(3), key = { "wardrobe_${it.first().id}" }) { row ->
-                        Row(Modifier.fillMaxWidth().padding(2.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    item("wardrobe_top_space") { Spacer(Modifier.height(12.dp)) }
+                    val visible = state.wardrobe.items.filter { it.isVisible }
+                    if (state.sectionLoading) item("wardrobe_loading") {
+                        Text("옷장을 불러오는 중…", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else if (visible.isEmpty()) item("wardrobe_empty") {
+                        Text(state.sectionError ?: "아직 공개된 옷장이 없어요.",
+                            Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else items(visible.chunked(3), key = { "wardrobe_${it.first().id}" }) { row ->
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 2.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                             row.forEach { item -> WardrobeTile(item, Modifier.weight(1f)) { selectedWardrobe = item } }
                             repeat(3 - row.size) { Spacer(Modifier.weight(1f).aspectRatio(1f)) }
                         }
                     }
+                    item("wardrobe_bottom_space") { Spacer(Modifier.height(28.dp)) }
                 }
             }
         }
         item("bottom") { Spacer(Modifier.height(28.dp)) }
+            }
+          }
+        }
+      }
     }
 
     if (showSongFilters) FilterBottomSheet(
@@ -201,19 +241,6 @@ private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Un
             ChannelRemoteImage(item.imageUrl, item.title.take(1), 260.dp, Modifier.align(Alignment.CenterHorizontally))
             Text(item.title, Modifier.padding(20.dp), style = MaterialTheme.typography.titleLarge)
             item.description?.takeIf { it.isNotBlank() }?.let { Text(it, Modifier.padding(horizontal = 20.dp)) }
-            Spacer(Modifier.height(28.dp))
-        }
-    }
-    state.setlistDetail?.let { detail ->
-        ModalBottomSheet(onDismissRequest = model::closeSetlist) {
-            Text(detail.summary.startedAt.take(10), Modifier.padding(20.dp), style = MaterialTheme.typography.titleLarge)
-            detail.songs.forEach { song ->
-                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp)) {
-                    Text(song.title)
-                    Text(song.artist, style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
             Spacer(Modifier.height(28.dp))
         }
     }

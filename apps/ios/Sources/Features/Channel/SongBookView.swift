@@ -3,6 +3,7 @@ import SwiftUI
 struct SongBookView: View {
     let channelId: Int
     let identifier: String
+    private let pinnedSearchText: Binding<String>?
 
     @StateObject private var viewModel: SongBookViewModel
     @State private var showFilterSheet = false
@@ -11,18 +12,22 @@ struct SongBookView: View {
 
     init(
         channelId: Int,
-        identifier: String
+        identifier: String,
+        pinnedSearchText: Binding<String>? = nil
     ) {
         self.channelId = channelId
         self.identifier = identifier
+        self.pinnedSearchText = pinnedSearchText
         self._viewModel = StateObject(wrappedValue: SongBookViewModel(channelId: channelId, identifier: identifier))
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            SongBookSearchBar(text: $viewModel.searchText)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
+            if pinnedSearchText == nil {
+                SongBookSearchBar(text: $viewModel.searchText)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 8)
+            }
 
             // Filter Bar
             ScrollView(.horizontal, showsIndicators: false) {
@@ -115,7 +120,20 @@ struct SongBookView: View {
         .task {
             await viewModel.loadInitialData()
         }
-        .onChange(of: viewModel.searchText) { _, _ in viewModel.debounceSearch() }
+        .onAppear {
+            guard let pinnedSearchText else { return }
+            viewModel.searchText = pinnedSearchText.wrappedValue
+        }
+        .onChange(of: viewModel.searchText) { _, value in
+            if let pinnedSearchText, pinnedSearchText.wrappedValue != value {
+                pinnedSearchText.wrappedValue = value
+            }
+            viewModel.debounceSearch()
+        }
+        .onChange(of: pinnedSearchText?.wrappedValue) { _, value in
+            guard let value, viewModel.searchText != value else { return }
+            viewModel.searchText = value
+        }
         .onChange(of: viewModel.selectedCategoryId) { _ in
             Task {
                 await viewModel.loadSongs()

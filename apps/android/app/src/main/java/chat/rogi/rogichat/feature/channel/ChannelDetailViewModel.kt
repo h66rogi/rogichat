@@ -18,7 +18,7 @@ import java.time.ZoneId
 // parallel shell loading, selected-tab state and per-section loading pattern.
 enum class ChannelTab(val title: String, val key: String) {
     HOME("홈", "home"), SONGBOOK("노래책", "musicbook"), SCHEDULE("캘린더", "schedule"),
-    SETLIST("셋리스트", "setlist"), WARDROBE("옷장", "wardrobe");
+    WARDROBE("옷장", "wardrobe");
     companion object { fun fromKey(key: String) = entries.firstOrNull { it.key == key } }
 }
 
@@ -47,15 +47,12 @@ data class ChannelDetailUiState(
     val homeSchedulesError: Boolean = false,
     val wardrobe: ChannelWardrobeResponse = ChannelWardrobeResponse(),
     val selectedCategory: Int? = null,
-    val setlists: List<ChannelSetlistSummary> = emptyList(),
-    val setlistDetail: ChannelSetlistDetail? = null,
 )
 
 class ChannelDetailViewModel(private val repository: ChannelRepository) : ViewModel() {
     private val mutable = MutableStateFlow(ChannelDetailUiState())
     val uiState = mutable.asStateFlow()
     private var sectionJob: Job? = null
-    private var detailJob: Job? = null
     private var shellJob: Job? = null
 
     init { refresh() }
@@ -72,9 +69,9 @@ class ChannelDetailViewModel(private val repository: ChannelRepository) : ViewMo
                     val count = async { try { repository.getFavoritesCount() } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } }
                     Triple(profile.await(), settings.await(), count.await())
                 }
-                val tabs = listOf(ChannelTab.HOME) + (settings?.items?.sortedBy { it.order }?.filter { it.isEnabled }
-                    ?.mapNotNull { ChannelTab.fromKey(it.key) }?.filter { it != ChannelTab.HOME }?.distinct()
-                    ?: ChannelTab.entries.filter { it != ChannelTab.HOME })
+                val tabs = settings?.items?.sortedBy { it.order }?.filter { it.isEnabled }
+                    ?.mapNotNull { ChannelTab.fromKey(it.key) }?.distinct()
+                    ?: ChannelTab.entries
                 val labels = settings?.items?.mapNotNull { item ->
                     ChannelTab.fromKey(item.key)?.let { tab -> tab to (item.displayLabel ?: tab.title) }
                 }?.toMap().orEmpty()
@@ -133,17 +130,6 @@ class ChannelDetailViewModel(private val repository: ChannelRepository) : ViewMo
 
     fun selectCategory(id: Int?) { mutable.update { it.copy(selectedCategory = id) } }
 
-    fun openSetlist(sessionId: Int) {
-        detailJob?.cancel()
-        detailJob = viewModelScope.launch {
-            mutable.update { it.copy(setlistDetail = null, sectionError = null) }
-            try { mutable.update { it.copy(setlistDetail = repository.getSetlist(sessionId)) } }
-            catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { mutable.update { it.copy(sectionError = "셋리스트를 불러올 수 없어요.") } }
-        }
-    }
-    fun closeSetlist() { detailJob?.cancel(); mutable.update { it.copy(setlistDetail = null) } }
-
     fun retrySection() = loadSelected()
 
     private fun loadSelected(debounce: Boolean = false) {
@@ -199,10 +185,6 @@ class ChannelDetailViewModel(private val repository: ChannelRepository) : ViewMo
                     ChannelTab.SCHEDULE -> {
                         val page = repository.getSchedules(state.month)
                         mutable.update { it.copy(schedules = page.items.map(ScheduleDTO::toDomain), sectionLoading = false) }
-                    }
-                    ChannelTab.SETLIST -> {
-                        val page = repository.getSetlists()
-                        mutable.update { it.copy(setlists = page.setlists, sectionLoading = false) }
                     }
                     ChannelTab.WARDROBE -> {
                         val wardrobe = repository.getWardrobe()

@@ -23,14 +23,18 @@ import androidx.core.text.HtmlCompat
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Fill
 import com.adamglin.phosphoricons.fill.ChatDots
+import com.adamglin.phosphoricons.fill.MusicNote
+import com.adamglin.phosphoricons.fill.PlayCircle
+import com.adamglin.phosphoricons.fill.ShareNetwork
 
-// Copied from meloming-android ecb3dbed ChannelDetailScreen.kt profile hero,
-// glass button, and section rail. Rogichat keeps its one-channel actions only.
 @Composable
 internal fun ChannelProfileHero(
     channel: Channel,
     profile: ChannelProfile?,
+    onVisit: () -> Unit,
+    onShare: () -> Unit,
     onTalk: () -> Unit,
+    onSongbook: () -> Unit,
 ) {
     val themeTint = parseColor(channel.themeColor)
     val glassShape = RoundedCornerShape(26.dp)
@@ -130,12 +134,42 @@ internal fun ChannelProfileHero(
                 }
             }
         }
-        ChannelGlassActionButton(
-            text = "대화 열기",
-            icon = PhosphorIcons.Fill.ChatDots,
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChannelGlassActionButton(
+                    text = "방송 보기",
+                    icon = PhosphorIcons.Fill.PlayCircle,
+                    modifier = Modifier.weight(1f),
+                    tint = MaterialTheme.colorScheme.primary,
+                    onClick = onVisit,
+                )
+                ChannelGlassActionButton(
+                    text = "공유하기",
+                    icon = PhosphorIcons.Fill.ShareNetwork,
+                    modifier = Modifier.weight(1f),
+                    tint = Color(0xFFE84A8A),
+                    onClick = onShare,
+                )
+                ChannelGlassActionButton(
+                    icon = PhosphorIcons.Fill.ChatDots,
+                    modifier = Modifier.width(48.dp),
+                    tint = MaterialTheme.colorScheme.primary,
+                    contentDescription = "채널톡",
+                    onClick = onTalk,
+                )
+                ChannelGlassActionButton(
+                    icon = PhosphorIcons.Fill.MusicNote,
+                    modifier = Modifier.width(48.dp),
+                    tint = Color(0xFFE88A19),
+                    contentDescription = "노래책",
+                    onClick = onSongbook,
+                )
+        }
+        ChannelActionButton(
+            text = "🔥 후로기 방송 보기",
             modifier = Modifier.fillMaxWidth(),
-            tint = MaterialTheme.colorScheme.primary,
-            onClick = onTalk,
+            container = Color(0xFFFFF2E7),
+            content = Color(0xFFC95F15),
+            onClick = onVisit,
         )
     }
 }

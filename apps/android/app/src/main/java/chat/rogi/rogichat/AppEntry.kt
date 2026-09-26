@@ -193,7 +193,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 val repository = services.channel
                 if (repository != null) {
                     val model: ChannelDetailViewModel = viewModel { ChannelDetailViewModel(repository) }
-                    ProductPage("채널", scroll = false) { ChannelDetailScreen(model) { open("talks") } }
+                    ProductPage("채널", scroll = false, showTopBar = false) { ChannelDetailScreen(model) { open("talks") } }
                 } else ScreenStatus("채널을 불러올 수 없어요", "잠시 후 다시 시도해 주세요.")
             }
             composable("settings") {

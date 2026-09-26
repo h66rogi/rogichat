@@ -1,12 +1,13 @@
 import SwiftUI
 
-// Adapted from meloming-ios 18a33bb ChannelDetailView.swift. The profile hero,
-// pinned section rail, feature-settings resolution and tab composition remain native.
+// Channel shell copied from meloming-ios 18a33bb ChannelDetailView.swift.
 struct ChannelDetailView: View {
     let identifier: String
     let onTalk: () -> Void
     @StateObject private var viewModel: ChannelDetailViewModel
     @State private var selectedTab: ChannelTab = .home
+    @State private var songBookSearchText = ""
+    @Environment(\.openURL) private var openURL
 
     struct ChannelResolvedTab: Identifiable, Equatable {
         let tab: ChannelTab
@@ -16,27 +17,26 @@ struct ChannelDetailView: View {
     }
 
     enum ChannelTab: String, Hashable {
-        case home = "홈", songBook = "노래책", schedule = "캘린더", setlist = "셋리스트", wardrobe = "옷장"
+        case home = "홈", songBook = "노래책", schedule = "캘린더", wardrobe = "옷장"
         var icon: String {
             switch self {
             case .home: "house.fill"
             case .songBook: "music.note.list"
             case .schedule: "calendar"
-            case .setlist: "list.number"
             case .wardrobe: "tshirt"
             }
         }
         static let featureKeyMap: [String: ChannelTab] = [
-            "musicbook": .songBook, "schedule": .schedule,
-            "setlist": .setlist, "wardrobe": .wardrobe
+            "home": .home, "musicbook": .songBook, "schedule": .schedule,
+            "wardrobe": .wardrobe
         ]
         static var fallbackResolvedTabs: [ChannelResolvedTab] {
-            [ChannelTab.home, .songBook, .schedule, .setlist, .wardrobe]
+            [ChannelTab.home, .songBook, .schedule, .wardrobe]
                 .map { ChannelResolvedTab(tab: $0, label: $0.rawValue) }
         }
         static func resolveTabs(from settings: ChannelFeatureSettingsResponse?) -> [ChannelResolvedTab] {
             guard let settings else { return fallbackResolvedTabs }
-            var resolved: [ChannelResolvedTab] = [ChannelResolvedTab(tab: .home, label: ChannelTab.home.rawValue)]
+            var resolved: [ChannelResolvedTab] = []
             for item in settings.items.sorted(by: { ($0.order ?? .max) < ($1.order ?? .max) }) where item.isEnabled {
                 guard let tab = featureKeyMap[item.key], !resolved.contains(where: { $0.tab == tab }) else { continue }
                 resolved.append(ChannelResolvedTab(tab: tab, label: item.displayLabel ?? tab.rawValue))
@@ -56,42 +56,96 @@ struct ChannelDetailView: View {
     var body: some View {
         Group {
             if viewModel.isLoading && viewModel.channel == nil {
-                ProgressView("채널을 불러오는 중")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                LoadingView()
             } else if let channel = viewModel.channel {
                 ScrollView {
                     LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        ChannelProfileHero(channel: channel, profile: viewModel.profile,
-                                           favoriteCount: viewModel.favoriteCount, onTalk: onTalk)
+                        ChannelProfileHero(
+                            channel: channel,
+                            profile: viewModel.profile,
+                            favoriteCount: viewModel.favoriteCount,
+                            isLive: false,
+                            onVisit: {
+                                let value = channel.platformUrl.flatMap { URL(string: $0) }
+                                let url = value?.scheme == "https"
+                                    ? value!
+                                    : URL(string: "https://play.sooplive.com/h66rogi")!
+                                openURL(url)
+                            },
+                            onCopyLink: {
+                                UIPasteboard.general.string = channelURL(for: channel).absoluteString
+                            },
+                            onTalk: onTalk,
+                            onSongbook: { selectedTab = .songBook },
+                            onLive: nil
+                        )
+
                         Section {
                             if resolvedTabs.isEmpty {
                                 ContentUnavailableView("표시할 채널 메뉴가 없어요", systemImage: "rectangle.stack")
-                                    .padding(.top, 36)
+                                    .padding(.bottom, 42)
                             } else {
                                 selectedSectionContent(channel: channel)
-                                    .padding(.bottom, 36)
+                                    .padding(.bottom, 42)
                             }
                         } header: {
                             if !resolvedTabs.isEmpty {
-                                ChannelSectionRail(tabs: resolvedTabs, selectedTab: $selectedTab)
-                                    .background(.regularMaterial)
+                                VStack(spacing: 6) {
+                                    ChannelSectionRail(
+                                        tabs: resolvedTabs,
+                                        selectedTab: $selectedTab
+                                    )
+
+                                    if selectedTab == .songBook {
+                                        SongBookSearchBar(text: $songBookSearchText)
+                                            .padding(.horizontal, 20)
+                                            .padding(.bottom, 8)
+                                    }
+                                }
+                                .padding(.top, 6)
+                                .padding(.bottom, 10)
+                                .background(Color(.systemBackground))
                             }
                         }
                     }
                 }
+                .background(Color(.systemBackground))
                 .refreshable { await viewModel.loadChannel() }
+            } else if let error = viewModel.error {
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("채널을 불러올 수 없습니다")
+                        .foregroundColor(.secondary)
+                    Button("다시 시도") { Task { await viewModel.loadChannel() } }
+                    Text(error.localizedDescription).font(.caption).foregroundColor(.secondary)
+                }
             } else {
-                ContentUnavailableView("채널을 불러올 수 없어요", systemImage: "exclamationmark.triangle",
-                                       description: Text("잠시 후 다시 시도해 주세요."))
-                    .safeAreaInset(edge: .bottom) {
-                        Button("다시 시도") { Task { await viewModel.loadChannel() } }
-                            .buttonStyle(.bordered).padding()
-                    }
+                VStack(spacing: 16) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.largeTitle)
+                        .foregroundColor(.secondary)
+                    Text("채널을 불러올 수 없습니다")
+                        .foregroundColor(.secondary)
+                    Button("다시 시도") { Task { await viewModel.loadChannel() } }
+                }
             }
         }
         .accentColor(Color(hex: "#6366F1"))
         .tint(Color(hex: "#6366F1"))
         .navigationTitle(viewModel.channel?.name ?? "채널")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let channel = viewModel.channel {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: channelURL(for: channel)) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .accessibilityLabel("채널 공유")
+                }
+            }
+        }
         .task { await viewModel.loadChannel() }
         .onChange(of: viewModel.featureSettings) { _, _ in
             if !resolvedTabs.contains(where: { $0.tab == selectedTab }), let first = resolvedTabs.first {
@@ -100,88 +154,20 @@ struct ChannelDetailView: View {
         }
     }
 
+    private func channelURL(for channel: Channel) -> URL {
+        let host = AppEnvironment().name.rawValue == "qa" ? "https://qa.rogi.chat" : "https://rogi.chat"
+        return URL(string: host + "/channel/" + channel.webPath)!
+    }
+
     @ViewBuilder
     private func selectedSectionContent(channel: Channel) -> some View {
         switch selectedTab {
         case .home:
             ChannelHomeSectionView(channel: channel, profile: viewModel.profile,
                                    refreshRevision: viewModel.refreshRevision) { selectedTab = $0 }
-        case .songBook: SongBookView(channelId: channel.id, identifier: identifier)
+        case .songBook: SongBookView(channelId: channel.id, identifier: identifier, pinnedSearchText: $songBookSearchText)
         case .schedule: ScheduleView(channelId: channel.id)
-        case .setlist: ChannelSetlistView()
         case .wardrobe: ChannelWardrobeView(identifier: identifier)
-        }
-    }
-}
-
-private struct ChannelSetlistView: View {
-    @State private var setlists: [ChannelSetlistSummary] = []
-    @State private var selected: ChannelSetlistSummary?
-    @State private var loading = true
-    @State private var error: String?
-    private let repository: ChannelRepository = AppClientChannelRepository()
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if loading && setlists.isEmpty { ProgressView().frame(maxWidth: .infinity).padding(.top, 42) }
-            else if let error, setlists.isEmpty {
-                ContentUnavailableView("셋리스트를 불러올 수 없어요", systemImage: "list.number", description: Text(error))
-                Button("다시 시도") { Task { await load() } }.buttonStyle(.bordered)
-            } else if setlists.isEmpty { ContentUnavailableView("공개된 셋리스트가 없어요", systemImage: "list.number") }
-            else {
-                ForEach(setlists) { setlist in
-                    Button { selected = setlist } label: {
-                        HStack {
-                            Image(systemName: "music.note.list").font(.title3)
-                            VStack(alignment: .leading) {
-                                Text(setlist.startedAt.prefix(10)).font(.headline)
-                                Text("\(setlist.completedCount)곡").font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption)
-                        }.padding(.vertical, 10)
-                    }.buttonStyle(.plain)
-                    Divider()
-                }.padding(.horizontal, 20)
-            }
-        }
-        .task { await load() }
-        .sheet(item: $selected) { summary in ChannelSetlistDetailView(summary: summary) }
-    }
-    private func load() async {
-        loading = true; error = nil
-        do { setlists = try await repository.fetchSetlists(page: 1).setlists }
-        catch { self.error = "잠시 후 다시 시도해 주세요." }
-        loading = false
-    }
-}
-
-private struct ChannelSetlistDetailView: View {
-    let summary: ChannelSetlistSummary
-    @State private var detail: ChannelSetlistDetail?
-    @State private var error: String?
-    private let repository: ChannelRepository = AppClientChannelRepository()
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if let detail {
-                    List(detail.songs) { song in
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(song.title)
-                            Text(song.artist).font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                } else if let error {
-                    ContentUnavailableView("셋리스트를 불러올 수 없어요", systemImage: "list.number", description: Text(error))
-                } else { ProgressView() }
-            }
-            .navigationTitle(String(summary.startedAt.prefix(10)))
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .task {
-            do { detail = try await repository.fetchSetlist(sessionID: summary.sessionId) }
-            catch { self.error = "잠시 후 다시 시도해 주세요." }
         }
     }
 }
