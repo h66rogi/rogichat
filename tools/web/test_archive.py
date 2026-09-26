@@ -579,14 +579,17 @@ class SourceVerifierTests(unittest.TestCase):
         source = Path(archive.__file__).with_name('verify-publication-source.mjs').as_uri()
         script = r"""
         const mode = process.argv[1];
-        globalThis.setTimeout = () => { throw new Error('No trusted candidate'); };
-        globalThis.fetch = async url => {
-          const workflow = url.includes('/workflows/') ? url.split('/workflows/')[1].split('/')[0] : globalThis.workflow;
-          globalThis.workflow = workflow;
-          const identity = 12 + ['web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'].indexOf(workflow);
-          const value = {id: identity, run_attempt: 2, head_sha: 'a'.repeat(40), head_branch: 'qa', event: 'push',
+        const workflows = ['web.yml', 'backend.yml', 'security.yml', 'infrastructure.yml', 'mobile.yml'];
+        const runs = workflows.map((workflow, index) => {
+          const identity = 12 + index;
+          return {id: identity, run_attempt: 2, head_sha: 'a'.repeat(40), head_branch: 'qa', event: 'push',
             repository: {full_name: 'h66rogi/rogichat'}, head_repository: {full_name: 'h66rogi/rogichat'},
             path: `.github/workflows/${workflow}`, status: 'completed', conclusion: 'success', html_url: 'https://example.invalid/run'};
+        });
+        const fetchImpl = async url => {
+          if (!url.includes('/attempts/')) return {ok: true, json: async () => ({total_count: runs.length, workflow_runs: runs})};
+          const id = Number(url.match(/\/runs\/(\d+)\/attempts/)[1]);
+          const value = structuredClone(runs.find(run => run.id === id));
           if (url.includes('/attempts/')) {
             if (mode === 'id') value.id = 99;
             if (mode === 'attempt') value.run_attempt = 3;
@@ -599,9 +602,14 @@ class SourceVerifierTests(unittest.TestCase):
             if (mode === 'boolean') value.id = true;
             return {ok: true, json: async () => value};
           }
-          return {ok: true, json: async () => ({workflow_runs: [value]})};
         };
-        await import(SOURCE);
+        const {verifyOnce} = await import(SOURCE);
+        const evidence = await verifyOnce({sha: 'a'.repeat(40), repository: 'h66rogi/rogichat',
+          token: 'test-only', cache: new Map(), fetchImpl});
+        if (evidence) {
+          const {writeFile} = await import('node:fs/promises');
+          await writeFile(process.env.GITHUB_OUTPUT, JSON.stringify(evidence));
+        }
         """.replace('SOURCE', json.dumps(source))
         with tempfile.TemporaryDirectory() as temp:
             output = Path(temp) / 'output'
@@ -611,7 +619,7 @@ class SourceVerifierTests(unittest.TestCase):
                 with self.subTest(mode=mode):
                     result = subprocess.run(['node', '--input-type=module', '-e', script, mode], env=env, capture_output=True, timeout=10)
                     self.assertEqual(result.returncode == 0, mode == 'valid', result.stderr.decode())
-            evidence = json.loads(output.read_text().removeprefix('evidence='))
+            evidence = json.loads(output.read_text())
             self.assertEqual(len(evidence), 5)
             self.assertEqual({item['attempt'] for item in evidence}, {2})
 
