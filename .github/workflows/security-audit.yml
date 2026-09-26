@@ -20,4 +20,4 @@ jobs:
       - name: Fetch every advertised public PR ref without credentials
         run: python3 tools/security/fetch_public_refs.py
       - name: Audit all locally reachable public material without executing PR code
-        run: python3 tools/security/check.py all
+        run: python3 tools/security/check.py audit

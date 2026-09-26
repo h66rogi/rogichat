@@ -39,5 +39,5 @@ jobs:
       - name: Test enforcement
         if: steps.self-tests.outputs.run_tests == 'true'
         run: python3 -m unittest discover -s tools/security -p 'test_*.py'
-      - name: Scan tracked files and all history
+      - name: Scan tracked files and complete candidate history
         run: python3 tools/security/check.py all

@@ -508,9 +508,43 @@ def main():
     print("Private-ops security checks passed." if PRIVATE_OPS else "Public-repository security checks passed.")
 
 
+def candidate_ref_names(pushed_ref=None):
+    """Only names identifying this checkout belong to its required gate."""
+    if pushed_ref is not None:
+        return [pushed_ref.encode("utf-8", errors="surrogateescape")]
+    result = subprocess.run(["git", "symbolic-ref", "-q", "HEAD"], cwd=ROOT,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+    if result.returncode not in {0, 1}:
+        blocked("candidate ref lookup failed")
+    names = [result.stdout] if result.returncode == 0 else []
+    for key in ("GITHUB_REF", "GITHUB_HEAD_REF"):
+        if os.environ.get(key):
+            names.append(os.environ[key].encode("utf-8", errors="surrogateescape"))
+    return names
+
+
 def run(reader):
-    if len(sys.argv) != 2 or sys.argv[1] not in {"staged", "all"}:
-        raise SystemExit("Usage: python3 tools/security/check.py staged|all")
+    if (sys.argv[1:] not in (["staged"], ["all"], ["audit"]) and
+            not (len(sys.argv) == 4 and sys.argv[1] == "all")):
+        raise SystemExit("Usage: python3 tools/security/check.py staged|all|audit [push-oid push-ref]")
+    mode = sys.argv[1]
+    revision, pushed_ref = "HEAD", None
+    if len(sys.argv) == 4:
+        pushed_oid, pushed_ref = sys.argv[2:]
+        if (not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", pushed_oid) or
+                not pushed_ref.startswith(("refs/heads/", "refs/tags/")) or
+                subprocess.run(["git", "check-ref-format", pushed_ref], cwd=ROOT,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120).returncode):
+            blocked("invalid pushed candidate")
+        if pushed_ref.startswith("refs/heads/"):
+            revision = pushed_oid
+        else:
+            # A tag can target a commit, tree, or blob. Scan the tag target
+            # directly below; include its commit history when one exists.
+            resolved = subprocess.run(["git", "rev-parse", "--verify", pushed_oid + "^{commit}"],
+                                      cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            if resolved.returncode == 0:
+                revision = resolved.stdout.decode("ascii").strip()
     if not BINARY.is_file():
         blocked("Gitleaks missing; run python3 tools/security/install.py first")
     if subprocess.check_output([str(BINARY), "version"], text=True, stderr=subprocess.PIPE, timeout=10).strip() != "8.30.1":
@@ -537,10 +571,10 @@ def run(reader):
         materialize(index, content / "index", cache, budget, reader)
         validate_access(content / "index")
         names = set(index)
-        if sys.argv[1] == "all":
+        if mode in {"all", "audit"}:
             if git("rev-parse", "--is-shallow-repository").strip() != b"false":
                 blocked("full history is required; fetch complete history")
-            commits = git("rev-list", "--all").decode("ascii").splitlines()
+            commits = git("rev-list", "--all" if mode == "audit" else revision).decode("ascii").splitlines()
             if len(commits) > MAX_OBJECTS:
                 blocked("history exceeds reviewed commit budget")
             seen_trees, seen_pairs = set(), set()
@@ -570,11 +604,27 @@ def run(reader):
                     with tempfile.TemporaryDirectory(prefix="rogichat-access-") as access:
                         materialize({name: oid for name, oid in mapping.items() if name.startswith("access/qa/")}, Path(access), cache, budget, reader)
                         validate_access(Path(access))
-            refs = git("for-each-ref", "--format=%(objecttype) %(objectname)").decode("ascii").splitlines()
+            if mode == "audit":
+                refs = git("for-each-ref", "--format=%(objecttype) %(objectname) %(refname)").decode("utf-8", errors="surrogateescape").splitlines()
+                ref_names = [ref.split(" ", 2)[2].encode("utf-8", errors="surrogateescape") for ref in refs]
+            else:
+                # A sibling PR's new assets must be checked by that PR, not
+                # become a gate for this candidate. Tags targeting an object
+                # in HEAD's ancestry are still part of this candidate.
+                reachable = set(git("rev-list", "--objects", "--no-object-names", revision).decode("ascii").splitlines())
+                if len(reachable) > MAX_OBJECTS:
+                    blocked("candidate objects exceed reviewed scan budget")
+                refs, ref_names = [], candidate_ref_names(pushed_ref)
+                for ref in git("for-each-ref", "--format=%(objecttype) %(objectname) %(refname)", "refs/tags").decode("utf-8", errors="surrogateescape").splitlines():
+                    name = ref.split(" ", 2)[2]
+                    target = git("rev-parse", "--verify", name + "^{}").decode("ascii").strip()
+                    if target in reachable or name == pushed_ref:
+                        refs.append(ref)
+                        ref_names.append(name.encode("utf-8", errors="surrogateescape"))
             if len(refs) > MAX_OBJECTS:
                 blocked("refs exceed reviewed scan budget")
             for ref in refs:
-                kind, oid = ref.split()
+                kind, oid, _ = ref.split(" ", 2)
                 # Annotated tags can contain credentials even when their target
                 # tree is clean. Include tag-of-tag chains, with a finite budget.
                 seen_tags = set()
@@ -599,7 +649,7 @@ def run(reader):
                     names.update(mapping)
                     materialize(mapping, content / "tag-trees" / oid, cache, budget, reader)
                     validate_access(content / "tag-trees" / oid)
-            (metadata / "refs").write_bytes(git("for-each-ref", "--format=%(refname)"))
+            (metadata / "refs").write_bytes(b"\n".join(ref_names))
         # Filenames themselves can contain credentials; keep them inside the
         # captured scanner boundary rather than echoing them in error messages.
         (content / "tracked-names").write_bytes("\n".join(sorted(names)).encode("utf-8", errors="surrogateescape"))
