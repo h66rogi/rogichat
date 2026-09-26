@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef, useState } from 'react';
 import { ChatPrivacyActions } from './ChatPrivacyActions';
 import { Ban, Check, CircleAlert, CornerUpLeft, Ellipsis, LoaderCircle, Megaphone, Reply } from 'lucide-react';
 import { Popover } from 'radix-ui';
@@ -69,6 +70,14 @@ function MessageRow({
   const isPrivate = item.scope === 'PRIVATE';
   const canReply = !isOwn && !item.media && item.allowedActions?.reply === true && onReplyPrivate !== undefined;
   const timeLabel = timeLabelFor(item.createdAt);
+  const [reactionOpenRequest, setReactionOpenRequest] = useState(0);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelLongPress = () => {
+    if (longPressTimer.current !== null) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+  useEffect(() => cancelLongPress, []);
+  const openReactions = () => setReactionOpenRequest(value => value + 1);
 
   return (
     <div
@@ -85,6 +94,15 @@ function MessageRow({
 
         <div className={cn('flex min-w-0 items-end gap-1.5', isOwn ? 'flex-row-reverse' : 'flex-row')}>
           <div
+            data-testid="chat-message-bubble"
+            onContextMenu={item.status === 'saved' ? event => { event.preventDefault(); openReactions(); } : undefined}
+            onTouchStart={item.status === 'saved' && !item.media ? () => {
+              cancelLongPress();
+              longPressTimer.current = setTimeout(openReactions, 500);
+            } : undefined}
+            onTouchEnd={cancelLongPress}
+            onTouchCancel={cancelLongPress}
+            onTouchMove={cancelLongPress}
             className={cn(
               'min-w-0 whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[15px] leading-[1.45]',
               isOwn ? 'rounded-br-xs bg-chat-accent text-canvas' : 'rounded-bl-xs bg-chat-other-bubble text-ink',
@@ -108,7 +126,7 @@ function MessageRow({
           </div>}
         </div>
 
-        {item.status === 'saved' && <ReactionControl messageId={item.id} initialSummary={item.reactions} align={isOwn ? 'end' : 'start'} />}
+        {item.status === 'saved' && <ReactionControl messageId={item.id} initialSummary={item.reactions} align={isOwn ? 'end' : 'start'} openRequest={reactionOpenRequest} />}
 
         {item.statusNote && (item.status === 'rejected' || item.status === 'unknown') && (
           <p className={cn('px-1 text-[12px]', item.status === 'rejected' ? 'text-danger' : 'text-muted')}>{item.statusNote}</p>

@@ -17,7 +17,7 @@ struct ConversationScreen: View {
     @State private var cameraErrorAfterDismiss = false
     @State private var showStickers = false
     @State private var showAttachments = false
-    @State private var showActions = false
+    @State private var actionMessageID: String?
     @State private var confirmLeave = false
     @State private var leaveError: String?
     @State private var openedMedia: OpenedConversationMedia?
@@ -109,7 +109,7 @@ struct ConversationScreen: View {
         .onChange(of: projectionSignal) { _, _ in applyProjection() }
         .onChange(of: model.active) { _, active in
             if !active {
-                features?.close(); showActions = false; showMedia = false; openedMedia = nil
+                features?.close(); actionMessageID = nil; showMedia = false; openedMedia = nil
                 showCamera = false; showStickers = false; showAttachments = false
                 quoteTarget = nil; unreadScrollTarget = nil; unreadReady = false; visibleIDs = []
                 unreadExhaustedCursor = nil
@@ -149,9 +149,6 @@ struct ConversationScreen: View {
         .alert("사진을 사용할 수 없어요", isPresented: $cameraError) {
             Button("확인", role: .cancel) {}
         } message: { Text("다시 촬영하거나 사진을 선택해 주세요.") }
-        .sheet(isPresented: $showActions, onDismiss: { features?.dismissActions() }) {
-            if let features, let token = features.token { ConversationActionsSheet(features: features, token: token, onClose: { showActions = false }) }
-        }
         .fullScreenCover(item: $openedMedia) { selected in
             if let features, model.active, model.listing?.messages.contains(where: { message in
                 guard message.id == selected.messageID else { return false }
@@ -601,27 +598,28 @@ struct ConversationScreen: View {
                         .background(mine ? AppTheme.accent : Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                         reactionPills(message)
                     }
+                    .onLongPressGesture { openActions(for: message) }
+                    .popover(isPresented: Binding(get: { actionMessageID == message.id }, set: { if !$0 { actionMessageID = nil } }),
+                             attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+                        if let features, let token = features.token, token.selection.messageId == message.id {
+                            ConversationActionsPopover(features: features, token: token,
+                                canReply: !mine && model.scope.room.role == "STREAMER" && message.replyRecipient != nil,
+                                onReply: { actionMessageID = nil; model.reply(to: message); composing = true },
+                                onClose: { actionMessageID = nil })
+                                .presentationCompactAdaptation(.popover)
+                        }
+                    }
+                    .accessibilityAction(named: "메시지 작업") { openActions(for: message) }
                     if !mine && endsGroup { Text(time(message.createdAt)).font(.caption2).foregroundStyle(.tertiary) }
                 }
             }
             if !mine { Spacer(minLength: 52) }
-        }.contextMenu {
-            if let features {
-                ForEach(reactionChoices, id: \.self) { emoji in
-                    Button(emoji) {
-                        features.select(message)
-                        if let token = features.token {
-                            let mine = features.reactionsFor(message.id)?.mine == emoji
-                            features.action(token, mine ? .removeReaction : .setReaction, emoji: mine ? nil : emoji)
-                        }
-                    }
-                }
-            }
-            if let features { Button("메시지 작업", systemImage: "ellipsis.circle") { features.select(message); showActions = features.token != nil } }
-            if !mine && model.scope.room.role == "STREAMER" && message.replyRecipient != nil {
-                Button("비공개 답장", systemImage: "arrowshape.turn.up.left") { model.reply(to: message); composing = true }
-            }
-        }.accessibilityElement(children: .contain)
+        }
+        .accessibilityElement(children: .contain)
+    }
+    private func openActions(for message: ConversationMessage) {
+        features?.select(message)
+        if features?.token != nil { actionMessageID = message.id }
     }
     private func reactionPills(_ message: ConversationMessage) -> some View {
         let summary = features?.reactionsFor(message.id)
@@ -639,7 +637,7 @@ struct ConversationScreen: View {
                                     .background(myEmoji == reaction.emoji ? AppTheme.accent.opacity(0.16) : Color(uiColor: .tertiarySystemFill), in: Capsule())
                             }.buttonStyle(.plain).accessibilityLabel("\(reaction.emoji) 반응 \(reaction.count)개")
                         } else {
-                            Button { features?.select(message); showActions = features?.token != nil } label: {
+                            Button { openActions(for: message) } label: {
                                 Image(systemName: "face.smiling").font(.caption)
                                     .overlay(alignment: .topTrailing) { Image(systemName: "plus").font(.system(size: 7, weight: .bold)).offset(x: 5, y: -3) }
                                     .padding(.horizontal, 9).padding(.vertical, 6)
@@ -785,26 +783,43 @@ private struct OpenedConversationMedia: Identifiable {
     var id: String { messageID + ":" + assetID }
 }
 
-private struct ConversationActionsSheet: View {
+private struct ConversationActionsPopover: View {
     let features: ConversationFeatureModel
     let token: ActionViewToken
+    let canReply: Bool
+    let onReply: () -> Void
     let onClose: () -> Void
     private var unavailable: Set<MessageAction> {
         (try? features.actions.blockedActions(token)) ?? [.delete, .publish, .report, .blockActor, .setReaction, .removeReaction]
     }
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    if let error = features.error { Text(error).font(.footnote).foregroundStyle(.secondary) }
-                    MessageActionsPanel(token: token, record: features.record, busy: features.busy, reactions: features.reactions, unavailableActions: unavailable,
-                        onAction: { features.action($0, $1, emoji: $2) }, onRefresh: { token in Task { await features.refreshAction(token) } })
-                    Divider()
-                    MessageModerationPanel(unavailableActions: unavailable, token: token, busy: features.busy,
-                        onAction: { features.action($0, $1, reason: $2) })
-                }.padding()
-            }.navigationTitle("메시지").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("닫기", action: onClose) } }
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 2) {
+                ForEach(reactionChoices, id: \.self) { emoji in
+                    let mine = features.reactions?.mine == emoji
+                    Button(emoji) {
+                        features.action(token, mine ? .removeReaction : .setReaction, emoji: mine ? nil : emoji)
+                        onClose()
+                    }
+                    .font(.title2)
+                    .frame(maxWidth: .infinity, minHeight: 40)
+                    .background(mine ? AppTheme.accent.opacity(0.16) : Color.clear, in: Circle())
+                    .disabled(features.busy || unavailable.contains(mine ? .removeReaction : .setReaction))
+                    .accessibilityLabel("\(emoji) 반응\(mine ? " 취소" : " 선택")")
+                }
+            }
+            Divider()
+            if canReply { Button("비공개 답장", systemImage: "arrowshape.turn.up.left", action: onReply) }
+            if let error = features.error { Text(error).font(.footnote).foregroundStyle(.secondary) }
+            MessageActionsPanel(token: token, record: features.record, busy: features.busy, reactions: features.reactions, unavailableActions: unavailable,
+                showReactions: false,
+                onAction: { features.action($0, $1, emoji: $2); onClose() },
+                onRefresh: { token in Task { await features.refreshAction(token) } })
+            MessageModerationPanel(unavailableActions: unavailable, token: token, busy: features.busy,
+                onAction: { features.action($0, $1, reason: $2); onClose() })
         }
+        .buttonStyle(.plain)
+        .padding(12)
+        .frame(width: 320)
     }
 }
