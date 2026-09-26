@@ -23,15 +23,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import chat.rogi.rogichat.core.design.AppTabHeader
 import chat.rogi.rogichat.core.design.ScreenStatus
 import chat.rogi.rogichat.feature.channel.theme.ChannelTheme
-import chat.rogi.rogichat.feature.channel.theme.IbmPlexSansKrFontFamily
 import chat.rogi.rogichat.BuildConfig
 import com.adamglin.PhosphorIcons
 import com.adamglin.phosphoricons.Fill
-import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.fill.ShareNetwork
-import com.adamglin.phosphoricons.regular.ArrowLeft
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -75,22 +73,11 @@ private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Un
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
       Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-          ChannelCenterTopBar(
-              title = channel?.name ?: "",
-              backgroundColor = MaterialTheme.colorScheme.background,
-              contentColor = MaterialTheme.colorScheme.onBackground,
-              titleFontFamily = IbmPlexSansKrFontFamily,
-              navigationIcon = {
-                  IconButton(onClick = onTalk) {
-                      Icon(PhosphorIcons.Regular.ArrowLeft, contentDescription = "뒤로가기")
-                  }
-              },
-              actions = {
-                  IconButton(onClick = ::shareChannel) {
-                      Icon(PhosphorIcons.Fill.ShareNetwork, contentDescription = "채널 공유")
-                  }
-              },
-          )
+          AppTabHeader(channel?.name ?: "채널") {
+              if (channel != null) IconButton(onClick = ::shareChannel) {
+                  Icon(PhosphorIcons.Fill.ShareNetwork, contentDescription = "채널 공유")
+              }
+          }
           if (state.isLoading && channel == null) {
               ScreenStatus("채널을 불러오는 중", "잠시만 기다려 주세요.", loading = true)
           } else if (channel == null) {

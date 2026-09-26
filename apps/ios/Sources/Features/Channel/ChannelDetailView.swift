@@ -54,7 +54,15 @@ struct ChannelDetailView: View {
     private var resolvedTabs: [ChannelResolvedTab] { ChannelTab.resolveTabs(from: viewModel.featureSettings) }
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            TopLevelTabHeader(title: viewModel.channel?.name ?? "채널") {
+                if let channel = viewModel.channel {
+                    ShareLink(item: channelURL(for: channel)) {
+                        Image(systemName: "square.and.arrow.up").font(.title3)
+                    }
+                    .accessibilityLabel("채널 공유")
+                }
+            }
             if viewModel.isLoading && viewModel.channel == nil {
                 LoadingView()
             } else if let channel = viewModel.channel {
@@ -132,20 +140,9 @@ struct ChannelDetailView: View {
                 }
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .accentColor(Color(hex: "#6366F1"))
         .tint(Color(hex: "#6366F1"))
-        .navigationTitle(viewModel.channel?.name ?? "채널")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if let channel = viewModel.channel {
-                ToolbarItem(placement: .topBarTrailing) {
-                    ShareLink(item: channelURL(for: channel)) {
-                        Image(systemName: "square.and.arrow.up")
-                    }
-                    .accessibilityLabel("채널 공유")
-                }
-            }
-        }
         .task { await viewModel.loadChannel() }
         .onChange(of: viewModel.featureSettings) { _, _ in
             if !resolvedTabs.contains(where: { $0.tab == selectedTab }), let first = resolvedTabs.first {

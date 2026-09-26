@@ -48,26 +48,10 @@ struct MoreView: View {
         List { listSections }
             .toolbar(.hidden, for: .navigationBar)
             .safeAreaInset(edge: .top) {
-                HStack {
-                    Text("더보기")
-                        .font(.title2.weight(.bold))
-                    Spacer()
+                TopLevelTabHeader(title: "더보기") {
                     NotificationButton { onOpen(.notifications) }
                         .accessibilityLabel("알림 설정")
                 }
-                .padding(.horizontal)
-                .padding(.vertical, 12)
-                .background(
-                    LinearGradient(
-                        colors: [
-                            Color(.systemBackground),
-                            Color(.systemBackground),
-                            Color(.systemBackground).opacity(0)
-                        ],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
             }
             .alert("로그아웃", isPresented: $showLogoutAlert) {
                 Button("취소", role: .cancel) {}

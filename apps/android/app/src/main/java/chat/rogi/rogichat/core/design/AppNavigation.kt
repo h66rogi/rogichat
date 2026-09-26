@@ -72,3 +72,14 @@ fun AppTopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable 
         }
     }
 }
+
+@Composable
+fun AppTabHeader(title: String, actions: @Composable RowScope.() -> Unit = {}) {
+    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.background) {
+        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, maxLines = 1)
+            actions()
+        }
+    }
+}

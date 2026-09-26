@@ -1,5 +1,26 @@
 import SwiftUI
 
+struct TopLevelTabHeader<Actions: View>: View {
+    let title: String
+    @ViewBuilder let actions: () -> Actions
+
+    var body: some View {
+        HStack(spacing: 18) {
+            Text(title)
+                .font(.system(size: 26, weight: .bold))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            actions()
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 22)
+        .padding(.top, 18)
+        .padding(.bottom, 18)
+        .background(Color(uiColor: .systemBackground))
+    }
+}
+
 private struct ForegroundEpochKey: EnvironmentKey { static let defaultValue: UInt64 = 0 }
 extension EnvironmentValues {
     var foregroundEpoch: UInt64 {
