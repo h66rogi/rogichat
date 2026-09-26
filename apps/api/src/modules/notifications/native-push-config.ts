@@ -43,6 +43,7 @@ export function parseNativePushConfig(bytes: Buffer, environment: string): Nativ
     if (Object.keys(data).some(key => key.startsWith('fcm'))) {
       if (!/^[a-z][a-z0-9-]{4,61}[a-z0-9]$/.test(data.fcmProjectId ?? '') ||
         !/^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.iam\.gserviceaccount\.com$/.test(data.fcmClientEmail ?? '') ||
+        !data.fcmClientEmail?.endsWith(`@${data.fcmProjectId}.iam.gserviceaccount.com`) ||
         !/^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*){1,15}$/.test(data.fcmApplicationId ?? '')) throw new Error();
       const key = createPrivateKey(data.fcmPrivateKey ?? '');
       if (key.asymmetricKeyType !== 'rsa' || (key.asymmetricKeyDetails?.modulusLength ?? 0) < 2048) throw new Error();

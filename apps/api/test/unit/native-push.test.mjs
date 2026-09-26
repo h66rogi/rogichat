@@ -26,7 +26,8 @@ const input = () => ({ provider: 'APNS', token: randomBytes(32).toString('hex'),
 test('native config validates exact environment, complete provider groups, key types and duplicate keys', () => {
   assert.ok(config().apns); assert.ok(config().fcm);
   for (const patch of [{ environment: 'qa' }, { encryptionKey: 'a' }, { apnsEnvironment: 'qa' }, { apnsPrivateKey: secret().fcmPrivateKey },
-    { fcmPrivateKey: secret().apnsPrivateKey }, { fcmClientEmail: 'user@example.com' }, { fcmApplicationId: '../other' }, { extra: 'value' }]) {
+    { fcmPrivateKey: secret().apnsPrivateKey }, { fcmClientEmail: 'user@example.com' },
+    { fcmClientEmail: 'sender@other-project.iam.gserviceaccount.com' }, { fcmApplicationId: '../other' }, { extra: 'value' }]) {
     assert.throws(() => parseNativePushConfig(Buffer.from(JSON.stringify({ ...secret(), ...patch })), 'test'), /invalid_native_push_config/);
   }
   const text = JSON.stringify(secret());
