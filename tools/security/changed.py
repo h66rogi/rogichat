@@ -13,8 +13,15 @@ APP_PREFIXES = (
     b"apps/api/", b"apps/android/app/", b"apps/ios/",
     b"apps/web/src/", b"apps/web/test/", b"docs/",
     b"tools/mobile/", b"tools/infrastructure/", b"tools/web/",
+    # Host-only Terraform roots cannot change the scanner or its fixtures.
+    b"infrastructure/environments/qa/aws-ec2/",
+    b"infrastructure/environments/management/aws/",
 )
-APP_FILES = {b"README.md", b"LICENSE", b"NOTICE"}
+APP_FILES = {
+    b"README.md", b"LICENSE", b"NOTICE",
+    # The release classifier is exercised by backend.yml's changes job.
+    b"tools/release/changes.py", b"tools/release/test_changes.py",
+}
 
 
 def needs_self_tests(paths):
@@ -42,15 +49,19 @@ def main():
     event = os.environ.get("GITHUB_EVENT_NAME", "")
     head = os.environ.get("GITHUB_SHA", "")
     base = os.environ.get("BASE_SHA", "")
-    if event == "merge_group":
+    if event in {"merge_group", "push"}:
         checkout = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
                                   check=False)
-        if (checkout.returncode or checkout.stdout.decode().strip() != head
-                or os.environ.get("MERGE_GROUP_HEAD_SHA") != head
+        if checkout.returncode or checkout.stdout.decode().strip() != head:
+            raise SystemExit("Cannot establish security checkout boundary")
+    if event == "merge_group":
+        if (os.environ.get("MERGE_GROUP_HEAD_SHA") != head
                 or os.environ.get("MERGE_GROUP_BASE_REF") not in
                 {"refs/heads/qa", "refs/heads/main"}):
             raise SystemExit("Cannot establish security merge-group boundary")
-    paths = changed_paths(base, head) if event in {"pull_request", "merge_group"} else None
+    # A normal push has a trustworthy ancestor boundary in github.event.before.
+    # New branches and rewritten history fall back to running the self-tests.
+    paths = changed_paths(base, head) if event in {"pull_request", "merge_group", "push"} else None
     run_tests = paths is None or needs_self_tests(paths)
     with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
         output.write("run_tests=" + str(run_tests).lower() + "\n")
