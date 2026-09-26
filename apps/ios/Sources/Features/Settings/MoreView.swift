@@ -49,15 +49,15 @@ struct MoreView: View {
 
     @ViewBuilder
     private var moreListView: some View {
-        List { listSections }
-            .toolbar(.hidden, for: .navigationBar)
-            .safeAreaInset(edge: .top) {
-                TopLevelTabHeader(title: "더보기") {
-                    NotificationButton { onOpen(.notifications) }
-                        .accessibilityLabel("알림")
-                }
+        VStack(spacing: 0) {
+            TopLevelTabHeader(title: "더보기") {
+                NotificationButton { onOpen(.notifications) }
+                    .accessibilityLabel("알림")
             }
-            .alert("로그아웃", isPresented: $showLogoutAlert) {
+            List { listSections }
+        }
+        .toolbar(.hidden, for: .navigationBar)
+        .alert("로그아웃", isPresented: $showLogoutAlert) {
                 Button("취소", role: .cancel) {}
                 Button("로그아웃", role: .destructive) {
                     guard let onSignOut else { return }
