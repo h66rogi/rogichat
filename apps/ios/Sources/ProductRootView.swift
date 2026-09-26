@@ -156,7 +156,7 @@ struct ProductRootView: View {
                     guard let scope = session.roomsScope else { return nil }
                     return AnyView(AccountAvatarSection(session: session, storage: roomsStorage, scope: scope, accountID: profile.id, originalAssetID: profile.avatarAssetID, apiBaseURL: nativeEnvironment.baseURL, originalProviderAvatarAvailable: profile.providerAvatarURL != nil))
                 })
-                    .id(session.generation)
+                    .id(session.account?.id)
             }
         case .account:
             if let account = session.account {
