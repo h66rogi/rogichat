@@ -156,7 +156,7 @@ struct LoggedInDevices: View {
             try Task.checkCancellation()
             devices = more ? devices + page.sessions.filter { candidate in !devices.contains { $0.id == candidate.id } } : page.sessions
             next = page.next
-        } catch { if !Task.isCancelled { error = "로그인된 기기를 확인하지 못했어요." } }
+        } catch { if !Task.isCancelled { self.error = "로그인된 기기를 확인하지 못했어요." } }
     }
 
     private func revoke(_ id: UUID) async {
@@ -166,7 +166,7 @@ struct LoggedInDevices: View {
             _ = try await session.accessRequest(.revokeSession(id.uuidString.lowercased()), expected: session.generation)
             devices.removeAll { $0.id == id }
             notice = "기기에서 로그아웃했어요."
-        } catch { error = "로그아웃 결과를 확인하지 못했어요. 목록을 다시 확인해 주세요." }
+        } catch { self.error = "로그아웃 결과를 확인하지 못했어요. 목록을 다시 확인해 주세요." }
     }
 }
 struct RoomTestAccess: View {

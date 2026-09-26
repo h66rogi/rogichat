@@ -37,6 +37,7 @@ async function fixture(t) {
   tx.now = async () => new Date('2026-09-20T00:00:00Z');
   tx.prisma = {
     auth_sessions: { updateMany: async input => { calls.push(['revoke', input]); return { count: 1 }; } },
+    push_subscriptions: { updateMany: async input => { calls.push(['revokePush', input]); return { count: 0 }; } },
     rate_buckets: {
       createMany: async input => { calls.push(['rate.create', input]); return { count: 1 }; },
       updateMany: async input => { calls.push(['rate.update', input]); if (input.data.used?.increment === 1) used++; return { count: 1 }; },
@@ -98,7 +99,7 @@ test('session projection and logout own bounded read/write transactions with man
   f.calls.length = 0;
   await assert.rejects(f.service.logout({ token }), { code: 'INVALID_REQUEST' }); assert.deepEqual(f.calls, []);
   await f.service.logout({ token, csrf: proof });
-  assert.deepEqual(f.calls.map(call => call[0]), ['write', 'require', 'revoke']);
+  assert.deepEqual(f.calls.map(call => call[0]), ['write', 'require', 'revoke', 'revokePush']);
   assert.deepEqual(f.calls[2][1], { where: { id: f.principal.sessionId }, data: { revoked_at: await f.tx.now() } });
   f.calls.length = 0; f.revoke();
   await assert.rejects(f.service.logout({ token, csrf: proof }), { code: 'UNAUTHENTICATED' });

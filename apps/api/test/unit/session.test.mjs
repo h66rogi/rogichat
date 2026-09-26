@@ -86,7 +86,7 @@ test('SessionRepository uses same-handle ORM reads/writes, DB clock and command 
     findFirst: async input => { calls.push(['find', input]); return row; },
     create: async input => { calls.push(['create', input]); return { id: input.data.id }; },
     updateMany: async input => { calls.push(['update', input]); return { count: 1 }; },
-  } } };
+  }, push_subscriptions: { updateMany: async input => { calls.push(['revokePush', input]); return { count: 0 }; } } } };
   assert.deepEqual(await repository.findCurrent(tx, digest(token), audience), { id: row.id, user_id: row.user_id, csrf_digest: digest(proof), status: 'ACTIVE', soop_status: 'VERIFIED', reviewer_expires_at: null, apple_verified: false });
   assert.deepEqual(calls[0][1].where, { token_digest: new Uint8Array(digest(token)), audience, transport: 'WEB', client_id: null, revoked_at: null, expires_at: { gt: now } });
   tx.writable = true; await repository.findCurrent(tx, digest(token), audience);
@@ -99,6 +99,7 @@ test('SessionRepository uses same-handle ORM reads/writes, DB clock and command 
   assert.deepEqual(calls[2][1].select, { id: true });
   await repository.revoke(tx, input.id);
   assert.deepEqual(calls[3], ['update', { where: { id: input.id }, data: { revoked_at: now } }]);
+  assert.deepEqual(calls[4], ['revokePush', { where: { session_id: input.id, revoked_at: null }, data: { revoked_at: now, generation: { increment: 1n } } }]);
 });
 
 test('session services have no legacy adapter dependency cycle and preserve primitive export identities', async () => {
