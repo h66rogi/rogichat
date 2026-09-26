@@ -7,6 +7,7 @@ struct MessageActionsPanel: View {
     let busy: Bool
     let reactions: MessageReactions?
     let unavailableActions: Set<MessageAction>
+    let showReactions: Bool
     let onAction: (ActionViewToken, MessageAction, String?) -> Void
     let onRefresh: (ActionViewToken) -> Void
     private struct Confirmation { let token: ActionViewToken; let action: MessageAction }
@@ -16,11 +17,11 @@ struct MessageActionsPanel: View {
         VStack(alignment: .leading) {
             if busy { ProgressView() }
             if let record, [.reported, .rejected, .blocked].contains(record.phase) { Text(actionStatus(record.phase)) }
-            if let reactions {
+            if showReactions, let reactions {
                 HStack { ForEach(reactions.counts, id: \.emoji) { count in Text("\(count.emoji) \(count.count)") } }
             }
             if record?.phase != .blocked {
-                HStack {
+                VStack(alignment: .leading) {
                     if token.selection.hints.delete, !token.selection.anonymous {
                         Button("삭제", role: .destructive) { confirmation = Confirmation(token: token, action: .delete) }.disabled(blocked(.delete))
                     }
@@ -28,14 +29,14 @@ struct MessageActionsPanel: View {
                         Button("익명으로 공개") { confirmation = Confirmation(token: token, action: .publish) }.disabled(blocked(.publish))
                     }
                 }
-                HStack { ForEach(reactionChoices, id: \.self) { emoji in
+                if showReactions { HStack { ForEach(reactionChoices, id: \.self) { emoji in
                     Button(emoji) { onAction(token, reactions?.mine == emoji ? .removeReaction : .setReaction, reactions?.mine == emoji ? nil : emoji) }
                         .padding(5)
                         .background(reactions?.mine == emoji ? Color.accentColor.opacity(0.18) : Color.clear, in: Capsule())
                         .disabled(blocked(reactions?.mine == emoji ? .removeReaction : .setReaction))
                         .accessibilityLabel("\(emoji) 반응\(reactions?.mine == emoji ? " 취소" : " 선택")")
                         .accessibilityValue(reactions?.mine == emoji ? "내 반응" : "")
-                } }
+                } } }
             }
         }
         .onChange(of: token) { _, _ in confirmation = nil }

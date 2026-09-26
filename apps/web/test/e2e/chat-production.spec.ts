@@ -577,6 +577,16 @@ test('reactions are a direct message action with a keyboard picker and compact r
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 });
 
+test('right-clicking a saved message opens reactions beside the message', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'Desktop context menu gesture');
+  await reactionApi(page);
+  await page.goto('/chat');
+  await page.getByTestId('chat-message-bubble').first().click({ button: 'right' });
+  await expect(page.getByRole('group', { name: '메시지 반응' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('group', { name: '메시지 반응' })).toHaveCount(0);
+});
+
 test('a recorded reaction can be selected directly below the message without another read', async ({ page }) => {
   const { state, reactions } = await reactionApi(page);
   state.messages = [{ ...incoming, reactions: { counts: [{ emoji: '👍', count: 2 }], mine: null } }];

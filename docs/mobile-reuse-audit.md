@@ -435,6 +435,7 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | ID | 원본 commit/path | 대상과 재사용 | 필요한 변경 |
 |---|---|---|---|
 | R69c | meloming-ios `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `Meloming/Presentation/TalkV2/CoreV2TalkRoomView.swift`의 반응 표시 및 `meloming-android` `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, `feature/talk/.../components/MessageBubble.kt` 확인 | Android/iOS 기존 Rogichat `ConversationMessage`, 캐시, `ConversationScreen`, 액션 전송을 직접 확장 | Meloming Talk/TalkV2 채팅 UX는 사용자 제외 범위라 이식하지 않는다. 기존 로기챗 API의 메시지별 `reactions`와 `quote.authorName`을 최초 응답과 캐시에 보존해 말풍선 아래 반응과 원문 이동을 구현한다. |
+| R69d | 기존 Rogichat Android `ConversationScreen.MessageBubble`·`MessageActionsPanel`, iOS `ConversationScreen.messageRow`·`MessageActionsPanel`의 선택 토큰과 확인 대화상자 | 기존 기능을 말풍선 기준 팝업/팝오버에 재배치하고 길게 누르기를 연결 | Meloming Talk/TalkV2 UX는 사용자 제외 범위이므로 가져오지 않는다. 카카오톡 공식 2026-05 반응 표시 이미지와 메시지 길게 누르기 이미지에서 확인한 빠른 선택 흐름을 기준으로 메시지 작업 바텀시트를 제거한다. 신고·삭제의 기존 권한 검사와 확인 절차는 그대로 재사용한다. |
 
 ## 비밀번호 인증·계정 보안 확장
 

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -12,8 +13,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
-import chat.rogi.rogichat.core.messageactions.ScrollAnchor
-import chat.rogi.rogichat.core.messageactions.MessageReactions
+import chat.rogi.rogichat.core.messageactions.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.ui.window.Dialog
@@ -23,6 +23,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -65,7 +66,7 @@ fun ConversationScreen(model: ConversationViewModel) {
         state.loading && data == null -> ScreenStatus("대화를 불러오는 중", "잠시만 기다려 주세요.", loading = true)
         data == null -> ScreenStatus("대화를 확인하지 못했어요", state.error ?: "대화 목록에서 참여 상태를 다시 확인해 주세요.", onRetry = model::refresh)
         else -> Column(Modifier.fillMaxSize().imePadding()) {
-            var showActions by remember(data.scope) { mutableStateOf(false) }
+            var actionMessageId by remember(data.scope) { mutableStateOf<String?>(null) }
             var openedMedia by remember(data.scope) { mutableStateOf<OpenedMessageMedia?>(null) }
             val mediaClient = remember(data.scope) { model.media(data.scope)?.client }
             openedMedia?.let { opened ->
@@ -81,14 +82,6 @@ fun ConversationScreen(model: ConversationViewModel) {
                     }
                 }
             }
-            state.action?.takeIf { showActions }?.let { action -> ModalBottomSheet(onDismissRequest = { showActions = false; model.closeActions() }) {
-                Column(Modifier.fillMaxWidth().padding(20.dp)) {
-                    action.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    MessageActionsPanel(action.token, action.record, action.busy, action.reactions, action.unavailable,
-                        { token, command, emoji -> model.action(token, command, emoji) }, model::refreshAction)
-                    MessageModerationPanel(action.token, action.busy, action.unavailable) { token, command, reason -> model.action(token, command, reason = reason) }
-                }
-            } }
             val listState = remember(data.scope) { LazyListState() }
             val visiblePending = data.outbox.filter { record ->
                 record.command.membership == data.scope.selection.membership.membershipScope &&
@@ -244,12 +237,19 @@ fun ConversationScreen(model: ConversationViewModel) {
                         color = MaterialTheme.colorScheme.primary)
                     MessageBubble(message, (message.author as? MessageAuthor.Member)?.actorId == model.selection.membership.actorId, media?.client,
                         canReply = model.selection.membership.role == RoomRole.STREAMER, onReply = { model.reply(message, data.scope) },
-                        onActions = { showActions = true; model.showActions(message, data.scope) },
+                        onActions = { actionMessageId = message.id.value; model.showActions(message, data.scope) },
+                        onHideActions = { actionMessageId = null },
+                        onDismissActions = { actionMessageId = null; model.closeActions() },
                         onReaction = { emoji -> model.react(message, data.scope, emoji) },
                         onQuoteNavigate = { userInteracted = true; attemptedQuoteCursor = null; quoteTarget = it; quoteNotice = null },
                         onOpenMedia = { openedMedia = it },
                         profile = data.profiles.find { it.actorId == (message.author as? MessageAuthor.Member)?.actorId },
-                        reactions = state.reactions[message.id] ?: message.reactions, showAuthor = startsGroup, showTime = endsGroup)
+                        reactions = state.reactions[message.id] ?: message.reactions,
+                        actionOpen = actionMessageId == message.id.value,
+                        actionState = state.action?.takeIf { it.token.selection.messageId == message.id.value },
+                        onAction = { token, command, emoji -> actionMessageId = null; model.action(token, command, emoji) },
+                        onModeration = { token, command, reason -> actionMessageId = null; model.action(token, command, reason = reason) },
+                        onRefreshAction = model::refreshAction, showAuthor = startsGroup, showTime = endsGroup)
                 }
                 if (data.historyCursor != null) item { TextButton(onClick = { userInteracted = true; model.history() }, modifier = Modifier.fillMaxWidth()) { Text("이전 메시지 보기") } }
                 if (data.messages.isEmpty() && visiblePending.isEmpty()) item {
@@ -305,8 +305,13 @@ private data class OpenedMessageMedia(val messageId: String, val assetId: String
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun MessageBubble(message: ConversationMessage, own: Boolean, media: MediaClient?, canReply: Boolean, onReply: () -> Unit,
-                          onActions: () -> Unit, onReaction: (String) -> Unit, onQuoteNavigate: (String) -> Unit,
+                          onActions: () -> Unit, onHideActions: () -> Unit, onDismissActions: () -> Unit,
+                          onReaction: (String) -> Unit, onQuoteNavigate: (String) -> Unit,
                           onOpenMedia: (OpenedMessageMedia) -> Unit, profile: ConversationProfile?, reactions: MessageReactions,
+                          actionOpen: Boolean, actionState: ConversationActionState?,
+                          onAction: (ActionViewToken, MessageAction, String?) -> Unit,
+                          onModeration: (ActionViewToken, MessageAction, ReportReason?) -> Unit,
+                          onRefreshAction: (ActionViewToken) -> Unit,
                           showAuthor: Boolean, showTime: Boolean) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = if (own) Alignment.End else Alignment.Start) {
         val author = when (val author = message.author) { MessageAuthor.Anonymous -> "익명"; is MessageAuthor.Member -> author.nickname }
@@ -319,7 +324,9 @@ private fun MessageBubble(message: ConversationMessage, own: Boolean, media: Med
         }
         if (showAuthor && !own) Text(author, style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Surface(shape = RoundedCornerShape(16.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
+        Box {
+        Surface(modifier = Modifier.pointerInput(message.id) { detectTapGestures(onLongPress = { onActions() }) },
+            shape = RoundedCornerShape(16.dp), color = if (own) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant) {
             Column(Modifier.padding(12.dp)) {
                 message.quote?.let { quote ->
                     TextButton(onClick = { onQuoteNavigate(quote.id.value) }, contentPadding = PaddingValues(0.dp)) {
@@ -353,6 +360,25 @@ private fun MessageBubble(message: ConversationMessage, own: Boolean, media: Med
                 }
             }
         }
+        DropdownMenu(expanded = actionOpen, onDismissRequest = onDismissActions, modifier = Modifier.widthIn(min = 280.dp, max = 340.dp)) {
+            Row(Modifier.padding(horizontal = 8.dp), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                reactionChoices.forEach { emoji ->
+                    TextButton(onClick = { onHideActions(); onReaction(emoji) }, enabled = actionState?.busy != true,
+                        modifier = Modifier.size(44.dp), contentPadding = PaddingValues(0.dp),
+                        colors = if (reactions.mine == emoji) ButtonDefaults.textButtonColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
+                        else ButtonDefaults.textButtonColors()) { Text(emoji, style = MaterialTheme.typography.titleLarge) }
+                }
+            }
+            HorizontalDivider()
+            if (canReply && !own && message.replyTarget != null) DropdownMenuItem(text = { Text("비공개 답장") }, onClick = { onDismissActions(); onReply() })
+            if (actionState == null) LinearProgressIndicator(Modifier.fillMaxWidth()) else {
+                actionState.error?.let { Text(it, Modifier.padding(12.dp), color = MaterialTheme.colorScheme.error) }
+                MessageActionsPanel(actionState.token, actionState.record, actionState.busy, actionState.reactions, actionState.unavailable,
+                    onAction, onRefreshAction, showReactions = false)
+                MessageModerationPanel(actionState.token, actionState.busy, actionState.unavailable, onModeration)
+            }
+        }
+        }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             reactions.counts.filter { it.count > 0 }.forEach { reaction ->
                 Surface(onClick = { onReaction(reaction.emoji) }, shape = RoundedCornerShape(14.dp),
@@ -371,8 +397,6 @@ private fun MessageBubble(message: ConversationMessage, own: Boolean, media: Med
         FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             if (showTime) Text(DateTimeFormatter.ofPattern("HH:mm").withZone(ZoneId.systemDefault()).format(message.createdAt), style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (canReply && !own && message.replyTarget != null) TextButton(onClick = onReply) { Text("답장") }
-            TextButton(onClick = onActions, modifier = Modifier.semantics { contentDescription = "메시지 작업" }) { Text("⋯") }
         }
     }
 }

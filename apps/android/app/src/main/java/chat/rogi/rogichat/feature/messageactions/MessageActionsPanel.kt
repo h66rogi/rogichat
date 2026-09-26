@@ -15,24 +15,24 @@ import chat.rogi.rogichat.core.messageactions.*
 @Composable
 fun MessageActionsPanel(token: ActionViewToken, record: ActionRecord?, busy: Boolean,
     reactions: MessageReactions?, unavailableActions: Set<MessageAction>, onAction: (ActionViewToken, MessageAction, String?) -> Unit,
-    onRefresh: (ActionViewToken) -> Unit) {
+    onRefresh: (ActionViewToken) -> Unit, showReactions: Boolean = true) {
     var confirmation by remember(token) { mutableStateOf<MessageAction?>(null) }
     val selected = token.selection
     fun blocked(action: MessageAction) = busy || action in unavailableActions
     Column {
         if (busy) CircularProgressIndicator()
         record?.takeIf { it.phase in setOf(ActionPhase.REPORTED, ActionPhase.REJECTED, ActionPhase.BLOCKED) }?.let { Text(actionStatus(it.phase)) }
-        reactions?.let { summary ->
+        if (showReactions) reactions?.let { summary ->
             Row { summary.counts.forEach { Text("${it.emoji} ${it.count}  ") } }
         }
         if (record?.phase != ActionPhase.BLOCKED) {
-            Row {
+            Column {
                 if (selected.hints.delete && !selected.anonymous) TextButton(enabled = !blocked(MessageAction.DELETE),
                     onClick = { confirmation = MessageAction.DELETE }) { Text("삭제") }
                 if (selected.hints.publish && !selected.anonymous && selected.contentKind in setOf("TEXT", "PHOTO"))
                     TextButton(enabled = !blocked(MessageAction.PUBLISH), onClick = { confirmation = MessageAction.PUBLISH }) { Text("익명으로 공개") }
             }
-            Row {
+            if (showReactions) Row {
                 reactionChoices.forEach { emoji ->
                     val selected = reactions?.mine == emoji
                     val command = if (selected) MessageAction.REMOVE_REACTION else MessageAction.SET_REACTION
