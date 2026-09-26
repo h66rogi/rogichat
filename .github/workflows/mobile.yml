@@ -18,6 +18,7 @@ jobs:
     outputs:
       android: ${{ steps.paths.outputs.android }}
       ios: ${{ steps.paths.outputs.ios }}
+      ios_build: ${{ steps.paths.outputs.ios_build }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -145,7 +146,7 @@ jobs:
         run: python3 -m unittest discover -s tools/mobile -p 'test_*.py'
   ios-build:
     needs: changes
-    if: needs.changes.outputs.ios == 'true'
+    if: needs.changes.outputs.ios_build == 'true'
     runs-on: macos-26
     timeout-minutes: 20
     env:
@@ -172,6 +173,7 @@ jobs:
           CHANGE_RESULT: ${{ needs.changes.result }}
           ANDROID_CHANGED: ${{ needs.changes.outputs.android }}
           IOS_CHANGED: ${{ needs.changes.outputs.ios }}
+          IOS_BUILD_CHANGED: ${{ needs.changes.outputs.ios_build }}
           ANDROID_RESULT: ${{ needs.android.result }}
           ANDROID_SIGNING_RESULT: ${{ needs.android-signing.result }}
           ANDROID_STORAGE_RESULT: ${{ needs.android-storage.result }}
@@ -183,7 +185,7 @@ jobs:
             true:success:success:success|false:skipped:skipped:skipped) ;;
             *) echo "unexpected Android result"; exit 1 ;;
           esac
-          case "$IOS_CHANGED:$IOS_STATE_RESULT:$IOS_BUILD_RESULT" in
-            true:success:success|false:skipped:skipped) ;;
+          case "$IOS_CHANGED:$IOS_BUILD_CHANGED:$IOS_STATE_RESULT:$IOS_BUILD_RESULT" in
+            true:true:success:success|true:false:success:skipped|false:false:skipped:skipped) ;;
             *) echo "unexpected iOS result"; exit 1 ;;
           esac
