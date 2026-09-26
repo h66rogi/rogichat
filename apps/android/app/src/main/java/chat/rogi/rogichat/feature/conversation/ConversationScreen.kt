@@ -215,20 +215,30 @@ fun ConversationScreen(model: ConversationViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(visiblePending.asReversed(), key = { "pending-${it.command.clientMessageId.value}" }) { record ->
                     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                        val targetName = record.command.recipient?.let { id -> data.profiles.find { it.actorId == id }?.nickname
+                            ?: data.messages.find { it.id == record.command.quote }?.author?.let { (it as? MessageAuthor.Member)?.nickname } ?: "선택한 팬" }
+                        if (targetName != null) Text("${targetName}님에게 답장", style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                            Text(if (record.phase == OutboxPhase.COMMITTED) "메시지를 볼 수 없어요." else
-                                record.command.media?.let { if (it is MediaContent.Sticker) "스티커" else "첨부 파일" } ?: record.command.text,
+                            val pendingText = when (val attachment = record.command.media) {
+                                is MediaContent.Sticker -> "스티커"
+                                is MediaContent.Attachment -> "${if (attachment.kind == MediaKind.VIDEO) "동영상" else "사진 ${attachment.assetIds.size}장"}${attachment.caption?.let { " · $it" } ?: ""}"
+                                null -> record.command.text
+                            }
+                            Text(if (record.phase == OutboxPhase.COMMITTED) "보낸 메시지를 확인하는 중이에요." else pendingText,
                                 Modifier.padding(12.dp), style = MaterialTheme.typography.bodyLarge)
                         }
                         Text(when (record.phase) {
                             OutboxPhase.PREPARED, OutboxPhase.SENDING -> if (state.sending) "보내는 중" else "전송이 지연되고 있어요"
-                            OutboxPhase.COMMITTED -> "보냄"
+                            OutboxPhase.COMMITTED -> "접수됨"
                             OutboxPhase.REJECTED -> "보내지 못했어요"
                             OutboxPhase.PARKED -> "보내지 않은 메시지"
-                            else -> "전송이 지연되고 있어요"
+                            else -> "보냈는지 확인하고 있어요"
                         }, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (record.phase in setOf(OutboxPhase.UNKNOWN, OutboxPhase.COMMITTED, OutboxPhase.SENDING, OutboxPhase.PREPARED))
                             TextButton(onClick = model::reconcile, enabled = !state.sending) { Text("다시 확인") }
+                        if (record.phase == OutboxPhase.REJECTED)
+                            TextButton(onClick = { model.restoreRejected(record, data.scope) }, enabled = !state.sending) { Text("내용 다시 작성") }
                     }
                 }
                 val messages = data.messages.asReversed()
@@ -261,9 +271,15 @@ fun ConversationScreen(model: ConversationViewModel) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 visibleQuote?.let { quote ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text("답장: ${quote.textSummary()}", Modifier.weight(1f), maxLines = 2, style = MaterialTheme.typography.bodySmall)
+                        val recipientName = draft.recipient?.let { id -> data.profiles.find { it.actorId == id }?.nickname
+                            ?: (quote.author as? MessageAuthor.Member)?.takeIf { it.actorId == id }?.nickname } ?: "선택한 팬"
+                        Text("${recipientName}님에게 답장 · ${quote.textSummary()}", Modifier.weight(1f), maxLines = 2, style = MaterialTheme.typography.bodySmall)
                         TextButton(onClick = model::clearReply, enabled = !draft.submitting) { Text("취소") }
                     }
+                }
+                if (draft.targetNeedsReview) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("답장할 글을 다시 선택해 주세요. 작성한 내용은 남아 있어요.", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = model::clearReply) { Text("답장 취소") }
                 }
                 if (media != null) {
                     if (draft.media != null) Row(verticalAlignment = Alignment.CenterVertically) {
@@ -287,7 +303,7 @@ fun ConversationScreen(model: ConversationViewModel) {
                     enabled = !draft.submitting && !draft.uploading && draft.media !is MediaContent.Sticker, placeholder = { Text(if (visibleQuote != null) "답장" else "메시지") },
                     supportingText = { Text(draft.error ?: if (draft.text.codePointCount(0, draft.text.length) >= 3800) "${4000 - draft.text.codePointCount(0, draft.text.length)}자 남음" else "") }, isError = draft.error != null)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    Button(onClick = { model.send(data.scope) }, enabled = !state.sending && !draft.submitting && !draft.uploading &&
+                    Button(onClick = { model.send(data.scope) }, enabled = !draft.targetNeedsReview && !state.sending && !draft.submitting && !draft.uploading &&
                         (draft.media != null || runCatching { TextCommand.normalizeText(draft.text) }.isSuccess) &&
                         (draft.quote == null || visibleQuote != null)) { Text("보내기") }
                 }

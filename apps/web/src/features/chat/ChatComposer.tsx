@@ -41,6 +41,7 @@ export interface ChatComposerProps {
   onCancelQuote?: (() => void) | undefined;
   /** True while a send for THIS target is pending: input becomes read-only but keeps focus. */
   isSubmitting?: boolean | undefined;
+  isUncertain?: boolean | undefined;
   /** Result or guidance for the current target. Errors are announced assertively, info politely. */
   notice?: ChatComposerNotice | null | undefined;
   /** Polite, target-labelled announcement for results that arrived for another target. */
@@ -64,6 +65,7 @@ export function ChatComposer({
   quote = null,
   onCancelQuote,
   isSubmitting = false,
+  isUncertain = false,
   notice = null,
   announcement = '',
   disabled = false,
@@ -79,7 +81,9 @@ export function ChatComposer({
 
   const locked = target === null || disabled;
   const isEmpty = value.trim().length === 0;
-  const canSend = !locked && !isEmpty && !isSubmitting && !submitBlocked && !submitBlockedReason;
+  const normalized = value.normalize('NFC');
+  const tooLong = [...normalized].length > 4000 || new TextEncoder().encode(normalized).length > 16384 || normalized.includes('\0');
+  const canSend = !locked && !isEmpty && !tooLong && !isSubmitting && !isUncertain && !submitBlocked && !submitBlockedReason;
 
   // Auto-height: measure line-height once per render, cap at MAX_LINES.
   useLayoutEffect(() => {
@@ -165,13 +169,13 @@ export function ChatComposer({
             }}
             rows={1}
             placeholder={quote ? '답장 입력' : '메시지 입력'}
-            readOnly={isSubmitting}
+            readOnly={isSubmitting || isUncertain}
             aria-busy={isSubmitting}
             autoComplete="off"
             autoCapitalize="sentences"
             enterKeyHint="send"
-            aria-describedby={notice ? noticeId : undefined}
-            aria-invalid={notice?.tone === 'error' ? true : undefined}
+            aria-describedby={notice || tooLong ? noticeId : undefined}
+            aria-invalid={notice?.tone === 'error' || tooLong ? true : undefined}
             className={cn(
               'min-h-11 flex-1 resize-none rounded-2xl border border-transparent bg-chat-other-bubble px-4 py-2.5 text-[16px] leading-normal text-ink outline-none',
               'placeholder:text-muted focus-visible:border-chat-accent focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-chat-accent',
@@ -195,10 +199,11 @@ export function ChatComposer({
       )}
 
       {submitBlockedReason && <div className="px-4 pb-2 text-sm text-muted"><p role="status">{submitBlockedReason}</p></div>}
+      {isUncertain && <p role="status" className="px-4 pb-2 text-sm text-muted">보냈는지 확인하는 중이에요. 작성한 내용은 그대로 남아 있어요. 위 메시지에서 다시 확인해 주세요.</p>}
       {/* Two regions so the assertive alert never carries a conflicting polite setting. */}
-      <div id={noticeId} className={cn('px-4 text-[13px]', notice || announcement ? 'pb-2' : 'sr-only')} data-testid="chat-composer-notice">
-        <p role="alert" className={cn('text-danger', !errorText && 'sr-only')} data-testid="chat-composer-error">
-          {errorText}
+      <div id={noticeId} className={cn('px-4 text-[13px]', notice || announcement || tooLong ? 'pb-2' : 'sr-only')} data-testid="chat-composer-notice">
+        <p role="alert" className={cn('text-danger', !errorText && !tooLong && 'sr-only')} data-testid="chat-composer-error">
+          {tooLong ? '메시지는 4,000자, 16KB 이내로 작성해 주세요.' : errorText}
         </p>
         <p role="status" aria-live="polite" aria-atomic="true" className={cn('text-muted', !infoText && !announcement && 'sr-only')} data-testid="chat-composer-status">
           {infoText}

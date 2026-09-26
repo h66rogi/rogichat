@@ -92,6 +92,9 @@ export interface ChatOutgoingMessage {
   id: string;
   body: string;
   kind: 'TEXT' | 'PHOTO' | 'VIDEO' | 'STICKER';
+  recipientName?: string | undefined;
+  quoteExcerpt?: string | undefined;
+  attachmentCount?: number | undefined;
   sending: boolean;
   checking: boolean;
   saved: boolean;

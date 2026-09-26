@@ -49,33 +49,38 @@ function PhotoDraft({ upload, roomId, target, onSubmit, onClose, submitBlocked, 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const retryId = useRef<string | undefined>(undefined);
+  const [uncertain, setUncertain] = useState(false);
+  const captionNfc = caption.normalize('NFC');
+  const captionTooLong = [...captionNfc].length > 4000 || new TextEncoder().encode(captionNfc).length > 16384 || captionNfc.includes('\0');
   const ready = selected && state.phase === 'ready' && state.receipt?.assetId === selected;
   const send = async () => {
-    if (!ready || pending.current || submitBlocked) return;
+    if (!ready || pending.current || submitBlocked || captionTooLong) return;
     pending.current = true; setBusy(true); setError(''); setNotice('');
     try {
       const result = await onSubmit({ target, body: caption, ...(kind === 'VIDEO' ? { video: upload } : { photo: upload }), ...(retryId.current ? { retryCommandId: retryId.current } : {}) });
       if (!upload.lifetime.isCurrent()) return;
-      if (result.accepted || result.pendingDelivery) { retryId.current = undefined;
+      if (result.accepted || result.pendingDelivery) { retryId.current = undefined; setUncertain(false);
         upload.clear(); setSelected(null); setCaption('');
         if (result.accepted && result.note) setNotice(result.note);
         else onClose();
       }
-      else { retryId.current = result.retryCommandId; setError(result.reason); }
+      else { retryId.current = result.retryCommandId; setUncertain(Boolean(result.retryCommandId)); setError(result.reason); }
     } catch { setError(`${label}을 보내는 중 문제가 생겼어요. 다시 확인해 주세요.`); }
     finally { pending.current = false; setBusy(false); }
   };
   return <section aria-label={`${label} 보내기`} className="space-y-3 border-t border-line p-4">
     <p className="font-semibold">{label} 보내기</p>
     <p className="text-sm">{label}을 선택하고 원하는 메시지를 함께 보내세요.</p>
-    <fieldset disabled={busy}><MediaUploadPanel upload={upload} lifetime={upload.lifetime} kind={kind} roomId={roomId} onReady={id => { if (selected !== id) retryId.current = undefined; setSelected(id); }} /></fieldset>
+    <fieldset disabled={busy || uncertain}><MediaUploadPanel upload={upload} lifetime={upload.lifetime} kind={kind} roomId={roomId} onReady={id => { if (selected !== id) { retryId.current = undefined; setUncertain(false); } setSelected(id); }} /></fieldset>
     {ready && kind === 'VIDEO' && <ScopedMediaVideo assetId={selected} context={{}} revision={`draft:${selected}`} />}
     {ready && kind === 'PHOTO' && <ScopedMediaImage assetId={selected} context={{ variant: 'image' }} alt="보낼 사진 미리보기" />}
-    <textarea value={caption} onChange={event => { setCaption(event.target.value); retryId.current = undefined; }} maxLength={4000}
+    <textarea value={caption} onChange={event => { if (!uncertain) setCaption(event.target.value); }} readOnly={uncertain}
       placeholder="메시지 추가" aria-label="첨부 파일과 함께 보낼 메시지" className="w-full rounded-xl border border-line bg-canvas px-3 py-2 text-ink" />
+    {captionTooLong && <p role="alert">메시지는 4,000자, 16KB 이내로 작성해 주세요.</p>}
+    {uncertain && <p role="status">보냈는지 확인하는 중이에요. 원래 첨부와 내용을 그대로 다시 시도할 수 있어요.</p>}
     {error && <p role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
-    <div className="flex gap-3"><Button disabled={!ready || busy || submitBlocked} onClick={() => void send()}>{busy ? `${label} 보내는 중` : `${label} 보내기`}</Button>
+    <div className="flex gap-3"><Button disabled={!ready || busy || submitBlocked || captionTooLong} onClick={() => void send()}>{busy ? `${label} 보내는 중` : uncertain ? `${label} 다시 보내기` : `${label} 보내기`}</Button>
       <Button variant="outline" disabled={busy} onClick={onClose}>{label} 첨부 닫기</Button></div>
   </section>;
 }

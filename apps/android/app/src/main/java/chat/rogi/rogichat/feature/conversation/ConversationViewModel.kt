@@ -34,7 +34,8 @@ class ConversationNavigation : ViewModel() {
 data class ConversationDraft(val text: String = "", val privateMessage: Boolean, val recipient: RoomId? = null,
                              val quote: ConversationMessage? = null, val recipientRevision: RoomId? = null,
                              val error: String? = null, val submitting: Boolean = false, val media: MediaContent? = null,
-                             val mediaScope: ConversationScope? = null, val uploading: Boolean = false)
+                             val mediaScope: ConversationScope? = null, val uploading: Boolean = false,
+                             val targetNeedsReview: Boolean = false)
 /** Render from the currently authorized projection even before the draft observer receives an update. */
 fun ConversationDraft.visibleQuote(data: ConversationData): ConversationMessage? = quote?.let { original ->
     data.messages.find { it.id == original.id }?.takeIf { it.replyTarget != null && it.replyTarget == recipient }
@@ -61,7 +62,7 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
                 } else if (current.data != null && draft.quote != null) {
                     val latest = current.data.messages.find { it.id == draft.quote.id }
                     mutableDraft.value = if (latest?.replyTarget == null || latest.replyTarget != draft.recipient) {
-                        draft.copy(privateMessage = false, quote = null, recipient = null, recipientRevision = null,
+                        draft.copy(privateMessage = false, quote = null, recipient = null, recipientRevision = null, targetNeedsReview = true,
                             error = "선택한 메시지에 지금 답장할 수 없어요.")
                     } else draft.copy(quote = latest)
                 }
@@ -78,9 +79,35 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
         if (mutableDraft.value.submitting || state.value.data?.scope != renderedScope || selection.membership.role != RoomRole.STREAMER) return
         val current = state.value.data?.messages?.find { it.id == message.id } ?: return
         if (current != message || current.replyTarget == null || (current.author as? MessageAuthor.Member)?.actorId == selection.membership.actorId) return
-        mutableDraft.value = mutableDraft.value.copy(privateMessage = true, recipient = current.replyTarget, quote = current, recipientRevision = null, error = null)
+        mutableDraft.value = mutableDraft.value.copy(privateMessage = true, recipient = current.replyTarget, quote = current, recipientRevision = null, targetNeedsReview = false, error = null)
     }
-    fun clearReply() { if (!mutableDraft.value.submitting) mutableDraft.value = mutableDraft.value.copy(privateMessage = false, quote = null, recipient = null, recipientRevision = null) }
+    fun clearReply() { if (!mutableDraft.value.submitting) mutableDraft.value = mutableDraft.value.copy(privateMessage = false, quote = null, recipient = null, recipientRevision = null,
+        media = if (mutableDraft.value.privateMessage || mutableDraft.value.targetNeedsReview) null else mutableDraft.value.media,
+        mediaScope = if (mutableDraft.value.privateMessage || mutableDraft.value.targetNeedsReview) null else mutableDraft.value.mediaScope,
+        targetNeedsReview = false, error = null) }
+    /** A server rejection is terminal. Restoring it is an explicit new draft, never a replay of an uncertain send. */
+    fun restoreRejected(record: OutboxRecord, renderedScope: ConversationScope) {
+        val data = state.value.data?.takeIf { it.scope == renderedScope } ?: return
+        if (record.phase != OutboxPhase.REJECTED || record.command.membership != renderedScope.selection.membership.membershipScope) return
+        val existing = mutableDraft.value
+        if (existing.submitting || existing.uploading || existing.text.isNotBlank() || existing.media != null) {
+            mutableDraft.value = existing.copy(error = "작성 중인 메시지를 먼저 확인해 주세요."); return
+        }
+        val command = record.command
+        val quote = command.quote?.let { id -> data.messages.find { it.id == id && it.replyTarget == command.recipient } }
+        if (command.intent == "PRIVATE" && quote == null) {
+            mutableDraft.value = existing.copy(error = "답장할 메시지를 다시 선택해 주세요."); return
+        }
+        val allowed = when (command.intent) {
+            "ROOM_OWNER" -> selection.membership.mode == RoomMode.FAN && selection.membership.role == RoomRole.FAN
+            "SHARED" -> selection.membership.role == RoomRole.STREAMER
+            else -> quote != null && selection.membership.role == RoomRole.STREAMER
+        }
+        if (!allowed) { mutableDraft.value = existing.copy(error = "지금은 이 메시지를 보낼 수 없어요."); return }
+        mutableDraft.value = existing.copy(text = (command.media as? MediaContent.Attachment)?.caption ?: command.text,
+            privateMessage = command.intent == "PRIVATE", recipient = command.recipient, quote = quote,
+            media = command.media, mediaScope = if (command.media != null) renderedScope else null, targetNeedsReview = false, error = null)
+    }
     fun startPolling() {
         if (polling?.isActive == true) return
         val refreshHints = resumedBefore
@@ -154,7 +181,7 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
     fun send(renderedScope: ConversationScope) {
         val current = state.value.data ?: return
         val draft = mutableDraft.value
-        if (current.scope != renderedScope || draft.submitting || draft.uploading || state.value.sending || draft.media != null && draft.mediaScope != renderedScope) return
+        if (current.scope != renderedScope || draft.targetNeedsReview || draft.submitting || draft.uploading || state.value.sending || draft.media != null && draft.mediaScope != renderedScope) return
         val text = try { if (draft.media == null) TextCommand.normalizeText(draft.text) else "" } catch (_: Exception) {
             mutableDraft.value = draft.copy(error = "메시지는 공백을 제외해 입력하고, 4,000자 이내로 작성해 주세요."); return
         }
@@ -182,7 +209,7 @@ class ConversationViewModel(private val repository: ConversationRepository, val 
                     if (draft.quote != null) ConversationDraft(privateMessage = false)
                     else draft.copy(text = "", submitting = false, error = null, media = null, mediaScope = null)
                 }
-                else draft.copy(submitting = false, error = "메시지를 보내기 위한 저장을 완료하지 못했어요. 다시 확인해 주세요.")
+                else draft.copy(submitting = false, error = "메시지를 보낼 수 없었어요. 내용과 연결 상태를 확인해 주세요.")
             } finally { if (mutableDraft.value.submitting) mutableDraft.value = mutableDraft.value.copy(submitting = false) }
         }
     }

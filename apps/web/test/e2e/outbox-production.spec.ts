@@ -131,7 +131,7 @@ test('confirmed send remains visible until the server timeline catches up', asyn
   state.holdProjection = new Promise<void>(resolve => { releaseProjection = resolve; });
   state.holdSend = null; releaseSend();
   const outgoing = page.getByTestId('chat-outgoing-message');
-  await expect(outgoing).toContainText('보냄');
+  await expect(outgoing).toContainText('접수됨');
   await expect(outgoing.getByText('화면에서 사라지지 않는 메시지', { exact: true })).toBeVisible();
   expect(state.pendingProjection).toBeDefined();
   state.messages = [state.pendingProjection!];

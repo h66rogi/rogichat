@@ -156,6 +156,19 @@ function ScopedChatRoom({
   const [notices, setNotices] = useState<Readonly<Partial<Record<ChatDraftKey, ChatComposerNotice>>>>({});
   /** Polite, target-labelled announcement for a result that arrived for another target. */
   const [announcement, setAnnouncement] = useState('');
+  const previousOutgoingIds = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    const current = new Set(outgoing.map(item => item.id));
+    const previous = previousOutgoingIds.current;
+    previousOutgoingIds.current = current;
+    if (!previous) return;
+    const settled = [...previous].filter(id => !current.has(id));
+    if (!settled.length) return;
+    setDrafts(drafts => {
+      const next = Object.fromEntries(Object.entries(drafts).filter(([, draft]) => !draft.retryCommandId || !settled.includes(draft.retryCommandId)));
+      return Object.keys(next).length === Object.keys(drafts).length ? drafts : next;
+    });
+  }, [outgoing]);
 
   // Scope-key remount unmounts this component; a resolving onSubmit from the old scope sees
   // mountedRef=false and does nothing.
@@ -173,10 +186,11 @@ function ScopedChatRoom({
     return () => window.clearTimeout(timer);
   }, [announcement]);
 
-  // A reply only exists while it still has a selected source message. Revoked fan
-  // authority locks the private draft; a removed quote returns to the role's default target.
-  const draftKeyTarget = requestedTarget?.scope === 'PRIVATE' && !readDraft(drafts, requestedTarget).quote ? defaultTarget : requestedTarget ?? defaultTarget;
-  const target = isAuthorizedTarget(draftKeyTarget, authorization) ? draftKeyTarget : null;
+  // A reply only exists while it still has a selected source message. If the
+  // quote loses authority, keep its draft locked until the author chooses a target.
+  const draftKeyTarget = requestedTarget ?? defaultTarget;
+  const replyNeedsReview = draftKeyTarget.scope === 'PRIVATE' && !readDraft(drafts, draftKeyTarget).quote;
+  const target = !replyNeedsReview && isAuthorizedTarget(draftKeyTarget, authorization) ? draftKeyTarget : null;
 
   const commitTarget = useCallback(() => {
     if (requestedTarget === null && draftKeyTarget !== null) setRequestedTarget(draftKeyTarget);
@@ -212,11 +226,12 @@ function ScopedChatRoom({
   const handleChange = useCallback(
     (value: string) => {
       if (!draftKeyTarget || !currentKey) return;
+      if (readDraft(drafts, draftKeyTarget).retryCommandId) return;
       commitTarget();
       setDrafts((prev) => writeDraft(prev, draftKeyTarget, { body: value, retryCommandId: undefined }));
       setNoticeFor(currentKey, null);
     },
-    [draftKeyTarget, currentKey, commitTarget, setNoticeFor],
+    [draftKeyTarget, currentKey, commitTarget, setNoticeFor, drafts],
   );
 
   const handleCancelQuote = useCallback(() => {
@@ -225,9 +240,26 @@ function ScopedChatRoom({
       setNoticeFor(currentKey, { tone: 'info', text: '보내는 중에는 인용을 바꿀 수 없습니다.' });
       return;
     }
-    setDrafts((prev) => clearDraft(prev, draftKeyTarget));
+    if (draft.retryCommandId) {
+      setNoticeFor(currentKey, { tone: 'info', text: '이 메시지의 전송 결과를 먼저 확인해 주세요.' });
+      return;
+    }
+    // Cancelling a reply must not erase a typed body. If the ordinary draft is
+    // already occupied, retain the reply draft separately for later selection.
+    setDrafts((prev) => {
+      const reply = readDraft(prev, draftKeyTarget);
+      const ordinary = readDraft(prev, defaultTarget);
+      const withoutQuote = writeDraft(prev, draftKeyTarget, { quote: null, retryCommandId: undefined });
+      return reply.body && !ordinary.body
+        ? writeDraft(clearDraft(withoutQuote, draftKeyTarget), defaultTarget, { body: reply.body })
+        : withoutQuote;
+    });
+    const ordinaryKey = draftKeyFor(defaultTarget);
+    if (draft.body && readDraft(drafts, defaultTarget).body) {
+      setNoticeFor(ordinaryKey, { tone: 'info', text: `${targetLabel(draftKeyTarget)}의 답장 초안은 남아 있어요. 그 팬 메시지에서 답장을 다시 선택하면 이어 쓸 수 있어요.` });
+    }
     setRequestedTarget(defaultTarget);
-  }, [draftKeyTarget, currentKey, isSubmittingCurrent, setNoticeFor, defaultTarget]);
+  }, [draftKeyTarget, currentKey, isSubmittingCurrent, setNoticeFor, defaultTarget, draft.body, draft.retryCommandId, drafts]);
 
   const handleReplyPrivate = useCallback(
     (item: ChatMessageItemModel) => {
@@ -243,6 +275,11 @@ function ScopedChatRoom({
       }
       const next: ChatComposerTarget = { scope: 'PRIVATE', recipient };
       const nextKey = draftKeyFor(next);
+      if (readDraft(drafts, next).retryCommandId) {
+        setRequestedTarget(next);
+        setNoticeFor(nextKey, { tone: 'info', text: '이 메시지의 전송 결과를 먼저 확인해 주세요.' });
+        return;
+      }
       if (submittingKey === nextKey) {
         // The quote of a draft that is being sent must not change under the pending send.
         setNoticeFor(nextKey, { tone: 'info', text: '보내는 중에는 인용을 바꿀 수 없습니다.' });
@@ -252,7 +289,7 @@ function ScopedChatRoom({
       if (!isSameTarget(next, requestedTarget)) setRequestedTarget(next);
       setDrafts((prev) => writeDraft(prev, next, { quote, retryCommandId: undefined }));
     },
-    [viewerRole, currentKey, streamerRecipients, requestedTarget, submittingKey, setNoticeFor],
+    [viewerRole, currentKey, streamerRecipients, requestedTarget, submittingKey, setNoticeFor, drafts],
   );
 
   const handleSubmit = useCallback(() => {
@@ -381,6 +418,11 @@ function ScopedChatRoom({
         })} />
       </div>)}
 
+      {replyNeedsReview && <div className="flex items-center justify-between gap-3 px-4 py-2 text-sm text-muted" role="status">
+        <span>답장할 글을 다시 선택해 주세요. 작성한 내용은 남아 있어요.</span>
+        <Button type="button" variant="ghost" size="sm" onClick={handleCancelQuote}>답장 취소</Button>
+      </div>}
+
       <ChatComposer
         target={onSubmit ? target : null}
         lockedReason={lockedReason}
@@ -390,6 +432,7 @@ function ScopedChatRoom({
         quote={draft.quote}
         onCancelQuote={handleCancelQuote}
         isSubmitting={isSubmittingCurrent}
+        isUncertain={Boolean(draft.retryCommandId)}
         notice={notice}
         announcement={announcement}
         disabled={onSubmit === undefined}

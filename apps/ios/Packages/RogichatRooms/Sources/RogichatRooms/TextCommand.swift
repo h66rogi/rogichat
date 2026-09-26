@@ -56,8 +56,8 @@ public struct StoredTextCommand: Equatable, Identifiable, Sendable {
     public var notice: String {
         switch phase {
         case .queued, .sending: "보내는 중"
-        case .unknown: "보내는 중"
-        case .committed: ""
+        case .unknown: "보냈는지 확인하고 있어요."
+        case .committed: "접수됨"
         case .deleted: ""
         case .rejected: "메시지를 보내지 못했어요."
         case .blocked: "메시지를 보내지 못했어요."

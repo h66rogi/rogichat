@@ -203,14 +203,18 @@ export class ChatController {
     for (const [id, pending] of this.awaitingProjection) {
       if (this.messages.some(message => message.id === pending.messageId) || !this.commandAuthorized(pending.command)) this.awaitingProjection.delete(id);
     }
-    this.state.outgoing = this.commands.pending().flatMap(command => {
+    this.state.outgoing = this.commands.pending().flatMap<ChatOutgoingMessage>(command => {
       if (!this.commandAuthorized(command) || !('payload' in command) || this.unpersisted.has(command.clientMessageId)) return [];
       const content = command.payload.content;
-      return [{ id: command.clientMessageId, body: content.type === 'TEXT' ? content.text : '', kind: content.type,
+      const quote = command.payload.quoteId ? this.messages.find(message => message.id === command.payload.quoteId) : undefined;
+      return [{ id: command.clientMessageId, body: content.type === 'TEXT' ? content.text : 'caption' in content ? content.caption ?? '' : '', kind: content.type,
+        recipientName: command.payload.intent === 'PRIVATE' ? this.state.recipients.find(person => person.actorId === command.payload.recipientActorId)?.displayName ?? '선택한 팬' : undefined,
+        quoteExcerpt: quote?.content.type === 'TEXT' ? truncateExcerpt(quote.content.text ?? '') : undefined,
+        attachmentCount: 'assetIds' in content ? content.assetIds.length : undefined,
         sending: this.sending && this.activeCommandId === command.clientMessageId,
         checking: this.reconciling.has(command.clientMessageId), saved: false, canRetry: !this.sending && !this.reconciling.has(command.clientMessageId) }];
     }).concat([...this.awaitingProjection].map(([id, pending]) => ({ id,
-      body: pending.command.payload.content.type === 'TEXT' ? pending.command.payload.content.text : '',
+      body: '',
       kind: pending.command.payload.content.type, sending: false, checking: false, saved: true, canRetry: false })));
     this.state.commandBusy = this.sending;
     if (patch.items) this.state.reactions = Object.fromEntries(Object.entries(this.state.reactions).filter(([id, value]) => this.messages.some(message => message.id === id && message.version === value.version)));
