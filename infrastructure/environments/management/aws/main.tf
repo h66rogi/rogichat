@@ -1,6 +1,10 @@
 # Management foundation only. No Terraform apply role, GitHub credentials,
 # webhook ingress, application network routes or worker are granted here.
 locals { name = "rogichat-management" }
+
+data "aws_eip" "qa" {
+  tags = { Name = "rogichat-qa-app" }
+}
 resource "aws_vpc" "management" {
   cidr_block           = "10.77.0.0/16"
   enable_dns_support   = true
@@ -28,6 +32,14 @@ resource "aws_security_group" "management" {
   name        = local.name
   description = "No public ingress; SSM bootstrap and outbound-established Tailscale"
   vpc_id      = aws_vpc.management.id
+}
+resource "aws_vpc_security_group_ingress_rule" "tailscale_direct" {
+  security_group_id = aws_security_group.management.id
+  description       = "Tailscale UDP from the QA EIP only"
+  cidr_ipv4         = "${data.aws_eip.qa.public_ip}/32"
+  ip_protocol       = "udp"
+  from_port         = 41641
+  to_port           = 41641
 }
 resource "aws_vpc_security_group_egress_rule" "management" {
   security_group_id = aws_security_group.management.id
@@ -86,8 +98,11 @@ resource "aws_instance" "management" {
     encrypted             = true
     delete_on_termination = true
   }
-  user_data = file("${path.module}/bootstrap.sh")
-  tags      = { Name = local.name }
+  user_data = join("\n", [
+    file("${path.module}/bootstrap.sh"),
+    "ufw allow from ${data.aws_eip.qa.public_ip}/32 to any port 41641 proto udp"
+  ])
+  tags = { Name = local.name }
   lifecycle {
     prevent_destroy = true
     ignore_changes  = [user_data]
