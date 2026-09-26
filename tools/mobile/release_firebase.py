@@ -1,16 +1,14 @@
-"""Narrow post-upload Firebase REST adapter using the operator's CLI login."""
+"""Narrow post-upload Firebase REST adapter using an explicit service identity."""
 import hashlib
 import json
-from pathlib import Path
 import re
-import shutil
-import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from release_common import APP_ID, NoRedirect, cli_environment, external, required
+from release_common import APP_ID, NoRedirect, external, required
 from release_android import firebase_json
+from firebase_auth import AccessToken
 
 
 def download_url(url):
@@ -35,21 +33,16 @@ class Firebase:
         if not match:
             raise ValueError("Expected an Android Firebase app identifier")
         directory = external(cfg["artifact_root"])
-        apps = firebase_json(["apps:list", "ANDROID", "--project", target["project_id"]], directory)
+        apps = firebase_json(["apps:list", "ANDROID", "--project", target["project_id"]], directory, cfg)
         if len([app for app in apps if app.get("appId") == target["app_id"] and app.get("packageName") == APP_ID]) != 1:
             raise ValueError("Firebase target is not the Rogichat QA Android app")
         self.project = "projects/" + match[1]
         self.app = self.project + "/apps/" + target["app_id"]
-        binary = shutil.which("firebase")
-        if not binary or not shutil.which("node"):
-            raise ValueError("Install the Firebase CLI and Node.js before finalization")
-        result = subprocess.run(["node", str(Path(__file__).with_name("firebase_session.cjs")), str(Path(binary).resolve())],
-                                cwd=directory, env=cli_environment(), capture_output=True, text=True, timeout=90)
-        if result.returncode:
-            raise RuntimeError("Firebase authentication unavailable; check the local CLI login")
-        self.token = json.loads(result.stdout)["access_token"]
-        if not isinstance(self.token, str) or not self.token:
-            raise RuntimeError("Firebase authentication returned no access token")
+        self.auth = AccessToken(cfg, directory)
+
+    @property
+    def token(self):
+        return self.auth.get()
 
     def request(self, resource, params=None, body=None):
         if not resource.startswith(self.project + "/") or "?" in resource or ".." in resource.split("/"):

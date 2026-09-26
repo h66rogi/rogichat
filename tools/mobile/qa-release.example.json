@@ -14,6 +14,7 @@
   },
   "firebase": {
     "project_id": "",
-    "app_id": ""
+    "app_id": "",
+    "credentials_file": "/absolute/path/outside/repositories/firebase-distribution.json"
   }
 }
