@@ -27,7 +27,7 @@ export function AvatarEditor({ assetId, hasProviderAvatar = false, busy, save }:
 
 function AvatarUpload({ upload, busy, apply }: { upload: MediaUpload; busy: boolean; apply: (id: string | null) => Promise<void> }) {
   const state = useSyncExternalStore(upload.subscribe, upload.getSnapshot, upload.getSnapshot);
-  return <fieldset disabled={busy}>
+  return <fieldset disabled={busy} className="min-w-0">
     {state.phase === 'ready' && state.receipt && <ScopedMediaImage assetId={state.receipt.assetId} context={{ variant: 'image' }} alt="선택한 프로필 사진 미리보기" />}
     <MediaUploadPanel upload={upload} lifetime={upload.lifetime} kind="AVATAR" onReady={id => { void apply(id); }} />
   </fieldset>;

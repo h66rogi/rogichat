@@ -349,6 +349,15 @@ GRDB host 시험과 Xcode 앱의 서로 다른 resolved 파일이 같은 revisio
 | R48 | Android `core/network/.../api/ApiClient.kt`, `auth/TokenStorage.kt`의 TokenStorage/StoredMfaChallengeRecordCodec; iOS `Core/Network/APIClient.swift`, `Core/Auth/KeychainService.swift` | 기존 closed HTTP·Android credential/pending·iOS credential envelope와 DB purge 경계 | **기존 추출 확장**: typed DELETE 경로와 보호 저장 primitive·주입·직렬화 경계를 재사용. 기존 원본의 refresh·운영 주소·analytics는 가져오지 않음 |
 | R49 | 원본 웹 탈퇴와 native 저장소 책임 대조 | 양 OS AccountDeletion contract/journal/state, NativeSessionCoordinator/NativeSessionService의 admission·owned request·복구 | **신규**: strict blocked receipt·unknown·최근 인증, 원래 scope CAS, 보호 admission과 DB 정리, crash no-replay·ACK 보존·기록과 표시 분리는 원본에 대응 구현이 없음. 원본을 읽은 사실을 native transaction 재사용으로 집계하지 않음 |
 
+## 로그인된 기기 화면 (2026-09-26)
+
+| 출처 | 적용 위치 | 재사용 내용과 차이 |
+| --- | --- | --- |
+| Android `meloming-android` `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17` `feature/more/.../ProfileSettingsScreen.kt` | `feature/settings/AccountAccessSettings.kt` | 기존 설정 섹션의 진행 상태·오류 후 재조회·명시적 확인 버튼 흐름을 사용했다. 원본에는 기기별 세션 목록/원격 로그아웃 화면이 없어 서버 응답과 계정 범위 검증을 새로 연결했다. |
+| iOS `meloming-ios` `18a33bbf96fe52b28d0de361916e20549bdcce6b` `Meloming/Presentation/More/MyPageView.swift` | `Features/Settings/SettingsScreen.swift`, `AccountScreen.swift` | 기존 계정 설정 진입·로그아웃 확인 구조를 사용했다. 원본에는 원격 기기 목록이 없어 SwiftUI `Section` 안에 현재 기기 표시와 다른 기기 해제를 새로 구현했다. |
+
+두 플랫폼 모두 앱 세션이 유효할 때만 목록을 요청하고, 다른 계정으로 전환되면 화면 상태를 폐기한다. 실제 TalkBack·VoiceOver, 큰 글씨 및 원격 해제 직후 상대 기기 화면 전환은 실기기에서 확인해야 한다.
+
 ## 실제 추출 확장 — TEXT 대화와 복구
 
 원본은 Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, iOS

@@ -49,7 +49,22 @@ export class SessionRepository {
   }
   consumeAuthRate(tx: Transaction, key: Buffer, limit: number): Promise<boolean> { return consumeRate(tx, key, limit, 60); }
   async revoke(tx: Transaction, sessionId: string): Promise<void> {
-    await tx.prisma.auth_sessions.updateMany({ where: { id: sessionId }, data: { revoked_at: await tx.now() } });
+    const now = await tx.now();
+    await tx.prisma.auth_sessions.updateMany({ where: { id: sessionId }, data: { revoked_at: now } });
+    await tx.prisma.push_subscriptions.updateMany({ where: { session_id: sessionId, revoked_at: null }, data: { revoked_at: now, generation: { increment: 1n } } });
+  }
+
+  async list(tx: Transaction, userId: string, audience: string, after?: string) {
+    const rows = await tx.prisma.auth_sessions.findMany({ where: { user_id: userId, audience, revoked_at: null, expires_at: { gt: await tx.now() }, ...(after ? { id: { lt: after } } : {}) },
+      orderBy: { id: 'desc' }, take: 51, select: { id: true, transport: true, client_id: true, created_at: true, expires_at: true } });
+    return { sessions: rows.slice(0, 50), next: rows.length > 50 ? rows[49]!.id : null };
+  }
+
+  async revokeOwned(tx: Transaction, userId: string, audience: string, targetId: string): Promise<boolean> {
+    const owned = await tx.prisma.auth_sessions.findFirst({ where: { id: targetId, user_id: userId, audience }, select: { id: true } });
+    if (!owned) return false;
+    await this.revoke(tx, targetId);
+    return true;
   }
 
 }

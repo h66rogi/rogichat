@@ -80,6 +80,20 @@ test('session-bound ownership, cross-account secrecy and registration/removal CA
   for (const secret of [input.endpoint, input.keys.auth, input.keys.p256dh, f.a.id, f.a.token]) assert.ok(!wire.includes(secret));
 });
 
+test('remote logout revokes the selected session and its push token in one commit', async t => {
+  const f = await fixture(t);
+  const registered = await f.service.register(f.a2, subscription());
+  await f.setPreferences(f.a, { pushEnabled: true });
+  assert.ok(await f.admit(registered.id));
+  const target = await f.actor(f.a2);
+  await f.auth.revokeSession(f.a, target.sessionId);
+  assert.equal(await f.admit(registered.id), null);
+  const row = await f.db.transactions.read(tx => tx.prisma.push_subscriptions.findUnique({ where: { id: registered.id }, select: { revoked_at: true } }));
+  assert.ok(row.revoked_at);
+  await assert.rejects(f.actor(f.a2), { code: 'UNAUTHENTICATED' });
+  assert.equal((await f.actor(f.a)).userId, f.a.id);
+});
+
 test('concurrent registration and stale removal serialize on real MySQL with exactly one CAS winner', async t => {
   const f = await fixture(t); const input = subscription(); const first = await f.service.register(f.a, input);
   const attempts = await Promise.allSettled([f.a, f.a2].map(person => f.service.register(person, { ...input, generation: first.generation })));

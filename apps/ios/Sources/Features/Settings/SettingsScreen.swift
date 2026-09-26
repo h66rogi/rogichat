@@ -103,6 +103,72 @@ struct AccountAccessSettings: View {
         }
     }
 }
+
+private struct LoginDevice: Decodable, Identifiable {
+    let id: UUID
+    let kind: String
+    let createdAt: String
+    let expiresAt: String
+    let current: Bool
+    var name: String { switch kind { case "ios": "iPhone 또는 iPad"; case "android": "Android 기기"; case "web": "웹 브라우저"; default: "다른 기기" } }
+}
+private struct LoginDevicesPage: Decodable { let sessions: [LoginDevice]; let next: UUID? }
+
+struct LoggedInDevices: View {
+    let session: AppSession
+    @State private var devices: [LoginDevice] = []
+    @State private var next: UUID?
+    @State private var busy = false
+    @State private var error: String?
+    @State private var notice: String?
+    @State private var confirmation: UUID?
+    @State private var revision = 0
+
+    var body: some View {
+        Section {
+            Text("사용하지 않는 기기는 여기에서 로그아웃할 수 있어요.").font(.footnote).foregroundStyle(.secondary)
+            if busy { ProgressView("기기 확인 중") }
+            if let notice { Text(notice).accessibilityAddTraits(.updatesFrequently) }
+            if let error { Text(error).foregroundStyle(.red); Button("다시 확인") { revision += 1 } }
+            ForEach(devices) { device in
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(device.name + (device.current ? " · 현재 기기" : "")).font(.headline)
+                    Text("로그인: " + (accessDate(device.createdAt)?.formatted(date: .abbreviated, time: .shortened) ?? "시간 확인 불가")).font(.footnote).foregroundStyle(.secondary)
+                    if !device.current { Button("\(device.name) 로그아웃", role: .destructive) { confirmation = device.id }.disabled(busy) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if next != nil { Button("기기 더 보기") { Task { await load(more: true) } }.disabled(busy) }
+        } header: { Text("로그인된 기기") }
+        .task(id: revision) { await load() }
+        .confirmationDialog("이 기기에서 로그아웃할까요?", isPresented: Binding(get: { confirmation != nil }, set: { if !$0 { confirmation = nil } }), titleVisibility: .visible) {
+            Button("로그아웃", role: .destructive) { if let confirmation { Task { await revoke(confirmation) } } }
+            Button("취소", role: .cancel) { confirmation = nil }
+        } message: { Text("해당 기기에서 더 이상 대화와 알림을 이용할 수 없어요.") }
+    }
+
+    private func load(more: Bool = false) async {
+        guard !busy else { return }
+        busy = true; error = nil; defer { busy = false }
+        let generation = session.generation
+        do {
+            let page = try JSONDecoder().decode(LoginDevicesPage.self, from: await session.accessRequest(.sessions(more ? next?.uuidString.lowercased() : nil), expected: generation))
+            guard page.sessions.count <= 50, page.sessions.allSatisfy({ ["web", "ios", "android", "other"].contains($0.kind) && accessDate($0.createdAt) != nil && accessDate($0.expiresAt) != nil }) else { throw ProductError.invalidResponse }
+            try Task.checkCancellation()
+            devices = more ? devices + page.sessions.filter { candidate in !devices.contains { $0.id == candidate.id } } : page.sessions
+            next = page.next
+        } catch { if !Task.isCancelled { error = "로그인된 기기를 확인하지 못했어요." } }
+    }
+
+    private func revoke(_ id: UUID) async {
+        guard !busy else { return }
+        busy = true; error = nil; notice = nil; defer { busy = false; confirmation = nil }
+        do {
+            _ = try await session.accessRequest(.revokeSession(id.uuidString.lowercased()), expected: session.generation)
+            devices.removeAll { $0.id == id }
+            notice = "기기에서 로그아웃했어요."
+        } catch { error = "로그아웃 결과를 확인하지 못했어요. 목록을 다시 확인해 주세요." }
+    }
+}
 struct RoomTestAccess: View {
     let session: AppSession
     @State private var room: AdminRooms.Room?

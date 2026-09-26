@@ -63,6 +63,23 @@ export class AuthService {
     });
   }
 
+  listSessions(credentials: SessionCredentials, after?: string) {
+    return this.unitOfWork.read(async tx => {
+      const actor = await this.require(tx, credentials);
+      const page = await this.sessionRepository.list(tx, actor.userId, this.config.audience, after);
+      return { sessions: page.sessions.map(row => ({ id: row.id, kind: row.transport === 'WEB' ? 'web' : row.client_id === 'ios' ? 'ios' : row.client_id === 'android' ? 'android' : 'other',
+        createdAt: row.created_at.toISOString(), expiresAt: row.expires_at.toISOString(), current: row.id === actor.sessionId })), next: page.next };
+    });
+  }
+
+  async revokeSession(credentials: SessionCredentials, targetId: string): Promise<void> {
+    requireCommandProof(credentials);
+    await this.unitOfWork.write(async tx => {
+      const actor = await this.require(tx, credentials);
+      if (!await this.sessionRepository.revokeOwned(tx, actor.userId, this.config.audience, targetId)) throw new ApiError('NOT_FOUND', 404);
+    });
+  }
+
   csrf(token: string): string { return this.sessionStore.csrf(token); }
   async charge(kind: 'start' | 'callback', clientIp: string | undefined): Promise<void> {
     // Only the configured ingress adapter supplies clientIp. Never store or log raw addresses.

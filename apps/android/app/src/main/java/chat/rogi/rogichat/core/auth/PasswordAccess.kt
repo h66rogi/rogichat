@@ -28,11 +28,13 @@ interface AccountAccessActions {
     suspend fun access(request: AccessRequest, expected: SessionIdentity): Result<String>
 }
 class AccessRequest private constructor(val method: String, val path: String, val body: String? = null, val status: Int = 200) {
-    val mutation get() = method == "POST"
+    val mutation get() = method != "GET"
     companion object {
         private fun id(value: String): String { require(value.matches(Regex("[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}"))); return value }
         private fun reason(value: String): String { require(value.isNotBlank() && value.codePointCount(0,value.length) <= 200 && value.none { it.code < 32 || it.code == 127 }); return value }
         fun me() = AccessRequest("GET", "me/capabilities")
+        fun sessions(after: String? = null) = AccessRequest("GET", "auth/sessions" + (after?.let { "?after=" + id(it) } ?: ""))
+        fun revokeSession(session: String) = AccessRequest("DELETE", "auth/sessions/${id(session)}", "{}", 204)
         fun rooms(after: String? = null) = AccessRequest("GET", "rooms" + (after?.let { "?after=" + id(it) } ?: ""))
         fun room(room: String) = AccessRequest("GET", "rooms/${id(room)}/capabilities")
         fun grants(room: String, after: String? = null) = AccessRequest("GET", "admin/rooms/${id(room)}/test-grants" + (after?.let { "?after="+id(it) } ?: ""))
