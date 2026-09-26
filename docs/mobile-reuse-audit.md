@@ -572,3 +572,14 @@ Android `feature/channel`의 이전 19개 파일을 모두 삭제했다. 그 뒤
 영향 점검: 변경은 모바일 내부 이식·연결 및 배포 의존성 검사에 한정한다. 웹/API 계약은
 변경하지 않는다. `rogichat-ops`, `rogimarble`, `rogi-collector`의 관련 경로·심볼 검색에서
 이 모바일 클래스/API 사용으로 인한 외부 변경 대상은 발견되지 않았다.
+
+## R86 — 대화 전송 복구와 답장 대상 표시 (2026-09-26)
+
+| 원본 | 대상 | 재사용 판단 |
+| --- | --- | --- |
+| 기존 Rogichat Android `core/conversation` 영속 outbox와 `ConversationViewModel` | Android 대화의 미확인·거절 행, 작성 상태 | 기존 동일 명령 조회와 방·회원 범위 검증을 유지한다. 거절된 명령만 새 초안으로 열고, 인용 권한과 실제 수신자를 다시 확인한다. 권한이 바뀐 답장은 사용자가 대상을 다시 선택할 때까지 전송을 막는다. |
+| 기존 Rogichat iOS `RogichatRooms/TextCommandDatabase.swift`와 `RoomConversationCoordinator.swift` | iOS `ConversationScreenModel`·`ConversationScreen` | 영속 명령과 조회 전용 복구를 그대로 사용한다. 거절된 명령의 내용·첨부·수신자를 다시 작성하는 화면을 추가하되 결과가 불명확한 명령을 새 ID로 자동 재발송하지 않는다. |
+
+Meloming Talk/TalkV2 채팅 UX는 사용자 제외 조건이며 같은 전송 계약과 영속 명령 모델도
+제공하지 않아 재사용하지 않았다. 이번 변경은 기존 Rogichat 전송 구조의 화면·상태 처리만
+확장한다. 실제 계정 및 푸시 도달 범위는 별도의 QA 검증으로 판정한다.

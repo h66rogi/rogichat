@@ -25,14 +25,15 @@ function CatalogPicker({ catalog, roomId, target, onSubmit, onClose, submitBlock
   const [busy, setBusy] = useState(false); const pending = useRef(false);
   const [notice, setNotice] = useState('');
   const retryId = useRef<string | undefined>(undefined);
+  const [uncertain, setUncertain] = useState(false);
   const send = async () => {
     if (!state.selected || pending.current || submitBlocked) return;
     pending.current = true; setBusy(true); setNotice('');
     try {
       const result = await onSubmit({ target, body: '', sticker: catalog, ...(retryId.current ? { retryCommandId: retryId.current } : {}) });
       if (!catalog.lifetime.isCurrent()) return;
-      if (result.accepted || result.pendingDelivery) { retryId.current = undefined; catalog.clear(); if (result.accepted && result.note) setNotice(result.note); else onClose(); }
-      else { retryId.current = result.retryCommandId; setNotice(result.reason); }
+      if (result.accepted || result.pendingDelivery) { retryId.current = undefined; setUncertain(false); catalog.clear(); if (result.accepted && result.note) setNotice(result.note); else onClose(); }
+      else { retryId.current = result.retryCommandId; setUncertain(Boolean(result.retryCommandId)); setNotice(result.reason); }
     } catch { setNotice('스티커를 보내는 중 문제가 생겼어요. 다시 확인해 주세요.'); }
     finally { pending.current = false; setBusy(false); }
   };
@@ -41,14 +42,15 @@ function CatalogPicker({ catalog, roomId, target, onSubmit, onClose, submitBlock
     {state.phase === 'loading' && <p role="status">스티커 목록을 불러오고 있습니다.</p>}
     {state.phase === 'error' && <p role="alert">스티커 목록을 확인하지 못했습니다. 다시 시도해 주세요.</p>}
     {state.phase === 'ready' && state.items.length === 0 && <p role="status">사용할 수 있는 스티커가 없습니다.</p>}
-    <div className="flex flex-wrap gap-2">{state.items.map(item => <Button key={item.id} type="button" variant="outline" aria-pressed={state.selected?.id === item.id} disabled={busy} onClick={() => {
-      try { if (state.selected?.id !== item.id) retryId.current = undefined; catalog.select(item.id); setNotice(''); } catch { setNotice('스티커 목록을 다시 확인해 주세요.'); }
+    <div className="flex flex-wrap gap-2">{state.items.map(item => <Button key={item.id} type="button" variant="outline" aria-pressed={state.selected?.id === item.id} disabled={busy || uncertain} onClick={() => {
+      try { if (state.selected?.id !== item.id) { retryId.current = undefined; setUncertain(false); } catalog.select(item.id); setNotice(''); } catch { setNotice('스티커 목록을 다시 확인해 주세요.'); }
     }}>{item.label}</Button>)}</div>
     {state.selected && <ScopedMediaImage assetId={state.selected.assetId} context={{ variant: 'image', roomId, stickerId: state.selected.id }} alt={`선택한 스티커: ${state.selected.label}`} />}
+    {uncertain && <p role="status">보냈는지 확인하는 중이에요. 원래 스티커를 그대로 다시 시도할 수 있어요.</p>}
     <div className="flex flex-wrap gap-2">
       {state.next && <Button variant="outline" disabled={busy} onClick={() => { void catalog.load(state.next!); }}>다음 스티커</Button>}
       <Button variant="outline" disabled={busy || state.phase === 'loading'} onClick={() => { void catalog.load(); }}>스티커 목록 다시 확인</Button>
-      <Button disabled={busy || !state.selected || submitBlocked} onClick={() => { void send(); }}>{busy ? '스티커 보내는 중' : '스티커 보내기'}</Button>
+      <Button disabled={busy || !state.selected || submitBlocked} onClick={() => { void send(); }}>{busy ? '스티커 보내는 중' : uncertain ? '스티커 다시 보내기' : '스티커 보내기'}</Button>
       <Button variant="outline" disabled={busy} onClick={onClose}>스티커 선택 닫기</Button>
     </div>
     {notice && <p role="status">{notice}</p>}

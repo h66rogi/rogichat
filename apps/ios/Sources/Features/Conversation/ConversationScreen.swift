@@ -302,7 +302,7 @@ struct ConversationScreen: View {
                         if let features { Task { await features.loadReaction(message) } }
                     }
             }
-            ForEach(listing.commands.filter { [.queued, .sending, .unknown, .rejected, .blocked].contains($0.phase) }) { command in
+            ForEach(listing.commands.filter { [.queued, .sending, .unknown, .committed, .rejected, .blocked].contains($0.phase) }) { command in
                 commandRow(command).id(command.id)
             }
             Color.clear.frame(height: 1).id("conversation-bottom")
@@ -424,6 +424,23 @@ struct ConversationScreen: View {
                 }.padding(12)
                     .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                     .padding(.horizontal, 12).padding(.bottom, 8)
+            }
+            if model.targetNeedsReview {
+                HStack {
+                    Text("답장할 글을 다시 선택해 주세요. 작성한 내용은 남아 있어요.")
+                    Spacer()
+                    Button("답장 취소") { model.cancelReply() }
+                }.font(.footnote).padding(.horizontal, 16).padding(.bottom, 8)
+            }
+            if let attachment = model.restoredAttachment {
+                HStack {
+                    Text(attachment.type == "PHOTO" ? "사진 \(attachment.assetIds?.count ?? 1)장" : attachment.type == "VIDEO" ? "동영상" : "스티커")
+                    Spacer()
+                    Button("첨부 취소") { model.clearRestoredAttachment() }
+                }.font(.subheadline).padding(.horizontal, 16).padding(.bottom, 8)
+            }
+            if let limit = model.draftLimitNotice {
+                Text(limit).font(.footnote).foregroundStyle(.red).padding(.horizontal, 16).accessibilityAddTraits(.updatesFrequently)
             }
             if let features, let (pending, receipt) = features.readyMedia {
                 HStack(spacing: 10) {
@@ -766,11 +783,29 @@ struct ConversationScreen: View {
     }
     private func commandRow(_ command: StoredTextCommand) -> some View {
         VStack(alignment: .trailing, spacing: 6) {
-            // A committed receipt without an authorized projection never displays retained body.
-            if [.queued, .sending, .unknown, .rejected].contains(command.phase), let text = command.command?.text {
-                Text(text).padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+            if command.phase == .committed {
+                Text("보낸 메시지를 확인하는 중이에요.").font(.subheadline)
+            }
+            if [.queued, .sending, .unknown, .rejected].contains(command.phase), let original = command.command {
+                if let recipient = original.recipientActorID {
+                    let name = model.listing?.profiles.first(where: { $0.id == recipient })?.nickname ?? "선택한 팬"
+                    Text("\(name)님에게 답장").font(.caption).foregroundStyle(.secondary)
+                }
+                if let attachment = original.attachmentContent {
+                    Text(attachment.type == "PHOTO" ? "사진 \(attachment.assetIds?.count ?? 1)장" : attachment.type == "VIDEO" ? "동영상" : "스티커")
+                        .padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                    if let caption = attachment.caption { Text(caption).font(.subheadline) }
+                } else {
+                    Text(original.text).padding(12).background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                }
             }
             if !command.notice.isEmpty { Text(command.notice).font(.caption).foregroundStyle(.secondary) }
+            if [.queued, .sending, .unknown].contains(command.phase) {
+                Button("다시 확인") { Task { await model.checkCommands() } }.disabled(model.sending || model.checking)
+            }
+            if command.phase == .rejected {
+                Button("내용 다시 작성") { model.restoreRejected(command); composing = true }.disabled(model.sending)
+            }
         }.frame(maxWidth: .infinity, alignment: .trailing).padding(.leading, 36)
     }
     private func time(_ value: String) -> String {

@@ -66,7 +66,8 @@ class ConversationViewModelTest {
         val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.STREAMER))
         val streamerScope = scope.copy(selection = selected)
         val state = MutableStateFlow(ConversationState(loading = false, data = data(original).copy(scope = streamerScope)))
-        val model = ConversationViewModel(Repository(state), selected, backgroundScope)
+        val repository = Repository(state)
+        val model = ConversationViewModel(repository, selected, backgroundScope)
         runCurrent(); model.text("작성 중 답장"); model.reply(original, streamerScope)
         val changed = original.copy(content = MessageContent.Text("새로 허용된 본문"))
         assertEquals(changed, model.draft.value.visibleQuote(data(changed))) // No stale frame before observer dispatch.
@@ -77,6 +78,9 @@ class ConversationViewModelTest {
         state.value = state.value.copy(data = data(changed.copy(actions = changed.actions.copy(reply = false)))); runCurrent()
         assertNull(model.draft.value.quote); assertNull(model.draft.value.recipient)
         assertFalse(model.draft.value.privateMessage); assertEquals("작성 중 답장", model.draft.value.text)
+        assertTrue(model.draft.value.targetNeedsReview)
+        model.send(streamerScope); runCurrent(); assertNull(repository.sent)
+        model.clearReply(); assertFalse(model.draft.value.targetNeedsReview)
     }
     @Test fun counterpartChangeNeverSilentlyRetargetsReplyAndAuthorityCloseErasesDraft() = runTest {
         val original = ConversationDtos.message(messageProjection()).copy(audience = "PRIVATE", counterpart = ACTOR_ID)

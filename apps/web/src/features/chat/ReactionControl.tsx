@@ -5,7 +5,7 @@ import { Popover } from 'radix-ui';
 import type { ChatController, ChatState } from './chat-controller';
 import type { ReactionSummary } from './reactions';
 
-export const ReactionContext = createContext<{ controller: ChatController; reactions: ChatState['reactions']; reactionRevision: number } | null>(null);
+export const ReactionContext = createContext<{ controller: ChatController; reactions: ChatState['reactions']; reactionRevision: number; disabled: boolean } | null>(null);
 const choices = [['👍', '좋아요'], ['❤️', '하트'], ['😂', '웃음'], ['🎉', '축하'], ['😮', '놀람'], ['😢', '슬픔']] as const;
 
 /** Aggregates are rendered from the timeline snapshot; the picker offers other reactions. */
@@ -15,12 +15,13 @@ export function ReactionControl({ messageId, initialSummary, align = 'start' }: 
   const state = context?.reactions[messageId];
   const controller = context?.controller;
   const revision = context?.reactionRevision;
+  const disabled = context?.disabled ?? false;
   useEffect(() => {
     // Updated message versions invalidate the aggregate; only an open picker rereads it.
-    if (open && !state && !initialSummary && controller) void controller.react(messageId);
-  }, [open, state, initialSummary, controller, messageId, revision]);
+    if (open && !disabled && !state && !initialSummary && controller) void controller.react(messageId);
+  }, [open, disabled, state, initialSummary, controller, messageId, revision]);
   if (!controller) return null;
-  const ready = state?.phase === 'ready' || (!state && initialSummary !== undefined);
+  const ready = !disabled && (state?.phase === 'ready' || (!state && initialSummary !== undefined));
   const busy = state?.phase === 'loading';
   const summary = state?.phase === 'ready' ? state.summary : state?.phase === 'loading' || !state ? initialSummary : null;
   const counts = summary?.counts ?? [];
@@ -33,12 +34,13 @@ export function ReactionControl({ messageId, initialSummary, align = 'start' }: 
     {counts.map(({ emoji, count }) => <button key={emoji} type="button" data-testid="chat-reaction-count" aria-label={`${emoji} 반응 ${count}개${summary?.mine === emoji ? ', 내 반응' : ''}`} aria-pressed={summary?.mine === emoji} disabled={!ready} onClick={() => choose(emoji)} className="relative inline-flex min-h-7 items-center gap-1 rounded-full bg-surface-soft px-2 text-[12px] leading-none text-body hover:bg-chat-other-bubble focus-visible:outline-2 focus-visible:outline-focus-ring before:absolute before:-inset-1.5 disabled:opacity-50">
       <span aria-hidden="true" className="text-[16px] leading-none">{emoji}</span><span aria-hidden="true">{count}</span>
     </button>)}
-    <Popover.Root open={open} onOpenChange={next => {
+    <Popover.Root open={open && !disabled} onOpenChange={next => {
+      if (disabled) return;
       setOpen(next);
       if (next && !state && !initialSummary) void controller.react(messageId);
     }}>
       <Popover.Trigger asChild>
-        <button type="button" aria-label="메시지에 반응 추가" aria-expanded={open} aria-busy={busy} data-testid="chat-reaction-trigger" className="relative flex size-7 items-center justify-center rounded-full bg-surface-soft text-muted hover:bg-chat-other-bubble hover:text-ink focus-visible:outline-2 focus-visible:outline-focus-ring before:absolute before:-inset-1.5">
+        <button type="button" aria-label="메시지에 반응 추가" aria-expanded={open && !disabled} aria-busy={busy} disabled={disabled} data-testid="chat-reaction-trigger" className="relative flex size-7 items-center justify-center rounded-full bg-surface-soft text-muted hover:bg-chat-other-bubble hover:text-ink focus-visible:outline-2 focus-visible:outline-focus-ring before:absolute before:-inset-1.5">
           <SmilePlus className="size-4" aria-hidden="true" />
         </button>
       </Popover.Trigger>

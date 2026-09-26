@@ -359,6 +359,12 @@ class AndroidRoomsStore(private val context: Context, private val environment: S
         if (row.phase in setOf(OutboxPhase.PREPARED.name, OutboxPhase.SENDING.name, OutboxPhase.UNKNOWN.name))
             dao.update(row.copy(phase = OutboxPhase.UNKNOWN.name, errorCode = errorCode))
     }
+    override suspend fun markRejected(scope: ConversationScope, commandId: RoomId, errorCode: String?, validate: () -> Unit): Unit = conversationTransaction(scope, validate) { dao, checkpoint ->
+        val row = requireNotNull(dao.command(checkpoint.roomId, commandId.value))
+        valid(row.membership == checkpoint.membership && row.authorization == checkpoint.authorization)
+        if (row.phase in setOf(OutboxPhase.PREPARED.name, OutboxPhase.SENDING.name, OutboxPhase.UNKNOWN.name))
+            dao.update(row.copy(phase = OutboxPhase.REJECTED.name, errorCode = errorCode))
+    }
     override suspend fun receipt(scope: ConversationScope, commandId: RoomId, receipt: CommandReceipt, validate: () -> Unit): ConversationData = conversationTransaction(scope, validate) { dao, checkpoint ->
         valid(receipt.clientMessageId == commandId)
         val row = dao.command(checkpoint.roomId, commandId.value) ?: return@conversationTransaction data(dao, scope)

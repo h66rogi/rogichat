@@ -91,6 +91,8 @@ private actor ModelConversation: ConversationCoordinating {
         let changed = try message(reply: false)
         await second.replace(listing([changed])); await other.refresh(); other.reply(to: original)
         check(other.quote == nil) // Old row closure cannot grant an action on a changed equal-version projection.
+        check(other.targetNeedsReview && !other.canSend)
+        other.cancelReply(); check(!other.targetNeedsReview)
         other.draft = "늦은 응답"; other.send(); await second.wait("owner late text")
         scope.invalidate(); await second.complete(.committed); try await finish(other)
         check(!other.active && other.listing == nil && other.draft.isEmpty && !other.canSend)

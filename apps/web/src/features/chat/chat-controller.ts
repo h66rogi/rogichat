@@ -23,6 +23,12 @@ export interface ChatState {
 const initial = (): ChatState => ({ storageError: null, commands: [], commandBusy: false, outgoing: [], reactions: {}, reactionRevision: 0, phase: 'loading', notice: null, epoch: 0, room: null, profiles: [], recipients: [], items: [], hasOlder: false, historyCursor: null, loadingOlder: false, error: null, firstUnreadMessageId: null });
 const inaccessible = (error: unknown) => [401, 403, 404].includes(Number(recordError(error).status));
 function recordError(error: unknown): { status?: unknown; code?: unknown } { return error !== null && typeof error === 'object' ? error : {}; }
+function temporarySyncError(error: unknown): boolean {
+  const { status, code } = recordError(error);
+  if (code === 'INVALID_RESPONSE' || code === 'INVALID_SESSION') return false;
+  const value = Number(status);
+  return value === 429 || value >= 500 || code === 'NETWORK_FAILURE';
+}
 class ResetRequired extends Error {}
 const differentHints = (a: ServerMessage, b: ServerMessage) => JSON.stringify([a.counterpart, a.allowedActions]) !== JSON.stringify([b.counterpart, b.allowedActions]);
 
@@ -188,7 +194,7 @@ export class ChatController {
   getSnapshot = (): ChatState => this.state;
   privacyContext = (messageId: string) => {
     const message = this.messages.find(item => item.id === messageId);
-    return !this.dead && this.state.phase === 'ready' && this.state.room && message
+    return !this.dead && this.state.phase === 'ready' && !this.state.error && this.state.room && message
       ? { scope: this.state.room, generation: this.state.epoch, message } : null;
   };
   mediaLifetime = (epoch = this.state.epoch): MediaLifetime => {
@@ -199,19 +205,29 @@ export class ChatController {
   private publish(patch: Partial<ChatState>) {
     if (this.dead) return;
     this.state = { ...this.state, ...patch, epoch: this.memory.epoch };
-    this.state.commands = this.commands.pending().map(command => ({ id: command.clientMessageId, canRetry: this.commandAuthorized(command) }));
+    this.state.commands = this.commands.pending().map(command => ({ id: command.clientMessageId, canRetry: !this.state.error && this.commandAuthorized(command) }));
     for (const [id, pending] of this.awaitingProjection) {
       if (this.messages.some(message => message.id === pending.messageId) || !this.commandAuthorized(pending.command)) this.awaitingProjection.delete(id);
     }
-    this.state.outgoing = this.commands.pending().flatMap(command => {
+    this.state.outgoing = this.commands.pending().flatMap<ChatOutgoingMessage>(command => {
       if (!this.commandAuthorized(command) || !('payload' in command) || this.unpersisted.has(command.clientMessageId)) return [];
       const content = command.payload.content;
-      return [{ id: command.clientMessageId, body: content.type === 'TEXT' ? content.text : '', kind: content.type,
+      const quote = command.payload.quoteId ? this.messages.find(message => message.id === command.payload.quoteId) : undefined;
+      return [{ id: command.clientMessageId, body: content.type === 'TEXT' ? content.text : 'caption' in content ? content.caption ?? '' : '', kind: content.type,
+        recipientName: command.payload.intent === 'PRIVATE' ? this.state.recipients.find(person => person.actorId === command.payload.recipientActorId)?.displayName ?? '선택한 팬' : undefined,
+        quoteExcerpt: quote?.content.type === 'TEXT' ? truncateExcerpt(quote.content.text ?? '') : undefined,
+        attachmentCount: 'assetIds' in content ? content.assetIds.length : undefined,
         sending: this.sending && this.activeCommandId === command.clientMessageId,
-        checking: this.reconciling.has(command.clientMessageId), saved: false, canRetry: !this.sending && !this.reconciling.has(command.clientMessageId) }];
-    }).concat([...this.awaitingProjection].map(([id, pending]) => ({ id,
-      body: pending.command.payload.content.type === 'TEXT' ? pending.command.payload.content.text : '',
-      kind: pending.command.payload.content.type, sending: false, checking: false, saved: true, canRetry: false })));
+        checking: this.reconciling.has(command.clientMessageId), saved: false, canRetry: !this.state.error && !this.sending && !this.reconciling.has(command.clientMessageId) }];
+    }).concat([...this.awaitingProjection].map(([id, pending]) => {
+      const content = pending.command.payload.content;
+      const quote = pending.command.payload.quoteId ? this.messages.find(message => message.id === pending.command.payload.quoteId) : undefined;
+      return { id, body: content.type === 'TEXT' ? content.text : 'caption' in content ? content.caption ?? '' : '', kind: content.type,
+        recipientName: pending.command.payload.intent === 'PRIVATE' ? this.state.recipients.find(person => person.actorId === pending.command.payload.recipientActorId)?.displayName ?? '선택한 팬' : undefined,
+        quoteExcerpt: quote?.content.type === 'TEXT' ? truncateExcerpt(quote.content.text ?? '') : undefined,
+        attachmentCount: 'assetIds' in content ? content.assetIds.length : undefined,
+        sending: false, checking: false, saved: true, canRetry: false };
+    }));
     this.state.commandBusy = this.sending;
     if (patch.items) this.state.reactions = Object.fromEntries(Object.entries(this.state.reactions).filter(([id, value]) => this.messages.some(message => message.id === id && message.version === value.version)));
     for (const listener of this.listeners) listener();
@@ -258,7 +274,14 @@ export class ChatController {
     const query = new URLSearchParams({ deviceId: this.deviceId, cacheId: this.cacheId, limit: '100' });
     if (from) query.set('cursor', from);
     const signal = this.abort.signal;
-    const data = envelope(await this.request(`${path}?${query}`, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }), kind);
+    let response: unknown;
+    try { response = await this.request(`${path}?${query}`, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }); }
+    catch (error) {
+      if (error instanceof TypeError || (error instanceof DOMException && error.name === 'TimeoutError'))
+        throw Object.assign(new Error('NETWORK_FAILURE'), { code: 'NETWORK_FAILURE' });
+      throw error;
+    }
+    const data = envelope(response, kind);
     if (signal.aborted || this.dead) throw new DOMException('Aborted', 'AbortError');
     if (data.resetRequired) throw new ResetRequired();
     if (kind !== 'manifest' && (!this.scope || data.membershipScope !== this.scope.membershipScope || data.authorizationRevision !== this.scope.authorizationRevision)) throw new ResetRequired();
@@ -286,7 +309,7 @@ export class ChatController {
     } catch { /* A later sync retries transient read-state failures. */ }
   }
   displayed = (messageId: string) => {
-    if (this.dead || !this.readContext || !this.messages.some(item => item.id === messageId) || this.readSeen.has(messageId)) return;
+    if (this.dead || this.state.error || !this.readContext || !this.messages.some(item => item.id === messageId) || this.readSeen.has(messageId)) return;
     this.readSeen.add(messageId);
     this.readQueue.push(messageId);
     this.readWriteRevision++;
@@ -438,6 +461,7 @@ export class ChatController {
   private async synchronize() {
     for (let attempt = 0; attempt < 2 && !this.dead; attempt++) {
       const signal = this.abort.signal;
+      let retainReadyOnFailure = false;
       try {
         const auth = await this.authorization();
         if (this.dead || signal.aborted) return;
@@ -446,9 +470,14 @@ export class ChatController {
           if (signal.aborted || this.dead) return;
           await this.reauthorizeComposer(auth.room, auth.recipients, signal);
         } else {
+          // A completed authority check lets a failed incremental read retain the
+          // already displayed conversation. Do not retain it after applying events.
+          retainReadyOnFailure = this.state.phase === 'ready' && this.state.room?.membershipScope === auth.room.membershipScope
+            && this.state.room.authorizationRevision === auth.room.authorizationRevision && this.state.room.actorId === auth.room.actorId;
           let more = true; const eventCursors = new Set<string>();
           while (more) {
             const page = await this.get(this.path('events'), 'events', this.eventCursor);
+            retainReadyOnFailure = false;
             if (signal.aborted || this.dead) return;
             const events = list(page.events).map(event);
             const nextMessages = this.messages.slice();
@@ -527,7 +556,12 @@ export class ChatController {
       } catch (error) {
         if (this.dead || signal.aborted) return;
         if (error instanceof ResetRequired) { this.clear(false, true); if (attempt === 0) continue; }
-        // A failed authorization/sync must never leave previously visible private content on screen.
+        if (retainReadyOnFailure && temporarySyncError(error)) {
+          this.publish({ error: '새 메시지를 확인하지 못했습니다. 다시 시도해 주세요.' });
+          return;
+        }
+        // Unverified authority, changed access, or partially applied events cannot
+        // keep the previous private display.
         this.clearAfterError(error);
         this.publish({ phase: 'error', error: inaccessible(error) ? '채팅 접근 권한이 변경되었습니다. 다시 확인해 주세요.' : '메시지를 불러오지 못했습니다. 다시 시도해 주세요.' });
         if (Number(recordError(error).status) === 401) this.onInvalidate?.();
@@ -598,7 +632,7 @@ export class ChatController {
     this.eventCursor = string(page.nextCursor); this.historyCursor = cursor(page.historyCursor);
   }
   loadOlder = async (): Promise<void> => {
-    if (this.dead || !this.historyCursor || this.state.phase !== 'ready') return;
+    if (this.dead || !this.historyCursor || this.state.phase !== 'ready' || this.state.error) return;
     if (this.flight) {
       if (this.state.loadingOlder) return;
       await this.flight;
@@ -639,7 +673,7 @@ export class ChatController {
   /** Explicit reads only: no per-row mount fanout or automatic mutation retries. */
   react = async (messageId: string, emoji?: string | null): Promise<void> => {
     const item = this.messages.find(message => message.id === messageId);
-    if (this.dead || this.state.phase !== 'ready' || !item || this.deleting || this.reactionFlights.has(messageId)) return;
+    if (this.dead || this.state.phase !== 'ready' || this.state.error || !item || this.deleting || this.reactionFlights.has(messageId)) return;
     const version = item.version; const projection = this.projectionGeneration; const signal = this.abort.signal;
     const flights = this.reactionFlights;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration && this.messages.some(message => message.id === messageId && message.version === version);
@@ -682,7 +716,7 @@ export class ChatController {
     }
   };
   remove = async (messageId: string): Promise<ChatSubmitResult> => {
-    if (this.dead || this.deleting || this.sending || this.state.phase !== 'ready') return { accepted: false, reason: '다른 요청을 확인한 뒤 다시 시도해 주세요.' };
+    if (this.dead || this.deleting || this.sending || this.state.phase !== 'ready' || this.state.error) return { accepted: false, reason: '다른 요청을 확인한 뒤 다시 시도해 주세요.' };
     const owned = this.messages.find(item => item.id === messageId);
     if (!owned?.allowedActions.delete) return { accepted: false, reason: '내 메시지만 삭제할 수 있습니다.' };
     const signal = this.abort.signal; const projection = this.projectionGeneration; this.deleting = true;
@@ -732,7 +766,7 @@ export class ChatController {
   reconcile = async (id: string): Promise<void> => {
     await this.flight;
     const command = this.commands.get(id);
-    if (this.dead || this.sending || this.deleting || this.reconciling.has(id) || this.state.phase !== 'ready' || command?.status !== 'unknown' || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== this.roomId) return;
+    if (this.dead || this.sending || this.deleting || this.reconciling.has(id) || this.state.phase !== 'ready' || this.state.error || command?.status !== 'unknown' || command.accountPartition !== this.accountPartition || command.sessionBinding !== this.sessionBinding || command.roomId !== this.roomId) return;
     const signal = this.abort.signal; const projection = this.projectionGeneration;
     const current = () => !this.dead && !signal.aborted && projection === this.projectionGeneration;
     this.reconciling.add(id); this.publish({});
@@ -759,7 +793,7 @@ export class ChatController {
   };
   retry = async (id: string): Promise<void> => {
     const command = this.commands.get(id);
-    if (command?.status !== 'unknown' || !('payload' in command) || !this.commandAuthorized(command) || this.reconciling.has(id)) return;
+    if (this.state.error || command?.status !== 'unknown' || !('payload' in command) || !this.commandAuthorized(command) || this.reconciling.has(id)) return;
     const signal = this.abort.signal; const projection = this.projectionGeneration;
     const payload = command.payload;
     const recipient = this.state.recipients.find(item => item.actorId === payload.recipientActorId);
@@ -782,7 +816,7 @@ export class ChatController {
     await this.flight;
     if (submission.retryCommandId && this.reconciling.has(submission.retryCommandId)) return { accepted: false, reason: '아직 보내는 중이에요. 잠시 후 다시 시도해 주세요.' };
     const room = this.state.room;
-    if (this.dead || this.sending || this.deleting || this.state.phase !== 'ready' || !room || !this.accountPartition || !this.sessionBinding) return { accepted: false, reason: '채팅 연결을 확인한 뒤 다시 시도해 주세요.' };
+    if (this.dead || this.sending || this.deleting || this.state.phase !== 'ready' || this.state.error || !room || !this.accountPartition || !this.sessionBinding) return { accepted: false, reason: '채팅 연결을 확인한 뒤 다시 시도해 주세요.' };
     const text = submission.body.normalize('NFC');
     let content: SendPayload['content'];
     const prior = submission.retryCommandId ? this.commands.get(submission.retryCommandId) : undefined;

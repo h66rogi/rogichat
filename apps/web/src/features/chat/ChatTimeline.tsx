@@ -318,12 +318,14 @@ export function ChatTimeline({
           {outgoing.map(item => <li key={`outgoing-${item.id}`} data-item-id={`outgoing-${item.id}`} data-testid="chat-outgoing-message">
             <div className="flex justify-end px-3 py-1">
               <div className="flex max-w-[min(100%,36rem)] flex-col items-end gap-1">
+                {item.recipientName && <p className="px-1 text-xs font-medium text-muted">{item.recipientName}님에게 답장</p>}
+                {item.quoteExcerpt && <p className="max-w-full truncate px-1 text-xs text-muted">답장한 글: {item.quoteExcerpt}</p>}
                 <div className="min-w-0 whitespace-pre-wrap break-words rounded-2xl rounded-br-xs bg-chat-accent px-3.5 py-2.5 text-[15px] leading-[1.45] text-canvas">
-                  {item.kind === 'TEXT' ? item.body : item.kind === 'PHOTO' ? '사진' : item.kind === 'VIDEO' ? '영상' : '스티커'}
+                  {item.kind === 'TEXT' ? item.body || '메시지를 확인하는 중' : <>{item.kind === 'PHOTO' ? `사진 ${item.attachmentCount ?? 1}장` : item.kind === 'VIDEO' ? '영상' : '스티커'}{item.body && <span className="block">{item.body}</span>}</>}
                 </div>
                 <div className="flex items-center gap-2 px-1 text-[12px] text-muted" role="status">
-                  {item.saved ? <><Check className="size-3.5" aria-hidden="true" />보냄</> : item.sending || item.checking ? <><LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />보내는 중</> : <><CircleAlert className="size-3.5" aria-hidden="true" />전송이 지연되고 있어요</>}
-                  {!item.sending && !item.checking && item.canRetry && onRetryOutgoing && <button type="button" className="rounded-full px-2 py-1 font-semibold text-chat-accent hover:bg-surface-soft focus-visible:outline-2 focus-visible:outline-focus-ring" disabled={outgoingBusy} onClick={() => void onRetryOutgoing(item.id)}>다시 보내기</button>}
+                  {item.saved ? <><Check className="size-3.5" aria-hidden="true" />접수됨</> : item.sending || item.checking ? <><LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />확인 중</> : <><CircleAlert className="size-3.5" aria-hidden="true" />전송 결과를 확인하지 못했어요</>}
+                  {!item.sending && !item.checking && item.canRetry && onRetryOutgoing && <button type="button" title="같은 내용과 대상으로 다시 시도합니다" className="rounded-full px-2 py-1 font-semibold text-chat-accent hover:bg-surface-soft focus-visible:outline-2 focus-visible:outline-focus-ring" disabled={outgoingBusy} onClick={() => void onRetryOutgoing(item.id)}>다시 보내기</button>}
                 </div>
               </div>
             </div>

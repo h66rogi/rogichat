@@ -34,6 +34,7 @@ internal class ConversationMemory : ConversationStore {
     }
     override suspend fun markSending(scope: ConversationScope, commandId: RoomId, validate: () -> Unit) { validate(); rows.replaceAll { if (it.command.clientMessageId == commandId) it.copy(phase = OutboxPhase.SENDING) else it } }
     override suspend fun markUnknown(scope: ConversationScope, commandId: RoomId, errorCode: String?, validate: () -> Unit) { validate(); rows.replaceAll { if (it.command.clientMessageId == commandId) it.copy(phase = OutboxPhase.UNKNOWN) else it } }
+    override suspend fun markRejected(scope: ConversationScope, commandId: RoomId, errorCode: String?, validate: () -> Unit) { validate(); rows.replaceAll { if (it.command.clientMessageId == commandId) it.copy(phase = OutboxPhase.REJECTED, errorCode = errorCode) else it } }
     override suspend fun receipt(scope: ConversationScope, commandId: RoomId, receipt: CommandReceipt, validate: () -> Unit): ConversationData {
         validate(); require(commandId == receipt.clientMessageId)
         rows.replaceAll { if (it.command.clientMessageId != commandId) it else when(receipt) {
@@ -82,6 +83,20 @@ private class ConversationAccess(private val api: NativeApi) : ConversationGatew
 }
 @OptIn(ExperimentalCoroutinesApi::class)
 class ConversationCoordinatorTest {
+    @Test fun explicitValidationRejectionIsRecoverableWithoutRetryingTheOldCommand() = runTest {
+        val api = ConversationTransport(); val store = ConversationMemory()
+        api.sending = { throw ApiException(400, "INVALID_TEXT") }
+        val model = RoomConversationCoordinator(ConversationAccess(api), store, backgroundScope)
+        val handle = model.open(selection); runCurrent()
+        val scope = requireNotNull(handle.state.value.data).scope
+        val command = TextCommand(ACTOR_ID, SCOPE_M, "SHARED", null, null, "고쳐 쓸 원문")
+        model.send(handle, TextSendIntent(scope, command, null)).getOrThrow(); runCurrent()
+        assertEquals(OutboxPhase.REJECTED, store.rows.single().phase)
+        assertEquals("INVALID_TEXT", store.rows.single().errorCode)
+        model.reconcile(handle); runCurrent()
+        assertEquals(1, api.sends)
+        assertEquals(0, api.lookups)
+    }
     @Test fun oldFanSharedOutboxIsOnlyCheckedForReceiptAndNewSharedSendIsRejected() = runTest {
         val api = ConversationTransport(); val store = ConversationMemory()
         val selected = selection.copy(membership = selection.membership.copy(mode = RoomMode.FAN, role = RoomRole.FAN))
