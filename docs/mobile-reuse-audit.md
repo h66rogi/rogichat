@@ -454,6 +454,24 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 원본 저장소는 읽기만 했다. 활성 메뉴의 공개 조회는 실제 API/진짜 빈 상태로 연결했다.
 원본의 채널 소유자 편집·팬 즐겨찾기/신청곡/방명록 상호작용은 모바일 보호 세션에 맞춘
 쓰기 계약이 아직 없으므로 버튼을 노출하지 않는다. 이 범위는 공개 채널 표시와 구분한다.
+
+### 2026-09-26 채널 화면 원본 재이식
+
+이전 R79·R81의 작은 화면 조각 이식만으로는 멜로밍 채널 화면의 구성이 보존되지 않았다.
+기본 홈 탭, 원본 노래책 필터와 상세, 날짜별 일정 화면, 채널 전용 색상·글꼴이 빠진
+상태였으므로 아래 파일을 원본 저장소에서 직접 복사하고 후로기 공개 API에 맞춰 수정했다.
+
+| 원본 commit·파일 | 대상 | 원본 보존과 필요한 수정 |
+|---|---|---|
+| Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17` `feature/channel/.../component/HomeTab.kt`, `ScheduleTab.kt`, `SongbookTab.kt`, `SongDetailBottomSheet.kt` | `ChannelHomeTab.kt`, `ChannelScheduleTab.kt`, `ChannelSongbookFilters.kt`, `ChannelSongDetailBottomSheet.kt` | 원본 홈 유리 카드·일정 날짜 묶음·노래 카테고리/가수/난이도 필터·상세 UI 본문을 복사. 원본의 클립·방명록 및 선물·신청곡·좋아요·편집 쓰기 UI는 현재 채널 설정/모바일 보호 계약에 없는 부분만 제거. |
+| Android 같은 SHA `core/designsystem/component/MelomingSearchBar.kt`, `core/designsystem/theme/{Color,Theme,Typography}.kt`, `core/designsystem/src/main/res/font/{ibm_plex_sans_kr_*,paperlogy_*}.ttf` | `ChannelSearchBar.kt`, `feature/channel/theme/`, `app/src/main/res/font/` | 원본 검색창·인디고 색상·타이포그래피·글꼴 파일을 직접 복사. 채널 화면 범위에만 테마를 적용하고 패키지·리소스 참조를 변경. 폰트의 OFL 저작권 고지와 라이선스는 `app/src/main/assets/licenses/`에 포함. |
+| iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b` `Presentation/Channel/{ChannelHomeSectionView,SongBookView,SongBookViewModel,SongDetailSheet,ScheduleView,ScheduleViewModel}.swift`, `SongBookView.swift`의 `SongRow`·`CopyToastView`, `ChannelDetailView.swift`의 `HTMLTextView`, `Presentation/Common/Components/{FlowLayout,ErrorView,LoadingView}.swift` | 같은 이름의 `Sources/Features/Channel/` 파일 및 `ChannelDetailView.swift` | 원본 홈 섹션·노래책 필터/행/상세·일정 날짜 묶음/상세·HTML 소개·레이아웃·빈 상태·로딩 화면을 파일 단위로 복사. Kingfisher 이미지는 현재 공개 이미지 어댑터로 교체. 채널 공개 조회는 후로기 경로로 연결하고 원본의 편집·선물·신청곡·좋아요·클립/방명록 상호작용만 현재 계약 범위에 맞춰 제거. 채널 범위에 원본 인디고 강조색을 적용. |
+
+양 OS의 홈은 원본 기본 탭으로 복원했다. 후로기 API의 `home` feature key는 현재
+비활성화되어 있지만 공개 프로필·노래·일정 데이터가 제공되므로 홈 탭은 기본으로 표시한다.
+클립·방명록은 해당 feature key가 비활성이고 모바일 조회 계약이 연결되지 않은 상태라
+빈 콘텐츠를 만들어 표시하지 않는다. 본 이식은 홈·노래책·일정의 공개 읽기 화면에 한정하며,
+셋리스트·옷장은 기존 공개 조회 이식을 유지한다.
 ## iOS 더보기 개발자 도구 복원
 
 | ID | 원본·대상 | 재사용과 변경 경계 |

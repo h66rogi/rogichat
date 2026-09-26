@@ -6,7 +6,7 @@ struct ChannelDetailView: View {
     let identifier: String
     let onTalk: () -> Void
     @StateObject private var viewModel: ChannelDetailViewModel
-    @State private var selectedTab: ChannelTab = .songBook
+    @State private var selectedTab: ChannelTab = .home
 
     struct ChannelResolvedTab: Identifiable, Equatable {
         let tab: ChannelTab
@@ -16,9 +16,10 @@ struct ChannelDetailView: View {
     }
 
     enum ChannelTab: String, Hashable {
-        case songBook = "노래책", schedule = "캘린더", setlist = "셋리스트", wardrobe = "옷장"
+        case home = "홈", songBook = "노래책", schedule = "캘린더", setlist = "셋리스트", wardrobe = "옷장"
         var icon: String {
             switch self {
+            case .home: "house.fill"
             case .songBook: "music.note.list"
             case .schedule: "calendar"
             case .setlist: "list.number"
@@ -30,12 +31,12 @@ struct ChannelDetailView: View {
             "setlist": .setlist, "wardrobe": .wardrobe
         ]
         static var fallbackResolvedTabs: [ChannelResolvedTab] {
-            [ChannelTab.songBook, .schedule, .setlist, .wardrobe]
+            [ChannelTab.home, .songBook, .schedule, .setlist, .wardrobe]
                 .map { ChannelResolvedTab(tab: $0, label: $0.rawValue) }
         }
         static func resolveTabs(from settings: ChannelFeatureSettingsResponse?) -> [ChannelResolvedTab] {
             guard let settings else { return fallbackResolvedTabs }
-            var resolved: [ChannelResolvedTab] = []
+            var resolved: [ChannelResolvedTab] = [ChannelResolvedTab(tab: .home, label: ChannelTab.home.rawValue)]
             for item in settings.items.sorted(by: { ($0.order ?? .max) < ($1.order ?? .max) }) where item.isEnabled {
                 guard let tab = featureKeyMap[item.key], !resolved.contains(where: { $0.tab == tab }) else { continue }
                 resolved.append(ChannelResolvedTab(tab: tab, label: item.displayLabel ?? tab.rawValue))
@@ -88,7 +89,9 @@ struct ChannelDetailView: View {
                     }
             }
         }
-        .navigationTitle("채널")
+        .accentColor(Color(hex: "#6366F1"))
+        .tint(Color(hex: "#6366F1"))
+        .navigationTitle(viewModel.channel?.name ?? "채널")
         .task { await viewModel.loadChannel() }
         .onChange(of: viewModel.featureSettings) { _, _ in
             if !resolvedTabs.contains(where: { $0.tab == selectedTab }), let first = resolvedTabs.first {
@@ -100,148 +103,14 @@ struct ChannelDetailView: View {
     @ViewBuilder
     private func selectedSectionContent(channel: Channel) -> some View {
         switch selectedTab {
-        case .songBook: ChannelSongBookView()
-        case .schedule: ChannelScheduleView()
+        case .home:
+            ChannelHomeSectionView(channel: channel, profile: viewModel.profile,
+                                   refreshRevision: viewModel.refreshRevision) { selectedTab = $0 }
+        case .songBook: SongBookView(channelId: channel.id, identifier: identifier)
+        case .schedule: ScheduleView(channelId: channel.id)
         case .setlist: ChannelSetlistView()
         case .wardrobe: ChannelWardrobeView(identifier: identifier)
         }
-    }
-}
-
-// SongBookView's searchable list/empty/error structure, with Rogichat's public song contract.
-private struct ChannelSongBookView: View {
-    @State private var searchText = ""
-    @State private var songs: [Song] = []
-    @State private var total = 0
-    @State private var page = 1
-    @State private var loading = true
-    @State private var error: String?
-    private let repository: ChannelRepository = AppClientChannelRepository()
-
-    var body: some View {
-        VStack(spacing: 12) {
-            SongBookSearchBar(text: $searchText).padding(.horizontal, 20)
-            if loading && songs.isEmpty { ProgressView().padding(.top, 42) }
-            else if let error, songs.isEmpty {
-                ContentUnavailableView("노래책을 불러올 수 없어요", systemImage: "music.note", description: Text(error))
-                Button("다시 시도") { Task { await load() } }.buttonStyle(.bordered)
-            } else if songs.isEmpty {
-                ContentUnavailableView("등록된 노래가 없어요", systemImage: "music.note.list")
-            } else {
-                LazyVStack(spacing: 0) {
-                    ForEach(songs) { song in
-                        HStack(spacing: 12) {
-                            AsyncImage(url: song.albumArt.flatMap(ChannelImageURL.resolve)) { image in
-                                image.resizable().scaledToFill()
-                            } placeholder: {
-                                RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-                                    .overlay { Image(systemName: "music.note") }
-                            }
-                            .frame(width: 56, height: 56).clipShape(RoundedRectangle(cornerRadius: 8))
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(song.title).font(.subheadline.weight(.medium)).lineLimit(1)
-                                Text(song.artist.name).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                        }
-                        .padding(.horizontal, 20).padding(.vertical, 7)
-                        Divider().padding(.leading, 88)
-                    }
-                    if songs.count < total {
-                        Button(loading ? "불러오는 중" : "노래 더 보기") { Task { await loadMore() } }
-                            .disabled(loading).padding(.vertical, 16)
-                    }
-                }
-            }
-        }
-        .task(id: searchText) {
-            try? await Task.sleep(for: .milliseconds(250))
-            guard !Task.isCancelled else { return }
-            await load()
-        }
-    }
-
-    private func load() async {
-        loading = true; error = nil
-        let requestedSearch = searchText
-        do {
-            let response = try await repository.fetchSongs(page: 1, search: requestedSearch)
-            guard !Task.isCancelled, searchText == requestedSearch else { return }
-            songs = response.items.map { $0.toDomain() }
-            total = response.total; page = 1
-        } catch { if !Task.isCancelled, searchText == requestedSearch { self.error = "잠시 후 다시 시도해 주세요." } }
-        guard !Task.isCancelled, searchText == requestedSearch else { return }
-        loading = false
-    }
-    private func loadMore() async {
-        guard !loading, songs.count < total else { return }
-        loading = true; error = nil
-        let requestedSearch = searchText
-        let nextPage = page + 1
-        do {
-            let response = try await repository.fetchSongs(page: nextPage, search: requestedSearch)
-            guard !Task.isCancelled, searchText == requestedSearch, page + 1 == nextPage else { return }
-            songs.append(contentsOf: response.items.map { $0.toDomain() })
-            total = response.total; page = nextPage
-        } catch { if !Task.isCancelled, searchText == requestedSearch { self.error = "노래를 더 불러올 수 없어요." } }
-        guard !Task.isCancelled, searchText == requestedSearch else { return }
-        loading = false
-    }
-}
-
-// ScheduleView's month navigation and grouped ScheduleRow presentation.
-private struct ChannelScheduleView: View {
-    @State private var month = Date()
-    @State private var schedules: [Schedule] = []
-    @State private var loading = true
-    @State private var error: String?
-    private let repository: ChannelRepository = AppClientChannelRepository()
-
-    private var monthKey: String {
-        let formatter = DateFormatter(); formatter.dateFormat = "yyyy-MM"
-        formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
-        return formatter.string(from: month)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Button { moveMonth(-1) } label: { Image(systemName: "chevron.left") }.accessibilityLabel("이전 달")
-                Spacer()
-                Text(monthKey).font(.headline)
-                Spacer()
-                Button { moveMonth(1) } label: { Image(systemName: "chevron.right") }.accessibilityLabel("다음 달")
-            }.padding(.horizontal, 20).padding(.top, 8)
-            if loading && schedules.isEmpty { ProgressView().frame(maxWidth: .infinity).padding(.top, 42) }
-            else if let error, schedules.isEmpty {
-                ContentUnavailableView("일정을 불러올 수 없어요", systemImage: "calendar", description: Text(error))
-                Button("다시 시도") { Task { await load() } }.buttonStyle(.bordered)
-            } else if schedules.isEmpty { ContentUnavailableView("이달의 일정이 없어요", systemImage: "calendar") }
-            else {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    ForEach(schedules.sorted(by: { $0.startAt < $1.startAt })) { schedule in
-                        ScheduleRow(schedule: schedule)
-                        Divider()
-                    }
-                }.padding(.horizontal, 20)
-            }
-        }
-        .task(id: monthKey) { await load() }
-    }
-
-    private func moveMonth(_ amount: Int) {
-        month = Calendar(identifier: .gregorian).date(byAdding: .month, value: amount, to: month) ?? month
-    }
-    private func load() async {
-        loading = true; error = nil
-        let requestedMonth = monthKey
-        do {
-            let response = try await repository.fetchSchedules(yearMonth: requestedMonth)
-            guard !Task.isCancelled, monthKey == requestedMonth else { return }
-            schedules = response.items.map { $0.toDomain() }
-        } catch { if !Task.isCancelled, monthKey == requestedMonth { self.error = "잠시 후 다시 시도해 주세요." } }
-        guard !Task.isCancelled, monthKey == requestedMonth else { return }
-        loading = false
     }
 }
 

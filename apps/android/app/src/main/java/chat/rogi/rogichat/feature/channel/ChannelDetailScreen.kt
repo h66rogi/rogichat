@@ -3,6 +3,8 @@ package chat.rogi.rogichat.feature.channel
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,6 +20,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import chat.rogi.rogichat.core.design.ScreenStatus
+import chat.rogi.rogichat.feature.channel.theme.ChannelTheme
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -27,10 +30,19 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ChannelDetailScreen(model: ChannelDetailViewModel, onTalk: () -> Unit) {
+    ChannelTheme { ChannelDetailContent(model, onTalk) }
+}
+
+@OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Unit) {
     val state by model.uiState.collectAsStateWithLifecycle()
     var selectedSong by remember { mutableStateOf<Song?>(null) }
     var selectedSchedule by remember { mutableStateOf<Schedule?>(null) }
     var selectedWardrobe by remember { mutableStateOf<ChannelWardrobeItem?>(null) }
+    var showSongFilters by remember { mutableStateOf(false) }
+    var draftArtist by remember { mutableStateOf<Artist?>(null) }
+    var draftDifficulty by remember { mutableStateOf<Int?>(null) }
 
     if (state.isLoading && state.channel == null) {
         ScreenStatus("채널을 불러오는 중", "잠시만 기다려 주세요.", loading = true)
@@ -53,16 +65,54 @@ fun ChannelDetailScreen(model: ChannelDetailViewModel, onTalk: () -> Unit) {
             item { ScreenStatus("표시할 채널 메뉴가 없어요", "") }
         } else {
             when (state.selectedTab) {
+                ChannelTab.HOME -> {
+                    if (state.sectionLoading && state.songs.isEmpty() && state.schedules.isEmpty()) item { SectionLoading() }
+                    else if (state.sectionError != null && state.songs.isEmpty() && state.schedules.isEmpty()) item {
+                        SectionError("채널 홈을 불러올 수 없어요", state.sectionError.orEmpty(), model::retrySection)
+                    } else channelHomeTabContent(state, model::selectTab, model::retrySection)
+                }
                 ChannelTab.SONGBOOK -> {
                     item("song_search") {
-                        OutlinedTextField(state.songSearch, model::searchSongs, Modifier.fillMaxWidth().padding(16.dp),
-                            label = { Text("노래 검색") }, singleLine = true)
+                        Column {
+                            Spacer(Modifier.height(16.dp))
+                            ChannelSearchBar(query = state.songSearch, onQueryChange = model::searchSongs,
+                                onSearch = {}, onClear = { model.searchSongs("") }, placeholder = "곡 검색",
+                                modifier = Modifier.padding(horizontal = 16.dp))
+                            Spacer(Modifier.height(12.dp))
+                        }
+                    }
+                    item("song_filters") {
+                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SongbookFilterChip(
+                                hasActiveFilters = state.selectedArtist != null || state.selectedDifficulty != null,
+                                activeFilterCount = listOfNotNull(state.selectedArtist, state.selectedDifficulty).size,
+                                onClick = {
+                                    draftArtist = state.selectedArtist
+                                    draftDifficulty = state.selectedDifficulty
+                                    showSongFilters = true
+                                },
+                            )
+                            CategoryChip("전체", state.selectedSongCategory == null) { model.selectSongCategory(null) }
+                            state.categories.forEach { category ->
+                                CategoryChip(category.name, state.selectedSongCategory == category.id,
+                                    category.color) { model.selectSongCategory(category.id) }
+                            }
+                        }
                     }
                     if (state.sectionLoading && state.songs.isEmpty()) item { SectionLoading() }
                     else if (state.sectionError != null && state.songs.isEmpty()) item {
                         SectionError("노래책을 불러올 수 없어요", state.sectionError.orEmpty(), model::retrySection)
                     }
-                    else if (state.songs.isEmpty()) item { ScreenStatus("등록된 노래가 없어요", "") }
+                    else if (state.songs.isEmpty()) item("songbook_empty") {
+                        Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                            Text(if (state.songSearch.isNotEmpty()) "'${state.songSearch}'에 대한 결과가 없습니다"
+                                else "등록된 곡이 없습니다",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                     else items(state.songs, key = { "song_${it.id}" }) { song ->
                         SongItem(song) { selectedSong = song }
                         HorizontalDivider(Modifier.padding(start = 84.dp))
@@ -72,25 +122,13 @@ fun ChannelDetailScreen(model: ChannelDetailViewModel, onTalk: () -> Unit) {
                             modifier = Modifier.fillMaxWidth()) { Text(if (state.sectionLoading) "불러오는 중" else "노래 더 보기") }
                     }
                 }
-                ChannelTab.SCHEDULE -> {
-                    item("month_nav") {
-                        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(onClick = { model.moveMonth(-1) }) { Text("이전 달") }
-                            Text(state.month, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                            TextButton(onClick = { model.moveMonth(1) }) { Text("다음 달") }
-                        }
-                    }
-                    if (state.sectionLoading && state.schedules.isEmpty()) item { SectionLoading() }
-                    else if (state.sectionError != null && state.schedules.isEmpty()) item {
-                        SectionError("일정을 불러올 수 없어요", state.sectionError.orEmpty(), model::retrySection)
-                    }
-                    else if (state.schedules.isEmpty()) item { ScreenStatus("이달의 일정이 없어요", "") }
-                    else items(state.schedules.sortedBy { it.startAt }, key = { "schedule_${it.id}" }) { schedule ->
-                        ScheduleItem(schedule) { selectedSchedule = schedule }
-                        HorizontalDivider(Modifier.padding(start = 84.dp))
-                    }
-                }
+                ChannelTab.SCHEDULE -> channelScheduleTabContent(
+                    state,
+                    onPreviousMonth = { model.moveMonth(-1) },
+                    onNextMonth = { model.moveMonth(1) },
+                    onScheduleClick = { selectedSchedule = it },
+                    onRetry = model::retrySection,
+                )
                 ChannelTab.SETLIST -> {
                     if (state.sectionLoading && state.setlists.isEmpty()) item { SectionLoading() }
                     else if (state.sectionError != null && state.setlists.isEmpty()) item {
@@ -136,13 +174,19 @@ fun ChannelDetailScreen(model: ChannelDetailViewModel, onTalk: () -> Unit) {
         item("bottom") { Spacer(Modifier.height(28.dp)) }
     }
 
+    if (showSongFilters) FilterBottomSheet(
+        artists = state.artists,
+        selectedArtist = draftArtist,
+        selectedDifficulty = draftDifficulty,
+        onArtistSelected = { draftArtist = it },
+        onDifficultySelected = { draftDifficulty = it },
+        onClearFilters = { draftArtist = null; draftDifficulty = null },
+        onApply = { model.applySongFilters(draftArtist, draftDifficulty); showSongFilters = false },
+        onDismiss = { showSongFilters = false },
+    )
+
     selectedSong?.let { song ->
-        ModalBottomSheet(onDismissRequest = { selectedSong = null }) {
-            Text(song.title, Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.titleLarge)
-            Text(song.artist?.name.orEmpty(), Modifier.padding(horizontal = 20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            song.description?.takeIf { it.isNotBlank() }?.let { Text(it, Modifier.padding(20.dp)) }
-            Spacer(Modifier.height(28.dp))
-        }
+        ChannelSongDetailBottomSheet(song = song, onDismiss = { selectedSong = null })
     }
     selectedSchedule?.let { schedule ->
         ModalBottomSheet(onDismissRequest = { selectedSchedule = null }) {

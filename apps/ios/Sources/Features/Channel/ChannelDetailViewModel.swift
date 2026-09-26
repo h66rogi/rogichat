@@ -16,6 +16,7 @@ final class ChannelDetailViewModel: ObservableObject {
     /// 채널 feature-settings — 로드 실패/미지원이면 nil 유지 → 클라이언트 기본 순서 폴백
     @Published var featureSettings: ChannelFeatureSettingsResponse?
     @Published var featureSettingsLoaded = false
+    @Published var refreshRevision = 0
 
     init(identifier: String, repository: ChannelRepository = AppClientChannelRepository()) {
         self.identifier = identifier
@@ -42,6 +43,7 @@ final class ChannelDetailViewModel: ObservableObject {
         }
 
         isLoading = false
+        refreshRevision += 1
     }
 
     private func loadProfile() async {

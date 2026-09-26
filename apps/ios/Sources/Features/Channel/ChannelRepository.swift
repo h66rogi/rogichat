@@ -9,14 +9,17 @@ import Foundation
     func fetchChannelWardrobe(identifier: String) async throws -> ChannelWardrobeResponse
     func fetchFavoritesCount(channelId: Int) async throws -> ChannelFavoritesCountResponse
     func fetchSongs(page: Int, search: String) async throws -> SongsResponse
+    func fetchSongs(page: Int, search: String, categoryId: Int?, artistId: Int?, difficulty: Int?) async throws -> SongsResponse
+    func fetchCategories() async throws -> [Category]
+    func fetchArtists() async throws -> [Artist]
     func fetchSchedules(yearMonth: String) async throws -> SchedulesResponse
     func fetchSetlists(page: Int) async throws -> ChannelSetlistsResponse
     func fetchSetlist(sessionID: Int) async throws -> ChannelSetlistDetail
 }
 
 enum ChannelEndpoint {
-    case detail, profile, features, wardrobe, favoritesCount
-    case songs(page: Int, search: String)
+    case detail, profile, features, wardrobe, favoritesCount, categories, artists
+    case songs(page: Int, search: String, categoryId: Int?, artistId: Int?, difficulty: Int?)
     case schedules(yearMonth: String)
     case setlists(page: Int)
     case setlist(sessionID: Int)
@@ -28,6 +31,8 @@ enum ChannelEndpoint {
         case .features: "channel/h66rogi/feature-settings"
         case .wardrobe: "channel/h66rogi/wardrobe"
         case .favoritesCount: "favorites/channels/1/count"
+        case .categories: "categories/public/h66rogi"
+        case .artists: "artists/public/h66rogi"
         case .songs: "songs/channel/h66rogi"
         case .schedules: "schedules/channel/1"
         case .setlists: "song-live/public/setlists"
@@ -37,10 +42,13 @@ enum ChannelEndpoint {
 
     var query: [URLQueryItem] {
         switch self {
-        case .songs(let page, let search):
+        case .songs(let page, let search, let categoryId, let artistId, let difficulty):
             return [URLQueryItem(name: "page", value: String(max(1, page))),
                     URLQueryItem(name: "limit", value: "40")]
                 + (search.isEmpty ? [] : [URLQueryItem(name: "search", value: search)])
+                + (categoryId.map { [URLQueryItem(name: "categoryId", value: String($0))] } ?? [])
+                + (artistId.map { [URLQueryItem(name: "artistId", value: String($0))] } ?? [])
+                + (difficulty.map { [URLQueryItem(name: "difficulty", value: String($0))] } ?? [])
         case .schedules(let month): return [URLQueryItem(name: "ym", value: month)]
         case .setlists(let page): return [URLQueryItem(name: "identifier", value: "h66rogi"),
                                           URLQueryItem(name: "page", value: String(max(1, page)))]
@@ -104,7 +112,17 @@ struct AppClientChannelRepository: ChannelRepository {
         return try await client.request(.favoritesCount, as: ChannelFavoritesCountResponse.self)
     }
     func fetchSongs(page: Int, search: String) async throws -> SongsResponse {
-        try await client.request(.songs(page: page, search: search), as: SongsResponse.self)
+        try await fetchSongs(page: page, search: search, categoryId: nil, artistId: nil, difficulty: nil)
+    }
+    func fetchSongs(page: Int, search: String, categoryId: Int?, artistId: Int?, difficulty: Int?) async throws -> SongsResponse {
+        try await client.request(.songs(page: page, search: search, categoryId: categoryId,
+                                       artistId: artistId, difficulty: difficulty), as: SongsResponse.self)
+    }
+    func fetchCategories() async throws -> [Category] {
+        try await client.request(.categories, as: [Category].self)
+    }
+    func fetchArtists() async throws -> [Artist] {
+        try await client.request(.artists, as: [Artist].self)
     }
     func fetchSchedules(yearMonth: String) async throws -> SchedulesResponse {
         try await client.request(.schedules(yearMonth: yearMonth), as: SchedulesResponse.self)

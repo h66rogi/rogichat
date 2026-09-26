@@ -24,11 +24,23 @@ class ChannelRepository(private val api: NativeApi) {
     suspend fun getFavoritesCount(): ChannelFavoritesCountResponse =
         json.decodeFromString(api.getPublicChannel("favorites/channels/1/count"))
 
-    suspend fun getSongs(page: Int = 1, search: String = ""): SongsResponse =
+    suspend fun getSongs(page: Int = 1, search: String = "", categoryId: Int? = null,
+                         artistId: Int? = null, difficulty: Int? = null): SongsResponse =
         json.decodeFromString(api.getPublicChannel("songs/channel/h66rogi", buildMap {
             put("page", page.coerceAtLeast(1).toString()); put("limit", "40")
             search.takeIf { it.isNotBlank() }?.let { put("search", it) }
+            categoryId?.let { put("categoryId", it.toString()) }
+            artistId?.let { put("artistId", it.toString()) }
+            difficulty?.let { put("difficulty", it.toString()) }
         }))
+
+    suspend fun getCategories(): List<Category> =
+        json.decodeFromString<List<CategoryDTO>>(api.getPublicChannel("categories/public/h66rogi"))
+            .map(CategoryDTO::toDomain)
+
+    suspend fun getArtists(): List<Artist> =
+        json.decodeFromString<List<ArtistDTO>>(api.getPublicChannel("artists/public/h66rogi"))
+            .map(ArtistDTO::toDomain)
 
     suspend fun getSchedules(yearMonth: String): SchedulesResponse {
         require(yearMonth.matches(Regex("[0-9]{4}-(0[1-9]|1[0-2])")))
