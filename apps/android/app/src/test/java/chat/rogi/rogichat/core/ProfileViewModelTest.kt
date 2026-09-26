@@ -14,8 +14,12 @@ class ProfileViewModelTest {
         var savesFail = false
         var saveGate: CompletableDeferred<Unit>? = null
         var calls = 0
+        var loads = 0
         var changes: ProfileChanges? = null
-        override suspend fun load(accountId: String) = if (loadsFail) Result.failure(IllegalStateException("private_server_error")) else Result.success(profile)
+        override suspend fun load(accountId: String): Result<UserProfile> {
+            loads++
+            return if (loadsFail) Result.failure(IllegalStateException("private_server_error")) else Result.success(profile)
+        }
         override suspend fun save(accountId: String, changes: ProfileChanges): Result<UserProfile> {
             calls++
             this.changes = changes
@@ -98,9 +102,27 @@ class ProfileViewModelTest {
         val model = ProfileViewModel(repo, "account", this)
         yield()
         assertNull(model.uiState.value.original)
+        model.loadIfNeeded(original.nickname, original.avatarAssetId)
+        yield()
+        assertEquals(1, repo.loads)
         repo.loadsFail = false
         model.load()
         yield()
         assertEquals(original, model.uiState.value.original)
+    }
+    @Test fun returningToSettingsKeepsProfileAndRefreshesOnlyAfterAccountSummaryChanges() = runBlocking {
+        val repo = Repository(original)
+        val model = ProfileViewModel(repo, "account", this, autoLoad = false)
+        model.loadIfNeeded(original.nickname, original.avatarAssetId)
+        yield()
+        assertEquals(1, repo.loads)
+        model.loadIfNeeded(original.nickname, original.avatarAssetId)
+        yield()
+        assertEquals(1, repo.loads)
+        repo.profile = original.copy(nickname = "새 이름")
+        model.loadIfNeeded("새 이름", original.avatarAssetId)
+        yield()
+        assertEquals(2, repo.loads)
+        assertEquals("새 이름", model.uiState.value.original?.nickname)
     }
 }

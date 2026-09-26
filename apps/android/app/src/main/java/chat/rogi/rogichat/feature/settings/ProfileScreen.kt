@@ -30,14 +30,14 @@ fun ProfileScreen(model: ProfileViewModel, avatar: chat.rogi.rogichat.feature.me
     val snackbars = remember { SnackbarHostState() }
     val focus = LocalFocusManager.current
     var discard by remember { mutableStateOf(false) }
-    val leave: () -> Unit = { if (state.changed && !state.saved) discard = true else onBack() }
-    BackHandler { if (!state.isSaving) leave() }
+    val leave: () -> Unit = { if (!state.isSaving) { if (state.changed && !state.saved) discard = true else onBack() } }
+    BackHandler { leave() }
     LaunchedEffect(state.error) {
         if (state.original != null) state.error?.let { snackbars.showSnackbar(it); model.dismissError() }
     }
     LaunchedEffect(state.saved) { if (state.saved) onBack() }
     Scaffold(topBar = {
-        AppTopBar("내 프로필", if (state.isSaving) null else leave, actions = {
+        AppTopBar("프로필 설정", leave, actions = {
             TextButton(onClick = { focus.clearFocus(); model.save() }, enabled = state.canSave) {
                 if (state.isSaving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Text("저장")
             }
