@@ -16,7 +16,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 import java.util.UUID
+import androidx.compose.ui.semantics.*
 
 // Reuses the settings hub's server-loaded section, error/retry and grouped controls.
 @Composable fun AccountAccessSettings(actions: AccountAccessActions, identity: SessionIdentity, passwordBusy: Boolean, onPassword: (PasswordInput) -> Unit) {
@@ -40,7 +44,7 @@ import java.util.UUID
         if (caps == null && error == null) { CircularProgressIndicator(Modifier.size(22.dp)); Text("계정 권한을 확인하는 중") }
         if (caps != null) {
             if (caps.getValue("password").jsonObject.getValue("enabled").jsonPrimitive.boolean) {
-                SettingsRow("비밀번호 변경", "로그인 비밀번호와 다른 기기 세션 관리", onClick = { password = !password })
+                SettingsRow("비밀번호 변경", "로그인 비밀번호 변경", onClick = { password = !password })
                 if (password) PasswordForm(passwordBusy,true,onSubmit = onPassword)
             }
             if (caps.getValue("admin").jsonObject.getValue("enabled").jsonPrimitive.boolean) {
@@ -51,6 +55,64 @@ import java.util.UUID
             }
         }
     }
+    LoggedInDevices(actions, identity)
+}
+
+@Composable private fun LoggedInDevices(actions: AccountAccessActions, identity: SessionIdentity) {
+    val scope = rememberCoroutineScope()
+    var devices by remember(identity) { mutableStateOf<List<JsonObject>>(emptyList()) }
+    var next by remember(identity) { mutableStateOf<String?>(null) }
+    var loading by remember(identity) { mutableStateOf(false) }
+    var error by remember(identity) { mutableStateOf<String?>(null) }
+    var notice by remember(identity) { mutableStateOf<String?>(null) }
+    var confirm by remember(identity) { mutableStateOf<String?>(null) }
+    var revision by remember(identity) { mutableIntStateOf(0) }
+    suspend fun load(after: String? = null) {
+        if (loading) return
+        loading = true; error = null
+        try {
+            val page = Json.parseToJsonElement(actions.access(AccessRequest.sessions(after), identity).getOrThrow()).jsonObject
+            val rows = page.getValue("sessions").jsonArray.map { it.jsonObject }
+            check(rows.size <= 50 && rows.all { row ->
+                row.getValue("id").jsonPrimitive.content.let { runCatching { UUID.fromString(it) }.isSuccess } &&
+                    row.getValue("kind").jsonPrimitive.content in setOf("web", "ios", "android", "other") &&
+                    row.getValue("current").jsonPrimitive.booleanOrNull != null &&
+                    runCatching { Instant.parse(row.getValue("createdAt").jsonPrimitive.content) }.isSuccess
+            })
+            val cursor = page.getValue("next").let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            check(cursor == null || runCatching { UUID.fromString(cursor) }.isSuccess)
+            devices = if (after == null) rows else devices + rows.filter { row -> devices.none { it.getValue("id") == row.getValue("id") } }
+            next = cursor
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { error = "로그인된 기기를 확인하지 못했어요." }
+        finally { loading = false }
+    }
+    LaunchedEffect(identity, revision) { load() }
+    SettingsSection("로그인된 기기") {
+        Text("사용하지 않는 기기는 여기에서 로그아웃할 수 있어요.")
+        if (loading) CircularProgressIndicator(Modifier.size(22.dp).semantics { contentDescription = "기기 확인 중" })
+        notice?.let { Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }) }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error); TextButton(onClick = { revision++ }) { Text("다시 확인") } }
+        devices.forEach { row ->
+            val id = row.getValue("id").jsonPrimitive.content
+            val name = when (row.getValue("kind").jsonPrimitive.content) { "ios" -> "iPhone 또는 iPad"; "android" -> "Android 기기"; "web" -> "웹 브라우저"; else -> "다른 기기" }
+            val current = row.getValue("current").jsonPrimitive.boolean
+            Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                Text(name + if (current) " · 현재 기기" else "", style = MaterialTheme.typography.titleSmall)
+                Text("로그인: " + DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault()).format(Instant.parse(row.getValue("createdAt").jsonPrimitive.content)))
+                if (!current) TextButton(onClick = { confirm = id }, enabled = !loading) { Text("$name 로그아웃") }
+            }
+        }
+        if (next != null) TextButton(onClick = { scope.launch { load(next) } }, enabled = !loading) { Text("기기 더 보기") }
+    }
+    confirm?.let { target -> AlertDialog(onDismissRequest = { confirm = null }, title = { Text("이 기기에서 로그아웃할까요?") },
+        text = { Text("해당 기기에서 더 이상 대화와 알림을 이용할 수 없어요.") },
+        confirmButton = { TextButton(onClick = { confirm = null; scope.launch {
+            loading = true; error = null
+            try { actions.access(AccessRequest.revokeSession(target), identity).getOrThrow(); devices = devices.filter { it.getValue("id").jsonPrimitive.content != target }; notice = "기기에서 로그아웃했어요." }
+            catch (_: Exception) { error = "로그아웃 결과를 확인하지 못했어요. 목록을 다시 확인해 주세요." }
+            finally { loading = false }
+        } }) { Text("로그아웃") } }, dismissButton = { TextButton(onClick = { confirm = null }) { Text("취소") } }) }
 }
 
 @Composable private fun RoomTestAccess(actions: AccountAccessActions, identity: SessionIdentity) {

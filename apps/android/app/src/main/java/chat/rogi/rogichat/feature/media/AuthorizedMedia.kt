@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.asImageBitmap
@@ -109,15 +110,22 @@ private fun AuthorizedMediaBody(client: MediaClient, assetId: String?, access: M
                 TextButton(onClick = { retry++ }) { Text("다시 시도") }
             }
         } else if (access.variant != MediaVariant.video && bitmap != null) {
-            Image(requireNotNull(bitmap), contentDescription = if (avatar) "프로필 사진" else "첨부 이미지",
-                modifier = if (zoomable) Modifier.fillMaxSize().pointerInput(assetId) {
+            val image = requireNotNull(bitmap)
+            if (zoomable) Box(Modifier.fillMaxSize()) {
+                Image(image, contentDescription = "첨부 이미지", modifier = Modifier.fillMaxSize().pointerInput(assetId) {
                     detectTransformGestures { _, pan, zoom, _ ->
                         scale = (scale * zoom).coerceIn(1f, 5f)
                         if (scale > 1f) { offsetX += pan.x; offsetY += pan.y }
                         else { offsetX = 0f; offsetY = 0f }
                     }
-                }.graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY)
-                else if (avatar) Modifier.fillMaxSize() else Modifier,
+                }.graphicsLayer(scaleX = scale, scaleY = scale, translationX = offsetX, translationY = offsetY), contentScale = ContentScale.Fit)
+                TextButton(onClick = {
+                    scale = if (scale > 1f) 1f else 2f; offsetX = 0f; offsetY = 0f
+                }, modifier = Modifier.align(Alignment.BottomEnd), colors = ButtonDefaults.textButtonColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Text(if (scale > 1f) "원래 크기로 보기" else "사진 확대")
+                }
+            } else Image(image, contentDescription = if (avatar) "프로필 사진" else "첨부 이미지",
+                modifier = if (avatar) Modifier.fillMaxSize() else Modifier,
                 contentScale = if (avatar) ContentScale.Crop else ContentScale.Fit)
         } else if (file == null) { if (avatar) AvatarPlaceholder(Modifier.fillMaxSize()) else Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceVariant)) }
         else if (access.variant == MediaVariant.video) {

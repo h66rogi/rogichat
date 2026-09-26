@@ -18,6 +18,7 @@ import { revokeChatOutboxes } from '@/features/chat/chat-controller';
 import { AccountDeletionControl, BlockedRoomsControl, ReportRecovery } from '@/features/privacy';
 import { SessionMediaProvider } from '@/features/media/session-ui';
 import type { SettingsProfilePatch, SettingsViewModel } from './types';
+import { ActiveSessions } from './ActiveSessions';
 export function RealSettings() {
   const { state, refresh } = usePrivateSession();
   if (state.kind !== 'ready') return <PrivateGate state={state} retry={refresh} allowAccountDeletion />;
@@ -100,6 +101,7 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
   };
   return <SessionMediaProvider csrf={session.csrfToken}><div className="mx-auto max-w-[40rem] px-4 pt-4"><p role="status">{notice || (room.kind === 'error' ? '채팅방 참여 정보를 확인하지 못했습니다.' : room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '')}</p>{(notice || room.kind === 'error') && <button className="min-h-11 underline" onClick={refresh}>다시 확인</button>}</div><SettingsView model={model} onProfileChange={async patch => { await save(patch); }} onLogout={logout} onLinkSoop={async () => { try { window.location.assign(await api.authorize('link', session.csrfToken)); } catch { setNotice('SOOP 연결을 시작하지 못했습니다. 다시 시도해 주세요.'); } }} onLeaveRoom={leave} onToggleNotifications={push.toggle} onRetryNotifications={push.refresh}
     accountControls={<AccountDeletionControl origin={api.origin} session={session} generation={generation} cleanupBinding={current => cleanupBinding(api.origin, current)} onPrepare={current => eraseSessionOutbox(api.origin, current)} onBlocked={current => { revokeChatOutboxes(current.accountPartition, current.csrfToken); forgetChatMemory(); invalidateSession(); }} />}
+    sessionsControls={<ActiveSessions session={session} />}
     privacyControls={<><AccountAccess session={session} /><ReportRecovery origin={api.origin} session={session} generation={generation} /><BlockedRoomsControl origin={api.origin} session={session} generation={generation} onReset={refresh} /></>}
     profileAvatar={<ProfileAvatar profile={profile} />}
     avatarEditor={<AvatarEditor hasProviderAvatar={!!profile.providerAvatarUrl} assetId={profile.avatar?.assetId ?? null} busy={busy} save={assetId => save({ avatarAssetId: assetId })} />} /></SessionMediaProvider>;

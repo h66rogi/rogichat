@@ -1,6 +1,6 @@
 import { ApiTags } from '@nestjs/swagger';
 import { authDocs } from './dto/auth.openapi.js';
-import { Controller, Get, Inject, Post, Req, Res } from '@nestjs/common';
+import { Controller, Delete, Get, Inject, Param, Post, Query, Req, Res } from '@nestjs/common';
 import type { Request, Response, CookieOptions } from 'express';
 import type { AuthConfig } from '../../infrastructure/config/auth-config.js';
 import { ApiError, object, opaque, secret } from '../../modules/auth/auth-primitives.js';
@@ -8,6 +8,7 @@ import { AuthService } from './auth.service.js';
 import { AUTH_CONFIG } from './auth.tokens.js';
 import { NativeAuthService } from './native-auth.service.js';
 import { cookie, cookieName, oauthCookieName, sessionCookieOptions, sessionToken, csrf, readSessionCredentials, readCommandCredentials } from './auth-context.js';
+import { identifier } from '../../common/validation/identifier.js';
 
 const options = (config: AuthConfig): CookieOptions => ({ httpOnly: true, secure: config.secure, sameSite: 'lax', path: '/' });
 
@@ -20,6 +21,21 @@ export class AuthController {
   @Get('session')
   @authDocs.session()
   session(@Req() request: Request) { return this.auth.session(readSessionCredentials(request, this.config)); }
+
+  @Get('sessions')
+  @authDocs.sessions()
+  sessions(@Req() request: Request, @Query('after') after?: string) {
+    return this.auth.listSessions(readSessionCredentials(request, this.config), after === undefined ? undefined : identifier(after));
+  }
+
+  @Delete('sessions/:id')
+  @authDocs.revokeSession()
+  async revokeSession(@Req() request: Request, @Param('id') id: string, @Res() response: Response): Promise<void> {
+    object(request.body ?? {}, []);
+    const credentials = readCommandCredentials(request, this.config);
+    await this.auth.revokeSession(credentials, identifier(id));
+    response.status(204).end();
+  }
 
   @Post('logout')
   @authDocs.logout()

@@ -96,6 +96,30 @@ test('native DB credentials enforce purpose/client/audience on both snapshots an
   }
 });
 
+test('device list is account scoped and remote logout closes only the chosen session', { timeout: 20000 }, async t => {
+  const f = await fixture(t, true);
+  const second = await f.issue('android');
+  const otherUser = await f.db.transactions.write(tx => createUser(tx, '다른 계정'));
+  const outsider = await f.db.transactions.write(tx => f.sessions.issueNative(tx, otherUser, 'ios'));
+  const current = await f.call('GET', '/v1/auth/sessions');
+  assert.equal(current.status, 200);
+  const page = await current.json();
+  assert.equal(page.next, null);
+  assert.equal(page.sessions.length, 3);
+  assert.equal(page.sessions.filter(item => item.current).length, 1);
+  assert.ok(page.sessions.every(item => !('userId' in item) && !('token' in item)));
+  const secondId = (await f.db.transactions.read(tx => tx.prisma.auth_sessions.findUnique({ where: { token_digest: digest(second.token) }, select: { id: true } }))).id;
+  const outsiderId = (await f.db.transactions.read(tx => tx.prisma.auth_sessions.findUnique({ where: { token_digest: digest(outsider.token) }, select: { id: true } }))).id;
+  assert.equal((await f.call('DELETE', `/v1/auth/sessions/${outsiderId}`, {})).status, 404);
+  assert.equal((await f.call('DELETE', `/v1/auth/sessions/${secondId}`, {})).status, 204);
+  assert.equal((await f.call('DELETE', `/v1/auth/sessions/${secondId}`, {})).status, 204);
+  assert.equal((await f.call('GET', '/v1/auth/session', undefined, { Authorization: `Bearer ${second.token}`, 'X-Rogi-Client': 'android' })).status, 401);
+  const after = await (await f.call('GET', '/v1/auth/sessions')).json();
+  assert.equal(after.sessions.length, 2);
+  assert.ok(after.sessions.some(item => item.current));
+  assert.equal((await f.call('GET', '/v1/auth/session')).status, 200);
+});
+
 test('native HTTP session projects only own account, preserves web response and enforces strict headers and isolated logout', { timeout: 20000 }, async t => {
   const f = await fixture(t, true);
   let response = await f.call('GET', '/v1/auth/session');

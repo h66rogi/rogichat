@@ -30,6 +30,7 @@ struct AccountScreen: View {
             } header: { Text("연결된 계정") }
               footer: { Text("대화를 이용하려면 SOOP 계정이 연결되어 있어야 해요.") }
             AccountAccessSettings(session: session)
+            LoggedInDevices(session: session)
             if capabilities.canDeleteAccount {
                 Section {
                     Button("회원 탈퇴", role: .destructive) {

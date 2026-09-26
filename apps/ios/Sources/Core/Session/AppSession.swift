@@ -693,13 +693,15 @@ struct PasswordInput: Sendable, CustomStringConvertible, CustomDebugStringConver
     }
 }
 enum AccountAccessRequest: Sendable {
-    case me, rooms(String?), room(String), grants(String, String?), issue(String, UUID, Int, String), revoke(String, String, String)
-    var mutation: Bool { switch self { case .issue, .revoke: true; default: false } }
+    case me, sessions(String?), revokeSession(String), rooms(String?), room(String), grants(String, String?), issue(String, UUID, Int, String), revoke(String, String, String)
+    var mutation: Bool { switch self { case .issue, .revoke, .revokeSession: true; default: false } }
     func wire() throws -> (String, String, Data?, Int, String?) {
         func id(_ value: String) throws -> String { guard UUID(uuidString: value) != nil else { throw ProductError.invalidResponse }; return value }
         func reason(_ value: String) throws -> String { guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, value.unicodeScalars.count <= 200, !value.unicodeScalars.contains(where: { $0.value < 32 || $0.value == 127 }) else { throw ProductError.invalidResponse }; return value }
         switch self {
         case .me: return ("GET","me/capabilities",nil,200,nil)
+        case .sessions(let after): return ("GET","auth/sessions",nil,200,try after.map(id))
+        case .revokeSession(let session): return ("DELETE","auth/sessions/\(try id(session))",try JSONSerialization.data(withJSONObject:[:]),204,nil)
         case .rooms(let after): return ("GET","rooms",nil,200,try after.map(id))
         case .room(let room): return ("GET","rooms/\(try id(room))/capabilities",nil,200,nil)
         case .grants(let room, let after): return ("GET","admin/rooms/\(try id(room))/test-grants",nil,200,try after.map(id))

@@ -42,7 +42,7 @@ export function MediaUploadPanel({ upload, lifetime, kind, roomId, onReady }: {
   return <section aria-label={kind === 'AVATAR' ? '프로필 이미지 업로드' : kind === 'VIDEO' ? '영상 업로드' : '이미지 업로드'} className="space-y-3">
     <label htmlFor={id} className="block font-semibold">{kind === 'VIDEO' ? '영상 선택' : '이미지 선택'}</label>
     <input id={id} type="file" accept={kind === 'VIDEO' ? 'video/mp4,video/quicktime' : kind === 'STICKER' ? 'image/png,image/webp' : 'image/jpeg,image/png,image/webp'}
-      disabled={state.phase !== 'empty'} aria-describedby={`${id}-status`} className="min-h-11 max-w-full"
+      disabled={state.phase !== 'empty'} aria-describedby={`${id}-status`} className="min-h-11 w-full min-w-0"
       onChange={event => {
         const file = event.currentTarget.files?.[0]; event.currentTarget.value = '';
         if (!file) return;

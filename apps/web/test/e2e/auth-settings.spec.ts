@@ -18,6 +18,38 @@ test('profile edits use CSRF and are restored from persisted server response', a
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   expect(results.violations.filter(item => ['critical', 'serious'].includes(item.impact ?? ''))).toEqual([]);
 });
+test('logged-in devices can be reviewed and remotely signed out with keyboard and screen reader labels', async ({ page }) => {
+  const state = await installApi(page, true);
+  const current = '44444444-4444-4444-8444-444444444444';
+  const other = '55555555-5555-4555-8555-555555555555';
+  const devices = [
+    { id: current, kind: 'web', createdAt: '2026-09-26T10:00:00.000Z', expiresAt: '2026-10-03T10:00:00.000Z', current: true },
+    { id: other, kind: 'android', createdAt: '2026-09-25T10:00:00.000Z', expiresAt: '2026-10-02T10:00:00.000Z', current: false },
+  ];
+  await page.route('https://api.qa.rogi.chat/v1/auth/sessions**', route => {
+    if (route.request().method() === 'DELETE') {
+      expect(route.request().headers()['x-csrf-token']).toBe(state.sessionToken);
+      expect(new URL(route.request().url()).pathname).toBe(`/v1/auth/sessions/${other}`);
+      devices.pop();
+      return json(route, null, 204);
+    }
+    return json(route, { sessions: devices, next: null });
+  });
+  await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: '프로필', level: 2 })).toBeVisible();
+  const region = page.getByRole('region', { name: '로그인된 기기' });
+  await expect(region.getByText('현재 기기')).toBeVisible();
+  const action = region.getByRole('button', { name: 'Android 기기 로그아웃' });
+  await action.focus(); await page.keyboard.press('Enter');
+  await expect(region.getByRole('button', { name: 'Android 기기 로그아웃 확인' })).toBeVisible();
+  await region.getByRole('button', { name: 'Android 기기 로그아웃 확인' }).click();
+  await expect(region.getByText('기기에서 로그아웃했어요.')).toBeVisible();
+  await expect(action).toHaveCount(0);
+  const accessibility = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
+  expect(accessibility.violations.filter(item => ['critical', 'serious'].includes(item.impact ?? ''))).toEqual([]);
+  await page.setViewportSize({ width: 320, height: 700 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+});
 test('failed profile save never reports success and preserves input', async ({ page }) => {
   const state = await installApi(page, true);
   await page.goto('/settings');
