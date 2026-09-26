@@ -5,7 +5,7 @@
 
 | 서비스와 공식 자료 | 확인한 동작 | Rogichat 반영 |
 | --- | --- | --- |
-| [WhatsApp Help Center: send media](https://faq.whatsapp.com/812276063311533/?cms_platform=android&helpref=platform_switcher) | 갤러리에서 사진을 고른 다음 전송 전 화면에서 사진과 설명을 확인한다. | 선택한 실제 사진을 미리 보고 설명을 입력한 뒤 보내기 버튼을 누른다. |
+| WhatsApp Help Center: [Android 사진·동영상 편집](https://faq.whatsapp.com/812276063311533/?cms_platform=android&helpref=platform_switcher), [iPhone 사진·동영상 편집](https://faq.whatsapp.com/812276063311533/?cms_platform=iphone&locale=en_US) | 앨범에서 사진을 고른 뒤 설명을 추가하고 보내기를 누른다. | 선택한 실제 사진을 미리 보고 설명을 입력한 뒤 보내기 버튼을 누른다. |
 | [Signal Support: Broadcast Media](https://support.signal.org/hc/en-us/articles/360044640011-Broadcast-Media) | 미디어 선택, 설명 추가, 수신 대상 확인, 최종 보내기가 구분된다. | 방 이름과 받는 사람을 전송 전에 표시한다. |
 | [KakaoTalk Tips: camera photo](https://talktips.kakao.com/easyread/content/40) | 촬영 후 결과를 확인하거나 다시 촬영한 뒤 전송한다. | 선택과 전송 사이에 검토·취소 단계를 둔다. 최신 앨범 화면의 레이아웃 근거로 사용하지 않는다. |
 
