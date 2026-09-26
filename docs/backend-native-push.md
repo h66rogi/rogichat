@@ -109,8 +109,11 @@ as 64 lowercase hex characters). At least one complete group:
   `apnsEnvironment` (`sandbox` or `production`). QA does not imply sandbox;
   distribution-signed QA apps can use production APNs.
 - FCM: `fcmProjectId`, `fcmClientEmail`, `fcmPrivateKey` (RSA >=2048-bit PEM),
-  `fcmApplicationId`. Project, permissions and installed app configuration must
-  agree. Configuration presence is not a delivery test.
+  `fcmApplicationId`. Rogichat requires the sender account to be in that same
+  Firebase project for each environment. FCM can authorize cross-project sender
+  accounts, but this deployment deliberately uses separate QA and production
+  accounts. Permissions and installed app configuration must agree. Configuration
+  presence is not a delivery test.
 
 API/worker require the same encryption key/configuration. Signing-key changes need
 a controlled restart. Encryption-key replacement needs a reviewed re-enrollment
