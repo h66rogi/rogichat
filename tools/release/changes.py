@@ -53,13 +53,14 @@ BACKEND_NON_IMAGE_FILES = {
     'apps/api/test/unit/migration-mode.test.mjs',
     'apps/api/test/support/shard.mjs',
     'apps/api/test/unit/shard.test.mjs',
+    'apps/api/test/integration/channel-content-fixture.mjs',
     'tools/operations/backend_release.py',
     'tools/operations/test_backend_release.py',
     'tools/operations/backend-release.md',
 }
 # The API build excludes test/, and image verification runs only the explicit
-# migration and decoder test files outside integration/. Keep unknown test paths
-# fail-closed so a new image fixture cannot silently bypass image checks.
+# migration and decoder test files outside integration/. New integration helpers
+# remain fail-closed; only test cases and the reviewed fixture above skip images.
 BACKEND_NON_IMAGE_PREFIXES = (
     'apps/api/test/integration/',
 )
@@ -107,7 +108,8 @@ def backend_image_changed(paths: list[str]) -> bool:
     """Skip image work only for reviewed backend inputs excluded from image checks."""
     return any(classify_path(path)[1]
                and path not in BACKEND_NON_IMAGE_FILES
-               and not path.startswith(BACKEND_NON_IMAGE_PREFIXES)
+               and not (path.startswith(BACKEND_NON_IMAGE_PREFIXES)
+                        and path.endswith('.test.mjs'))
                for path in paths)
 
 

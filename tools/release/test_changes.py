@@ -51,6 +51,7 @@ class ComponentChangesTest(unittest.TestCase):
                               'apps/api/test/unit/unreviewed.test.mjs',
                               'apps/api/test/integration-image.test.mjs',
                               'apps/api/test/integration-not-covered/new.test.mjs',
+                              'apps/api/test/integration/new-image-fixture.mjs',
                               'tools/operations/backend_archive.py',
                               'tools/operations/new_release_helper.py'):
             self.assertTrue(backend_image_changed(tests + [release_input]), release_input)
