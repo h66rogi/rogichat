@@ -1,7 +1,7 @@
 package chat.rogi.rogichat.feature.channel
 
 import android.content.Intent
-import android.net.Uri
+import androidx.core.net.toUri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -104,7 +104,7 @@ fun ChannelSongDetailBottomSheet(
                 onLinkClick = { url ->
                     val normalizedUrl = if (!url.contains("://")) "https://$url" else url
                     try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(normalizedUrl))
+                        val intent = Intent(Intent.ACTION_VIEW, normalizedUrl.toUri())
                         context.startActivity(intent)
                     } catch (_: Exception) {
                     }

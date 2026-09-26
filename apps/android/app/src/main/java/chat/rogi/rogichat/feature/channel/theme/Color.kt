@@ -1,5 +1,6 @@
 package chat.rogi.rogichat.feature.channel.theme
 
+import androidx.core.graphics.toColorInt
 import androidx.compose.ui.graphics.Color
 
 // Channel Brand Colors
@@ -70,7 +71,7 @@ fun parseHexColor(hex: String?): Color {
     if (hex == null) return ChannelPrimary
     return try {
         val colorString = hex.removePrefix("#")
-        Color(android.graphics.Color.parseColor("#$colorString"))
+        Color("#$colorString".toColorInt())
     } catch (e: Exception) {
         ChannelPrimary
     }
