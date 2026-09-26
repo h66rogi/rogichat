@@ -267,9 +267,17 @@ def names(request):
 
 CHANNEL_SOURCE = 'apps/web/src/features/channel/content/feature-page.tsx'
 BACKEND_SHARED_FILES = {'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', '.node-version'}
+# These reviewed shard selector tests do not enter the API runtime image. A QA
+# web candidate can use the already running API when only these files changed.
+BACKEND_NON_RUNTIME_FILES = {
+    'apps/api/test/support/shard.mjs',
+    'apps/api/test/unit/shard.test.mjs',
+}
 
 
 def backend_input(path):
+    if path in BACKEND_NON_RUNTIME_FILES:
+        return False
     return (path.startswith(('apps/api/', 'packages/', 'patches/'))
             or path.startswith('infrastructure/runtime/') and not path.startswith('infrastructure/runtime/web/')
             or path in BACKEND_SHARED_FILES)

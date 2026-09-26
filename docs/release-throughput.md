@@ -75,3 +75,8 @@ reviewed receiver/poller generation together with the public workflow change;
 otherwise the old poller will report `not-ready:autoexport` after a backend-only
 QA push. Publication, export and a successful workflow do not by themselves
 prove the running host version; verify its receipt and route separately.
+
+Before activating a newer web source, the host also compares it with the
+running API source. The two reviewed MySQL shard selector test files are not API
+runtime inputs; they do not require an API rollout. Other `apps/api` paths,
+including unknown tests, remain compatibility blockers until reviewed.
