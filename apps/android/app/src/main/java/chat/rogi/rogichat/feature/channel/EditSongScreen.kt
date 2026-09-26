@@ -190,8 +190,8 @@ fun EditSongScreen(
 private fun EditSongContent(
     uiState: EditSongUiState,
     onEvent: (EditSongEvent) -> Unit,
-    onDeleteClick: () -> Unit = {},
     modifier: Modifier = Modifier,
+    onDeleteClick: () -> Unit = {},
 ) {
     var showAdditionalInfo by remember { mutableStateOf(false) }
     var showMemo by remember { mutableStateOf(false) }

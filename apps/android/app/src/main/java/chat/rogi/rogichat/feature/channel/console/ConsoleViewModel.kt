@@ -445,7 +445,6 @@ class ConsoleViewModel constructor(
     }
 
     override fun onCleared() {
-        super.onCleared()
         socketJob?.cancel()
         cancelPolling()
     }

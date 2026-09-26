@@ -297,8 +297,8 @@ private fun CategoryItem(
     canReorder: Boolean,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    dragModifier: Modifier = Modifier,
     modifier: Modifier = Modifier,
+    dragModifier: Modifier = Modifier,
 ) {
     val elevation by animateDpAsState(
         targetValue = if (isDragging) 8.dp else 1.dp,

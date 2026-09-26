@@ -337,7 +337,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/AddScheduleScreen.kt",
       "source_sha256": "44c87900e4c56d9789eb26b760df32931178e60484da0bb8b0cd2e33a213d5be",
       "initial_byte_identical": true,
-      "destination_sha256": "d52cf14f5b9a6e1acaa88674759ded1bf1eecc4831f62f42f31213602f608f67"
+      "destination_sha256": "de8bb8470ce018a078f3ed02b568eba6321b861bb8491a7a2ba07687d86d5c88"
     },
     {
       "repository": "meloming-android",
@@ -373,7 +373,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/CategoryManagementScreen.kt",
       "source_sha256": "c606671008e1b20265deaeccbd08f793061fc2d8fcb44d8dadedb10a3ec91a4f",
       "initial_byte_identical": true,
-      "destination_sha256": "076aea57966c2454a84285e5d5ede9ce9db7764a7cb9db9a0606a9f1ee48547a"
+      "destination_sha256": "bd3416e4edcd334c09d495f5f2df8d5c2d668a576ba79c49555663785bc25852"
     },
     {
       "repository": "meloming-android",
@@ -409,7 +409,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelDetailViewModel.kt",
       "source_sha256": "6d59076703481285187f750bca9d00bfdf0d4a335055e8e2c67b9c72c5ae88b6",
       "initial_byte_identical": true,
-      "destination_sha256": "33eafed4a319e4a844835d1dd7e96afa6b18ff5531873318e7115149bec409ad"
+      "destination_sha256": "21fa9581ddcefc9d49e86d0c3854cd999f1c67b9000af3f7692926314f43e6d7"
     },
     {
       "repository": "meloming-android",
@@ -445,7 +445,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/EditSongScreen.kt",
       "source_sha256": "fbbccc967588652168314ab1c8cdf7b6fb442de14e36c7465861e2e589e70f09",
       "initial_byte_identical": true,
-      "destination_sha256": "f490b6b95ab896ebc8b1c03a3fb5a7b7518337013c852845cb3a2f28e7e4a690"
+      "destination_sha256": "c365b058b955dfd44691fb944521617d7ef6bec98dcc447c3817766f6eb24f21"
     },
     {
       "repository": "meloming-android",
@@ -480,7 +480,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/ScheduleTab.kt",
       "source_sha256": "d81fb45b33bc31050c0cbe41e549c2d2275e95008df043feba8af686ba975874",
       "initial_byte_identical": true,
-      "destination_sha256": "fa4597722c180aa2e1e4c8d3d5cfbdc3ba618ef800cbaab6a9182cd038ada091"
+      "destination_sha256": "a3bd025e40497819fdd6559643008e600f83107d061d1a9147f8786f65f7a1b8"
     },
     {
       "repository": "meloming-android",
@@ -489,7 +489,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/SongDetailBottomSheet.kt",
       "source_sha256": "c43e25f7bd64a7d71ace7c571cc31b3984f07b49820ce3e4e07c4c04dd46c287",
       "initial_byte_identical": true,
-      "destination_sha256": "e29f582b907885ee7848a8b72e0aed5859f362157e0de64c55fdabd7e96a11fb"
+      "destination_sha256": "84dc2746f2fedb8bfa68d263a1903e5e99fe628c25995b74c23164dd30dba7eb"
     },
     {
       "repository": "meloming-android",
@@ -533,7 +533,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/ConsoleViewModel.kt",
       "source_sha256": "b8d893ba24d0adc00d23da1f27fcd093c9121e61ecefd18ce2f7921ed366005d",
       "initial_byte_identical": true,
-      "destination_sha256": "b2a71ba31cf0f4ab743653eae8e842f5157c3bbfc3fafe051dee448cdde2fa43"
+      "destination_sha256": "ff83bf05265d3552f9c025d11a8356a001b5141e060d98a13c3c142d597da107"
     },
     {
       "repository": "meloming-android",
@@ -1536,7 +1536,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/AddScheduleScreen.kt",
       "source_sha256": "44c87900e4c56d9789eb26b760df32931178e60484da0bb8b0cd2e33a213d5be",
       "initial_byte_identical": true,
-      "destination_sha256": "d52cf14f5b9a6e1acaa88674759ded1bf1eecc4831f62f42f31213602f608f67"
+      "destination_sha256": "de8bb8470ce018a078f3ed02b568eba6321b861bb8491a7a2ba07687d86d5c88"
     },
     {
       "repository": "meloming-android",
@@ -1572,7 +1572,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/CategoryManagementScreen.kt",
       "source_sha256": "c606671008e1b20265deaeccbd08f793061fc2d8fcb44d8dadedb10a3ec91a4f",
       "initial_byte_identical": true,
-      "destination_sha256": "076aea57966c2454a84285e5d5ede9ce9db7764a7cb9db9a0606a9f1ee48547a"
+      "destination_sha256": "bd3416e4edcd334c09d495f5f2df8d5c2d668a576ba79c49555663785bc25852"
     },
     {
       "repository": "meloming-android",
@@ -1608,7 +1608,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelDetailViewModel.kt",
       "source_sha256": "6d59076703481285187f750bca9d00bfdf0d4a335055e8e2c67b9c72c5ae88b6",
       "initial_byte_identical": true,
-      "destination_sha256": "33eafed4a319e4a844835d1dd7e96afa6b18ff5531873318e7115149bec409ad"
+      "destination_sha256": "21fa9581ddcefc9d49e86d0c3854cd999f1c67b9000af3f7692926314f43e6d7"
     },
     {
       "repository": "meloming-android",
@@ -1644,7 +1644,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/EditSongScreen.kt",
       "source_sha256": "fbbccc967588652168314ab1c8cdf7b6fb442de14e36c7465861e2e589e70f09",
       "initial_byte_identical": true,
-      "destination_sha256": "f490b6b95ab896ebc8b1c03a3fb5a7b7518337013c852845cb3a2f28e7e4a690"
+      "destination_sha256": "c365b058b955dfd44691fb944521617d7ef6bec98dcc447c3817766f6eb24f21"
     },
     {
       "repository": "meloming-android",
@@ -1671,7 +1671,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/ScheduleTab.kt",
       "source_sha256": "d81fb45b33bc31050c0cbe41e549c2d2275e95008df043feba8af686ba975874",
       "initial_byte_identical": true,
-      "destination_sha256": "fa4597722c180aa2e1e4c8d3d5cfbdc3ba618ef800cbaab6a9182cd038ada091"
+      "destination_sha256": "a3bd025e40497819fdd6559643008e600f83107d061d1a9147f8786f65f7a1b8"
     },
     {
       "repository": "meloming-android",
@@ -1680,7 +1680,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/SongDetailBottomSheet.kt",
       "source_sha256": "c43e25f7bd64a7d71ace7c571cc31b3984f07b49820ce3e4e07c4c04dd46c287",
       "initial_byte_identical": true,
-      "destination_sha256": "e29f582b907885ee7848a8b72e0aed5859f362157e0de64c55fdabd7e96a11fb"
+      "destination_sha256": "84dc2746f2fedb8bfa68d263a1903e5e99fe628c25995b74c23164dd30dba7eb"
     },
     {
       "repository": "meloming-android",
@@ -1716,7 +1716,7 @@
       "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/ConsoleViewModel.kt",
       "source_sha256": "b8d893ba24d0adc00d23da1f27fcd093c9121e61ecefd18ce2f7921ed366005d",
       "initial_byte_identical": true,
-      "destination_sha256": "b2a71ba31cf0f4ab743653eae8e842f5157c3bbfc3fafe051dee448cdde2fa43"
+      "destination_sha256": "ff83bf05265d3552f9c025d11a8356a001b5141e060d98a13c3c142d597da107"
     },
     {
       "repository": "meloming-android",

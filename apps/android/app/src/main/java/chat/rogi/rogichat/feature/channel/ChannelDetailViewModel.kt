@@ -975,6 +975,5 @@ class ChannelDetailViewModel constructor(
     override fun onCleared() {
         socketJob?.cancel()
         liveRequestPollingJob?.cancel()
-        super.onCleared()
     }
 }
