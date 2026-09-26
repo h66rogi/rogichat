@@ -3,7 +3,7 @@ import { encodeDeletionIntent } from './deletion-ledger.js';
 import { Injectable } from '@nestjs/common';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
 import type { DeletionReceipt } from './deletion-ledger.js';
-import { closeOwnedRoom } from '../rooms/room-state.repository.js';
+import { closeOwnedRoom } from '../rooms/room-closure.js';
 
 /** Private account authority and bounded non-content dependency persistence. */
 @Injectable()
