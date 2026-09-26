@@ -49,11 +49,13 @@ def main():
     event = os.environ.get("GITHUB_EVENT_NAME", "")
     head = os.environ.get("GITHUB_SHA", "")
     base = os.environ.get("BASE_SHA", "")
-    if event == "merge_group":
+    if event in {"merge_group", "push"}:
         checkout = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True,
                                   check=False)
-        if (checkout.returncode or checkout.stdout.decode().strip() != head
-                or os.environ.get("MERGE_GROUP_HEAD_SHA") != head
+        if checkout.returncode or checkout.stdout.decode().strip() != head:
+            raise SystemExit("Cannot establish security checkout boundary")
+    if event == "merge_group":
+        if (os.environ.get("MERGE_GROUP_HEAD_SHA") != head
                 or os.environ.get("MERGE_GROUP_BASE_REF") not in
                 {"refs/heads/qa", "refs/heads/main"}):
             raise SystemExit("Cannot establish security merge-group boundary")

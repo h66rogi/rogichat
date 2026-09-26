@@ -91,6 +91,9 @@ class ScannerSelfTestSelection(unittest.TestCase):
                                     env=dict(env, BASE_SHA="0" * 40), capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertEqual(output.read_text(), "run_tests=true\n")
+            result = subprocess.run(command, cwd=root,
+                                    env=dict(env, GITHUB_SHA=base), capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
 
 
 if __name__ == "__main__":
