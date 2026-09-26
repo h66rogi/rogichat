@@ -231,7 +231,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ github.sha }}
           SOURCE_REPOSITORY: ${{ github.repository }}
-        run: node tools/operations/verify_backend_publication_source.mjs
+        run: node apps/api/ci/verify_backend_publication_source.mjs
       - name: Publish only the checked images
         env:
           GHCR_TOKEN: ${{ github.token }}
