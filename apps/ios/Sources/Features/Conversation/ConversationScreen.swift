@@ -39,12 +39,15 @@ struct ConversationScreen: View {
     let onReopen: () -> Void
     let onLeave: () async -> String?
     init(model: ConversationScreenModel, session: AppSession, environment: String, accountID: String,
+         targetMessageID: String? = nil,
          onReopen: @escaping () -> Void, onLeave: @escaping () async -> String?) {
         _model = State(initialValue: model)
         _features = State(initialValue: try? ConversationFeatureModel(conversation: model, session: session, environment: environment, accountID: accountID))
         self.onReopen = onReopen
         self.onLeave = onLeave
+        self.targetMessageID = targetMessageID
     }
+    let targetMessageID: String?
     var body: some View {
         VStack(spacing: 0) {
             if let error = features?.error { Text(error).font(.footnote).foregroundStyle(.secondary).padding(.horizontal).accessibilityAddTraits(.updatesFrequently) }
@@ -82,20 +85,20 @@ struct ConversationScreen: View {
                 Button("새로고침", systemImage: "arrow.clockwise") { Task { await model.refresh() } }
                 Button(role: .destructive) {
                     confirmLeave = true
-                } label: { Label("대화에서 나가기", systemImage: "rectangle.portrait.and.arrow.right") }
+                } label: { Label(model.scope.room.role == "STREAMER" ? "채팅방 삭제" : "대화에서 나가기", systemImage: "rectangle.portrait.and.arrow.right") }
             } label: { Image(systemName: "line.3.horizontal") }
                 .accessibilityLabel("대화 메뉴")
                 .disabled(!model.active || model.loading || model.sending || model.checking)
         } }
-        .confirmationDialog("대화에서 나갈까요?", isPresented: $confirmLeave, titleVisibility: .visible) {
-            Button("나가기", role: .destructive) {
+        .confirmationDialog(model.scope.room.role == "STREAMER" ? "채팅방을 삭제할까요?" : "대화에서 나갈까요?", isPresented: $confirmLeave, titleVisibility: .visible) {
+            Button(model.scope.room.role == "STREAMER" ? "채팅방 삭제" : "나가기", role: .destructive) {
                 Task {
                     if let error = await onLeave() { leaveError = error }
                 }
             }
             Button("취소", role: .cancel) {}
         } message: {
-            Text("나가도 보낸 메시지는 삭제되지 않아요.")
+            Text(model.scope.room.role == "STREAMER" ? "방장이 나가면 모든 참여자가 이 대화와 첨부를 더 이상 볼 수 없어요. 되돌릴 수 없습니다." : "나가도 보낸 메시지는 삭제되지 않아요.")
         }
         .alert("대화에서 나가지 못했어요", isPresented: Binding(get: { leaveError != nil }, set: { if !$0 { leaveError = nil } })) {
             Button("확인") { leaveError = nil }
@@ -103,8 +106,12 @@ struct ConversationScreen: View {
         .safeAreaInset(edge: .bottom, spacing: 0) { if model.active, model.listing?.ready == true { composer } }
         .task {
             await model.load()
+            if let targetMessageID { userNavigated = true; quoteAttemptedCursor = nil; quoteTarget = targetMessageID }
             applyProjection()
             await features?.load()
+        }
+        .onChange(of: targetMessageID) { _, value in
+            if let value { userNavigated = true; quoteAttemptedCursor = nil; quoteTarget = value }
         }
         .onChange(of: projectionSignal) { _, _ in applyProjection() }
         .onChange(of: model.active) { _, active in
@@ -733,6 +740,8 @@ struct ConversationScreen: View {
                             .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14))
                     }
                     if let (pending, receipt) = features.readyMedia {
+                        Text("\(model.scope.room.name) · 받는 사람: \(model.targetName)")
+                            .font(.subheadline).foregroundStyle(.secondary)
                         AuthorizedMedia(client: features.media, assetID: receipt.assetId, access: .preview(pending.kind == .video ? .video : .image))
                             .frame(maxWidth: .infinity).frame(height: 280).clipShape(RoundedRectangle(cornerRadius: 18))
                         Button("작성창으로 돌아가기") { showMedia = false }
@@ -801,6 +810,14 @@ private struct ConversationActionsSheet: View {
                         onAction: { features.action($0, $1, emoji: $2) }, onRefresh: { token in Task { await features.refreshAction(token) } })
                     Divider()
                     MessageModerationPanel(unavailableActions: unavailable, token: token, busy: features.busy,
+                        preview: features.conversation.listing?.messages.first(where: { $0.id == token.selection.messageId }).map { message in
+                            switch message.content {
+                            case .text(let value): value ?? "내용을 볼 수 없는 메시지"
+                            case .photo: "사진"
+                            case .video: "동영상"
+                            case .sticker: "스티커"
+                            }
+                        } ?? "메시지를 다시 확인해 주세요",
                         onAction: { features.action($0, $1, reason: $2) })
                 }.padding()
             }.navigationTitle("메시지").navigationBarTitleDisplayMode(.inline)

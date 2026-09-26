@@ -99,6 +99,25 @@ protocol NotificationInboxServing: Sendable {
     func markNotificationRead(id: String, scope: UUID) async throws
 }
 
+protocol MessageSearchServing: Sendable {
+    func searchMessages(query: String, cursor: String?, scope: UUID) async throws -> MessageSearchPage
+}
+
+struct MessageSearchHit: Decodable, Identifiable, Sendable {
+    let messageId: String
+    let roomId: String
+    let roomName: String
+    let author: String
+    let excerpt: String
+    let createdAt: String
+    var id: String { messageId }
+}
+
+struct MessageSearchPage: Decodable, Sendable {
+    let items: [MessageSearchHit]
+    let nextCursor: String?
+}
+
 struct InboxNotification: Decodable, Identifiable, Equatable, Sendable {
     let id: String
     let type: String

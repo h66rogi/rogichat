@@ -3,6 +3,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Plus, Smile, Video } from 'lucide-react';
+import Link from 'next/link';
 import { Popover } from 'radix-ui';
 
 import { Button } from '@/shared/ui/button';
@@ -80,6 +81,7 @@ export interface ChatRoomViewProps {
   historyCursor?: string | null | undefined;
   isLoadingOlder?: boolean | undefined;
   firstUnreadMessageId?: string | null | undefined;
+  targetMessageId?: string | null | undefined;
   onVisibleMessage?: ((messageId: string) => void) | undefined;
   className?: string | undefined;
 }
@@ -100,6 +102,7 @@ function ScopedChatRoom({
   viewerRole,
   items,
   firstUnreadMessageId,
+  targetMessageId,
   onVisibleMessage,
   outgoing = [], onRetryOutgoing, outgoingBusy = false,
   streamerRecipients = EMPTY_RECIPIENTS,
@@ -348,13 +351,16 @@ function ScopedChatRoom({
       <header className="hidden shrink-0 flex-col gap-2 border-b border-line-subtle px-5 py-3 md:flex">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div><h1 className="truncate text-[18px] font-semibold text-ink">{roomName}</h1><p className="text-[12px] text-muted">{viewerRole === 'STREAMER' ? '팬과의 채팅' : '후로기와의 채팅'}</p></div>
+          <Link href="/search" className="rounded-lg px-3 py-2 text-sm font-medium text-chat-accent hover:bg-surface-soft">대화 내용 검색</Link>
         </div>
       </header>
       {actionNotice && <p role="status" className="shrink-0 border-b border-line-subtle px-4 py-1.5 text-[13px] text-muted">{actionNotice}</p>}
 
       <ChatTimeline
+        key={targetMessageId ?? 'room'}
         items={items}
         firstUnreadMessageId={firstUnreadMessageId}
+        targetMessageId={targetMessageId}
         onVisibleMessage={onVisibleMessage}
         outgoing={outgoing}
         onRetryOutgoing={onRetryOutgoing}
@@ -370,13 +376,13 @@ function ScopedChatRoom({
       />
 
       {onSubmit && videoTarget && isAuthorizedTarget(videoTarget, authorization) && <div className="max-h-[40dvh] overflow-y-auto" hidden={draftKeyFor(videoTarget) !== currentKey}>
-        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" target={videoTarget} onSubmit={onSubmit} submitBlocked={Boolean(submitBlockedReason || submitBusy)} onClose={() => setVideoTarget(null)} />
+        <PhotoDraftComposer key={`video:${draftKeyFor(videoTarget)}`} kind="VIDEO" roomName={roomName} target={videoTarget} onSubmit={onSubmit} submitBlocked={Boolean(submitBlockedReason || submitBusy)} onClose={() => setVideoTarget(null)} />
       </div>}
       {onSubmit && stickerTarget && isAuthorizedTarget(stickerTarget, authorization) && <div className="max-h-[40dvh] overflow-y-auto" hidden={draftKeyFor(stickerTarget) !== currentKey}>
         <StickerPicker key={draftKeyFor(stickerTarget)} target={stickerTarget} onSubmit={onSubmit} submitBlocked={Boolean(submitBlockedReason || submitBusy)} onClose={() => setStickerTarget(null)} />
       </div>}
       {onSubmit && Object.entries(photoTargets).filter(([, value]) => isAuthorizedTarget(value, authorization)).map(([key, value]) => <div key={key} hidden={key !== currentKey} className="max-h-[40dvh] overflow-y-auto">
-        <PhotoDraftComposer target={value} onSubmit={onSubmit} submitBlocked={Boolean(submitBlockedReason || submitBusy)} onClose={() => setPhotoTargets(previous => {
+        <PhotoDraftComposer roomName={roomName} target={value} onSubmit={onSubmit} submitBlocked={Boolean(submitBlockedReason || submitBusy)} onClose={() => setPhotoTargets(previous => {
           const next = { ...previous }; delete next[key]; return next;
         })} />
       </div>)}

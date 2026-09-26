@@ -39,18 +39,20 @@ import SwiftUI
 @MainActor final class NativePushWakeOwner {
     static let shared = NativePushWakeOwner()
     var wake: (() async -> Bool)?
-    private var openInbox: (() -> Bool)?
+    private var openInbox: (((roomId: String, messageId: String)?) -> Bool)?
     private var pendingInbox = false
-    func bindInbox(_ action: @escaping () -> Bool) {
+    private var pendingTarget: (roomId: String, messageId: String)?
+    func bindInbox(_ action: @escaping (((roomId: String, messageId: String)?) -> Bool)) {
         openInbox = action
         drainInbox()
     }
-    func requestInbox() {
+    func requestInbox(target: (roomId: String, messageId: String)? = nil) {
+        pendingTarget = target
         pendingInbox = true
         drainInbox()
     }
     func drainInbox() {
-        if pendingInbox, openInbox?() == true { pendingInbox = false }
+        if pendingInbox, openInbox?(pendingTarget) == true { pendingInbox = false; pendingTarget = nil }
     }
 }
 @MainActor final class RogichatApplicationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
@@ -64,8 +66,11 @@ import SwiftUI
     }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void) {
-        let shouldOpen = NativePushWake.accepts(response.notification.request.content.userInfo)
-        if shouldOpen { Task { @MainActor in NativePushWakeOwner.shared.requestInbox() } }
+        let payload = response.notification.request.content.userInfo
+        if NativePushWake.accepts(payload) {
+            let target = NativePushWake.target(payload)
+            Task { @MainActor in NativePushWakeOwner.shared.requestInbox(target: target) }
+        }
         completionHandler()
     }
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {

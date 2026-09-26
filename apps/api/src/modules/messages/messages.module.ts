@@ -9,11 +9,14 @@ import { AccessModule } from '../access/access.module.js';
 import { MessageCommandsController } from './message-commands.controller.js';
 import { MessageCommandsService } from './message-commands.service.js';
 import { MessageCommandsRepository } from './message-commands.repository.js';
+import { MessageSearchController } from './message-search.controller.js';
+import { MessageSearchService } from './message-search.service.js';
+import { MessageSearchRepository } from './message-search.repository.js';
 
 @Module({})
 export class MessagesModule {
   static register(infrastructure: DynamicModule, auth: DynamicModule, deletion?: DeletionOptions): DynamicModule {
     return { module: MessagesModule, imports: [infrastructure, auth, MessagesCoreModule, AccessModule, DeletionModule.register(infrastructure, deletion)],
-      controllers: [MessagesController, MessageCommandsController], providers: [MessagesService, MessageCommandsService, MessageCommandsRepository], exports: [MessagesService] };
+      controllers: [MessagesController, MessageCommandsController, MessageSearchController], providers: [MessagesService, MessageCommandsService, MessageCommandsRepository, MessageSearchService, MessageSearchRepository], exports: [MessagesService] };
   }
 }

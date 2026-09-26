@@ -31,7 +31,7 @@ export const pushCapabilities: Schema = { oneOf: [
 
 export const notificationsDocs = {
   inbox: () => contract({ id: 'getNotificationInbox', summary: 'List currently readable message notifications',
-    response: object({ items: { type: 'array', items: object({ id: uuid, type: { type: 'string', enum: ['MESSAGE'] }, title: { type: 'string' }, body: { type: 'string' }, url: { type: 'string' }, roomId: uuid, readAt: { type: 'string', format: 'date-time', nullable: true }, createdAt: { type: 'string', format: 'date-time' } }) },
+    response: object({ items: { type: 'array', items: object({ id: uuid, type: { type: 'string', enum: ['MESSAGE'] }, title: { type: 'string' }, body: { type: 'string' }, url: { type: 'string' }, roomId: uuid, messageId: uuid, readAt: { type: 'string', format: 'date-time', nullable: true }, createdAt: { type: 'string', format: 'date-time' } }) },
       nextCursor: { type: 'string', nullable: true }, hasNextPage: boolean }),
     description: 'Current account and message ACL are checked before pagination. No message content or private actor is returned. Limit 1–50; opaque keyset cursor.', errors: [400, 401, 403] }),
   markRead: () => contract({ id: 'markNotificationRead', summary: 'Mark one currently readable notification as read',

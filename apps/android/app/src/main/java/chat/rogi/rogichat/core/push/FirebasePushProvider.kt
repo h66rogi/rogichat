@@ -52,30 +52,33 @@ class FirebasePushProvider(context: Context) : DevicePushProvider {
         } } catch (_: Exception) { if (continuation.isActive) continuation.resumeWithException(IllegalStateException("push_provider_unavailable")) }
     }
 }
-/** Data-only wake. No payload becomes a user/message, route, read receipt or notification body. */
+/** Data-only wake. A tap target is reauthorized by the app before it opens. */
 class RogichatMessagingService : FirebaseMessagingService() {
     override fun onNewToken(token: String) { ProductServices.installed(applicationContext).push?.tokenChanged() }
     override fun onMessageReceived(message: RemoteMessage) {
         if (message.notification == null && NativePushWake.accepts(message.data)) {
             ProductServices.installed(applicationContext).receiveSyncWake()
-            showNotification()
+            showNotification(NativePushWake.target(message.data))
         }
     }
-    private fun showNotification() {
+    private fun showNotification(target: Pair<String, String>?) {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
         val manager = getSystemService(NotificationManager::class.java)
         val channel = "rogichat_messages"
         manager.createNotificationChannel(NotificationChannel(channel, "새 메시지", NotificationManager.IMPORTANCE_DEFAULT))
         val open = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            action = target?.second?.let { "chat.rogi.rogichat.OPEN_MESSAGE.$it" } ?: "chat.rogi.rogichat.OPEN_NOTIFICATIONS"
             putExtra("open_notifications", true)
+            if (target != null) { putExtra("target_room_id", target.first); putExtra("target_message_id", target.second) }
         }
-        val pending = PendingIntent.getActivity(this, 0, open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val pending = PendingIntent.getActivity(this, 0, open,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = Notification.Builder(this, channel)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("로기챗")
             .setContentText("확인할 내용이 있는지 로기챗에서 확인해 주세요.")
             .setContentIntent(pending).setAutoCancel(true).build()
-        manager.notify("rogichat-sync", 1, notification)
+        manager.notify(target?.second ?: "rogichat-sync", 1, notification)
     }
 }

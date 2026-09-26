@@ -47,7 +47,7 @@ import java.time.format.DateTimeFormatter
 /** Native conversation UX is new. Navigation, theme, settings and lifecycle primitives remain source-derived. */
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun ConversationScreen(model: ConversationViewModel) {
+fun ConversationScreen(model: ConversationViewModel, targetMessageId: String? = null) {
     val state by model.state.collectAsStateWithLifecycle()
     val draft by model.draft.collectAsStateWithLifecycle()
     val owner = LocalLifecycleOwner.current
@@ -86,7 +86,14 @@ fun ConversationScreen(model: ConversationViewModel) {
                     action.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     MessageActionsPanel(action.token, action.record, action.busy, action.reactions, action.unavailable,
                         { token, command, emoji -> model.action(token, command, emoji) }, model::refreshAction)
-                    MessageModerationPanel(action.token, action.busy, action.unavailable) { token, command, reason -> model.action(token, command, reason = reason) }
+                    val selectedMessage = data.messages.firstOrNull { it.id.value == action.token.selection.messageId }
+                    val selectedPreview = when (val content = selectedMessage?.content) {
+                        is MessageContent.Text -> content.text ?: "내용을 볼 수 없는 메시지"
+                        is MessageContent.Media -> if (content.type == "VIDEO") "동영상" else "사진"
+                        is MessageContent.Sticker -> "스티커"
+                        null -> "메시지를 다시 확인해 주세요"
+                    }
+                    MessageModerationPanel(action.token, action.busy, action.unavailable, selectedPreview) { token, command, reason -> model.action(token, command, reason = reason) }
                 }
             } }
             val listState = remember(data.scope) { LazyListState() }
@@ -117,6 +124,14 @@ fun ConversationScreen(model: ConversationViewModel) {
             var quoteTarget by remember(data.scope) { mutableStateOf<String?>(null) }
             var quoteNotice by remember(data.scope) { mutableStateOf<String?>(null) }
             var attemptedQuoteCursor by remember(data.scope) { mutableStateOf<SyncCursor?>(null) }
+            LaunchedEffect(data.scope, targetMessageId) {
+                if (targetMessageId != null) {
+                    userInteracted = true
+                    attemptedQuoteCursor = null
+                    quoteTarget = targetMessageId
+                    quoteNotice = null
+                }
+            }
             LaunchedEffect(dragging) {
                 if (dragging) {
                     userInteracted = true
@@ -266,10 +281,17 @@ fun ConversationScreen(model: ConversationViewModel) {
                     }
                 }
                 if (media != null) {
-                    if (draft.media != null) Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (draft.media is MediaContent.Sticker) "스티커 선택됨" else "첨부 파일 준비됨", Modifier.weight(1f))
-                        TextButton(onClick = model::clearMedia, enabled = !draft.submitting && !draft.uploading) { Text("첨부 취소") }
-                    }
+                    val selectedMedia = draft.media as? MediaContent.Attachment
+                    if (selectedMedia != null) {
+                        val recipient = if (draft.privateMessage) (visibleQuote?.author as? MessageAuthor.Member)?.nickname?.let { "${it}님" } ?: "선택한 팬" else
+                            if (model.selection.membership.role == RoomRole.FAN) "방장" else "전체 참여자"
+                        Text("${model.selection.membership.name} · 받는 사람: $recipient", style = MaterialTheme.typography.bodySmall)
+                        selectedMedia.assetIds.firstOrNull()?.let { assetId ->
+                            AuthorizedMedia(media.client, assetId, MediaAccess.Preview(if (selectedMedia.kind == MediaKind.VIDEO) MediaVariant.poster else MediaVariant.image),
+                                Modifier.fillMaxWidth().heightIn(max = 220.dp).height(180.dp))
+                        }
+                        TextButton(onClick = model::clearMedia, enabled = !draft.submitting && !draft.uploading) { Text("선택 취소") }
+                    } else if (draft.media is MediaContent.Sticker) Text("스티커 선택됨")
                     if (draft.uploading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         val enabled = !draft.submitting && !draft.uploading && draft.media == null

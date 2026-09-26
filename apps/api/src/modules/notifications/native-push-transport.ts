@@ -9,6 +9,7 @@ import { publicPushAddress } from './push-transport.js';
 import type { PreparedPush, PushTransportResult, PushResolver } from './push-transport.js';
 import type { NativePushConfig } from './native-push-config.js';
 import { nativeDeviceToken } from './native-push-contract.js';
+import { messagePushTarget } from './notification-contract.js';
 import type { NativePushProvider } from './native-push-contract.js';
 
 interface ProviderResponse { status: number; body: Buffer }
@@ -99,7 +100,7 @@ export class NativePushTransport {
       return result.access_token;
     } catch { throw new Error('native_push_unavailable'); }
   }
-  async prepare(provider: NativePushProvider, tokenValue: string): Promise<PreparedPush | null> {
+  async prepare(provider: NativePushProvider, tokenValue: string, target?: { roomId: string; messageId: string }): Promise<PreparedPush | null> {
     if (!this.available(provider)) return null;
     const token = nativeDeviceToken(provider, tokenValue);
     if (provider === 'APNS') {
@@ -110,9 +111,10 @@ export class NativePushTransport {
         try {
           const response = await this.post(config.sandbox ? 'api.sandbox.push.apple.com' : 'api.push.apple.com', `/3/device/${token}`,
             { authorization: `bearer ${jwt}`, 'apns-topic': config.topic, 'apns-push-type': 'alert', 'apns-priority': '10',
-              'apns-expiration': String(Math.floor(Date.now() / 1000) + 60), 'apns-collapse-id': 'rogi-sync', 'content-type': 'application/json' },
+              'apns-expiration': String(Math.floor(Date.now() / 1000) + 60), 'content-type': 'application/json' },
             json({ aps: { alert: { title: '로기챗', body: '확인할 내용이 있는지 로기챗에서 확인해 주세요.' },
-              sound: 'default', 'content-available': 1 }, type: 'sync_required', version: 1 }), true);
+              sound: 'default', 'content-available': 1 }, type: 'sync_required', version: 1,
+              ...(target ? { roomId: messagePushTarget(target.roomId, target.messageId).roomId, messageId: target.messageId } : {}) }), true);
           return classifyNativePush('APNS', response.status, response.body);
         } catch { return { kind: 'retry' }; }
       } };
@@ -122,7 +124,7 @@ export class NativePushTransport {
       try {
         const response = await this.post('fcm.googleapis.com', `/v1/projects/${config.projectId}/messages:send`,
           { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }, json({ message: { token,
-            data: { type: 'sync_required', version: '1' }, android: { priority: 'high', ttl: '60s', collapse_key: 'rogi-sync', restricted_package_name: config.applicationId } } }));
+            data: { type: 'sync_required', version: '1', ...(target ? { roomId: messagePushTarget(target.roomId, target.messageId).roomId, messageId: target.messageId } : {}) }, android: { priority: 'high', ttl: '60s', restricted_package_name: config.applicationId } } }));
         if (response.status === 401) this.fcmToken = undefined;
         return classifyNativePush('FCM', response.status, response.body);
       } catch { return { kind: 'retry' }; }

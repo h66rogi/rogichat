@@ -466,6 +466,15 @@ final class AppSession {
             return value
         } catch { await handleAccountError(error, ticket: scope); throw error }
     }
+    func searchMessages(query: String, cursor: String?, scope: UInt64) async throws -> MessageSearchPage {
+        guard scope == generation, access == .ready, !busy, let clientScope,
+              let search = service as? any MessageSearchServing else { throw ProductError.sessionChanged }
+        do {
+            let value = try await search.searchMessages(query: query, cursor: cursor, scope: clientScope)
+            guard scope == generation, self.clientScope == clientScope else { throw ProductError.sessionChanged }
+            return value
+        } catch { await handleAccountError(error, ticket: scope); throw error }
+    }
     func markNotificationRead(id: String, scope: UInt64) async throws {
         guard scope == generation, access == .ready, !busy, let clientScope,
               let inbox = service as? any NotificationInboxServing else { throw ProductError.sessionChanged }

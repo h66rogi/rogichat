@@ -94,7 +94,7 @@ function AccountSettings({ session, profile: initial, generation, refresh }: { s
     profile: { ...profile, soopDisplayId: profile.soop?.displayId ?? null, avatarUrl: null, edit: busy ? unavailable('프로필을 저장하고 있습니다.') : { enabled: true } },
     soop: { status: session.soopLinkStatus === 'VERIFIED' ? 'linked' : 'unlinked', link: session.soopLinkStatus === 'VERIFIED' ? unavailable('SOOP 계정이 연결되어 있습니다.') : { enabled: true } },
     notifications: push.model,
-    room: { roomName: room.kind === 'ready' ? room.room.name : '후로기', membership: room.kind === 'ready' && room.room.availability !== 'OWNER_PENDING' ? room.room.joined ? 'joined' : 'left' : room.kind === 'checking' ? 'unknown' : 'unavailable', isOwner: false, leave: room.kind === 'ready' && room.room.availability !== 'OWNER_PENDING' && room.room.joined && !busy ? { enabled: true } : unavailable(room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '채팅방 참여 정보를 확인한 뒤 나갈 수 있습니다.') },
+    room: { roomName: room.kind === 'ready' ? room.room.name : '후로기', membership: room.kind === 'ready' && room.room.availability !== 'OWNER_PENDING' ? room.room.joined ? 'joined' : 'left' : room.kind === 'checking' ? 'unknown' : 'unavailable', isOwner: room.kind === 'ready' && room.room.role === 'STREAMER', leave: room.kind === 'ready' && room.room.availability !== 'OWNER_PENDING' && room.room.joined && !busy ? { enabled: true } : unavailable(room.kind === 'unconfigured' ? '아직 채팅방이 열리지 않았습니다.' : '채팅방 참여 정보를 확인한 뒤 나갈 수 있습니다.') },
     session: { logout: { enabled: true } },
     account: { deletion: unavailable('계정 탈퇴 기능을 아직 제공하지 않습니다.') },
   };

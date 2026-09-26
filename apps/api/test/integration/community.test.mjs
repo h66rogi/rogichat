@@ -112,7 +112,10 @@ test('admin provisioning requires explicit capabilities and creator owner; no jo
   const joined = await f.join(f.admin, room);
   assert.equal((await f.profile(f.admin, room, joined.actorId)).body.profile.role, 'FAN');
   assert.equal((await f.profile(f.admin, room, room.ownerActorId)).body.profile.role, 'STREAMER');
-  assert.equal((await f.call(f.streamer1, 'POST', `/rooms/${room.roomId}/leave`, {})).status, 409);
+  assert.equal((await f.call(f.streamer1, 'POST', `/rooms/${room.roomId}/leave`, {})).status, 204);
+  assert.equal((await f.call(f.admin, 'GET', `/rooms/${room.roomId}/profile-revisions`)).status, 404);
+  assert.equal((await f.call(f.admin, 'POST', `/rooms/${room.roomId}/join`, {})).status, 404);
+  assert.equal((await f.call(f.streamer1, 'POST', `/rooms/${room.roomId}/join`, {})).status, 404);
   const emptyId = await f.db.transactions.write(tx => createRoom(tx, '방장 없는 합성 방', 'FAN'));
   const entered = await f.join(f.streamer2, { roomId: emptyId });
   const [stored] = await f.db.transactions.read(tx => tx.rows('SELECT r.owner_member_id,m.role FROM rooms r JOIN room_members m ON m.room_id=r.id WHERE r.id=? AND m.id=?', [emptyId, entered.actorId]));

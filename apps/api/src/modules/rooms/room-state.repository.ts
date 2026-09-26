@@ -2,6 +2,7 @@ import { affected } from '../../infrastructure/database/transactions.js';
 import { Injectable } from '@nestjs/common';
 import type { RowDataPacket } from 'mysql2';
 import type { Transaction } from '../../infrastructure/database/transactions.js';
+import { closeOwnedRoom } from './room-closure.js';
 export interface RoomRow {
   id: string; name: string; mode: 'FAN' | 'GROUP'; status: 'ACTIVE' | 'CLOSED';
   history_policy: 'ALL_AVAILABLE' | 'SINCE_JOIN'; join_policy: string; policy_version: number; owner_member_id: string | null;
@@ -67,5 +68,7 @@ export class RoomStateRepository {
   async advanceLeavingMembership(tx: Transaction, userId: string) {
     return affected(tx.prisma.users.updateMany({ where: { id: userId }, data: { membership_generation: { increment: 1n } } }));
   }
+
+  closeOwnedRoom(tx: Transaction, roomId: string) { return closeOwnedRoom(tx, roomId); }
 
 }

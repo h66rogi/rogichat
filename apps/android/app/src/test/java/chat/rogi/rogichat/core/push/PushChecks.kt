@@ -32,6 +32,9 @@ object PushChecks {
         check(!model.registered(logout) && model.registrationToken(logout) == null)
         check(token.toString() == "DevicePushToken([redacted])")
         check(NativePushWake.accepts(mapOf("type" to "sync_required", "version" to "1")))
+        check(NativePushWake.target(mapOf("type" to "sync_required", "version" to "1",
+            "roomId" to "2f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b",
+            "messageId" to "3f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b"))?.second == "3f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b")
         check(!NativePushWake.accepts(mapOf("type" to "sync_required", "version" to "01")))
         check(!NativePushWake.accepts(mapOf("type" to "sync_required", "version" to "1", "url" to "https://qa.rogi.chat/rooms/one")))
 

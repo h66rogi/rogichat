@@ -49,7 +49,7 @@ struct MessageActionsPanel: View {
                 }.disabled(blocked(action))
                 Button("취소", role: .cancel) { confirmation = nil }
             } message: { captured in
-                Text(captured.action == .delete ? "이 메시지를 삭제할까요? 연결된 공개본도 더 이상 볼 수 없어요."
+                Text(captured.action == .delete ? "삭제하면 이 메시지를 볼 수 있던 모든 사람의 대화에서 사라져요. 연결된 익명 공개본도 함께 사라지며, 이미 저장한 사본은 지울 수 없어요."
                     : "작성자를 익명으로 표시해 방 전체에 공개할까요?")
             }
     }
@@ -72,6 +72,7 @@ struct MessageModerationPanel: View {
     let unavailableActions: Set<MessageAction>
     let token: ActionViewToken
     let busy: Bool
+    let preview: String
     let onAction: (ActionViewToken, MessageAction, ReportReason?) -> Void
     @State private var reportToken: ActionViewToken?
     @State private var blockToken: ActionViewToken?
@@ -83,11 +84,13 @@ struct MessageModerationPanel: View {
             }
         }
         .onChange(of: token) { _, _ in reportToken = nil; blockToken = nil }
-        .confirmationDialog("신고 사유", isPresented: Binding(get: { reportToken != nil }, set: { if !$0 { reportToken = nil } }), titleVisibility: .visible, presenting: reportToken) { captured in
+        .confirmationDialog("이 메시지를 신고할까요?", isPresented: Binding(get: { reportToken != nil }, set: { if !$0 { reportToken = nil } }), titleVisibility: .visible, presenting: reportToken) { captured in
             ForEach(ReportReason.allCases, id: \.self) { reason in
                 Button(reason.label) { onAction(captured, .report, reason) }.disabled(busy)
             }
             Button("취소", role: .cancel) { reportToken = nil }
+        } message: { _ in
+            Text("\(preview.prefix(200))\n신고 사유와 이 메시지의 위치가 전달돼요. 주변 대화와 메시지 본문은 자동으로 보내지지 않아요.")
         }
         .alert("작성자 차단", isPresented: Binding(get: { blockToken != nil }, set: { if !$0 { blockToken = nil } }), presenting: blockToken) { captured in
             Button("차단", role: .destructive) { onAction(captured, .blockActor, nil) }.disabled(busy)

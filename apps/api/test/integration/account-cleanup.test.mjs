@@ -140,8 +140,9 @@ test('first remaining pages drain over 100 reactions/grants/read states/periods 
     }
     assert.equal(await tx.prisma.message_reactions.count({ where: { member_id: r.memberId } }), 0);
     assert.equal(await tx.prisma.message_reactions.count({ where: { member_id: r.otherMemberId } }), 1);
-    assert.equal(await tx.prisma.messages.count({ where: { id: { in: messages }, text_content: 'independent content' } }), 101);
-    assert.equal((await tx.prisma.room_members.findUniqueOrThrow({ where: { id: r.otherMemberId } })).status, 'ACTIVE');
+    assert.equal(await tx.prisma.messages.count({ where: { id: { in: messages }, text_content: 'independent content' } }), 0);
+    assert.equal((await tx.prisma.room_members.findUniqueOrThrow({ where: { id: r.otherMemberId } })).status, 'LEFT');
+    assert.equal((await tx.prisma.rooms.findUniqueOrThrow({ where: { id: r.roomId } })).status, 'CLOSED');
   });
   await f.restart(); assert.deepEqual(await f.step(), { phase: 'subset-drained', changed: 0, hasMore: false });
 });
@@ -193,7 +194,7 @@ test('retained avatar/identity/sticker evidence never becomes a scrubbed profile
   await f.drain();
 });
 
-test('M11 push jobs/deliveries/subscriptions drain before bounded session deletion, preserving other recipients', async t => {
+test('owner account cleanup removes room push work before bounded session deletion', async t => {
   const f = await fixture(t); const r = await f.room(); const message = randomUUID(), delivery = randomUUID(), job = randomUUID(), otherJob = randomUUID();
   const subscriptions = Array.from({ length: 101 }, () => randomUUID());
   await f.db.transactions.write(async tx => {
@@ -227,8 +228,9 @@ test('M11 push jobs/deliveries/subscriptions drain before bounded session deleti
   assert.deepEqual(results.filter(row => row.phase === 'sessions').map(row => row.changed), [100, 1]);
   await f.db.transactions.read(async tx => {
     assert.equal(await tx.prisma.jobs.count({ where: { id: job } }), 0);
-    assert.equal(await tx.prisma.jobs.count({ where: { id: otherJob } }), 1);
+    assert.equal(await tx.prisma.jobs.count({ where: { id: otherJob } }), 0);
     assert.equal(await tx.prisma.messages.count({ where: { id: message } }), 1);
+    assert.equal(await tx.prisma.messages.count({ where: { id: message, text_content: { not: null } } }), 0);
     assert.equal(await tx.prisma.auth_sessions.count({ where: { user_id: f.otherId } }), 1);
   });
 });
@@ -269,7 +271,7 @@ test('retained private pairs are history, not authoritative counterpart hints or
   error => error.getStatus?.() === 404);
 });
 
-test('room cleanup atomically resets other participants event/history/profile cursors without deleting their content', async t => {
+test('owner account cleanup closes the room and revokes other participants before later bounded cleanup', async t => {
   const f = await fixture(t); const r = await f.room();
   // Keep two unchanged visible profiles after admission, so reaction cleanup
   // isolates the epoch binding from profile-content/generation changes.
@@ -313,24 +315,20 @@ test('room cleanup atomically resets other participants event/history/profile cu
     assert.equal((await f.db.transactions.read(tx => tx.prisma.room_members.findUniqueOrThrow({ where: { id: r.memberId } }))).status, 'ACTIVE');
     assert.equal((await f.step()).phase, 'membership');
     assert.equal(await epoch(), before + 1n);
-    for (const [path, cursor] of [['events', snapshot.nextCursor], ['history', snapshot.historyCursor], ['profile-sync', profiles.nextCursor]]) {
-      assert.equal((await sync(path, cursor)).resetRequired, true);
+    for (const [path, cursor] of [['events', snapshot.nextCursor], ['history', snapshot.historyCursor], ['profile-sync', profiles.nextCursor], ['snapshot', null]]) {
+      const params = new globalThis.URLSearchParams({ deviceId: randomUUID(), cacheId: randomUUID(), limit: '1', ...(cursor ? { cursor } : {}) });
+      const response = await fetch(`${await app.getUrl()}/v1/rooms/${r.roomId}/${path}?${params}`,
+        { headers: { Cookie: `rogi_session=${f.other.token}` } });
+      assert.equal(response.status, 404);
     }
-    const beforeReaction = await sync('snapshot'), beforeReactionProfiles = await sync('profile-sync');
-    assert.ok(beforeReactionProfiles.nextCursor);
     assert.equal((await f.step()).phase, 'reactions');
     assert.equal(await epoch(), before + 2n);
-    assert.equal((await sync('events', beforeReaction.nextCursor)).resetRequired, true);
-    assert.equal((await sync('profile-sync', beforeReactionProfiles.nextCursor)).resetRequired, true);
-    assert.deepEqual((await sync('profile-sync')).profiles, beforeReactionProfiles.profiles);
     await f.drain();
     const drained = await epoch();
     assert.deepEqual(await f.step(), { phase: 'subset-drained', changed: 0, hasMore: false });
     assert.equal(await epoch(), drained);
-    const fresh = await sync('snapshot'); assert.equal(fresh.resetRequired, false);
-    assert.equal(fresh.messages[0].content.text, 'independent surviving body');
     assert.equal(await f.db.transactions.read(tx => tx.prisma.messages.count({ where: { id: { in: messages.map(row => row.messageId) },
-      text_content: 'independent surviving body' } })), 2);
+      text_content: 'independent surviving body' } })), 0);
     assert.equal(await f.db.transactions.read(tx => tx.prisma.message_reactions.count({ where: { member_id: r.memberId } })), 0);
   } finally { await app.close(); }
 });

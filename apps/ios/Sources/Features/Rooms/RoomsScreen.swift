@@ -19,6 +19,7 @@ struct RoomsScreen: View {
     @State private var model: RoomsScreenModel
     let onOpenConversation: () -> Void
     let onOpenSettings: () -> Void
+    let onSearchMessages: () -> Void
     @State private var visible = false
     @State private var query = ""
     @State private var discoveryQuery = ""
@@ -28,10 +29,11 @@ struct RoomsScreen: View {
     @Environment(\.scenePhase) private var scenePhase
 
     init(model: RoomsScreenModel, onOpenConversation: @escaping () -> Void,
-         onOpenSettings: @escaping () -> Void) {
+         onOpenSettings: @escaping () -> Void, onSearchMessages: @escaping () -> Void) {
         _model = State(initialValue: model)
         self.onOpenConversation = onOpenConversation
         self.onOpenSettings = onOpenSettings
+        self.onSearchMessages = onSearchMessages
     }
 
     var body: some View {
@@ -114,6 +116,8 @@ struct RoomsScreen: View {
 
     private var header: some View {
         TopLevelTabHeader(title: "채팅") {
+            Button(action: onSearchMessages) { Image(systemName: "text.magnifyingglass").font(.title3) }
+                .accessibilityLabel("대화 내용 검색")
             Button { showingSearch.toggle(); if !showingSearch { query = "" } } label: {
                 Image(systemName: "magnifyingglass").font(.title3)
             }.accessibilityLabel("대화 검색")

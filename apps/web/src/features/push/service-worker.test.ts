@@ -161,6 +161,23 @@ void test('a click with no page open opens this origin notification inbox', asyn
   assert.deepEqual(plain(context.opened), ['/notifications']);
 });
 
+void test('a targeted push opens its exact message in the app', async () => {
+  const context = worker([]);
+  const target = { roomId: '2f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b', messageId: '3f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b' };
+  await context.fire('push', context.push({ ...WAKE_ONLY_PUSH, ...target }));
+  assert.deepEqual(plain(context.notifications[0]?.options.data), target);
+  await context.fire('notificationclick', { notification: { data: target, close: () => undefined } });
+  assert.deepEqual(plain(context.opened), [`/chat?roomId=${target.roomId}&messageId=${target.messageId}`]);
+});
+
+void test('a targeted click opens the exact message when an existing page cannot navigate', async () => {
+  const page = client('https://qa.rogi.chat/settings');
+  const context = worker([page]);
+  const target = { roomId: '2f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b', messageId: '3f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b' };
+  await context.fire('notificationclick', { notification: { data: target, close: () => undefined } });
+  assert.deepEqual(plain(context.opened), [`/chat?roomId=${target.roomId}&messageId=${target.messageId}`]);
+});
+
 void test('a page of another origin is not treated as this app', async () => {
   const foreign = client('https://example.com/');
   const context = worker([foreign]);

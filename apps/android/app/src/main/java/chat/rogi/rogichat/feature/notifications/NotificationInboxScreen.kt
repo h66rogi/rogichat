@@ -46,6 +46,7 @@ data class InboxNotification(val id: String, val title: String, val body: String
 data class InboxPage(val items: List<InboxNotification>, val nextCursor: String?)
 interface NotificationInboxRepository {
     suspend fun getInbox(scope: NotificationAccountScope, cursor: String? = null): Result<InboxPage>
+    suspend fun searchMessages(scope: NotificationAccountScope, query: String, cursor: String? = null): Result<MessageSearchPage> = Result.failure(IllegalStateException("operation_unavailable"))
     suspend fun markInboxRead(scope: NotificationAccountScope, id: String): Result<Unit>
 }
 object InboxContract {
@@ -100,13 +101,13 @@ class NotificationInboxViewModel(private val repository: NotificationInboxReposi
                 mutable.update { state -> state.copy(loadingMore = false, error = "알림을 더 불러오지 못했어요.") } }
         }
     }
-    fun open(item: InboxNotification, onOpenRoom: (String) -> Unit) { viewModelScope.launch {
+    fun open(item: InboxNotification, onOpenRoom: (String, String) -> Unit) { viewModelScope.launch {
         if (!item.isRead) repository.markInboxRead(account, item.id).onSuccess {
             mutable.update { state -> state.copy(items = state.items.map { current ->
                 if (current.id == item.id) current.copy(readAt = Instant.now()) else current }) }
         }.onFailure { if (it is CancellationException) throw it
             mutable.update { state -> state.copy(error = "읽음 상태를 저장하지 못했어요.") } }
-        onOpenRoom(item.roomId)
+        onOpenRoom(item.roomId, item.id)
     } }
     fun markAll() { if (mutable.value.markingAll) return
         viewModelScope.launch {
@@ -123,7 +124,7 @@ class NotificationInboxViewModel(private val repository: NotificationInboxReposi
 }
 
 @Composable
-fun NotificationInboxScreen(model: NotificationInboxViewModel, onOpenRoom: (String) -> Unit, onSettings: () -> Unit) {
+fun NotificationInboxScreen(model: NotificationInboxViewModel, onOpenRoom: (String, String) -> Unit, onSettings: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),

@@ -4,7 +4,7 @@ import { request } from 'node:https';
 import { ECDH } from 'node:crypto';
 import webpush from 'web-push';
 import { ApiError } from '../auth/auth-primitives.js';
-import { WAKE_ONLY_PUSH } from './notification-contract.js';
+import { WAKE_ONLY_PUSH, messagePushTarget } from './notification-contract.js';
 
 export function validatePushKeys(p256dh: string, auth: string): void {
   try {
@@ -55,11 +55,11 @@ export interface PreparedPush { send(): Promise<PushTransportResult> }
 export class PushTransport {
   constructor(readonly config: PushConfig, readonly policy = new PushEndpointPolicy(), private readonly httpRequest: typeof request = request) {}
   assertAvailable(): void { if (!this.config.vapid) throw new ApiError('AUTH_UNAVAILABLE', 503); }
-  async prepare(subscription: PushCredentials): Promise<PreparedPush | null> {
+  async prepare(subscription: PushCredentials, target?: { roomId: string; messageId: string }): Promise<PreparedPush | null> {
     if (!this.config.vapid) return null;
     const destination = await this.policy.validate(subscription.endpoint);
     let details;
-    try { validatePushKeys(subscription.p256dh, subscription.auth_secret); details = webpush.generateRequestDetails({ endpoint: destination.url.href, keys: { p256dh: subscription.p256dh, auth: subscription.auth_secret } }, JSON.stringify(WAKE_ONLY_PUSH), { vapidDetails: this.config.vapid, TTL: 60, urgency: 'normal', contentEncoding: 'aes128gcm' }); }
+    try { validatePushKeys(subscription.p256dh, subscription.auth_secret); details = webpush.generateRequestDetails({ endpoint: destination.url.href, keys: { p256dh: subscription.p256dh, auth: subscription.auth_secret } }, JSON.stringify(target ? messagePushTarget(target.roomId, target.messageId) : WAKE_ONLY_PUSH), { vapidDetails: this.config.vapid, TTL: 60, urgency: 'normal', contentEncoding: 'aes128gcm' }); }
     catch { throw new Error('invalid_push_subscription'); }
     const body = details.body;
     const headers = details.headers;

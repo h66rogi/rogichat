@@ -36,7 +36,7 @@ export function DeleteMessageControl({ onDelete }: { onDelete: () => Promise<Cha
       <AlertDialog.Overlay className={actionDialogOverlayClass} />
       <AlertDialog.Content className={actionDialogContentClass} aria-busy={busy}>
         <AlertDialog.Title className="text-lg font-semibold">이 메시지를 삭제할까요?</AlertDialog.Title>
-        <AlertDialog.Description className="mt-3 text-sm text-muted">삭제하면 메시지와 이 메시지에서 공개된 내용은 더 이상 표시되지 않습니다. 되돌릴 수 없습니다.</AlertDialog.Description>
+        <AlertDialog.Description className="mt-3 text-sm text-muted">삭제하면 이 메시지를 볼 수 있던 모든 사람의 대화에서 사라집니다. 이 메시지에서 만든 익명 공개본도 함께 사라집니다. 이미 저장한 사본은 지울 수 없으며, 되돌릴 수 없습니다.</AlertDialog.Description>
         {error && <p role="alert" className="mt-3 text-sm text-danger">{error}</p>}
         <div className={actionDialogFooterClass}>
           <AlertDialog.Cancel asChild><Button variant="outline" disabled={busy}>취소</Button></AlertDialog.Cancel>

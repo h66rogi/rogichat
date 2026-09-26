@@ -6,6 +6,7 @@ enum M11Endpoint: Sendable {
     case enableNotifications(PreferenceGeneration)
     case notificationPreferences
     case notificationInbox(cursor: String?)
+    case messageSearch(query: String, cursor: String?)
     case markNotificationRead(id: String)
     case disableNotifications(DisableAccountNotifications)
     case readState(room: ReadStateID)
@@ -22,6 +23,10 @@ enum M11Endpoint: Sendable {
         case .notificationInbox(let cursor):
             guard cursor == nil || (cursor!.utf8.count <= 160 && cursor!.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil) else { throw ProductError.invalidResponse }
             path = "me/notifications"; body = nil
+        case .messageSearch(let query, let cursor):
+            guard query.count >= 2, query.count <= 100, !query.unicodeScalars.contains(where: { $0.value < 32 }),
+                  cursor == nil || (cursor!.utf8.count <= 160 && cursor!.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil) else { throw ProductError.invalidResponse }
+            path = "me/messages/search"; body = nil
         case .markNotificationRead(let id):
             guard NativePushContract.uuid(id) else { throw ProductError.invalidResponse }
             path = "me/notifications/\(id)/read"; body = Data("{}".utf8)
@@ -33,6 +38,11 @@ enum M11Endpoint: Sendable {
         if case .notificationInbox(let cursor) = self {
             var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
             components.queryItems = [URLQueryItem(name: "limit", value: "20")] + (cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? [])
+            request.url = components.url
+        }
+        if case .messageSearch(let query, let cursor) = self {
+            var components = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)!
+            components.queryItems = [URLQueryItem(name: "q", value: query)] + (cursor.map { [URLQueryItem(name: "cursor", value: $0)] } ?? [])
             request.url = components.url
         }
         if case .markNotificationRead = self { request.httpMethod = "POST" }

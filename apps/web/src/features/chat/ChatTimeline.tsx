@@ -37,6 +37,7 @@ export interface ChatTimelineProps {
   historyPageKey?: string | null | undefined;
   isLoadingOlder?: boolean | undefined;
   firstUnreadMessageId?: string | null | undefined;
+  targetMessageId?: string | null | undefined;
   onVisibleMessage?: ((messageId: string) => void) | undefined;
   ariaLabel?: string | undefined;
   className?: string | undefined;
@@ -58,6 +59,7 @@ export function ChatTimeline({
   historyPageKey = null,
   isLoadingOlder = false,
   firstUnreadMessageId = null,
+  targetMessageId = null,
   onVisibleMessage,
   ariaLabel = '채팅 메시지',
   className,
@@ -68,14 +70,15 @@ export function ChatTimeline({
   const lastScrollTopRef = useRef(0);
   const prevItemsRef = useRef<ChatTimelineItem[] | null>(null);
   const previousOutgoingRef = useRef<readonly string[] | null>(null);
-  const userMovedRef = useRef(false);
+  const userMovedRef = useRef(Boolean(targetMessageId));
   const positionedUnreadRef = useRef<string | null>(null);
   const attemptedUnreadPageRef = useRef<string | null>(null);
   const attemptedQuotePageRef = useRef<string | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [unseenCount, setUnseenCount] = useState(0);
   const [showLatest, setShowLatest] = useState(false);
-  const [quoteTarget, setQuoteTarget] = useState<string | null>(null);
+  const [quoteTarget, setQuoteTarget] = useState<string | null>(targetMessageId);
+  const [focusedMessage, setFocusedMessage] = useState<string | null>(null);
   const [quoteNotice, setQuoteNotice] = useState('');
 
   const navigateQuote = useCallback((messageId: string) => {
@@ -92,6 +95,7 @@ export function ChatTimeline({
     if (row) {
       row.scrollIntoView({ block: 'center', behavior: 'smooth' });
       row.focus({ preventScroll: true });
+      setFocusedMessage(quoteTarget);
       // The DOM row exists only after the requested history page has committed.
       setQuoteTarget(null);
     } else if (hasOlder && onLoadOlder) {
@@ -171,7 +175,7 @@ export function ChatTimeline({
   }, [items, firstUnreadMessageId, reportVisible]);
 
   useEffect(() => {
-    if (!firstUnreadMessageId || positionedUnreadRef.current === firstUnreadMessageId ||
+    if (!firstUnreadMessageId || targetMessageId || positionedUnreadRef.current === firstUnreadMessageId ||
       userMovedRef.current || items.some(item => item.id === firstUnreadMessageId) ||
       !hasOlder || isLoadingOlder || !onLoadOlder) return;
     const pageKey = `${firstUnreadMessageId}:${historyPageKey ?? ''}`;
@@ -179,7 +183,7 @@ export function ChatTimeline({
     attemptedUnreadPageRef.current = pageKey;
     recordAnchor();
     void onLoadOlder();
-  }, [firstUnreadMessageId, items, hasOlder, historyPageKey, isLoadingOlder, onLoadOlder, recordAnchor]);
+  }, [firstUnreadMessageId, targetMessageId, items, hasOlder, historyPageKey, isLoadingOlder, onLoadOlder, recordAnchor]);
 
   // Initial position: bottom, no animation.
   useLayoutEffect(() => {
@@ -229,7 +233,7 @@ export function ChatTimeline({
 
   // Place the first unread row before visibility reporting can advance the read position.
   useLayoutEffect(() => {
-    if (!firstUnreadMessageId || positionedUnreadRef.current === firstUnreadMessageId || userMovedRef.current) return;
+    if (!firstUnreadMessageId || targetMessageId || positionedUnreadRef.current === firstUnreadMessageId || userMovedRef.current) return;
     const el = viewportRef.current;
     const row = el?.querySelector<HTMLElement>(`[data-item-id="${cssEscape(firstUnreadMessageId)}"]`);
     if (el && row) {
@@ -241,7 +245,7 @@ export function ChatTimeline({
     } else if (!hasOlder && !isLoadingOlder) {
       positionedUnreadRef.current = firstUnreadMessageId;
     }
-  }, [firstUnreadMessageId, items, hasOlder, isLoadingOlder]);
+  }, [firstUnreadMessageId, targetMessageId, items, hasOlder, isLoadingOlder]);
 
   useLayoutEffect(() => {
     const ids = outgoing.map(item => item.id);
@@ -307,7 +311,7 @@ export function ChatTimeline({
                 <span className="h-px flex-1 bg-line-subtle" aria-hidden="true" />
               </li>
             ) : (
-              <li key={entry.item.id} data-item-id={entry.item.id} data-testid="chat-timeline-item" tabIndex={-1} className="focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-chat-accent">
+              <li key={entry.item.id} data-item-id={entry.item.id} data-testid="chat-timeline-item" tabIndex={-1} className={cn('focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-chat-accent', focusedMessage === entry.item.id && 'rounded-xl bg-chat-accent/10')}>
                 {entry.item.id === firstUnreadMessageId && <div className="mx-4 my-2 flex items-center gap-3 text-xs font-semibold text-chat-accent" data-testid="chat-first-unread">
                   <span className="h-px flex-1 bg-chat-accent" aria-hidden="true" />여기부터 읽지 않은 메시지<span className="h-px flex-1 bg-chat-accent" aria-hidden="true" />
                 </div>}

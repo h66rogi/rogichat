@@ -47,6 +47,7 @@ class NativeResponse(val status: Int, val body: String) { override fun toString(
 private val nativeAdmission = AttributeKey<() -> Unit>("rogichat.native.admission")
 interface NativeApi : AppleIdentityTransport, NativePushTransport {
     suspend fun getNotificationInbox(token: String, cursor: String?): String = throw IllegalStateException("operation_unavailable")
+    suspend fun searchMessages(token: String, query: String, cursor: String?): String = throw IllegalStateException("operation_unavailable")
     suspend fun markNotificationRead(token: String, id: String): Unit = throw IllegalStateException("operation_unavailable")
     suspend fun getPublicChannel(path: String, query: Map<String, String> = emptyMap()): String = throw IllegalStateException("operation_unavailable")
     suspend fun nativePushAdmitted(route: NativePushRoute, bearer: String, body: String?, admission: () -> Unit): String { admission(); return performNativePush(route, bearer, body) }
@@ -114,6 +115,12 @@ class ApiClient(private val baseUrl: String, engine: HttpClientEngine = OkHttp.c
     override suspend fun getNotificationInbox(token: String, cursor: String?): String =
         call(HttpMethod.Get, "me/notifications", token, query = buildMap {
             put("limit", "20")
+            cursor?.let { require(it.length <= 160 && it.matches(Regex("[A-Za-z0-9_-]+"))); put("cursor", it) }
+        })
+    override suspend fun searchMessages(token: String, query: String, cursor: String?): String =
+        call(HttpMethod.Get, "me/messages/search", token, query = buildMap {
+            require(query.length in 2..100 && query.none { it.code < 32 })
+            put("q", query)
             cursor?.let { require(it.length <= 160 && it.matches(Regex("[A-Za-z0-9_-]+"))); put("cursor", it) }
         })
     override suspend fun markNotificationRead(token: String, id: String) {

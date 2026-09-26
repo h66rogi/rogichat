@@ -44,13 +44,18 @@ const source = `FROM messages m
   LEFT JOIN messages root ON root.room_id=m.room_id AND root.id=m.deletion_root_id
   LEFT JOIN users root_owner ON root_owner.id=root.content_owner_user_id
   LEFT JOIN notification_reads receipt ON receipt.user_id=viewer.user_id AND receipt.message_id=m.id
+  LEFT JOIN own_read_states seen ON seen.room_id=m.room_id AND seen.stream_id=m.stream_id
+    AND seen.member_id=viewer.id AND seen.period_id=period.id
   WHERE ${visible}`;
 
 @Injectable()
 export class NotificationInboxRepository {
   page(tx: Transaction, userId: string, limit: number, cursor?: { createdAt: Date; id: string }) {
     const where = cursor ? ' AND (m.created_at<? OR (m.created_at=? AND m.id<?))' : '';
-    return tx.rows<InboxRow>(`SELECT m.id,m.room_id,r.name AS room_name,m.created_at,receipt.read_at ${source}${where}
+    return tx.rows<InboxRow>(`SELECT m.id,m.room_id,r.name AS room_name,m.created_at,
+      CASE WHEN receipt.read_at IS NOT NULL THEN receipt.read_at
+        WHEN seen.last_read_order>=m.created_order THEN seen.updated_at ELSE NULL END AS read_at
+      ${source}${where}
       ORDER BY m.created_at DESC,m.id DESC LIMIT ?`,
       [userId, ...(cursor ? [cursor.createdAt, cursor.createdAt, cursor.id] : []), limit + 1]);
   }

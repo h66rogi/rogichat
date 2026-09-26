@@ -54,6 +54,8 @@ import Foundation
         precondition(NativePushWake.accepts(["aps": ["content-available": 1], "type": "sync_required", "version": 1]))
         let visibleAlert: [String: Any] = ["aps": ["content-available": 1, "sound": "default", "alert": ["title": "로기챗", "body": "확인할 내용이 있는지 로기챗에서 확인해 주세요."]], "type": "sync_required", "version": 1]
         precondition(NativePushWake.accepts(visibleAlert))
+        let targetedAlert = visibleAlert.merging(["roomId": "2f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b", "messageId": "3f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b"]) { _, newer in newer }
+        precondition(NativePushWake.target(targetedAlert)?.messageId == "3f1a4b6c-8d3e-4f10-92a7-5c6d7e8f9a0b")
         precondition(!NativePushWake.accepts(["aps": ["content-available": 1, "sound": "default", "alert": ["title": "다른 앱", "body": "확인할 내용이 있는지 로기챗에서 확인해 주세요."]], "type": "sync_required", "version": 1]))
         precondition(!NativePushWake.accepts(["aps": ["content-available": 1], "type": "sync_required", "version": "1"]))
         precondition(!NativePushWake.accepts(["aps": ["content-available": 1], "type": "sync_required", "version": true]))

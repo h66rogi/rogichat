@@ -614,3 +614,11 @@ Android `feature/channel`의 이전 19개 파일을 모두 삭제했다. 그 뒤
 영향 점검: 변경은 모바일 내부 이식·연결 및 배포 의존성 검사에 한정한다. 웹/API 계약은
 변경하지 않는다. `rogichat-ops`, `rogimarble`, `rogi-collector`의 관련 경로·심볼 검색에서
 이 모바일 클래스/API 사용으로 인한 외부 변경 대상은 발견되지 않았다.
+
+## 2026-09-26 대화 검색과 원문 이동
+
+| 원본 확인 | 적용 | 판단 |
+| --- | --- | --- |
+| meloming-android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, `feature/search/SearchScreen.kt`·`SearchViewModel.kt`의 검색 입력, 결과/빈 상태, 추가 로드 | Rogichat `MessageSearchScreen.kt` | 검색 입력과 목록의 화면 구성만 참고했다. 원본은 공개 채널 검색이므로 결과 transport와 접근 판정은 새 메시지 검색 API에 맞춰 작성했다. |
+| meloming-ios `18a33bbf96fe52b28d0de361916e20549bdcce6b`, `Presentation/Search/SearchView.swift`·`SearchViewModel.swift`의 `.searchable`, 로딩/빈 상태, 결과 선택 | Rogichat `MessageSearchScreen.swift` | SwiftUI 검색 흐름을 참고했다. 최근 채널 캐시와 공개 채널 이동은 사용하지 않고 현재 계정의 메시지 권한과 방 이동에 연결했다. |
+| Rogichat 기존 Android/iOS 대화 화면의 인용 원문 이동과 history cursor | 알림함·푸시·검색 결과의 `messageId` 진입 | 기존 페이지 추가 로드와 원문 스크롤을 재사용했다. 화면이 원문을 찾지 못할 때 접근 불가 안내를 표시한다. |

@@ -37,12 +37,14 @@ import chat.rogi.rogichat.feature.channel.ChannelDetailViewModel
 import chat.rogi.rogichat.feature.settings.*
 import chat.rogi.rogichat.feature.notifications.NotificationInboxScreen
 import chat.rogi.rogichat.feature.notifications.NotificationInboxViewModel
+import chat.rogi.rogichat.feature.notifications.MessageSearchScreen
 
 /** The sole product composition for both QA and prod. Only build configuration differs. */
 @Composable
 fun AppEntry(services: ProductServices? = null,
              roomContent: (@Composable (String, () -> Unit) -> Unit)? = null,
-             notificationTap: Int = 0, onNotificationTapConsumed: () -> Unit = {}) {
+             notificationTap: Int = 0, notificationTarget: Pair<String, String>? = null,
+             onNotificationTapConsumed: (Int) -> Unit = {}) {
     val context = LocalContext.current
     val product = services ?: remember { ProductServices.installed(context.applicationContext) }
     val preferences = remember(context.applicationContext) { AppearancePreferences(context.applicationContext) }
@@ -94,7 +96,7 @@ fun AppEntry(services: ProductServices? = null,
             key(scopeKey) {
                 CompositionLocalProvider(LocalViewModelStoreOwner provides scopeOwner) {
                     ProductNavigation(product, session, accountModel, operation, appearance, preferences::select, roomContent,
-                        notificationTap, onNotificationTapConsumed)
+                        notificationTap, notificationTarget, onNotificationTapConsumed)
                 }
             }
         }
@@ -107,7 +109,7 @@ fun AppEntry(services: ProductServices? = null,
 private fun ProductNavigation(services: ProductServices, session: SessionSnapshot, sessionModel: SessionViewModel,
                               operation: SessionOperationState, appearance: Appearance, onAppearance: (Appearance) -> Unit,
                               roomContent: (@Composable (String, () -> Unit) -> Unit)?,
-                              notificationTap: Int, onNotificationTapConsumed: () -> Unit) {
+                              notificationTap: Int, notificationTarget: Pair<String, String>?, onNotificationTapConsumed: (Int) -> Unit) {
     val authState = services.auth?.authState?.collectAsStateWithLifecycle()?.value ?: AuthUiState()
     val deletionState = services.deletion?.deletionState?.collectAsStateWithLifecycle()?.value ?: DeletionState()
     val dismissedDeletion by sessionModel.dismissedDeletionKey.collectAsStateWithLifecycle()
@@ -127,6 +129,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
         "현재 기기에서 로그아웃해요. 로그인 화면에서 이용 안내를 확인한 뒤 SOOP 계정을 직접 선택해 주세요.", "로그아웃",
         onDismiss = { confirmReauthentication = null }, onConfirm = { confirmReauthentication = null; sessionModel.signOut(original) }, enabled = !operation.busy) }
     val conversationNavigation: ConversationNavigation = viewModel { ConversationNavigation() }
+    var targetMessageId by remember { mutableStateOf<String?>(null) }
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val route = entry?.destination?.route
@@ -139,8 +142,17 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     fun open(value: String) { nav.navigate(value) { launchSingleTop = true } }
     LaunchedEffect(notificationTap, session.access) {
         if (notificationTap > 0 && session.access == ShellAccess.READY) {
-            open("inbox")
-            onNotificationTapConsumed()
+            val target = notificationTarget
+            val account = session.account
+            val scope = if (account != null) session.accountPartition?.let { RoomsAccountScope(account.id, session.generation, it) } else null
+            val directory = if (target != null && scope != null) services.rooms?.refreshRooms(scope)?.getOrNull() else null
+            val membership = directory?.memberships?.firstOrNull { it.roomId.value == target?.first }
+            if (target != null && scope != null && membership != null && services.conversations != null) {
+                conversationNavigation.selected = ConversationSelection(scope, membership, directory.cycle)
+                targetMessageId = target.second
+                open("room/${target.first}")
+            } else open("inbox")
+            onNotificationTapConsumed(notificationTap)
         }
     }
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
@@ -173,7 +185,9 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             modifier = Modifier.padding(insets).consumeWindowInsets(insets)) {
             composable("talks") {
                 ProductPage(if (session.access == ShellAccess.SIGNED_OUT) "로기챗" else "대화", scroll = false,
-                    showTopBar = session.access != ShellAccess.READY) {
+                    showTopBar = true, actions = {
+                        if (session.access == ShellAccess.READY) TextButton(onClick = { open("search") }) { Text("검색") }
+                    }) {
                     when (session.access) {
                         ShellAccess.SIGNED_OUT -> WelcomeScreen(services.actions?.providers.orEmpty(), operation.busy || authState.active || deletionState.blocksSession, sessionModel::signIn, session.notice, services.access?.let { sessionModel::password }, services.auth?.rulesUrl)
                         ShellAccess.LINK_REQUIRED -> LinkAccountScreen(operation.busy || authState.active, if (services.actions?.canLinkSoop == true) sessionModel::linkSoop else null)
@@ -183,6 +197,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                                 { membership, renderedCycle ->
                                     conversationNavigation.selected = ConversationSelection(RoomsAccountScope(requireNotNull(privateAccount).id,
                                         session.generation, requireNotNull(session.accountPartition)), membership, renderedCycle)
+                                    targetMessageId = null
                                     open("room/${membership.roomId.value}")
                                 }
                             })
@@ -247,13 +262,14 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                     val model: NotificationInboxViewModel = viewModel { NotificationInboxViewModel(services.notificationInbox, NotificationAccountScope(privateAccount.id, session.generation)) }
                     val inboxScope = rememberCoroutineScope()
                     ProductPage("알림", { nav.popBackStack() }, scroll = false) {
-                        NotificationInboxScreen(model, onOpenRoom = { roomId ->
+                        NotificationInboxScreen(model, onOpenRoom = { roomId, messageId ->
                             inboxScope.launch {
                                 val scope = session.accountPartition?.let { RoomsAccountScope(privateAccount.id, session.generation, it) }
                                 val directory = if (scope != null) services.rooms?.refreshRooms(scope)?.getOrNull() else null
                                 val membership = directory?.memberships?.firstOrNull { it.roomId.value == roomId }
                                 if (scope != null && membership != null && services.conversations != null) {
                                     conversationNavigation.selected = ConversationSelection(scope, membership, directory.cycle)
+                                    targetMessageId = messageId
                                     open("room/$roomId")
                                 } else open("talks")
                             }
@@ -262,6 +278,26 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 } else ProductPage("알림", { nav.popBackStack() }) {
                     ScreenStatus("로그인이 필요합니다", "알림을 확인하려면 로그인해 주세요.", onRetry = { open("talks") })
                 }
+            }
+            composable("search") {
+                if (session.access == ShellAccess.READY && privateAccount != null && services.notificationInbox != null) {
+                    val searchScope = chat.rogi.rogichat.feature.settings.NotificationAccountScope(privateAccount.id, session.generation)
+                    val searchJobs = rememberCoroutineScope()
+                    ProductPage("대화 내용 검색", { nav.popBackStack() }, scroll = false) {
+                        MessageSearchScreen(services.notificationInbox, searchScope) { hit ->
+                            searchJobs.launch {
+                                val scope = session.accountPartition?.let { RoomsAccountScope(privateAccount.id, session.generation, it) }
+                                val directory = if (scope != null) services.rooms?.refreshRooms(scope)?.getOrNull() else null
+                                val membership = directory?.memberships?.firstOrNull { it.roomId.value == hit.roomId }
+                                if (scope != null && membership != null && services.conversations != null) {
+                                    conversationNavigation.selected = ConversationSelection(scope, membership, directory.cycle)
+                                    targetMessageId = hit.messageId
+                                    open("room/${hit.roomId}")
+                                }
+                            }
+                        }
+                    }
+                } else LaunchedEffect(Unit) { nav.popBackStack() }
             }
             composable("about") { ProductPage("로기챗 정보", { nav.popBackStack() }) { AboutScreen { open("licenses") } } }
             composable("licenses") { ProductPage("오픈소스 라이선스", { nav.popBackStack() }) { LicensesScreen() } }
@@ -303,8 +339,8 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                     val actionScope = rememberCoroutineScope()
                     if (confirmLeave) AlertDialog(
                         onDismissRequest = { confirmLeave = false },
-                        title = { Text("대화에서 나갈까요?") },
-                        text = { Text("나가도 보낸 메시지는 삭제되지 않아요.") },
+                        title = { Text(if (selected.membership.role == chat.rogi.rogichat.core.network.RoomRole.STREAMER) "채팅방을 삭제할까요?" else "대화에서 나갈까요?") },
+                        text = { Text(if (selected.membership.role == chat.rogi.rogichat.core.network.RoomRole.STREAMER) "방장이 나가면 모든 참여자가 이 대화와 첨부를 더 이상 볼 수 없어요. 되돌릴 수 없습니다." else "나가도 보낸 메시지는 삭제되지 않아요.") },
                         confirmButton = { TextButton(onClick = {
                             confirmLeave = false
                             leaving = true
@@ -313,7 +349,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                                 leaving = false
                                 if (error == null) nav.popBackStack() else leaveError = error
                             }
-                        }) { Text("나가기", color = MaterialTheme.colorScheme.error) } },
+                        }) { Text(if (selected.membership.role == chat.rogi.rogichat.core.network.RoomRole.STREAMER) "채팅방 삭제" else "나가기", color = MaterialTheme.colorScheme.error) } },
                         dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("취소") } },
                     )
                     leaveError?.let { error -> AlertDialog(onDismissRequest = { leaveError = null },
@@ -326,13 +362,13 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                                     Text("⋮", style = MaterialTheme.typography.titleLarge)
                                 }
                                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                    DropdownMenuItem(text = { Text("대화에서 나가기") }, onClick = {
+                                    DropdownMenuItem(text = { Text(if (selected.membership.role == chat.rogi.rogichat.core.network.RoomRole.STREAMER) "채팅방 삭제" else "대화에서 나가기") }, onClick = {
                                         menuOpen = false
                                         confirmLeave = true
                                     })
                                 }
                             }
-                        }) { ConversationScreen(model) }
+                        }) { ConversationScreen(model, targetMessageId) }
                 } else if (session.access == ShellAccess.READY && roomContent != null) {
                     backStack.arguments?.getString("roomId")?.let { roomContent(it) { nav.popBackStack() } }
                 } else LaunchedEffect(Unit) { nav.popBackStack() }

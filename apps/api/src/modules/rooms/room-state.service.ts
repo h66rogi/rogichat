@@ -62,7 +62,10 @@ export class RoomStateService {
     const room = await this.lockRoom(tx, roomId);
     const [member] = await this.repository.leavingMember(tx, roomId, uuid(userId));
     if (!member || member.status !== 'ACTIVE') return;
-    if (room.owner_member_id === member.id) throw new Error('owner_transfer_required');
+    if (room.owner_member_id === member.id) {
+      await this.repository.closeOwnedRoom(tx, roomId);
+      return;
+    }
     await this.repository.closePeriod(tx, member.active_period_id);
     await this.repository.leave(tx, 'LEFT', member.id);
     await this.repository.advanceLeavingMembership(tx, userId);

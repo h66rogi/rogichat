@@ -12,6 +12,8 @@ struct ProductRootView: View {
     @State private var navigation = ShellNavigation()
     @State private var roomsStorage: RoomsStorage
     @State private var roomsFeatures = RoomsFeatureOwner()
+    @State private var targetMessageID: String?
+    @State private var targetOpenError = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(service: (any SessionServing)? = nil) {
@@ -65,11 +67,16 @@ struct ProductRootView: View {
         } message: {
             Text("이 기기의 로그인 정보와 탈퇴 요청 내역이 지워져요. 이미 신청한 탈퇴는 취소되지 않아요.")
         }
+        .alert("메시지를 열 수 없어요", isPresented: $targetOpenError) {
+            Button("확인", role: .cancel) {}
+        } message: { Text("이 대화에 접근할 수 있는지 확인해 주세요.") }
         .task {
             session.scopeInvalidated = { realtime.disconnect() }
-            NativePushWakeOwner.shared.bindInbox {
+            NativePushWakeOwner.shared.bindInbox { target in
                 guard session.access == .ready else { return false }
-                navigation.showInbox()
+                if let target {
+                    Task { await openInboxRoom(target.roomId, messageId: target.messageId) }
+                } else { navigation.showInbox() }
                 return true
             }
             NativePushWakeOwner.shared.wake = {
@@ -123,7 +130,7 @@ struct ProductRootView: View {
             NativePushWakeOwner.shared.drainInbox()
         }
     }
-    private func openInboxRoom(_ roomId: String) async {
+    private func openInboxRoom(_ roomId: String, messageId: String) async {
         guard session.access == .ready, let scope = session.roomsScope else { return }
         let model = roomsFeatures.model(scope: scope) {
             RoomsScreenModel(repository: RoomsRepository(remote: NativeRoomsRemote(session: session), storage: roomsStorage, scope: scope), scope: scope)
@@ -133,7 +140,11 @@ struct ProductRootView: View {
         navigation.selectTab(.talks)
         navigation.pop(to: [], in: .talks)
         guard let listing = model.listing, listing.memberships.contains(where: { $0.roomId == roomId }),
-              await model.openConversation(roomID: roomId, displayedCycle: listing.cycle) else { return }
+              await model.openConversation(roomID: roomId, displayedCycle: listing.cycle) else {
+            targetOpenError = true
+            return
+        }
+        targetMessageID = messageId
         navigation.open(.chat)
     }
     private func connectRealtime() async {
@@ -168,7 +179,7 @@ struct ProductRootView: View {
         case .notifications:
             if session.access == .ready {
                 NotificationInboxScreen(session: session, scope: session.generation,
-                    onOpenRoom: { roomId in Task { await openInboxRoom(roomId) } }, onOpenSettings: { navigation.open(.notificationSettings) })
+                    onOpenRoom: { roomId, messageId in Task { await openInboxRoom(roomId, messageId: messageId) } }, onOpenSettings: { navigation.open(.notificationSettings) })
             } else {
                 ContentUnavailableView("로그인이 필요합니다", systemImage: "bell", description: Text("알림을 확인하려면 로그인해 주세요."))
             }
@@ -202,8 +213,9 @@ struct ProductRootView: View {
                 if let scope = session.roomsScope {
                     RoomsScreen(model: roomsFeatures.model(scope: scope) {
                         RoomsScreenModel(repository: RoomsRepository(remote: NativeRoomsRemote(session: session), storage: roomsStorage, scope: scope), scope: scope)
-                    }, onOpenConversation: { navigation.open(.chat) },
-                       onOpenSettings: { navigation.selectTab(.settings) })
+                    }, onOpenConversation: { targetMessageID = nil; navigation.open(.chat) },
+                       onOpenSettings: { navigation.selectTab(.settings) },
+                       onSearchMessages: { navigation.open(.search) })
                         .id(scope.clientScope)
                 } else {
                     ContentUnavailableView("대화방을 확인할 수 없어요", systemImage: "bubble.left.and.bubble.right", description: Text("계정 정보를 다시 확인해 주세요."))
@@ -228,7 +240,7 @@ struct ProductRootView: View {
             }
         case .chat:
             if let model = roomsFeatures.conversation, session.roomsScope === model.scope.account {
-                ConversationScreen(model: model, session: session, environment: nativeEnvironment.rawValue, accountID: session.account!.id, onReopen: {
+                ConversationScreen(model: model, session: session, environment: nativeEnvironment.rawValue, accountID: session.account!.id, targetMessageID: targetMessageID, onReopen: {
                     roomsFeatures.closeConversation()
                     navigation.pop(to: [], in: .talks)
                 }, onLeave: {
@@ -239,6 +251,12 @@ struct ProductRootView: View {
                     }
                     return error
                 }).id(model.scope.cacheID)
+            } else { ContentUnavailableView("대화에 접근할 수 없어요", systemImage: "lock") }
+        case .search:
+            if session.access == .ready {
+                MessageSearchScreen(session: session, scope: session.generation) { hit in
+                    Task { await openInboxRoom(hit.roomId, messageId: hit.messageId) }
+                }
             } else { ContentUnavailableView("대화에 접근할 수 없어요", systemImage: "lock") }
         case .report:
             if let scope = session.roomsScope, let account = session.account {

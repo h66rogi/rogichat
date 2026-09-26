@@ -102,6 +102,8 @@ export class MediaWorkerRepository {
       AND NOT EXISTS (SELECT 1 FROM user_profiles p WHERE p.avatar_asset_id=a.id)
       AND NOT EXISTS (SELECT 1 FROM sticker_catalog c WHERE c.asset_id=a.id AND c.status IN ('ACTIVE','RETIRED') AND c.approved_at IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM publication_media pm JOIN message_publications p ON p.room_id=pm.room_id AND p.id=pm.publication_id WHERE pm.destination_asset_id=a.id AND p.state='PREPARING')) OR
+    (a.room_id IS NOT NULL AND EXISTS (SELECT 1 FROM rooms r WHERE r.id=a.room_id AND r.status='CLOSED')
+      AND a.state<>'DELETED') OR
     (a.state='UPLOADING' AND a.upload_until<=UTC_TIMESTAMP(3)) OR a.state='DELETING' OR
     (a.state='DELETED' AND EXISTS (SELECT 1 FROM media_objects o WHERE o.asset_id=a.id AND (o.state<>'DELETED' OR ${unprovenWrite} OR EXISTS (SELECT 1 FROM media_cleanup_attempts p WHERE p.object_id=o.id AND p.delete_observed_at IS NULL)))))
     AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.purpose='MEDIA' AND j.resource_id=a.id AND
@@ -110,7 +112,7 @@ export class MediaWorkerRepository {
     ORDER BY a.created_at LIMIT 20 FOR UPDATE SKIP LOCKED`, []);
   }
   currentState(tx: Transaction, assetId: unknown) {
-    return tx.rows<RowDataPacket>('SELECT state FROM media_assets WHERE id=? FOR UPDATE', [assetId]);
+    return tx.rows<RowDataPacket>('SELECT state,room_id FROM media_assets WHERE id=? FOR UPDATE', [assetId]);
   }
   attachments(tx: Transaction, assetId: unknown) {
     return tx.rows('SELECT id FROM message_attachments WHERE asset_id=? LIMIT 1 FOR UPDATE', [assetId]);
