@@ -53,7 +53,7 @@ def evidence():
 
 def api_for(artifact, run, jobs):
     def api(route):
-        if route == 'actions/artifacts?per_page=100':
+        if route == 'actions/artifacts?per_page=100&page=1':
             return {'total_count': 1, 'artifacts': [artifact]}
         if route == f'actions/runs/{RUN_ID}':
             return run
@@ -68,6 +68,34 @@ class WebPublicationBaseTest(unittest.TestCase):
         artifact, run, jobs = evidence()
         self.assertEqual(baseline.select_base(HEAD, api_for(artifact, run, jobs),
                                               lambda source, head: (source, head) == (SOURCE, HEAD), NOW), SOURCE)
+
+    def test_bounded_artifact_lookup_survives_ci_only_pushes(self):
+        artifact, run, jobs = evidence()
+        for pushes, expected_pages in ((5, 1), (10, 1), (25, 1), (50, 2)):
+            with self.subTest(pushes=pushes):
+                # Two unrelated artifacts per QA push, after the last web proof.
+                artifacts = [{'name': 'openapi', 'created_at': '2026-09-26T00:03:00Z'}
+                             for _ in range(2 + pushes * 2)] + [artifact]
+                listings = []
+                def api(route):
+                    if route.startswith('actions/artifacts?per_page=100&page='):
+                        page = int(route.rsplit('=', 1)[1])
+                        listings.append(page)
+                        return {'total_count': len(artifacts),
+                                'artifacts': artifacts[(page - 1) * 100:page * 100]}
+                    return api_for(artifact, run, jobs)(route)
+                self.assertEqual(baseline.select_base(HEAD, api, lambda *_: True, NOW), SOURCE)
+                self.assertEqual(listings, list(range(1, expected_pages + 1)))
+
+        listings = []
+        unrelated = [{'name': 'openapi'}] * 501
+        def no_proof_api(route):
+            page = int(route.rsplit('=', 1)[1])
+            listings.append(page)
+            return {'total_count': len(unrelated),
+                    'artifacts': unrelated[(page - 1) * 100:page * 100]}
+        self.assertEqual(baseline.select_base(HEAD, no_proof_api, lambda *_: True, NOW), baseline.ZERO)
+        self.assertEqual(listings, [1, 2, 3, 4, 5])
 
     def test_spoofed_or_incomplete_proof_never_skips_web(self):
         for mutate in (

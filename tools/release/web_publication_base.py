@@ -24,6 +24,7 @@ SHA = re.compile(r'[a-f0-9]{40}\Z')
 PROOF_NAME = re.compile(r'web-publication-proof-([a-f0-9]{40})-([1-9][0-9]*)\Z')
 PROOF_DIGEST = re.compile(r'sha256:[a-f0-9]{64}\Z')
 MAX_VERIFIED = 5
+MAX_PAGES = 5  # Bound API work; absence of an old proof rebuilds the image.
 
 
 def timestamp(value: object) -> datetime | None:
@@ -127,28 +128,32 @@ def valid_publish_job(data: object, run_id: int, source: str, artifact_created: 
 def select_base(head: str, api, is_ancestor, now: datetime) -> str:
     if SHA.fullmatch(head) is None:
         raise ValueError('Invalid exact QA source')
-    listing = api('actions/artifacts?per_page=100')
-    if not isinstance(listing, dict) or not isinstance(listing.get('artifacts'), list):
-        return ZERO
-    artifacts = listing['artifacts']
-    if len(artifacts) > 100 or type(listing.get('total_count')) is not int or listing['total_count'] < len(artifacts):
-        return ZERO
-    candidates = sorted(artifacts, key=lambda a: a.get('created_at', '') if isinstance(a, dict) else '', reverse=True)
     examined = 0
-    for artifact in candidates:
-        linked = trusted_artifact(artifact, now)
-        if linked is None:
-            continue
-        if examined >= MAX_VERIFIED:
+    for page in range(1, MAX_PAGES + 1):
+        listing = api(f'actions/artifacts?per_page=100&page={page}')
+        if not isinstance(listing, dict) or not isinstance(listing.get('artifacts'), list):
+            return ZERO
+        artifacts = listing['artifacts']
+        total = listing.get('total_count')
+        if len(artifacts) > 100 or type(total) is not int or total < (page - 1) * 100 + len(artifacts):
+            return ZERO
+        candidates = sorted(artifacts, key=lambda a: a.get('created_at', '') if isinstance(a, dict) else '', reverse=True)
+        for artifact in candidates:
+            linked = trusted_artifact(artifact, now)
+            if linked is None:
+                continue
+            if examined >= MAX_VERIFIED:
+                return ZERO
+            examined += 1
+            run_id, source, attempt, created, repo_id = linked
+            run = api(f'actions/runs/{run_id}')
+            if not valid_run(run, run_id, source, attempt, repo_id):
+                continue
+            jobs = api(f'actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100')
+            if valid_publish_job(jobs, run_id, source, created) and is_ancestor(source, head):
+                return source
+        if len(artifacts) < 100 or total <= page * 100:
             break
-        examined += 1
-        run_id, source, attempt, created, repo_id = linked
-        run = api(f'actions/runs/{run_id}')
-        if not valid_run(run, run_id, source, attempt, repo_id):
-            continue
-        jobs = api(f'actions/runs/{run_id}/attempts/{attempt}/jobs?per_page=100')
-        if valid_publish_job(jobs, run_id, source, created) and is_ancestor(source, head):
-            return source
     return ZERO
 
 
