@@ -30,8 +30,9 @@ async function getJson(url, token, fetchImpl) {
   return response.json();
 }
 
-export async function verifyOnce({ sha, repository, token, cache, fetchImpl = fetch }) {
+export async function verifyOnce({ sha, repository, token, cache, fetchImpl = fetch, stats }) {
   validateSource(sha, repository, token);
+  if (stats) stats.listings += 1;
   const listing = await getJson(
     `${api}/repos/${repository}/actions/runs?branch=qa&event=push&head_sha=${sha}&per_page=100`,
     token, fetchImpl,
@@ -57,6 +58,7 @@ export async function verifyOnce({ sha, repository, token, cache, fetchImpl = fe
       continue;
     }
     cache.delete(workflow);
+    if (stats) stats.exactAttempts += 1;
     const exact = await getJson(
       `${api}/repos/${repository}/actions/runs/${run.id}/attempts/${run.run_attempt}`,
       token, fetchImpl,
@@ -84,12 +86,15 @@ async function main() {
   const token = process.env.GH_TOKEN;
   validateSource(sha, repository, token);
   const cache = new Map();
+  const stats = { listings: 0, exactAttempts: 0, polls: 0 };
+  const startedAt = Date.now();
   const deadline = Date.now() + 25 * 60 * 1000;
   while (Date.now() < deadline) {
-    const evidence = await verifyOnce({ sha, repository, token, cache });
+    stats.polls += 1;
+    const evidence = await verifyOnce({ sha, repository, token, cache, stats });
     if (evidence) {
       await appendFile(process.env.GITHUB_OUTPUT, `evidence=${JSON.stringify(evidence)}\n`);
-      console.log('Exact QA push passed all five verification workflows');
+      console.log(`Exact QA push passed all five verification workflows; API listings=${stats.listings} exactAttempts=${stats.exactAttempts} polls=${stats.polls} elapsedMs=${Date.now() - startedAt}`);
       return;
     }
     await new Promise(resolve => setTimeout(resolve, Date.now() < deadline - 24 * 60 * 1000 ? 15000 : 30000));

@@ -29,15 +29,19 @@ test('one listing and one exact request per completed workflow, with cached atte
   const runs = workflows.map((name, index) => run(name, index + 1));
   const api = fakeApi(runs);
   const cache = new Map();
-  const options = { sha, repository, token, cache, fetchImpl: api.fetchImpl };
+  const stats = { listings: 0, exactAttempts: 0 };
+  const options = { sha, repository, token, cache, fetchImpl: api.fetchImpl, stats };
   assert.equal((await verifyOnce(options))?.length, 5);
   assert.equal(api.calls.length, 6);
+  assert.deepEqual(stats, { listings: 1, exactAttempts: 5 });
   assert.match(api.calls[0], /\/actions\/runs\?/);
   assert.equal((await verifyOnce(options))?.length, 5);
   assert.equal(api.calls.length, 7);
+  assert.deepEqual(stats, { listings: 2, exactAttempts: 5 });
   runs[0] = run(workflows[0], 1, 'completed', 2);
   assert.equal((await verifyOnce(options))?.length, 5);
   assert.equal(api.calls.length, 9);
+  assert.deepEqual(stats, { listings: 3, exactAttempts: 6 });
   assert.match(api.calls.at(-1), /\/runs\/1\/attempts\/2$/);
 });
 
