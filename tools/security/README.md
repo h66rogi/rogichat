@@ -1,11 +1,14 @@
 # Repository disclosure guard
 
 Run `python3 tools/security/install.py` after cloning, stage the intended changes,
-and run `python3 tools/security/check.py all` before publishing. The hooks also
-check the exact index at commit time and all locally reachable history at push
-time. CI must fetch complete history. A shallow checkout fails closed.
+and run `python3 tools/security/check.py all` before publishing. The hooks check
+the exact index at commit time and the complete outgoing candidate history at
+push time. The pre-push hook receives Git's actual outgoing refs and checks each
+pushed branch tip or tag separately, including when another branch is checked
+out. CI must fetch complete history. A shallow checkout fails closed.
 The separately dispatched Public exposure audit runs `python3 tools/security/fetch_public_refs.py`
-to fetch all advertised public PR refs anonymously and check object integrity.
+to fetch all advertised public PR refs anonymously and check object integrity,
+then `python3 tools/security/check.py audit` across every locally reachable ref.
 It validates the exact repository/origin, rejects credential-bearing HTTP config
 and URL rewrites, disables prompts/helpers, and never executes fetched PR code.
 It forwards only basic process environment variables and refuses an existing
@@ -16,9 +19,15 @@ Local hooks do not initiate network access; run that helper explicitly when an
 up-to-date public PR history audit is needed.
 Do not make this exhaustive untrusted-PR audit a required QA merge/publication
 gate: one unrelated malicious fork PR would otherwise block every normal change.
-The required Security workflow checks the candidate and fetched branch history;
-each candidate PR must pass its own checks. An exhaustive audit failure requires
-private triage and does not authorize ignoring a failure in the candidate itself.
+The required Security workflow checks the candidate's exact index and every
+commit/tree reachable from its checked-out `HEAD`. It also scans the current
+branch name, GitHub's candidate ref names, and tags whose target objects are
+reachable from that history. Other fetched branches, their names, and tags
+pointing only into those branches belong to the separate full audit. Each
+candidate PR must pass its own checks. A sibling PR's unreviewed binary or
+secret therefore cannot block a clean candidate's required gate, but its own
+candidate gate and the full audit detect it. An audit failure requires private
+triage and does not authorize ignoring a failure in the candidate itself.
 
 The guard uses the checksum-pinned Gitleaks release and its default detectors,
 plus the repository's public-key and GitHub installation-token detectors.
@@ -30,9 +39,11 @@ implicit ignore files, scanner environment overrides and inline exemptions.
 Errors omit filenames, file contents and raw scanner diagnostics. Inspect a
 failure privately; do not upload unredacted diagnostic output to an issue.
 
-Current index and every reachable historical tree are checked for forbidden
-paths, including files subsequently deleted or renamed. Unique historical blobs,
-commit messages, annotated tag messages, ref names and file names are scanned.
+Current index and every historical tree in the selected scope are checked for
+forbidden paths, including files subsequently deleted or renamed. Unique
+historical blobs, commit messages, relevant annotated tag messages, selected ref
+names and file names are scanned. `audit` retains the original all-refs scope,
+including tag-only blobs and trees.
 Operational Terraform state and plan JSON are prohibited by structure even when
 renamed. Ordinary JSON contracts, HCL source, backend examples and SQL migrations
 remain supported. Git refs that were never fetched, unreachable objects and

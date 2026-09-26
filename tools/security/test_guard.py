@@ -50,6 +50,10 @@ class GuardTests(unittest.TestCase):
         return subprocess.run(["python3", "tools/security/check.py", mode], cwd=self.repo,
                               capture_output=True, text=True)
 
+    def check_push(self, oid, ref):
+        return subprocess.run(["python3", "tools/security/check.py", "all", oid, ref], cwd=self.repo,
+                              capture_output=True, text=True)
+
     def fake_token(self):
         return "gh" + "p_" + hashlib.sha256(b"rogichat synthetic detector fixture").hexdigest()[:36]
 
@@ -295,12 +299,14 @@ class GuardTests(unittest.TestCase):
                  "tag", "-a", "v-fixture", "-m", self.fake_token())
         self.assert_blocked("all")
 
-    def test_secret_in_tag_only_blob_blocks_push(self):
+    def test_secret_in_tag_only_blob_blocks_repository_audit(self):
         payload = self.repo / "temporary.txt"
         payload.write_text(self.fake_token())
         oid = self.git("hash-object", "-w", str(payload)).stdout.decode().strip()
         self.git("-c", "tag.gpgsign=false", "tag", "blob-fixture", oid)
-        self.assert_blocked("all")
+        self.assertEqual(self.check("all").returncode, 0)
+        self.assertNotEqual(self.check_push(oid, "refs/tags/blob-fixture").returncode, 0)
+        self.assert_blocked("audit")
 
     def test_tag_chain_and_tree_targets_are_scanned(self):
         # Exercise clean tag-of-tag traversal before making only its target dirty.
@@ -314,11 +320,68 @@ class GuardTests(unittest.TestCase):
         self.git("-c", "tag.gpgsign=false", "tag", "tree-fixture", tree)
         self.git("rm", "--cached", "payload.txt")
         self.assertEqual(self.check().returncode, 0)
+        self.assertEqual(self.check("all").returncode, 0)
+        self.assert_blocked("audit")
+
+    def test_candidate_refname_and_unrelated_refname_have_separate_gates(self):
+        name = self.fake_token()
+        self.git("branch", name)
+        self.assertEqual(self.check("all").returncode, 0)
+        self.assert_blocked("audit")
+        self.git("switch", "-q", name)
         self.assert_blocked("all")
 
-    def test_refname_secret_is_scanned(self):
-        self.git("branch", self.fake_token())
-        self.assert_blocked("all")
+    def test_sibling_branch_binary_does_not_block_candidate_but_audit_finds_it(self):
+        self.git("switch", "-q", "-c", "sibling")
+        self.stage_file("unreviewed.ttf", b"\0unreviewed binary fixture")
+        self.commit()
+        self.git("switch", "-q", "-")
+        self.assertEqual(self.check("all").returncode, 0)
+        oid = self.git("rev-parse", "sibling").stdout.decode().strip()
+        self.assertNotEqual(self.check_push(oid, "refs/heads/sibling").returncode, 0)
+        self.assert_blocked("audit")
+
+    def test_sibling_branch_secret_does_not_block_candidate_but_audit_finds_it(self):
+        self.git("switch", "-q", "-c", "sibling")
+        self.stage_file("settings.txt", self.fake_token())
+        self.commit()
+        self.git("switch", "-q", "-")
+        self.assertEqual(self.check("all").returncode, 0)
+        oid = self.git("rev-parse", "sibling").stdout.decode().strip()
+        self.assertNotEqual(self.check_push(oid, "refs/heads/sibling").returncode, 0)
+        self.assert_blocked("audit")
+
+    def test_pre_push_hook_scans_pushed_ref_when_other_branch_is_checked_out(self):
+        self.git("switch", "-q", "-c", "sibling")
+        self.stage_file("settings.txt", self.fake_token())
+        self.commit()
+        self.git("switch", "-q", "-")
+        hooks = self.repo / ".githooks"
+        hooks.mkdir()
+        shutil.copy2(ROOT / ".githooks/pre-push", hooks / "pre-push")
+        self.git("config", "core.hooksPath", ".githooks")
+        remote = self.repo / "remote.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True, capture_output=True)
+        sibling_oid = self.git("rev-parse", "sibling").stdout.decode().strip()
+        for source in (sibling_oid, "sibling"):
+            with self.subTest(source=source):
+                result = subprocess.run(["git", "push", str(remote), source + ":refs/heads/sibling"], cwd=self.repo,
+                                        capture_output=True, text=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn(self.fake_token(), result.stdout + result.stderr)
+                published = subprocess.run(["git", "--git-dir", str(remote), "show-ref", "--verify", "--quiet", "refs/heads/sibling"],
+                                           capture_output=True)
+                self.assertNotEqual(published.returncode, 0)
+
+    def test_unrelated_tag_metadata_does_not_block_candidate(self):
+        self.git("switch", "-q", "-c", "sibling")
+        self.stage_file("sibling.txt", "sibling only")
+        self.commit()
+        self.git("-c", "user.name=Guard Test", "-c", "user.email=test@example.invalid", "-c", "tag.gpgsign=false",
+                 "tag", "-a", "sibling-tag", "-m", self.fake_token())
+        self.git("switch", "-q", "-")
+        self.assertEqual(self.check("all").returncode, 0)
+        self.assert_blocked("audit")
 
     def test_shared_blob_does_not_exempt_forbidden_historical_path(self):
         self.stage_file("allowed.txt", "same bytes")
