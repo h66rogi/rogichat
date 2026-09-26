@@ -294,13 +294,29 @@ class CandidateBackendTests(unittest.TestCase):
             w.verify_api_compatibility(r)
         github.assert_called_once_with(f"compare/{revision}...{r['source_sha']}")
 
+    def test_reviewed_shard_tests_allow_older_backend_but_other_api_paths_do_not(self):
+        r = request()
+        revision = '1' * 40
+        files = ['apps/api/test/support/shard.mjs', 'apps/api/test/unit/shard.test.mjs']
+        with patch.object(w, 'docker', side_effect=self.containers(revision)), \
+                patch.object(w, 'github', return_value=self.comparison(revision, files)):
+            w.verify_api_compatibility(r)
+        for path in ('apps/api/src/main.ts', 'apps/api/Dockerfile',
+                     'apps/api/test/unit/new-fixture.test.mjs'):
+            with self.subTest(path=path), patch.object(w, 'docker', side_effect=self.containers(revision)), \
+                    patch.object(w, 'github', return_value=self.comparison(revision, files + [path])), \
+                    self.assertRaisesRegex(w.Rejected, 'newer backend'):
+                w.verify_api_compatibility(r)
+
     def test_incomplete_comparison_and_divergent_backend_fail_closed(self):
         r = request()
         revision = '1' * 40
         for result in [dict(self.comparison(revision, []), files=[{'filename': 'apps/web/x'}] * 300),
                        dict(self.comparison(revision, []), status='diverged'),
                        dict(self.comparison(revision, []), files=[{'filename': 'apps/web/new',
-                          'previous_filename': 'apps/api/old', 'status': 'renamed'}])]:
+                          'previous_filename': 'apps/api/old', 'status': 'renamed'}]),
+                       dict(self.comparison(revision, []), files=[{'filename': 'apps/api/test/support/shard.mjs',
+                          'previous_filename': 'apps/api/src/main.ts', 'status': 'renamed'}])]:
             with self.subTest(result=result), patch.object(w, 'docker', side_effect=self.containers(revision)), \
                     patch.object(w, 'github', return_value=result):
                 with self.assertRaises(w.Rejected):

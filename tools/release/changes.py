@@ -58,9 +58,21 @@ BACKEND_ONLY_FILES = {
     'tools/operations/test_backend_release.py',
     'tools/operations/backend-release.md',
 }
+# Verified delivery and CI control files do not enter the web image build.
+# Keep validation jobs active when they change; only skip image publication.
+WEB_NON_IMAGE_FILES = {
+    '.github/workflows/web.yml',
+    'tools/operations/web_release.py',
+    'tools/operations/test_web_release.py',
+    'tools/operations/web-release.md',
+    'tools/release/changes.py',
+    'tools/release/test_changes.py',
+    'tools/release/test_web_publication_base.py',
+}
 # Exact backend-only helpers and tests that no image build or verification reads.
 # Other tests can be bind-mounted into image checks; unknown paths rebuild.
 BACKEND_NON_IMAGE_FILES = {
+    '.github/workflows/backend.yml',
     'apps/api/test/run-mysql.mjs',
     'apps/api/test/support/migration-mode.mjs',
     'apps/api/test/unit/migration-mode.test.mjs',
@@ -70,6 +82,10 @@ BACKEND_NON_IMAGE_FILES = {
     'tools/operations/backend_release.py',
     'tools/operations/test_backend_release.py',
     'tools/operations/backend-release.md',
+    'tools/release/changes.py',
+    'tools/release/test_changes.py',
+    'tools/release/web_publication_base.py',
+    'tools/release/test_web_publication_base.py',
 }
 # The API build excludes test/, and image verification runs only the explicit
 # migration and decoder test files outside integration/. New integration helpers
@@ -131,6 +147,12 @@ def backend_image_changed(paths: list[str]) -> bool:
                and path not in BACKEND_NON_IMAGE_FILES
                and not (path.startswith(BACKEND_NON_IMAGE_PREFIXES)
                         and path.endswith('.test.mjs'))
+               for path in paths)
+
+
+def web_image_changed(paths: list[str]) -> bool:
+    """Skip web publication only for exact reviewed non-artifact inputs."""
+    return any(classify_path(path)[0] and path not in WEB_NON_IMAGE_FILES
                for path in paths)
 
 
@@ -197,14 +219,16 @@ def main() -> None:
         base = pull_request_base(args.base, args.head)
     paths = changed_paths(base, args.head) if base is not None else None
     web, backend = (True, True) if paths is None else classify(paths)
+    web_image = True if paths is None else web_image_changed(paths)
     image = True if paths is None else backend_image_changed(paths)
     tests = True if paths is None else backend_tests_changed(paths)
-    result = {'web': web, 'backend': backend, 'backend_image': image,
+    result = {'web': web, 'web_image': web_image, 'backend': backend, 'backend_image': image,
               'backend_tests': tests, 'paths': paths}
     print(json.dumps(result, sort_keys=True))
     if output := os.getenv('GITHUB_OUTPUT'):
         with open(output, 'a', encoding='utf-8') as stream:
             stream.write(f'web={str(web).lower()}\nbackend={str(backend).lower()}\n'
+                         f'web_image={str(web_image).lower()}\n'
                          f'backend_image={str(image).lower()}\n'
                          f'backend_tests={str(tests).lower()}\n')
 
