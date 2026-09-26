@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -74,11 +75,13 @@ fun AppTopBar(title: String, onBack: (() -> Unit)? = null, actions: @Composable 
 }
 
 @Composable
-fun AppTabHeader(title: String, actions: @Composable RowScope.() -> Unit = {}) {
-    Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.background) {
+fun AppTabHeader(title: String, backgroundColor: Color = MaterialTheme.colorScheme.background,
+                 contentColor: Color = MaterialTheme.colorScheme.onBackground,
+                 actions: @Composable RowScope.() -> Unit = {}) {
+    Surface(Modifier.fillMaxWidth(), color = backgroundColor, contentColor = contentColor) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium, maxLines = 1)
+            Text(title, Modifier.weight(1f), style = AppTypography.headlineMedium, maxLines = 1)
             actions()
         }
     }

@@ -314,7 +314,7 @@ private fun ProductPage(title: String, onBack: (() -> Unit)? = null, scroll: Boo
                         content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize()) {
         if (showTopBar) {
-            if (tabHeader) AppTabHeader(title, actions) else AppTopBar(title, onBack, actions)
+            if (tabHeader) AppTabHeader(title, actions = actions) else AppTopBar(title, onBack, actions)
         }
         Column(Modifier.weight(1f).fillMaxWidth()
             .then(if (scroll) Modifier.verticalScroll(rememberScrollState()) else Modifier), content = content)

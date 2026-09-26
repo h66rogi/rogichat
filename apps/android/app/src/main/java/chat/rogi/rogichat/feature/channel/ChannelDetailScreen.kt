@@ -38,12 +38,15 @@ import java.time.format.DateTimeFormatter
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun ChannelDetailScreen(model: ChannelDetailViewModel, onTalk: () -> Unit) {
-    ChannelTheme { ChannelDetailContent(model, onTalk) }
+    val headerBackground = MaterialTheme.colorScheme.background
+    val headerContent = MaterialTheme.colorScheme.onBackground
+    ChannelTheme { ChannelDetailContent(model, onTalk, headerBackground, headerContent) }
 }
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Unit) {
+private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Unit,
+                                 headerBackground: Color, headerContent: Color) {
     val state by model.uiState.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var selectedSong by remember { mutableStateOf<Song?>(null) }
@@ -73,7 +76,7 @@ private fun ChannelDetailContent(model: ChannelDetailViewModel, onTalk: () -> Un
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
       Box(modifier = Modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
-          AppTabHeader(channel?.name ?: "채널") {
+          AppTabHeader(channel?.name ?: "채널", backgroundColor = headerBackground, contentColor = headerContent) {
               if (channel != null) IconButton(onClick = ::shareChannel) {
                   Icon(PhosphorIcons.Fill.ShareNetwork, contentDescription = "채널 공유")
               }
