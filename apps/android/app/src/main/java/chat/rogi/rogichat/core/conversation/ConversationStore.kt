@@ -36,6 +36,8 @@ interface ConversationStore {
     suspend fun enqueue(scope: ConversationScope, command: TextCommand, createdAtMs: Long, validate: () -> Unit): OutboxRecord
     suspend fun markSending(scope: ConversationScope, commandId: RoomId, validate: () -> Unit)
     suspend fun markUnknown(scope: ConversationScope, commandId: RoomId, errorCode: String?, validate: () -> Unit)
+    /** Only an explicit validation rejection of this POST is terminal; transport failures stay UNKNOWN. */
+    suspend fun markRejected(scope: ConversationScope, commandId: RoomId, errorCode: String?, validate: () -> Unit)
     suspend fun receipt(scope: ConversationScope, commandId: RoomId, receipt: CommandReceipt, validate: () -> Unit): ConversationData
     suspend fun unavailableProjection(scope: ConversationScope, commandId: RoomId, messageId: RoomId, validate: () -> Unit): ConversationData
     suspend fun projection(scope: ConversationScope, message: ConversationMessage, validate: () -> Unit): ConversationData

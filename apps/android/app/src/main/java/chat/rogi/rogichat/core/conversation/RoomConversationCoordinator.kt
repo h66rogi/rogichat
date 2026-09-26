@@ -460,7 +460,11 @@ class RoomConversationCoordinator(private val gateway: ConversationGateway, priv
             } catch (failure: Exception) {
                 if (!entry.retired) {
                     try { withContext(NonCancellable) {
-                        commit(entry) { storage.markUnknown(intent.scope, intent.command.clientMessageId, (failure as? ApiException)?.code, it) }
+                        val rejection = failure is ApiException && failure.statusCode in setOf(400, 413, 422)
+                        commit(entry) {
+                            if (rejection) storage.markRejected(intent.scope, intent.command.clientMessageId, failure.code, it)
+                            else storage.markUnknown(intent.scope, intent.command.clientMessageId, (failure as? ApiException)?.code, it)
+                        }
                         publish(entry, commit(entry) { storage.current(intent.scope, it) })
                     } } catch (_: Exception) { /* A retired authority remains recoverable only after a fresh manifest. */ }
                     if (failure is ApiException && failure.statusCode in setOf(403, 404, 409)) reset(entry)
