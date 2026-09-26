@@ -34,6 +34,8 @@ class ComponentChangesTest(unittest.TestCase):
                  'apps/api/test/unit/migration-mode.test.mjs',
                  'apps/api/test/support/shard.mjs',
                  'apps/api/test/unit/shard.test.mjs',
+                 'apps/api/test/integration/channel-content.test.mjs',
+                 'apps/api/test/integration/channel-content-fixture.mjs',
                  'tools/operations/backend_release.py',
                  'tools/operations/test_backend_release.py',
                  'tools/operations/backend-release.md']
@@ -47,6 +49,9 @@ class ComponentChangesTest(unittest.TestCase):
                               'apps/api/test/decoder/video.test.mjs',
                               'apps/api/test/unit/media-image-decoder.test.mjs',
                               'apps/api/test/unit/unreviewed.test.mjs',
+                              'apps/api/test/integration-image.test.mjs',
+                              'apps/api/test/integration-not-covered/new.test.mjs',
+                              'apps/api/test/integration/new-image-fixture.mjs',
                               'tools/operations/backend_archive.py',
                               'tools/operations/new_release_helper.py'):
             self.assertTrue(backend_image_changed(tests + [release_input]), release_input)
@@ -157,6 +162,16 @@ class ComponentChangesTest(unittest.TestCase):
                      'tools/security/image_scan.py',
                      'tools/release/changes.py', 'apps/api/package.json'):
             self.assertEqual(classify_path(path), (True, True), path)
+
+    def test_exact_security_guard_changes_skip_product_builds(self):
+        self.assertEqual(classify(list(changes.SECURITY_ONLY_FILES)), (False, False))
+        self.assertFalse(backend_image_changed(list(changes.SECURITY_ONLY_FILES)))
+        for path in ('tools/security/image_scan.py', 'tools/security/install.py',
+                     'tools/security/new_guard.py', '.gitleaks.toml'):
+            self.assertEqual(classify_path(path), (True, True), path)
+            self.assertTrue(backend_image_changed([path]), path)
+        self.assertEqual(classify(['tools/security/check.py', 'apps/api/src/main.ts']), (False, True))
+        self.assertTrue(backend_image_changed(['tools/security/check.py', 'apps/api/src/main.ts']))
 
     def test_deleted_or_renamed_source_is_detected_by_path(self):
         self.assertEqual(classify(['apps/web/src/removed.tsx']), (True, False))

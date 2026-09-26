@@ -25,6 +25,19 @@ SHARED_FILES = {
     'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'apps/api/package.json',
     'tools/operations/backend_archive.py',
 }
+SECURITY_ONLY_FILES = {
+    '.githooks/pre-commit',
+    '.githooks/pre-push',
+    '.github/workflows/security.yml',
+    '.github/workflows/security-audit.yml',
+    'tools/security/README.md',
+    'tools/security/check.py',
+    'tools/security/test_guard.py',
+    'tools/security/changed.py',
+    'tools/security/test_changed.py',
+    'tools/security/fetch_public_refs.py',
+    'tools/security/test_fetch_public_refs.py',
+}
 WEB_ONLY_FILES = {
     '.github/workflows/web.yml',
     '.github/workflows/web-publish.yml',
@@ -53,10 +66,17 @@ BACKEND_NON_IMAGE_FILES = {
     'apps/api/test/unit/migration-mode.test.mjs',
     'apps/api/test/support/shard.mjs',
     'apps/api/test/unit/shard.test.mjs',
+    'apps/api/test/integration/channel-content-fixture.mjs',
     'tools/operations/backend_release.py',
     'tools/operations/test_backend_release.py',
     'tools/operations/backend-release.md',
 }
+# The API build excludes test/, and image verification runs only the explicit
+# migration and decoder test files outside integration/. New integration helpers
+# remain fail-closed; only test cases and the reviewed fixture above skip images.
+BACKEND_NON_IMAGE_PREFIXES = (
+    'apps/api/test/integration/',
+)
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
     'tools/infrastructure/',
@@ -73,6 +93,8 @@ SHA = re.compile(r'[a-f0-9]{40}\Z')
 
 def classify_path(path: str) -> tuple[bool, bool]:
     """Return web/backend impact. Unknown paths intentionally affect both."""
+    if path in SECURITY_ONLY_FILES:
+        return False, False
     if path in WEB_ONLY_FILES:
         return True, False
     if path in BACKEND_ONLY_FILES:
@@ -98,8 +120,11 @@ def classify(paths: list[str]) -> tuple[bool, bool]:
 
 
 def backend_image_changed(paths: list[str]) -> bool:
-    """Skip image work only for exact reviewed backend-only inputs."""
-    return any(classify_path(path)[1] and path not in BACKEND_NON_IMAGE_FILES
+    """Skip image work only for reviewed backend inputs excluded from image checks."""
+    return any(classify_path(path)[1]
+               and path not in BACKEND_NON_IMAGE_FILES
+               and not (path.startswith(BACKEND_NON_IMAGE_PREFIXES)
+                        and path.endswith('.test.mjs'))
                for path in paths)
 
 
