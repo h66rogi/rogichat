@@ -57,6 +57,12 @@ BACKEND_NON_IMAGE_FILES = {
     'tools/operations/test_backend_release.py',
     'tools/operations/backend-release.md',
 }
+# The API build excludes test/, and image verification runs only the explicit
+# migration and decoder test files outside integration/. Keep unknown test paths
+# fail-closed so a new image fixture cannot silently bypass image checks.
+BACKEND_NON_IMAGE_PREFIXES = (
+    'apps/api/test/integration/',
+)
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
     'tools/infrastructure/',
@@ -98,8 +104,10 @@ def classify(paths: list[str]) -> tuple[bool, bool]:
 
 
 def backend_image_changed(paths: list[str]) -> bool:
-    """Skip image work only for exact reviewed backend-only inputs."""
-    return any(classify_path(path)[1] and path not in BACKEND_NON_IMAGE_FILES
+    """Skip image work only for reviewed backend inputs excluded from image checks."""
+    return any(classify_path(path)[1]
+               and path not in BACKEND_NON_IMAGE_FILES
+               and not path.startswith(BACKEND_NON_IMAGE_PREFIXES)
                for path in paths)
 
 

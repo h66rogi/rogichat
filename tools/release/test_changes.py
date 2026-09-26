@@ -34,6 +34,8 @@ class ComponentChangesTest(unittest.TestCase):
                  'apps/api/test/unit/migration-mode.test.mjs',
                  'apps/api/test/support/shard.mjs',
                  'apps/api/test/unit/shard.test.mjs',
+                 'apps/api/test/integration/channel-content.test.mjs',
+                 'apps/api/test/integration/channel-content-fixture.mjs',
                  'tools/operations/backend_release.py',
                  'tools/operations/test_backend_release.py',
                  'tools/operations/backend-release.md']
@@ -47,6 +49,8 @@ class ComponentChangesTest(unittest.TestCase):
                               'apps/api/test/decoder/video.test.mjs',
                               'apps/api/test/unit/media-image-decoder.test.mjs',
                               'apps/api/test/unit/unreviewed.test.mjs',
+                              'apps/api/test/integration-image.test.mjs',
+                              'apps/api/test/integration-not-covered/new.test.mjs',
                               'tools/operations/backend_archive.py',
                               'tools/operations/new_release_helper.py'):
             self.assertTrue(backend_image_changed(tests + [release_input]), release_input)
