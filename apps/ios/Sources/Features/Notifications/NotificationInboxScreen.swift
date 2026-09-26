@@ -3,17 +3,7 @@ import SwiftUI
 // Adapted from Meloming/Presentation/Notifications/NotificationsView.swift and
 // NotificationsViewModel.swift: native List, empty/error states, refresh, paging,
 // read actions and relative time. Rogichat supplies its own authorized API.
-struct InboxNotification: Decodable, Identifiable, Equatable, Sendable {
-    let id: String
-    let type: String
-    let title: String
-    let body: String
-    let url: String
-    let roomId: String
-    var readAt: String?
-    let createdAt: String
-
-    var isRead: Bool { readAt != nil }
+private extension InboxNotification {
     var relativeTime: String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -23,12 +13,6 @@ struct InboxNotification: Decodable, Identifiable, Equatable, Sendable {
         relative.unitsStyle = .abbreviated
         return relative.localizedString(for: date, relativeTo: Date())
     }
-}
-
-struct NotificationInboxPage: Decodable, Sendable {
-    let items: [InboxNotification]
-    let nextCursor: String?
-    let hasNextPage: Bool
 }
 
 struct NotificationInboxScreen: View {
