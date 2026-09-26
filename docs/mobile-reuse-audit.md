@@ -1,5 +1,9 @@
 # 모바일 공통 기반 재사용 조사
 
+## 2026-09-26 iOS 더보기 초기 배치 안정화
+
+`meloming-ios` `d133fb4`의 `Meloming/Presentation/More/MoreView.swift`에서 가져온 `List` 섹션과 알림 동작은 유지했다. 로기챗 `apps/ios/Sources/Features/Settings/MoreView.swift`에서는 상단 제목을 `List.safeAreaInset` 대신 제목과 목록의 고정 세로 배치로 옮겼다. `apps/ios/Sources/Core/Design/AppShell.swift`에서는 탐색 막대가 숨겨진 더보기 루트의 제목 표시 모드를 `inline`으로 지정했다. 원본의 상단 inset과 로기챗 셸의 큰 탐색 제목이 동시에 목록 상단 높이를 계산하는 구조를 제거하기 위한 변경이다.
+
 ## 2026-09-26 프로필 설정 기본 뒤로가기 제스처
 
 iOS `meloming-ios` `18a33bbf96fe52b28d0de361916e20549bdcce6b`의 `Presentation/More/MyPageView.swift`에서 탭별 `NavigationStack`과 시스템 탐색 동작을 확인했다. 로기챗 `apps/ios/Sources/Features/Settings/ProfileScreen.swift`는 시트 대신 기존 `AppShell.swift`의 `NavigationStack` 하위 페이지로 유지하고, 별도 뒤로가기 버튼 및 뒤로가기 숨김을 제거했다. 시스템 뒤로가기 버튼과 왼쪽 가장자리 스와이프가 같은 경로로 더보기 화면에 복귀한다. 미저장 변경은 일반 편집 페이지처럼 뒤로가면 폐기된다. 멜로밍의 프로필 시트와 닫기 버튼은 페이지 탐색 요구에 맞지 않아 적용하지 않았다.
