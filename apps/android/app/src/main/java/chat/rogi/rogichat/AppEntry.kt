@@ -194,12 +194,14 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 if (repository != null) {
                     val model: ChannelDetailViewModel = viewModel { ChannelDetailViewModel(repository) }
                     ProductPage("채널", scroll = false, showTopBar = false) { ChannelDetailScreen(model) { open("talks") } }
-                } else ScreenStatus("채널을 불러올 수 없어요", "잠시 후 다시 시도해 주세요.")
+                } else ProductPage("채널", scroll = false, tabHeader = true) {
+                    ScreenStatus("채널을 불러올 수 없어요", "잠시 후 다시 시도해 주세요.")
+                }
             }
             composable("settings") {
                 val profileModel: ProfileViewModel? = if (privateAccount != null && services.profiles != null)
                     viewModel { ProfileViewModel(services.profiles, privateAccount.id, autoLoad = false) } else null
-                ProductPage("설정") {
+                ProductPage("더보기", tabHeader = true) {
                     SettingsScreen(privateAccount, appearance, onSignIn = { open("talks") },
                         onProfile = if (privateAccount != null && services.profiles != null) ({ open("profile") }) else null,
                         onAccount = if (privateAccount != null) ({ open("account") }) else null,
@@ -307,10 +309,13 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
 @Composable
 private fun ProductPage(title: String, onBack: (() -> Unit)? = null, scroll: Boolean = true,
                         showTopBar: Boolean = true,
+                        tabHeader: Boolean = false,
                         actions: @Composable RowScope.() -> Unit = {},
                         content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        if (showTopBar) AppTopBar(title, onBack, actions)
+        if (showTopBar) {
+            if (tabHeader) AppTabHeader(title, actions = actions) else AppTopBar(title, onBack, actions)
+        }
         Column(Modifier.weight(1f).fillMaxWidth()
             .then(if (scroll) Modifier.verticalScroll(rememberScrollState()) else Modifier), content = content)
     }

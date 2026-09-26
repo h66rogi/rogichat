@@ -20,6 +20,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import chat.rogi.rogichat.core.design.ScreenStatus
+import chat.rogi.rogichat.core.design.AppTabHeader
 import chat.rogi.rogichat.core.common.request
 import chat.rogi.rogichat.core.network.RoomAvailability
 import chat.rogi.rogichat.core.network.RoomMode
@@ -226,9 +227,7 @@ fun RoomsScreen(model: RoomsViewModel, onOpenSettings: () -> Unit,
         }
     }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 16.dp, bottom = 12.dp),
-            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("채팅", Modifier.weight(1f), style = MaterialTheme.typography.headlineMedium)
+        AppTabHeader("채팅") {
             IconButton(onClick = { showingSearch = !showingSearch; if (!showingSearch) query = "" }) {
                 Icon(PhosphorIcons.Regular.MagnifyingGlass, contentDescription = "대화 검색")
             }
