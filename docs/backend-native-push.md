@@ -97,6 +97,10 @@ The QA release helper checks ownership, mode, size and parser acceptance in an
 isolated container before stopping the running service, then checks both live
 mounts and both provider configurations. Provision the private file before deploying a
 source that contains this template; a missing file blocks the release.
+Production uses a distinct `/etc/rogichat/prod/push-native.json` with
+`environment: "production"` and an independent encryption key and provider
+credentials. Its promotion helper applies the same preflight and live checks.
+Neither environment falls back to the other's file.
 
 Required: `environment` exactly matching APP_ENV; `encryptionKey` (32 random bytes
 as 64 lowercase hex characters). At least one complete group:

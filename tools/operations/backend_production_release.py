@@ -300,6 +300,8 @@ def deploy(request, files, container):
         wait_health(request)
         if shared.compose_requires_vapid(files['compose']):
             shared.verify_live_vapid('production')
+        if shared.compose_requires_native_push(files['compose']):
+            shared.verify_live_native_push('production')
         require(get_caddy(request['edge_network']) == container)
         caddy_config(container,files['caddy'])
         verify_routes(('/live','/ready','/_infra/health'))
@@ -350,6 +352,7 @@ def preflight():
     validate_templates(request,release,files,container)
     verify_runtime(request,release)
     shared.verify_vapid_secret(files['compose'], shared.execution_image(request,'runtime'), 'production')
+    shared.verify_native_push_secret(files['compose'], shared.execution_image(request,'runtime'), 'production')
     require(get_caddy(request['edge_network']) == container)
     verify_routes(('/_infra/health',))
     return request,files,container
