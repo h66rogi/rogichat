@@ -467,11 +467,21 @@ ROOM_OWNER로 전송한다. 구체적인 계약·복원 경계는 [전송 기록
 | Android 같은 SHA `core/designsystem/component/MelomingSearchBar.kt`, `core/designsystem/theme/{Color,Theme,Typography}.kt`, `core/designsystem/src/main/res/font/{ibm_plex_sans_kr_*,paperlogy_*}.ttf` | `ChannelSearchBar.kt`, `feature/channel/theme/`, `app/src/main/res/font/` | 원본 검색창·인디고 색상·타이포그래피·글꼴 파일을 직접 복사. 채널 화면 범위에만 테마를 적용하고 패키지·리소스 참조를 변경. 폰트의 OFL 저작권 고지와 라이선스는 `app/src/main/assets/licenses/`에 포함. |
 | iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b` `Presentation/Channel/{ChannelHomeSectionView,SongBookView,SongBookViewModel,SongDetailSheet,ScheduleView,ScheduleViewModel}.swift`, `SongBookView.swift`의 `SongRow`·`CopyToastView`, `ChannelDetailView.swift`의 `HTMLTextView`, `Presentation/Common/Components/{FlowLayout,ErrorView,LoadingView}.swift` | 같은 이름의 `Sources/Features/Channel/` 파일 및 `ChannelDetailView.swift` | 원본 홈 섹션·노래책 필터/행/상세·일정 날짜 묶음/상세·HTML 소개·레이아웃·빈 상태·로딩 화면을 파일 단위로 복사. Kingfisher 이미지는 현재 공개 이미지 어댑터로 교체. 채널 공개 조회는 후로기 경로로 연결하고 원본의 편집·선물·신청곡·좋아요·클립/방명록 상호작용만 현재 계약 범위에 맞춰 제거. 채널 범위에 원본 인디고 강조색을 적용. |
 
-양 OS의 홈은 원본 기본 탭으로 복원했다. 후로기 API의 `home` feature key는 현재
-비활성화되어 있지만 공개 프로필·노래·일정 데이터가 제공되므로 홈 탭은 기본으로 표시한다.
-클립·방명록은 해당 feature key가 비활성이고 모바일 조회 계약이 연결되지 않은 상태라
-빈 콘텐츠를 만들어 표시하지 않는다. 본 이식은 홈·노래책·일정의 공개 읽기 화면에 한정하며,
-셋리스트·옷장은 기존 공개 조회 이식을 유지한다.
+위 기록의 홈 강제 표시와 셋리스트 native 탭 추가는 원본 채널 구성과 다른 결정이었다.
+아래 재이식에서 두 변경을 되돌리고 활성 feature settings 순서를 그대로 따른다.
+
+### 2026-09-26 채널 셸 전체 재이식 및 원본 구성 복원
+
+| 원본 commit·파일 | 대상 | 복사한 범위와 필요한 계약 수정 |
+|---|---|---|
+| Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17` `feature/channel/src/main/java/com/meloming/android/feature/channel/ChannelDetailScreen.kt` 프로필·섹션·스크롤 셸, `core/designsystem/.../MelomingTopBar.kt` | `ChannelNativeHub.kt`, `ChannelDetailScreen.kt`, `ChannelTopBar.kt`, `AppEntry.kt` | 원본 프로필 유리 카드, 4개 액션 배치와 하단 강조 버튼, 전용 중앙 상단바, `Surface/Box/Column/LazyColumn`과 고정 섹션 헤더·검색창을 복사했다. 기존 공용 상단바는 채널에서 숨긴다. 원본 계정 쓰기 API가 없는 버튼은 실제 후로기 방송·공유·채널톡·노래책 동작으로 연결했다. 이미지 컴포넌트만 기존 공개 이미지 어댑터로 교체했다. |
+| Android 같은 SHA `component/ChannelModernSections.kt`의 `channelWardrobeTabContent` | `ChannelDetailScreen.kt`의 옷장 분기 | 원본 12dp 상단 여백·로딩/빈 상태·3열 2dp 간격을 이식하고 이전 임의 카테고리 칩을 제거했다. 항목 상세 진입에는 기존 공개 옷장 데이터를 연결했다. |
+| iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b` `Meloming/Presentation/Channel/ChannelNativeHubViews.swift`의 프로필·액션·섹션 레일, `ChannelDetailView.swift`의 고정 섹션 헤더 셸 | `Sources/Features/Channel/ChannelNativeHubViews.swift`, `ChannelDetailView.swift`, `SongBookView.swift` | 원본 프로필 카드와 액션 버튼 스타일·메트릭·레일 구현을 파일 본문에서 직접 복사했다. 원본 `ScrollView/LazyVStack/Section`과 고정 헤더 안 검색창을 옮기고, 노래책 내부 중복 검색창은 숨겼다. 이미지 라이브러리만 현재 `AsyncImage`·번들 자산으로 바꿨으며 4개 액션은 위와 같은 후로기 실제 경로에 연결했다. |
+| 양 OS 원본 `ChannelDetailViewModel`의 feature settings 필터 | `ChannelDetailViewModel.kt`, `ChannelDetailView.swift` | 서버의 enabled/order를 그대로 사용한다. QA에서 꺼진 홈은 강제 표시하지 않고 원본 native 채널에 없는 셋리스트 메뉴도 표시하지 않는다. 후로기 QA의 첫 탭은 노래책이다. |
+
+QA 채널 응답에는 `platformUrl`이 없으므로 방송 보기 버튼은 후로기 공식 SOOP 방송
+`https://play.sooplive.com/h66rogi`로 연결한다. 멜로밍 전용 후여르·팬 선물·멤버십·
+즐겨찾기 쓰기는 모바일에 권한을 보존하는 API 계약이 없어 화면에 허위 동작으로 표시하지 않는다.
 ## iOS 더보기 개발자 도구 복원
 
 | ID | 원본·대상 | 재사용과 변경 경계 |

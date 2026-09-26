@@ -1,12 +1,29 @@
+import AVKit
+import Foundation
 import SwiftUI
 
-// Copied from meloming-ios 18a33bb: ChannelNativeHubViews.swift profile shell and section rail.
-// The single Rogichat channel keeps the native layout while unsupported actions are absent.
+struct ChannelHuyeorDestination: Identifiable {
+    let roomID: String
+    let title: String
+    let channelName: String
+    let channelImageURL: String?
+    let channelID: Int
+
+    var id: String { roomID }
+}
+
+// MARK: - Profile shell
+
 struct ChannelProfileHero: View {
     let channel: Channel
     let profile: ChannelProfile?
     let favoriteCount: Int
+    let isLive: Bool
+    let onVisit: () -> Void
+    let onCopyLink: () -> Void
     let onTalk: () -> Void
+    let onSongbook: () -> Void
+    let onLive: (() -> Void)?
 
     private var themeTint: Color {
         Color(hex: channel.themeColor)
@@ -24,7 +41,7 @@ struct ChannelProfileHero: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             HStack(alignment: .center, spacing: 18) {
-                ChannelProfileAvatar(channel: channel, isLive: false)
+                ChannelProfileAvatar(channel: channel, isLive: isLive)
 
                 HStack(spacing: 0) {
                     ChannelProfileMetric(value: favoriteCount.formatted(), label: "즐겨찾기")
@@ -56,6 +73,18 @@ struct ChannelProfileHero: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
+                if isLive, let onLive {
+                    Button(action: onLive) {
+                        Label("후여르 LIVE", systemImage: "flame.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(ChannelNativePalette.huyeorAmber)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(ChannelNativePalette.paleAmber, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("후여르 라이브 참여")
+                }
             }
 
             profileActions
@@ -94,11 +123,35 @@ struct ChannelProfileHero: View {
 
     @ViewBuilder
     private var profileActions: some View {
-        Button(action: onTalk) {
-            Label("대화 열기", systemImage: "bubble.left.and.bubble.right.fill")
-                .frame(maxWidth: .infinity)
+        HStack(spacing: 8) {
+                Button(action: onVisit) {
+                    Label("방송 보기", systemImage: "play.rectangle")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ChannelGlassActionButtonStyle(tint: Color.accentColor))
+                .accessibilityLabel("방송 보기")
+
+                Button(action: onCopyLink) {
+                    Label("링크 복사", systemImage: "link")
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(ChannelGlassActionButtonStyle(tint: .pink))
+                .accessibilityLabel("채널 링크 복사")
+
+                Button(action: onTalk) {
+                    Image(systemName: "bubble.left.and.bubble.right.fill")
+                }
+                .buttonStyle(ChannelGlassActionButtonStyle(tint: Color.accentColor, compact: true))
+                .accessibilityLabel("채널톡")
+
+                Button(action: onSongbook) {
+                    Image(systemName: "music.note.list")
+                }
+                .buttonStyle(ChannelGlassActionButtonStyle(tint: .orange, compact: true))
+                .accessibilityLabel("노래책")
         }
-        .buttonStyle(ChannelGlassActionButtonStyle(tint: Color.accentColor))
     }
 }
 
@@ -176,15 +229,35 @@ private struct ChannelProfileMetric: View {
 private struct ChannelVerificationMark: View {
     let channel: Channel
 
+    private var hasAmbassadorVerification: Bool {
+        channel.verifications.contains {
+            let platform = $0.platform.uppercased()
+            return platform == "AMBASSADOR" || platform == "MELOMING_AMBASSADOR"
+        }
+    }
+
+    private var hasVerification: Bool {
+        hasAmbassadorVerification || !channel.verifications.isEmpty
+    }
+
     var body: some View {
         HStack(spacing: 4) {
-            if !channel.verifications.isEmpty {
+            if hasVerification {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.subheadline)
                     .foregroundStyle(Color.accentColor)
                     .accessibilityLabel("인증 채널")
             }
 
+            if channel.isOwnerProSubscriber {
+                Label("PRO", systemImage: "crown.fill")
+                    .font(.caption2.weight(.heavy))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 3)
+                    .background(Color.accentColor, in: Capsule())
+                    .accessibilityLabel("Pro 채널")
+            }
         }
     }
 }
@@ -201,10 +274,10 @@ private struct ChannelProfileAvatar: View {
                     .fill(
                         AngularGradient(
                             colors: [
-                                .orange,
+                                ChannelNativePalette.huyeorAmber,
                                 .red,
                                 .pink,
-                                .orange
+                                ChannelNativePalette.huyeorAmber
                             ],
                             center: .center
                         )
@@ -240,7 +313,7 @@ private struct ChannelProfileAvatar: View {
             }
         }
         .frame(width: 96, height: 96)
-        .shadow(color: isLive ? Color.orange.opacity(0.3) : .black.opacity(0.12), radius: 10, y: 4)
+        .shadow(color: isLive ? ChannelNativePalette.huyeorAmber.opacity(0.3) : .black.opacity(0.12), radius: 10, y: 4)
         .onAppear {
             guard isLive else { return }
             withAnimation(.easeInOut(duration: 1.15).repeatForever(autoreverses: true)) {
@@ -252,7 +325,7 @@ private struct ChannelProfileAvatar: View {
                 isPulsing = false
             }
         }
-        .accessibilityLabel(channel.name)
+        .accessibilityLabel(isLive ? "\(channel.name), 후여르 라이브 중" : channel.name)
     }
 }
 
@@ -344,4 +417,9 @@ struct ChannelSectionRail: View {
                 y: 3
             )
     }
+}
+
+private enum ChannelNativePalette {
+    static let huyeorAmber = Color(red: 0.96, green: 0.37, blue: 0.04)
+    static let paleAmber = Color(red: 1.0, green: 0.94, blue: 0.86)
 }
