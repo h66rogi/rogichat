@@ -47,7 +47,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
                                private val roomsStore: RoomsStore? = null,
                                private val deletionStore: AccountDeletionStore? = null,
                                private val roomCommandScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
-                               private val realtime: NativeRealtimeManager? = null) : AccountAccessActions, SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, RoomsRepository, AccountDeletionActions, ConversationGateway, PushGateway, AccountFeatureGateway {
+                               private val realtime: NativeRealtimeManager? = null) : AccountAccessActions, SessionActions, ProfileRepository, NativeAuthActions, NotificationPreferencesRepository, chat.rogi.rogichat.feature.notifications.NotificationInboxRepository, RoomsRepository, AccountDeletionActions, ConversationGateway, PushGateway, AccountFeatureGateway {
     private val lock = Mutex()
     private val profileWrites = Mutex()
     @Volatile private var foreground = false
@@ -152,7 +152,7 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     override suspend fun signIn(provider: SignInProvider) = unavailable()
     override suspend fun linkSoop() = beginAuthentication(AuthIntent.LINK)
     private fun unavailable(): Result<Unit> = Result.failure(IllegalStateException("operation_unavailable"))
-    fun services(push: NativePushCoordinator? = null, channel: chat.rogi.rogichat.channelport.ChannelGraph? = null) = ProductServices(session, this, this, access = this, auth = this.takeIf { auth != null }, notificationPreferences = this, rooms = this.takeIf { roomsStore != null }, deletion = this.takeIf { deletionStore != null }, conversations = conversationServices(), push = push, blocks = blockServices(), accountMedia = (roomsStore as? AccountFeatureStore)?.let { AccountMediaRepository(this, it) }, channel = channel)
+    fun services(push: NativePushCoordinator? = null, channel: chat.rogi.rogichat.channelport.ChannelGraph? = null) = ProductServices(session, this, this, access = this, auth = this.takeIf { auth != null }, notificationPreferences = this, notificationInbox = this, rooms = this.takeIf { roomsStore != null }, deletion = this.takeIf { deletionStore != null }, conversations = conversationServices(), push = push, blocks = blockServices(), accountMedia = (roomsStore as? AccountFeatureStore)?.let { AccountMediaRepository(this, it) }, channel = channel)
 
     private fun blockServices(): AccountBlocksCoordinator? {
         val storage = roomsStore as? AccountFeatureStore ?: return null
@@ -337,6 +337,12 @@ class NativeSessionCoordinator(private val store: CredentialStore, private val a
     }
     override suspend fun getPreferences(scope: NotificationAccountScope): Result<NotificationPreferences> = ownState(scope) { token ->
         NotificationApi(api).getPreferences(token)
+    }
+    override suspend fun getInbox(scope: NotificationAccountScope, cursor: String?): Result<chat.rogi.rogichat.feature.notifications.InboxPage> = ownState(scope) { token ->
+        chat.rogi.rogichat.feature.notifications.InboxContract.page(api.getNotificationInbox(token, cursor))
+    }
+    override suspend fun markInboxRead(scope: NotificationAccountScope, id: String): Result<Unit> = ownState(scope) { token ->
+        api.markNotificationRead(token, id)
     }
     override suspend fun disablePush(scope: NotificationAccountScope, expected: PreferenceGeneration): Result<NotificationPreferences> = ownState(scope) { token ->
         NotificationApi(api).disablePush(token, expected)

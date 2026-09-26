@@ -22,7 +22,7 @@ runtime/migration/decoder의 세 digest와 검증한 version 2 archive, 기존 �
 
 새 요청에는 다음 필드를 모두 추가한다. `artifacts.schema_manifest`는 source SHA의
 `apps/api/src/infrastructure/database/schema-manifest.ts` 파일 SHA-256이다. 이 파일은
-정적 문법만 읽고 실행하지 않으며, 요청의 migration 48개 목록과 정확히 같아야 한다.
+정적 문법만 읽고 실행하지 않으며, 요청의 migration 49개 목록과 정확히 같아야 한다.
 
 | 필드 | 의미 |
 |---|---|

@@ -2,6 +2,10 @@ locals {
   name = "rogichat-qa"
 }
 
+data "aws_eip" "management" {
+  tags = { Name = "rogichat-management" }
+}
+
 # Dedicated QA network; neither a shared VPC nor legacy infrastructure is mutated.
 resource "aws_vpc" "qa" {
   cidr_block           = "10.76.0.0/16"
@@ -60,6 +64,14 @@ resource "aws_vpc_security_group_ingress_rule" "web" {
   ip_protocol       = "tcp"
   from_port         = tonumber(each.value)
   to_port           = tonumber(each.value)
+}
+resource "aws_vpc_security_group_ingress_rule" "tailscale_direct" {
+  security_group_id = aws_security_group.app.id
+  description       = "Tailscale UDP from the management EIP only"
+  cidr_ipv4         = "${data.aws_eip.management.public_ip}/32"
+  ip_protocol       = "udp"
+  from_port         = 41641
+  to_port           = 41641
 }
 resource "aws_vpc_security_group_egress_rule" "app" {
   security_group_id = aws_security_group.app.id
@@ -129,7 +141,7 @@ resource "aws_instance" "app" {
   }
   root_block_device {
     volume_type           = "gp3"
-    volume_size           = 80
+    volume_size           = 120
     encrypted             = true
     delete_on_termination = true
   }
@@ -145,7 +157,8 @@ resource "aws_instance" "app" {
       compose_base64      = filebase64("${path.module}/../../../runtime/compose.bootstrap.yaml")
       caddyfile_base64    = filebase64("${path.module}/../../../runtime/Caddyfile.bootstrap")
       start_caddy         = false
-    })
+    }),
+    "ufw allow from ${data.aws_eip.management.public_ip}/32 to any port 41641 proto udp"
   ])
   tags = { Name = "${local.name}-app" }
   lifecycle {

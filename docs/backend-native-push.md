@@ -114,14 +114,14 @@ and follows no redirects. DNS deadline: 2s; request deadline: 5s; response limit
 16 KiB. Shutdown destroys active requests and clears cached Google access tokens.
 Do not log provider bodies, tokens or secret files.
 
-APNs signs ES256 tokens and sends background priority-5, zero-expiry payload
-`{aps:{"content-available":1},type:"sync_required",version:1}`. FCM uses signed
+APNs signs ES256 tokens and sends a priority-10 alert with a generic Rogichat
+title/body, sound, `content-available:1` and a 60-second expiry. FCM uses signed
 service-account OAuth then data `{type:"sync_required",version:"1"}`, Android
-normal priority, zero TTL and configured package restriction. Both coalesce using
-`rogi-sync`. Clients normalize version representation. There are no message text,
-identifiers, Signed URLs, alert titles or bodies. Background wakes do not promise
-OS display or delivery, especially under throttling/force-quit; provider acceptance
-is not receipt/read proof.
+high priority, 60-second TTL and configured package restriction. Android displays
+the same generic local notification after validating the data-only wake. Both
+coalesce using `rogi-sync`. Clients normalize version representation. There are
+no message text, identifiers or signed URLs in provider payloads. Provider
+acceptance is not device receipt or proof that the user read the alert.
 
 References: [FCM HTTP v1](https://firebase.google.com/docs/cloud-messaging/send/v1-api),
 [FCM message contract](https://firebase.google.com/docs/reference/fcm/rest/v1/projects.messages),

@@ -35,11 +35,14 @@ import chat.rogi.rogichat.feature.rooms.*
 import chat.rogi.rogichat.feature.channel.ChannelDetailScreen
 import chat.rogi.rogichat.feature.channel.ChannelDetailViewModel
 import chat.rogi.rogichat.feature.settings.*
+import chat.rogi.rogichat.feature.notifications.NotificationInboxScreen
+import chat.rogi.rogichat.feature.notifications.NotificationInboxViewModel
 
 /** The sole product composition for both QA and prod. Only build configuration differs. */
 @Composable
 fun AppEntry(services: ProductServices? = null,
-             roomContent: (@Composable (String, () -> Unit) -> Unit)? = null) {
+             roomContent: (@Composable (String, () -> Unit) -> Unit)? = null,
+             notificationTap: Int = 0, onNotificationTapConsumed: () -> Unit = {}) {
     val context = LocalContext.current
     val product = services ?: remember { ProductServices.installed(context.applicationContext) }
     val preferences = remember(context.applicationContext) { AppearancePreferences(context.applicationContext) }
@@ -90,7 +93,8 @@ fun AppEntry(services: ProductServices? = null,
             val scopeOwner = featureScope.ownerFor(scopeKey)
             key(scopeKey) {
                 CompositionLocalProvider(LocalViewModelStoreOwner provides scopeOwner) {
-                    ProductNavigation(product, session, accountModel, operation, appearance, preferences::select, roomContent)
+                    ProductNavigation(product, session, accountModel, operation, appearance, preferences::select, roomContent,
+                        notificationTap, onNotificationTapConsumed)
                 }
             }
         }
@@ -102,7 +106,8 @@ fun AppEntry(services: ProductServices? = null,
 @Composable
 private fun ProductNavigation(services: ProductServices, session: SessionSnapshot, sessionModel: SessionViewModel,
                               operation: SessionOperationState, appearance: Appearance, onAppearance: (Appearance) -> Unit,
-                              roomContent: (@Composable (String, () -> Unit) -> Unit)?) {
+                              roomContent: (@Composable (String, () -> Unit) -> Unit)?,
+                              notificationTap: Int, onNotificationTapConsumed: () -> Unit) {
     val authState = services.auth?.authState?.collectAsStateWithLifecycle()?.value ?: AuthUiState()
     val deletionState = services.deletion?.deletionState?.collectAsStateWithLifecycle()?.value ?: DeletionState()
     val dismissedDeletion by sessionModel.dismissedDeletionKey.collectAsStateWithLifecycle()
@@ -132,6 +137,12 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     val showsSessionStatus = presentedDeletion.visible || authState.active || authState.error != null ||
         (session.validationNeedsRetry && privateAccount != null)
     fun open(value: String) { nav.navigate(value) { launchSingleTop = true } }
+    LaunchedEffect(notificationTap, session.access) {
+        if (notificationTap > 0 && session.access == ShellAccess.READY) {
+            open("inbox")
+            onNotificationTapConsumed()
+        }
+    }
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }, topBar = {
         if (showsSessionStatus) Column(Modifier.windowInsetsPadding(
             WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
@@ -208,7 +219,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                     SettingsScreen(privateAccount, appearance, onSignIn = { open("talks") },
                         onProfile = if (privateAccount != null && services.profiles != null) ({ open("profile") }) else null,
                         onAccount = if (privateAccount != null) ({ open("account") }) else null,
-                        onAppearance = { open("appearance") }, onNotifications = { open("notifications") }, onAbout = { open("about") },
+                        onAppearance = { open("appearance") }, onNotifications = { open("notifications") }, onNotificationInbox = { open("inbox") }, onAbout = { open("about") },
                         onBlocks = if (session.access == ShellAccess.READY && services.blocks != null && session.accountPartition != null) ({ open("blocks") }) else null,
                         accessSection = { if (privateAccount != null && services.access != null) AccountAccessSettings(services.access, renderedIdentity, operation.busy, sessionModel::password) },
                         profileModel = profileModel, avatar = { profile ->
@@ -230,6 +241,27 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 val model: NotificationSettingsViewModel? = if (privateAccount != null && repository != null)
                     viewModel { NotificationSettingsViewModel(repository, NotificationAccountScope(privateAccount.id, session.generation)) } else null
                 ProductPage("알림 설정", { nav.popBackStack() }) { NotificationSettingsScreen(model, services.push, privateAccount?.takeIf { session.access == ShellAccess.READY }?.let { NotificationAccountScope(it.id, session.generation) }) }
+            }
+            composable("inbox") {
+                if (session.access == ShellAccess.READY && privateAccount != null && services.notificationInbox != null) {
+                    val model: NotificationInboxViewModel = viewModel { NotificationInboxViewModel(services.notificationInbox, NotificationAccountScope(privateAccount.id, session.generation)) }
+                    val inboxScope = rememberCoroutineScope()
+                    ProductPage("알림", { nav.popBackStack() }, scroll = false) {
+                        NotificationInboxScreen(model, onOpenRoom = { roomId ->
+                            inboxScope.launch {
+                                val scope = session.accountPartition?.let { RoomsAccountScope(privateAccount.id, session.generation, it) }
+                                val directory = if (scope != null) services.rooms?.refreshRooms(scope)?.getOrNull() else null
+                                val membership = directory?.memberships?.firstOrNull { it.roomId.value == roomId }
+                                if (scope != null && membership != null && services.conversations != null) {
+                                    conversationNavigation.selected = ConversationSelection(scope, membership, directory.cycle)
+                                    open("room/$roomId")
+                                } else open("talks")
+                            }
+                        }, onSettings = { open("notifications") })
+                    }
+                } else ProductPage("알림", { nav.popBackStack() }) {
+                    ScreenStatus("로그인이 필요합니다", "알림을 확인하려면 로그인해 주세요.", onRetry = { open("talks") })
+                }
             }
             composable("about") { ProductPage("로기챗 정보", { nav.popBackStack() }) { AboutScreen { open("licenses") } } }
             composable("licenses") { ProductPage("오픈소스 라이선스", { nav.popBackStack() }) { LicensesScreen() } }

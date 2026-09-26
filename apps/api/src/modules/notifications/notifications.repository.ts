@@ -52,6 +52,8 @@ export class NotificationsRepository {
     return (await tx.prisma.push_subscriptions.updateMany({ where: { id, generation, revoked_at: null }, data: { revoked_at: await tx.now(), generation: { increment: 1n } } })).count;
   }
   async purgeMessage(tx: Transaction, roomId: string, messageId: string, limit: number): Promise<{ deleted: number; done: boolean }> {
+    const reads = await tx.prisma.notification_reads.findMany({ where: { room_id: roomId, message_id: messageId }, take: limit, select: { user_id: true } });
+    if (reads.length) return { deleted: (await tx.prisma.notification_reads.deleteMany({ where: { room_id: roomId, message_id: messageId, user_id: { in: reads.map(row => row.user_id) } } })).count, done: false };
     const fanout = await tx.prisma.jobs.findMany({ where: { purpose: 'PUSH', room_id: null, resource_id: messageId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
     if (fanout.length) return { deleted: (await tx.prisma.jobs.deleteMany({ where: { id: { in: fanout.map(row => row.id) }, purpose: 'PUSH', room_id: null, resource_id: messageId } })).count, done: false };
     const deliveries = await tx.prisma.push_deliveries.findMany({ where: { room_id: roomId, message_id: messageId }, orderBy: { id: 'asc' }, take: limit, select: { id: true } });
@@ -62,6 +64,13 @@ export class NotificationsRepository {
     return { deleted: (await tx.prisma.push_deliveries.deleteMany({ where: { id: { in: ids }, room_id: roomId, message_id: messageId } })).count, done: false };
   }
   async purgeAccount(tx: Transaction, userId: string, limit: number): Promise<{ deleted: number; done: boolean }> {
+    const reads = await tx.prisma.notification_reads.findMany({ where: { OR: [
+      { user_id: userId }, { message: { content_owner_user_id: userId } },
+      { message: { deletion_root: { content_owner_user_id: userId } } },
+    ] }, take: limit, select: { user_id: true, message_id: true } });
+    if (reads.length) return { deleted: (await tx.prisma.notification_reads.deleteMany({ where: {
+      OR: reads.map(row => ({ user_id: row.user_id, message_id: row.message_id })),
+    } })).count, done: false };
     // Polymorphic jobs.resource_id has no Prisma relation: this bounded join
     // applies content ownership BEFORE LIMIT without materializing all messages.
     const fanout = await tx.rows<{ id: string }>(`SELECT j.id FROM jobs j JOIN messages m ON m.id=j.resource_id LEFT JOIN messages root ON root.id=m.deletion_root_id AND root.room_id=m.room_id WHERE j.purpose='PUSH' AND j.room_id IS NULL AND (m.content_owner_user_id=? OR root.content_owner_user_id=?) ORDER BY j.id LIMIT ?`, [userId, userId, limit]);

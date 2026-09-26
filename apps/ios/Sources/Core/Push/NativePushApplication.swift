@@ -39,8 +39,35 @@ import SwiftUI
 @MainActor final class NativePushWakeOwner {
     static let shared = NativePushWakeOwner()
     var wake: (() async -> Bool)?
+    private var openInbox: (() -> Bool)?
+    private var pendingInbox = false
+    func bindInbox(_ action: @escaping () -> Bool) {
+        openInbox = action
+        drainInbox()
+    }
+    func requestInbox() {
+        pendingInbox = true
+        drainInbox()
+    }
+    func drainInbox() {
+        if pendingInbox, openInbox?() == true { pendingInbox = false }
+    }
 }
-@MainActor final class RogichatApplicationDelegate: NSObject, UIApplicationDelegate {
+@MainActor final class RogichatApplicationDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completionHandler(NativePushWake.accepts(notification.request.content.userInfo) ? [.banner, .sound] : [])
+    }
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void) {
+        let shouldOpen = NativePushWake.accepts(response.notification.request.content.userInfo)
+        if shouldOpen { Task { @MainActor in NativePushWakeOwner.shared.requestInbox() } }
+        completionHandler()
+    }
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         APNsDeviceRegistration.shared.received(deviceToken)
     }

@@ -22,14 +22,15 @@ test('real M11 HTTP composition preserves own-state DTOs, proof precedence, nati
   const fixture = await db.transactions.write(async tx => {
     const sender = await createUser(tx, 'HTTP 합성 작성자'), user = await createUser(tx, 'HTTP 합성 사용자');
     await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: user, provider_subject: randomBytes(24), verified_at: await tx.now() }, select: { id: true } });
+    await tx.prisma.platform_soop.create({ data: { id: randomUUID(), user_id: sender, provider_subject: randomBytes(24), verified_at: await tx.now() }, select: { id: true } });
     const room = await createRoom(tx, 'HTTP 합성 방', 'GROUP');
     await assignRoomOwner(tx, room, await joinRoom(tx, room, sender)); await joinRoom(tx, room, user);
-    const web = await sessions.issue(tx, user), native = await sessions.issueNative(tx, user, 'ios');
+    const web = await sessions.issue(tx, user), native = await sessions.issueNative(tx, user, 'ios'), senderWeb = await sessions.issue(tx, sender);
     const principal = await sessions.require(tx, web.token, web.csrf);
     const point = createECDH('prime256v1'); point.generateKeys();
     const input = { endpoint: `https://fcm.googleapis.com/http-fixture/${randomUUID()}`, keys: { p256dh: point.getPublicKey().toString('base64url'), auth: randomBytes(16).toString('base64url') } };
     const subscription = await core.register(tx, principal, config.audience, input);
-    return { sender, user, room, web, native, input, subscription };
+    return { sender, user, room, web, native, senderWeb, input, subscription };
   });
   const message = await db.transactions.write(tx => sendMessage(tx, fixture.room, fixture.sender,
     sendInput({ clientMessageId: randomUUID(), intent: 'SHARED', content: { type: 'TEXT', text: '합성 HTTP 메시지' } }), config.key));
@@ -39,6 +40,7 @@ test('real M11 HTTP composition preserves own-state DTOs, proof precedence, nati
   const base = await app.getUrl();
   const webHeaders = { cookie: `rogi_session=${fixture.web.token}`, origin: config.origin, 'x-csrf-token': fixture.web.csrf };
   const nativeHeaders = { authorization: `Bearer ${fixture.native.token}`, 'x-rogi-client': 'ios' };
+  const senderHeaders = { cookie: `rogi_session=${fixture.senderWeb.token}`, origin: config.origin, 'x-csrf-token': fixture.senderWeb.csrf };
   const verify = responseContract(app, config);
   const request = async (path, method = 'GET', body, headers = webHeaders) => {
     const response = await fetch(`${base}${path}`, {
@@ -50,7 +52,24 @@ test('real M11 HTTP composition preserves own-state DTOs, proof precedence, nati
     return response;
   };
   const prefs = '/v1/me/notification-preferences';
-  let response = await request(prefs);
+  const inbox = '/v1/me/notifications';
+  let response = await request(inbox, 'GET', undefined, nativeHeaders);
+  assert.equal(response.status, 200);
+  const initialInbox = await response.json();
+  assert.equal(initialInbox.items.length, 1);
+  assert.deepEqual(initialInbox.items[0], { id: message.messageId, type: 'MESSAGE', title: 'HTTP 합성 방', body: '새 메시지가 도착했어요', url: '/chat', roomId: fixture.room, readAt: null, createdAt: initialInbox.items[0].createdAt });
+  assert.equal(initialInbox.hasNextPage, false);
+  response = await request(inbox, 'GET', undefined, senderHeaders);
+  assert.equal(response.status, 200); assert.deepEqual((await response.json()).items, []);
+  assert.equal((await request(`${inbox}/${message.messageId}/read`, 'POST', {}, senderHeaders)).status, 404);
+  assert.equal((await request(`${inbox}/${message.messageId}/read`, 'POST', {}, nativeHeaders)).status, 204);
+  assert.equal((await request(`${inbox}/${message.messageId}/read`, 'POST', {}, nativeHeaders)).status, 204);
+  response = await request(inbox);
+  assert.ok((await response.json()).items[0].readAt);
+  assert.equal((await request(`${inbox}/${randomUUID()}/read`, 'POST', {})).status, 404);
+  assert.equal((await request(`${inbox}?limit=0`)).status, 400);
+  assert.equal((await request(`${inbox}?cursor=%%%`)).status, 400);
+  response = await request(prefs);
   assert.equal(response.status, 200); assert.deepEqual(await response.json(), { pushEnabled: false, generation: '1' });
   assert.equal((await request(prefs, 'PUT', { pushEnabled: false })).status, 400);
   assert.equal((await request(prefs, 'PUT', { pushEnabled: false, expectedGeneration: '1' }, { cookie: webHeaders.cookie, origin: config.origin })).status, 400);
@@ -73,4 +92,10 @@ test('real M11 HTTP composition preserves own-state DTOs, proof precedence, nati
     response = await request(`/v1/me/push-subscriptions/${fixture.subscription.id}`, 'DELETE', { generation: fixture.subscription.generation });
     assert.equal(response.status, 204); assert.equal(await response.text(), '');
   }
+  await db.transactions.write(async tx => {
+    await tx.prisma.room_members.updateMany({ where: { room_id: fixture.room, user_id: fixture.user }, data: { status: 'LEFT' } });
+  });
+  response = await request(inbox);
+  assert.equal(response.status, 200); assert.deepEqual((await response.json()).items, []);
+  assert.equal((await request(`${inbox}/${message.messageId}/read`, 'POST', {})).status, 404);
 });

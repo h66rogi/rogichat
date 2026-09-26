@@ -154,6 +154,7 @@
 		EF728D524C44F838C8ED561C /* AppleIdentityProblem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 775C3082B63241CC06AA3792 /* AppleIdentityProblem.swift */; };
 		F098C1253FB3C281241C33F0 /* SongRequestManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93620F35C96997DE5514136C /* SongRequestManager.swift */; };
 		F2476CF252AE7F4934E24741 /* ChannelAPIEndpoint.swift in Sources */ = {isa = PBXBuildFile; fileRef = CA153711EC69D05A87347A36 /* ChannelAPIEndpoint.swift */; };
+		F80FDF938F366F2C3F372EA5 /* NotificationInboxScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = C98F13E34B9FB2BEDC92D4AC /* NotificationInboxScreen.swift */; };
 		F8C4EF106A0569D61BEC32DF /* AppleIdentityRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85206401B7A6BA52E6E88A5E /* AppleIdentityRequest.swift */; };
 		FB3A4D896E520BC9A27C9B37 /* ShellNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B63F79FFAC0EA022C74D3C2B /* ShellNavigation.swift */; };
 		FC8A5B19CFA0EEF58E9A92AE /* SongDetailSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D6CA7F6F8E9CB1823CAB95F /* SongDetailSheet.swift */; };
@@ -285,6 +286,7 @@
 		C57DF4A2A16B4891DA9DBD1A /* ScheduleViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleViewModel.swift; sourceTree = "<group>"; };
 		C75FE2481A3D3E7C4D4986FC /* ForegroundState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ForegroundState.swift; sourceTree = "<group>"; };
 		C9467F472387C48D3C4A6ECA /* NativePushContract.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePushContract.swift; sourceTree = "<group>"; };
+		C98F13E34B9FB2BEDC92D4AC /* NotificationInboxScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationInboxScreen.swift; sourceTree = "<group>"; };
 		CA153711EC69D05A87347A36 /* ChannelAPIEndpoint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChannelAPIEndpoint.swift; sourceTree = "<group>"; };
 		CA37F81459BA4029816EAC84 /* ConversationFeatures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConversationFeatures.swift; sourceTree = "<group>"; };
 		CB9D772EA34D0E59AAAB705E /* NativePushStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePushStore.swift; sourceTree = "<group>"; };
@@ -532,6 +534,14 @@
 			path = Packages;
 			sourceTree = "<group>";
 		};
+		81E2EBC7BE0AB50F4346DF6E /* Notifications */ = {
+			isa = PBXGroup;
+			children = (
+				C98F13E34B9FB2BEDC92D4AC /* NotificationInboxScreen.swift */,
+			);
+			path = Notifications;
+			sourceTree = "<group>";
+		};
 		90ADF7C61560B3DEE36EE0AD /* Rooms */ = {
 			isa = PBXGroup;
 			children = (
@@ -724,6 +734,7 @@
 				C9BB5269127D7EB15A861BA0 /* Identity */,
 				31CE8EFC918977EF43303F16 /* Media */,
 				0D453EAF733ED39577532D8C /* MessageActions */,
+				81E2EBC7BE0AB50F4346DF6E /* Notifications */,
 				3FF2B2E38B7F03BBFB62D740 /* Rooms */,
 				0859A5556FE1CEFFBB88EEA3 /* Settings */,
 			);
@@ -933,6 +944,7 @@
 				E28C74E0B758E613C61A5CC8 /* NativeSessionDTO.swift in Sources */,
 				BDE18C41237DBCD73F911831 /* NativeSessionService.swift in Sources */,
 				1156849770FDD3D8576E0E9C /* NotificationButton.swift in Sources */,
+				F80FDF938F366F2C3F372EA5 /* NotificationInboxScreen.swift in Sources */,
 				C5513AD7B75D03674C3553EE /* NotificationSettingsScreen.swift in Sources */,
 				7513B610E642B4CE33F01316 /* NotificationState.swift in Sources */,
 				0EA470E9EEC4AE9C6C1717CF /* NotificationSystem.swift in Sources */,

@@ -127,9 +127,9 @@ KMP/TCA 등 추가 아키텍처 프레임워크 도입은 이번 기반 작업 �
 
 현재 shell은 **대화 / 채널 / 더보기 3개 top-level 목적지**를 사용한다. 채널 목적지는
 멜로밍 채널 구현을 복사해 후로기 단일 채널의 공개 콘텐츠 계약으로 수정한다.
-알림 설정은 더보기 내부에 둔다.
-알림함·badge·별도 알림 탭은 현재 제품/API 계약이 없으므로 추가 확정 전 구현 완료 범위에서
-제외한다. 멜로밍의 마켓 탭은 가져오지 않는다. 양 OS에서 같은 목적지 의미를
+알림 설정과 알림함은 더보기 내부에 둔다. 2026-09-26 사용자 지시로 서버 알림함 계약과
+Android/iOS 표시형 푸시, 웹푸시의 알림함 진입을 추가했다. 별도 알림 탭과 badge는 아직
+제품 범위에 넣지 않는다. 멜로밍의 마켓 탭은 가져오지 않는다. 양 OS에서 같은 목적지 의미를
 유지하되 Android back/탭 복원, iOS NavigationStack/dismiss 동작은 각각 구현한다.
 
 `RouteIntent → RouteCoordinator → SessionGate/현재 room 권한 확인 → AppRouter → Screen`
@@ -222,8 +222,8 @@ C09는 이번 재사용 조사에서 구체화한 **후속 알림 계약**이다
 |---|---|---|
 | C09 — native push/device/preferences | M11 PR #36 후보 `43d7bec`의 backend-m11-contract/m11.openapi를 후속 소비자 기준으로 검토. expectedGeneration은 필수 uint64 decimal이며 opaque accountGeneration과 별개. native는 실제 provider 준비 전 read/disable만 허용하고 enable/register/remove는 503 | MB03과 별도 변경으로 정확한 DTO·CAS·오류·늦은 응답을 연결. signed readContext/current membership, 토글 역전·계정 변경·OS 권한과 서버 선호 분리 검증. FCM/APNs 발송·표시/tap 실기기·SOOP/방 재인가는 source 구현이나 선호 조회만으로 완료 처리하지 않음 |
 
-알림함 이력·미확인 badge·채팅 unread는 C09 기본 범위에 자동 포함하지 않는다. 필요 시
-제품 의미와 서버 pagination/count/read-state 계약을 별도 확정한다. C09 통합 검증 미완료는 push 완료 선언/공개 출시를
+2026-09-26 추가 지시로 알림함은 현재 접근 가능한 메시지의 키셋 페이지와 항목별 읽음 영속성으로
+별도 구현한다. 미확인 badge·채팅 unread는 이 범위에 포함하지 않는다. C09 통합 검증 미완료는 push 완료 선언/공개 출시를
 차단하지만 공통 shell·설정·OS 상태 UI나 MB03/04 REST 기반 기능을 차단하지 않는다.
 
 MB03 인증 소스를 고정한 뒤 M11 소비자는 별도 변경으로 진행한다. 기준은
@@ -627,7 +627,7 @@ push하고 QA 대상 PR의 필수 검증을 통과시켜 병합한 뒤
 | D02 계정/방 bootstrap | 현재 session·profile·manifest를 합성한 명시적 DTO, 방별 capability와 참여 scope 추가 | MB01 current transaction/인가 경계 검토 |
 | D03 타임라인 정렬 | 공개 가능한 표시 순서와 opaque sync 위치를 분리 | MB01 fixture/ADR로 선택 확정; MB04 차단 항목 |
 | D04 영속 DB/라이브러리 | Room/GRDB와 기존 플랫폼 기본 도구 우선 | MB02 최신 stable·compiler 조합·migration·실제 DB 시험 |
-| D06 공통 shell/알림 범위 | 대화·설정 2개 root(iOS 설정 표기는 더보기), 제한 계정 설정 접근 유지. 알림 설정은 포함, inbox/badge는 별도 정책/계약 전 보류 | 이 통합 계획에서 초기안 채택, 사용성 시험으로 세부 조정 |
+| D06 공통 shell/알림 범위 | 대화·채널·더보기 3개 root, 제한 계정 설정 접근 유지. 알림함과 알림 설정은 더보기에서 연다. badge는 후속 계약 | 2026-09-26 사용자 지시로 알림함·웹푸시 범위 확정 |
 | D07 native push transport/binding | 원본 runtime Firebase 설정은 미승계, APNs/FCM 선택과 SDK·식별자·binding revision을 C09로 확정 | MB07 착수 전 계약/서버 준비, 구현 후 OS 수신 시험으로 완료 |
 | D05 실제 인증 외부 조건 | Apple capability/Services ID/환경별 callbacks, SOOP canonical subject/broker 검증 | MB03 시작 전 운영 담당 결과. provider 장애에 mock 성공으로 우회하지 않음 |
 

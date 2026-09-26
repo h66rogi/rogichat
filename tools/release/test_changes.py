@@ -88,8 +88,19 @@ class ComponentChangesTest(unittest.TestCase):
         self.assertFalse(backend_tests_changed(['apps/api/Dockerfile']))
         self.assertFalse(backend_tests_changed(['apps/api/Dockerfile', 'docs/release.md']))
         for extra in ('apps/api/src/main.ts', 'apps/api/test/integration/messages.test.mjs',
-                      '.dockerignore', 'apps/api/new-build-input', 'tools/release/changes.py'):
+                      '.dockerignore', 'apps/api/new-build-input'):
             self.assertTrue(backend_tests_changed(['apps/api/Dockerfile', extra]), extra)
+
+    def test_classifier_only_uses_its_own_unit_suite(self):
+        classifier = ['tools/release/changes.py', 'tools/release/test_changes.py']
+        self.assertEqual(classify(classifier), (False, False))
+        self.assertFalse(backend_tests_changed(classifier))
+        self.assertFalse(backend_image_changed(classifier))
+        self.assertFalse(web_image_changed(classifier))
+        self.assertTrue(backend_tests_changed(classifier + ['apps/api/src/main.ts']))
+        self.assertTrue(backend_tests_changed(classifier + ['.github/workflows/backend.yml']))
+        self.assertEqual(classify(classifier + ['apps/web/src/app/page.tsx']),
+                         (True, False))
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -227,10 +238,28 @@ class ComponentChangesTest(unittest.TestCase):
         self.assertEqual(classify_path('.github/workflows/new-release.yml'), (True, True))
         self.assertEqual(classify_path('new-build-system/config'), (True, True))
 
+    def test_host_only_terraform_changes_skip_product_checks(self):
+        host_files = [
+            'infrastructure/environments/qa/aws-ec2/main.tf',
+            'infrastructure/environments/qa/aws-ec2/security.tftest.hcl',
+            'infrastructure/environments/management/aws/bootstrap.sh',
+            'infrastructure/environments/management/aws/README.md',
+        ]
+        self.assertEqual(classify(host_files), (False, False))
+        self.assertFalse(web_image_changed(host_files))
+        self.assertFalse(backend_image_changed(host_files))
+        self.assertFalse(backend_tests_changed(host_files))
+        self.assertEqual(classify(host_files + ['apps/web/src/app/page.tsx']),
+                         (True, False))
+        self.assertEqual(classify_path('infrastructure/runtime/web/compose.yaml'),
+                         (True, False))
+        self.assertEqual(classify_path('infrastructure/environments/prod/aws-ec2/main.tf'),
+                         (True, True))
+
     def test_shared_and_security_inputs(self):
         for path in ('pnpm-lock.yaml', 'patches/mariadb.patch',
                      'tools/security/image_scan.py',
-                     'tools/release/changes.py', 'apps/api/package.json'):
+                     'apps/api/package.json'):
             self.assertEqual(classify_path(path), (True, True), path)
 
     def test_exact_security_guard_changes_skip_product_builds(self):
