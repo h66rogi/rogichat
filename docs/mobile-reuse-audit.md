@@ -1,5 +1,11 @@
 # 모바일 공통 기반 재사용 조사
 
+## 2026-09-26 더보기 복귀와 프로필 탐색 안정화
+
+Android는 `meloming-android` `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`의 `feature/more/.../MoreScreen.kt`와 `ProfileSettingsScreen.kt`에서 가져온 헤더·ViewModel·뒤로가기 구성을 유지했다. `feature/settings/SettingsScreen.kt`와 `ProfileViewModel.kt`에서 화면 복귀 시 같은 계정 프로필을 재조회하지 않고, 저장 뒤 요약 정보가 바뀌었을 때만 갱신하도록 보강했다. 로딩 표시가 메뉴 위치를 바꾸지 않으며 프로필 저장 중에도 뒤로가기 자리를 유지하고 미저장 확인을 적용한다.
+
+iOS는 `meloming-ios` `d133fb4`의 `Presentation/More/MoreView.swift` 및 `18a33bbf96fe52b28d0de361916e20549bdcce6b`의 `Presentation/More/MyPageView.swift`·`MoreView.swift`에서 가져온 목록·프로필 Form·탭별 NavigationStack을 유지했다. `MoreView.swift`에서 동일 계정 재진입 시 재조회/로딩 행 삽입을 중단하고, `ShellNavigation.swift`·`AppShell.swift`에서 같은 계정의 세션 갱신이 현재 탭과 하위 페이지를 초기화하지 않도록 보강했다. `ProfileScreen.swift`의 취소 동작은 뒤로가기와 미저장 확인으로 교체했다. 멜로밍의 시트식 프로필은 로기챗의 일반 페이지 탐색 요구와 맞지 않아 이 부분은 채택하지 않았다. 사용자가 제거를 요청한 로기챗 4개 서비스 타일과 전용 모델·뷰는 영구 삭제했다.
+
 ## 2026-09-26 받은 미디어 열람과 반응 표시
 
 | 판단 | 원본 commit·파일·심볼 | 대상과 적용 범위 |

@@ -34,14 +34,17 @@ fun SettingsScreen(account: AccountSummary?, appearance: Appearance, onSignIn: (
                    onNotifications: () -> Unit, onAbout: () -> Unit, onBlocks: (() -> Unit)? = null,
                    profileModel: ProfileViewModel? = null, accessSection: @Composable () -> Unit = {}, avatar: @Composable (UserProfile) -> Unit = {}) {
     val profileState = profileModel?.uiState?.collectAsStateWithLifecycle()?.value
-    LaunchedEffect(profileModel, account?.nickname, account?.avatarAssetId) { profileModel?.load() }
-    val profile = profileState?.takeIf { !it.isLoading && it.error == null }?.original
+    LaunchedEffect(profileModel, account?.id, account?.nickname, account?.avatarAssetId) {
+        if (account != null) profileModel?.loadIfNeeded(account.nickname, account.avatarAssetId)
+    }
+    val profile = account?.let { summary ->
+        profileState?.original?.takeIf { it.id == summary.id && it.avatarAssetId == summary.avatarAssetId }
+    }
     ProfileHeader(account, profile, avatar, onProfile ?: if (account == null) onSignIn else null)
-    if (profileState?.isLoading == true) LinearProgressIndicator(Modifier.fillMaxWidth())
     profileState?.error?.let { message ->
         Column(Modifier.padding(horizontal = 20.dp)) {
             Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            TextButton(onClick = { profileModel?.load() }) { Text("프로필 다시 불러오기") }
+            TextButton(onClick = { profileModel.load() }) { Text("프로필 다시 불러오기") }
         }
     }
     if (onAccount != null) SettingsSection("계정") {
@@ -71,7 +74,7 @@ private fun ProfileHeader(account: AccountSummary?, profile: UserProfile?, avata
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(profile?.nickname ?: account?.nickname ?: "로기챗에 오신 것을 환영해요", style = MaterialTheme.typography.titleMedium,
+            Text(account?.nickname ?: "로기챗에 오신 것을 환영해요", style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold)
             profile?.soopDisplayId?.let { Text("SOOP ID · $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             Text(if (account == null) "로그인하고 대화를 시작하세요" else if (account.soopConnected) "SOOP 계정 연결됨" else "SOOP 계정 연결 필요",

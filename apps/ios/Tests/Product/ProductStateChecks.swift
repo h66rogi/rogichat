@@ -74,6 +74,22 @@ struct ProductStateChecks {
         if foregroundEpoch != session.generation { foregroundNavigation.setAccess(session.access) }
         precondition(session.generation == foregroundEpoch && foregroundNavigation.page == .profile && foregroundNavigation.tab == .settings)
 
+        var settingsNavigation = ShellNavigation()
+        settingsNavigation.setAccess(.ready, accountID: "account-a")
+        settingsNavigation.selectTab(.settings)
+        for page in [AppPage.profile, .account, .report] {
+            settingsNavigation.open(page)
+            settingsNavigation.setAccess(.ready, accountID: "account-a")
+            precondition(settingsNavigation.page == page && settingsNavigation.tab == .settings)
+            settingsNavigation.pop(to: [], in: .settings)
+        }
+        settingsNavigation.open(.report)
+        settingsNavigation.setAccess(.linkRequired, accountID: "account-a")
+        precondition(settingsNavigation.page == .settings && settingsNavigation.tab == .settings)
+        settingsNavigation.open(.account)
+        settingsNavigation.setAccess(.ready, accountID: "account-b")
+        precondition(settingsNavigation.page == .rooms && settingsNavigation.tab == .talks)
+
         let firstSave = Task { try await session.saveProfile(ProfileUpdate(nickname: "First")) }
         await service.waitForSave()
         await session.revalidate()

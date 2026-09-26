@@ -6,14 +6,19 @@ enum ShellAccess: String, CaseIterable, Sendable {
 enum AppTab: String, CaseIterable, Sendable { case talks = "대화", channel = "채널", settings = "더보기" }
 enum AppPage: String, Hashable, Sendable {
     case welcome = "로기챗", link = "SOOP 계정 연결", rooms = "대화", chat = "대화방", channel = "채널", settings = "더보기"
-    case profile = "내 프로필", account = "계정 관리", report = "차단 관리"
+    case profile = "프로필 설정", account = "계정 관리", report = "차단 관리"
     case notifications = "알림 설정", licenses = "오픈소스 라이선스", appearance = "화면 모드", status = "이용 상태"
 }
 struct ShellNavigation: Sendable {
     private(set) var access: ShellAccess = .signedOut
+    private var accountID: String?
     private(set) var tab: AppTab = .talks
     private(set) var talkPath: [AppPage] = []
     private(set) var settingsPath: [AppPage] = []
+    init(access: ShellAccess = .signedOut, accountID: String? = nil) {
+        self.access = access
+        self.accountID = accountID
+    }
     var canManageAccount: Bool { access == .linkRequired || access == .ready }
     func root(for value: AppTab) -> AppPage {
         if value == .settings { return .settings }
@@ -29,7 +34,19 @@ struct ShellNavigation: Sendable {
         switch value { case .talks: talkPath; case .channel: []; case .settings: settingsPath }
     }
     var page: AppPage { path(for: tab).last ?? root(for: tab) }
-    mutating func setAccess(_ value: ShellAccess) { self = ShellNavigation(access: value) }
+    mutating func setAccess(_ value: ShellAccess, accountID: String? = nil) {
+        if access == value && self.accountID == accountID { return }
+        if let accountID, self.accountID == accountID, canManageAccount,
+           value == .ready || value == .linkRequired {
+            access = value
+            if value != .ready {
+                talkPath = []
+                if settingsPath.contains(.report) { settingsPath = [] }
+            }
+            return
+        }
+        self = ShellNavigation(access: value, accountID: accountID)
+    }
     mutating func selectTab(_ value: AppTab) { tab = value }
     mutating func open(_ value: AppPage) {
         if value == .settings { tab = .settings; return }

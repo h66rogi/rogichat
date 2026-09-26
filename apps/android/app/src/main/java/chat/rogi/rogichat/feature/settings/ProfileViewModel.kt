@@ -64,6 +64,13 @@ class ProfileViewModel(private val repository: ProfileRepository, private val ac
     private var revision = 0L
     private var job: Job? = null
     init { if (autoLoad) load() }
+    fun loadIfNeeded(nickname: String, avatarAssetId: String?) {
+        val current = mutable.value
+        if (current.error != null) return
+        if (current.original?.let { it.nickname == nickname && it.avatarAssetId == avatarAssetId } == true) return
+        if (current.isLoading && job?.isActive == true) return
+        load()
+    }
     fun load() {
         if (mutable.value.isSaving) return
         job?.cancel()

@@ -19,9 +19,9 @@ struct MoreView: View {
     var avatar: (AccountProfile) -> AnyView? = { _ in nil }
     @State private var showLogoutAlert = false
     @State private var profile: AccountProfile?
-    @State private var loadingProfile = false
     @State private var profileError: String?
     @State private var profileRetry = 0
+    @State private var loadedProfileKey: [String]?
     @State private var signingOut = false
     @State private var signOutError: String?
     @State private var versionTapCount = 0
@@ -37,6 +37,10 @@ struct MoreView: View {
 
     private var canOpenAccount: Bool {
         accessSession?.access == .ready || accessSession?.access == .linkRequired
+    }
+
+    private var profileLoadKey: [String] {
+        [account?.id ?? "", account?.displayName ?? "", account?.avatarAssetID ?? "", String(profileRetry)]
     }
 
     var body: some View {
@@ -94,20 +98,27 @@ struct MoreView: View {
                         }
                 }
             }
-            .task(id: [account?.id ?? "", account?.displayName ?? "", account?.avatarAssetID ?? "", String(profileRetry)]) {
-                if profile?.id != account?.id { profile = nil }
+            .task(id: profileLoadKey) {
+                let key = profileLoadKey
+                guard let account else {
+                    profile = nil
+                    profileError = nil
+                    loadedProfileKey = nil
+                    return
+                }
+                guard loadedProfileKey != key else { return }
+                if profile?.id != account.id { profile = nil }
                 profileError = nil
-                guard let account, let onLoadProfile else { loadingProfile = false; return }
-                loadingProfile = true
+                guard let onLoadProfile else { return }
                 do {
                     let value = try await onLoadProfile()
                     try Task.checkCancellation()
                     guard value.id == account.id else { throw ProductError.sessionChanged }
                     profile = value
-                    loadingProfile = false
+                    loadedProfileKey = key
                 } catch {
                     if !Task.isCancelled {
-                        loadingProfile = false
+                        loadedProfileKey = key
                         profileError = (error as? ProductError)?.errorDescription ?? "프로필을 불러오지 못했어요. 다시 시도해 주세요."
                     }
                 }
@@ -127,7 +138,6 @@ struct MoreView: View {
                 } else {
                     signedInProfileRow(account: account)
                 }
-                if loadingProfile { ProgressView("프로필을 불러오는 중") }
                 if let profileError {
                     Button("프로필 다시 불러오기") { profileRetry += 1 }
                     Text(profileError).font(.footnote).foregroundStyle(.secondary)
@@ -166,15 +176,6 @@ struct MoreView: View {
                 }
                 .buttonStyle(.plain)
             }
-        }
-
-        Section("로기챗 서비스") {
-            ServiceGridSection(
-                gridServices: gridServices(homeURL: rulesURL.deletingLastPathComponent()),
-                onServiceTap: handleServiceTap
-            )
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-            .listRowBackground(Color(.systemBackground))
         }
 
         // Account Section (only for logged-in users)
@@ -249,7 +250,8 @@ struct MoreView: View {
     private func signedInProfileRow(account: AccountSummary) -> some View {
         HStack(spacing: 16) {
             Group {
-                if let profile, profile.id == account.id, (profile.avatarAssetID != nil || profile.providerAvatarURL != nil), let photo = avatar(profile) { photo }
+                if let profile, profile.id == account.id, profile.avatarAssetID == account.avatarAssetID,
+                   (profile.avatarAssetID != nil || profile.providerAvatarURL != nil), let photo = avatar(profile) { photo }
                 else {
                     Circle()
                         .fill(Color.accentColor.opacity(0.2))
@@ -264,7 +266,7 @@ struct MoreView: View {
             .clipShape(Circle())
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(profile?.id == account.id ? profile?.displayName ?? account.displayName : account.displayName)
+                Text(account.displayName)
                     .font(.headline)
                 Text(account.soopConnected ? "SOOP 계정 연결됨" : "SOOP 계정 연결 필요")
                     .font(.subheadline)
@@ -280,14 +282,6 @@ struct MoreView: View {
         }
         .padding(.vertical, 2)
         .contentShape(Rectangle())
-    }
-
-    private func handleServiceTap(_ service: ServiceItem) {
-        switch service.action {
-        case .native(let destination): onOpen(destination)
-        case .talks: onSignIn()
-        case .external(let url): openURL(url)
-        }
     }
 
     // Copied from meloming-ios d133fb4 MoreView.handleVersionTap().
