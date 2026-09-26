@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/shared/lib/cn';
+import Link from 'next/link';
 import type { ReactNode } from 'react';
 
 import { AccountDeletionSection } from './sections/AccountDeletionSection';
@@ -47,7 +48,7 @@ export function SettingsView({
   return (
     <div className={cn('mx-auto flex w-full max-w-[40rem] flex-col gap-6 px-4 py-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]', className)} data-testid="settings-view">
       <header className="flex flex-col gap-1">
-        <h1 className="text-[24px] font-semibold text-ink">내 설정</h1>
+        <div className="flex items-center justify-between gap-3"><h1 className="text-[24px] font-semibold text-ink">내 설정</h1><Link href="/notifications" className="text-sm font-medium underline">알림함</Link></div>
         <p className="text-[14px] text-muted">프로필, SOOP 연결, 알림, 채팅방 참여와 계정을 관리합니다.</p>
       </header>
 

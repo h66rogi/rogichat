@@ -4,6 +4,20 @@
 
 iOS `meloming-ios` `18a33bbf96fe52b28d0de361916e20549bdcce6b`의 `Presentation/More/MyPageView.swift`에서 탭별 `NavigationStack`과 시스템 탐색 동작을 확인했다. 로기챗 `apps/ios/Sources/Features/Settings/ProfileScreen.swift`는 시트 대신 기존 `AppShell.swift`의 `NavigationStack` 하위 페이지로 유지하고, 별도 뒤로가기 버튼 및 뒤로가기 숨김을 제거했다. 시스템 뒤로가기 버튼과 왼쪽 가장자리 스와이프가 같은 경로로 더보기 화면에 복귀한다. 미저장 변경은 일반 편집 페이지처럼 뒤로가면 폐기된다. 멜로밍의 프로필 시트와 닫기 버튼은 페이지 탐색 요구에 맞지 않아 적용하지 않았다.
 
+## 2026-09-26 통합 알림함과 표시형 푸시
+
+원본 Android `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`, iOS `18a33bbf96fe52b28d0de361916e20549bdcce6b`를 읽기 전용으로 확인했다. 추가 외부 자산, 운영 식별자, 인증 정보는 가져오지 않았다.
+
+| 원본 파일·구성 | 로기챗 대상 | 재사용과 계약 변경 |
+|---|---|---|
+| Android `feature/notifications/NotificationsScreen.kt`, `NotificationsUiState.kt`, `NotificationsViewModel.kt` | `apps/android/app/src/main/java/chat/rogi/rogichat/feature/notifications/NotificationInboxScreen.kt` | 목록/빈 상태/오류/새로고침/다음 페이지/읽음 상태 구조를 수정 재사용. 멜로밍 알림 종류·원격 URL·Repository 대신 로기챗의 계정 범위 API와 고정 대화 진입 사용. |
+| Android `core/network/.../NotificationApi.kt`, `core/data/.../NotificationRepositoryImpl.kt` | `core/network/ApiClient.kt`, `core/session/NativeSessionCoordinator.kt` | 알림 목록과 읽음 API 연결 구조를 수정 재사용. 로기챗 Native 세션·scope fence·DTO 검증을 적용. |
+| Android `app/.../push/MelomingFirebaseMessagingService.kt`, `NotificationRouter.kt` | `core/push/FirebasePushProvider.kt`, `MainActivity.kt`, `AppEntry.kt` | FCM 수신→기기 알림 표시→탭 시 알림함 열기와 cold/warm intent 전달을 수정 재사용. payload URL 라우팅과 원본 식별자는 제외하고 고정된 로기챗 알림함만 연다. |
+| iOS `Meloming/Presentation/Notifications/NotificationsView.swift`, `NotificationsViewModel.swift`, `Domain/Models/Notification.swift` | `apps/ios/Sources/Features/Notifications/NotificationInboxScreen.swift` | SwiftUI List, 상대 시간, 읽음 표시, 페이징, 새로고침, 오류/빈 상태를 수정 재사용. 원본 DTO·알림 종류는 로기챗 메시지 알림 계약으로 교체. |
+| iOS `Meloming/Core/Push/PushNotificationManager.swift` | `Core/Push/NativePushApplication.swift`, `ProductRootView.swift`, `Core/Navigation/ShellNavigation.swift` | 푸시 탭 후 화면 준비까지 진입 의도를 보관하는 흐름을 수정 재사용. 계정별 세션 수명과 고정 알림함 경로를 적용하고 원본 전역 URL 탐색은 제외. |
+
+서버의 알림함 조회·읽음 영속성, Web Push 표시와 알림함 진입은 멜로밍 모바일 코드에 대응하는 서버 계약이 없어 로기챗 기존 메시지 ACL 및 Web Push worker 위에 새로 구현했다. 알림함에는 메시지 본문·작성자·비공개 URL을 저장하거나 푸시로 보내지 않는다. 서버는 현재 접근 가능한 메시지만 목록과 읽음 변경에 허용한다.
+
 ## 2026-09-26 더보기 복귀와 프로필 탐색 안정화
 
 Android는 `meloming-android` `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`의 `feature/more/.../MoreScreen.kt`와 `ProfileSettingsScreen.kt`에서 가져온 헤더·ViewModel·뒤로가기 구성을 유지했다. `feature/settings/SettingsScreen.kt`와 `ProfileViewModel.kt`에서 화면 복귀 시 같은 계정 프로필을 재조회하지 않고, 저장 뒤 요약 정보가 바뀌었을 때만 갱신하도록 보강했다. 로딩 표시가 메뉴 위치를 바꾸지 않으며 프로필 저장 중에도 뒤로가기 자리를 유지하고 미저장 확인을 적용한다.

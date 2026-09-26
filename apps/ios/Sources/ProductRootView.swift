@@ -67,6 +67,11 @@ struct ProductRootView: View {
         }
         .task {
             session.scopeInvalidated = { realtime.disconnect() }
+            NativePushWakeOwner.shared.bindInbox {
+                guard session.access == .ready else { return false }
+                navigation.showInbox()
+                return true
+            }
             NativePushWakeOwner.shared.wake = {
                 await session.revalidate()
                 guard session.access == .ready, session.account != nil else { return false }
@@ -113,7 +118,10 @@ struct ProductRootView: View {
         }
         .onChange(of: session.roomsScope?.clientScope) { _, value in if value == nil { roomsFeatures.clear() } }
         .onChange(of: session.generation) { _, _ in navigation.setAccess(session.access, accountID: session.account?.id) }
-        .onChange(of: session.access, initial: true) { _, access in navigation.setAccess(access, accountID: session.account?.id) }
+        .onChange(of: session.access, initial: true) { _, access in
+            navigation.setAccess(access, accountID: session.account?.id)
+            NativePushWakeOwner.shared.drainInbox()
+        }
     }
     private func connectRealtime() async {
         guard scenePhase == .active, session.access == .ready else { realtime.disconnect(); return }
@@ -145,6 +153,13 @@ struct ProductRootView: View {
                 }).id(session.account?.id)
         case .appearance: AppearanceScreen()
         case .notifications:
+            if session.access == .ready {
+                NotificationInboxScreen(session: session, scope: session.generation,
+                    onOpenTalks: { navigation.selectTab(.talks) }, onOpenSettings: { navigation.open(.notificationSettings) })
+            } else {
+                ContentUnavailableView("로그인이 필요합니다", systemImage: "bell", description: Text("알림을 확인하려면 로그인해 주세요."))
+            }
+        case .notificationSettings:
             let scope = session.generation
             NotificationSettingsScreen(accountScope: session.account == nil ? nil : scope, session: session,
                                        fetchPreferences: { try await session.loadNotificationPreferences(scope: scope) },

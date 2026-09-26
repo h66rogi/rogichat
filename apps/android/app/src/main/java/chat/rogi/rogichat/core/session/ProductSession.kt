@@ -77,6 +77,7 @@ class ProductServices(
     val auth: NativeAuthActions? = null,
     val access: AccountAccessActions? = null,
     val notificationPreferences: NotificationPreferencesRepository? = null,
+    val notificationInbox: chat.rogi.rogichat.feature.notifications.NotificationInboxRepository? = null,
     val deletion: chat.rogi.rogichat.core.deletion.AccountDeletionActions? = null,
     val conversations: chat.rogi.rogichat.core.conversation.ConversationRepository? = null,
     val push: NativePushCoordinator? = null,

@@ -1219,6 +1219,7 @@ model users {
   approved_stickers     sticker_catalog[] @relation("sticker_approver")
   sticker_audit         sticker_audit_events[]
   notification_preferences notification_preferences?
+  notification_reads    notification_reads[]
   push_subscriptions    push_subscriptions[]
   channelSchedules      ChannelSchedule[]
   songLikes             UserSongLike[]
@@ -1411,6 +1412,7 @@ model room_members {
   @@unique([room_id, id, active_period_id])
   @@unique([room_id, user_id])
   @@unique([room_id, id])
+  @@index([user_id, status, room_id])
 }
 
 // Real credentials, never a fabricated provider identity. Login IDs are private.
@@ -1568,11 +1570,13 @@ model messages {
   attachments           message_attachments[]
   sticker               message_stickers?
   push_deliveries       push_deliveries[]
+  notification_reads    notification_reads[]
   @@unique([room_id, id])
   @@unique([room_id, stream_id, id])
   @@index([room_id, stream_id, created_order])
   @@index([room_id, created_order])
   @@index([content_owner_user_id, deleted_at])
+  @@index([created_at, id])
 }
 
 model message_publications {
@@ -1831,6 +1835,19 @@ model notification_preferences {
   generation   BigInt @default(1) @db.UnsignedBigInt
   updated_at   DateTime @default(now()) @updatedAt @db.DateTime(3)
   user         users @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Restrict)
+}
+
+// A notification is projected from a currently readable message. Only its
+// per-account read receipt persists; deleted/hidden content never lives here.
+model notification_reads {
+  user_id    String   @db.Char(36)
+  room_id    String   @db.Char(36)
+  message_id String   @db.Char(36)
+  read_at    DateTime @default(now()) @db.DateTime(3)
+  user       users    @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  message    messages @relation(fields: [room_id, message_id], references: [room_id, id], onDelete: Restrict, onUpdate: Restrict)
+  @@id([user_id, message_id])
+  @@index([room_id, message_id])
 }
 
 enum PushProvider {

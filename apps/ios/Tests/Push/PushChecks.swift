@@ -52,6 +52,9 @@ import Foundation
         }
         _ = try NativePushGeneration("18446744073709551615")
         precondition(NativePushWake.accepts(["aps": ["content-available": 1], "type": "sync_required", "version": 1]))
+        let visibleAlert: [String: Any] = ["aps": ["content-available": 1, "sound": "default", "alert": ["title": "로기챗", "body": "확인할 내용이 있는지 로기챗에서 확인해 주세요."]], "type": "sync_required", "version": 1]
+        precondition(NativePushWake.accepts(visibleAlert))
+        precondition(!NativePushWake.accepts(["aps": ["content-available": 1, "sound": "default", "alert": ["title": "다른 앱", "body": "확인할 내용이 있는지 로기챗에서 확인해 주세요."]], "type": "sync_required", "version": 1]))
         precondition(!NativePushWake.accepts(["aps": ["content-available": 1], "type": "sync_required", "version": "1"]))
         precondition(!NativePushWake.accepts(["aps": ["content-available": 1], "type": "sync_required", "version": true]))
         precondition(!NativePushWake.accepts(["aps": ["content-available": 1], "type": "sync_required", "version": 1, "url": "https://qa.rogi.chat/rooms/one"]))

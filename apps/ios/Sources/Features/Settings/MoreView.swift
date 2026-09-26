@@ -54,7 +54,7 @@ struct MoreView: View {
             .safeAreaInset(edge: .top) {
                 TopLevelTabHeader(title: "더보기") {
                     NotificationButton { onOpen(.notifications) }
-                        .accessibilityLabel("알림 설정")
+                        .accessibilityLabel("알림")
                 }
             }
             .alert("로그아웃", isPresented: $showLogoutAlert) {
@@ -165,6 +165,7 @@ struct MoreView: View {
         // Account Section (only for logged-in users)
         if account != nil, canOpenAccount {
             Section("설정") {
+                Button { onOpen(.notificationSettings) } label: { Label("알림 설정", systemImage: "bell.badge") }
                 if capabilities.canEditProfile {
                     Button { onOpen(.profile) } label: {
                         Label("프로필 설정", systemImage: "person.circle")

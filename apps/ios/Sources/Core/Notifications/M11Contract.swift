@@ -94,3 +94,7 @@ protocol AccountNotificationsServing: Sendable {
     func loadNotificationPreferences(scope: UUID) async throws -> AccountNotificationPreferences
     func disableAccountNotifications(expected: PreferenceGeneration, scope: UUID) async throws -> AccountNotificationPreferences
 }
+protocol NotificationInboxServing: Sendable {
+    func notificationInbox(cursor: String?, scope: UUID) async throws -> NotificationInboxPage
+    func markNotificationRead(id: String, scope: UUID) async throws
+}

@@ -75,19 +75,20 @@ test('provider error classification never invalidates on generic 404/configurati
   assert.equal(classifyNativePush('FCM', 404, b({ error: { details: [{ '@type': 'type.googleapis.com/google.firebase.fcm.v1.FcmError', errorCode: 'UNREGISTERED' }] } })).kind, 'gone');
   assert.equal(classifyNativePush('FCM', 200, b({ name: 'projects/isolated-project/messages/receipt' })).kind, 'accepted');
 });
-test('real ES256 APNs signature and wake-only HTTP2 request with fixed topic/environment', async () => {
+test('real ES256 APNs signature and visible generic alert with fixed topic/environment', async () => {
   const c = config(), transport = new NativePushTransport(c), token = input().token;
   let call;
   transport.post = async (...args) => { call = args; return { status: 200, body: Buffer.alloc(0) }; };
   const prepared = await transport.prepare('APNS', token); assert.equal((await prepared.send()).kind, 'accepted');
   assert.equal(call[0], 'api.sandbox.push.apple.com'); assert.equal(call[1], `/3/device/${token}`); assert.equal(call[4], true);
-  assert.equal(call[2]['apns-push-type'], 'background'); assert.equal(call[2]['apns-priority'], '5'); assert.equal(call[2]['apns-expiration'], '0');
-  assert.deepEqual(JSON.parse(call[3]), { aps: { 'content-available': 1 }, type: 'sync_required', version: 1 });
+  assert.equal(call[2]['apns-push-type'], 'alert'); assert.equal(call[2]['apns-priority'], '10');
+  assert.ok(Number(call[2]['apns-expiration']) > Date.now() / 1000);
+  assert.deepEqual(JSON.parse(call[3]), { aps: { alert: { title: '로기챗', body: '확인할 내용이 있는지 로기챗에서 확인해 주세요.' }, sound: 'default', 'content-available': 1 }, type: 'sync_required', version: 1 });
   const jwt = call[2].authorization.slice(7).split('.');
   assert.ok(verify('sha256', Buffer.from(jwt.slice(0, 2).join('.')), { key: ec.publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(jwt[2], 'base64url')));
   assert.equal(JSON.parse(Buffer.from(jwt[0], 'base64url')).alg, 'ES256');
 });
-test('FCM uses actual service-account JWT OAuth and data-only zero-TTL request, caches bounded token', async () => {
+test('FCM uses actual service-account JWT OAuth and high-priority data-only request, caches bounded token', async () => {
   const c = config(), transport = new NativePushTransport(c), calls = [];
   transport.post = async (...args) => {
     calls.push(args);
@@ -101,7 +102,7 @@ test('FCM uses actual service-account JWT OAuth and data-only zero-TTL request, 
   assert.equal(JSON.parse(Buffer.from(jwt[1], 'base64url')).aud, 'https://oauth2.googleapis.com/token');
   const message = JSON.parse(calls[1][3]).message;
   assert.deepEqual(message.data, { type: 'sync_required', version: '1' }); assert.equal(message.notification, undefined);
-  assert.equal(message.android.ttl, '0s'); assert.equal(message.android.restricted_package_name, 'chat.example.tests');
+  assert.equal(message.android.ttl, '60s'); assert.equal(message.android.priority, 'high'); assert.equal(message.android.restricted_package_name, 'chat.example.tests');
   transport.onModuleDestroy(); assert.equal(transport.available('FCM'), false); assert.equal(await transport.prepare('FCM', 'A'.repeat(32)), null);
 });
 test('native fixed provider DNS rejects private addresses and unknown destinations without network', async () => {

@@ -31,7 +31,7 @@ import com.adamglin.phosphoricons.regular.Code
 @Composable
 fun SettingsScreen(account: AccountSummary?, appearance: Appearance, onSignIn: () -> Unit,
                    onProfile: (() -> Unit)?, onAccount: (() -> Unit)?, onAppearance: () -> Unit,
-                   onNotifications: () -> Unit, onAbout: () -> Unit, onBlocks: (() -> Unit)? = null,
+                   onNotifications: () -> Unit, onNotificationInbox: () -> Unit = {}, onAbout: () -> Unit, onBlocks: (() -> Unit)? = null,
                    profileModel: ProfileViewModel? = null, accessSection: @Composable () -> Unit = {}, avatar: @Composable (UserProfile) -> Unit = {}) {
     val profileState = profileModel?.uiState?.collectAsStateWithLifecycle()?.value
     LaunchedEffect(profileModel, account?.id, account?.nickname, account?.avatarAssetId) {
@@ -54,6 +54,7 @@ fun SettingsScreen(account: AccountSummary?, appearance: Appearance, onSignIn: (
     accessSection()
     SettingsSection("앱 설정") {
         SettingsRow("화면 모드", appearance.title, PhosphorIcons.Regular.Moon, onClick = onAppearance)
+        SettingsRow("알림함", "새 소식과 읽음 상태", PhosphorIcons.Regular.Bell, onClick = onNotificationInbox)
         SettingsRow("알림", "기기의 알림 설정", PhosphorIcons.Regular.Bell, onClick = onNotifications)
     }
     SettingsSection("앱 정보") {

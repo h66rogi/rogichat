@@ -109,9 +109,10 @@ export class NativePushTransport {
       return { send: async () => {
         try {
           const response = await this.post(config.sandbox ? 'api.sandbox.push.apple.com' : 'api.push.apple.com', `/3/device/${token}`,
-            { authorization: `bearer ${jwt}`, 'apns-topic': config.topic, 'apns-push-type': 'background', 'apns-priority': '5',
-              'apns-expiration': '0', 'apns-collapse-id': 'rogi-sync', 'content-type': 'application/json' },
-            json({ aps: { 'content-available': 1 }, type: 'sync_required', version: 1 }), true);
+            { authorization: `bearer ${jwt}`, 'apns-topic': config.topic, 'apns-push-type': 'alert', 'apns-priority': '10',
+              'apns-expiration': String(Math.floor(Date.now() / 1000) + 60), 'apns-collapse-id': 'rogi-sync', 'content-type': 'application/json' },
+            json({ aps: { alert: { title: '로기챗', body: '확인할 내용이 있는지 로기챗에서 확인해 주세요.' },
+              sound: 'default', 'content-available': 1 }, type: 'sync_required', version: 1 }), true);
           return classifyNativePush('APNS', response.status, response.body);
         } catch { return { kind: 'retry' }; }
       } };
@@ -121,7 +122,7 @@ export class NativePushTransport {
       try {
         const response = await this.post('fcm.googleapis.com', `/v1/projects/${config.projectId}/messages:send`,
           { authorization: `Bearer ${accessToken}`, 'content-type': 'application/json' }, json({ message: { token,
-            data: { type: 'sync_required', version: '1' }, android: { priority: 'normal', ttl: '0s', collapse_key: 'rogi-sync', restricted_package_name: config.applicationId } } }));
+            data: { type: 'sync_required', version: '1' }, android: { priority: 'high', ttl: '60s', collapse_key: 'rogi-sync', restricted_package_name: config.applicationId } } }));
         if (response.status === 401) this.fcmToken = undefined;
         return classifyNativePush('FCM', response.status, response.body);
       } catch { return { kind: 'retry' }; }

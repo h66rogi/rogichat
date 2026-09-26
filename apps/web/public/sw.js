@@ -145,6 +145,9 @@ async function open() {
   const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   const existing = clients.find((client) => client.url.startsWith(`${self.location.origin}/`));
   if (existing) {
+    if (typeof existing.navigate === 'function') {
+      try { await existing.navigate('/notifications'); } catch { /* Keep the existing window usable. */ }
+    }
     await existing.focus();
     const current = bindings.get(existing.id);
     if (current !== undefined) {
@@ -152,5 +155,5 @@ async function open() {
     }
     return;
   }
-  await self.clients.openWindow('/');
+  await self.clients.openWindow('/notifications');
 }
