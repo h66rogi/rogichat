@@ -1,15 +1,20 @@
 # QA release throughput
 
-The QA release jobs classify changed tracked paths before building images. Changes
+The QA release jobs classify validation and image inputs separately. Changes
 under `apps/web` publish the web image; changes under `apps/api` publish the API,
-migration and decoder images. Shared build, workflow, security and operations
-inputs publish both, except the web verification, publication and export workflows,
-which affect only the web pipeline. Unknown paths also publish both. Mobile and
-documentation
-changes publish neither. `apps/api/package.json` is shared because the web
-Dockerfile copies it. The fixed web release helper, its tests and operator guide
-affect only the web pipeline; changes to other operations tools remain shared.
-An unavailable Git comparison publishes both.
+migration and decoder images. Shared build and unknown paths publish both.
+Mobile and documentation changes publish neither. `apps/api/package.json` is
+shared because the web Dockerfile copies it. Reviewed CI selectors, test
+workflows and delivery helpers still run their component validation jobs but do
+not republish product images that cannot contain those files. A change to either
+image publication workflow or to an unreviewed path still rebuilds the affected
+image. An unavailable Git comparison rebuilds both.
+
+Backend publication compares the QA head with its last verified publication.
+Web publication now does the same using the exact successful push run, attempt,
+publication job and proof artifact. If the previous image publication failed,
+the next QA push includes that missing change even when its own diff contains
+only CI files. A missing, expired or uncertain proof forces a web build.
 
 The five required source checks also run for GitHub merge groups targeting QA or
 production. Component and mobile change detection compares the merge group's

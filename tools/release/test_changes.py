@@ -7,7 +7,8 @@ import tempfile
 from pathlib import Path
 
 import changes
-from changes import backend_image_changed, backend_tests_changed, changed_paths, classify, classify_path, pull_request_base
+from changes import (backend_image_changed, backend_tests_changed, changed_paths,
+                     classify, classify_path, pull_request_base, web_image_changed)
 
 
 class ComponentChangesTest(unittest.TestCase):
@@ -45,7 +46,7 @@ class ComponentChangesTest(unittest.TestCase):
         self.assertFalse(backend_image_changed(tests + ['docs/test-plan.md']))
         for release_input in ('apps/api/src/main.ts', 'apps/api/prisma/schema.prisma',
                               'apps/api/Dockerfile', '.github/workflows/backend-publish.yml',
-                              'tools/release/changes.py', 'new-build-system/config',
+                              'new-build-system/config',
                               'apps/api/test/migration-image.mjs',
                               'apps/api/test/decoder/video.test.mjs',
                               'apps/api/test/unit/media-image-decoder.test.mjs',
@@ -56,6 +57,27 @@ class ComponentChangesTest(unittest.TestCase):
                               'tools/operations/backend_archive.py',
                               'tools/operations/new_release_helper.py'):
             self.assertTrue(backend_image_changed(tests + [release_input]), release_input)
+
+    def test_ci_controls_validate_without_rebuilding_unchanged_products(self):
+        controls = ['.github/workflows/backend.yml', '.github/workflows/web.yml',
+                    'tools/release/changes.py', 'tools/release/test_changes.py',
+                    'docs/release-throughput.md']
+        self.assertEqual(classify(controls), (True, True))
+        self.assertTrue(backend_tests_changed(controls))
+        self.assertFalse(backend_image_changed(controls))
+        self.assertFalse(web_image_changed(controls))
+        for changed in ('apps/api/src/main.ts', 'apps/api/Dockerfile',
+                        '.github/workflows/backend-publish.yml',
+                        'tools/release/new_helper.py'):
+            self.assertTrue(backend_image_changed(controls + [changed]), changed)
+        for changed in ('apps/web/src/app/page.tsx', 'apps/web/Dockerfile',
+                        '.github/workflows/web-publish.yml',
+                        'tools/web/new_runtime_helper.mjs', 'new-build-system/config'):
+            self.assertTrue(web_image_changed(controls + [changed]), changed)
+        self.assertFalse(web_image_changed(['tools/operations/web_release.py',
+                                            'tools/operations/test_web_release.py']))
+        self.assertFalse(backend_image_changed(['tools/release/web_publication_base.py']))
+        self.assertTrue(web_image_changed(['tools/release/web_publication_base.py']))
 
     def test_dockerfile_only_requires_image_check_without_source_tests(self):
         self.assertEqual(classify(['apps/api/Dockerfile']), (False, True))
@@ -91,7 +113,14 @@ class ComponentChangesTest(unittest.TestCase):
                 capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertEqual(output.read_text(),
-                             'web=false\nbackend=true\nbackend_image=true\nbackend_tests=false\n')
+                             'web=false\nbackend=true\nweb_image=false\nbackend_image=true\nbackend_tests=false\n')
+            uncertain = subprocess.run(
+                [sys.executable, str(Path(changes.__file__).resolve()),
+                 '--base', '0' * 40, '--head', git('rev-parse', 'HEAD')], cwd=root,
+                env=dict(os.environ, GITHUB_EVENT_NAME='push'), capture_output=True)
+            self.assertEqual(uncertain.returncode, 0, uncertain.stderr.decode())
+            self.assertTrue(json.loads(uncertain.stdout)['web_image'])
+            self.assertTrue(json.loads(uncertain.stdout)['backend_image'])
 
     def test_test_only_boundary_writes_backend_without_image_output(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -124,7 +153,7 @@ class ComponentChangesTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertEqual(json.loads(result.stdout)['backend_image'], False)
             self.assertEqual(output.read_text(),
-                             'web=false\nbackend=true\nbackend_image=false\nbackend_tests=true\n')
+                             'web=false\nbackend=true\nweb_image=false\nbackend_image=false\nbackend_tests=true\n')
 
     def test_pull_request_uses_merge_commit_parent_when_event_base_is_stale(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -174,7 +203,7 @@ class ComponentChangesTest(unittest.TestCase):
                              GITHUB_OUTPUT=str(output)), capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr.decode())
                 self.assertEqual(output.read_text(),
-                                 'web=false\nbackend=true\nbackend_image=true\nbackend_tests=true\n')
+                                 'web=false\nbackend=true\nweb_image=false\nbackend_image=true\nbackend_tests=true\n')
             finally:
                 os.chdir(previous)
 
@@ -203,6 +232,7 @@ class ComponentChangesTest(unittest.TestCase):
     def test_exact_security_guard_changes_skip_product_builds(self):
         self.assertEqual(classify(list(changes.SECURITY_ONLY_FILES)), (False, False))
         self.assertFalse(backend_image_changed(list(changes.SECURITY_ONLY_FILES)))
+        self.assertFalse(web_image_changed(list(changes.SECURITY_ONLY_FILES)))
         for path in ('tools/security/image_scan.py', 'tools/security/install.py',
                      'tools/security/new_guard.py', '.gitleaks.toml'):
             self.assertEqual(classify_path(path), (True, True), path)
