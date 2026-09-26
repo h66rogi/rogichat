@@ -7,7 +7,6 @@ struct ProfileScreen: View {
     @State private var draft: ProfileDraft
     @State private var saving = false
     @State private var errorMessage: String?
-    @State private var confirmingDiscard = false
     @State private var saveTask: Task<Void, Never>?
     @FocusState private var editingName: Bool
     let onSave: (ProfileUpdate) async throws -> Void
@@ -61,26 +60,12 @@ struct ProfileScreen: View {
         .disabled(saving)
         .scrollDismissesKeyboard(.interactively)
         .navigationTitle("프로필 설정").navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden()
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Button {
-                    if draft.changed { confirmingDiscard = true } else { dismiss() }
-                } label: {
-                    Label("더보기", systemImage: "chevron.left")
-                }
-                .accessibilityLabel("뒤로가기")
-                .disabled(saving)
-            }
             ToolbarItem(placement: .confirmationAction) {
                 Button(action: save) {
                     if saving { ProgressView().accessibilityLabel("저장하는 중") } else { Text("저장").fontWeight(.semibold) }
                 }.disabled(!draft.canSave || saving)
             }
-        }
-        .confirmationDialog("변경한 내용을 저장하지 않고 나갈까요?", isPresented: $confirmingDiscard, titleVisibility: .visible) {
-            Button("변경 사항 버리기", role: .destructive) { dismiss() }
-            Button("계속 수정하기", role: .cancel) {}
         }
         .onDisappear { saveTask?.cancel() }
     }

@@ -204,7 +204,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("settings") {
                 val profileModel: ProfileViewModel? = if (privateAccount != null && services.profiles != null)
                     viewModel { ProfileViewModel(services.profiles, privateAccount.id, autoLoad = false) } else null
-                ProductPage("설정") {
+                ProductPage("더보기", tabHeader = true) {
                     SettingsScreen(privateAccount, appearance, onSignIn = { open("talks") },
                         onProfile = if (privateAccount != null && services.profiles != null) ({ open("profile") }) else null,
                         onAccount = if (privateAccount != null) ({ open("account") }) else null,
@@ -312,10 +312,13 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
 @Composable
 private fun ProductPage(title: String, onBack: (() -> Unit)? = null, scroll: Boolean = true,
                         showTopBar: Boolean = true,
+                        tabHeader: Boolean = false,
                         actions: @Composable RowScope.() -> Unit = {},
                         content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxSize()) {
-        if (showTopBar) AppTopBar(title, onBack, actions)
+        if (showTopBar) {
+            if (tabHeader) AppTabHeader(title, actions = actions) else AppTopBar(title, onBack, actions)
+        }
         Column(Modifier.weight(1f).fillMaxWidth()
             .then(if (scroll) Modifier.verticalScroll(rememberScrollState()) else Modifier), content = content)
     }

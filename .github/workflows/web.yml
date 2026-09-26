@@ -133,6 +133,19 @@ jobs:
         with:
           node-version-file: .node-version
           package-manager-cache: false
+      - name: Restore incremental web cache for container build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        continue-on-error: true
+        with:
+          path: apps/web/.next/cache
+          key: web-next-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/web/next.config.ts') }}-${{ github.event_name == 'merge_group' && github.event.merge_group.base_sha || github.event.pull_request.base.sha || github.sha }}
+          restore-keys: web-next-v1-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'apps/web/next.config.ts') }}-
+      - name: Stage incremental cache outside the excluded source tree
+        run: |
+          mkdir -p .docker-next-cache
+          if test -d apps/web/.next/cache; then
+            cp -a apps/web/.next/cache/. .docker-next-cache/
+          fi
       - name: Measure cold and warm Docker builds and runtime size
         env:
           DOCKER_BUILDKIT: '1'

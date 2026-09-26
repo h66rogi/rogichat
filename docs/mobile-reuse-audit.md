@@ -1,5 +1,9 @@
 # 모바일 공통 기반 재사용 조사
 
+## 2026-09-26 프로필 설정 기본 뒤로가기 제스처
+
+iOS `meloming-ios` `18a33bbf96fe52b28d0de361916e20549bdcce6b`의 `Presentation/More/MyPageView.swift`에서 탭별 `NavigationStack`과 시스템 탐색 동작을 확인했다. 로기챗 `apps/ios/Sources/Features/Settings/ProfileScreen.swift`는 시트 대신 기존 `AppShell.swift`의 `NavigationStack` 하위 페이지로 유지하고, 별도 뒤로가기 버튼 및 뒤로가기 숨김을 제거했다. 시스템 뒤로가기 버튼과 왼쪽 가장자리 스와이프가 같은 경로로 더보기 화면에 복귀한다. 미저장 변경은 일반 편집 페이지처럼 뒤로가면 폐기된다. 멜로밍의 프로필 시트와 닫기 버튼은 페이지 탐색 요구에 맞지 않아 적용하지 않았다.
+
 ## 2026-09-26 더보기 복귀와 프로필 탐색 안정화
 
 Android는 `meloming-android` `ecb3dbedb1dde5364bd617f072bc1ac4091b1a17`의 `feature/more/.../MoreScreen.kt`와 `ProfileSettingsScreen.kt`에서 가져온 헤더·ViewModel·뒤로가기 구성을 유지했다. `feature/settings/SettingsScreen.kt`와 `ProfileViewModel.kt`에서 화면 복귀 시 같은 계정 프로필을 재조회하지 않고, 저장 뒤 요약 정보가 바뀌었을 때만 갱신하도록 보강했다. 로딩 표시가 메뉴 위치를 바꾸지 않으며 프로필 저장 중에도 뒤로가기 자리를 유지하고 미저장 확인을 적용한다.

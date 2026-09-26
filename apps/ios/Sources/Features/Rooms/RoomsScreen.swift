@@ -35,13 +35,13 @@ struct RoomsScreen: View {
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            header
             if let listing = model.listing {
                 let joined = listing.memberships.filter {
                     filter.includes($0.mode) && (query.isEmpty || $0.name.localizedCaseInsensitiveContains(query))
                 }
                 VStack(spacing: 0) {
-                    header
                     filters
                     if showingSearch {
                         HStack {
@@ -92,17 +92,18 @@ struct RoomsScreen: View {
                     .refreshable { await model.refresh() }
                 }
                 .background(Color(uiColor: .systemBackground))
-                .toolbar(.hidden, for: .navigationBar)
                 .sheet(isPresented: $showingDiscovery) { discoverySheet(listing) }
             } else if let error = model.error {
                 ContentUnavailableView {
                     Label("대화를 불러오지 못했어요", systemImage: "wifi.exclamationmark")
                 } description: { Text(error) }
                 actions: { Button("다시 시도") { Task { await model.refresh() } }.buttonStyle(.borderedProminent) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScreenStatus(title: "대화를 불러오는 중", message: "", loading: true).frame(maxHeight: .infinity)
             }
         }
+        .toolbar(.hidden, for: .navigationBar)
         .task { await model.refreshIfNeeded() }
         .onAppear { visible = true }
         .onDisappear { visible = false }
@@ -112,9 +113,7 @@ struct RoomsScreen: View {
     }
 
     private var header: some View {
-        HStack(spacing: 18) {
-            Text("채팅").font(.system(size: 26, weight: .bold))
-                .frame(maxWidth: .infinity, alignment: .leading)
+        TopLevelTabHeader(title: "채팅") {
             Button { showingSearch.toggle(); if !showingSearch { query = "" } } label: {
                 Image(systemName: "magnifyingglass").font(.title3)
             }.accessibilityLabel("대화 검색")
@@ -125,9 +124,6 @@ struct RoomsScreen: View {
                 Image(systemName: "gearshape").font(.title3)
             }.accessibilityLabel("설정")
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 22).padding(.top, 18).padding(.bottom, 18)
     }
 
     private var filters: some View {
