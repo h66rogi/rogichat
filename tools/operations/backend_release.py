@@ -35,6 +35,7 @@ UNIT = Path('/etc/systemd/system/rogichat-app@.service')
 LOCK = Path('/run/lock/rogichat-deploy.lock')
 RUNTIME_SECRET = Path('/run/rogichat/secrets/database.json')
 AUTH_SECRET = Path('/etc/rogichat/auth.json')
+NATIVE_PUSH_SECRET = Path('/etc/rogichat/push-native.json')
 CA = Path('/etc/rogichat/rds-global-bundle.pem')
 SOURCE = 'https://github.com/h66rogi/rogichat'
 SHA = re.compile(r'[a-f0-9]{40}\Z')
@@ -492,6 +493,69 @@ def verify_live_vapid(environment):
     require(len(set(fingerprints)) == 1)
 
 
+def compose_requires_native_push(compose):
+    if b'PUSH_NATIVE' not in compose:
+        return False
+    require(compose.count(b'PUSH_NATIVE_SECRET_FILE') == 1
+            and re.search(rb'^  PUSH_NATIVE_SECRET_FILE: /run/secrets/push-native\.json$', compose, re.MULTILINE))
+    return True
+
+
+def validate_native_push_metadata(metadata):
+    require(stat.S_ISREG(metadata.st_mode) and stat.S_IMODE(metadata.st_mode) == 0o400
+            and metadata.st_uid == 10001 and metadata.st_gid == 10001 and metadata.st_nlink == 1
+            and 0 < metadata.st_size <= 16384)
+
+
+def native_push_secret_path(environment):
+    require(environment in ('qa', 'production'))
+    return NATIVE_PUSH_SECRET if environment == 'qa' else Path('/etc/rogichat/prod/push-native.json')
+
+
+def verify_native_push_secret(compose, image, environment='qa'):
+    if not compose_requires_native_push(compose):
+        return
+    source = native_push_secret_path(environment)
+    for parent in source.parents:
+        metadata = parent.lstat()
+        require(stat.S_ISDIR(metadata.st_mode) and metadata.st_uid == 0 and not metadata.st_mode & 0o022)
+    validate_native_push_metadata(source.lstat())
+    name = 'rogichat-' + ('qa' if environment == 'qa' else 'prod') + '-native-push-preflight-' + str(uuid.uuid4())
+    code = ("try{const{readNativePushConfig}=await import('./dist/modules/notifications/native-push-config.js');"
+            "const c=readNativePushConfig();process.exit(c?.apns&&c?.fcm?0:1)}catch{process.exit(1)}")
+    try:
+        docker('run', '--rm', '--pull', 'never', '--name', name, '--network', 'none', '--read-only',
+               '--user', '10001:10001', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+               '--memory', '128m', '--pids-limit', '64', '--log-driver', 'none',
+               '--mount', f'type=bind,src={source},dst=/run/secrets/push-native.json,readonly',
+               '--env', f'APP_ENV={environment}', '--env', 'PUSH_NATIVE_SECRET_FILE=/run/secrets/push-native.json',
+               image, '--input-type=module', '-e', code, timeout=20)
+    finally:
+        subprocess.run(['/usr/bin/docker', 'rm', '-f', name], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=30)
+
+
+def verify_live_native_push(environment='qa'):
+    source = native_push_secret_path(environment)
+    label = 'qa' if environment == 'qa' else 'prod'
+    code = ("try{const{readNativePushConfig}=await import('./dist/modules/notifications/native-push-config.js');"
+            "const c=readNativePushConfig();process.stdout.write(JSON.stringify({apns:!!c?.apns,fcm:!!c?.fcm}))"
+            "}catch{process.exit(1)}")
+    results = []
+    for role in ('api', 'worker'):
+        name = 'rogichat-' + label + '-' + role
+        item = json.loads(docker('inspect', name))[0]
+        env = dict(v.split('=', 1) for v in item['Config']['Env'])
+        mounts = {m['Destination']: m for m in item['Mounts']}
+        mount = mounts.get('/run/secrets/push-native.json', {})
+        require(item['Config']['User'] == '10001:10001' and env.get('APP_ENV') == environment
+                and env.get('PUSH_NATIVE_SECRET_FILE') == '/run/secrets/push-native.json'
+                and mount.get('Type') == 'bind' and mount.get('Source') == str(source)
+                and mount.get('RW') is False)
+        results.append(docker('exec', name, 'node', '--input-type=module', '-e', code, timeout=20))
+    require(results == [b'{"apns":true,"fcm":true}'] * 2)
+
+
 def get_caddy(network):
     ids = docker('ps', '--filter', 'label=com.docker.compose.project=rogichat-qa',
                  '--filter', 'label=com.docker.compose.service=caddy', '--format', '{{.ID}}').decode().split()
@@ -779,6 +843,8 @@ def deploy(request, files, container):
         wait_health(request)
         if compose_requires_vapid(files['compose']):
             verify_live_vapid('qa')
+        if compose_requires_native_push(files['compose']):
+            verify_live_native_push()
         require(get_caddy(request['edge_network']) == container)
         caddy_config(container, files['caddy'])
         for route in ('/live', '/ready', '/_infra/health'):
@@ -833,6 +899,8 @@ def deploy_no_ddl(request, files, container):
         verify_qa_head(request['source_sha'])
         if compose_requires_vapid(files['compose']):
             verify_live_vapid('qa')
+        if compose_requires_native_push(files['compose']):
+            verify_live_native_push()
         require(get_caddy(request['edge_network']) == container)
         caddy_config(container, files['caddy'])
         for route in ('/live', '/ready', '/_infra/health'):
@@ -867,6 +935,7 @@ def main():
     verify_media_secret(request)
     verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
     verify_vapid_secret(files['compose'], execution_image(request, 'runtime'))
+    verify_native_push_secret(files['compose'], execution_image(request, 'runtime'))
     container = get_caddy(request['edge_network'])
     require(not (RELEASES / ('backup-' + request['request_id'])).exists())
     if request.get('migration_policy') == 'verify-only':
@@ -886,6 +955,7 @@ def main():
         require(digest(protected(CADDY)) == request['previous_caddy_sha256'])
         verify_auth_secret(files['compose'], execution_image(request, 'runtime'))
         verify_vapid_secret(files['compose'], execution_image(request, 'runtime'))
+        verify_native_push_secret(files['compose'], execution_image(request, 'runtime'))
         verify_media_secret(request)
         if args.apply_no_ddl:
             verify_no_ddl_candidate(request, files)

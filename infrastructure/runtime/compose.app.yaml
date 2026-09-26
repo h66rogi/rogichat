@@ -36,6 +36,13 @@ x-runtime: &runtime
       read_only: true
       bind:
         create_host_path: false
+    - &push-native-secret
+      type: bind
+      source: /etc/rogichat/push-native.json
+      target: /run/secrets/push-native.json
+      read_only: true
+      bind:
+        create_host_path: false
   logging:
     driver: json-file
     options:
@@ -49,6 +56,7 @@ x-environment: &environment
   DB_CA_FILE: /run/secrets/rds-ca.pem
   DB_TLS_MODE: required
   PUSH_VAPID_SECRET_FILE: /run/secrets/push-vapid.json
+  PUSH_NATIVE_SECRET_FILE: /run/secrets/push-native.json
 
 services:
   api:
@@ -71,6 +79,7 @@ services:
       - *database-secret
       - *database-ca
       - *push-vapid-secret
+      - *push-native-secret
       - type: bind
         source: /etc/rogichat/auth.json
         target: /run/secrets/auth.json

@@ -12,6 +12,7 @@ import time
 import unittest
 from unittest.mock import patch
 import uuid
+import yaml
 
 import backend_production_release as prod
 import fetch_production_runtime_secret as secrets
@@ -36,6 +37,26 @@ def evidence(r):
 
 
 class ProductionBoundaries(unittest.TestCase):
+    def test_native_push_uses_distinct_production_secret_in_api_and_worker(self):
+        compose = (ROOT/'infrastructure/environments/prod/runtime/compose.app.yaml').read_bytes()
+        self.assertTrue(prod.shared.compose_requires_native_push(compose))
+        self.assertEqual(prod.shared.native_push_secret_path('production'),
+                         Path('/etc/rogichat/prod/push-native.json'))
+        self.assertNotEqual(prod.shared.native_push_secret_path('production'),
+                            prod.shared.native_push_secret_path('qa'))
+        with self.assertRaises(ValueError):
+            prod.shared.native_push_secret_path('prod')
+        services = yaml.safe_load(compose)['services']
+        for role in ('api', 'worker'):
+            self.assertEqual(services[role]['environment']['PUSH_NATIVE_SECRET_FILE'],
+                             '/run/secrets/push-native.json')
+            mounts = [mount for mount in services[role]['volumes']
+                      if mount['target'] == '/run/secrets/push-native.json']
+            self.assertEqual(len(mounts), 1)
+            self.assertEqual(mounts[0]['source'], '/etc/rogichat/prod/push-native.json')
+            self.assertTrue(mounts[0]['read_only'])
+            self.assertFalse(mounts[0]['bind']['create_host_path'])
+
     def test_exact_request_and_qa_evidence(self):
         r=request()
         self.assertIs(prod.validate_request(r),r)
