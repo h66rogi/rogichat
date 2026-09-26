@@ -10,7 +10,7 @@ iOS `meloming-ios` `18a33bbf96fe52b28d0de361916e20549bdcce6b`의 `Presentation/M
 
 | 원본 파일·구성 | 로기챗 대상 | 재사용과 계약 변경 |
 |---|---|---|
-| Android `feature/notifications/NotificationsScreen.kt`, `NotificationsUiState.kt`, `NotificationsViewModel.kt` | `apps/android/app/src/main/java/chat/rogi/rogichat/feature/notifications/NotificationInboxScreen.kt` | 목록/빈 상태/오류/새로고침/다음 페이지/읽음 상태 구조를 수정 재사용. 멜로밍 알림 종류·원격 URL·Repository 대신 로기챗의 계정 범위 API와 고정 대화 진입 사용. |
+| Android `feature/notifications/NotificationsScreen.kt`, `NotificationsUiState.kt`, `NotificationsViewModel.kt` | `apps/android/app/src/main/java/chat/rogi/rogichat/feature/notifications/NotificationInboxScreen.kt` | 목록/빈 상태/오류/새로고침/다음 페이지/읽음 상태 구조를 수정 재사용. 멜로밍 알림 종류·원격 URL·Repository 대신 로기챗의 계정 범위 API와 현재 참여를 재확인한 대화방 진입 사용. |
 | Android `core/network/.../NotificationApi.kt`, `core/data/.../NotificationRepositoryImpl.kt` | `core/network/ApiClient.kt`, `core/session/NativeSessionCoordinator.kt` | 알림 목록과 읽음 API 연결 구조를 수정 재사용. 로기챗 Native 세션·scope fence·DTO 검증을 적용. |
 | Android `app/.../push/MelomingFirebaseMessagingService.kt`, `NotificationRouter.kt` | `core/push/FirebasePushProvider.kt`, `MainActivity.kt`, `AppEntry.kt` | FCM 수신→기기 알림 표시→탭 시 알림함 열기와 cold/warm intent 전달을 수정 재사용. payload URL 라우팅과 원본 식별자는 제외하고 고정된 로기챗 알림함만 연다. |
 | iOS `Meloming/Presentation/Notifications/NotificationsView.swift`, `NotificationsViewModel.swift`, `Domain/Models/Notification.swift` | `apps/ios/Sources/Features/Notifications/NotificationInboxScreen.swift` | SwiftUI List, 상대 시간, 읽음 표시, 페이징, 새로고침, 오류/빈 상태를 수정 재사용. 원본 DTO·알림 종류는 로기챗 메시지 알림 계약으로 교체. |

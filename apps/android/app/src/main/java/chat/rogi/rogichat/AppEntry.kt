@@ -242,8 +242,19 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
             composable("inbox") {
                 if (session.access == ShellAccess.READY && privateAccount != null && services.notificationInbox != null) {
                     val model: NotificationInboxViewModel = viewModel { NotificationInboxViewModel(services.notificationInbox, NotificationAccountScope(privateAccount.id, session.generation)) }
+                    val inboxScope = rememberCoroutineScope()
                     ProductPage("알림", { nav.popBackStack() }, scroll = false) {
-                        NotificationInboxScreen(model, onOpenTalks = { open("talks") }, onSettings = { open("notifications") })
+                        NotificationInboxScreen(model, onOpenRoom = { roomId ->
+                            inboxScope.launch {
+                                val scope = session.accountPartition?.let { RoomsAccountScope(privateAccount.id, session.generation, it) }
+                                val directory = if (scope != null) services.rooms?.refreshRooms(scope)?.getOrNull() else null
+                                val membership = directory?.memberships?.firstOrNull { it.roomId.value == roomId }
+                                if (scope != null && membership != null && services.conversations != null) {
+                                    conversationNavigation.selected = ConversationSelection(scope, membership, directory.cycle)
+                                    open("room/$roomId")
+                                } else open("talks")
+                            }
+                        }, onSettings = { open("notifications") })
                     }
                 } else ProductPage("알림", { nav.popBackStack() }) {
                     ScreenStatus("로그인이 필요합니다", "알림을 확인하려면 로그인해 주세요.", onRetry = { open("talks") })

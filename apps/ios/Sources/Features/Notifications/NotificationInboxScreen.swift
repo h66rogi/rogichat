@@ -18,7 +18,7 @@ private extension InboxNotification {
 struct NotificationInboxScreen: View {
     let session: AppSession
     let scope: UInt64
-    let onOpenTalks: () -> Void
+    let onOpenRoom: (String) -> Void
     let onOpenSettings: () -> Void
     @State private var items: [InboxNotification] = []
     @State private var cursor: String?
@@ -109,7 +109,7 @@ struct NotificationInboxScreen: View {
                 if let index = items.firstIndex(where: { $0.id == item.id }) { items[index].readAt = ISO8601DateFormatter().string(from: Date()) }
             } catch { self.error = "읽음 상태를 저장하지 못했어요." }
         }
-        onOpenTalks()
+        onOpenRoom(item.roomId)
     }
     private func markAll() async {
         guard !markingAll else { return }

@@ -123,6 +123,19 @@ struct ProductRootView: View {
             NativePushWakeOwner.shared.drainInbox()
         }
     }
+    private func openInboxRoom(_ roomId: String) async {
+        guard session.access == .ready, let scope = session.roomsScope else { return }
+        let model = roomsFeatures.model(scope: scope) {
+            RoomsScreenModel(repository: RoomsRepository(remote: NativeRoomsRemote(session: session), storage: roomsStorage, scope: scope), scope: scope)
+        }
+        await model.refresh()
+        guard session.roomsScope === scope else { return }
+        navigation.selectTab(.talks)
+        navigation.pop(to: [], in: .talks)
+        guard let listing = model.listing, listing.memberships.contains(where: { $0.roomId == roomId }),
+              await model.openConversation(roomID: roomId, displayedCycle: listing.cycle) else { return }
+        navigation.open(.chat)
+    }
     private func connectRealtime() async {
         guard scenePhase == .active, session.access == .ready else { realtime.disconnect(); return }
         do {
@@ -155,7 +168,7 @@ struct ProductRootView: View {
         case .notifications:
             if session.access == .ready {
                 NotificationInboxScreen(session: session, scope: session.generation,
-                    onOpenTalks: { navigation.selectTab(.talks) }, onOpenSettings: { navigation.open(.notificationSettings) })
+                    onOpenRoom: { roomId in Task { await openInboxRoom(roomId) } }, onOpenSettings: { navigation.open(.notificationSettings) })
             } else {
                 ContentUnavailableView("로그인이 필요합니다", systemImage: "bell", description: Text("알림을 확인하려면 로그인해 주세요."))
             }

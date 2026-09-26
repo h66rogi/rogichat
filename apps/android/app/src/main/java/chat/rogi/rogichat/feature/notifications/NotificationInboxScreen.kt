@@ -100,13 +100,13 @@ class NotificationInboxViewModel(private val repository: NotificationInboxReposi
                 mutable.update { state -> state.copy(loadingMore = false, error = "알림을 더 불러오지 못했어요.") } }
         }
     }
-    fun open(item: InboxNotification, onOpenTalks: () -> Unit) { viewModelScope.launch {
+    fun open(item: InboxNotification, onOpenRoom: (String) -> Unit) { viewModelScope.launch {
         if (!item.isRead) repository.markInboxRead(account, item.id).onSuccess {
             mutable.update { state -> state.copy(items = state.items.map { current ->
                 if (current.id == item.id) current.copy(readAt = Instant.now()) else current }) }
         }.onFailure { if (it is CancellationException) throw it
             mutable.update { state -> state.copy(error = "읽음 상태를 저장하지 못했어요.") } }
-        onOpenTalks()
+        onOpenRoom(item.roomId)
     } }
     fun markAll() { if (mutable.value.markingAll) return
         viewModelScope.launch {
@@ -123,7 +123,7 @@ class NotificationInboxViewModel(private val repository: NotificationInboxReposi
 }
 
 @Composable
-fun NotificationInboxScreen(model: NotificationInboxViewModel, onOpenTalks: () -> Unit, onSettings: () -> Unit) {
+fun NotificationInboxScreen(model: NotificationInboxViewModel, onOpenRoom: (String) -> Unit, onSettings: () -> Unit) {
     val state by model.state.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -150,7 +150,7 @@ fun NotificationInboxScreen(model: NotificationInboxViewModel, onOpenTalks: () -
                     }
                     LazyColumn(state = listState) {
                         items(state.items, key = { it.id }) { item ->
-                            Row(Modifier.fillMaxWidth().clickable { model.open(item, onOpenTalks) }
+                            Row(Modifier.fillMaxWidth().clickable { model.open(item, onOpenRoom) }
                                 .background(if (item.isRead) Color.Transparent else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.12f))
                                 .padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.Top) {
                                 Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
