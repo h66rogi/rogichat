@@ -88,8 +88,17 @@ class ComponentChangesTest(unittest.TestCase):
         self.assertFalse(backend_tests_changed(['apps/api/Dockerfile']))
         self.assertFalse(backend_tests_changed(['apps/api/Dockerfile', 'docs/release.md']))
         for extra in ('apps/api/src/main.ts', 'apps/api/test/integration/messages.test.mjs',
-                      '.dockerignore', 'apps/api/new-build-input', 'tools/release/changes.py'):
+                      '.dockerignore', 'apps/api/new-build-input'):
             self.assertTrue(backend_tests_changed(['apps/api/Dockerfile', extra]), extra)
+
+    def test_classifier_only_uses_its_own_unit_suite(self):
+        classifier = ['tools/release/changes.py', 'tools/release/test_changes.py']
+        self.assertEqual(classify(classifier), (True, True))
+        self.assertFalse(backend_tests_changed(classifier))
+        self.assertFalse(backend_image_changed(classifier))
+        self.assertFalse(web_image_changed(classifier))
+        self.assertTrue(backend_tests_changed(classifier + ['apps/api/src/main.ts']))
+        self.assertTrue(backend_tests_changed(classifier + ['.github/workflows/backend.yml']))
 
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

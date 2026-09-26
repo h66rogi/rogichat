@@ -100,6 +100,12 @@ BACKEND_NON_IMAGE_PREFIXES = (
 BACKEND_IMAGE_ONLY_FILES = {
     'apps/api/Dockerfile',
 }
+BACKEND_NON_TEST_FILES = BACKEND_IMAGE_ONLY_FILES | {
+    # The changes job runs this classifier's own unit suite. These files do
+    # not change the API sources exercised by MySQL, static, or contract jobs.
+    'tools/release/changes.py',
+    'tools/release/test_changes.py',
+}
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
     'tools/infrastructure/',
@@ -162,8 +168,8 @@ def web_image_changed(paths: list[str]) -> bool:
 
 
 def backend_tests_changed(paths: list[str]) -> bool:
-    """Skip source tests only when every backend input is the reviewed Dockerfile."""
-    return any(classify_path(path)[1] and path not in BACKEND_IMAGE_ONLY_FILES
+    """Run API source tests only for inputs that can affect those tests."""
+    return any(classify_path(path)[1] and path not in BACKEND_NON_TEST_FILES
                for path in paths)
 
 
