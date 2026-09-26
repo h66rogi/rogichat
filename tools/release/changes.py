@@ -57,7 +57,13 @@ BACKEND_ONLY_FILES = {
     '.github/workflows/backend-restore.yml',
     'tools/operations/backend_release.py',
     'tools/operations/test_backend_release.py',
+    'tools/operations/backend_production_release.py',
+    'tools/operations/test_backend_production.py',
     'tools/operations/backend-release.md',
+    # API/worker host templates are deployment inputs, not web image inputs.
+    # Backend publication still validates and archives them for delivery.
+    'infrastructure/runtime/compose.app.yaml',
+    'infrastructure/environments/prod/runtime/compose.app.yaml',
 }
 # Verified delivery and CI control files do not enter the web image build.
 # Keep validation jobs active when they change; only skip image publication.
