@@ -36,6 +36,7 @@ test('logged-in devices can be reviewed and remotely signed out with keyboard an
     return json(route, { sessions: devices, next: null });
   });
   await page.goto('/settings');
+  await expect(page.getByRole('heading', { name: '프로필', level: 2 })).toBeVisible();
   const region = page.getByRole('region', { name: '로그인된 기기' });
   await expect(region.getByText('현재 기기')).toBeVisible();
   const action = region.getByRole('button', { name: 'Android 기기 로그아웃' });

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/shared/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader } from '@/shared/ui/card';
 import { cn } from '@/shared/lib/cn';
 
 import type { SettingsActionState } from '../types';
@@ -25,7 +25,7 @@ export function SettingsSection({
   return (
     <Card role="region" aria-labelledby={headingId} data-testid={`settings-section-${id}`} className={cn(tone === 'danger' && 'border-danger/40')}>
       <CardHeader>
-        <CardTitle id={headingId}>{title}</CardTitle>
+        <h2 id={headingId} className="text-[18px] font-semibold leading-snug text-ink">{title}</h2>
         {description && <CardDescription>{description}</CardDescription>}
       </CardHeader>
       {children && <CardContent className="flex flex-col gap-4">{children}</CardContent>}

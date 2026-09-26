@@ -44,10 +44,11 @@ private struct AuthorizedMediaBody: View {
         VStack {
             if failed {
                 if avatar {
-                    Image(systemName: "person.fill").resizable().scaledToFit().padding(7)
-                        .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Color(uiColor: .tertiarySystemFill))
-                        .onTapGesture { retry += 1 }.accessibilityLabel("프로필 사진 다시 시도")
+                    Button { retry += 1 } label: {
+                        Image(systemName: "person.fill").resizable().scaledToFit().padding(7)
+                            .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .background(Color(uiColor: .tertiarySystemFill))
+                    }.buttonStyle(.plain).accessibilityLabel("프로필 사진 다시 시도")
                 } else {
                     Text("미디어를 표시할 수 없어요.")
                     Button("다시 시도") { retry += 1 }
@@ -68,6 +69,13 @@ private struct AuthorizedMediaBody: View {
                         .onTapGesture(count: 2) {
                             guard zoomable else { return }
                             scale = scale > 1 ? 1 : 2; startScale = scale; offset = .zero; startOffset = .zero
+                        }
+                        .overlay(alignment: .bottomTrailing) {
+                            if zoomable {
+                                Button(scale > 1 ? "원래 크기로 보기" : "사진 확대") {
+                                    scale = scale > 1 ? 1 : 2; startScale = scale; offset = .zero; startOffset = .zero
+                                }.buttonStyle(.bordered).padding(8)
+                            }
                         }
                 }
             }
@@ -138,10 +146,11 @@ private struct ProviderAvatarBody: View {
     @State private var operation: UUID?
     var body: some View {
         VStack {
-            if failed { Image(systemName: "person.fill").resizable().scaledToFit().padding(7)
-                .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(uiColor: .tertiarySystemFill))
-                .onTapGesture { retry += 1 }.accessibilityLabel("프로필 사진 다시 시도") }
+            if failed { Button { retry += 1 } label: {
+                Image(systemName: "person.fill").resizable().scaledToFit().padding(7)
+                    .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color(uiColor: .tertiarySystemFill))
+            }.buttonStyle(.plain).accessibilityLabel("프로필 사진 다시 시도") }
             else if let image { Image(uiImage: image).resizable().scaledToFill().accessibilityLabel("프로필 사진") }
             else { Image(systemName: "person.fill").resizable().scaledToFit().padding(7)
                 .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
