@@ -114,13 +114,14 @@ class ComponentChangesTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertEqual(output.read_text(),
                              'web=false\nbackend=true\nweb_image=false\nbackend_image=true\nbackend_tests=false\n')
-            uncertain = subprocess.run(
-                [sys.executable, str(Path(changes.__file__).resolve()),
-                 '--base', '0' * 40, '--head', git('rev-parse', 'HEAD')], cwd=root,
-                env=dict(os.environ, GITHUB_EVENT_NAME='push'), capture_output=True)
-            self.assertEqual(uncertain.returncode, 0, uncertain.stderr.decode())
-            self.assertTrue(json.loads(uncertain.stdout)['web_image'])
-            self.assertTrue(json.loads(uncertain.stdout)['backend_image'])
+            for missing_base in ('0' * 40, ''):
+                uncertain = subprocess.run(
+                    [sys.executable, str(Path(changes.__file__).resolve()),
+                     '--base', missing_base, '--head', git('rev-parse', 'HEAD')], cwd=root,
+                    env=dict(os.environ, GITHUB_EVENT_NAME='push'), capture_output=True)
+                self.assertEqual(uncertain.returncode, 0, uncertain.stderr.decode())
+                self.assertTrue(json.loads(uncertain.stdout)['web_image'])
+                self.assertTrue(json.loads(uncertain.stdout)['backend_image'])
 
     def test_test_only_boundary_writes_backend_without_image_output(self):
         with tempfile.TemporaryDirectory() as temporary:
