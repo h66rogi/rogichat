@@ -571,6 +571,20 @@ class RequestTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 release.compose_requires_auth(bad)
 
+    def test_native_push_marker_and_file_metadata_fail_closed(self):
+        good = b'  PUSH_NATIVE_SECRET_FILE: /run/secrets/push-native.json\n'
+        self.assertTrue(release.compose_requires_native_push(good))
+        self.assertFalse(release.compose_requires_native_push(b'services: {}\n'))
+        for bad in (good + good, good.replace(b'/run/secrets/', b'/tmp/'), b'PUSH_NATIVE_SECRET_FILE: /other'):
+            with self.subTest(compose=bad), self.assertRaises(ValueError):
+                release.compose_requires_native_push(bad)
+        valid = dict(st_mode=stat.S_IFREG | 0o400, st_uid=10001, st_gid=10001, st_nlink=1, st_size=500)
+        release.validate_native_push_metadata(SimpleNamespace(**valid))
+        for field, value in (('st_mode', stat.S_IFREG | 0o440), ('st_mode', stat.S_IFLNK | 0o400),
+                             ('st_uid', 0), ('st_gid', 0), ('st_nlink', 2), ('st_size', 0), ('st_size', 16385)):
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                release.validate_native_push_metadata(SimpleNamespace(**{**valid, field: value}))
+
     def test_auth_metadata_requires_root_gid_mode_single_link_bounded_file(self):
         values = dict(st_mode=stat.S_IFREG | 0o440, st_uid=0, st_gid=10001, st_nlink=1, st_size=100)
         release.validate_auth_metadata(SimpleNamespace(**values))
