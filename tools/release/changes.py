@@ -103,6 +103,10 @@ BACKEND_IMAGE_ONLY_FILES = {
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
     'tools/infrastructure/',
+    # These host-only Terraform roots are validated by infrastructure.yml.
+    # They cannot change the web or backend source/container inputs.
+    'infrastructure/environments/qa/aws-ec2/',
+    'infrastructure/environments/management/aws/',
 )
 UNRELATED_FILES = {
     'README.md', 'LICENSE', '.gitignore',

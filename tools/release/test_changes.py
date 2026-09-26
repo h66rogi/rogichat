@@ -227,6 +227,24 @@ class ComponentChangesTest(unittest.TestCase):
         self.assertEqual(classify_path('.github/workflows/new-release.yml'), (True, True))
         self.assertEqual(classify_path('new-build-system/config'), (True, True))
 
+    def test_host_only_terraform_changes_skip_product_checks(self):
+        host_files = [
+            'infrastructure/environments/qa/aws-ec2/main.tf',
+            'infrastructure/environments/qa/aws-ec2/security.tftest.hcl',
+            'infrastructure/environments/management/aws/bootstrap.sh',
+            'infrastructure/environments/management/aws/README.md',
+        ]
+        self.assertEqual(classify(host_files), (False, False))
+        self.assertFalse(web_image_changed(host_files))
+        self.assertFalse(backend_image_changed(host_files))
+        self.assertFalse(backend_tests_changed(host_files))
+        self.assertEqual(classify(host_files + ['apps/web/src/app/page.tsx']),
+                         (True, False))
+        self.assertEqual(classify_path('infrastructure/runtime/web/compose.yaml'),
+                         (True, False))
+        self.assertEqual(classify_path('infrastructure/environments/prod/aws-ec2/main.tf'),
+                         (True, True))
+
     def test_shared_and_security_inputs(self):
         for path in ('pnpm-lock.yaml', 'patches/mariadb.patch',
                      'tools/security/image_scan.py',
