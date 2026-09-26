@@ -4,83 +4,45 @@ import Kingfisher
 struct SongRequestQueueSheet: View {
     @ObservedObject var manager: SongRequestManager
     @Environment(\.dismiss) private var dismiss
-    @State private var showsScrollToTop = false
-
-    private let scrollTopID = "song-request-queue-top"
-    private let scrollCoordinateSpace = "song-request-queue-scroll"
 
     var body: some View {
         NavigationStack {
-            ScrollViewReader { proxy in
-                ZStack(alignment: .bottomTrailing) {
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            GeometryReader { geometry in
-                                Color.clear.preference(
-                                    key: SongRequestScrollOffsetPreferenceKey.self,
-                                    value: geometry.frame(in: .named(scrollCoordinateSpace)).minY
-                                )
-                            }
-                            .frame(height: 0)
-                            .id(scrollTopID)
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Status Banner
+                    statusBanner
+                        .padding(.horizontal)
+                        .padding(.top, 8)
 
-                            // Status Banner
-                            statusBanner
-                                .padding(.horizontal)
-                                .padding(.top, 8)
+                    // Queue Info
+                    queueInfoCard
+                        .padding(.horizontal)
+                        .padding(.top, 20)
 
-                            // Queue Info
-                            queueInfoCard
-                                .padding(.horizontal)
-                                .padding(.top, 20)
+                    // Info Message
+                    Text(infoText)
+                        .font(.caption)
+                        .foregroundColor(manager.canRequest ? Color(red: 0.06, green: 0.73, blue: 0.51) : .secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal)
+                        .padding(.top, 16)
 
-                            // Info Message
-                            Text(infoText)
-                                .font(.caption)
-                                .foregroundColor(manager.canRequest ? Color(red: 0.06, green: 0.73, blue: 0.51) : .secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal)
-                                .padding(.top, 16)
+                    Divider()
+                        .padding(.top, 20)
+                        .padding(.horizontal)
 
-                            Divider()
-                                .padding(.top, 20)
-                                .padding(.horizontal)
-
-                            // Queue List
-                            queueList
-                                .padding(.top, 16)
-                                .padding(.horizontal)
-                        }
-                        .padding(.bottom, 88)
-                    }
-                    .coordinateSpace(name: scrollCoordinateSpace)
-                    .onPreferenceChange(SongRequestScrollOffsetPreferenceKey.self) { offset in
-                        showsScrollToTop = offset < -160
-                    }
-
-                    if showsScrollToTop {
-                        Button {
-                            withAnimation(.easeOut(duration: 0.25)) {
-                                proxy.scrollTo(scrollTopID, anchor: .top)
-                            }
-                        } label: {
-                            Label("맨 위로", systemImage: "arrow.up")
-                                .font(.subheadline.weight(.semibold))
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.purple)
-                        .padding(.trailing, 16)
-                        .padding(.bottom, 16)
-                        .transition(.opacity.combined(with: .scale))
-                    }
+                    // Queue List
+                    queueList
+                        .padding(.top, 16)
+                        .padding(.horizontal)
                 }
-                .animation(.easeOut(duration: 0.2), value: showsScrollToTop)
-                .navigationTitle("신청곡 현황")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("닫기") { dismiss() }
-                    }
+                .padding(.bottom, 32)
+            }
+            .navigationTitle("신청곡 현황")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("닫기") { dismiss() }
                 }
             }
         }
@@ -205,14 +167,6 @@ struct SongRequestQueueSheet: View {
                 }
             }
         }
-    }
-}
-
-private struct SongRequestScrollOffsetPreferenceKey: PreferenceKey {
-    static let defaultValue: CGFloat = 0
-
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
     }
 }
 

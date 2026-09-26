@@ -1,10 +1,10 @@
 package chat.rogi.rogichat.feature.channel
 
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.createSavedStateHandle
 import androidx.navigation.compose.NavHost
@@ -32,7 +32,6 @@ fun ChannelNavigation(graph: ChannelGraph, onBack: () -> Unit, onTalk: () -> Uni
                     onNavigateToChannelSettings = { nav.navigate("settings") },
                     onNavigateToConsole = { _, id -> nav.navigate("console/$id") },
                     onNavigateToLogin = onTalk,
-                    onChannelTalk = onTalk,
                     refreshChannel = revision > 0,
                     onRefreshConsumed = { revision = 0 },
                     viewModel = viewModel { graph.detail(createSavedStateHandle()) },

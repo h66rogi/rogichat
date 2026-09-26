@@ -547,7 +547,7 @@ private fun MinimalSwitch(
     ) {
         Box(
             modifier = Modifier
-                .offset { androidx.compose.ui.unit.IntOffset(thumbOffset.roundToPx(), 0) }
+                .offset(x = thumbOffset)
                 .size(26.dp)
                 .clip(CircleShape)
                 .background(Color.White),

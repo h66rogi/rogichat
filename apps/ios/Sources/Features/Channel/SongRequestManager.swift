@@ -193,7 +193,6 @@ final class SongRequestManager: ObservableObject {
             )
             queueItems = response.requests.map { $0.toDomain() }
         } catch {
-            print("[SongRequestManager] Failed to fetch queue: \(error)")
         }
         isLoadingQueue = false
     }
@@ -226,6 +225,8 @@ final class SongRequestManager: ObservableObject {
             requestError = "로그인이 필요합니다"
             return false
         }
+
+
 
         isSubmitting = true
         defer { isSubmitting = false }

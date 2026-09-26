@@ -24,7 +24,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import timber.log.Timber
 
 class ConsoleViewModel constructor(
     savedStateHandle: SavedStateHandle,
@@ -376,7 +375,9 @@ class ConsoleViewModel constructor(
             val payload = UpdateSettingsPayload(
                 requestEnabled = settings.requestEnabled,
                 paused = settings.paused,
+                requestCommand = settings.requestCommand,
                 maxQueueSize = settings.maxQueueSize,
+                donationPriorityEnabled = settings.donationPriorityEnabled,
                 requireSongMatch = settings.requireSongMatch,
                 preventDuplicateSongs = settings.preventDuplicateSongs,
                 maxRequestsPerUser = settings.maxRequestsPerUser,
@@ -384,7 +385,6 @@ class ConsoleViewModel constructor(
                 blockedCategoryIds = settings.blockedCategoryIds,
                 karaokePlaybackMode = settings.karaokePlaybackMode,
                 karaokeVideoType = settings.karaokeVideoType,
-                showRequesterName = settings.showRequesterName,
             )
             sessionRepository.updateSettings(sessionId, payload).onSuccess { updated ->
                 _uiState.update { it.copy(settings = updated) }
@@ -411,7 +411,7 @@ class ConsoleViewModel constructor(
             songPricingRepository.updatePricingSettings(channelId, payload).onSuccess { updated ->
                 _uiState.update { it.copy(pricingSettings = updated) }
             }.onFailure { e ->
-                _sideEffect.send(ConsoleSideEffect.ShowMessage(e.message ?: "참고 가격 설정 변경에 실패했습니다"))
+                _sideEffect.send(ConsoleSideEffect.ShowMessage(e.message ?: "가격 설정 변경에 실패했습니다"))
             }
         }
     }
@@ -445,6 +445,7 @@ class ConsoleViewModel constructor(
     }
 
     override fun onCleared() {
+        super.onCleared()
         socketJob?.cancel()
         cancelPolling()
     }

@@ -1,5 +1,44 @@
 # 모바일 공통 기반 재사용 조사
 
+## R86 — 사용자 원본 채널 화면 복원 (2026-09-26)
+
+**이 항목이 채널 UI에 관한 R79–R85의 7월 개편판 선택을 대체한다.** 사용자가
+첨부한 단색 배너·세그먼트 탭·상단 공유/추가/즐겨찾기 화면이 기준이다. 최신
+`main`이나 마케팅 버전 문자열만으로 같은 화면이라고 판단하지 않는다.
+
+기존 iOS 채널 폴더 53개 파일과 Android 채널 폴더 31개 파일을 제거한 뒤, 역사적
+원본 채널·콘솔 파일 63개를 `git show`의 바이트 그대로 복사하고 연결 작업을 했다.
+초기 복사 SHA-256, 최종 파일, 원본 커밋과 제외 내역은
+[source import manifest](mobile-channel-source-import.json)에 기록한다.
+
+| 대상 | 원본 | 유지한 구현 / 필요한 수정 |
+| --- | --- | --- |
+| iOS 상세 화면 | `meloming-ios` `d31f555`, `Meloming/Presentation/Channel/ChannelDetailView.swift` 전체 파일 | 첨부 화면과 일치하는 높이 160 단색 헤더, 72×72 원형 프로필, 흰 테두리 3, 기본 segmented Picker, 공유·추가·별 toolbar. 인라인 구형 VM만 1.2.3의 복사한 repository VM으로 분리하고 로기챗 루트 복귀·세션·신청곡·관리 목적지를 연결. |
+| iOS 노래책·일정·상세·편집·관리·콘솔 | `meloming-ios` `d133fb4` (1.2.3 build 26), `Meloming/Presentation/{Channel,Console}` | 파일 전체 복사. 원본 노래 행, 필터, Form, sheet와 일정 묶음을 유지. 보호 인증 어댑터·상대 이미지 URL·Swift 6·nullable 쓰기 계약만 연결. |
+| Android 상세·노래책·일정·관리·콘솔 | `meloming-android` `93f1a7f` (1.2.3 / versionCode 14), `feature/{channel,console}/src/main/java/...` | 원본 테마 헤더·툴바·밑줄 탭·HorizontalPager·목록·시트 전체 복사. Hilt 조립을 기존 ChannelGraph에 연결하고 API·계정 수명·상대 이미지 URL을 맞춤. 최초 조회 실패에는 실제 재시도 버튼 추가. |
+| 추가 섹션 | 기존 연결된 셋리스트·옷장 | 사용자 허용 신규 기능. 셋리스트의 큰 카드를 원본 노래 행과 같은 56 크기 표지·평면 목록으로 맞춤. 옷장은 별도 파일로 분리해 기존 3열 그리드를 연결. |
+
+`d133fb4`의 상세 화면은 이미 높이 120 헤더, 밑줄 탭과 변경된 toolbar를 사용한다.
+따라서 1.2.3 표기만 따라 그 상세 화면을 복사하지 않고, 첨부 화면과 일치하는
+`d31f555`의 **전체 상세 화면 파일**을 복사했다. Android는 해당 플랫폼의 1.2.3 원본을 쓴다.
+
+- `ChannelProfileHero`, `ChannelSectionRail`, 유리 프로필 카드·통계 카드 코드는 삭제했다.
+- iOS `ChannelHeader`, `SongRow`, segmented Picker 선언은 이미지 URL 어댑터 치환 외
+  원본과 동일한지 비교하고 일치 결과와 해시를 manifest에 남겼다.
+- 노래책·일정·정보에 셋리스트·옷장만 같은 선택기로 추가했다. 채널 관리/콘솔은 실제
+  권한에 따라 정보 탭에서 연다. 멜로밍 Talk/TalkV2, 후여르, 선물, 멤버십은 제외한다.
+- 기존에 제품 계약으로 비활성화된 방명록·콘텐츠 상세는 연결하지 않는다. 서버·웹 API,
+  인증 토큰 저장, 계정 generation에 따른 상태 폐기, 소스 저장소는 변경하지 않는다.
+- 채널 설정의 visibility 보존, 선택 카테고리 전체 해제, nullable 노래/일정 PATCH를
+  처리하는 기존 어댑터를 유지한다. 참조 저장소의 인증·환경·배포 설정은 가져오지 않는다.
+- 사용자 지시에 따라 시뮬레이터 접근·실행·스크린샷 검증은 하지 않는다. 기기용 컴파일과
+  소스 비교를 실행 화면 검증으로 표현하지 않는다.
+
+로컬 검증: iOS `Debug-QA` generic iOS 컴파일, Swift `channel-write-checks`, Android
+`compileQaDebugKotlin`·`testQaDebugUnitTest`, 제품 fixture 격리 검사와 공개 저장소
+보안 검사 통과. 채널 UI 심볼의 다른 워크스페이스 레포 의존은 발견되지 않았다.
+원격 CI·QA 배포와 실기기 화면 검증은 이 소스 검증 결과와 구분한다.
+
 ## 2026-09-26 프로필 설정 기본 뒤로가기 제스처
 
 iOS `meloming-ios` `18a33bbf96fe52b28d0de361916e20549bdcce6b`의 `Presentation/More/MyPageView.swift`에서 탭별 `NavigationStack`과 시스템 탐색 동작을 확인했다. 로기챗 `apps/ios/Sources/Features/Settings/ProfileScreen.swift`는 시트 대신 기존 `AppShell.swift`의 `NavigationStack` 하위 페이지로 유지하고, 별도 뒤로가기 버튼 및 뒤로가기 숨김을 제거했다. 시스템 뒤로가기 버튼과 왼쪽 가장자리 스와이프가 같은 경로로 더보기 화면에 복귀한다. 미저장 변경은 일반 편집 페이지처럼 뒤로가면 폐기된다. 멜로밍의 프로필 시트와 닫기 버튼은 페이지 탐색 요구에 맞지 않아 적용하지 않았다.

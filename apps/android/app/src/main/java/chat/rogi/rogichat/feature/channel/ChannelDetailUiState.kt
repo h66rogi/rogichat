@@ -18,28 +18,16 @@ data class ChannelDetailUiState(
     val isFavorite: Boolean = false,
     val favoritesCount: Int = 0,
     val selectedTab: ChannelTab = ChannelTab.SONGBOOK,
-    /** feature-settings 기반 노출 탭 (순서 반영). 실패 시 폴백 순서 유지 */
-    val visibleTabs: List<ChannelTab> = DEFAULT_CHANNEL_TABS,
-    /** 서버 커스텀 라벨 (없으면 enum title 사용) */
-    val tabLabels: Map<ChannelTab, String> = emptyMap(),
     val error: String? = null,
     val showLoginRequiredDialog: Boolean = false,
     val pricingSettings: PricingSettings? = null,
     // Songbook state
     val songbookState: SongbookState = SongbookState(),
-    // Guestbook state
     // Schedule state
     val scheduleState: ScheduleState = ScheduleState(),
     // Info state
     val infoState: InfoState = InfoState(),
     val wardrobeState: ChannelWardrobeState = ChannelWardrobeState(),
-)
-
-data class ChannelWardrobeState(
-    val isLoading: Boolean = false,
-    val categories: List<ChannelWardrobeCategory> = emptyList(),
-    val items: List<ChannelWardrobeItem> = emptyList(),
-    val error: String? = null,
 )
 
 enum class SongSortOption(val apiValue: String, val displayName: String) {
@@ -114,15 +102,12 @@ data class InfoState(
 )
 
 enum class ChannelTab(val title: String) {
-    WARDROBE("옷장"),
-    SETLIST("셋리스트"),
     SONGBOOK("노래책"),
     SCHEDULE("일정"),
+    SETLIST("셋리스트"),
+    WARDROBE("옷장"),
     INFO("정보"),
 }
-
-/** feature-settings 로드 실패/미로드 시 폴백 순서 (기존 하드코딩과 동일 + 홈) */
-val DEFAULT_CHANNEL_TABS: List<ChannelTab> = listOf(ChannelTab.SONGBOOK, ChannelTab.SCHEDULE, ChannelTab.SETLIST, ChannelTab.WARDROBE)
 
 sealed interface ChannelDetailEvent {
     data class TabSelected(val tab: ChannelTab) : ChannelDetailEvent
@@ -166,3 +151,10 @@ sealed interface ChannelDetailEvent {
     data object DismissDeleteScheduleDialog : ChannelDetailEvent
     data object ConfirmDeleteSchedule : ChannelDetailEvent
 }
+
+data class ChannelWardrobeState(
+    val isLoading: Boolean = false,
+    val categories: List<ChannelWardrobeCategory> = emptyList(),
+    val items: List<ChannelWardrobeItem> = emptyList(),
+    val error: String? = null,
+)

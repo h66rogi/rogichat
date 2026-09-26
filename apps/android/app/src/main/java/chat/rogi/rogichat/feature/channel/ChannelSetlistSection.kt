@@ -41,15 +41,14 @@ fun ChannelSetlistSection(repository: ChannelSetlistRepository) {
         finally { loading = false }
     }
     LaunchedEffect(repository) { load() }
-    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(Modifier.fillMaxWidth().padding(16.dp)) {
         rows.forEach { row ->
-            Card(Modifier.fillMaxWidth().clickable { selected = row }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().clickable { selected = row }.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     AlbumArtImage(imageUrl = channelImageUrl(row.albumArtPreviews.firstOrNull()), modifier = Modifier.size(56.dp))
                     Spacer(Modifier.width(12.dp))
                     Column { Text(setlistDate(row.startedAt), style = MaterialTheme.typography.titleMedium); Text("${row.completedCount}곡", style = MaterialTheme.typography.bodySmall) }
-                }
             }
+            HorizontalDivider(Modifier.padding(start = 68.dp))
         }
         if (loading) CircularProgressIndicator(Modifier.align(Alignment.CenterHorizontally))
         else if (error) TextButton(onClick = { scope.launch { load() } }, modifier = Modifier.align(Alignment.CenterHorizontally)) { Text("다시 시도") }

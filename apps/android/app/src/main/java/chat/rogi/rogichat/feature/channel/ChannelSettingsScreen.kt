@@ -220,7 +220,7 @@ private fun ProfileImageSection(
         ) {
             if (profileImageUrl != null) {
                 AsyncImage(
-                    model = chat.rogi.rogichat.feature.channel.channelImageUrl(profileImageUrl),
+                    model = channelImageUrl(profileImageUrl),
                     contentDescription = "프로필 이미지",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,

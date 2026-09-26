@@ -14,9 +14,6 @@ final class ChannelDetailViewModel: ObservableObject {
     @Published var isOwner = false
     @Published var isLoading = false
     @Published var error: Error?
-    /// 채널 feature-settings — 로드 실패/미지원이면 nil 유지 → 클라이언트 기본 순서 폴백
-    @Published var featureSettings: ChannelFeatureSettingsResponse?
-    @Published var featureSettingsLoaded = false
 
     init(identifier: String, repository: ChannelRepository = AppClientChannelRepository()) {
         self.identifier = identifier
@@ -30,13 +27,11 @@ final class ChannelDetailViewModel: ObservableObject {
         do {
             let channelDTO = try await repository.fetchChannelDetail(identifier: identifier)
             channel = channelDTO.toDomain()
-            favoriteCount = channel?.favoritesCount ?? 0
 
             // Load profile, favorite status, favorite count, and permissions in parallel
             await withTaskGroup(of: Void.self) { group in
                 group.addTask { await self.loadProfile() }
                 group.addTask { await self.loadFavoriteCount() }
-                group.addTask { await self.loadFeatureSettings() }
                 if ChannelSession.shared.isAuthenticated {
                     group.addTask { await self.checkFavoriteStatus() }
                     group.addTask { await self.checkPermissions() }
@@ -59,21 +54,6 @@ final class ChannelDetailViewModel: ObservableObject {
             // Profile is optional, don't set error
         }
     }
-
-    private func loadFeatureSettings() async {
-        do {
-            featureSettings = try await ChannelAPIClient.shared.request(
-                endpoint: .channelFeatureSettings(identifier: identifier),
-                responseType: ChannelFeatureSettingsResponse.self
-            )
-        } catch {
-            // 실패 시 하드코딩 순서 폴백 (무중단)
-            featureSettings = nil
-        }
-        featureSettingsLoaded = true
-    }
-
-
 
     private func checkPermissions() async {
         do {
@@ -116,7 +96,7 @@ final class ChannelDetailViewModel: ObservableObject {
 
         // Optimistic update
         isFavorited.toggle()
-        favoriteCount = max(0, favoriteCount + (wasFavorited ? -1 : 1))
+        favoriteCount += wasFavorited ? -1 : 1
 
         do {
             if wasFavorited {

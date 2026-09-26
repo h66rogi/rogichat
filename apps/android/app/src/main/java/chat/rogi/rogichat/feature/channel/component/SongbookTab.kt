@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +28,6 @@ import com.adamglin.phosphoricons.Regular
 import com.adamglin.phosphoricons.fill.Check
 import com.adamglin.phosphoricons.fill.Funnel
 import com.adamglin.phosphoricons.fill.Heart
-import com.adamglin.phosphoricons.regular.CaretUp
 import com.adamglin.phosphoricons.regular.SortAscending
 import com.adamglin.phosphoricons.fill.Star
 import com.adamglin.phosphoricons.regular.Heart
@@ -48,22 +46,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import android.widget.Toast
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -76,30 +66,26 @@ import chat.rogi.rogichat.feature.channel.ChannelDetailEvent
 import chat.rogi.rogichat.feature.channel.LiveSongRequestUiState
 import chat.rogi.rogichat.feature.channel.SongbookState
 import chat.rogi.rogichat.feature.channel.SongSortOption
-import kotlinx.coroutines.launch
 
 fun LazyListScope.songbookTabContent(
     state: SongbookState,
     onEvent: (ChannelDetailEvent) -> Unit,
-    showSearch: Boolean = true,
 ) {
     // Search bar
-    if (showSearch) {
-        item(key = "songbook_search") {
-            Column {
-                Spacer(modifier = Modifier.height(16.dp))
+    item(key = "songbook_search") {
+        Column {
+            Spacer(modifier = Modifier.height(16.dp))
 
-                MelomingSearchBar(
-                    query = state.searchQuery,
-                    onQueryChange = { onEvent(ChannelDetailEvent.SongSearchChanged(it)) },
-                    onSearch = { },
-                    onClear = { onEvent(ChannelDetailEvent.SongSearchChanged("")) },
-                    placeholder = "곡 검색",
-                    modifier = Modifier.padding(horizontal = 16.dp),
-                )
+            MelomingSearchBar(
+                query = state.searchQuery,
+                onQueryChange = { onEvent(ChannelDetailEvent.SongSearchChanged(it)) },
+                onSearch = { },
+                onClear = { onEvent(ChannelDetailEvent.SongSearchChanged("")) },
+                placeholder = "곡 검색",
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
 
-                Spacer(modifier = Modifier.height(12.dp))
-            }
+            Spacer(modifier = Modifier.height(12.dp))
         }
     }
 
@@ -225,18 +211,9 @@ fun LazyListScope.songbookTabContent(
     } else {
         // Song list
         items(state.songs, key = { "song_${it.id}" }) { song ->
-            val clipboardManager = LocalClipboardManager.current
-            val hapticFeedback = LocalHapticFeedback.current
-            val context = LocalContext.current
             SongItem(
                 song = song,
-                onClick = {
-                    val text = song.artist?.let { "${it.name} - ${song.title}" } ?: song.title
-                    clipboardManager.setText(AnnotatedString(text))
-                    hapticFeedback.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    Toast.makeText(context, "클립보드에 복사되었습니다", Toast.LENGTH_SHORT).show()
-                    onEvent(ChannelDetailEvent.SongSelected(song))
-                },
+                onClick = { onEvent(ChannelDetailEvent.SongSelected(song)) },
                 onFavoriteClick = { onEvent(ChannelDetailEvent.ToggleSongFavorite(song)) },
                 liveRequestState = state.liveRequestState,
                 isRequestSubmitting = state.isRequestSubmitting,
@@ -351,207 +328,178 @@ internal fun LiveRequestStatusBottomSheet(
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scrollState = rememberScrollState()
-    val coroutineScope = rememberCoroutineScope()
-    val showsScrollToTop by remember {
-        derivedStateOf { scrollState.value > 200 }
-    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {
-        Box(modifier = Modifier.fillMaxWidth()) {
-            Column(
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Text(
+                text = "신청곡 현황",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.align(Alignment.CenterHorizontally),
+            )
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Status badge
+            val statusBrush = Brush.horizontalGradient(
+                colors = if (state.paused) {
+                    listOf(Color(0xFF9CA3AF), Color(0xFF6B7280))
+                } else {
+                    listOf(Color(0xFFD946EF), Color(0xFFEC4899), Color(0xFF8B5CF6))
+                },
+            )
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .verticalScroll(scrollState)
-                    .padding(horizontal = 24.dp)
-                    .padding(bottom = 88.dp),
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(statusBrush)
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text(
-                    text = "신청곡 현황",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.align(Alignment.CenterHorizontally),
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Status badge
-                val statusBrush = Brush.horizontalGradient(
-                    colors = if (state.paused) {
-                        listOf(Color(0xFF9CA3AF), Color(0xFF6B7280))
-                    } else {
-                        listOf(Color(0xFFD946EF), Color(0xFFEC4899), Color(0xFF8B5CF6))
-                    },
-                )
-                Row(
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(statusBrush)
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.24f)),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.24f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            imageVector = PhosphorIcons.Fill.Radio,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(16.dp),
-                        )
-                    }
-                    Text(
-                        text = if (state.paused) "신청곡 일시정지" else "신청곡 받는 중",
-                        style = MaterialTheme.typography.labelLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                    Icon(
+                        imageVector = PhosphorIcons.Fill.Radio,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp),
                     )
                 }
+                Text(
+                    text = if (state.paused) "신청곡 일시정지" else "신청곡 받는 중",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+            }
 
-                Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-                // Queue info
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
+            // Queue info
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        text = "대기열 현황",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        verticalAlignment = Alignment.Bottom,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
                         Text(
-                            text = "대기열 현황",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            text = "${state.queueCount}",
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            verticalAlignment = Alignment.Bottom,
-                            horizontalArrangement = Arrangement.spacedBy(2.dp),
-                        ) {
+                        if (state.maxQueueSize > 0) {
                             Text(
-                                text = "${state.queueCount}",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
+                                text = "/ ${state.maxQueueSize}",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(bottom = 2.dp),
                             )
-                            if (state.maxQueueSize > 0) {
-                                Text(
-                                    text = "/ ${state.maxQueueSize}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(bottom = 2.dp),
-                                )
-                            }
                         }
                     }
-                    if (state.isQueueFull) {
-                        Text(
-                            text = "대기열 가득",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(Color(0xFFEF4444))
-                                .padding(horizontal = 10.dp, vertical = 4.dp),
-                        )
-                    }
                 }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Request availability info
-                val infoText = when {
-                    state.paused -> "신청곡이 일시정지 상태입니다. 잠시 후 다시 시도해 주세요."
-                    state.isQueueFull -> "대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요."
-                    state.canRequest -> "신청곡을 받고 있습니다. 노래책에서 곡을 선택하여 신청해 주세요."
-                    else -> "현재 신청곡을 받을 수 없습니다."
-                }
-                val infoColor = when {
-                    state.canRequest -> Color(0xFF10B981)
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                Text(
-                    text = infoText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = infoColor,
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Queue list
-                Text(
-                    text = "대기열",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                if (state.isLoadingQueue) {
-                    Box(
+                if (state.isQueueFull) {
+                    Text(
+                        text = "대기열 가득",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                    }
-                } else if (state.queueItems.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(120.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "대기 중인 신청곡이 없습니다",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                } else {
-                    state.queueItems.forEachIndexed { index, item ->
-                        QueueItemRow(index = index + 1, item = item)
-                        if (index < state.queueItems.lastIndex) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    }
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(Color(0xFFEF4444))
+                            .padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
                 }
             }
 
-            if (showsScrollToTop) {
-                Button(
-                    onClick = {
-                        coroutineScope.launch {
-                            scrollState.animateScrollTo(0)
-                        }
-                    },
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Request availability info
+            val infoText = when {
+                state.paused -> "신청곡이 일시정지 상태입니다. 잠시 후 다시 시도해 주세요."
+                state.isQueueFull -> "대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요."
+                state.canRequest -> "신청곡을 받고 있습니다. 노래책에서 곡을 선택하여 신청해 주세요."
+                else -> "현재 신청곡을 받을 수 없습니다."
+            }
+            val infoColor = when {
+                state.canRequest -> Color(0xFF10B981)
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            Text(
+                text = infoText,
+                style = MaterialTheme.typography.bodySmall,
+                color = infoColor,
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Queue list
+            Text(
+                text = "대기열",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            if (state.isLoadingQueue) {
+                Box(
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(end = 24.dp, bottom = 24.dp),
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = PhosphorIcons.Regular.CaretUp,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp),
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            } else if (state.queueItems.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "대기 중인 신청곡이 없습니다",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("맨 위로")
+                }
+            } else {
+                state.queueItems.forEachIndexed { index, item ->
+                    QueueItemRow(index = index + 1, item = item)
+                    if (index < state.queueItems.lastIndex) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
                 }
             }
         }

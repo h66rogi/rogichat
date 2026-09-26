@@ -1,5 +1,6 @@
 package chat.rogi.rogichat.feature.channel.component
 
+import chat.rogi.rogichat.feature.channel.channelImageUrl
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box

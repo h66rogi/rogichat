@@ -1,95 +1,47 @@
 import SwiftUI
 import Kingfisher
 import SafariServices
-import WebKit
 
 struct ChannelDetailView: View {
     let identifier: String
-    var initialTab: ChannelTab = .songBook
     let onTalk: () -> Void
-
+    var initialTab: ChannelTab = .songbook
 
     @StateObject private var viewModel: ChannelDetailViewModel
     @StateObject private var songRequestManager: SongRequestManager
+    @State private var showQueue = false
+    @State private var showManagement = false
+    @State private var showConsole = false
     @State private var selectedTab: ChannelTab
     @State private var showAddSong = false
     @State private var showAddSchedule = false
-    @State private var showChannelManagement = false
-    @State private var showChannelSettings = false
-    @State private var showConsole = false
     @State private var songBookRefreshToken = UUID()
-    @State private var songBookSearchText = ""
     @State private var scheduleRefreshToken = UUID()
-    @State private var showQueueSheet = false
 
-    /// feature-settings 병합 결과 탭 (서버 라벨 오버라이드 반영)
-    struct ChannelResolvedTab: Identifiable, Equatable {
-        let tab: ChannelTab
-        let label: String
-
-        var id: ChannelTab { tab }
-        var icon: String { tab.icon }
-    }
-
-    enum ChannelTab: String, CaseIterable, Hashable {
-        case wardrobe = "옷장"
-        case setlist = "셋리스트"
-        case songBook = "노래책"
+    enum ChannelTab: String, CaseIterable {
+        case songbook = "노래책"
         case schedule = "일정"
+        case setlist = "셋리스트"
+        case wardrobe = "옷장"
         case info = "정보"
 
         var icon: String {
             switch self {
-            case .wardrobe: return "tshirt"
-            case .setlist: return "list.number"
-            case .songBook: return "music.note.list"
+            case .songbook: return "music.note.list"
             case .schedule: return "calendar"
-            case .info: return "person.text.rectangle"
+            case .setlist: return "list.number"
+            case .wardrobe: return "tshirt"
+            case .info: return "info.circle"
             }
-        }
-
-        /// 서버 feature-settings key → iOS 지원 탭 매핑.
-        /// 미지원 key(board/upbo/ranking/setlist/homework-song 및 커스텀 메뉴)는 graceful 제외.
-        static let featureKeyMap: [String: ChannelTab] = [
-            "wardrobe": .wardrobe,
-            "setlist": .setlist,
-            "musicbook": .songBook,
-            "schedule": .schedule,
-            "info": .info
-        ]
-
-        /// 설정 로드 실패/빈 응답 시 기존 하드코딩 순서 폴백 (무중단)
-        static var fallbackResolvedTabs: [ChannelResolvedTab] {
-            [.songBook, .schedule, .setlist, .wardrobe]
-                .map { ChannelResolvedTab(tab: $0, label: $0.rawValue) }
-        }
-
-        /// 웹 getConfiguredTabItems와 동일: enabled 필터 → order 정렬 → 라벨 오버라이드
-        static func resolveTabs(
-            from settings: ChannelFeatureSettingsResponse?
-        ) -> [ChannelResolvedTab] {
-            guard let settings, !settings.items.isEmpty else {
-                return fallbackResolvedTabs
-            }
-            let sorted = settings.items.sorted { ($0.order ?? .max) < ($1.order ?? .max) }
-            var resolved: [ChannelResolvedTab] = []
-            for item in sorted {
-                guard item.isEnabled else { continue }
-                guard let tab = featureKeyMap[item.key],
-                      !resolved.contains(where: { $0.tab == tab }) else { continue }
-                resolved.append(ChannelResolvedTab(tab: tab, label: item.displayLabel ?? tab.rawValue))
-            }
-            guard !resolved.isEmpty else { return [] }
-            return resolved
         }
     }
 
-    init(identifier: String = "h66rogi", initialTab: ChannelTab = .songBook, onTalk: @escaping () -> Void) {
+    init(identifier: String = "h66rogi", initialTab: ChannelTab = .songbook, onTalk: @escaping () -> Void = {}) {
         self.identifier = identifier
         self.onTalk = onTalk
+        self._songRequestManager = StateObject(wrappedValue: SongRequestManager(identifier: identifier))
         self.initialTab = initialTab
         self._viewModel = StateObject(wrappedValue: ChannelDetailViewModel(identifier: identifier))
-        self._songRequestManager = StateObject(wrappedValue: SongRequestManager(identifier: identifier))
         self._selectedTab = State(initialValue: initialTab)
     }
 
@@ -99,54 +51,53 @@ struct ChannelDetailView: View {
                 LoadingView()
             } else if let channel = viewModel.channel {
                 ScrollView {
-                    LazyVStack(spacing: 0, pinnedViews: [.sectionHeaders]) {
-                        ChannelProfileHero(
-                            channel: channel,
-                            profile: viewModel.profile,
-                            isFavorited: viewModel.isFavorited,
-                            favoriteCount: viewModel.favoriteCount,
-                            isOwner: viewModel.isOwner,
-                            onFavorite: { Task { await viewModel.toggleFavorite() } },
-                            onTalk: onTalk,
-                            onEditProfile: { showChannelSettings = true },
-                            onManage: { showChannelManagement = true }
-                        )
+                    VStack(spacing: 0) {
+                        // Header
+                        ChannelHeader(channel: channel, favoriteCount: viewModel.favoriteCount)
 
-                        Section {
-                            if resolvedTabs.isEmpty {
-                                unavailableSectionsView
-                                    .padding(.bottom, 42)
-                            } else {
-                                selectedSectionContent(channel: channel)
-                                    .padding(.bottom, 42)
+                        // Tab Selector
+                        Picker("Tab", selection: $selectedTab) {
+                            ForEach(ChannelTab.allCases, id: \.self) { tab in
+                                Label(tab.rawValue, systemImage: tab.icon)
+                                    .tag(tab)
                             }
-                        } header: {
-                            if !resolvedTabs.isEmpty {
-                                VStack(spacing: 6) {
-                                    ChannelSectionRail(
-                                        tabs: resolvedTabs,
-                                        selectedTab: $selectedTab,
-                                        onSelect: openSection
-                                    )
+                        }
+                        .pickerStyle(.segmented)
+                        .padding()
 
-                                    if selectedTab == .songBook {
-                                        SongBookSearchBar(text: $songBookSearchText)
-                                            .padding(.horizontal, 20)
-                                            .padding(.bottom, 8)
-                                    }
-
-                                    if viewModel.canManageContent {
-                                        ownerSectionAction
-                                    }
-                                }
-                                .padding(.top, 6)
-                                .padding(.bottom, 10)
+                        // Tab Content
+                        switch selectedTab {
+                        case .songbook:
+                            SongBookView(channelId: channel.id, identifier: channel.webPath, refreshToken: songBookRefreshToken, songRequestManager: songRequestManager, onShowQueue: { showQueue = true })
+                        case .schedule:
+                            ScheduleView(channelId: channel.id, refreshToken: scheduleRefreshToken, canEdit: viewModel.canManageContent)
+                        case .setlist:
+                            ChannelSetlistView(identifier: channel.webPath)
+                        case .wardrobe:
+                            ChannelWardrobeView(identifier: channel.webPath)
+                        case .info:
+                            if viewModel.canManageSettings {
+                                Button("채널 관리", systemImage: "gearshape") { showManagement = true }
+                                    .padding(.top)
                             }
+                            if viewModel.canManageContent {
+                                Button("신청곡 콘솔", systemImage: "music.note.list") { showConsole = true }
+                                    .padding(.top)
+                            }
+                            ChannelInfoView(channel: channel, profile: viewModel.profile, favoriteCount: viewModel.favoriteCount)
                         }
                     }
                 }
-                .background(Color(.systemBackground))
-                .refreshable { await viewModel.loadChannel() }
+                .refreshable {
+                    switch selectedTab {
+                    case .songbook:
+                        songBookRefreshToken = UUID()
+                    case .schedule:
+                        scheduleRefreshToken = UUID()
+                    case .setlist, .wardrobe, .info:
+                        await viewModel.loadChannel()
+                    }
+                }
             } else if let error = viewModel.error {
                 ErrorView(error: error) {
                     Task {
@@ -168,41 +119,64 @@ struct ChannelDetailView: View {
                 }
             }
         }
-        .navigationTitle(viewModel.channel?.name ?? "채널")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: onTalk) { Image(systemName: "chevron.left") }
+                    .accessibilityLabel("대화로 돌아가기")
+                    .tint(.primary)
+            }
+            ToolbarItem(placement: .principal) {
+                if let channel = viewModel.channel {
+                    HStack {
+                        Text(channel.name)
+                            .font(.headline)
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
                 if let channel = viewModel.channel {
                     let webURL = ChannelEnvironment.webURL
-                    if let url = URL(string: "\(webURL.absoluteString)/channel/\(channel.webPath)") {
-                        ShareLink(
-                            item: url,
-                            subject: Text(channel.name),
-                            message: Text("\(channel.name) - 로기챗")
-                        ) {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                        .accessibilityLabel("채널 공유")
+                    ShareLink(
+                        item: URL(string: "\(webURL.absoluteString)/channel/\(channel.webPath)")!,
+                        subject: Text(channel.name),
+                        message: Text("\(channel.name) - 로기챗")
+                    ) {
+                        Image(systemName: "square.and.arrow.up")
                     }
+                }
+            }
 
-                    if viewModel.canManageSettings {
-                        Menu {
-                            Button {
-                                showConsole = true
-                            } label: {
-                                Label("신청곡 콘솔", systemImage: "music.note.list")
-                            }
-
-                            Button {
-                                showChannelManagement = true
-                            } label: {
-                                Label("채널 관리", systemImage: "gearshape")
-                            }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if viewModel.canManageContent {
+                    if selectedTab == .songbook {
+                        Button {
+                            showAddSong = true
                         } label: {
-                            Image(systemName: "ellipsis.circle")
+                            Image(systemName: "plus")
                         }
-                        .accessibilityLabel("채널 더보기")
+                    } else if selectedTab == .schedule {
+                        Button {
+                            showAddSchedule = true
+                        } label: {
+                            Image(systemName: "plus")
+                        }
                     }
+                }
+            }
+
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    Task {
+                        await viewModel.toggleFavorite()
+                    }
+                } label: {
+                    Image(systemName: viewModel.isFavorited ? "star.fill" : "star")
+                        .foregroundColor(viewModel.isFavorited ? .yellow : .primary)
                 }
             }
         }
@@ -220,19 +194,13 @@ struct ChannelDetailView: View {
                 }
             }
         }
-        .navigationDestination(isPresented: $showChannelManagement) {
-            if let channel = viewModel.channel {
-                ChannelManagementView(
-                    channelId: channel.id,
-                    channelName: channel.name,
-                    identifier: identifier,
-                    isOwner: viewModel.isOwner
-                )
-            }
+        .sheet(isPresented: $showQueue) {
+            SongRequestQueueSheet(manager: songRequestManager)
+                .presentationDetents([.medium, .large])
         }
-        .navigationDestination(isPresented: $showChannelSettings) {
+        .navigationDestination(isPresented: $showManagement) {
             if let channel = viewModel.channel {
-                ChannelSettingsView(channelId: channel.id, identifier: identifier)
+                ChannelManagementView(channelId: channel.id, channelName: channel.name, identifier: identifier)
             }
         }
         .navigationDestination(isPresented: $showConsole) {
@@ -240,117 +208,95 @@ struct ChannelDetailView: View {
                 ConsoleView(channelId: channel.id, channelIdentifier: channel.webPath)
             }
         }
-        .sheet(isPresented: $showQueueSheet) {
-            SongRequestQueueSheet(manager: songRequestManager)
-                .presentationDetents([.large])
-        }
         .task {
             await ChannelSession.shared.refresh()
-            async let channelLoad: Void = viewModel.loadChannel()
-            async let liveStateLoad: Void = songRequestManager.fetchLiveState()
-            _ = await (channelLoad, liveStateLoad)
+            await viewModel.loadChannel()
+            await songRequestManager.fetchLiveState()
             songRequestManager.start()
         }
-        .onChange(of: viewModel.featureSettingsLoaded) { loaded in
-            if loaded { adjustSelectionForResolvedTabs() }
-        }
-        .onDisappear {
-            songRequestManager.stop()
-        }
+        .onDisappear { songRequestManager.stop() }
     }
-
-    private var resolvedTabs: [ChannelResolvedTab] {
-        ChannelTab.resolveTabs(
-            from: viewModel.featureSettings
-        )
-    }
-
-    private var unavailableSectionsView: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "rectangle.stack.badge.minus")
-                .font(.system(size: 34, weight: .medium))
-                .foregroundStyle(.secondary)
-
-            Text("공개된 채널 섹션이 없어요")
-                .font(.headline)
-
-            Text("채널에서 섹션을 공개하면 이곳에서 확인할 수 있어요.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, minHeight: 240)
-        .padding(.horizontal, 24)
-    }
-
-    /// 설정 로드 후 기본 진입 탭이 비활성이면 첫 활성 탭으로 이동.
-    /// 딥링크(initialTab 명시)로 들어온 탭은 사용자가 의도한 것이므로 그대로 유지.
-    private func adjustSelectionForResolvedTabs(forceUnavailableSelection: Bool = false) {
-        guard (forceUnavailableSelection || selectedTab == initialTab),
-              !resolvedTabs.contains(where: { $0.tab == selectedTab }),
-              let first = resolvedTabs.first?.tab else { return }
-        selectedTab = first
-    }
-
-    private func openSection(_ tab: ChannelTab) {
-        withAnimation(.easeInOut(duration: 0.24)) {
-            selectedTab = tab
-        }
-    }
-
-    @ViewBuilder
-    private var ownerSectionAction: some View {
-        switch selectedTab {
-        case .songBook:
-            ChannelOwnerSectionAction(title: "노래 추가", systemImage: "plus") {
-                showAddSong = true
-            }
-        case .schedule:
-            ChannelOwnerSectionAction(title: "일정 추가", systemImage: "plus") {
-                showAddSchedule = true
-            }
-        default:
-            EmptyView()
-        }
-    }
-
-    @ViewBuilder
-    private func selectedSectionContent(channel: Channel) -> some View {
-        switch selectedTab {
-        case .wardrobe:
-            ChannelWardrobeView(identifier: channel.webPath)
-        case .setlist:
-            ChannelSetlistView(identifier: channel.webPath)
-        case .songBook:
-            SongBookView(
-                channelId: channel.id,
-                identifier: channel.webPath,
-                refreshToken: songBookRefreshToken,
-                songRequestManager: songRequestManager,
-                pinnedSearchText: $songBookSearchText,
-                onShowQueue: { showQueueSheet = true }
-            )
-            .padding(.top, 12)
-        case .schedule:
-            ScheduleView(
-                channelId: channel.id,
-                refreshToken: scheduleRefreshToken,
-                canEdit: viewModel.canManageContent
-            )
-            .padding(.top, 12)
-        case .info:
-            ChannelInfoView(
-                channel: channel,
-                profile: viewModel.profile,
-                favoriteCount: viewModel.favoriteCount
-            )
-            .padding(.top, 12)
-        }
-    }
-
-
 }
 
+// MARK: - Channel Header
+struct ChannelHeader: View {
+    let channel: Channel
+    let favoriteCount: Int
+
+    private var themeColor: Color {
+        Color(hex: channel.themeColor)
+    }
+
+    private var textColor: Color {
+        themeColor.isLight ? .black : .white
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Theme Color Background Area
+            ZStack(alignment: .bottom) {
+                // Background
+                themeColor
+                    .frame(height: channel.topBannerUrl != nil ? 230 : 160)
+
+                VStack(spacing: 0) {
+                    // Banner (if exists)
+                    if let bannerUrl = channel.topBannerUrl {
+                        KFImage(ChannelEnvironment.imageURL(bannerUrl))
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(height: 120)
+                            .clipped()
+                    }
+
+                    // Profile Area with theme color background
+                    HStack(spacing: 16) {
+                        // Profile Image
+                        KFImage(ChannelEnvironment.imageURL(channel.profileImageUrl ?? ""))
+                            .placeholder {
+                                Circle()
+                                    .fill(Color.white.opacity(0.3))
+                                    .overlay(
+                                        Text(channel.name.prefix(1))
+                                            .font(.title.bold())
+                                            .foregroundColor(textColor)
+                                    )
+                            }
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 72, height: 72)
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white, lineWidth: 3)
+                            )
+                            .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+
+                        // Name and Stats
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(channel.name)
+                                .font(.title3.bold())
+                                .foregroundColor(textColor)
+
+                            HStack(spacing: 12) {
+                                Label("\(channel.songCount)곡", systemImage: "music.note")
+                                Label("\(favoriteCount)", systemImage: "star.fill")
+                            }
+                            .font(.subheadline)
+                            .foregroundColor(textColor.opacity(0.8))
+                        }
+
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.vertical, 16)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Color Extension for Light/Dark detection
 extension Color {
     var isLight: Bool {
         return luminance > 0.5
@@ -758,39 +704,3 @@ struct HTMLTextView: View {
         return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
-
-// MARK: - Channel Platform Badge
-struct ChannelPlatformBadge: View {
-    let platform: String
-
-    var body: some View {
-        Text(displayName)
-            .font(.caption2)
-            .fontWeight(.semibold)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(badgeColor)
-            .foregroundColor(.white)
-            .clipShape(Capsule())
-    }
-
-    private var displayName: String {
-        switch platform {
-        case "SOOP": return "SOOP"
-        case "CHZZK": return "CHZZK"
-        case "CIME": return "CIME"
-        default: return platform
-        }
-    }
-
-    private var badgeColor: Color {
-        switch platform {
-        case "SOOP": return Color(red: 0, green: 0.47, blue: 0.95)
-        case "CHZZK": return Color(red: 0, green: 0.78, blue: 0.37)
-        case "CIME": return Color(red: 0.66, green: 0.33, blue: 0.97)
-        default: return .gray
-        }
-    }
-}
-
-// MARK: - Channel Gift Tab

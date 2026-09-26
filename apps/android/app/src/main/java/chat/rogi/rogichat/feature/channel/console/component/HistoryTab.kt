@@ -1,6 +1,5 @@
 package chat.rogi.rogichat.feature.channel.console.component
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row

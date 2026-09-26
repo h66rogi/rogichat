@@ -6,6 +6,7 @@ struct Channel: Identifiable, Equatable {
     let webPath: String
     let platformUrl: String?
     let profileImageUrl: String?
+    let topBannerUrl: String?
     let themeColor: String
     let channelDescription: String?
     let additionalLinks: [ChannelLink]
@@ -136,6 +137,7 @@ struct ChannelDTO: Decodable {
             webPath: webPath,
             platformUrl: platformUrl,
             profileImageUrl: profileImageUrl,
+            topBannerUrl: topBannerUrl,
             themeColor: themeColor ?? "#6366f1",
             channelDescription: channelDescription,
             additionalLinks: additionalLinks ?? [],
@@ -179,6 +181,7 @@ struct FavoriteChannelDTO: Decodable {
             webPath: webPath,
             platformUrl: nil,
             profileImageUrl: profileImageUrl,
+            topBannerUrl: nil,
             themeColor: themeColor,
             channelDescription: nil,
             additionalLinks: [],
