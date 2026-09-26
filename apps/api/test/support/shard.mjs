@@ -1,12 +1,12 @@
-// QA run 36183038038 spent 245s in shard 3 and 66s in shard 2. Keep the
-// longest integration files apart while retaining the existing assignment for
-// every other file and for specialized suites with a different shard count.
+// QA run 36213359943 spent 583s in shard 0, versus 117-224s in the others.
+// Its two longest files each took about 155s. Keep them on separate runners
+// while retaining every other assignment and specialized suite behavior.
 const FOUR_SHARD_INTEGRATION_OVERRIDES = new Map([
   ['test/integration/channel-content-core.test.mjs', 1],
-  ['test/integration/channel-content-media.test.mjs', 0],
+  ['test/integration/channel-content-media.test.mjs', 2],
   ['test/integration/channel-content-live.test.mjs', 3],
   ['test/integration/channel-content-requests.test.mjs', 2],
-  ['test/integration/default-room.test.mjs', 0],
+  ['test/integration/default-room.test.mjs', 1],
   ['test/integration/media-worker.test.mjs', 1],
   ['test/integration/messages.test.mjs', 0],
   ['test/integration/native-soop.test.mjs', 1],
