@@ -7,7 +7,7 @@ import tempfile
 from pathlib import Path
 
 import changes
-from changes import backend_image_changed, changed_paths, classify, classify_path, pull_request_base
+from changes import backend_image_changed, backend_tests_changed, changed_paths, classify, classify_path, pull_request_base
 
 
 class ComponentChangesTest(unittest.TestCase):
@@ -41,6 +41,7 @@ class ComponentChangesTest(unittest.TestCase):
                  'tools/operations/backend-release.md']
         self.assertEqual(classify(tests), (False, True))
         self.assertFalse(backend_image_changed(tests))
+        self.assertTrue(backend_tests_changed(tests))
         self.assertFalse(backend_image_changed(tests + ['docs/test-plan.md']))
         for release_input in ('apps/api/src/main.ts', 'apps/api/prisma/schema.prisma',
                               'apps/api/Dockerfile', '.github/workflows/backend-publish.yml',
@@ -55,6 +56,42 @@ class ComponentChangesTest(unittest.TestCase):
                               'tools/operations/backend_archive.py',
                               'tools/operations/new_release_helper.py'):
             self.assertTrue(backend_image_changed(tests + [release_input]), release_input)
+
+    def test_dockerfile_only_requires_image_check_without_source_tests(self):
+        self.assertEqual(classify(['apps/api/Dockerfile']), (False, True))
+        self.assertTrue(backend_image_changed(['apps/api/Dockerfile']))
+        self.assertFalse(backend_tests_changed(['apps/api/Dockerfile']))
+        self.assertFalse(backend_tests_changed(['apps/api/Dockerfile', 'docs/release.md']))
+        for extra in ('apps/api/src/main.ts', 'apps/api/test/integration/messages.test.mjs',
+                      '.dockerignore', 'apps/api/new-build-input', 'tools/release/changes.py'):
+            self.assertTrue(backend_tests_changed(['apps/api/Dockerfile', extra]), extra)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def git(*args):
+                return subprocess.check_output(['git', '-C', temporary, *args],
+                                               stderr=subprocess.PIPE).decode().strip()
+            git('init', '-q')
+            git('config', 'user.name', 'Fixture')
+            git('config', 'user.email', 'fixture@example.invalid')
+            dockerfile = root / 'apps/api/Dockerfile'
+            dockerfile.parent.mkdir(parents=True)
+            dockerfile.write_text('FROM scratch\n')
+            git('add', '.')
+            git('commit', '-qm', 'baseline')
+            base = git('rev-parse', 'HEAD')
+            dockerfile.write_text('FROM scratch\n# image-only change\n')
+            git('add', '.')
+            git('commit', '-qm', 'image input')
+            output = root / 'outputs.txt'
+            result = subprocess.run(
+                [sys.executable, str(Path(changes.__file__).resolve()),
+                 '--base', base, '--head', git('rev-parse', 'HEAD')], cwd=root,
+                env=dict(os.environ, GITHUB_EVENT_NAME='push', GITHUB_OUTPUT=str(output)),
+                capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr.decode())
+            self.assertEqual(output.read_text(),
+                             'web=false\nbackend=true\nbackend_image=true\nbackend_tests=false\n')
 
     def test_test_only_boundary_writes_backend_without_image_output(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -87,7 +124,7 @@ class ComponentChangesTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr.decode())
             self.assertEqual(json.loads(result.stdout)['backend_image'], False)
             self.assertEqual(output.read_text(),
-                             'web=false\nbackend=true\nbackend_image=false\n')
+                             'web=false\nbackend=true\nbackend_image=false\nbackend_tests=true\n')
 
     def test_pull_request_uses_merge_commit_parent_when_event_base_is_stale(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -137,7 +174,7 @@ class ComponentChangesTest(unittest.TestCase):
                              GITHUB_OUTPUT=str(output)), capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr.decode())
                 self.assertEqual(output.read_text(),
-                                 'web=false\nbackend=true\nbackend_image=true\n')
+                                 'web=false\nbackend=true\nbackend_image=true\nbackend_tests=true\n')
             finally:
                 os.chdir(previous)
 

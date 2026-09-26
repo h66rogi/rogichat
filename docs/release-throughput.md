@@ -41,6 +41,12 @@ exact successful source checks, then authenticates to the registry. This removes
 the duplicate QA web container build. The backend publisher follows the same
 ordering. A skipped web publisher does not start an export.
 
+An exact `apps/api/Dockerfile`-only change runs the backend image safety gate
+without repeating application static and MySQL tests; it changes image assembly,
+not the application source those tests execute. Mixed or unknown backend inputs
+still run both test jobs. The backend required check remains stable, and image
+safety is still mandatory before merge.
+
 Docker builds use a BuildKit cache mount for the pnpm download store. It is
 discarded from image layers. Pull request container jobs record cold and warm
 build durations and uncompressed runtime image sizes in their job summaries;

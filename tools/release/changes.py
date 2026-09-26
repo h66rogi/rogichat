@@ -77,6 +77,12 @@ BACKEND_NON_IMAGE_FILES = {
 BACKEND_NON_IMAGE_PREFIXES = (
     'apps/api/test/integration/',
 )
+# A Dockerfile-only change changes the image, but not the application sources
+# exercised by the disposable MySQL and static test jobs. Unknown image inputs
+# continue through both checks.
+BACKEND_IMAGE_ONLY_FILES = {
+    'apps/api/Dockerfile',
+}
 UNRELATED_PREFIXES = (
     'apps/android/', 'apps/ios/', 'docs/', 'tools/mobile/',
     'tools/infrastructure/',
@@ -125,6 +131,12 @@ def backend_image_changed(paths: list[str]) -> bool:
                and path not in BACKEND_NON_IMAGE_FILES
                and not (path.startswith(BACKEND_NON_IMAGE_PREFIXES)
                         and path.endswith('.test.mjs'))
+               for path in paths)
+
+
+def backend_tests_changed(paths: list[str]) -> bool:
+    """Skip source tests only when every backend input is the reviewed Dockerfile."""
+    return any(classify_path(path)[1] and path not in BACKEND_IMAGE_ONLY_FILES
                for path in paths)
 
 
@@ -186,12 +198,15 @@ def main() -> None:
     paths = changed_paths(base, args.head) if base is not None else None
     web, backend = (True, True) if paths is None else classify(paths)
     image = True if paths is None else backend_image_changed(paths)
-    result = {'web': web, 'backend': backend, 'backend_image': image, 'paths': paths}
+    tests = True if paths is None else backend_tests_changed(paths)
+    result = {'web': web, 'backend': backend, 'backend_image': image,
+              'backend_tests': tests, 'paths': paths}
     print(json.dumps(result, sort_keys=True))
     if output := os.getenv('GITHUB_OUTPUT'):
         with open(output, 'a', encoding='utf-8') as stream:
             stream.write(f'web={str(web).lower()}\nbackend={str(backend).lower()}\n'
-                         f'backend_image={str(image).lower()}\n')
+                         f'backend_image={str(image).lower()}\n'
+                         f'backend_tests={str(tests).lower()}\n')
 
 
 if __name__ == '__main__':
