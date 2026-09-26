@@ -94,7 +94,7 @@ test('production cold receipt recovery performs fresh message read without anoth
   await page.reload(); expect(state.posts).toHaveLength(1);
   const outgoing = await recoveredMessage(page, id, false);
   await expect.poll(() => state.lookups.length).toBeGreaterThan(0);
-  await expect(outgoing).toContainText('보내는 중'); expect(state.posts).toHaveLength(1);
+  await expect(outgoing).toContainText('확인 중'); expect(state.posts).toHaveLength(1);
   state.holdLookup = null; release();
   await expect(page.getByRole('region', { name: '후로기 메시지', exact: true }).getByText('유실된 ACK는 조회로 복구', { exact: true })).toBeVisible();
   await expect.poll(() => state.snapshots).toBeGreaterThan(snapshots);
