@@ -10,7 +10,10 @@ final class ScheduleViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var selectedSchedule: Schedule?
     @Published var showScheduleDetail = false
-    @Published var loadError = false
+    @Published var showDeleteAlert = false
+    @Published var showEditSheet = false
+    @Published var deleteError: String?
+    @Published var showDeleteError = false
 
     private let calendar = Calendar.current
 
@@ -63,16 +66,29 @@ final class ScheduleViewModel: ObservableObject {
 
     func loadSchedules() async {
         isLoading = true
-        loadError = false
 
         do {
-            let response = try await repository.fetchSchedules(yearMonth: selectedYearMonth)
+            let response = try await repository.fetchSchedules(
+                channelId: channelId,
+                yearMonth: selectedYearMonth
+            )
             schedules = response.items.map { $0.toDomain() }
         } catch {
-            loadError = true
         }
 
         isLoading = false
+    }
+
+    func deleteSchedule(_ schedule: Schedule) async -> Bool {
+        do {
+            try await repository.deleteSchedule(scheduleId: schedule.id)
+            schedules.removeAll { $0.id == schedule.id }
+            return true
+        } catch {
+            deleteError = "일정을 삭제할 수 없습니다."
+            showDeleteError = true
+            return false
+        }
     }
 
     func previousMonth() {

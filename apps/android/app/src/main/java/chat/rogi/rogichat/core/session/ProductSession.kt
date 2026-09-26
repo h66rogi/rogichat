@@ -19,7 +19,7 @@ import chat.rogi.rogichat.feature.settings.ProfileRepository
 import chat.rogi.rogichat.feature.settings.ProfileEditor
 import chat.rogi.rogichat.feature.settings.NotificationPreferencesRepository
 import chat.rogi.rogichat.feature.rooms.RoomsRepository
-import chat.rogi.rogichat.feature.channel.ChannelRepository
+import chat.rogi.rogichat.channelport.ChannelGraph
 import kotlinx.coroutines.flow.StateFlow
 
 data class AccountSummary(val id: String, val nickname: String, val signInMethod: String?, val soopConnected: Boolean,
@@ -83,7 +83,7 @@ class ProductServices(
     val push: NativePushCoordinator? = null,
     val blocks: chat.rogi.rogichat.core.messageactions.AccountBlocksCoordinator? = null,
     val accountMedia: chat.rogi.rogichat.core.media.AccountMediaRepository? = null,
-    val channel: ChannelRepository? = null,
+    val channel: ChannelGraph? = null,
 ) {
     private val callbackScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.Default) }
     fun receiveSyncWake() { callbackScope.launch { actions?.revalidate(); conversations?.wake() } }
@@ -97,8 +97,9 @@ class ProductServices(
         fun installed(context: Context): ProductServices = installedServices ?: synchronized(this) {
             installedServices ?: run {
                 val api = ApiClient(BuildConfig.API_BASE_URL)
+                val credentials = androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT)
                 val coordinator = NativeSessionCoordinator(
-                    androidCredentialStore(context.applicationContext, BuildConfig.ENVIRONMENT),
+                    credentials,
                     api,
                 realtime = NativeRealtimeManager(SocketIORealtimeFactory()),
                 deletionStore = androidAccountDeletionStore(context.applicationContext, BuildConfig.ENVIRONMENT),
@@ -113,7 +114,7 @@ class ProductServices(
                 }
                 val push = NativePushCoordinator(coordinator, androidPushInstallation(context.applicationContext, BuildConfig.ENVIRONMENT),
                     FirebasePushProvider(context.applicationContext), AndroidPushPermission(context.applicationContext)::current, coordinator.session, owner)
-                coordinator.services(push, ChannelRepository(api)).also { installedServices = it }
+                coordinator.services(push, ChannelGraph(credentials, coordinator.session, owner)).also { installedServices = it }
             }
         }
     }

@@ -150,7 +150,7 @@ struct ProductRootView: View {
     @ViewBuilder private func destination(_ page: AppPage) -> some View {
         switch page {
         case .channel:
-            ChannelDetailView(onTalk: { navigation.selectTab(.talks) })
+            ChannelDetailView(onTalk: { navigation.selectTab(.talks) }).id(session.generation)
         case .welcome:
             WelcomeScreen(methods: session.capabilities.signInMethods, busy: session.busy, errorMessage: session.errorMessage,
                           onCancel: { Task { await session.cancelAuthentication() } }, onSignIn: { method in

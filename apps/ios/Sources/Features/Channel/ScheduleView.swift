@@ -2,12 +2,16 @@ import SwiftUI
 
 struct ScheduleView: View {
     let channelId: Int
+    let refreshToken: UUID
+    let canEdit: Bool
 
     @StateObject private var viewModel: ScheduleViewModel
     @State private var showPastSchedules = false
 
-    init(channelId: Int) {
+    init(channelId: Int, refreshToken: UUID = UUID(), canEdit: Bool = false) {
         self.channelId = channelId
+        self.refreshToken = refreshToken
+        self.canEdit = canEdit
         self._viewModel = StateObject(wrappedValue: ScheduleViewModel(channelId: channelId))
     }
 
@@ -38,15 +42,13 @@ struct ScheduleView: View {
 
             // Calendar or List
             if viewModel.isLoading {
-                LoadingView().frame(height: 200)
-            } else if viewModel.loadError {
-                EmptyStateView(icon: "exclamationmark.triangle", title: "일정을 불러올 수 없어요",
-                               message: "잠시 후 다시 시도해 주세요", actionTitle: "다시 시도") {
-                    Task { await viewModel.loadSchedules() }
-                }.frame(height: 200)
+                LoadingView()
             } else if viewModel.schedules.isEmpty {
-                EmptyStateView(icon: "calendar", title: "일정이 없습니다",
-                               message: "이번 달 등록된 일정이 없습니다").frame(height: 200)
+                EmptyStateView(
+                    icon: "calendar",
+                    title: "일정이 없습니다",
+                    message: "이번 달 등록된 일정이 없습니다"
+                )
             } else {
                 LazyVStack(alignment: .leading, spacing: 16, pinnedViews: .sectionHeaders) {
                     // Past schedules section (collapsed if there are upcoming schedules)
@@ -97,6 +99,11 @@ struct ScheduleView: View {
                 await viewModel.loadSchedules()
             }
         }
+        .onChange(of: refreshToken) { _ in
+            Task {
+                await viewModel.loadSchedules()
+            }
+        }
         .sheet(isPresented: $showPastSchedules) {
             PastSchedulesSheet(
                 scheduleGroups: viewModel.pastScheduleGroups,
@@ -113,10 +120,48 @@ struct ScheduleView: View {
             if let schedule = viewModel.selectedSchedule {
                 ScheduleDetailSheet(
                     schedule: schedule,
-                    canEdit: false
+                    canEdit: canEdit,
+                    onEdit: {
+                        viewModel.showScheduleDetail = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            viewModel.showEditSheet = true
+                        }
+                    },
+                    onDelete: {
+                        viewModel.showScheduleDetail = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            viewModel.showDeleteAlert = true
+                        }
+                    }
                 )
                 .presentationDetents([.medium, .large])
             }
+        }
+        .sheet(isPresented: $viewModel.showEditSheet) {
+            if let schedule = viewModel.selectedSchedule {
+                EditScheduleView(schedule: schedule) {
+                    Task {
+                        await viewModel.loadSchedules()
+                    }
+                }
+            }
+        }
+        .alert("일정 삭제", isPresented: $viewModel.showDeleteAlert) {
+            Button("삭제", role: .destructive) {
+                if let schedule = viewModel.selectedSchedule {
+                    Task {
+                        _ = await viewModel.deleteSchedule(schedule)
+                    }
+                }
+            }
+            Button("취소", role: .cancel) {}
+        } message: {
+            Text("이 일정을 삭제하시겠습니까?")
+        }
+        .alert("오류", isPresented: $viewModel.showDeleteError) {
+            Button("확인") { viewModel.deleteError = nil }
+        } message: {
+            if let error = viewModel.deleteError { Text(error) }
         }
     }
 
@@ -491,8 +536,4 @@ struct ScheduleDetailSheet: View {
             }
         }
     }
-}
-
-#Preview {
-    ScheduleView(channelId: 1)
 }

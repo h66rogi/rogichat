@@ -20,7 +20,7 @@ fun LicensesScreen() {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             runCatching {
-                listOf("apache-2.0.txt", "kotlin.txt", "phosphor-compose.txt", "phosphor-icons.txt", "network.txt", "database.txt", "realtime-push.txt")
+                listOf("apache-2.0.txt", "kotlin.txt", "phosphor-compose.txt", "phosphor-icons.txt", "network.txt", "database.txt", "realtime-push.txt", "channel-dependencies.txt")
                     .joinToString("\n\n") { context.assets.open("licenses/$it").bufferedReader().use { reader -> reader.readText() } }
             }
         }.onSuccess { notices = it }.onFailure { failed = true }
@@ -34,6 +34,7 @@ fun LicensesScreen() {
         LicenseItem("Firebase Cloud Messaging · Installations · Data Transport", "Apache License 2.0", "Copyright Google LLC and contributors")
         LicenseItem("Socket.IO · Engine.IO Java", "MIT License", "Copyright Naoyuki Kanezawa, Guillermo Rauch and contributors")
         LicenseItem("SLF4J", "MIT License", "Copyright (c) 2004–2022 QOS.ch Sarl")
+        LicenseItem("Coil · Timber · Reorderable · ColorPicker Compose", "Apache License 2.0", "저작권과 저자 정보는 아래 고지를 확인해 주세요.")
         LicenseItem("Compose Phosphor Icons", "MIT License", "Copyright (c) 2024 Adamglin")
         LicenseItem("Phosphor Icons", "MIT License", "Copyright (c) 2023 Phosphor Icons")
         when {

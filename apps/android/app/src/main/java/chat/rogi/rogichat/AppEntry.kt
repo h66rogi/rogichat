@@ -132,7 +132,7 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
     val route = entry?.destination?.route
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(operation.error) { operation.error?.let { snackbar.showSnackbar(it); sessionModel.dismissError() } }
-    val topLevel = route in setOf(null, "talks", "channel", "settings")
+    val topLevel = route in setOf(null, "talks", "settings")
     val privateAccount = session.account.takeIf { session.access in setOf(ShellAccess.READY, ShellAccess.LINK_REQUIRED) }
     val showsSessionStatus = presentedDeletion.visible || authState.active || authState.error != null ||
         (session.validationNeedsRetry && privateAccount != null)
@@ -201,13 +201,16 @@ private fun ProductNavigation(services: ProductServices, session: SessionSnapsho
                 }
             }
             composable("channel") {
-                val repository = services.channel
-                if (repository != null) {
-                    val model: ChannelDetailViewModel = viewModel { ChannelDetailViewModel(repository) }
-                    ProductPage("채널", scroll = false, showTopBar = false) { ChannelDetailScreen(model) { open("talks") } }
-                } else ProductPage("채널", scroll = false, tabHeader = true) {
-                    ScreenStatus("채널을 불러올 수 없어요", "잠시 후 다시 시도해 주세요.")
-                }
+                val graph = services.channel
+                if (graph != null) {
+                    androidx.compose.runtime.key(session.generation) {
+                        chat.rogi.rogichat.feature.channel.ChannelNavigation(
+                            graph = graph,
+                            onBack = { nav.popBackStack() },
+                            onTalk = { open("talks") },
+                        )
+                    }
+                } else ScreenStatus("채널을 불러올 수 없어요", "잠시 후 다시 시도해 주세요.")
             }
             composable("settings") {
                 val profileModel: ProfileViewModel? = if (privateAccount != null && services.profiles != null)

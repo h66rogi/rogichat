@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.ksp)
     alias(libs.plugins.room)
     alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
 }
 
@@ -144,6 +145,14 @@ dependencyLocking {
 room { schemaDirectory("$projectDir/src/androidTest/schemas") }
 
 dependencies {
+    implementation(libs.reorderable)
+    implementation(libs.colorpicker)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network)
+    implementation(libs.timber)
+    implementation(libs.ktor.content)
+    implementation(libs.ktor.json)
+    implementation(libs.compose.icons)
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)
     implementation(libs.socket.io) { exclude(group = "org.json", module = "json") }

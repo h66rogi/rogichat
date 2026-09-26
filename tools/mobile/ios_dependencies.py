@@ -40,13 +40,15 @@ STARSCREAM_PIN = {
     "location": "https://github.com/daltoniam/Starscream.git",
     "state": {"revision": "c6bfd1af48efcc9a9ad203665db12375ba6b145a", "version": "4.0.8"},
 }
+KINGFISHER_PIN = {'identity': 'kingfisher', 'kind': 'remoteSourceControl', 'location': 'https://github.com/onevcat/Kingfisher', 'state': {'revision': '2ef543ee21d63734e1c004ad6c870255e8716c50', 'version': '7.12.0'}}
 # Host persistence tests do not import networking SDKs. The app's independent
 # resolver must include the reviewed realtime SDK and its transitive dependency.
 EXPECTED_PINS_BY_PATH = {
     RESOLVED_PATHS[0]: [EXPECTED_PIN],
-    RESOLVED_PATHS[1]: [EXPECTED_PIN, SOCKET_IO_PIN, STARSCREAM_PIN],
+    RESOLVED_PATHS[1]: [EXPECTED_PIN, KINGFISHER_PIN, SOCKET_IO_PIN, STARSCREAM_PIN],
 }
 SDK_LICENSES = {
+    "Kingfisher-LICENSE.txt": "50d6d8aa941156dbce15f74a6ef897a621865c99dd4d5ad2a71b8b28e095bb1e",
     GRDB_LICENSE_PATH: GRDB_LICENSE_SHA256,
     "SocketIO-LICENSE.txt": "97a00016e4ceff85ecd788e7f2ef38c56e9eab5dcba8278fc4437ec1c083bd8b",
     "Starscream-LICENSE.txt": "638a31c6b649beefbf234ce78425c4f80142452ef514727b635dc2a9f873ef09",
@@ -54,6 +56,7 @@ SDK_LICENSES = {
 # These are the declarations in the pinned sources and actual device SDK app.
 # Socket.IO 16.1.1 does not ship its own privacy manifest.
 SDK_PRIVACY = {
+    "Kingfisher_Kingfisher.bundle/PrivacyInfo.xcprivacy": {'NSPrivacyAccessedAPITypes': [{'NSPrivacyAccessedAPIType': 'NSPrivacyAccessedAPICategoryFileTimestamp', 'NSPrivacyAccessedAPITypeReasons': ['C617.1']}], 'NSPrivacyTracking': False, 'NSPrivacyTrackingDomains': [], 'NSPrivacyCollectedDataTypes': []},
     GRDB_PRIVACY_PATH: GRDB_PRIVACY,
     "Starscream_Starscream.bundle/PrivacyInfo.xcprivacy": {
         "NSPrivacyTracking": False, "NSPrivacyTrackingDomains": [],

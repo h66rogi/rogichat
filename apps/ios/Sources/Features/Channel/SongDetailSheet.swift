@@ -1,7 +1,17 @@
 import SwiftUI
+import Kingfisher
 
 struct SongDetailSheet: View {
     let song: Song
+    let channelIdentifier: String
+    let permission: ChannelPermissionResponse?
+    var pricingSettings: PricingSettings?
+    var songRequestManager: SongRequestManager?
+    var onRequest: (() -> Void)?
+    var onLikeToggle: (() -> Void)?
+    var onEdit: (() -> Void)?
+    var onDelete: (() -> Void)?
+    var onSongUpdated: ((Song) -> Void)?
     var initialCopyToast: CopyToastModel?
 
     @Environment(\.dismiss) private var dismiss
@@ -9,7 +19,25 @@ struct SongDetailSheet: View {
     @State private var isExpanded = false
     @State private var copyToast: CopyToastModel?
 
-    private var canViewLyrics: Bool { false }
+    private var canViewLyrics: Bool {
+        guard let permission = permission else { return false }
+        return permission.isOwner || permission.manageContent || permission.manageSettings
+    }
+
+    private var canEdit: Bool {
+        guard let permission = permission else { return false }
+        return permission.manageContent || permission.isOwner
+    }
+
+    private var priceItems: [SongRequestPriceItem] {
+        let input = SongPriceInput(
+            price: song.price,
+            currencyPrices: song.currencyPrices,
+            difficulty: song.difficulty,
+            categories: song.categories
+        )
+        return SongPriceCalculator.getPriceItems(song: input, settings: pricingSettings)
+    }
 
     var body: some View {
         NavigationStack {
@@ -28,6 +56,11 @@ struct SongDetailSheet: View {
                         descriptionSection(description)
                     }
 
+                    // MARK: - Price
+                    if !priceItems.isEmpty {
+                        priceSectionView
+                    }
+
                     // MARK: - Music Info (Difficulty, Key, BPM)
                     musicInfoSection
 
@@ -36,6 +69,11 @@ struct SongDetailSheet: View {
 
                     // MARK: - Lyrics/Memo
                     lyricsSection
+
+                    // MARK: - Song Request
+                    if let manager = songRequestManager, manager.showRequestUI {
+                        requestSection(manager: manager)
+                    }
 
                     // MARK: - Like Section
                     likeSection
@@ -51,6 +89,25 @@ struct SongDetailSheet: View {
                     }
                 }
 
+                if canEdit {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Menu {
+                            Button {
+                                onEdit?()
+                            } label: {
+                                Label("수정", systemImage: "pencil")
+                            }
+
+                            Button(role: .destructive) {
+                                onDelete?()
+                            } label: {
+                                Label("삭제", systemImage: "trash")
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                    }
+                }
             }
             .overlay(alignment: .top) {
                 if let toast = copyToast {
@@ -80,9 +137,8 @@ struct SongDetailSheet: View {
     private var headerSection: some View {
         VStack(spacing: 16) {
             // Album Art
-            AsyncImage(url: song.albumArt.flatMap(ChannelImageURL.resolve)) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
+            KFImage(ChannelEnvironment.imageURL(song.albumArt ?? ""))
+                .placeholder {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.gray.opacity(0.2))
                         .overlay(
@@ -90,10 +146,12 @@ struct SongDetailSheet: View {
                                 .font(.system(size: 40))
                                 .foregroundColor(.gray)
                         )
-            }
-            .frame(width: 180, height: 180)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .shadow(radius: 4)
+                }
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 180, height: 180)
+                .cornerRadius(12)
+                .shadow(radius: 4)
 
             // Title
             Text(song.title)
@@ -146,6 +204,38 @@ struct SongDetailSheet: View {
                 .padding()
                 .background(Color(.systemGray6))
                 .cornerRadius(8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Price Section
+    private var priceSectionView: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("참고 가격")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            HStack(spacing: 8) {
+                ForEach(Array(priceItems.enumerated()), id: \.offset) { _, item in
+                    HStack(spacing: 4) {
+                        Image(systemName: "music.note")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                        if let price = item.price {
+                            Text("\(price) \(item.unit)")
+                                .font(.subheadline.weight(.medium))
+                        } else {
+                            Text("무료")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(Color.orange.opacity(0.1))
+                    .cornerRadius(8)
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -349,6 +439,42 @@ struct SongDetailSheet: View {
     }
 
     // MARK: - Request Section
+    private func requestSection(manager: SongRequestManager) -> some View {
+        let blocked = manager.isBlockedCategory(song: song)
+        let duplicate = manager.isDuplicateRequest(songId: song.id)
+        let canSubmit = manager.canRequest && !manager.isSubmitting && !blocked && !duplicate
+
+        return VStack(spacing: 12) {
+            Divider()
+
+            Button {
+                onRequest?()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "music.note.list")
+                    Text(requestButtonLabel(manager: manager, isBlockedCategory: blocked, isDuplicateRequest: duplicate))
+                        .fontWeight(.semibold)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(canSubmit ? Color.purple : Color.gray.opacity(0.3))
+                .foregroundColor(canSubmit ? .white : .secondary)
+                .cornerRadius(12)
+            }
+            .buttonStyle(.plain)
+            .disabled(!canSubmit)
+        }
+    }
+
+    private func requestButtonLabel(manager: SongRequestManager, isBlockedCategory: Bool = false, isDuplicateRequest: Bool = false) -> String {
+        if isBlockedCategory { return "신청 불가 카테고리" }
+        if isDuplicateRequest { return "이미 신청된 곡" }
+        if manager.isSubmitting { return "신청중..." }
+        if manager.isPaused { return "일시정지" }
+        if manager.isQueueFull { return "대기열이 가득 찼습니다" }
+        return "이 노래 신청하기"
+    }
+
     // MARK: - Like Section
     private var likeSection: some View {
         VStack(spacing: 12) {
@@ -364,6 +490,21 @@ struct SongDetailSheet: View {
                 }
 
                 Spacer()
+
+                Button {
+                    onLikeToggle?()
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: song.isLiked ? "heart.fill" : "heart")
+                        Text(song.isLiked ? "좋아요 취소" : "좋아요")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundColor(song.isLiked ? .white : .red)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(song.isLiked ? Color.red : Color.red.opacity(0.1))
+                    .cornerRadius(20)
+                }
             }
         }
     }

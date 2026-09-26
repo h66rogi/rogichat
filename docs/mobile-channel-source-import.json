@@ -1,0 +1,1094 @@
+{
+  "initial_imports": [
+    {
+      "source": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source_path": "Meloming/Presentation/Channel",
+      "destination": "apps/ios/Sources/Features/Channel",
+      "removed_previous_files": 22,
+      "copied_files": 32,
+      "byte_identical": true,
+      "files": {
+        "AddScheduleView.swift": "7e0b8167180c45ee246a4e22cb0cdc445f1ce7a50bd9bed16413476a703d77a7",
+        "AddScheduleViewModel.swift": "93b208283c3050672fcd1c402fe67e39259457d99c42e20ea3645ad9c139f5ba",
+        "AddSongView.swift": "a82bd545e8a184e36f31e1e08d21282638173e2b9f17c7bf0ca91df05582a556",
+        "AddSongViewModel.swift": "c90f3faea900ebc1d5c8c0036285662281a66160cf027d34fff60f983aa09b31",
+        "ChannelDetailView.swift": "36bd2506aebf23c40474289ab5f7103a970609d3685c126a180e152c7a0cbad9",
+        "ChannelDetailViewModel.swift": "a59e86a479edc9f28a9cf12adbc96f8233c1510346d8b50d29c22890680d944f",
+        "ChannelDirectoryView.swift": "77bbfa009dc2f4406815f1eb1e3826132c02a516d7a6d652a3f2f54994750687",
+        "ChannelHomeSectionView.swift": "ba434951215876683deda1df9cbb80423e8a55e1ee1d11f8af69db5ae1e26fa6",
+        "ChannelManagementView.swift": "305c6455ab1bb411d33ed04ebb42c2b76bbc8fcc3ac1e7d3c2d2baf82e79391c",
+        "ChannelManagementViewModel.swift": "4a2c77196661a97f61f37ad989d3e2a4a3f99c6bc030bd5ab76da30b6d767248",
+        "ChannelMembershipManagementView.swift": "2eb9fafa686a527dcbdda7c3ca3b7172dac60833801bb8ad860918a33075d3d5",
+        "ChannelMembershipSheet.swift": "4749f5dc94dd5ef0ea398ebc23dd4c9573e8cf88d6cf85d4df0ff2072011acaa",
+        "ChannelNativeHubViews.swift": "9cdc7960b732cfac6280e7fd0051a535728717521b9f3778bfa472862a0e4267",
+        "ChannelSettingsView.swift": "d6b4abe7353cfd8f8df7c3d2f786fb76cf7570bdc916c4c307b6e94b2bbf4987",
+        "ChannelSettingsViewModel.swift": "4eecf42e04af5698d7c95f6aa64efe1dc9da6d93ff1364605bf0a270f50141d1",
+        "ChannelTalkSectionView.swift": "faa64ff1acc098a4793f669fcb09def1e418aa766b6abe9bcb7dad1eb73b8f5c",
+        "ChannelTalkViewModel.swift": "4e3feff2424b7853aecd466f0cfb8452c97c86857c1772f5b8529c8c6ed37aad",
+        "ContentDetailView.swift": "9723d6915d88bbf386e7317daa5ffde7ac4e5d17639491cfe6a2c1fc85c4d222",
+        "ContentDetailViewModel.swift": "41c1ce023f894adf114a1f3a4785a1b9927ca3ec1d485b8c609cf01f7e2965e5",
+        "EditScheduleView.swift": "00740a060f8e4ae0130ae1a1e851d9e145b5fc0764a4fcfd30d39270ab8993d6",
+        "EditScheduleViewModel.swift": "6f65eb79c396387bbab9b4d75bb3c314a149d3160c9d30c6c92f37d7323613d9",
+        "EditSongView.swift": "1564a9d6d662b8b6e0a4a8be650610e940efac7c49ca0bec9e3335941448c67d",
+        "EditSongViewModel.swift": "bb942269ea1e32f5f251dd8fe9de6a2a20e1dbd0aa97064bc9bf699a96169173",
+        "GuestbookView.swift": "19bc8c2edd0813c75088d69faf2e88065b9873f4e346172e30325068ebe53461",
+        "GuestbookViewModel.swift": "c2828fb0799f2af52d24f3ac084a0eedde01d2641a89ee03500783438c74e075",
+        "ScheduleView.swift": "4c58eaa14451bacb31f324666da109b6b1ec56034c76c3e1d717c7911c340409",
+        "ScheduleViewModel.swift": "775c91f3c727a53426c6209109da2d1420bcc9efe1ca00e705755541240a2ea0",
+        "SongBookView.swift": "7b4fa3999bd8adcdb5cfdfa6fdfcd00cb1f82d711d26e86768db171d7a818bc3",
+        "SongBookViewModel.swift": "b9c9bc72976546f3cc423e2d3d9aaa6ec6475af08511a944119512988562d409",
+        "SongDetailSheet.swift": "9a9a755c18f590edc6c595099ab53d0346163cd105ea29b5c250546cdd0178a2",
+        "SongRequestManager.swift": "c87fa5719063ffcea08caa5266853e55e57d168d3b37961a6bc5af4d06599eb7",
+        "SongRequestQueueSheet.swift": "2f1c0d1ba3f5a46aeb82fe26452b388fafab4ec3fa9098d6af457a9bfa608024"
+      },
+      "stage": "initial byte-for-byte import, before adapting connections and excluding unsupported features"
+    },
+    {
+      "source": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source_path": "feature/channel/src/main/java/com/meloming/android/feature/channel",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel",
+      "removed_previous_files": 19,
+      "copied_files": 47,
+      "byte_identical": true,
+      "files": {
+        "AddScheduleScreen.kt": "44c87900e4c56d9789eb26b760df32931178e60484da0bb8b0cd2e33a213d5be",
+        "AddScheduleViewModel.kt": "cea333fd7a563a513e015a77372048d1656ed526c8160fa49e83ff6460f8b3ac",
+        "AddSongScreen.kt": "25c98612781a925890081b0ef308ec69cd1684db9f10ffe77c45e5f144ac39a4",
+        "AddSongViewModel.kt": "92a44f5e7b2c1766a9cc29bbf267b23a6c8f32aeb20c5e349647b48ab45b8a1f",
+        "AnongiftDeliveryGuarantee.kt": "370d16136cb73df1e92726d1619974466c484b5e668cd1bcbc37847d1ba6edc7",
+        "AnongiftOrderViewModel.kt": "bad9cfd5d446cbafb41c07193bb435a1875523111e072632324547cd770e9d56",
+        "CategoryManagementScreen.kt": "c606671008e1b20265deaeccbd08f793061fc2d8fcb44d8dadedb10a3ec91a4f",
+        "CategoryManagementViewModel.kt": "a791c7a9260633594b0e5edc6b12c75535aa43ce7979fbee80a3949f482203a4",
+        "ChannelDetailScreen.kt": "fabe433eba0a7be6c6fa7b021551fb5aa3dd6dd5ad5cea1164f1617e33e91d0c",
+        "ChannelDetailUiState.kt": "4e8d8160f423fce5c3a1c0c4e5921efb183455867892757b8e173b04bc741aa9",
+        "ChannelDetailViewModel.kt": "22b2bfa000f68ad17f37cf32255de17f56521589ee12e18d7ac9060455cbc9c3",
+        "ChannelMembershipBillingManager.kt": "50a27ef9c02d8f4ec5417d1ea450a2aeae6afba5cea4dacb01e592456136fbf3",
+        "ChannelMembershipManagementViewModel.kt": "d005836853dd7dd195f91bbf484eb3b20a2e57704428e6238e98bbf5ade0e1de",
+        "ChannelMembershipViewModel.kt": "c9c11597985f004f59860e3b33e8accf9745065f9109db5d22b7bbc5b988dfbe",
+        "ChannelNavigation.kt": "ec31d7f1944dbdc45b061a0bae179a1e3fa1cb545fe67797290702fd7af694a7",
+        "ChannelSettingsScreen.kt": "c35e50550aa812f3515c891570c1d8316241e4195733defd4e44fc72ed996660",
+        "ChannelSettingsViewModel.kt": "32a295d152ee9bd191dc08968256f14f279e863e4c05cb42f7cb5171bab12716",
+        "EditSongScreen.kt": "fbbccc967588652168314ab1c8cdf7b6fb442de14e36c7465861e2e589e70f09",
+        "EditSongViewModel.kt": "da06c9cdad2567d8dc1f2345bf44bee277c6bddd9d49afe59d4a337f7dcbca98",
+        "FanBatchGiftComposerScreen.kt": "a5414f5bb62056fb30a233b17f4de0f31a7e0872174830b23bc7aa7278ce546e",
+        "FanBatchGiftComposerViewModel.kt": "68d49f88430cb6d049cc3b24d411b2e6beb99d56703c3ebb540744577680784a",
+        "FanBatchModels.kt": "79a086b378d5589a8a3ae3c0d2821a62a483ef0639881c4f694cb95e1f087c02",
+        "FanGiftPickerViewModel.kt": "2db4c4cf4876d2a9eee608a516526cc6f5492016048a3e6f6e956fd74e2f4c80",
+        "GiftOrderDetailScreen.kt": "d0a29320ad09f008ec6823a0a61425e831b7b1556ee930172a95855f9ab4171d",
+        "GiftOrderDetailViewModel.kt": "ba3ef86a3b76a1c39372b0237fd688d014d8b153e3087472edb9954d4c3f225b",
+        "GiftOrderUi.kt": "c32afb27eed0287e81221d135c4e3554da6a3ffd47f85340e85298290d42bd4b",
+        "GiftOrdersScreen.kt": "e2bba156f075ae987168597c98379d208ade3eb7fac4a5c0d5f8f3996582e2fb",
+        "GiftOrdersViewModel.kt": "450c37d539b9a9a913f362c7903f600d97259bf209ba88209f6ce37b2f658dc8",
+        "GiftSettingsScreen.kt": "7ad7c7ac514c4aa26a8f193f2a9a5f8940b30df3a8f4b15d3c70be26f9a12f59",
+        "GiftSettingsViewModel.kt": "75285d1572b5c91f34c9019d90dbc8f57369e4291e8127ac94bf69c3927ebdf3",
+        "StoreGiftRequestsScreen.kt": "d98b9f1cf4ecbe28fffeb62ee844b946cef957bb9d67537c7530aad53c931b41",
+        "component/AnongiftOrderBottomSheet.kt": "779cab6d164438b0e3f81fee4dcc5ef8b95c8fb00039bb60e98c14dd8a213b96",
+        "component/AnongiftPaymentWebViewScreen.kt": "4ea838cc5f18c188314418cf16c4ac7762a1f293304e7f73c5cd0f947428ce68",
+        "component/ChannelMembershipBottomSheet.kt": "ba4831eab689a6204deceda4e457807ac039c2181b74048d515fed6913944fe0",
+        "component/ChannelMembershipManagementBottomSheet.kt": "c1e4d31c9bda65f480f393a861491509de2a3a9cd033a1704cf6d9a27fd8f78e",
+        "component/ChannelModernSections.kt": "840f2490fb6913b5734bd234d9188eeb0a410c40f98d8fc42bdce0aa1179e5e8",
+        "component/FanGiftPickerBottomSheet.kt": "366113a6b085fe4d6e18b2241cd64d207dd00b11f637b2039d230d6b85fef534",
+        "component/GiftTab.kt": "48a2018ccfa37568f2d73337e8e6e3489b767682fe5206c70f22f5dff16de149",
+        "component/GuestbookTab.kt": "10f9c189185c684b3bfba6e4bbbb0959c3e481235b708fcbd23dd9f1796a7de6",
+        "component/HomeTab.kt": "3373c7bf44aec66fed0d10e97f4dfa3577b2fc62ac8f3706f74c66dfca376e4b",
+        "component/HuyeorReplayTab.kt": "0c7ff49daa81af9d8411d0b728b589f7fdcc26d5c539be5e48f03ae5e052b12d",
+        "component/InfoTab.kt": "099f9d1abda514b87e13d7009b3c0f2ecbf8bd2fde8d6e3a31ba2c163917a713",
+        "component/ScheduleTab.kt": "d81fb45b33bc31050c0cbe41e549c2d2275e95008df043feba8af686ba975874",
+        "component/SongDetailBottomSheet.kt": "c43e25f7bd64a7d71ace7c571cc31b3984f07b49820ce3e4e07c4c04dd46c287",
+        "component/SongbookTab.kt": "2239a200259d3e28dcdd762056463c89cd6eb9f1e3f70e5363b173426400f08f",
+        "talk/ChannelTalkSection.kt": "bcbce739517b667fcf8cd63fc8b2848a3463a5e65497c4b270649a1016298360",
+        "talk/ChannelTalkViewModel.kt": "4e50dde7441734c2f67bea79f73caafdf5733a3a1df7add2e98e2624be276fab"
+      },
+      "stage": "initial byte-for-byte import, before adapting connections and excluding unsupported features"
+    }
+  ],
+  "retained_sources": [
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/AddScheduleView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/AddScheduleView.swift",
+      "source_sha256": "7e0b8167180c45ee246a4e22cb0cdc445f1ce7a50bd9bed16413476a703d77a7"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/AddScheduleViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/AddScheduleViewModel.swift",
+      "source_sha256": "93b208283c3050672fcd1c402fe67e39259457d99c42e20ea3645ad9c139f5ba"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/AddSongView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/AddSongView.swift",
+      "source_sha256": "a82bd545e8a184e36f31e1e08d21282638173e2b9f17c7bf0ca91df05582a556"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/AddSongViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/AddSongViewModel.swift",
+      "source_sha256": "c90f3faea900ebc1d5c8c0036285662281a66160cf027d34fff60f983aa09b31"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/Channel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Channel.swift",
+      "source_sha256": "43756f30a4f2f16416b2da1f98eea2151771dc4f48595c7337ccd4c5cf2cb8a1"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Core/Network/APIEndpoint.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelAPIEndpoint.swift",
+      "source_sha256": "0f348aa99a4fe9d9ed6fabbd422b564e6c8d2c5f5461eba123a773ae75ff1cea"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Common/Components/ChannelCard.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelColor.swift",
+      "source_sha256": "e8398d5df6895d1f21f49920da4ea870df93f0e142130ae4030a000689a1ebe8"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/HomeFeedItem.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelDateParsing.swift",
+      "source_sha256": "7f5682398591c54e002db848a132b6a5ad512e2f11eeeaaac44416a424a25a55"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ChannelDetailView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelDetailView.swift",
+      "source_sha256": "36bd2506aebf23c40474289ab5f7103a970609d3685c126a180e152c7a0cbad9"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ChannelDetailViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelDetailViewModel.swift",
+      "source_sha256": "a59e86a479edc9f28a9cf12adbc96f8233c1510346d8b50d29c22890680d944f"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/TalkV2/CoreV2TalkEmptyState.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelEmptyState.swift",
+      "source_sha256": "ee5db606dfdf637d329be0ae1b52d26d69044bb9c413dacf4f263c9ffa3fb636"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/ChannelFeatureSettings.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelFeatureSettings.swift",
+      "source_sha256": "3bfd787cccdf1e4c4722f4f8614c2b971c4346758f2769c560c2e6cef497d00b"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ChannelManagementView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelManagementView.swift",
+      "source_sha256": "305c6455ab1bb411d33ed04ebb42c2b76bbc8fcc3ac1e7d3c2d2baf82e79391c"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ChannelManagementViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelManagementViewModel.swift",
+      "source_sha256": "4a2c77196661a97f61f37ad989d3e2a4a3f99c6bc030bd5ab76da30b6d767248"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ChannelNativeHubViews.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelNativeHubViews.swift",
+      "source_sha256": "9cdc7960b732cfac6280e7fd0051a535728717521b9f3778bfa472862a0e4267"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Repositories/ChannelRepository.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelRepository.swift",
+      "source_sha256": "8b3433166b753df97f845576216408c75d1f423e9c0365c9c897bb6acceed09a"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/More/MoreView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelSafariView.swift",
+      "source_sha256": "6359895907bb344c1d52d3e906d032c2baba33f8d695ab2bb6fe32cc07fadae1"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ChannelSettingsView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelSettingsView.swift",
+      "source_sha256": "d6b4abe7353cfd8f8df7c3d2f786fb76cf7570bdc916c4c307b6e94b2bbf4987"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ChannelSettingsViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ChannelSettingsViewModel.swift",
+      "source_sha256": "4eecf42e04af5698d7c95f6aa64efe1dc9da6d93ff1364605bf0a270f50141d1"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Console/Components/HistoryTabView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/Components/HistoryTabView.swift",
+      "source_sha256": "4e55977cff525f5f3c7a02c128e0da158d421d6969889d17ef505086bf8d0117"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Console/Components/ManualAddSheet.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/Components/ManualAddSheet.swift",
+      "source_sha256": "0a3d819a1b5c6f12940a15bec1d00a4f69802f73784d81e34514378a1b0d8ab3"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Console/Components/NowPlayingCard.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/Components/NowPlayingCard.swift",
+      "source_sha256": "3dc6fac268893104eeff854c2959e4427e1adb93ddeda1f020729e6a7d76a5b0"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Console/Components/QueueItemRow.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/Components/QueueItemRow.swift",
+      "source_sha256": "1adb5b522cfda715a6484067c077f2f6b92e82d0b927c24a0da835524b3489b5"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Console/Components/QueueTabView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/Components/QueueTabView.swift",
+      "source_sha256": "43376ad39c49d5c6ee19cfedadf3127dd358c4414888dbe35ae3f7488f3ac586"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Console/Components/SettingsTabView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/Components/SettingsTabView.swift",
+      "source_sha256": "ec9f57f164ef446f2039fa3d2712e7c543a97aa2a3a1f3db3b59da2ccbdccb15"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Repositories/ConsoleRepository.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/ConsoleRepository.swift",
+      "source_sha256": "f95398769d7b5a2baf8dd0aba4109d1b62d47b22cc422f2937d4c11a41a92a47"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Console/ConsoleView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/ConsoleView.swift",
+      "source_sha256": "7c036092ab223935cd37c4e4972c71178b91d9c3981edaf1d9f2211879407904"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Console/ConsoleViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Console/ConsoleViewModel.swift",
+      "source_sha256": "bf9078e86b65acf2f3b3738807f819bf03e7010786fe575fd641c67bdc25d9ec"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/ConsoleSession.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ConsoleSession.swift",
+      "source_sha256": "fe2e6935e6eda6da820e7fcda97a39c699a85840640bde8cb4d0b6a06c13b9e0"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/ConsoleSongRequest.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ConsoleSongRequest.swift",
+      "source_sha256": "00f02bb2b300845f8ca4610f55dee82d1ef0dadb0c899d84d00d60e9c8b6415c"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Services/DonationFormatter.swift",
+      "destination": "apps/ios/Sources/Features/Channel/DonationFormatter.swift",
+      "source_sha256": "e467d4b6a714db4c6f46598e4ecc8c98d886d7de80cc37e8125d0dcb9d510a4b"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/EditScheduleView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/EditScheduleView.swift",
+      "source_sha256": "00740a060f8e4ae0130ae1a1e851d9e145b5fc0764a4fcfd30d39270ab8993d6"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/EditScheduleViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/EditScheduleViewModel.swift",
+      "source_sha256": "6f65eb79c396387bbab9b4d75bb3c314a149d3160c9d30c6c92f37d7323613d9"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/EditSongView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/EditSongView.swift",
+      "source_sha256": "1564a9d6d662b8b6e0a4a8be650610e940efac7c49ca0bec9e3335941448c67d"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/EditSongViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/EditSongViewModel.swift",
+      "source_sha256": "bb942269ea1e32f5f251dd8fe9de6a2a20e1dbd0aa97064bc9bf699a96169173"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Common/Components/ErrorView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ErrorView.swift",
+      "source_sha256": "d8b9d3454e1d03c01f1c90869fdeab5bdb8245862875c6703b28f3f073375494"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Common/Components/FlowLayout.swift",
+      "destination": "apps/ios/Sources/Features/Channel/FlowLayout.swift",
+      "source_sha256": "8fc35817b70b1edeb972d8f1892136a636a1fb39d05a01b19d34f8346d93f21f"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Common/Components/LoadingView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/LoadingView.swift",
+      "source_sha256": "bad81f104212882aa0a50bcbd6e84861373075665c8ead97555d8e8d61c07d5f"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/PricingSettings.swift",
+      "destination": "apps/ios/Sources/Features/Channel/PricingSettings.swift",
+      "source_sha256": "f586469e9198b5182e5af8978e16b5da16f4f83031fb8d6949926824f1e5eb67"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/Schedule.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Schedule.swift",
+      "source_sha256": "986b703ff3f36e9c7280290227ec007971461b9764ef42f3771acc8bb75a6720"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ScheduleView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ScheduleView.swift",
+      "source_sha256": "4c58eaa14451bacb31f324666da109b6b1ec56034c76c3e1d717c7911c340409"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/ScheduleViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/ScheduleViewModel.swift",
+      "source_sha256": "775c91f3c727a53426c6209109da2d1420bcc9efe1ca00e705755541240a2ea0"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/Song.swift",
+      "destination": "apps/ios/Sources/Features/Channel/Song.swift",
+      "source_sha256": "dc8b866cc157c05399e320afae00c796cd1469a30b5237fd4b80c7122ccf2e80"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/SongBookView.swift",
+      "destination": "apps/ios/Sources/Features/Channel/SongBookView.swift",
+      "source_sha256": "7b4fa3999bd8adcdb5cfdfa6fdfcd00cb1f82d711d26e86768db171d7a818bc3"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/SongBookViewModel.swift",
+      "destination": "apps/ios/Sources/Features/Channel/SongBookViewModel.swift",
+      "source_sha256": "b9c9bc72976546f3cc423e2d3d9aaa6ec6475af08511a944119512988562d409"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/SongDetailSheet.swift",
+      "destination": "apps/ios/Sources/Features/Channel/SongDetailSheet.swift",
+      "source_sha256": "9a9a755c18f590edc6c595099ab53d0346163cd105ea29b5c250546cdd0178a2"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Core/Network/SongLiveSocketManager.swift",
+      "destination": "apps/ios/Sources/Features/Channel/SongLiveSocketManager.swift",
+      "source_sha256": "a221a10b590aa37ff6faff69b3daf2fbfa4e9a2c4c0b4922c64c5cdc8118db9a"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Services/SongPriceCalculator.swift",
+      "destination": "apps/ios/Sources/Features/Channel/SongPriceCalculator.swift",
+      "source_sha256": "c39d2677a251333eee4a881899e96acc29155487d8de10df7e763fc1805776d5"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Domain/Models/SongRequest.swift",
+      "destination": "apps/ios/Sources/Features/Channel/SongRequest.swift",
+      "source_sha256": "9d6f15126b6b4c8ec384085c9b0de43f66dc8eb5efd6141e7e5fcf958fa31e62"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/SongRequestManager.swift",
+      "destination": "apps/ios/Sources/Features/Channel/SongRequestManager.swift",
+      "source_sha256": "c87fa5719063ffcea08caa5266853e55e57d168d3b37961a6bc5af4d06599eb7"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Presentation/Channel/SongRequestQueueSheet.swift",
+      "destination": "apps/ios/Sources/Features/Channel/SongRequestQueueSheet.swift",
+      "source_sha256": "2f1c0d1ba3f5a46aeb82fe26452b388fafab4ec3fa9098d6af457a9bfa608024"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/common/src/main/java/com/meloming/android/core/common/DonationFormatter.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/common/DonationFormatter.kt",
+      "source_sha256": "9bf703ef12064e5bbefb46cbe8c83ae7835065a1d50ab6a3d76934e66680f94b"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/common/src/main/java/com/meloming/android/core/common/util/DateUtils.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/common/util/DateUtils.kt",
+      "source_sha256": "fcbb22b7733929b680b6ffaf9be96587d4b6a239e79f44183991fa7f20bd214b"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/common/src/main/java/com/meloming/android/core/common/util/ExternalBrowserHandler.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/common/util/ExternalBrowserHandler.kt",
+      "source_sha256": "212a3d30de5214a076098c6b2a0160d26f5174d126860e217610babd461cb6e2"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/common/src/main/java/com/meloming/android/core/common/util/HtmlText.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/common/util/HtmlText.kt",
+      "source_sha256": "cc0fdf12eacaba4ee8143b8f9e00d6c9e6853349a775962afff3d6f1a9b8f136"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/CategoryRepositoryImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/CategoryRepositoryImpl.kt",
+      "source_sha256": "4bb6cd48025edc24f70d57253e930e63f339b29a767497af48cf5d3b03cee48e"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/ChannelRepositoryImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/ChannelRepositoryImpl.kt",
+      "source_sha256": "85c66791d9024025bf3097dd29dbe40fdef1346496d2cb3e2d1ca8449cccbb9a"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/ConsoleSongLiveSocketServiceImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/ConsoleSongLiveSocketServiceImpl.kt",
+      "source_sha256": "b0520ed3f0d258d4c98ecaa01a91121a492c4cd8b98e4af5d733dddf7491dbce"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/FavoriteRepositoryImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/FavoriteRepositoryImpl.kt",
+      "source_sha256": "27f519700406516739e598da1850a0efbcceb80038c49f643b50e333c37648d4"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/ScheduleRepositoryImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/ScheduleRepositoryImpl.kt",
+      "source_sha256": "371c1397ddd00e8fb3524f45da8d442c41689245ec9dbdf47249c879daa0c5c1"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/SessionRepositoryImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/SessionRepositoryImpl.kt",
+      "source_sha256": "f3a3c6987c697b9f1579da2a39997025a45b85a1a763c7e72dac234061078f1b"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/SongLiveSocketServiceImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/SongLiveSocketServiceImpl.kt",
+      "source_sha256": "ab5076cc29915d578dcbb05571135dd23609da4a08d7d5fb1c0955a0058f9b3a"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/SongPricingRepositoryImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/SongPricingRepositoryImpl.kt",
+      "source_sha256": "b19a9a758773376b05607dbeb0d1661f45eacb78329389aa5d31e34f2c420aa3"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/SongRepositoryImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/SongRepositoryImpl.kt",
+      "source_sha256": "d85969547faf485bb3b1f9fbd198ec9fa7a4d0fc4c655041513177d338e857e1"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/data/src/main/java/com/meloming/android/core/data/repository/SongRequestRepositoryImpl.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/data/repository/SongRequestRepositoryImpl.kt",
+      "source_sha256": "1066dbd80c393c769ee97f2547277cfade249d4cc594f6e5fd59ac4b5bffeb21"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/designsystem/src/main/java/com/meloming/android/core/designsystem/component/ChannelPlatformBadge.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/component/ChannelPlatformBadge.kt",
+      "source_sha256": "324befddda02240fb1eb6200a91aebe915a132278118ecd8dd8ce85f239309ca"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/designsystem/src/main/java/com/meloming/android/core/designsystem/component/LoadingIndicator.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/component/LoadingIndicator.kt",
+      "source_sha256": "c6e514ef289606b316d9a1a1c27fbebbf0c5a11282f886c226c4e092d16590a5"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/designsystem/src/main/java/com/meloming/android/core/designsystem/component/MelomingAsyncImage.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/component/MelomingAsyncImage.kt",
+      "source_sha256": "09242e594bd7c0ac497bd652ec489b77e386c21ad3e1f9a57e8c0e39f4357f1f"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/designsystem/src/main/java/com/meloming/android/core/designsystem/component/MelomingSearchBar.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/component/MelomingSearchBar.kt",
+      "source_sha256": "4432e6705fa9b1a0afcd61195ebb6bd566c40dfeeefc63f81cc38ec109ceb374"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/designsystem/src/main/java/com/meloming/android/core/designsystem/component/MelomingTopBar.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/component/MelomingTopBar.kt",
+      "source_sha256": "e65d7c010e81e797c368400977b50cba714182d13454aad25b4dd9d6d4dddc3f"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/designsystem/src/main/java/com/meloming/android/core/designsystem/component/ProBadge.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/component/ProBadge.kt",
+      "source_sha256": "ab567475450a5274c3009ccf66ea187790e6b7435f478220047fca9ecc874246"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/designsystem/src/main/java/com/meloming/android/core/designsystem/theme/Color.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/theme/Color.kt",
+      "source_sha256": "2878177e2d4a598d1c0fd59c85745aee1ef6304b05656b916630a1f6aa4a31ea"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "app/src/main/java/com/meloming/android/ui/theme/Theme.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/theme/Theme.kt",
+      "source_sha256": "2364e358063837d1ce7d48e2b9b958097498efdaaa197f5d692e5f59877cc677"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/designsystem/src/main/java/com/meloming/android/core/designsystem/theme/Typography.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/designsystem/theme/Typography.kt",
+      "source_sha256": "6cb1afc91f65d72b7ca15360c0b824dfc06c25c80ae29c1ba22afb429c6d4600"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/CategoryRepository.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/CategoryRepository.kt",
+      "source_sha256": "6d5fca750151597732cbaab9c17f2b08ed38206970653463c4bdaba7be01a764"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/ChannelRepository.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/ChannelRepository.kt",
+      "source_sha256": "d344f165349a6886e3690c413af8a634f610a88017060e92885b8e6457852cb0"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/ConsoleSongLiveSocketService.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/ConsoleSongLiveSocketService.kt",
+      "source_sha256": "930d6c6f6fd8a45d28502e0b9e351c94818469a495e041c00fd48f2dfefd322f"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/FavoriteRepository.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/FavoriteRepository.kt",
+      "source_sha256": "6395e90bb68d8463a4528e35857ae708ee0610ff0ef80e051536c19afefa600d"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/ScheduleRepository.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/ScheduleRepository.kt",
+      "source_sha256": "f6b3d25ee294b3ad70b026e81af3d41b281e000287281846bcdb0e99b125fe2c"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/SessionRepository.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/SessionRepository.kt",
+      "source_sha256": "1d81a01d03e15243330365b6ac237dc93b9f2a45b94179407c845398974b8391"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/SongLiveSocketService.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/SongLiveSocketService.kt",
+      "source_sha256": "ba7f31400d96f9d2271e3651bb8086231bb53a479c22e12db6a20a568773f251"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/SongPricingRepository.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/SongPricingRepository.kt",
+      "source_sha256": "6d3fd1dbc4304630791017cf77b420b846f5bd487172ede550d7ead5fdd3e7c8"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/SongRepository.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/SongRepository.kt",
+      "source_sha256": "02f8f5978f83660e80c87b33a9eb2f6d81582015ab1dabecf57a4c66cd0eaea8"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/repository/SongRequestRepository.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/SongRequestRepository.kt",
+      "source_sha256": "db054f127ef3cbb650c047e4883d004ada0c09167506146dbfa43dfbca9fa7c1"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/domain/src/main/java/com/meloming/android/core/domain/util/SongPriceCalculator.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/util/SongPriceCalculator.kt",
+      "source_sha256": "461aecc246f5ea2ba40ef9377d7fe01d845b65efb53f3b21374eeae5f6d7ec8c"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/channel/Channel.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/channel/Channel.kt",
+      "source_sha256": "79a9296255d22ab98170327b0a2542fb763c0c12514227cf83e001e8fd673a9a"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/channel/ChannelFeatureSettings.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/channel/ChannelFeatureSettings.kt",
+      "source_sha256": "71c6cd0baa150b145ee99b388eff0835dc8070969bf44584ada598f32f6a716a"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/channel/ChannelMembership.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/channel/ChannelMembership.kt",
+      "source_sha256": "ebe7a170447c0fb40b950bea103fcb094eabc081c49af48c2a0634dab2afdc7f"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/schedule/Schedule.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/schedule/Schedule.kt",
+      "source_sha256": "1f63dcc0d1d3fa40963787b435506a510e485a3e235f6a031e82084fe3a4f650"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/song/ConsoleSession.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/song/ConsoleSession.kt",
+      "source_sha256": "b93f70a281cdff4d4d6765350b105b6180ac3a805a7178e6b3e3333c830740c9"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/song/ConsoleSongRequest.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/song/ConsoleSongRequest.kt",
+      "source_sha256": "5f196e98e903c89d25bbac197a2468d235e60eedeb1b8892db920a55843dba5c"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/song/PricingSettings.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/song/PricingSettings.kt",
+      "source_sha256": "e78adb64bfed36c8601cb190782da67495219a70ae14518c496654802fd97d7e"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/song/SessionSettings.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/song/SessionSettings.kt",
+      "source_sha256": "429f85c3ac021143a30652cc87f7450a87dc5cde184ba7ac11622040a515fe92"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/song/Song.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/song/Song.kt",
+      "source_sha256": "446e375c60fc6cbcc9ba40e00be57c0034d3d8ba415f312e8abda855750c0d79"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/song/SongRequest.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/song/SongRequest.kt",
+      "source_sha256": "4b154101024693aca3b058ebc360fcc649ee6b8a31d860a1ad2ecbd0f51ece4d"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/model/src/main/java/com/meloming/android/core/model/upload/UploadResponse.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/model/upload/UploadResponse.kt",
+      "source_sha256": "ed18fb04ae24e13ded3f1d24f2fea2e7e9b69191f0715143c2ee0f6cdfb0f1a9"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/CategoryApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/CategoryApi.kt",
+      "source_sha256": "e6b0b2b7a241a1b255c569344f12fdf68c9470a1ee832ea6ddd736bf4d2c0826"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/ChannelApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/ChannelApi.kt",
+      "source_sha256": "71dd9ced456ecbb7d4cfec7f53d8af389a03e4e846c8827075ce5b3e95bd4d81"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/FavoritesApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/FavoritesApi.kt",
+      "source_sha256": "ffbde5d246f77519559ea0b230d36448b8c811bf143b911e92458f39965d6a9c"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/ScheduleApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/ScheduleApi.kt",
+      "source_sha256": "c9b9281e930b88dce4c38284d10f40dcf87d192c205062cc8b2db7e371890617"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/SessionApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/SessionApi.kt",
+      "source_sha256": "638d405c592f2cdd61becb6bca7896d4a2a25fecd1ff6c02cc595328569ac547"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/SongApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/SongApi.kt",
+      "source_sha256": "afbf26cb53eb9bcbb4a6a7e1dbc96fce17068b7edee9d83a6f7284e372eddf61"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/SongPricingApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/SongPricingApi.kt",
+      "source_sha256": "15bd1a0c7b0b5f9c9afe85cf2284374049f4bec4c5ad4665b54a04a9d6b4dd82"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/SongRequestApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/SongRequestApi.kt",
+      "source_sha256": "a95c9d91d4dfbda5595eaae3538c5afeb907480b04f9ee50550faa78d20a01a5"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/api/UploadApi.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/UploadApi.kt",
+      "source_sha256": "e7546e842c840bbbc80df1198494411928c79cc0131162844487b487ed5d4792"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/dto/CreateScheduleRequest.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/dto/CreateScheduleRequest.kt",
+      "source_sha256": "46940a525d4c640c27d898c72833cb5bd8be70c65011809a6897d1bf3289441b"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/dto/PaginationResponse.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/dto/PaginationResponse.kt",
+      "source_sha256": "ccb7195ffae6e29e6ba5f9c42638517d38c15931e2bcfa966b349747bc4d6b49"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/dto/UpdateScheduleRequest.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/dto/UpdateScheduleRequest.kt",
+      "source_sha256": "229f39c664ad78f18de70599d70958522c2d7026c82050f09aa316139c01ebe9"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/socket/SongLiveSocketManager.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/socket/SongLiveSocketManager.kt",
+      "source_sha256": "ac759ef946de103c515061ce5b4b8be33ee0c7ca58d3f225cafde1f30cf1b71b"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "core/network/src/main/java/com/meloming/android/core/network/socket/SongLiveSocketManagerFactory.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/socket/SongLiveSocketManagerFactory.kt",
+      "source_sha256": "f61b4e1a6bc292bdd9039fa184e25f79a1adfec2e7a498f259c26bda5598c881"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/AddScheduleScreen.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/AddScheduleScreen.kt",
+      "source_sha256": "44c87900e4c56d9789eb26b760df32931178e60484da0bb8b0cd2e33a213d5be"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/AddScheduleViewModel.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/AddScheduleViewModel.kt",
+      "source_sha256": "cea333fd7a563a513e015a77372048d1656ed526c8160fa49e83ff6460f8b3ac"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/AddSongScreen.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/AddSongScreen.kt",
+      "source_sha256": "25c98612781a925890081b0ef308ec69cd1684db9f10ffe77c45e5f144ac39a4"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/AddSongViewModel.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/AddSongViewModel.kt",
+      "source_sha256": "92a44f5e7b2c1766a9cc29bbf267b23a6c8f32aeb20c5e349647b48ab45b8a1f"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/CategoryManagementScreen.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/CategoryManagementScreen.kt",
+      "source_sha256": "c606671008e1b20265deaeccbd08f793061fc2d8fcb44d8dadedb10a3ec91a4f"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/CategoryManagementViewModel.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/CategoryManagementViewModel.kt",
+      "source_sha256": "a791c7a9260633594b0e5edc6b12c75535aa43ce7979fbee80a3949f482203a4"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/ChannelDetailScreen.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelDetailScreen.kt",
+      "source_sha256": "fabe433eba0a7be6c6fa7b021551fb5aa3dd6dd5ad5cea1164f1617e33e91d0c"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/ChannelDetailUiState.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelDetailUiState.kt",
+      "source_sha256": "4e8d8160f423fce5c3a1c0c4e5921efb183455867892757b8e173b04bc741aa9"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/ChannelDetailViewModel.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelDetailViewModel.kt",
+      "source_sha256": "22b2bfa000f68ad17f37cf32255de17f56521589ee12e18d7ac9060455cbc9c3"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/ChannelSettingsScreen.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelSettingsScreen.kt",
+      "source_sha256": "c35e50550aa812f3515c891570c1d8316241e4195733defd4e44fc72ed996660"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/ChannelSettingsViewModel.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelSettingsViewModel.kt",
+      "source_sha256": "32a295d152ee9bd191dc08968256f14f279e863e4c05cb42f7cb5171bab12716"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/EditSongScreen.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/EditSongScreen.kt",
+      "source_sha256": "fbbccc967588652168314ab1c8cdf7b6fb442de14e36c7465861e2e589e70f09"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/EditSongViewModel.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/EditSongViewModel.kt",
+      "source_sha256": "da06c9cdad2567d8dc1f2345bf44bee277c6bddd9d49afe59d4a337f7dcbca98"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/FanBatchModels.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/FanBatchModels.kt",
+      "source_sha256": "79a086b378d5589a8a3ae3c0d2821a62a483ef0639881c4f694cb95e1f087c02"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/component/ChannelModernSections.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/ChannelModernSections.kt",
+      "source_sha256": "840f2490fb6913b5734bd234d9188eeb0a410c40f98d8fc42bdce0aa1179e5e8"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/component/InfoTab.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/InfoTab.kt",
+      "source_sha256": "099f9d1abda514b87e13d7009b3c0f2ecbf8bd2fde8d6e3a31ba2c163917a713"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/component/ScheduleTab.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/ScheduleTab.kt",
+      "source_sha256": "d81fb45b33bc31050c0cbe41e549c2d2275e95008df043feba8af686ba975874"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/component/SongDetailBottomSheet.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/SongDetailBottomSheet.kt",
+      "source_sha256": "c43e25f7bd64a7d71ace7c571cc31b3984f07b49820ce3e4e07c4c04dd46c287"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/channel/src/main/java/com/meloming/android/feature/channel/component/SongbookTab.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/component/SongbookTab.kt",
+      "source_sha256": "2239a200259d3e28dcdd762056463c89cd6eb9f1e3f70e5363b173426400f08f"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/ConsoleScreen.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/ConsoleScreen.kt",
+      "source_sha256": "eaf1894ffc5176cb2620750964f3fa8f8a858b0a0850d6f2bde85aaa1ba3b875"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/ConsoleUiState.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/ConsoleUiState.kt",
+      "source_sha256": "9b08cde3121a75ebc4635cba3c8d8e08dbc27da70e5c170ef73001350f501184"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/ConsoleViewModel.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/ConsoleViewModel.kt",
+      "source_sha256": "45504e3a2d7dd18c9edf57aafc5fae3e0d2fd662d2da003ab8a294dea48b3585"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/component/HistoryTab.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/component/HistoryTab.kt",
+      "source_sha256": "bd2f85ac00c167b6979862b21c9ff24e94e0d1036dc9e0a05ca7313046f6895a"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/component/ManualAddSheet.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/component/ManualAddSheet.kt",
+      "source_sha256": "e897610f073afb9428bb6df382f55be280bdb61c5613a689e70bf2118bcc216d"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/component/NowPlayingCard.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/component/NowPlayingCard.kt",
+      "source_sha256": "fbbc3e73f8f34c08d39351ea32a119c747c26898f23ab4919bc2addcf76cf637"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/component/QueueItemRow.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/component/QueueItemRow.kt",
+      "source_sha256": "316f4e7bbe29b8cf75003fc0b5d49ce222a1f3669a8d0976e7f00804b9c1a4e7"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/component/QueueTab.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/component/QueueTab.kt",
+      "source_sha256": "25dedfb42fcfcdb199e2ae92c3238e2eecc47513c3736047fc31422de47ab645"
+    },
+    {
+      "repository": "meloming-android",
+      "commit": "ecb3dbedb1dde5364bd617f072bc1ac4091b1a17",
+      "source": "feature/console/src/main/java/com/meloming/android/feature/console/component/SettingsTab.kt",
+      "destination": "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/console/component/SettingsTab.kt",
+      "source_sha256": "d66bea59ad80c6f9be57c217abdc2a6b6630e65b10d644c1494ba2c3aaac6719"
+    },
+    {
+      "repository": "meloming-ios",
+      "commit": "18a33bbf96fe52b28d0de361916e20549bdcce6b",
+      "source": "Meloming/Resources/Assets.xcassets/AccentColor.colorset/Contents.json",
+      "destination": "apps/ios/Resources/Assets.xcassets/ChannelAccentColor.colorset/Contents.json",
+      "source_sha256": "51af2a2d9be9c75dd585e803124d261bded75f3409efda4077854a68090123f7"
+    }
+  ],
+  "new_files": [
+    "apps/ios/Sources/Features/Channel/ChannelAPIClient.swift",
+    "apps/ios/Sources/Features/Channel/ChannelSetlistView.swift",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/ChannelGraph.kt",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/ChannelSetlistRepository.kt",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/domain/repository/ChannelSession.kt",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/ApiClient.kt",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/channelport/core/network/api/ChannelWriteBodies.kt",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelEnvironment.kt",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelNavigation.kt",
+    "apps/android/app/src/main/java/chat/rogi/rogichat/feature/channel/ChannelSetlistSection.kt"
+  ]
+}

@@ -1,6 +1,5 @@
 import SwiftUI
 
-// Copied from meloming-ios 18a33bb ChannelCard.swift.
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
