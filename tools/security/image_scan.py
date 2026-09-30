@@ -41,7 +41,7 @@ regex = '(?m)(?:ssh-(?:rsa|ed25519|dss)(?:-cert-v01@openssh\\.com)?|ecdsa-sha2-n
 [[rules]]
 id = "rogichat-github-installation-token"
 description = "GitHub installation tokens including variable-length formats"
-regex = '\\bghs_[A-Za-z0-9._-]{36,}'
+regex = 'ghs_[A-Za-z0-9._-]{36,}'
 keywords = ["ghs_"]
 
 '''
