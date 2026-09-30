@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import urllib.request
 import android_firebase
+import firebase_auth
 
 from release_common import APP_ID, API_URL, ROOT, capture, cli_environment, external, manifest, new_output, private_write, required, run, save_manifest, sha256
 from product_guards import inspect_android_package, inspect_product_sources
@@ -95,18 +96,19 @@ def build(cfg, number, version):
     print("Signed QA APK and AAB verified. Manifest:", path)
 
 
-def firebase_json(arguments, directory):
+def firebase_json(arguments, directory, cfg):
     directory = external(directory)
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-    result = subprocess.run(["firebase", *arguments, "--json", "--non-interactive"],
-                            cwd=directory, env=cli_environment(), capture_output=True, text=True)
+    with firebase_auth.environment(cfg, directory) as env:
+        result = subprocess.run(["firebase", *arguments, "--json", "--non-interactive"],
+                                cwd=directory, env=env, capture_output=True, text=True)
     log = directory / ("firebase-" + arguments[0].replace(":", "-") + ".log")
     private_write(log, result.stdout + "\n" + result.stderr)
     if result.returncode:
         raise RuntimeError(f"Firebase request failed; inspect private log: {log}")
     value = json.loads(result.stdout)
     if value.get("status") != "success":
-        raise RuntimeError("Firebase request failed; check local login and project permissions")
+        raise RuntimeError("Firebase request failed; check service account and project permissions")
     # CLI 15's appdistribution:distribute returns {"status":"success"} without result.
     return value.get("result", value)
 
@@ -124,13 +126,13 @@ def upload(cfg, manifest_path, notes_file):
     firebase = cfg["firebase"]
     required(firebase, "project_id", "app_id")
     directory = external(manifest_path).parent
-    apps = firebase_json(["apps:list", "ANDROID", "--project", firebase["project_id"]], directory)
+    apps = firebase_json(["apps:list", "ANDROID", "--project", firebase["project_id"]], directory, cfg)
     matches = [app for app in apps if app["appId"] == firebase["app_id"] and app.get("packageName") == APP_ID]
     if len(matches) != 1:
         raise ValueError("Firebase target is not the Rogichat QA Android app")
     verify_apk(apk, value["build_number"], value["version"])
     # No --testers/--groups: uploading does not send tester invitations or distribute a release.
     receipt = firebase_json(["appdistribution:distribute", str(apk), "--project", firebase["project_id"],
-                             "--app", firebase["app_id"], "--release-notes-file", str(external(notes_file))], directory)
+                             "--app", firebase["app_id"], "--release-notes-file", str(external(notes_file))], directory, cfg)
     private_write(directory / "firebase-receipt.json", json.dumps(receipt, indent=2) + "\n")
     print("Firebase upload completed; private receipt saved. Run android-finalize to verify the release and distribute to the approved testers.")

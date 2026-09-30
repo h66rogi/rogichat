@@ -22,10 +22,15 @@ python3 tools/mobile/qa_release.py --config "$ROGICHAT_QA_CONFIG" android-finali
   --testers-file "$ROGICHAT_QA_TESTERS_FILE"
 ```
 
-Firebase CLI의 현재 로컬 로그인과 설치 경로를 사용한다. 고정된 사용자 홈이나 전역
-Node 모듈 경로를 요구하지 않는다. CLI 인증 adapter가 지원되지 않거나 만료되면 실패하며,
-기존 `firebase login --reauth --no-localhost` 절차로 운영자가 인증을 복구한다.
-토큰은 캡처된 자식 프로세스 출력으로만 전달하고 로그·영수증에 저장하지 않는다.
+Firebase는 외부 설정의 `firebase.credentials_file`에 지정한 전용 서비스 계정으로 인증한다.
+개인 `firebase login` 세션이나 `FIREBASE_TOKEN`을 사용하지 않는다. 파일은 설정된 프로젝트와
+일치하는 서비스 계정 JSON이며, 모든 Git 밖에 운영자 소유·mode 600으로 보관한다.
+CLI의 저장된 사용자 인증이 ADC보다 우선하는 것을 방지하기 위해 매 명령에 빈 임시
+설정 디렉터리를 사용한다. 기존 사용자 로그인 파일을 삭제하거나 수정하지 않는다.
+REST 검증은 설치된 CLI의 `google-auth-library`를 사용해 같은 서비스 계정의 단기 access
+토큰을 자동 발급하고 만료 2분 전에 갱신한다. 토큰은 캡처된 자식 프로세스 출력으로만
+전달하며 로그·영수증에 저장하지 않는다. 잘못된 키·프로젝트·권한은 개인 인증으로 대체하지
+않고 실패한다. 서비스 계정 발급 및 역할 설정은 [배포 설정](mobile-test-distribution.md)을 따른다.
 
 iOS 외부 설정의 `ios.testflight_group_id`에 **기존에 승인된 내부 그룹의 정확한 ID**를
 지정하고, 한국어 테스트 내용을 외부 파일에 저장한다. 그룹 ID·테스터 정보는 Git에 넣지 않는다.
