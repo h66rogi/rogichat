@@ -98,7 +98,7 @@ user/actor, permanent role, arbitrary expiry or owner field in the request.
 Compiled entrypoint: `dist/modules/admin/admin-bootstrap.command.js`.
 It is a separate one-shot Nest graph, never an HTTP route or startup fixture.
 It uses the existing `DATABASE_SECRET_FILE`, strict TLS/`DB_CA_FILE` and
-`AUTH_CONFIG_FILE`; set `APP_ENV` to the actual `qa` or `production`,
+`AUTH_SECRET_FILE`; set `APP_ENV` to the actual `qa` or `production`,
 `NODE_ENV=production`, and a single DB connection for the operation. No new
 permanent API/worker secret mount or runtime flag is needed.
 

@@ -226,3 +226,49 @@ sampled API/worker/broker RSS high-water marks. Cache commit is not UI rendering
 disk is not R2, and RSS samples exclude short-lived native decoder children.
 The lane's implementation is present; its observed result must be attached before
 claiming that this MVP acceptance criterion passed.
+
+### Observed schema26 thirty-minute soak, run 35537369172
+
+[Hosted run 35537369172](https://github.com/h66rogi/rogichat/actions/runs/35537369172)
+passed at 2026-09-20 21:33:40 UTC. PR head was
+`b7b599f48068e5c7ed92e9772db364406757d27d`; the actual tested PR merge was
+`01400e731bcb85c3538bb2301d704c097d6bec1a`. A complete tree comparison with
+the deployed schema26 source `a63bbdae583dcd84c42b07872b1c374c84bd6b01`
+showed only a documentation change: API runtime, tests, dependency lock and
+soak workflow were identical. Build/lint passed and the full soak test passed
+with zero failures/skips; no shorter mode or relaxed threshold was used.
+
+[Durable sanitized scalar evidence](evidence/m12/2026-09-20-run-35537369172.json)
+retains source, timestamps, artifact digest and the measurements. The original
+artifact `m12-soak-evidence-35537369172-1` includes the complete test log and
+worker frames; synthetic asset identifiers are omitted from the durable summary.
+
+| Measurement | Observed result |
+| --- | --- |
+| Timed workload | 21:03:35.554–21:33:36.332 UTC; 1,800.769 seconds |
+| Connected clients / committed commands / unique projections | 10 / 1,800 / 18,000; every final message set matched |
+| ACK p50 / p95 / p99 / max | 39.52 / 75.13 / 99.38 / 1,287.13 ms; 1,800 samples |
+| Send-to-reference-cache p50 / p95 / p99 / max | 293.64 / 433.57 / 479.33 / 6,065.41 ms; 18,000 samples |
+| Video-overlap ACK p95 / max | 75.83 / 295.39 ms; 100 samples |
+| Video-overlap cache p95 / p99 / max | 583.48 / 4,258.71 / 6,065.41 ms; 1,048 samples |
+| API SIGKILL and automatic client recovery | All ten recovered; maximum 3,850.99 ms |
+| Native video completion | Seven videos (one preflight plus six timed jobs), each canonical video/poster validated |
+| Worker SIGKILL → first subsequent completion | 313,267.58 ms, with the genuine five-minute lease unchanged |
+| Injected-restart transport errors / unexpected errors | 7 / 0 |
+| Sampled process high-water RSS: API / worker / decoder broker | 557,880 / 222,620 / 74,228 KiB |
+
+ACK p95, cache p95 and every-client recovery passed the unchanged 500 ms,
+1,000 ms and 20,000 ms gates. Maximum latencies are **not** below those p95
+targets and remain visible above; injected failure errors are not described as
+zero errors. The worker's 313-second metric ends at the first post-crash
+completion of **another queued video**, not at the killed video's completion
+or lease reclamation. Separate frames confirm that the killed video was retried
+at generation two and completed; all seven outputs passed native codec checks.
+
+This is the isolated low-cost MVP topology, not 1,000-user or cross-host capacity
+certification. Cache commit is not browser render time, private disk is not R2,
+and process RSS samples exclude short-lived native children and do not establish
+a production memory budget or absence of leaks. Live profile/login/room and
+administrator/reviewer results are recorded separately in
+[backend live acceptance](backend-live-acceptance.md). Actual R2, push-provider,
+Aurora restore and deletion/backup evidence remain independent launch gates.
