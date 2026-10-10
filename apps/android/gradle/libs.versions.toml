@@ -1,6 +1,6 @@
 [versions]
 json-test = "20260814"
-firebase-bom = "34.19.0"
+firebase-bom = "35.0.0"
 socket-io = "2.1.2"
 room = "2.8.5"
 ksp = "2.3.12"
