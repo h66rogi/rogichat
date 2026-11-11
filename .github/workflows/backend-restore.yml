@@ -28,12 +28,12 @@ jobs:
           --health-cmd="mysqladmin ping --host=127.0.0.1 --silent"
           --health-interval=5s --health-timeout=3s --health-retries=30
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           path: harness
           fetch-depth: 0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           ref: 7b559b645ef2b71fc5492d79895142745d0d6ead
